@@ -54,19 +54,22 @@ class FalkorDBStore:
         loop = asyncio.get_running_loop()
 
         for label in NodeLabel:
-            await loop.run_in_executor(
-                None,
-                lambda lbl=label: self._graph.query(  # type: ignore[union-attr]
-                    f"CREATE INDEX IF NOT EXISTS FOR (n:{lbl}) ON (n.uid)"
-                ),
-            )
+            try:
+                await loop.run_in_executor(
+                    None,
+                    lambda lbl=label: self._graph.query(  # type: ignore[union-attr]
+                        f"CREATE INDEX FOR (n:{lbl}) ON (n.uid)"
+                    ),
+                )
+            except Exception:
+                pass
 
         for idx_cfg in VECTOR_INDEX_CONFIGS:
             try:
                 await loop.run_in_executor(
                     None,
                     lambda cfg=idx_cfg: self._graph.query(  # type: ignore[union-attr]
-                        f"CREATE VECTOR INDEX IF NOT EXISTS FOR (n:{cfg['label']}) "
+                        f"CREATE VECTOR INDEX FOR (n:{cfg['label']}) "
                         f"ON (n.{cfg['attribute']}) "
                         f"OPTIONS {{dimension:{self._embedding_dim}, "
                         f"similarityFunction:'{cfg['similarity']}'}}"

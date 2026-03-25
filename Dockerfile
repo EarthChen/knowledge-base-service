@@ -8,12 +8,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-COPY pyproject.toml .
+COPY . .
 RUN uv pip install --system --no-cache .
 
-COPY . .
+RUN python -c "\
+from tree_sitter_language_pack import get_parser; \
+[get_parser(l) for l in ['python','java','go','javascript','typescript']]"
 
-RUN groupadd -r kbuser && useradd -r -g kbuser -m -d /home/kbuser kbuser
+RUN groupadd -r kbuser && useradd -r -g kbuser -m -d /home/kbuser kbuser && \
+    chown -R kbuser:kbuser /app && \
+    chmod -R a+rwX /usr/local/lib/python3.12/site-packages/tree_sitter_language_pack/ && \
+    mkdir -p /home/kbuser/.cache && chown -R kbuser:kbuser /home/kbuser/.cache
+
 USER kbuser
 
 ENV EMBEDDING__DEVICE=cpu

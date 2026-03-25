@@ -9,7 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 COPY . .
-RUN uv pip install --system --no-cache .
+
+RUN uv pip install --system --no-cache \
+    torch --index-url https://download.pytorch.org/whl/cpu && \
+    uv pip install --system --no-cache .
 
 RUN python -c "\
 from tree_sitter_language_pack import get_parser; \

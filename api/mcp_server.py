@@ -210,7 +210,11 @@ class KnowledgeBaseMCPHandler:
 
         if query_type == "call_chain":
             result = await self._graph.find_call_chain(name, depth=depth, direction=direction)
-            return {"type": "call_chain", "function": name, "direction": direction, "results": result.data}
+            edges = result.params.get("_edges", [])
+            return {
+                "type": "call_chain", "function": name, "direction": direction,
+                "results": result.data, "edges": edges,
+            }
 
         elif query_type == "inheritance_tree":
             result = await self._graph.find_inheritance_tree(name, direction=direction)

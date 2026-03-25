@@ -280,6 +280,7 @@ function GraphQueryResult({
           rootName={name || String(data.function ?? data.class ?? data.module ?? "")}
           results={results}
           direction={direction}
+          edges={(data.edges ?? []) as Array<{ source: string; target: string }>}
         />
       ) : (
         <JsonView data={data} />

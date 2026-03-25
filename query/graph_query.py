@@ -67,32 +67,62 @@ class GraphQueryService:
         """Find the call chain starting from a function.
 
         Accepts simple name (``loginV2``) or FQN (``com.foo.Bar#loginV2``).
+        Returns nodes and edges for multi-level visualization.
         """
         simple, fqn = _parse_input(function_name)
         match_val = fqn if fqn else simple
 
         if direction == "upstream":
             query = (
-                f"MATCH (f:Function) WHERE (f.fqn = $name OR f.name = $name) "
-                f"WITH f "
-                f"MATCH (caller:Function)-[:CALLS*1..{depth}]->(f) "
-                "RETURN caller.name AS caller, caller.file AS file, caller.start_line AS line "
-                "ORDER BY caller.name"
+                "MATCH (f:Function) WHERE (f.fqn = $name OR f.name = $name) "
+                "WITH f "
+                f"MATCH path = (caller:Function)-[:CALLS*1..{depth}]->(f) "
+                "UNWIND relationships(path) AS rel "
+                "WITH startNode(rel) AS src, endNode(rel) AS tgt "
+                "RETURN DISTINCT src.name AS src_name, src.file AS src_file, src.start_line AS src_line, "
+                "tgt.name AS tgt_name, tgt.file AS tgt_file, tgt.start_line AS tgt_line"
             )
         else:
             query = (
-                f"MATCH (f:Function) WHERE (f.fqn = $name OR f.name = $name) "
-                f"WITH f "
-                f"MATCH (f)-[:CALLS*1..{depth}]->(callee:Function) "
-                "RETURN callee.name AS callee, callee.file AS file, callee.start_line AS line "
-                "ORDER BY callee.name"
+                "MATCH (f:Function) WHERE (f.fqn = $name OR f.name = $name) "
+                "WITH f "
+                f"MATCH path = (f)-[:CALLS*1..{depth}]->(callee:Function) "
+                "UNWIND relationships(path) AS rel "
+                "WITH startNode(rel) AS src, endNode(rel) AS tgt "
+                "RETURN DISTINCT src.name AS src_name, src.file AS src_file, src.start_line AS src_line, "
+                "tgt.name AS tgt_name, tgt.file AS tgt_file, tgt.start_line AS tgt_line"
             )
 
         params = {"name": match_val}
         rows = await self._store.execute_query(query, params)
 
-        data = [{"name": r[0], "file": r[1], "line": r[2]} for r in rows]
-        return QueryResult(data=data, query=query, params=params)
+        nodes_map: dict[str, dict[str, Any]] = {}
+        edges: list[dict[str, str]] = []
+
+        for r in rows.data:
+            src_key = f"{r.get('src_name', '')}:{r.get('src_line', 0)}"
+            tgt_key = f"{r.get('tgt_name', '')}:{r.get('tgt_line', 0)}"
+            if src_key not in nodes_map:
+                nodes_map[src_key] = {
+                    "name": r.get("src_name", ""),
+                    "file": r.get("src_file", ""),
+                    "line": r.get("src_line", 0),
+                }
+            if tgt_key not in nodes_map:
+                nodes_map[tgt_key] = {
+                    "name": r.get("tgt_name", ""),
+                    "file": r.get("tgt_file", ""),
+                    "line": r.get("tgt_line", 0),
+                }
+            edge_key = f"{src_key}->{tgt_key}"
+            edges.append({"source": src_key, "target": tgt_key})
+
+        data = list(nodes_map.values())
+        return QueryResult(
+            data=data,
+            query=query,
+            params={**params, "_edges": edges},
+        )
 
     async def find_inheritance_tree(self, class_name: str, direction: str = "children") -> QueryResult:
         """Find inheritance hierarchy for a class.

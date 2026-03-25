@@ -12,8 +12,8 @@ import {
 import dagre from "@dagrejs/dagre";
 import "@xyflow/react/dist/style.css";
 
-const NODE_W = 220;
-const NODE_H = 50;
+const NODE_W = 180;
+const NODE_H = 44;
 
 const TYPE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
   Function: { bg: "#064e3b", border: "#10b981", text: "#6ee7b7" },
@@ -35,11 +35,17 @@ interface ResultItem {
   [key: string]: unknown;
 }
 
+interface EdgeItem {
+  source: string;
+  target: string;
+}
+
 interface Props {
   queryType: string;
   rootName: string;
   results: ResultItem[];
   direction?: string;
+  edges?: EdgeItem[];
 }
 
 function layoutDagre(
@@ -49,7 +55,7 @@ function layoutDagre(
 ): { nodes: Node[]; edges: Edge[] } {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: dir, nodesep: 40, ranksep: 60 });
+  g.setGraph({ rankdir: dir, nodesep: 30, ranksep: 50 });
 
   for (const n of nodes) {
     g.setNode(n.id, { width: NODE_W, height: NODE_H });
@@ -68,35 +74,52 @@ function layoutDagre(
   return { nodes: laid, edges };
 }
 
+function truncName(name: string, maxLen = 28): string {
+  if (name.length <= maxLen) return name;
+  return name.slice(0, maxLen - 1) + "…";
+}
+
+function makeNodeStyle(c: { bg: string; border: string; text: string }, isRoot: boolean) {
+  return {
+    background: c.bg,
+    border: `${isRoot ? 2 : 1.5}px solid ${c.border}`,
+    color: c.text,
+    borderRadius: 8,
+    padding: "6px 10px",
+    fontWeight: isRoot ? 600 : 400,
+    fontSize: 12,
+    width: NODE_W,
+    textAlign: "center" as const,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
+  };
+}
+
 function buildNodesAndEdges(
   queryType: string,
   rootName: string,
   results: ResultItem[],
   direction?: string,
+  edgeList?: EdgeItem[],
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
   const seen = new Set<string>();
 
-  const rootId = `root_${rootName}`;
+  const simpleRoot = rootName.includes("#")
+    ? rootName.split("#").pop()!
+    : rootName.includes(".")
+      ? rootName.split(".").pop()!
+      : rootName;
+
+  const rootId = `root_${simpleRoot}`;
+  const rc = TYPE_COLORS.root;
   nodes.push({
     id: rootId,
-    data: {
-      label: rootName,
-      entityType: "root",
-    },
+    data: { label: truncName(simpleRoot), entityType: "root" },
     position: { x: 0, y: 0 },
-    style: {
-      background: TYPE_COLORS.root.bg,
-      border: `2px solid ${TYPE_COLORS.root.border}`,
-      color: TYPE_COLORS.root.text,
-      borderRadius: 10,
-      padding: "8px 14px",
-      fontWeight: 600,
-      fontSize: 13,
-      minWidth: NODE_W,
-      textAlign: "center" as const,
-    },
+    style: makeNodeStyle(rc, true),
   });
   seen.add(rootId);
 
@@ -110,73 +133,101 @@ function buildNodesAndEdges(
     }
   }
 
+  const nodeIdMap = new Map<string, string>();
+  nodeIdMap.set(`${simpleRoot}:0`, rootId);
+
+  for (const result of results) {
+    const key = `${result.name}:${result.line || 0}`;
+    if (nodeIdMap.has(key)) continue;
+    const origKey = key;
+
+    if (result.name === simpleRoot && !nodeIdMap.has(key)) {
+      nodeIdMap.set(key, rootId);
+      continue;
+    }
+    nodeIdMap.set(origKey, key);
+  }
+
   for (const item of deduped) {
-    const nodeId = `${item.name}_${item.line || 0}`;
-    if (!seen.has(nodeId)) {
-      seen.add(nodeId);
-      const entityType = item.type || "Function";
-      const c = getColor(entityType, false);
-      const shortFile = item.file
-        ? item.file.replace(/.*\/src\/main\/java\//, "").replace(/.*\/src\//, "src/")
-        : "";
-      nodes.push({
-        id: nodeId,
-        data: {
-          label: `${item.name}${shortFile ? `\n${shortFile}:${item.line || ""}` : ""}`,
-          entityType,
-        },
-        position: { x: 0, y: 0 },
-        style: {
-          background: c.bg,
-          border: `1.5px solid ${c.border}`,
-          color: c.text,
-          borderRadius: 8,
-          padding: "6px 12px",
-          fontSize: 11,
-          minWidth: NODE_W,
-          textAlign: "center" as const,
-          whiteSpace: "pre-line" as const,
-          lineHeight: "1.3",
-        },
-      });
-    }
+    const nodeId = `${item.name}:${item.line || 0}`;
+    if (nodeId === rootId || (item.name === simpleRoot)) continue;
+    if (seen.has(nodeId)) continue;
+    seen.add(nodeId);
 
-    const isUpstream = direction === "upstream";
-    const isInheritance = queryType === "inheritance_tree";
+    const entityType = item.type || "Function";
+    const c = getColor(entityType, false);
+    nodes.push({
+      id: nodeId,
+      data: { label: truncName(item.name), entityType },
+      position: { x: 0, y: 0 },
+      style: makeNodeStyle(c, false),
+    });
+  }
 
-    let src: string, tgt: string;
-    if (isUpstream) {
-      src = nodeId;
-      tgt = rootId;
-    } else if (isInheritance) {
-      src = nodeId;
-      tgt = rootId;
-    } else {
-      src = rootId;
-      tgt = nodeId;
-    }
+  if (edgeList && edgeList.length > 0) {
+    const edgeSeen = new Set<string>();
+    for (const e of edgeList) {
+      let srcId = e.source;
+      let tgtId = e.target;
 
-    const edgeId = `${src}->${tgt}`;
-    if (!seen.has(edgeId)) {
-      seen.add(edgeId);
+      if (srcId.split(":")[0] === simpleRoot) srcId = rootId;
+      if (tgtId.split(":")[0] === simpleRoot) tgtId = rootId;
+
+      const srcExists = nodes.some((n) => n.id === srcId);
+      const tgtExists = nodes.some((n) => n.id === tgtId);
+      if (!srcExists || !tgtExists) continue;
+
+      const ek = `${srcId}->${tgtId}`;
+      if (edgeSeen.has(ek)) continue;
+      edgeSeen.add(ek);
+
       edges.push({
-        id: edgeId,
-        source: src,
-        target: tgt,
+        id: ek,
+        source: srcId,
+        target: tgtId,
         animated: true,
         style: { stroke: "#64748b", strokeWidth: 1.5 },
       });
     }
+  } else {
+    for (const item of deduped) {
+      const nodeId = `${item.name}:${item.line || 0}`;
+      const actualNodeId = item.name === simpleRoot ? rootId : nodeId;
+      if (actualNodeId === rootId) continue;
+
+      const isUpstream = direction === "upstream";
+      const isInheritance = queryType === "inheritance_tree";
+
+      let src: string, tgt: string;
+      if (isUpstream || isInheritance) {
+        src = actualNodeId;
+        tgt = rootId;
+      } else {
+        src = rootId;
+        tgt = actualNodeId;
+      }
+
+      const edgeId = `${src}->${tgt}`;
+      if (!seen.has(edgeId)) {
+        seen.add(edgeId);
+        edges.push({
+          id: edgeId,
+          source: src,
+          target: tgt,
+          animated: true,
+          style: { stroke: "#64748b", strokeWidth: 1.5 },
+        });
+      }
+    }
   }
 
-  const dagDir = direction === "upstream" ? "TB" : "TB";
-  return layoutDagre(nodes, edges, dagDir);
+  return layoutDagre(nodes, edges, "TB");
 }
 
-export default function GraphFlowChart({ queryType, rootName, results, direction }: Props) {
+export default function GraphFlowChart({ queryType, rootName, results, direction, edges: edgeList }: Props) {
   const { nodes: initNodes, edges: initEdges } = useMemo(
-    () => buildNodesAndEdges(queryType, rootName, results, direction),
-    [queryType, rootName, results, direction],
+    () => buildNodesAndEdges(queryType, rootName, results, direction, edgeList),
+    [queryType, rootName, results, direction, edgeList],
   );
 
   const [nodes, , onNodesChange] = useNodesState(initNodes);
@@ -198,7 +249,7 @@ export default function GraphFlowChart({ queryType, rootName, results, direction
         onInit={onInit}
         fitView
         proOptions={{ hideAttribution: true }}
-        minZoom={0.3}
+        minZoom={0.2}
         maxZoom={2}
       >
         <Background color="#1e293b" gap={20} />

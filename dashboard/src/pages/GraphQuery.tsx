@@ -67,17 +67,36 @@ export default function GraphQuery() {
     ? t.graph[fields.nameKey as keyof typeof t.graph] || fields.nameKey
     : "";
 
-  function handleRun(e: React.FormEvent) {
-    e.preventDefault();
+  function runQuery(overrideName?: string) {
     mutation.mutate({
       query_type: queryType,
-      name,
+      name: overrideName ?? name,
       file,
       depth,
       direction,
       entity_type: entityType,
       cypher,
     });
+  }
+
+  function handleRun(e: React.FormEvent) {
+    e.preventDefault();
+    runQuery();
+  }
+
+  function handleNodeDrillDown(nodeName: string) {
+    setName(nodeName);
+    setTimeout(() => {
+      mutation.mutate({
+        query_type: queryType,
+        name: nodeName,
+        file,
+        depth,
+        direction,
+        entity_type: entityType,
+        cypher,
+      });
+    }, 0);
   }
 
   const inputClass =
@@ -210,6 +229,7 @@ export default function GraphQuery() {
         queryType={queryType}
         name={name}
         direction={direction}
+        onNodeDrillDown={handleNodeDrillDown}
       />}
     </div>
   );
@@ -225,11 +245,13 @@ function GraphQueryResult({
   queryType,
   name,
   direction,
+  onNodeDrillDown,
 }: {
   data: Record<string, unknown>;
   queryType: string;
   name: string;
   direction: string;
+  onNodeDrillDown: (name: string) => void;
 }) {
   const [viewMode, setViewMode] = useState<"chart" | "json">(
     VISUALIZABLE_TYPES.has(queryType) ? "chart" : "json"
@@ -270,6 +292,11 @@ function GraphQueryResult({
           </button>
           <span className="ml-auto text-xs text-slate-500">
             {results.length} {t.graph.resultCount ?? "results"}
+            {viewMode === "chart" && (
+              <span className="ml-3 text-slate-600">
+                {t.graph.doubleClickDrillDown ?? "Double-click node to drill down"}
+              </span>
+            )}
           </span>
         </div>
       )}
@@ -281,6 +308,7 @@ function GraphQueryResult({
           results={results}
           direction={direction}
           edges={(data.edges ?? []) as Array<{ source: string; target: string }>}
+          onNodeDoubleClick={onNodeDrillDown}
         />
       ) : (
         <JsonView data={data} />

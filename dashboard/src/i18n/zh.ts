@@ -87,6 +87,7 @@ const zh: Translations = {
     running: "执行中...",
     flowChart: "关系图",
     resultCount: "个结果",
+    doubleClickDrillDown: "双击节点以该节点为起点重新查询",
   },
   repos: {
     title: "仓库管理",

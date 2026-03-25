@@ -87,6 +87,7 @@ export interface Translations {
     running: string;
     flowChart: string;
     resultCount: string;
+    doubleClickDrillDown: string;
   };
   repos: {
     title: string;

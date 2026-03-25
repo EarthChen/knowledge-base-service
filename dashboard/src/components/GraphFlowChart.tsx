@@ -46,6 +46,7 @@ interface Props {
   results: ResultItem[];
   direction?: string;
   edges?: EdgeItem[];
+  onNodeDoubleClick?: (name: string) => void;
 }
 
 function layoutDagre(
@@ -224,7 +225,7 @@ function buildNodesAndEdges(
   return layoutDagre(nodes, edges, "TB");
 }
 
-export default function GraphFlowChart({ queryType, rootName, results, direction, edges: edgeList }: Props) {
+export default function GraphFlowChart({ queryType, rootName, results, direction, edges: edgeList, onNodeDoubleClick }: Props) {
   const { nodes: initNodes, edges: initEdges } = useMemo(
     () => buildNodesAndEdges(queryType, rootName, results, direction, edgeList),
     [queryType, rootName, results, direction, edgeList],
@@ -237,6 +238,16 @@ export default function GraphFlowChart({ queryType, rootName, results, direction
     setTimeout(() => instance.fitView(), 100);
   }, []);
 
+  const handleNodeDblClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      const name = String(node.data?.label || "").replace("…", "");
+      if (name && onNodeDoubleClick) {
+        onNodeDoubleClick(name);
+      }
+    },
+    [onNodeDoubleClick],
+  );
+
   if (results.length === 0) return null;
 
   return (
@@ -246,6 +257,7 @@ export default function GraphFlowChart({ queryType, rootName, results, direction
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeDoubleClick={handleNodeDblClick}
         onInit={onInit}
         fitView
         proOptions={{ hideAttribution: true }}

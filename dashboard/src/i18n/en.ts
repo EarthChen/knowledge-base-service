@@ -87,6 +87,7 @@ const en: Translations = {
     running: "Running...",
     flowChart: "Flow Chart",
     resultCount: "results",
+    doubleClickDrillDown: "Double-click node to drill down",
   },
   repos: {
     title: "Repositories",

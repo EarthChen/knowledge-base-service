@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Knowledge Base Service dashboard — RAG with FalkorDB graph and vector search" />
+    <title>Knowledge Base Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["ui-sans-serif", "system-ui", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"],
+            },
+          },
+        },
+      };
+    </script>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="min-h-screen bg-slate-900 text-slate-300 antialiased">
+    <a
+      href="#main-content"
+      class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-emerald-600 focus:px-4 focus:py-2 focus:text-white"
+      >Skip to content</a
+    >
+
+    <div class="flex min-h-screen flex-col lg:flex-row">
+      <!-- Mobile menu toggle -->
+      <div
+        class="flex items-center justify-between border-b border-slate-700 bg-slate-800 px-4 py-3 lg:hidden"
+      >
+        <span class="text-sm font-semibold text-white">KB Dashboard</span>
+        <button
+          type="button"
+          id="sidebar-toggle"
+          class="rounded-lg border border-slate-600 p-2 text-slate-300 hover:bg-slate-700"
+          aria-expanded="false"
+          aria-controls="sidebar-nav"
+        >
+          <span class="sr-only">Open menu</span>
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Sidebar -->
+      <aside
+        id="sidebar-nav"
+        class="hidden border-b border-slate-700 bg-slate-800 lg:flex lg:w-64 lg:shrink-0 lg:flex-col lg:border-b-0 lg:border-r"
+      >
+        <div class="border-b border-slate-700 px-5 py-6">
+          <div class="flex items-center gap-2">
+            <svg class="h-8 w-8 text-emerald-500" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path
+                d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <div>
+              <p class="text-xs font-medium uppercase tracking-wider text-slate-500">Knowledge</p>
+              <p class="text-sm font-semibold text-white">Base</p>
+            </div>
+          </div>
+        </div>
+        <nav class="flex flex-1 flex-col gap-1 p-3" aria-label="Primary">
+          <button
+            type="button"
+            class="nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-400 transition hover:bg-slate-700/50 hover:text-white"
+            data-page="overview"
+          >
+            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
+              />
+            </svg>
+            Overview
+          </button>
+          <button
+            type="button"
+            class="nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-400 transition hover:bg-slate-700/50 hover:text-white"
+            data-page="repositories"
+          >
+            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+              />
+            </svg>
+            Repositories
+          </button>
+          <button
+            type="button"
+            class="nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-400 transition hover:bg-slate-700/50 hover:text-white"
+            data-page="search"
+          >
+            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+            Search
+          </button>
+          <button
+            type="button"
+            class="nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-400 transition hover:bg-slate-700/50 hover:text-white"
+            data-page="graph"
+          >
+            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M13 10V3L4 14h7v7l9-11h-7z"
+              />
+            </svg>
+            Graph Query
+          </button>
+          <button
+            type="button"
+            class="nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-400 transition hover:bg-slate-700/50 hover:text-white"
+            data-page="indexing"
+          >
+            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            Indexing
+          </button>
+        </nav>
+        <footer class="border-t border-slate-700 p-4 text-xs text-slate-500">
+          FalkorDB + embeddings
+        </footer>
+      </aside>
+
+      <!-- Main -->
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header
+          class="sticky top-0 z-40 border-b border-slate-700 bg-slate-900/95 px-4 py-4 backdrop-blur sm:px-6"
+          role="banner"
+        >
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex flex-wrap items-center gap-3">
+              <h1 class="text-xl font-semibold tracking-tight text-white">Knowledge Base Dashboard</h1>
+              <div class="flex items-center gap-2 rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1 text-xs">
+                <span id="health-dot" class="h-2.5 w-2.5 rounded-full bg-slate-600" aria-hidden="true"></span>
+                <span id="health-label" class="text-slate-400">Checking…</span>
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                id="token-toggle"
+                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-300"
+                title="API token"
+              >
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                  />
+                </svg>
+                Token
+              </button>
+              <input
+                id="api-token-input"
+                type="password"
+                autocomplete="off"
+                placeholder="Bearer token"
+                class="hidden w-48 rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+              <button
+                type="button"
+                id="token-save"
+                class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main id="main-content" class="kb-scroll flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8" role="main">
+          <!-- Overview -->
+          <div id="page-overview" class="page-content hidden max-w-7xl space-y-6">
+            <p id="overview-error" class="hidden rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400"></p>
+            <section aria-labelledby="overview-stats-heading">
+              <h2 id="overview-stats-heading" class="sr-only">Node statistics</h2>
+              <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div class="rounded-xl border border-slate-700 bg-slate-800 p-5 shadow-lg">
+                  <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Functions</p>
+                  <p id="stat-functions" class="mt-2 text-3xl font-semibold text-white">—</p>
+                </div>
+                <div class="rounded-xl border border-slate-700 bg-slate-800 p-5 shadow-lg">
+                  <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Classes</p>
+                  <p id="stat-classes" class="mt-2 text-3xl font-semibold text-white">—</p>
+                </div>
+                <div class="rounded-xl border border-slate-700 bg-slate-800 p-5 shadow-lg">
+                  <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Modules</p>
+                  <p id="stat-modules" class="mt-2 text-3xl font-semibold text-white">—</p>
+                </div>
+                <div class="rounded-xl border border-slate-700 bg-slate-800 p-5 shadow-lg">
+                  <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Documents</p>
+                  <p id="stat-documents" class="mt-2 text-3xl font-semibold text-white">—</p>
+                </div>
+              </div>
+            </section>
+            <section aria-labelledby="overview-edges-heading">
+              <h2 id="overview-edges-heading" class="mb-3 text-sm font-medium text-slate-400">Edge statistics</h2>
+              <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                <div class="rounded-xl border border-slate-700 bg-slate-800 p-4 shadow">
+                  <p class="text-xs text-slate-500">CALLS</p>
+                  <p id="edge-calls" class="mt-1 text-2xl font-semibold text-emerald-400">—</p>
+                </div>
+                <div class="rounded-xl border border-slate-700 bg-slate-800 p-4 shadow">
+                  <p class="text-xs text-slate-500">INHERITS</p>
+                  <p id="edge-inherits" class="mt-1 text-2xl font-semibold text-emerald-400">—</p>
+                </div>
+                <div class="rounded-xl border border-slate-700 bg-slate-800 p-4 shadow">
+                  <p class="text-xs text-slate-500">IMPORTS</p>
+                  <p id="edge-imports" class="mt-1 text-2xl font-semibold text-emerald-400">—</p>
+                </div>
+                <div class="rounded-xl border border-slate-700 bg-slate-800 p-4 shadow">
+                  <p class="text-xs text-slate-500">CONTAINS</p>
+                  <p id="edge-contains" class="mt-1 text-2xl font-semibold text-emerald-400">—</p>
+                </div>
+                <div class="rounded-xl border border-slate-700 bg-slate-800 p-4 shadow">
+                  <p class="text-xs text-slate-500">REFERENCES</p>
+                  <p id="edge-references" class="mt-1 text-2xl font-semibold text-emerald-400">—</p>
+                </div>
+              </div>
+            </section>
+            <section class="grid gap-6 lg:grid-cols-2" aria-labelledby="charts-heading">
+              <h2 id="charts-heading" class="sr-only">Charts</h2>
+              <div class="rounded-xl border border-slate-700 bg-slate-800 p-5 shadow-lg">
+                <h3 class="mb-4 text-sm font-semibold text-white">Node type distribution</h3>
+                <div class="chart-box">
+                  <canvas id="chart-nodes" aria-label="Doughnut chart of node types"></canvas>
+                </div>
+              </div>
+              <div class="rounded-xl border border-slate-700 bg-slate-800 p-5 shadow-lg">
+                <h3 class="mb-4 text-sm font-semibold text-white">Edge type distribution</h3>
+                <div class="chart-box">
+                  <canvas id="chart-edges" aria-label="Bar chart of edge types"></canvas>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Repositories -->
+          <div id="page-repositories" class="page-content hidden max-w-7xl space-y-4">
+            <h2 class="text-lg font-semibold text-white">Indexed repositories</h2>
+            <p id="repos-error" class="hidden rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400"></p>
+            <div class="overflow-hidden rounded-xl border border-slate-700 bg-slate-800 shadow-lg">
+              <div class="overflow-x-auto">
+                <table class="w-full min-w-[320px] text-left text-sm">
+                  <thead class="border-b border-slate-700 bg-slate-800/90">
+                    <tr>
+                      <th scope="col" class="px-4 py-3 font-medium text-slate-300">Repository</th>
+                      <th scope="col" class="px-4 py-3 font-medium text-slate-300">Node count</th>
+                      <th scope="col" class="px-4 py-3 text-right font-medium text-slate-300">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="repos-tbody" class="divide-y divide-slate-700/80"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Search -->
+          <div id="page-search" class="page-content hidden max-w-4xl space-y-6">
+            <h2 class="text-lg font-semibold text-white">Semantic search</h2>
+            <form class="space-y-4 rounded-xl border border-slate-700 bg-slate-800 p-5 shadow-lg" onsubmit="return false;">
+              <div>
+                <label for="search-query" class="mb-1 block text-xs font-medium text-slate-400">Natural language query</label>
+                <input
+                  id="search-query"
+                  type="search"
+                  class="w-full rounded-lg border border-slate-600 bg-slate-900 px-4 py-2.5 text-white placeholder-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  placeholder="Describe what you are looking for…"
+                  autocomplete="off"
+                />
+              </div>
+              <div class="flex flex-wrap gap-4">
+                <div class="min-w-[140px] flex-1">
+                  <label for="search-entity-type" class="mb-1 block text-xs font-medium text-slate-400">Entity type</label>
+                  <select
+                    id="search-entity-type"
+                    class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="all">all</option>
+                    <option value="function">function</option>
+                    <option value="class">class</option>
+                    <option value="document">document</option>
+                  </select>
+                </div>
+                <div class="w-28">
+                  <label for="search-k" class="mb-1 block text-xs font-medium text-slate-400">k</label>
+                  <input
+                    id="search-k"
+                    type="number"
+                    min="1"
+                    max="50"
+                    value="10"
+                    class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+                <div class="flex items-end">
+                  <button
+                    type="button"
+                    id="btn-search"
+                    class="rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+                  >
+                    Search
+                  </button>
+                </div>
+              </div>
+            </form>
+            <p id="search-error" class="hidden rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400"></p>
+            <div id="search-results" class="space-y-4"></div>
+          </div>
+
+          <!-- Graph Query -->
+          <div id="page-graph" class="page-content hidden max-w-5xl space-y-6">
+            <h2 class="text-lg font-semibold text-white">Graph query</h2>
+            <div class="rounded-xl border border-slate-700 bg-slate-800 p-5 shadow-lg">
+              <div class="space-y-4">
+                <div>
+                  <label for="graph-query-type" class="mb-1 block text-xs font-medium text-slate-400">Query type</label>
+                  <select
+                    id="graph-query-type"
+                    class="w-full max-w-md rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="call_chain">call_chain</option>
+                    <option value="inheritance">inheritance</option>
+                    <option value="class_methods">class_methods</option>
+                    <option value="module_deps">module_deps</option>
+                    <option value="reverse_dependencies">reverse_dependencies</option>
+                    <option value="find_entity">find_entity</option>
+                    <option value="file_entities">file_entities</option>
+                    <option value="graph_stats">graph_stats</option>
+                    <option value="custom">custom</option>
+                  </select>
+                </div>
+
+                <div data-graph-fields="call_chain" class="grid gap-4 sm:grid-cols-3">
+                  <div class="sm:col-span-1">
+                    <label for="gq-name-chain" class="mb-1 block text-xs text-slate-400">Function name</label>
+                    <input
+                      id="gq-name-chain"
+                      type="text"
+                      class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div>
+                    <label for="gq-depth" class="mb-1 block text-xs text-slate-400">Depth</label>
+                    <input
+                      id="gq-depth"
+                      type="number"
+                      min="1"
+                      max="10"
+                      value="3"
+                      class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div>
+                    <label for="gq-direction" class="mb-1 block text-xs text-slate-400">Direction</label>
+                    <select
+                      id="gq-direction"
+                      class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+                    >
+                      <option value="upstream">upstream</option>
+                      <option value="downstream" selected>downstream</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div data-graph-fields="inheritance" class="hidden">
+                  <label for="gq-name-inherit" class="mb-1 block text-xs text-slate-400">Class name</label>
+                  <input
+                    id="gq-name-inherit"
+                    type="text"
+                    class="w-full max-w-md rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+                  />
+                </div>
+
+                <div data-graph-fields="class_methods" class="hidden">
+                  <label for="gq-name-class" class="mb-1 block text-xs text-slate-400">Class name</label>
+                  <input
+                    id="gq-name-class"
+                    type="text"
+                    class="w-full max-w-md rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+                  />
+                </div>
+
+                <div data-graph-fields="module_deps" class="hidden">
+                  <label for="gq-name-mod" class="mb-1 block text-xs text-slate-400">Module name</label>
+                  <input
+                    id="gq-name-mod"
+                    type="text"
+                    class="w-full max-w-md rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+                  />
+                </div>
+
+                <div data-graph-fields="reverse_dependencies" class="hidden">
+                  <label for="gq-name-rev" class="mb-1 block text-xs text-slate-400">Module name</label>
+                  <input
+                    id="gq-name-rev"
+                    type="text"
+                    class="w-full max-w-md rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+                  />
+                </div>
+
+                <div data-graph-fields="find_entity" class="hidden grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label for="gq-name-entity" class="mb-1 block text-xs text-slate-400">Name</label>
+                    <input
+                      id="gq-name-entity"
+                      type="text"
+                      class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div>
+                    <label for="gq-entity-type" class="mb-1 block text-xs text-slate-400">Entity type</label>
+                    <select
+                      id="gq-entity-type"
+                      class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+                    >
+                      <option value="any">any</option>
+                      <option value="function">function</option>
+                      <option value="class">class</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div data-graph-fields="file_entities" class="hidden">
+                  <label for="gq-file" class="mb-1 block text-xs text-slate-400">File path</label>
+                  <input
+                    id="gq-file"
+                    type="text"
+                    class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 font-mono text-sm text-white"
+                    placeholder="src/module.py"
+                  />
+                </div>
+
+                <div data-graph-fields="graph_stats" class="hidden">
+                  <p class="text-sm text-sky-400/90">No parameters — returns aggregate graph statistics.</p>
+                </div>
+
+                <div data-graph-fields="custom" class="hidden">
+                  <label for="gq-cypher" class="mb-1 block text-xs text-slate-400">Cypher</label>
+                  <textarea
+                    id="gq-cypher"
+                    rows="8"
+                    class="kb-json w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-slate-300"
+                    placeholder="MATCH (n) RETURN n LIMIT 10"
+                  ></textarea>
+                </div>
+
+                <button
+                  type="button"
+                  id="btn-graph-run"
+                  class="rounded-lg bg-emerald-600 px-6 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+                >
+                  Run query
+                </button>
+              </div>
+            </div>
+            <p id="graph-error" class="hidden rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400"></p>
+            <div id="graph-results" class="min-h-[120px]"></div>
+          </div>
+
+          <!-- Indexing -->
+          <div id="page-indexing" class="page-content hidden max-w-2xl space-y-6">
+            <h2 class="text-lg font-semibold text-white">Trigger indexing</h2>
+            <div class="space-y-5 rounded-xl border border-slate-700 bg-slate-800 p-5 shadow-lg">
+              <fieldset>
+                <legend class="mb-2 text-xs font-medium text-slate-400">Mode</legend>
+                <div class="flex flex-wrap gap-4">
+                  <label class="inline-flex cursor-pointer items-center gap-2">
+                    <input type="radio" name="index-mode" value="full" checked class="text-emerald-500 focus:ring-emerald-500" />
+                    <span class="text-sm text-slate-300">Full</span>
+                  </label>
+                  <label class="inline-flex cursor-pointer items-center gap-2">
+                    <input type="radio" name="index-mode" value="incremental" class="text-emerald-500 focus:ring-emerald-500" />
+                    <span class="text-sm text-slate-300">Incremental</span>
+                  </label>
+                </div>
+              </fieldset>
+              <div>
+                <label for="idx-directory" class="mb-1 block text-xs font-medium text-slate-400">Directory path</label>
+                <input
+                  id="idx-directory"
+                  type="text"
+                  class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 font-mono text-sm text-white"
+                  placeholder="/path/to/repository"
+                  autocomplete="off"
+                />
+              </div>
+              <div id="idx-incremental-fields" class="hidden grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label for="idx-base-ref" class="mb-1 block text-xs text-slate-400">base_ref</label>
+                  <input
+                    id="idx-base-ref"
+                    type="text"
+                    value="HEAD~1"
+                    class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 font-mono text-sm text-white"
+                  />
+                </div>
+                <div>
+                  <label for="idx-head-ref" class="mb-1 block text-xs text-slate-400">head_ref</label>
+                  <input
+                    id="idx-head-ref"
+                    type="text"
+                    value="HEAD"
+                    class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 font-mono text-sm text-white"
+                  />
+                </div>
+              </div>
+              <div>
+                <label for="idx-repository" class="mb-1 block text-xs font-medium text-slate-400"
+                  >Repository name <span class="text-slate-500">(optional)</span></label
+                >
+                <input
+                  id="idx-repository"
+                  type="text"
+                  class="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white"
+                  placeholder="my-org/my-repo"
+                  autocomplete="off"
+                />
+              </div>
+              <button
+                type="button"
+                id="btn-index"
+                class="rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-emerald-500"
+              >
+                Start indexing
+              </button>
+            </div>
+            <div
+              id="index-status"
+              class="rounded-lg border border-slate-700 bg-slate-950/50 p-4 font-mono text-xs text-emerald-400 whitespace-pre-wrap"
+            ></div>
+            <p id="index-error" class="hidden rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400"></p>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

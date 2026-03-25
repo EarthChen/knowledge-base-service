@@ -7,9 +7,12 @@ backed by FalkorDB graph database and sentence-transformers embeddings.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from config import get_settings
@@ -268,6 +271,9 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Knowledge Base Service",
@@ -276,6 +282,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(router)
+
+    if _STATIC_DIR.is_dir():
+        app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")
+
     return app
 
 

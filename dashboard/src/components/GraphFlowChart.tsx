@@ -32,6 +32,7 @@ interface ResultItem {
   file?: string;
   line?: number;
   type?: string;
+  fqn?: string;
   [key: string]: unknown;
 }
 
@@ -118,7 +119,7 @@ function buildNodesAndEdges(
   const rc = TYPE_COLORS.root;
   nodes.push({
     id: rootId,
-    data: { label: truncName(simpleRoot), entityType: "root" },
+    data: { label: truncName(simpleRoot), entityType: "root", fqn: rootName },
     position: { x: 0, y: 0 },
     style: makeNodeStyle(rc, true),
   });
@@ -159,7 +160,7 @@ function buildNodesAndEdges(
     const c = getColor(entityType, false);
     nodes.push({
       id: nodeId,
-      data: { label: truncName(item.name), entityType },
+      data: { label: truncName(item.name), entityType, fqn: item.fqn || item.name },
       position: { x: 0, y: 0 },
       style: makeNodeStyle(c, false),
     });
@@ -240,7 +241,8 @@ export default function GraphFlowChart({ queryType, rootName, results, direction
 
   const handleNodeDblClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
-      const name = String(node.data?.label || "").replace("…", "");
+      const fqn = String(node.data?.fqn || "");
+      const name = fqn || String(node.data?.label || "").replace("…", "");
       if (name && onNodeDoubleClick) {
         onNodeDoubleClick(name);
       }

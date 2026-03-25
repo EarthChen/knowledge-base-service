@@ -80,7 +80,9 @@ class GraphQueryService:
                 "UNWIND relationships(path) AS rel "
                 "WITH startNode(rel) AS src, endNode(rel) AS tgt "
                 "RETURN DISTINCT src.name AS src_name, src.file AS src_file, src.start_line AS src_line, "
-                "tgt.name AS tgt_name, tgt.file AS tgt_file, tgt.start_line AS tgt_line"
+                "coalesce(src.fqn, '') AS src_fqn, "
+                "tgt.name AS tgt_name, tgt.file AS tgt_file, tgt.start_line AS tgt_line, "
+                "coalesce(tgt.fqn, '') AS tgt_fqn"
             )
         else:
             query = (
@@ -90,7 +92,9 @@ class GraphQueryService:
                 "UNWIND relationships(path) AS rel "
                 "WITH startNode(rel) AS src, endNode(rel) AS tgt "
                 "RETURN DISTINCT src.name AS src_name, src.file AS src_file, src.start_line AS src_line, "
-                "tgt.name AS tgt_name, tgt.file AS tgt_file, tgt.start_line AS tgt_line"
+                "coalesce(src.fqn, '') AS src_fqn, "
+                "tgt.name AS tgt_name, tgt.file AS tgt_file, tgt.start_line AS tgt_line, "
+                "coalesce(tgt.fqn, '') AS tgt_fqn"
             )
 
         params = {"name": match_val}
@@ -107,14 +111,15 @@ class GraphQueryService:
                     "name": r.get("src_name", ""),
                     "file": r.get("src_file", ""),
                     "line": r.get("src_line", 0),
+                    "fqn": r.get("src_fqn", ""),
                 }
             if tgt_key not in nodes_map:
                 nodes_map[tgt_key] = {
                     "name": r.get("tgt_name", ""),
                     "file": r.get("tgt_file", ""),
                     "line": r.get("tgt_line", 0),
+                    "fqn": r.get("tgt_fqn", ""),
                 }
-            edge_key = f"{src_key}->{tgt_key}"
             edges.append({"source": src_key, "target": tgt_key})
 
         data = list(nodes_map.values())

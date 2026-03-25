@@ -359,7 +359,7 @@ async def graph_explore(req: GraphExploreRequest) -> dict[str, Any]:
     nodes_q = (
         "MATCH (center) "
         "WHERE (center:Function OR center:Class OR center:Module) "
-        "AND center.name = $name "
+        "AND (center.name = $name OR center.fqn = $name) "
         f"OPTIONAL MATCH (center)-[*1..{req.depth}]-(neighbor) "
         "WHERE neighbor:Function OR neighbor:Class OR neighbor:Module "
         "WITH center, collect(DISTINCT neighbor) AS nbrs "

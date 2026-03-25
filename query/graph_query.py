@@ -6,6 +6,7 @@ call chains, inheritance trees, module dependencies, and entity lookups.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +15,37 @@ from log import get_logger
 from store.falkordb_store import FalkorDBStore
 
 log = get_logger(__name__)
+
+_FQN_RE = re.compile(
+    r"[a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*){2,}"
+    r"(?:#[a-zA-Z_][\w]*)?"
+)
+
+
+def _parse_input(raw: str) -> tuple[str, str | None]:
+    """Parse user input which may be a simple name or FQN.
+
+    Returns (simple_name, fqn_or_none).
+    For ``com.foo.Bar#doStuff`` returns (``doStuff``, ``com.foo.Bar#doStuff``).
+    For ``com.foo.Bar`` returns (``Bar``, ``com.foo.Bar``).
+    For ``loginV2`` returns (``loginV2``, None).
+    """
+    if _FQN_RE.fullmatch(raw.strip()):
+        fqn = raw.strip()
+        if "#" in fqn:
+            simple = fqn.rsplit("#", 1)[1]
+        else:
+            simple = fqn.rsplit(".", 1)[-1]
+        return simple, fqn
+    return raw.strip(), None
+
+
+def _match_clause(label: str, alias: str, param_name: str = "name") -> str:
+    """Build a MATCH clause that tries fqn first, then falls back to name."""
+    return (
+        f"MATCH ({alias}:{label}) "
+        f"WHERE ({alias}.fqn = ${param_name} OR {alias}.name = ${param_name}) "
+    )
 
 
 @dataclass
@@ -34,109 +66,139 @@ class GraphQueryService:
     ) -> QueryResult:
         """Find the call chain starting from a function.
 
-        direction: "downstream" = who does this function call
-                   "upstream"   = who calls this function
+        Accepts simple name (``loginV2``) or FQN (``com.foo.Bar#loginV2``).
         """
+        simple, fqn = _parse_input(function_name)
+        match_val = fqn if fqn else simple
+
         if direction == "upstream":
             query = (
-                f"MATCH (caller:Function)-[:CALLS*1..{depth}]->(f:Function {{name: $name}}) "
+                f"MATCH (f:Function) WHERE (f.fqn = $name OR f.name = $name) "
+                f"WITH f "
+                f"MATCH (caller:Function)-[:CALLS*1..{depth}]->(f) "
                 "RETURN caller.name AS caller, caller.file AS file, caller.start_line AS line "
                 "ORDER BY caller.name"
             )
         else:
             query = (
-                f"MATCH (f:Function {{name: $name}})-[:CALLS*1..{depth}]->(callee:Function) "
+                f"MATCH (f:Function) WHERE (f.fqn = $name OR f.name = $name) "
+                f"WITH f "
+                f"MATCH (f)-[:CALLS*1..{depth}]->(callee:Function) "
                 "RETURN callee.name AS callee, callee.file AS file, callee.start_line AS line "
                 "ORDER BY callee.name"
             )
 
-        params = {"name": function_name}
+        params = {"name": match_val}
         rows = await self._store.execute_query(query, params)
 
-        key = "caller" if direction == "upstream" else "callee"
         data = [{"name": r[0], "file": r[1], "line": r[2]} for r in rows]
         return QueryResult(data=data, query=query, params=params)
 
     async def find_inheritance_tree(self, class_name: str, direction: str = "children") -> QueryResult:
         """Find inheritance hierarchy for a class.
 
-        direction: "children" = subclasses of this class
-                   "parents"  = superclasses of this class
+        Accepts simple name or FQN.
         """
+        simple, fqn = _parse_input(class_name)
+        match_val = fqn if fqn else simple
+
         if direction == "parents":
             query = (
-                "MATCH (c:Class {name: $name})-[:INHERITS*1..10]->(parent:Class) "
+                "MATCH (c:Class) WHERE (c.fqn = $name OR c.name = $name) "
+                "WITH c "
+                "MATCH (c)-[:INHERITS*1..10]->(parent:Class) "
                 "RETURN parent.name AS name, parent.file AS file, parent.start_line AS line"
             )
         else:
             query = (
-                "MATCH (child:Class)-[:INHERITS*1..10]->(c:Class {name: $name}) "
+                "MATCH (c:Class) WHERE (c.fqn = $name OR c.name = $name) "
+                "WITH c "
+                "MATCH (child:Class)-[:INHERITS*1..10]->(c) "
                 "RETURN child.name AS name, child.file AS file, child.start_line AS line"
             )
 
-        params = {"name": class_name}
+        params = {"name": match_val}
         rows = await self._store.execute_query(query, params)
         data = [{"name": r[0], "file": r[1], "line": r[2]} for r in rows]
         return QueryResult(data=data, query=query, params=params)
 
     async def find_class_methods(self, class_name: str) -> QueryResult:
-        """Find all methods belonging to a class."""
+        """Find all methods belonging to a class. Accepts simple name or FQN."""
+        simple, fqn = _parse_input(class_name)
+        match_val = fqn if fqn else simple
+
         query = (
-            "MATCH (c:Class {name: $name})-[:CONTAINS]->(m:Function) "
+            "MATCH (c:Class) WHERE (c.fqn = $name OR c.name = $name) "
+            "WITH c "
+            "MATCH (c)-[:CONTAINS]->(m:Function) "
             "RETURN m.name AS name, m.signature AS signature, m.file AS file, m.start_line AS line "
             "ORDER BY m.start_line"
         )
-        params = {"name": class_name}
+        params = {"name": match_val}
         rows = await self._store.execute_query(query, params)
         data = [{"name": r[0], "signature": r[1], "file": r[2], "line": r[3]} for r in rows]
         return QueryResult(data=data, query=query, params=params)
 
     async def find_module_dependencies(self, module_name: str) -> QueryResult:
         """Find what a module imports."""
+        simple, fqn = _parse_input(module_name)
+        match_val = fqn if fqn else simple
+
         query = (
-            "MATCH (m:Module {name: $name})-[:IMPORTS]->(dep:Module) "
+            "MATCH (m:Module) WHERE (m.fqn = $name OR m.name = $name) "
+            "WITH m "
+            "MATCH (m)-[:IMPORTS]->(dep:Module) "
             "RETURN dep.name AS name, dep.path AS path"
         )
-        params = {"name": module_name}
+        params = {"name": match_val}
         rows = await self._store.execute_query(query, params)
         data = [{"name": r[0], "path": r[1]} for r in rows]
         return QueryResult(data=data, query=query, params=params)
 
     async def find_reverse_dependencies(self, module_name: str) -> QueryResult:
         """Find what modules import this module."""
+        simple, fqn = _parse_input(module_name)
+        match_val = fqn if fqn else simple
+
         query = (
-            "MATCH (m:Module)-[:IMPORTS]->(dep:Module {name: $name}) "
+            "MATCH (dep:Module) WHERE (dep.fqn = $name OR dep.name = $name) "
+            "WITH dep "
+            "MATCH (m:Module)-[:IMPORTS]->(dep) "
             "RETURN m.name AS name, m.path AS path"
         )
-        params = {"name": module_name}
+        params = {"name": match_val}
         rows = await self._store.execute_query(query, params)
         data = [{"name": r[0], "path": r[1]} for r in rows]
         return QueryResult(data=data, query=query, params=params)
 
     async def find_entity(self, name: str, entity_type: str = "any") -> QueryResult:
-        """Find a code entity by name (function, class, or module)."""
+        """Find a code entity by name or FQN."""
+        simple, fqn = _parse_input(name)
+        match_val = fqn if fqn else simple
+
         if entity_type == "function":
             query = (
-                "MATCH (n:Function {name: $name}) "
+                "MATCH (n:Function) WHERE (n.fqn = $name OR n.name = $name) "
                 "RETURN n.name AS name, n.file AS file, n.start_line AS line, "
                 "n.signature AS signature, n.docstring AS docstring, 'Function' AS type"
             )
         elif entity_type == "class":
             query = (
-                "MATCH (n:Class {name: $name}) "
+                "MATCH (n:Class) WHERE (n.fqn = $name OR n.name = $name) "
                 "RETURN n.name AS name, n.file AS file, n.start_line AS line, "
                 "'' AS signature, n.docstring AS docstring, 'Class' AS type"
             )
         else:
             query = (
-                "MATCH (n {name: $name}) "
-                "WHERE n:Function OR n:Class OR n:Module "
+                "MATCH (n) "
+                "WHERE (n:Function OR n:Class OR n:Module) "
+                "AND (n.fqn = $name OR n.name = $name) "
                 "RETURN n.name AS name, n.file AS file, n.start_line AS line, "
                 "coalesce(n.signature, '') AS signature, "
                 "coalesce(n.docstring, '') AS docstring, labels(n)[0] AS type"
             )
 
-        params = {"name": name}
+        params = {"name": match_val}
         rows = await self._store.execute_query(query, params)
         data = [
             {"name": r[0], "file": r[1], "line": r[2], "signature": r[3], "docstring": r[4], "type": r[5]}

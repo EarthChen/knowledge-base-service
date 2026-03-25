@@ -11,15 +11,23 @@ import {
   Menu,
   X,
   Activity,
+  Building2,
+  ChevronDown,
 } from "lucide-react";
 import { useHealth } from "../api/hooks";
 import { useI18n } from "../i18n/context";
+import { useBusiness } from "../contexts/BusinessContext";
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [bizDropdownOpen, setBizDropdownOpen] = useState(false);
   const { data: health } = useHealth();
   const { t } = useI18n();
+  const { currentBusiness, setCurrentBusiness, businesses, isBound } = useBusiness();
   const isHealthy = health?.status === "ok";
+
+  const currentBizName =
+    businesses.find((b) => b.id === currentBusiness)?.name || currentBusiness;
 
   const NAV = [
     { to: "/", icon: LayoutDashboard, label: t.nav.overview },
@@ -28,6 +36,7 @@ export default function Layout() {
     { to: "/explorer", icon: Network, label: t.nav.explorer },
     { to: "/repositories", icon: FolderGit2, label: t.nav.repositories },
     { to: "/indexing", icon: Database, label: t.nav.indexing },
+    { to: "/businesses", icon: Building2, label: t.nav.businesses },
     { to: "/settings", icon: Settings, label: t.nav.settings },
   ] as const;
 
@@ -53,6 +62,52 @@ export default function Layout() {
             Knowledge Base
           </span>
         </div>
+
+        {/* Business selector — hidden when token is bound to a specific business */}
+        {isBound ? (
+          <div className="border-b border-slate-800 px-3 py-2">
+            <div className="flex items-center gap-2 rounded-lg border border-slate-700/50 bg-slate-900/50 px-3 py-1.5 text-sm text-slate-500">
+              <Building2 size={14} />
+              <span className="truncate">{currentBizName}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="relative border-b border-slate-800 px-3 py-2">
+            <button
+              onClick={() => setBizDropdownOpen(!bizDropdownOpen)}
+              className="flex w-full items-center justify-between rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-300 hover:border-slate-600 transition-colors"
+            >
+              <span className="truncate">{currentBizName}</span>
+              <ChevronDown
+                size={14}
+                className={`ml-2 shrink-0 text-slate-500 transition-transform ${
+                  bizDropdownOpen ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+            {bizDropdownOpen && (
+              <div className="absolute left-3 right-3 z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl">
+                {businesses.map((biz) => (
+                  <button
+                    key={biz.id}
+                    onClick={() => {
+                      setCurrentBusiness(biz.id);
+                      setBizDropdownOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
+                      currentBusiness === biz.id
+                        ? "bg-sky-500/10 text-sky-400"
+                        : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                    }`}
+                  >
+                    <Building2 size={14} />
+                    <span className="truncate">{biz.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="space-y-1">

@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     )
 
     api_token: str = ""
+    api_tokens: str = ""
+    tokens_file: str = "tokens.yaml"
 
 
 @lru_cache

@@ -18,6 +18,7 @@ dependencies = [
     "onnxruntime>=1.17.0",
     "transformers>=4.38.0",
     "huggingface-hub>=0.21.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import type {
+  Business,
+  BusinessesResponse,
   GraphStats,
   RepositoriesResponse,
   SearchResponse,
@@ -107,6 +109,40 @@ export function useDeleteRepository() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["repositories"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+}
+
+export function useBusinesses() {
+  return useQuery<BusinessesResponse>({
+    queryKey: ["businesses"],
+    queryFn: () => api("/businesses", { method: "GET" }),
+    staleTime: 60_000,
+  });
+}
+
+export function useCreateBusiness() {
+  const qc = useQueryClient();
+  return useMutation<
+    Business,
+    Error,
+    { id: string; name: string; description: string }
+  >({
+    mutationFn: (body) =>
+      api("/businesses", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["businesses"] });
+    },
+  });
+}
+
+export function useDeleteBusiness() {
+  const qc = useQueryClient();
+  return useMutation<{ deleted: string }, Error, string>({
+    mutationFn: (id) =>
+      api(`/businesses/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["businesses"] });
     },
   });
 }

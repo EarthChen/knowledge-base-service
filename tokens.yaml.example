@@ -1,0 +1,23 @@
+# Token 配置文件
+# 复制为 tokens.yaml 并修改 token 值
+#
+# 格式说明:
+#   role: admin / editor / viewer
+#   token: Bearer Token 值
+#   business: (可选) 绑定到指定业务，省略则可切换任意业务
+#
+# 绑定规则:
+#   - 绑定了 business 的 Token → 自动使用该业务，无需传 X-Business-Id
+#   - 未绑定的 Token（通常是 admin）→ 通过 X-Business-Id 指定业务
+
+tokens:
+  - token: sk-admin-001
+    role: admin
+
+  - token: sk-editor-001
+    role: editor
+    business: default
+
+  - token: sk-viewer-001
+    role: viewer
+    business: default

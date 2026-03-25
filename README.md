@@ -533,6 +533,8 @@ EMBEDDING__BATCH_SIZE=64                         # 根据 GPU 显存调整
 
 ## MCP 工具集成
 
+> **完整文档**: [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md) — 包含 Cursor MCP 配置、认证、业务隔离、Agent 推荐工作流等详细说明。
+
 知识库服务暴露 MCP (Model Context Protocol) 工具接口，可被 AI Agent 直接调用。
 
 ### 可用工具
@@ -731,7 +733,9 @@ Agent 可通过 MCP 协议直接调用工具：
 | `HOST` | 监听地址 | `0.0.0.0` |
 | `PORT` | 监听端口 | `8100` |
 | `LOG_LEVEL` | 日志级别（DEBUG/INFO/WARNING/ERROR） | `INFO` |
-| `API_TOKEN` | API 认证令牌（可选，设置后所有请求需 Bearer Token） | - |
+| `TOKENS_FILE` | Token 配置文件路径 | `tokens.yaml` |
+| `API_TOKEN` | API 认证令牌（向后兼容，推荐用 `tokens.yaml`） | - |
+| `API_TOKENS` | 多角色 Token（向后兼容，推荐用 `tokens.yaml`） | - |
 
 ### FalkorDB 配置
 
@@ -802,7 +806,7 @@ Agent 可通过 MCP 协议直接调用工具：
 
 ## API 参考
 
-所有端点以 `/api/v1` 为前缀。如果设置了 `API_TOKEN`，需要在请求头中包含 `Authorization: Bearer <token>`。
+所有端点以 `/api/v1` 为前缀。配置了 Token 后需要在请求头中包含 `Authorization: Bearer <token>`。Token 绑定了业务时无需传 `X-Business-Id`；管理员可通过 `X-Business-Id` 指定业务。
 
 ### 索引
 
@@ -965,6 +969,9 @@ knowledge-base-service/
 ├── main.py                     # FastAPI 应用入口 + SPA 路由
 ├── config.py                   # Pydantic Settings 配置
 ├── service.py                  # 服务编排器（门面模式）
+├── service_registry.py         # 多业务服务注册表
+├── auth.py                     # 角色权限控制 (RBAC)
+├── tokens.yaml.example         # Token 配置模板（支持业务绑定）
 ├── log.py                      # 结构化日志（structlog）
 ├── dev.sh                      # 一键启动脚本
 ├── indexer/
@@ -975,7 +982,8 @@ knowledge-base-service/
 │   └── doc_indexer.py          # Markdown/RST 文档解析器
 ├── store/
 │   ├── schema.py               # 节点/边类型定义
-│   └── falkordb_store.py       # FalkorDB 异步封装（Cypher + 向量）
+│   ├── falkordb_store.py       # FalkorDB 异步封装（Cypher + 向量）
+│   └── business_manager.py     # 业务元数据管理（Redis）
 ├── query/
 │   ├── graph_query.py          # Cypher 图遍历查询
 │   ├── semantic_query.py       # 向量相似度搜索
@@ -991,6 +999,9 @@ knowledge-base-service/
 │   ├── vite.config.ts
 │   └── package.json
 ├── static/                     # Dashboard 构建产物（gitignored）
+├── docs/
+│   ├── MCP-INTEGRATION.md      # MCP 集成指南（配置、认证、工作流）
+│   └── proposals/              # 设计提案
 ├── tests/                      # 单元测试
 ├── docker-compose.yaml         # FalkorDB Docker 部署
 ├── Dockerfile

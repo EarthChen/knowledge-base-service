@@ -37,7 +37,20 @@ class KnowledgeBaseService:
             config=falkordb_config,
             embedding_dim=settings.embedding.dimension,
         )
-        self._embedding = EmbeddingGenerator(config=settings.embedding)
+        self._init_components(settings)
+
+    @classmethod
+    def from_components(cls, store: FalkorDBStore, settings: Settings) -> "KnowledgeBaseService":
+        """Create a service with a pre-built store (used by ServiceRegistry for per-business instances)."""
+        instance = cls.__new__(cls)
+        instance._settings = settings
+        instance._store = store
+        instance._init_components(settings)
+        return instance
+
+    def _init_components(self, settings: Settings) -> None:
+        """Wire up all sub-components against the current store."""
+        self._embedding = EmbeddingGenerator.shared(config=settings.embedding)
         self._parser = TreeSitterParser(supported_languages=settings.supported_languages)
         self._graph_builder = CodeGraphBuilder(
             parser=self._parser,

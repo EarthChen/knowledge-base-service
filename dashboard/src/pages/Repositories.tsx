@@ -1,6 +1,7 @@
 import { FolderGit2, Trash2, Loader2 } from "lucide-react";
 import { useRepositories, useDeleteRepository } from "../api/hooks";
 import { useI18n } from "../i18n/context";
+import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../components/Toast";
 import { SkeletonLine } from "../components/Skeleton";
 
@@ -9,6 +10,7 @@ export default function Repositories() {
   const deleteMutation = useDeleteRepository();
   const { t } = useI18n();
   const { toast } = useToast();
+  const { isAdmin } = useAuth();
 
   async function handleDelete(repo: string) {
     const msg = t.repos.deleteConfirm.replace("{repo}", repo);
@@ -87,18 +89,20 @@ export default function Repositories() {
                   </td>
                   <td className="px-5 py-3 text-slate-400">{r.nodes}</td>
                   <td className="px-5 py-3 text-right">
-                    <button
-                      onClick={() => handleDelete(r.repository)}
-                      disabled={deleteMutation.isPending}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
-                    >
-                      {deleteMutation.isPending ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <Trash2 size={12} />
-                      )}
-                      {t.repos.delete}
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleDelete(r.repository)}
+                        disabled={deleteMutation.isPending}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                      >
+                        {deleteMutation.isPending ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={12} />
+                        )}
+                        {t.repos.delete}
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))

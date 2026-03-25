@@ -1,5 +1,6 @@
 const API_BASE = "/api/v1";
 const STORAGE_KEY = "kb_api_token";
+const BUSINESS_STORAGE_KEY = "kb_business_id";
 
 export function getToken(): string {
   return localStorage.getItem(STORAGE_KEY) || "";
@@ -10,10 +11,16 @@ export function setToken(value: string) {
   else localStorage.removeItem(STORAGE_KEY);
 }
 
+export function getCurrentBusiness(): string {
+  return localStorage.getItem(BUSINESS_STORAGE_KEY) || "default";
+}
+
 function authHeaders(): Record<string, string> {
   const t = getToken();
+  const biz = getCurrentBusiness();
   const h: Record<string, string> = { "Content-Type": "application/json" };
   if (t) h.Authorization = `Bearer ${t}`;
+  if (biz) h["X-Business-Id"] = biz;
   return h;
 }
 

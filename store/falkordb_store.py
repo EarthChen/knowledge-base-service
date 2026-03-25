@@ -50,6 +50,25 @@ class FalkorDBStore:
         self._embedding_dim = embedding_dim
         self._db: FalkorDB | None = None
         self._graph: Graph | None = None
+        self._owns_connection = True
+
+    @classmethod
+    async def from_connection(
+        cls,
+        db: FalkorDB,
+        graph_name: str,
+        embedding_dim: int = 768,
+    ) -> "FalkorDBStore":
+        """Create a store from an existing FalkorDB connection with a specific graph."""
+        instance = cls.__new__(cls)
+        instance._config = None  # type: ignore[assignment]
+        instance._embedding_dim = embedding_dim
+        instance._db = db
+        instance._graph = db.select_graph(graph_name)
+        instance._owns_connection = False
+        await instance._ensure_schema()
+        log.info("falkordb_store_from_connection", graph=graph_name)
+        return instance
 
     async def connect(self) -> None:
         loop = asyncio.get_running_loop()
@@ -412,14 +431,15 @@ class FalkorDBStore:
 
     async def close(self) -> None:
         log.info("falkordb_closing")
-        if self._db is not None:
+        if self._db is not None and self._owns_connection:
             try:
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, self._db.connection.close)
             except Exception as exc:
                 log.warning("falkordb_close_error", error=str(exc))
         self._graph = None
-        self._db = None
+        if self._owns_connection:
+            self._db = None
 
     @property
     def graph(self) -> Graph | None:

@@ -1,3 +1,15 @@
+export interface Business {
+  id: string;
+  name: string;
+  description: string;
+  created_at: number;
+}
+
+export interface BusinessesResponse {
+  businesses: Business[];
+  total: number;
+}
+
 export interface GraphStats {
   function_count: number;
   class_count: number;

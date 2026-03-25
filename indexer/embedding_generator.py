@@ -297,9 +297,18 @@ class _TorchBackend(_EmbeddingBackend):
 class EmbeddingGenerator:
     """Generates embeddings using a configurable backend (ONNX or PyTorch)."""
 
+    _shared_instance: "EmbeddingGenerator | None" = None
+
     def __init__(self, config: EmbeddingConfig) -> None:
         self._config = config
         self._backend: _EmbeddingBackend | None = None
+
+    @classmethod
+    def shared(cls, config: EmbeddingConfig) -> "EmbeddingGenerator":
+        """Return a singleton instance to avoid loading the model multiple times."""
+        if cls._shared_instance is None:
+            cls._shared_instance = cls(config)
+        return cls._shared_instance
 
     def _get_backend(self) -> _EmbeddingBackend:
         if self._backend is None:

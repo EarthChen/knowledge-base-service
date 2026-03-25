@@ -2,10 +2,12 @@
 
 Provides HTTP endpoints for code/document indexing and querying,
 backed by FalkorDB graph database and sentence-transformers embeddings.
+Supports multi-business isolation via independent FalkorDB graphs.
 """
 
 from __future__ import annotations
 
+import asyncio
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,50 +18,63 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from auth import Role, TokenInfo, get_current_role, require_role, resolve_business_id, resolve_token
 from config import get_settings
 from log import get_logger, setup_logging
 from service import KnowledgeBaseService
+from service_registry import ServiceRegistry
 
 log = get_logger(__name__)
 
-_kb_service: KnowledgeBaseService | None = None
+_registry: ServiceRegistry | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    global _kb_service
+    global _registry
     settings = get_settings()
     setup_logging(level=settings.log_level)
     log.info("kb_service_starting", host=settings.host, port=settings.port)
 
-    _kb_service = KnowledgeBaseService(settings)
-    await _kb_service.start()
+    _registry = ServiceRegistry(settings)
+    await _registry.start()
 
-    app.state.kb_service = _kb_service
+    app.state.registry = _registry
     log.info("kb_service_started")
     yield
 
     log.info("kb_service_stopping")
-    if _kb_service:
-        await _kb_service.stop()
+    if _registry:
+        await _registry.stop()
     log.info("kb_service_stopped")
 
 
-def _get_service() -> KnowledgeBaseService:
-    if _kb_service is None:
+def _resolve_token(authorization: str | None = Header(default=None)) -> TokenInfo | None:
+    return resolve_token(authorization)
+
+
+def _get_effective_business_id(
+    token_info: TokenInfo | None = Depends(_resolve_token),
+    x_business_id: str = Header(default="default"),
+) -> str:
+    return resolve_business_id(token_info, x_business_id)
+
+
+async def _get_service(
+    business_id: str = Depends(_get_effective_business_id),
+) -> KnowledgeBaseService:
+    if _registry is None:
         raise HTTPException(status_code=503, detail="Service not ready")
-    return _kb_service
+    try:
+        return await _registry.get_service(business_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-def _verify_token(authorization: str | None = Header(default=None)) -> None:
-    settings = get_settings()
-    if settings.api_token:
-        expected = f"Bearer {settings.api_token}"
-        if authorization != expected:
-            raise HTTPException(status_code=401, detail="Unauthorized")
-
-
-router = APIRouter(prefix="/api/v1", dependencies=[Depends(_verify_token)])
+viewer_router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_role(Role.VIEWER))])
+editor_router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_role(Role.EDITOR))])
+admin_router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_role(Role.ADMIN))])
+public_router = APIRouter(prefix="/api/v1")
 
 
 class SemanticSearchRequest(BaseModel):
@@ -121,12 +136,12 @@ _FQN_RE = re.compile(
 )
 
 
-@router.post("/search")
-async def semantic_search(req: SemanticSearchRequest) -> dict[str, Any]:
-    import asyncio
+@viewer_router.post("/search")
+async def semantic_search(
+    req: SemanticSearchRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
     from query.hybrid_query import _extract_identifiers
-
-    svc = _get_service()
 
     if req.entity_type == "function":
         sem_coro = svc.semantic_query.search_functions(req.query, k=req.k)
@@ -192,15 +207,19 @@ async def semantic_search(req: SemanticSearchRequest) -> dict[str, Any]:
     return {"matches": top, "total": len(top), "query": req.query}
 
 
-@router.post("/graph")
-async def graph_query(req: GraphQueryRequest) -> dict[str, Any]:
-    svc = _get_service()
+@viewer_router.post("/graph")
+async def graph_query(
+    req: GraphQueryRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
     return await svc.mcp_handler.handle_rag_graph(req.model_dump())
 
 
-@router.post("/hybrid")
-async def hybrid_search(req: HybridSearchRequest) -> dict[str, Any]:
-    svc = _get_service()
+@viewer_router.post("/hybrid")
+async def hybrid_search(
+    req: HybridSearchRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
     result = await svc.hybrid_query.search_with_context(req.query, k=req.k, expand_depth=req.expand_depth)
     return {
         "semantic_matches": result.semantic_matches,
@@ -210,9 +229,11 @@ async def hybrid_search(req: HybridSearchRequest) -> dict[str, Any]:
     }
 
 
-@router.post("/index")
-async def trigger_index(req: IndexRequest) -> dict[str, Any]:
-    svc = _get_service()
+@editor_router.post("/index")
+async def trigger_index(
+    req: IndexRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
     args = req.model_dump()
     if req.repository:
         args["repository"] = req.repository
@@ -227,14 +248,16 @@ async def trigger_index(req: IndexRequest) -> dict[str, Any]:
     return result
 
 
-@router.post("/index/files")
-async def index_files(req: IndexFilesRequest) -> dict[str, Any]:
+@editor_router.post("/index/files")
+async def index_files(
+    req: IndexFilesRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
     """Index files by directly passing their content — no local directory needed.
 
     Useful for CI pipelines that provide file content from git diff,
     or when the KB service doesn't have access to the repository.
     """
-    svc = _get_service()
 
     total_nodes = 0
     total_edges = 0
@@ -290,9 +313,11 @@ async def _tag_repository(svc: KnowledgeBaseService, file_path: str, repository:
     await svc.store.execute_query(cypher, {"file": file_path, "repo": repository})
 
 
-@router.get("/stats")
-async def graph_stats(repository: str | None = None) -> dict[str, Any]:
-    svc = _get_service()
+@viewer_router.get("/stats")
+async def graph_stats(
+    repository: str | None = None,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
     stats = await svc.graph_query.get_graph_stats()
     if repository:
         repo_count = await svc.store.execute_query(
@@ -304,10 +329,11 @@ async def graph_stats(repository: str | None = None) -> dict[str, Any]:
     return stats
 
 
-@router.get("/repositories")
-async def list_repositories() -> dict[str, Any]:
+@viewer_router.get("/repositories")
+async def list_repositories(
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
     """List all indexed repositories with node counts."""
-    svc = _get_service()
     result = await svc.store.execute_query(
         "MATCH (n) WHERE n.repository IS NOT NULL "
         "RETURN n.repository AS repo, count(n) AS cnt "
@@ -318,10 +344,12 @@ async def list_repositories() -> dict[str, Any]:
     return {"repositories": repos, "total": len(repos)}
 
 
-@router.delete("/index/{repository}")
-async def delete_repository_index(repository: str) -> dict[str, Any]:
+@admin_router.delete("/index/{repository}")
+async def delete_repository_index(
+    repository: str,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
     """Delete all indexed data for a specific repository."""
-    svc = _get_service()
     result = await svc.store.execute_query(
         "MATCH (n) WHERE n.repository = $repo DETACH DELETE n RETURN count(n) AS deleted",
         {"repo": repository},
@@ -330,15 +358,17 @@ async def delete_repository_index(repository: str) -> dict[str, Any]:
     return {"repository": repository, "deleted_nodes": deleted}
 
 
-@router.post("/graph/explore")
-async def graph_explore(req: GraphExploreRequest) -> dict[str, Any]:
+@viewer_router.post("/graph/explore")
+async def graph_explore(
+    req: GraphExploreRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
     """Return nodes and edges around a named entity for force-directed graph rendering.
 
     Uses a two-phase approach:
     Phase 1 — collect neighbor nodes around the center entity.
     Phase 2 — query all edges between the collected node set.
     """
-    svc = _get_service()
 
     if not req.name:
         overview_q = (
@@ -416,12 +446,12 @@ async def graph_explore(req: GraphExploreRequest) -> dict[str, Any]:
     return {"nodes": nodes_list, "edges": edges_list}
 
 
-@router.post("/admin/backfill-fqn")
-async def backfill_fqn() -> dict[str, Any]:
+@admin_router.post("/admin/backfill-fqn")
+async def backfill_fqn(
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
     """Compute and set fqn property for all Java Class/Function nodes."""
     from indexer.code_graph_builder import compute_fqn
-
-    svc = _get_service()
     result = await svc.store.execute_query(
         "MATCH (n) WHERE (n:Class OR n:Function) AND n.file ENDS WITH '.java' "
         "AND n.fqn IS NULL "
@@ -452,10 +482,12 @@ async def backfill_fqn() -> dict[str, Any]:
     return {"updated": updated, "total_checked": len(result.data)}
 
 
-@router.get("/code/{node_uid:path}")
-async def get_code_snippet(node_uid: str) -> dict[str, Any]:
+@viewer_router.get("/code/{node_uid:path}")
+async def get_code_snippet(
+    node_uid: str,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
     """Return the code snippet for a node, useful when KB is on a remote machine."""
-    svc = _get_service()
     result = await svc.store.execute_query(
         "MATCH (n {uid: $uid}) "
         "RETURN n.name AS name, n.file AS file, n.start_line AS start_line, "
@@ -469,29 +501,97 @@ async def get_code_snippet(node_uid: str) -> dict[str, Any]:
     return result.data[0]
 
 
-@router.post("/mcp/tool")
-async def mcp_tool_call(req: MCPToolCallRequest) -> dict[str, Any]:
+@editor_router.post("/mcp/tool")
+async def mcp_tool_call(
+    req: MCPToolCallRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
     """MCP-compatible tool call endpoint."""
-    svc = _get_service()
     return await svc.mcp_handler.handle_tool_call(req.tool_name, req.arguments)
 
 
-@router.get("/mcp/tools")
-async def mcp_tools_list() -> list[dict[str, Any]]:
+@viewer_router.get("/mcp/tools")
+async def mcp_tools_list(
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> list[dict[str, Any]]:
     """List available MCP tools."""
-    svc = _get_service()
     return svc.mcp_handler.get_tools_manifest()
 
 
-@router.get("/health")
+@public_router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@public_router.get("/auth/me")
+async def auth_me(info: dict[str, Any] = Depends(get_current_role)) -> dict[str, Any]:
+    """Return the current token's role information."""
+    return info
+
+
+# ── Business CRUD endpoints ──────────────────────────────────────────────
+
+
+class CreateBusinessRequest(BaseModel):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,62}$")
+    name: str
+    description: str = ""
+
+
+@viewer_router.get("/businesses")
+async def list_businesses() -> dict[str, Any]:
+    """List all businesses."""
+    if _registry is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    loop = asyncio.get_running_loop()
+    businesses = await loop.run_in_executor(None, _registry.business_manager.list_businesses)
+    return {"businesses": businesses, "total": len(businesses)}
+
+
+@admin_router.post("/businesses")
+async def create_business(req: CreateBusinessRequest) -> dict[str, Any]:
+    """Create a new business with its own isolated graph."""
+    if _registry is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    loop = asyncio.get_running_loop()
+    try:
+        meta = await loop.run_in_executor(
+            None,
+            lambda: _registry.business_manager.create_business(req.id, req.name, req.description),  # type: ignore[union-attr]
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return meta
+
+
+@viewer_router.get("/businesses/{business_id}")
+async def get_business(business_id: str) -> dict[str, Any]:
+    """Get business details."""
+    if _registry is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    loop = asyncio.get_running_loop()
+    meta = await loop.run_in_executor(None, _registry.business_manager.get_business, business_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Business '{business_id}' not found")
+    return meta
+
+
+@admin_router.delete("/businesses/{business_id}")
+async def delete_business(business_id: str) -> dict[str, Any]:
+    """Delete a business and all its graph data."""
+    if _registry is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    try:
+        await _registry.remove_service(business_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"deleted": business_id}
 
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _INDEX_HTML = _STATIC_DIR / "index.html"
 
-_SPA_ROUTES = {"search", "graph", "explorer", "repositories", "indexing", "settings"}
+_SPA_ROUTES = {"search", "graph", "explorer", "repositories", "indexing", "settings", "businesses"}
 
 
 def create_app() -> FastAPI:
@@ -501,7 +601,10 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
-    app.include_router(router)
+    app.include_router(public_router)
+    app.include_router(viewer_router)
+    app.include_router(editor_router)
+    app.include_router(admin_router)
 
     if _STATIC_DIR.is_dir():
         app.mount("/assets", StaticFiles(directory=_STATIC_DIR / "assets"), name="static-assets")

@@ -12,6 +12,7 @@ export interface Translations {
     explorer: string;
     repositories: string;
     indexing: string;
+    businesses: string;
     settings: string;
   };
   sidebar: {
@@ -131,6 +132,25 @@ export interface Translations {
     edgeTypes: string;
     doubleClickHint: string;
     emptyHint: string;
+  };
+  businesses: {
+    title: string;
+    create: string;
+    creating: string;
+    created: string;
+    createFailed: string;
+    idLabel: string;
+    nameLabel: string;
+    descLabel: string;
+    descPlaceholder: string;
+    deleteBtn: string;
+    deleteConfirm: string;
+    deleted: string;
+    deleteFailed: string;
+    current: string;
+    switchTo: string;
+    cancel: string;
+    empty: string;
   };
   settings: {
     title: string;

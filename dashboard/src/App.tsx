@@ -7,6 +7,7 @@ import GraphQuery from "./pages/GraphQuery";
 import GraphExplorer from "./pages/GraphExplorer";
 import Repositories from "./pages/Repositories";
 import Indexing from "./pages/Indexing";
+import Businesses from "./pages/Businesses";
 import SettingsPage from "./pages/SettingsPage";
 
 export default function App() {
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="explorer" element={<GraphExplorer />} />
           <Route path="repositories" element={<Repositories />} />
           <Route path="indexing" element={<Indexing />} />
+          <Route path="businesses" element={<Businesses />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>

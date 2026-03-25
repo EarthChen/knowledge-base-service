@@ -344,6 +344,118 @@ async def list_repositories(
     return {"repositories": repos, "total": len(repos)}
 
 
+def _relative_file_path(file_path: str, repository: str | None) -> str:
+    """Strip clone/base prefix from absolute paths so responses use repo-relative paths."""
+    if not file_path:
+        return file_path
+    normalized = file_path.replace("\\", "/")
+    if repository:
+        marker = f"/{repository}/"
+        idx = normalized.find(marker)
+        if idx != -1:
+            return normalized[idx + len(marker) :]
+    return normalized
+
+
+@viewer_router.get("/documents")
+async def list_documents(
+    repository: str | None = None,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """List top-level document nodes with section metadata for sidebar navigation."""
+    base_cypher = (
+        "MATCH (n:Document)-[:CONTAINS]->(sec:Document) "
+        "{where_clause}"
+        "RETURN n.uid AS uid, n.name AS name, n.file AS file, n.title AS title, "
+        "n.repository AS repository, n.content_hash AS content_hash, "
+        "sec.uid AS sec_uid, sec.name AS sec_name, sec.title AS sec_title, "
+        "sec.start_line AS sec_start_line "
+        "ORDER BY n.file, sec.start_line"
+    )
+    if repository:
+        cypher = base_cypher.format(where_clause="WHERE n.repository = $repo ")
+        params: dict[str, Any] = {"repo": repository}
+    else:
+        cypher = base_cypher.format(where_clause="")
+        params = {}
+    result = await svc.store.execute_query(cypher, params)
+
+    by_uid: dict[str, dict[str, Any]] = {}
+    for r in result.data:
+        uid = r.get("uid")
+        if not uid:
+            continue
+        if uid not in by_uid:
+            repo = r.get("repository")
+            raw_file = r.get("file") or ""
+            by_uid[uid] = {
+                "file": _relative_file_path(raw_file, repo),
+                "title": r.get("title") or r.get("name") or "",
+                "repository": repo,
+                "uid": uid,
+                "content_hash": r.get("content_hash"),
+                "sections": [],
+            }
+        sec_uid = r.get("sec_uid")
+        if sec_uid:
+            by_uid[uid]["sections"].append({
+                "title": r.get("sec_name") or r.get("sec_title") or "",
+                "uid": sec_uid,
+                "start_line": r.get("sec_start_line"),
+            })
+
+    documents = sorted(
+        by_uid.values(),
+        key=lambda d: (d.get("repository") or "", d.get("file") or ""),
+    )
+    for d in documents:
+        d["sections"].sort(key=lambda s: (s.get("start_line") is None, s.get("start_line") or 0))
+
+    return {"documents": documents, "total": len(documents)}
+
+
+@viewer_router.get("/documents/{doc_uid:path}")
+async def get_document(
+    doc_uid: str,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Return a root document and all section children with full section content."""
+    cypher = (
+        "MATCH (doc:Document {uid: $uid})-[:CONTAINS]->(section:Document) "
+        "RETURN doc.title AS title, doc.file AS file, doc.repository AS repository, "
+        "section.uid AS section_uid, section.name AS section_name, "
+        "section.title AS section_title, section.content AS content, "
+        "section.start_line AS start_line "
+        "ORDER BY section.start_line"
+    )
+    result = await svc.store.execute_query(cypher, {"uid": doc_uid})
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    first = result.data[0]
+    repo = first.get("repository")
+    raw_file = first.get("file") or ""
+
+    sections: list[dict[str, Any]] = []
+    for r in result.data:
+        suid = r.get("section_uid")
+        if not suid:
+            continue
+        sections.append({
+            "title": r.get("section_name") or r.get("section_title") or "",
+            "content": r.get("content") or "",
+            "start_line": r.get("start_line"),
+            "uid": suid,
+        })
+
+    return {
+        "title": first.get("title") or "",
+        "file": _relative_file_path(raw_file, repo),
+        "repository": repo,
+        "sections": sections,
+    }
+
+
 @admin_router.delete("/index/{repository}")
 async def delete_repository_index(
     repository: str,
@@ -588,10 +700,150 @@ async def delete_business(business_id: str) -> dict[str, Any]:
     return {"deleted": business_id}
 
 
+class SyncRepoRequest(BaseModel):
+    """Request to git pull and incrementally re-index a repository."""
+    repository: str = Field(..., description="Repository name (must already be indexed)")
+    base_ref: str = Field(default="HEAD~1", description="Git diff base reference")
+    head_ref: str = Field(default="HEAD", description="Git diff head reference")
+
+
+class SyncAllRequest(BaseModel):
+    """Request to sync all indexed repositories."""
+    base_ref: str = Field(default="HEAD~1", description="Git diff base reference")
+    head_ref: str = Field(default="HEAD", description="Git diff head reference")
+
+
+async def _git_pull(directory: str) -> dict[str, str]:
+    """Run git pull in a directory."""
+    loop = asyncio.get_running_loop()
+    import subprocess
+    result = await loop.run_in_executor(
+        None,
+        lambda: subprocess.run(
+            ["git", "pull", "--ff-only"],
+            capture_output=True, text=True, cwd=directory, timeout=60,
+        ),
+    )
+    return {
+        "returncode": str(result.returncode),
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+    }
+
+
+@admin_router.post("/sync/repo")
+async def sync_repository(
+    req: SyncRepoRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Git pull a repository and run incremental re-indexing."""
+    result = await svc.store.execute_query(
+        "MATCH (n {repository: $repo}) RETURN DISTINCT n.file AS file LIMIT 1",
+        {"repo": req.repository},
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail=f"Repository '{req.repository}' not found in index")
+
+    sample_file = result.data[0].get("file", "")
+    if not sample_file:
+        raise HTTPException(status_code=500, detail="Cannot determine repository directory")
+
+    repo_dir = _infer_repo_root(sample_file, req.repository)
+    if not repo_dir or not Path(repo_dir).is_dir():
+        raise HTTPException(status_code=500, detail=f"Repository directory not found: {repo_dir}")
+
+    pull_result = await _git_pull(repo_dir)
+
+    if pull_result["stdout"] == "Already up to date.":
+        return {
+            "repository": req.repository,
+            "directory": repo_dir,
+            "git_pull": "already_up_to_date",
+            "index_stats": None,
+        }
+
+    index_stats = await svc.indexer.index_incremental(repo_dir, req.base_ref, req.head_ref)
+
+    if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
+        await svc.store.execute_query(
+            "MATCH (n) WHERE n.file STARTS WITH $dir AND n.repository IS NULL SET n.repository = $repo",
+            {"dir": repo_dir, "repo": req.repository},
+        )
+
+    return {
+        "repository": req.repository,
+        "directory": repo_dir,
+        "git_pull": pull_result,
+        "index_stats": index_stats,
+    }
+
+
+@admin_router.post("/sync/all")
+async def sync_all_repositories(
+    req: SyncAllRequest | None = None,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Git pull all indexed repositories and run incremental re-indexing for each."""
+    repos_result = await svc.store.execute_query(
+        "MATCH (n) WHERE n.repository IS NOT NULL "
+        "RETURN DISTINCT n.repository AS repo, collect(DISTINCT n.file)[0] AS sample_file",
+    )
+
+    if not repos_result.data:
+        return {"synced": [], "total": 0}
+
+    base_ref = (req.base_ref if req else "HEAD~1")
+    head_ref = (req.head_ref if req else "HEAD")
+
+    results = []
+    for row in repos_result.data:
+        repo = row.get("repo", "")
+        sample_file = row.get("sample_file", "")
+        if not repo or not sample_file:
+            continue
+
+        repo_dir = _infer_repo_root(sample_file, repo)
+        if not repo_dir or not Path(repo_dir).is_dir():
+            results.append({"repository": repo, "status": "error", "detail": "directory not found"})
+            continue
+
+        try:
+            pull_result = await _git_pull(repo_dir)
+            if pull_result["stdout"] == "Already up to date.":
+                results.append({"repository": repo, "status": "up_to_date"})
+                continue
+
+            index_stats = await svc.indexer.index_incremental(repo_dir, base_ref, head_ref)
+            if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
+                await svc.store.execute_query(
+                    "MATCH (n) WHERE n.file STARTS WITH $dir AND n.repository IS NULL SET n.repository = $repo",
+                    {"dir": repo_dir, "repo": repo},
+                )
+            results.append({"repository": repo, "status": "synced", "stats": index_stats})
+        except Exception as exc:
+            log.warning("sync_repo_error", repo=repo, error=str(exc))
+            results.append({"repository": repo, "status": "error", "detail": str(exc)})
+
+    return {"synced": results, "total": len(results)}
+
+
+def _infer_repo_root(sample_file: str, repo_name: str) -> str | None:
+    """Infer repository root directory from a sample indexed file path and repository name."""
+    idx = sample_file.find(f"/{repo_name}/")
+    if idx >= 0:
+        return sample_file[:idx + len(repo_name) + 1]
+    idx = sample_file.find(f"/{repo_name}")
+    if idx >= 0:
+        candidate = sample_file[:idx + len(repo_name) + 1].rstrip("/")
+        if Path(candidate).is_dir():
+            return candidate
+    return None
+
+
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _INDEX_HTML = _STATIC_DIR / "index.html"
 
-_SPA_ROUTES = {"search", "graph", "explorer", "repositories", "indexing", "settings", "businesses"}
+_SPA_ROUTES = {"search", "graph", "explorer", "repositories", "indexing", "settings", "businesses", "documents", "sync"}
 
 
 def create_app() -> FastAPI:

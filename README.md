@@ -1,6 +1,6 @@
 # 知识库服务
 
-独立的 RAG（检索增强生成）服务，面向代码和文档知识。使用 Tree-sitter 将源代码解析为属性图，通过 sentence-transformers + CodeRankEmbed（代码检索 SOTA 模型, 137M 参数, 768 维, 8192 上下文长度）生成向量嵌入，并存储在 FalkorDB 中实现图遍历和语义搜索的结合。
+独立的 RAG（检索增强生成）服务，面向代码和文档知识。使用 Tree-sitter 将源代码解析为属性图，通过 BAAI/bge-m3（多语言+代码, 568M 参数, 1024 维, 8192 上下文, 支持 Dense/Sparse/ColBERT 三模式检索）生成向量嵌入，并存储在 FalkorDB 中实现图遍历和语义搜索的结合。
 
 ## 架构
 
@@ -39,7 +39,7 @@ graph TD
     A -->|扫描 .md/.rst| D[文档解析<br/>标题/章节/代码引用]
     C --> E[批量写入 FalkorDB]
     D --> E
-    E --> F[向量嵌入生成<br/>CodeRankEmbed]
+    E --> F[向量嵌入生成<br/>bge-m3]
     F --> G[向量写入节点]
     G --> H[✅ 索引完成]
 ```
@@ -138,7 +138,7 @@ curl -X POST http://localhost:8100/api/v1/index \
 2. 使用 Tree-sitter 解析每个文件的 AST（函数、类、导入、调用关系）
 3. 扫描 `.md`/`.rst` 文档，提取标题、章节和代码引用
 4. 将解析结果构建为属性图（节点 + 边）并写入 FalkorDB
-5. 使用 CodeRankEmbed 为所有 Function、Class、Document 节点生成向量嵌入
+5. 使用 bge-m3 为所有 Function、Class、Document 节点生成向量嵌入
 6. 将向量写入节点的 `embedding` 属性
 
 > **耗时**: 首次索引根据仓库大小可能需要数分钟（主要耗时在模型加载和向量生成）。后续增量索引通常在秒级完成。
@@ -519,8 +519,8 @@ curl -X POST http://localhost:8100/api/v1/index \
 
 ```bash
 # .env
-EMBEDDING__MODEL_NAME=nomic-ai/CodeRankEmbed    # 默认 SOTA 代码检索模型
-EMBEDDING__DIMENSION=768                         # 必须匹配模型输出维度
+EMBEDDING__MODEL_NAME=BAAI/bge-m3               # 多语言+代码嵌入模型
+EMBEDDING__DIMENSION=1024                        # 必须匹配模型输出维度
 EMBEDDING__DEVICE=auto                           # auto: cuda > mps > cpu
 EMBEDDING__BATCH_SIZE=64                         # 根据 GPU 显存调整
 
@@ -750,11 +750,11 @@ Agent 可通过 MCP 协议直接调用工具：
 
 | 变量 | 说明 | 默认值 |
 |---|---|---|
-| `EMBEDDING__MODEL_NAME` | Sentence-transformers 模型 | `nomic-ai/CodeRankEmbed` |
-| `EMBEDDING__DIMENSION` | 向量维度（必须匹配模型） | `768` |
+| `EMBEDDING__MODEL_NAME` | Sentence-transformers 模型 | `BAAI/bge-m3` |
+| `EMBEDDING__DIMENSION` | 向量维度（必须匹配模型） | `1024` |
 | `EMBEDDING__DEVICE` | 计算设备（`auto` / `cpu` / `cuda` / `mps`），`auto` 自动检测最优设备 | `auto` |
 | `EMBEDDING__BATCH_SIZE` | 向量批处理大小 | `32` |
-| `EMBEDDING__QUERY_PREFIX` | 查询指令前缀 | `Represent this query for searching relevant code: ` |
+| `EMBEDDING__QUERY_PREFIX` | 查询指令前缀（bge-m3 不需要） | `` |
 | `EMBEDDING__TRUST_REMOTE_CODE` | 允许加载远程模型代码 | `true` |
 
 ---

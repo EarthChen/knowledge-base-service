@@ -16,8 +16,8 @@ class FalkorDBConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    model_name: str = "nomic-ai/CodeRankEmbed"
-    dimension: int = 768
+    model_name: str = "BAAI/bge-m3"
+    dimension: int = 1024
     device: str = "auto"
     backend: str = "onnx"
     onnx_path: str = ""
@@ -25,7 +25,7 @@ class EmbeddingConfig(BaseModel):
     chunk_size: int = 64
     use_fp16: bool = True
     max_length: int = 8192
-    query_prefix: str = "Represent this query for searching relevant code: "
+    query_prefix: str = ""
     trust_remote_code: bool = True
 
     def resolve_device(self) -> str:

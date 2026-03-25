@@ -3,7 +3,7 @@
 
 Usage:
     uv pip install torch sentence-transformers   # one-time only
-    uv run scripts/export_onnx.py [--model nomic-ai/CodeRankEmbed] [--output models/]
+    uv run scripts/export_onnx.py [--model BAAI/bge-m3] [--output models/]
 
 After export you can uninstall torch:
     uv pip uninstall torch sentence-transformers
@@ -20,7 +20,7 @@ from pathlib import Path
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export embedding model to ONNX")
-    parser.add_argument("--model", default="nomic-ai/CodeRankEmbed", help="HuggingFace model name")
+    parser.add_argument("--model", default="BAAI/bge-m3", help="HuggingFace model name")
     parser.add_argument("--output", default="models", help="Output directory")
     parser.add_argument("--opset", type=int, default=17, help="ONNX opset version")
     args = parser.parse_args()

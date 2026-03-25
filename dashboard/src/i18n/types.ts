@@ -11,6 +11,7 @@ export interface Translations {
     graphQuery: string;
     explorer: string;
     repositories: string;
+    documents: string;
     indexing: string;
     businesses: string;
     settings: string;
@@ -101,6 +102,12 @@ export interface Translations {
     deleteConfirm: string;
     deletedNodes: string;
     deleteFailed: string;
+  };
+  documents: {
+    title: string;
+    selectDoc: string;
+    allRepos: string;
+    sections: string;
   };
   indexing: {
     title: string;

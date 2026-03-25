@@ -100,3 +100,30 @@ export interface GraphExploreResponse {
   nodes: GraphNode[];
   edges: GraphEdge[];
 }
+
+export interface DocumentSection {
+  title: string;
+  content: string;
+  start_line: number;
+  uid: string;
+}
+
+export interface DocumentItem {
+  file: string;
+  title: string;
+  repository: string;
+  uid: string;
+  sections: { title: string; uid: string; start_line: number }[];
+}
+
+export interface DocumentsResponse {
+  documents: DocumentItem[];
+  total: number;
+}
+
+export interface DocumentDetail {
+  title: string;
+  file: string;
+  repository: string;
+  sections: DocumentSection[];
+}

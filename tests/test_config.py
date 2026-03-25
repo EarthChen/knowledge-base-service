@@ -15,9 +15,9 @@ class TestFalkorDBConfig:
 class TestEmbeddingConfig:
     def test_defaults(self):
         cfg = EmbeddingConfig()
-        assert cfg.model_name == "nomic-ai/CodeRankEmbed"
-        assert cfg.dimension == 768
-        assert cfg.device == "cpu"
+        assert cfg.model_name == "BAAI/bge-m3"
+        assert cfg.dimension == 1024
+        assert cfg.device == "auto"
         assert cfg.batch_size == 32
 
 

@@ -12,7 +12,7 @@ export default function Businesses() {
   const { data, isLoading } = useBusinesses();
   const createMut = useCreateBusiness();
   const deleteMut = useDeleteBusiness();
-  const { addToast } = useToast();
+  const { toast } = useToast();
   const { isAdmin } = useAuth();
 
   const [showForm, setShowForm] = useState(false);
@@ -28,13 +28,13 @@ export default function Businesses() {
         name: formName.trim(),
         description: formDesc.trim(),
       });
-      addToast(t.businesses.created, "success");
+      toast("success", t.businesses.created);
       setFormId("");
       setFormName("");
       setFormDesc("");
       setShowForm(false);
     } catch (err: unknown) {
-      addToast(String((err as Error).message || t.businesses.createFailed), "error");
+      toast("error", String((err as Error).message || t.businesses.createFailed));
     }
   };
 
@@ -43,12 +43,12 @@ export default function Businesses() {
     if (!yes) return;
     try {
       await deleteMut.mutateAsync(id);
-      addToast(t.businesses.deleted.replace("{id}", id), "success");
+      toast("success", t.businesses.deleted.replace("{id}", id));
       if (currentBusiness === id) {
         setCurrentBusiness("default");
       }
     } catch (err: unknown) {
-      addToast(String((err as Error).message || t.businesses.deleteFailed), "error");
+      toast("error", String((err as Error).message || t.businesses.deleteFailed));
     }
   };
 

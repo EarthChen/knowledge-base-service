@@ -11,6 +11,7 @@ const en: Translations = {
     graphQuery: "Graph Query",
     explorer: "Graph Explorer",
     repositories: "Repositories",
+    documents: "Documents",
     indexing: "Indexing",
     businesses: "Businesses",
     settings: "Settings",
@@ -101,6 +102,12 @@ const en: Translations = {
     deleteConfirm: 'Delete all indexed data for "{repo}"?',
     deletedNodes: 'Deleted {count} nodes from "{repo}"',
     deleteFailed: "Delete failed",
+  },
+  documents: {
+    title: "Document Browser",
+    selectDoc: "Select a document from the sidebar",
+    allRepos: "All Repositories",
+    sections: "Section Navigation",
   },
   indexing: {
     title: "Indexing",

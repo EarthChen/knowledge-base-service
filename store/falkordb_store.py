@@ -45,7 +45,7 @@ class QueryResultWrapper:
 class FalkorDBStore:
     """Thin wrapper over FalkorDB for code knowledge graph operations."""
 
-    def __init__(self, config: FalkorDBConfig, embedding_dim: int = 768) -> None:
+    def __init__(self, config: FalkorDBConfig, embedding_dim: int = 1024) -> None:
         self._config = config
         self._embedding_dim = embedding_dim
         self._db: FalkorDB | None = None
@@ -57,7 +57,7 @@ class FalkorDBStore:
         cls,
         db: FalkorDB,
         graph_name: str,
-        embedding_dim: int = 768,
+        embedding_dim: int = 1024,
     ) -> "FalkorDBStore":
         """Create a store from an existing FalkorDB connection with a specific graph."""
         instance = cls.__new__(cls)
@@ -360,12 +360,24 @@ class FalkorDBStore:
         return results[:k]
 
     async def resolve_cross_file_edges(self) -> dict[str, int]:
-        """Create INHERITS, IMPORTS, and REFERENCES edges via name-based matching.
+        """Rebuild INHERITS, IMPORTS, and REFERENCES edges via name-based matching.
 
-        Called after all nodes are upserted so that cross-file targets exist.
+        Deletes stale auto-resolved edges first, then recreates from current data.
+        This ensures renamed/deleted entities don't leave orphan edges.
         """
         loop = asyncio.get_running_loop()
         stats: dict[str, int] = {}
+
+        for edge_type in ("INHERITS", "IMPORTS", "REFERENCES"):
+            try:
+                await loop.run_in_executor(
+                    None,
+                    lambda et=edge_type: self._graph.query(  # type: ignore[union-attr]
+                        f"MATCH ()-[r:{et}]->() DELETE r"
+                    ),
+                )
+            except Exception as exc:
+                log.warning("stale_edge_cleanup_error", edge_type=edge_type, error=str(exc))
 
         inherits_q = (
             "MATCH (child:Class) "

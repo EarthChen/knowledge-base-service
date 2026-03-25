@@ -1,7 +1,8 @@
 """Incremental indexer — indexes only changed files based on git diff.
 
 Supports both full reindexing and incremental updates triggered by
-git push events or manual requests.
+git push events or manual requests.  Handles both code files and
+document files (.md, .rst, .txt) in incremental mode.
 """
 
 from __future__ import annotations
@@ -15,23 +16,28 @@ from log import get_logger
 from store.falkordb_store import FalkorDBStore
 from store.schema import NodeLabel
 from indexer.code_graph_builder import CodeGraphBuilder
+from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator
 
 log = get_logger(__name__)
 
+_DOC_EXTENSIONS = {".md", ".markdown", ".rst", ".txt"}
+
 
 class IncrementalIndexer:
-    """Orchestrates code indexing — full or incremental."""
+    """Orchestrates code + document indexing — full or incremental."""
 
     def __init__(
         self,
         store: FalkorDBStore,
         graph_builder: CodeGraphBuilder,
         embedding_gen: EmbeddingGenerator,
+        doc_indexer: DocumentIndexer | None = None,
     ) -> None:
         self._store = store
         self._builder = graph_builder
         self._embedding = embedding_gen
+        self._doc_indexer = doc_indexer or DocumentIndexer()
 
     async def index_full(self, directory: str) -> dict[str, int]:
         """Full reindex — processes files one at a time to cap memory usage."""
@@ -66,7 +72,11 @@ class IncrementalIndexer:
         base_ref: str = "HEAD~1",
         head_ref: str = "HEAD",
     ) -> dict[str, int]:
-        """Incremental index based on git diff between two refs."""
+        """Incremental index based on git diff between two refs.
+
+        Handles both code files (via CodeGraphBuilder) and document files
+        (.md, .rst, .txt via DocumentIndexer).
+        """
         changed_files = await self._get_changed_files(directory, base_ref, head_ref)
         if not changed_files:
             log.info("incremental_index_no_changes")
@@ -77,21 +87,38 @@ class IncrementalIndexer:
 
         deleted_count = 0
         for fpath in deleted_files:
-            deleted_count += await self._store.delete_by_file(fpath)
+            full_path = str(Path(directory) / fpath)
+            deleted_count += await self._store.delete_by_file(full_path)
 
         total_nodes = 0
         total_edges = 0
+        total_doc_nodes = 0
+        total_doc_edges = 0
+
         for fpath in modified_files:
-            await self._store.delete_by_file(fpath)
             full_path = str(Path(directory) / fpath)
+            await self._store.delete_by_file(full_path)
             if not Path(full_path).exists():
                 continue
 
-            nodes, edges = self._builder.build_from_file(full_path)
-            await self._store.batch_upsert(nodes, edges)
-            await self._generate_and_store_embeddings(nodes)
-            total_nodes += len(nodes)
-            total_edges += len(edges)
+            suffix = Path(fpath).suffix.lower()
+
+            if suffix in _DOC_EXTENSIONS:
+                try:
+                    doc = self._doc_indexer.parse_document(full_path)
+                    doc_nodes, doc_edges = self._doc_indexer.build_graph(doc)
+                    await self._store.batch_upsert(doc_nodes, doc_edges)
+                    await self._generate_and_store_embeddings(doc_nodes)
+                    total_doc_nodes += len(doc_nodes)
+                    total_doc_edges += len(doc_edges)
+                except Exception as exc:
+                    log.warning("incremental_doc_index_error", file=full_path, error=str(exc))
+            else:
+                nodes, edges = self._builder.build_from_file(full_path)
+                await self._store.batch_upsert(nodes, edges)
+                await self._generate_and_store_embeddings(nodes)
+                total_nodes += len(nodes)
+                total_edges += len(edges)
 
         xref = await self._store.resolve_cross_file_edges()
 
@@ -102,6 +129,8 @@ class IncrementalIndexer:
             "deleted_nodes": deleted_count,
             "nodes": total_nodes,
             "edges": total_edges,
+            "doc_nodes": total_doc_nodes,
+            "doc_edges": total_doc_edges,
             "inherits": xref.get("inherits", 0),
             "imports": xref.get("imports", 0),
             "references": xref.get("references", 0),
@@ -143,10 +172,18 @@ class IncrementalIndexer:
 
         return len(embeddings)
 
+    def _is_indexable_file(self, file_path: str) -> bool:
+        """Check if a file is indexable (code or document)."""
+        suffix = Path(file_path).suffix.lower()
+        return self._builder.detect_language(file_path) is not None or suffix in _DOC_EXTENSIONS
+
     async def _get_changed_files(
         self, directory: str, base_ref: str, head_ref: str,
     ) -> list[tuple[str, str]]:
-        """Run git diff to find changed files with their status."""
+        """Run git diff to find changed files with their status.
+
+        Includes both code files and document files (.md, .rst, .txt).
+        """
         loop = asyncio.get_running_loop()
         try:
             result = await loop.run_in_executor(
@@ -170,7 +207,7 @@ class IncrementalIndexer:
                 parts = line.split("\t", 1)
                 if len(parts) == 2:
                     status, fpath = parts
-                    if self._builder.detect_language(fpath) is not None:
+                    if self._is_indexable_file(fpath):
                         files.append((fpath, status[0]))
             return files
 

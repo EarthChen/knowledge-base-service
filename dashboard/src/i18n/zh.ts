@@ -11,6 +11,7 @@ const zh: Translations = {
     graphQuery: "图查询",
     explorer: "图探索",
     repositories: "仓库管理",
+    documents: "文档浏览",
     indexing: "索引",
     businesses: "业务管理",
     settings: "设置",
@@ -101,6 +102,12 @@ const zh: Translations = {
     deleteConfirm: "确定要删除仓库「{repo}」的所有索引数据吗？",
     deletedNodes: "已从「{repo}」中删除 {count} 个节点",
     deleteFailed: "删除失败",
+  },
+  documents: {
+    title: "文档浏览",
+    selectDoc: "选择左侧文档查看",
+    allRepos: "全部仓库",
+    sections: "章节导航",
   },
   indexing: {
     title: "索引",

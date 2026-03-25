@@ -11,6 +11,8 @@ import type {
   IndexResponse,
   GraphExploreResponse,
   CodeSnippetResponse,
+  DocumentsResponse,
+  DocumentDetail,
 } from "./types";
 
 export function useHealth() {
@@ -144,5 +146,23 @@ export function useDeleteBusiness() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["businesses"] });
     },
+  });
+}
+
+export function useDocuments(repository?: string) {
+  const params = repository ? `?repository=${encodeURIComponent(repository)}` : "";
+  return useQuery<DocumentsResponse>({
+    queryKey: ["documents", repository],
+    queryFn: () => api(`/documents${params}`, { method: "GET" }),
+    staleTime: 60_000,
+  });
+}
+
+export function useDocument(uid: string | null) {
+  return useQuery<DocumentDetail>({
+    queryKey: ["document", uid],
+    queryFn: () => api(`/documents/${encodeURIComponent(uid!)}`, { method: "GET" }),
+    enabled: !!uid,
+    staleTime: 60_000,
   });
 }

@@ -2,11 +2,11 @@
 
 Uses sentence-transformers to generate dense vector embeddings
 for semantic search over code and documentation.
-Default model: nomic-ai/CodeRankEmbed (code retrieval SOTA, 137M params, 8192 context).
+Default model: BAAI/bge-m3 (multilingual + code, 568M params, 8192 context, 1024 dim).
 
 Supports two backends:
-  - "onnx"  (default): onnxruntime + transformers tokenizer — ~50MB runtime, no PyTorch
-  - "torch": sentence-transformers + PyTorch — ~1.5GB runtime, supports MPS/CUDA
+  - "onnx"  (default): onnxruntime + transformers tokenizer — no PyTorch
+  - "torch": sentence-transformers + PyTorch — supports MPS/CUDA
 """
 
 from __future__ import annotations
@@ -107,29 +107,38 @@ class _OnnxBackend(_EmbeddingBackend):
         )
 
     def _resolve_onnx_path(self) -> str:
-        """Locate or download the ONNX model file."""
+        """Locate or download the ONNX model file.
+
+        Handles repos where ONNX files live in an ``onnx/`` subdirectory
+        (e.g. BAAI/bge-m3) as well as repos with a top-level ``model.onnx``.
+        For models with external data files (``model.onnx_data``), both files
+        are downloaded so ONNX Runtime can resolve the relative reference.
+        """
         from pathlib import Path
 
         from huggingface_hub import hf_hub_download, try_to_load_from_cache
 
-        onnx_repo = f"{self._config.model_name}"
-        onnx_filename = "model.onnx"
+        onnx_repo = self._config.model_name
 
-        cached = try_to_load_from_cache(onnx_repo, onnx_filename)
-        if isinstance(cached, str) and Path(cached).is_file():
-            return cached
+        candidates = [
+            ("onnx/model.onnx", "onnx/model.onnx_data"),
+            ("model.onnx", "model.onnx_data"),
+        ]
 
-        try:
-            return hf_hub_download(onnx_repo, onnx_filename)
-        except Exception:
-            pass
+        for onnx_file, data_file in candidates:
+            cached = try_to_load_from_cache(onnx_repo, onnx_file)
+            if isinstance(cached, str) and Path(cached).is_file():
+                return cached
 
-        community_repo = "sirasagi62/code-rank-embed-onnx"
-        log.info("onnx_trying_community_repo", repo=community_repo)
-        try:
-            return hf_hub_download(community_repo, "model.onnx")
-        except Exception:
-            pass
+            try:
+                path = hf_hub_download(onnx_repo, onnx_file)
+                try:
+                    hf_hub_download(onnx_repo, data_file)
+                except Exception:
+                    pass
+                return path
+            except Exception:
+                continue
 
         log.warning("onnx_not_found_exporting", model=self._config.model_name)
         return self._export_to_onnx()

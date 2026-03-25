@@ -61,6 +61,7 @@ class KnowledgeBaseService:
             store=self._store,
             graph_builder=self._graph_builder,
             embedding_gen=self._embedding,
+            doc_indexer=self._doc_indexer,
         )
 
         self._graph_query = GraphQueryService(store=self._store)

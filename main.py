@@ -6,6 +6,7 @@ backed by FalkorDB graph database and sentence-transformers embeddings.
 
 from __future__ import annotations
 
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -103,23 +104,92 @@ class IndexFilesRequest(BaseModel):
     repository: str | None = None
 
 
+class GraphExploreRequest(BaseModel):
+    name: str = ""
+    depth: int = Field(default=2, ge=1, le=5)
+    limit: int = Field(default=100, ge=1, le=500)
+
+
 class MCPToolCallRequest(BaseModel):
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
+_FQN_RE = re.compile(
+    r"[a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*){2,}"
+    r"(?:#[a-zA-Z_][\w]*(?:\([^)]*\))?)?"
+)
+
+
 @router.post("/search")
 async def semantic_search(req: SemanticSearchRequest) -> dict[str, Any]:
+    import asyncio
+    from query.hybrid_query import _extract_identifiers
+
     svc = _get_service()
+
     if req.entity_type == "function":
-        result = await svc.semantic_query.search_functions(req.query, k=req.k)
+        sem_coro = svc.semantic_query.search_functions(req.query, k=req.k)
     elif req.entity_type == "class":
-        result = await svc.semantic_query.search_classes(req.query, k=req.k)
+        sem_coro = svc.semantic_query.search_classes(req.query, k=req.k)
     elif req.entity_type == "document":
-        result = await svc.semantic_query.search_documents(req.query, k=req.k)
+        sem_coro = svc.semantic_query.search_documents(req.query, k=req.k)
     else:
-        result = await svc.semantic_query.search_all(req.query, k=req.k)
-    return {"matches": result.matches, "total": result.total, "query": result.query_text}
+        sem_coro = svc.semantic_query.search_all(req.query, k=req.k)
+
+    fqn_matches = _FQN_RE.findall(req.query)
+    if fqn_matches:
+        identifiers = []
+        for fqn in fqn_matches:
+            clean = fqn.split("(")[0].strip()
+            identifiers.append(clean)
+    else:
+        identifiers = _extract_identifiers(req.query)
+        if not identifiers:
+            identifiers = [req.query.strip()]
+
+    async def _kw_search() -> list[dict[str, Any]]:
+        all_hits: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for ident in identifiers[:3]:
+            hits = await svc.store.keyword_search(ident, k=req.k)
+            for hit in hits:
+                uid = hit.get("uid", "")
+                if uid and uid not in seen:
+                    seen.add(uid)
+                    all_hits.append(hit)
+        return all_hits
+
+    sem_result, kw_hits = await asyncio.gather(sem_coro, _kw_search())
+
+    merged: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+
+    for hit in kw_hits:
+        key = f"{hit.get('name', '')}:{hit.get('file', '')}:{hit.get('line', '')}"
+        if key not in seen_keys:
+            seen_keys.add(key)
+            merged.append({
+                "type": hit.get("type", ""),
+                "name": hit.get("name", ""),
+                "file": hit.get("file", ""),
+                "line": hit.get("line", 0),
+                "score": hit.get("score", 1.0),
+                "signature": hit.get("signature", ""),
+                "docstring": hit.get("docstring", ""),
+                "uid": hit.get("uid", ""),
+                "fqn": hit.get("fqn", ""),
+            })
+
+    for m in sem_result.matches:
+        key = f"{m.get('name', '')}:{m.get('file', '')}:{m.get('line', '')}"
+        if key not in seen_keys:
+            seen_keys.add(key)
+            merged.append(m)
+
+    merged.sort(key=lambda x: x.get("score", 0), reverse=True)
+    top = merged[:req.k]
+    return {"matches": top, "total": len(top), "query": req.query}
 
 
 @router.post("/graph")
@@ -146,7 +216,15 @@ async def trigger_index(req: IndexRequest) -> dict[str, Any]:
     args = req.model_dump()
     if req.repository:
         args["repository"] = req.repository
-    return await svc.mcp_handler.handle_rag_index(args)
+    result = await svc.mcp_handler.handle_rag_index(args)
+
+    if req.repository:
+        await svc.store.execute_query(
+            "MATCH (n) WHERE n.file STARTS WITH $dir AND n.repository IS NULL SET n.repository = $repo",
+            {"dir": req.directory, "repo": req.repository},
+        )
+
+    return result
 
 
 @router.post("/index/files")
@@ -252,6 +330,145 @@ async def delete_repository_index(repository: str) -> dict[str, Any]:
     return {"repository": repository, "deleted_nodes": deleted}
 
 
+@router.post("/graph/explore")
+async def graph_explore(req: GraphExploreRequest) -> dict[str, Any]:
+    """Return nodes and edges around a named entity for force-directed graph rendering.
+
+    Uses a two-phase approach:
+    Phase 1 — collect neighbor nodes around the center entity.
+    Phase 2 — query all edges between the collected node set.
+    """
+    svc = _get_service()
+
+    if not req.name:
+        overview_q = (
+            "MATCH (n) "
+            "WHERE n:Function OR n:Class OR n:Module "
+            "WITH n, rand() AS r ORDER BY r LIMIT $limit "
+            "RETURN n.uid AS uid, n.name AS name, labels(n)[0] AS type, "
+            "n.file AS file, n.start_line AS line"
+        )
+        result = await svc.store.execute_query(overview_q, {"limit": req.limit})
+        nodes = [
+            {"id": r["uid"], "name": r["name"], "type": r["type"],
+             "file": r["file"], "line": r["line"]}
+            for r in result.data if r.get("uid")
+        ]
+        return {"nodes": nodes, "edges": []}
+
+    nodes_q = (
+        "MATCH (center) "
+        "WHERE (center:Function OR center:Class OR center:Module) "
+        "AND center.name = $name "
+        f"OPTIONAL MATCH (center)-[*1..{req.depth}]-(neighbor) "
+        "WHERE neighbor:Function OR neighbor:Class OR neighbor:Module "
+        "WITH center, collect(DISTINCT neighbor) AS nbrs "
+        "UNWIND ([center] + nbrs) AS n "
+        "WITH DISTINCT n LIMIT $limit "
+        "RETURN n.uid AS uid, n.name AS name, labels(n)[0] AS type, "
+        "n.file AS file, n.start_line AS line"
+    )
+    nodes_result = await svc.store.execute_query(nodes_q, {"name": req.name, "limit": req.limit})
+
+    if not nodes_result.data:
+        return {"nodes": [], "edges": []}
+
+    node_uids: list[str] = []
+    nodes_list: list[dict[str, Any]] = []
+    for r in nodes_result.data:
+        uid = r.get("uid", "")
+        if not uid:
+            continue
+        node_uids.append(uid)
+        nodes_list.append({
+            "id": uid,
+            "name": r.get("name", ""),
+            "type": r.get("type", ""),
+            "file": r.get("file", ""),
+            "line": r.get("line", 0),
+        })
+
+    if nodes_list:
+        first_name = req.name
+        for nd in nodes_list:
+            if nd["name"] == first_name:
+                nd["is_center"] = True
+                break
+
+    edges_q = (
+        "MATCH (a)-[rel]->(b) "
+        "WHERE a.uid IN $uids AND b.uid IN $uids "
+        "RETURN a.uid AS source, b.uid AS target, type(rel) AS rel_type"
+    )
+    edges_result = await svc.store.execute_query(edges_q, {"uids": node_uids})
+
+    edges_list: list[dict[str, Any]] = []
+    edge_keys: set[str] = set()
+    for r in edges_result.data:
+        src = r.get("source", "")
+        tgt = r.get("target", "")
+        rtype = r.get("rel_type", "")
+        key = f"{src}-{rtype}->{tgt}"
+        if key not in edge_keys:
+            edge_keys.add(key)
+            edges_list.append({"source": src, "target": tgt, "type": rtype})
+
+    return {"nodes": nodes_list, "edges": edges_list}
+
+
+@router.post("/admin/backfill-fqn")
+async def backfill_fqn() -> dict[str, Any]:
+    """Compute and set fqn property for all Java Class/Function nodes."""
+    from indexer.code_graph_builder import compute_fqn
+
+    svc = _get_service()
+    result = await svc.store.execute_query(
+        "MATCH (n) WHERE (n:Class OR n:Function) AND n.file ENDS WITH '.java' "
+        "AND n.fqn IS NULL "
+        "RETURN n.uid AS uid, n.name AS name, n.file AS file, labels(n)[0] AS label",
+    )
+
+    updated = 0
+    for row in result.data:
+        label = row.get("label", "")
+        parent_class = ""
+        if label == "Function":
+            file_fqn = row.get("file", "")
+            cls_result = await svc.store.execute_query(
+                "MATCH (c:Class)-[:CONTAINS]->(f:Function {uid: $uid}) RETURN c.name AS cname LIMIT 1",
+                {"uid": row["uid"]},
+            )
+            if cls_result.data:
+                parent_class = cls_result.data[0].get("cname", "")
+
+        fqn = compute_fqn(row.get("file", ""), row.get("name", ""), label, parent_class=parent_class)
+        if fqn:
+            await svc.store.execute_query(
+                "MATCH (n {uid: $uid}) SET n.fqn = $fqn",
+                {"uid": row["uid"], "fqn": fqn},
+            )
+            updated += 1
+
+    return {"updated": updated, "total_checked": len(result.data)}
+
+
+@router.get("/code/{node_uid:path}")
+async def get_code_snippet(node_uid: str) -> dict[str, Any]:
+    """Return the code snippet for a node, useful when KB is on a remote machine."""
+    svc = _get_service()
+    result = await svc.store.execute_query(
+        "MATCH (n {uid: $uid}) "
+        "RETURN n.name AS name, n.file AS file, n.start_line AS start_line, "
+        "n.end_line AS end_line, coalesce(n.code_snippet, '') AS code_snippet, "
+        "coalesce(n.signature, '') AS signature, coalesce(n.docstring, '') AS docstring, "
+        "coalesce(n.fqn, '') AS fqn, labels(n)[0] AS type",
+        {"uid": node_uid},
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Node not found")
+    return result.data[0]
+
+
 @router.post("/mcp/tool")
 async def mcp_tool_call(req: MCPToolCallRequest) -> dict[str, Any]:
     """MCP-compatible tool call endpoint."""
@@ -272,6 +489,9 @@ async def health() -> dict[str, str]:
 
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
+_INDEX_HTML = _STATIC_DIR / "index.html"
+
+_SPA_ROUTES = {"search", "graph", "explorer", "repositories", "indexing", "settings"}
 
 
 def create_app() -> FastAPI:
@@ -284,7 +504,14 @@ def create_app() -> FastAPI:
     app.include_router(router)
 
     if _STATIC_DIR.is_dir():
-        app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")
+        app.mount("/assets", StaticFiles(directory=_STATIC_DIR / "assets"), name="static-assets")
+
+        @app.get("/{full_path:path}")
+        async def spa_fallback(full_path: str) -> FileResponse:
+            file_path = _STATIC_DIR / full_path
+            if full_path and file_path.is_file():
+                return FileResponse(file_path)
+            return FileResponse(_INDEX_HTML)
 
     return app
 

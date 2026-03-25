@@ -19,6 +19,29 @@ from .schema import VECTOR_INDEX_CONFIGS, EdgeType, GraphEdge, GraphNode, NodeLa
 log = get_logger(__name__)
 
 
+class QueryResultWrapper:
+    """Lightweight wrapper around FalkorDB query results.
+
+    Provides both dict-based access via ``.data`` and raw positional access via subscript
+    to maintain backward compatibility with callers that use ``result[row][col]``.
+    """
+
+    __slots__ = ("data", "raw")
+
+    def __init__(self, data: list[dict[str, Any]], raw: list[list[Any]] | None = None):
+        self.data = data
+        self.raw = raw or []
+
+    def __getitem__(self, idx: int) -> list[Any]:
+        return self.raw[idx]
+
+    def __len__(self) -> int:
+        return len(self.raw)
+
+    def __bool__(self) -> bool:
+        return bool(self.raw)
+
+
 class FalkorDBStore:
     """Thin wrapper over FalkorDB for code knowledge graph operations."""
 
@@ -54,15 +77,16 @@ class FalkorDBStore:
         loop = asyncio.get_running_loop()
 
         for label in NodeLabel:
-            try:
-                await loop.run_in_executor(
-                    None,
-                    lambda lbl=label: self._graph.query(  # type: ignore[union-attr]
-                        f"CREATE INDEX FOR (n:{lbl}) ON (n.uid)"
-                    ),
-                )
-            except Exception:
-                pass
+            for prop in ("uid", "name", "fqn"):
+                try:
+                    await loop.run_in_executor(
+                        None,
+                        lambda lbl=label, p=prop: self._graph.query(  # type: ignore[union-attr]
+                            f"CREATE INDEX FOR (n:{lbl}) ON (n.{p})"
+                        ),
+                    )
+                except Exception:
+                    pass
 
         for idx_cfg in VECTOR_INDEX_CONFIGS:
             try:
@@ -145,13 +169,15 @@ class FalkorDBStore:
         log.info("falkordb_deleted_by_file", file=file_path, deleted=deleted)
         return deleted
 
-    async def execute_query(self, cypher: str, params: dict[str, Any] | None = None) -> list[list[Any]]:
+    async def execute_query(self, cypher: str, params: dict[str, Any] | None = None) -> "QueryResultWrapper":
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
             lambda: self._graph.query(cypher, params=params or {})  # type: ignore[union-attr]
         )
-        return result.result_set
+        header = [col[1] if isinstance(col, (list, tuple)) else str(col) for col in (result.header or [])]
+        data = [dict(zip(header, row)) for row in (result.result_set or [])]
+        return QueryResultWrapper(data=data, raw=result.result_set)
 
     async def vector_search(
         self,
@@ -171,6 +197,218 @@ class FalkorDBStore:
             None, lambda: self._graph.query(query)  # type: ignore[union-attr]
         )
         return [(row[0], row[1]) for row in result.result_set]
+
+    async def keyword_search(
+        self,
+        keyword: str,
+        k: int = 10,
+        *,
+        exact_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Find nodes by name, FQN, or fuzzy CONTAINS match.
+
+        Supports:
+        - Simple name: ``checkGeetest``
+        - FQN with ``#``: ``com.immomo...EsClient#insert``
+        - FQN class only: ``com.immomo...EsClient``
+
+        Returns results sorted by relevance (exact > fqn > fuzzy).
+        """
+        loop = asyncio.get_running_loop()
+        results: list[dict[str, Any]] = []
+        seen_uids: set[str] = set()
+
+        _RETURN_CLAUSE = (
+            "RETURN n.uid AS uid, n.name AS name, n.file AS file, "
+            "n.start_line AS line, labels(n)[0] AS type, "
+            "coalesce(n.signature, '') AS signature, "
+            "coalesce(n.docstring, '') AS docstring, "
+            "coalesce(n.fqn, '') AS fqn"
+        )
+
+        if "#" in keyword or (keyword.count(".") >= 2 and " " not in keyword):
+            fqn_q = (
+                "MATCH (n) "
+                "WHERE (n:Function OR n:Class OR n:Module) AND n.fqn = $fqn "
+                f"{_RETURN_CLAUSE} LIMIT $k"
+            )
+            try:
+                rows = await loop.run_in_executor(
+                    None,
+                    lambda: self._graph.query(fqn_q, params={"fqn": keyword, "k": k}),  # type: ignore[union-attr]
+                )
+                for row in rows.result_set or []:
+                    uid = row[0]
+                    if uid and uid not in seen_uids:
+                        seen_uids.add(uid)
+                        results.append({
+                            "uid": uid, "name": row[1], "file": row[2],
+                            "line": row[3], "type": row[4], "signature": row[5],
+                            "docstring": row[6], "fqn": row[7], "score": 1.0,
+                        })
+            except Exception as exc:
+                log.warning("keyword_fqn_search_error", error=str(exc))
+
+            if results:
+                return results[:k]
+
+            if "#" in keyword:
+                parts = keyword.rsplit("#", 1)
+                method_name = parts[1].split("(")[0].strip() if len(parts) > 1 else ""
+                class_fqn = parts[0]
+                class_simple = class_fqn.rsplit(".", 1)[-1] if "." in class_fqn else class_fqn
+                if method_name:
+                    combo_q = (
+                        "MATCH (c:Class)-[:CONTAINS]->(f:Function {name: $method}) "
+                        "WHERE c.name = $class_name "
+                        f"WITH f AS n {_RETURN_CLAUSE} LIMIT $k"
+                    )
+                    try:
+                        rows = await loop.run_in_executor(
+                            None,
+                            lambda: self._graph.query(  # type: ignore[union-attr]
+                                combo_q, params={"method": method_name, "class_name": class_simple, "k": k},
+                            ),
+                        )
+                        for row in rows.result_set or []:
+                            uid = row[0]
+                            if uid and uid not in seen_uids:
+                                seen_uids.add(uid)
+                                results.append({
+                                    "uid": uid, "name": row[1], "file": row[2],
+                                    "line": row[3], "type": row[4], "signature": row[5],
+                                    "docstring": row[6], "fqn": row[7], "score": 0.95,
+                                })
+                    except Exception as exc:
+                        log.warning("keyword_combo_search_error", error=str(exc))
+
+            if results:
+                return results[:k]
+
+        exact_q = (
+            "MATCH (n) "
+            "WHERE (n:Function OR n:Class OR n:Module) AND n.name = $name "
+            f"{_RETURN_CLAUSE} LIMIT $k"
+        )
+        try:
+            rows = await loop.run_in_executor(
+                None,
+                lambda: self._graph.query(exact_q, params={"name": keyword, "k": k}),  # type: ignore[union-attr]
+            )
+            for row in rows.result_set or []:
+                uid = row[0]
+                if uid and uid not in seen_uids:
+                    seen_uids.add(uid)
+                    results.append({
+                        "uid": uid, "name": row[1], "file": row[2],
+                        "line": row[3], "type": row[4], "signature": row[5],
+                        "docstring": row[6], "fqn": row[7], "score": 1.0,
+                    })
+        except Exception as exc:
+            log.warning("keyword_exact_search_error", error=str(exc))
+
+        if exact_only or len(results) >= k:
+            return results[:k]
+
+        fuzzy_q = (
+            "MATCH (n) "
+            "WHERE (n:Function OR n:Class OR n:Module) "
+            "AND toLower(n.name) CONTAINS toLower($keyword) "
+            "AND n.name <> $keyword "
+            f"{_RETURN_CLAUSE} "
+            "ORDER BY size(n.name) "
+            "LIMIT $k"
+        )
+        try:
+            rows = await loop.run_in_executor(
+                None,
+                lambda: self._graph.query(  # type: ignore[union-attr]
+                    fuzzy_q, params={"keyword": keyword, "k": k},
+                ),
+            )
+            for row in rows.result_set or []:
+                uid = row[0]
+                if uid and uid not in seen_uids:
+                    seen_uids.add(uid)
+                    results.append({
+                        "uid": uid, "name": row[1], "file": row[2],
+                        "line": row[3], "type": row[4], "signature": row[5],
+                        "docstring": row[6], "fqn": row[7], "score": 0.9,
+                    })
+        except Exception as exc:
+            log.warning("keyword_fuzzy_search_error", error=str(exc))
+
+        return results[:k]
+
+    async def resolve_cross_file_edges(self) -> dict[str, int]:
+        """Create INHERITS, IMPORTS, and REFERENCES edges via name-based matching.
+
+        Called after all nodes are upserted so that cross-file targets exist.
+        """
+        loop = asyncio.get_running_loop()
+        stats: dict[str, int] = {}
+
+        inherits_q = (
+            "MATCH (child:Class) "
+            "WHERE child.base_classes IS NOT NULL AND size(child.base_classes) > 0 "
+            "UNWIND child.base_classes AS base_name "
+            "MATCH (parent:Class {name: base_name}) "
+            "WHERE parent.uid <> child.uid "
+            "MERGE (child)-[:INHERITS]->(parent) "
+            "RETURN count(*) AS cnt"
+        )
+        try:
+            result = await loop.run_in_executor(
+                None, lambda: self._graph.query(inherits_q)  # type: ignore[union-attr]
+            )
+            stats["inherits"] = result.result_set[0][0] if result.result_set else 0
+        except Exception as exc:
+            log.warning("resolve_inherits_error", error=str(exc))
+            stats["inherits"] = 0
+
+        imports_q = (
+            "MATCH (m:Module) "
+            "WHERE m.imports IS NOT NULL AND size(m.imports) > 0 "
+            "UNWIND m.imports AS imp "
+            "WITH m, imp, split(imp, '.') AS parts "
+            "WITH m, parts[size(parts)-1] AS mod_name "
+            "MATCH (target:Module {name: mod_name}) "
+            "WHERE target.uid <> m.uid "
+            "MERGE (m)-[:IMPORTS]->(target) "
+            "RETURN count(*) AS cnt"
+        )
+        try:
+            result = await loop.run_in_executor(
+                None, lambda: self._graph.query(imports_q)  # type: ignore[union-attr]
+            )
+            stats["imports"] = result.result_set[0][0] if result.result_set else 0
+        except Exception as exc:
+            log.warning("resolve_imports_error", error=str(exc))
+            stats["imports"] = 0
+
+        refs_q = (
+            "MATCH (d:Document) "
+            "WHERE d.code_references IS NOT NULL AND size(d.code_references) > 0 "
+            "UNWIND d.code_references AS ref "
+            "OPTIONAL MATCH (f:Function {name: ref}) "
+            "OPTIONAL MATCH (c:Class {name: ref}) "
+            "WITH d, ref, collect(DISTINCT f) + collect(DISTINCT c) AS targets "
+            "UNWIND targets AS t "
+            "WITH d, t WHERE t IS NOT NULL "
+            "MERGE (d)-[:REFERENCES]->(t) "
+            "RETURN count(*) AS cnt"
+        )
+        try:
+            result = await loop.run_in_executor(
+                None, lambda: self._graph.query(refs_q)  # type: ignore[union-attr]
+            )
+            stats["references"] = result.result_set[0][0] if result.result_set else 0
+        except Exception as exc:
+            log.warning("resolve_references_error", error=str(exc))
+            stats["references"] = 0
+
+        log.info("cross_file_edges_resolved", **stats)
+        return stats
 
     async def close(self) -> None:
         log.info("falkordb_closing")

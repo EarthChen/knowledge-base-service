@@ -85,6 +85,8 @@ class SemanticQueryService:
                 match["file"] = props.get("file", "")
                 match["line"] = props.get("start_line", 0)
                 match["docstring"] = props.get("docstring", "")[:200]
+                match["uid"] = props.get("uid", "")
+                match["fqn"] = props.get("fqn", "")
                 if label == NodeLabel.FUNCTION:
                     match["signature"] = props.get("signature", "")
                 elif label == NodeLabel.DOCUMENT:

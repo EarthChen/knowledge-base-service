@@ -1,0 +1,146 @@
+export type Locale = "en" | "zh";
+
+export interface Translations {
+  app: {
+    title: string;
+    headerTitle: string;
+  };
+  nav: {
+    overview: string;
+    search: string;
+    graphQuery: string;
+    explorer: string;
+    repositories: string;
+    indexing: string;
+    settings: string;
+  };
+  sidebar: {
+    service: string;
+    healthy: string;
+    unreachable: string;
+  };
+  overview: {
+    title: string;
+    functions: string;
+    classes: string;
+    modules: string;
+    documents: string;
+    edgeCounts: string;
+    calls: string;
+    inherits: string;
+    imports: string;
+    contains: string;
+    references: string;
+    nodeDistribution: string;
+    edgeDistribution: string;
+    failedToLoadStats: string;
+  };
+  search: {
+    title: string;
+    semantic: string;
+    hybrid: string;
+    placeholder: string;
+    searchBtn: string;
+    searching: string;
+    type: string;
+    all: string;
+    function: string;
+    class: string;
+    document: string;
+    topK: string;
+    expandDepth: string;
+    resultsFor: string;
+    noResults: string;
+    semanticMatches: string;
+    graphContext: string;
+    score: string;
+    file: string;
+    line: string;
+    viewCode: string;
+    hideCode: string;
+  };
+  graph: {
+    title: string;
+    queryType: string;
+    callChain: string;
+    inheritanceTree: string;
+    classMethods: string;
+    moduleDeps: string;
+    reverseDeps: string;
+    findEntity: string;
+    fileEntities: string;
+    graphStats: string;
+    customCypher: string;
+    functionName: string;
+    className: string;
+    moduleName: string;
+    entityName: string;
+    filePath: string;
+    depth: string;
+    direction: string;
+    downstream: string;
+    upstream: string;
+    entityType: string;
+    any: string;
+    cypherQuery: string;
+    runQuery: string;
+    running: string;
+  };
+  repos: {
+    title: string;
+    repository: string;
+    nodes: string;
+    actions: string;
+    delete: string;
+    noRepos: string;
+    repoCount: string;
+    deleteConfirm: string;
+    deletedNodes: string;
+    deleteFailed: string;
+  };
+  indexing: {
+    title: string;
+    full: string;
+    incremental: string;
+    directoryPath: string;
+    directoryPlaceholder: string;
+    repoName: string;
+    repoPlaceholder: string;
+    baseRef: string;
+    headRef: string;
+    startIndexing: string;
+    indexingInProgress: string;
+    indexingComplete: string;
+    indexingFailed: string;
+    directoryRequired: string;
+    indexingResult: string;
+  };
+  explorer: {
+    title: string;
+    entityName: string;
+    searchPlaceholder: string;
+    depth: string;
+    limit: string;
+    explore: string;
+    nodes: string;
+    edges: string;
+    nodeTypes: string;
+    edgeTypes: string;
+    doubleClickHint: string;
+    emptyHint: string;
+  };
+  settings: {
+    title: string;
+    apiToken: string;
+    apiTokenDesc: string;
+    tokenPlaceholder: string;
+    save: string;
+    tokenSaved: string;
+    serviceInfo: string;
+    health: string;
+    apiBase: string;
+    deployment: string;
+    deploymentValue: string;
+    language: string;
+  };
+}

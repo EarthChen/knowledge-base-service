@@ -88,6 +88,7 @@ class DocumentIndexer:
                 "start_line": 1,
                 "content_hash": doc.content_hash,
                 "title": doc.title,
+                "code_references": doc.code_references,
             },
         )
         nodes.append(doc_node)
@@ -112,20 +113,6 @@ class DocumentIndexer:
                 edge_type=EdgeType.CONTAINS,
                 source_uid=doc_node.uid,
                 target_uid=section_node.uid,
-            ))
-
-        for ref in doc.code_references:
-            func_uid = f"{NodeLabel.FUNCTION}::{ref}:0"
-            class_uid = f"{NodeLabel.CLASS}::{ref}:0"
-            edges.append(GraphEdge(
-                edge_type=EdgeType.REFERENCES,
-                source_uid=doc_node.uid,
-                target_uid=func_uid,
-            ))
-            edges.append(GraphEdge(
-                edge_type=EdgeType.REFERENCES,
-                source_uid=doc_node.uid,
-                target_uid=class_uid,
             ))
 
         return nodes, edges

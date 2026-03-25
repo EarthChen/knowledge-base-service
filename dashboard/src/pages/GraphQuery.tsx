@@ -1,0 +1,210 @@
+import { useState } from "react";
+import { GitFork } from "lucide-react";
+import { useGraphQuery } from "../api/hooks";
+import { useI18n } from "../i18n/context";
+import JsonView from "../components/JsonView";
+
+type QueryType =
+  | "call_chain"
+  | "inheritance_tree"
+  | "class_methods"
+  | "module_dependencies"
+  | "reverse_dependencies"
+  | "find_entity"
+  | "file_entities"
+  | "graph_stats"
+  | "raw_cypher";
+
+interface FieldConfig {
+  showName?: boolean;
+  nameKey?: string;
+  showFile?: boolean;
+  showDepth?: boolean;
+  showDirection?: boolean;
+  showEntityType?: boolean;
+  showCypher?: boolean;
+}
+
+const FIELD_MAP: Record<QueryType, FieldConfig> = {
+  call_chain: { showName: true, nameKey: "functionName", showDepth: true, showDirection: true },
+  inheritance_tree: { showName: true, nameKey: "className" },
+  class_methods: { showName: true, nameKey: "className" },
+  module_dependencies: { showName: true, nameKey: "moduleName" },
+  reverse_dependencies: { showName: true, nameKey: "entityName" },
+  find_entity: { showName: true, nameKey: "entityName", showEntityType: true },
+  file_entities: { showFile: true },
+  graph_stats: {},
+  raw_cypher: { showCypher: true },
+};
+
+export default function GraphQuery() {
+  const [queryType, setQueryType] = useState<QueryType>("call_chain");
+  const [name, setName] = useState("");
+  const [file, setFile] = useState("");
+  const [depth, setDepth] = useState(3);
+  const [direction, setDirection] = useState("downstream");
+  const [entityType, setEntityType] = useState("any");
+  const [cypher, setCypher] = useState("");
+
+  const { t } = useI18n();
+  const mutation = useGraphQuery();
+  const fields = FIELD_MAP[queryType];
+
+  const QUERY_TYPES: { value: QueryType; label: string }[] = [
+    { value: "call_chain", label: t.graph.callChain },
+    { value: "inheritance_tree", label: t.graph.inheritanceTree },
+    { value: "class_methods", label: t.graph.classMethods },
+    { value: "module_dependencies", label: t.graph.moduleDeps },
+    { value: "reverse_dependencies", label: t.graph.reverseDeps },
+    { value: "find_entity", label: t.graph.findEntity },
+    { value: "file_entities", label: t.graph.fileEntities },
+    { value: "graph_stats", label: t.graph.graphStats },
+    { value: "raw_cypher", label: t.graph.customCypher },
+  ];
+
+  const nameLabel = fields.nameKey
+    ? t.graph[fields.nameKey as keyof typeof t.graph] || fields.nameKey
+    : "";
+
+  function handleRun(e: React.FormEvent) {
+    e.preventDefault();
+    mutation.mutate({
+      query_type: queryType,
+      name,
+      file,
+      depth,
+      direction,
+      entity_type: entityType,
+      cypher,
+    });
+  }
+
+  const inputClass =
+    "w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30";
+
+  return (
+    <div className="space-y-6">
+      <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
+        <GitFork size={20} /> {t.graph.title}
+      </h2>
+
+      <form
+        onSubmit={handleRun}
+        className="space-y-4 rounded-xl border border-slate-800 bg-slate-850 p-5"
+      >
+        <label className="block text-xs font-medium text-slate-400">
+          {t.graph.queryType}
+          <select
+            value={queryType}
+            onChange={(e) => setQueryType(e.target.value as QueryType)}
+            className={`mt-1 ${inputClass}`}
+          >
+            {QUERY_TYPES.map((qt) => (
+              <option key={qt.value} value={qt.value}>
+                {qt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {fields.showName && (
+          <label className="block text-xs font-medium text-slate-400">
+            {nameLabel}
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={nameLabel}
+              className={`mt-1 ${inputClass}`}
+            />
+          </label>
+        )}
+
+        {fields.showFile && (
+          <label className="block text-xs font-medium text-slate-400">
+            {t.graph.filePath}
+            <input
+              type="text"
+              value={file}
+              onChange={(e) => setFile(e.target.value)}
+              placeholder="e.g. src/main.py"
+              className={`mt-1 ${inputClass}`}
+            />
+          </label>
+        )}
+
+        {fields.showDepth && (
+          <label className="block text-xs font-medium text-slate-400">
+            {t.graph.depth}
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={depth}
+              onChange={(e) => setDepth(Number(e.target.value) || 3)}
+              className={`mt-1 w-24 ${inputClass}`}
+            />
+          </label>
+        )}
+
+        {fields.showDirection && (
+          <label className="block text-xs font-medium text-slate-400">
+            {t.graph.direction}
+            <select
+              value={direction}
+              onChange={(e) => setDirection(e.target.value)}
+              className={`mt-1 ${inputClass}`}
+            >
+              <option value="downstream">{t.graph.downstream}</option>
+              <option value="upstream">{t.graph.upstream}</option>
+            </select>
+          </label>
+        )}
+
+        {fields.showEntityType && (
+          <label className="block text-xs font-medium text-slate-400">
+            {t.graph.entityType}
+            <select
+              value={entityType}
+              onChange={(e) => setEntityType(e.target.value)}
+              className={`mt-1 ${inputClass}`}
+            >
+              <option value="any">{t.graph.any}</option>
+              <option value="function">{t.search.function}</option>
+              <option value="class">{t.search.class}</option>
+            </select>
+          </label>
+        )}
+
+        {fields.showCypher && (
+          <label className="block text-xs font-medium text-slate-400">
+            {t.graph.cypherQuery}
+            <textarea
+              value={cypher}
+              onChange={(e) => setCypher(e.target.value)}
+              rows={4}
+              placeholder="MATCH (n:Function) RETURN n LIMIT 10"
+              className={`mt-1 resize-y font-mono ${inputClass}`}
+            />
+          </label>
+        )}
+
+        <button
+          type="submit"
+          disabled={mutation.isPending}
+          className="rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+        >
+          {mutation.isPending ? t.graph.running : t.graph.runQuery}
+        </button>
+      </form>
+
+      {mutation.error && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
+          {mutation.error.message}
+        </div>
+      )}
+
+      {mutation.data && <JsonView data={mutation.data} />}
+    </div>
+  );
+}

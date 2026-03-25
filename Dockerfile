@@ -10,9 +10,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 COPY . .
 
-RUN uv pip install --system --no-cache \
-    torch --index-url https://download.pytorch.org/whl/cpu && \
-    uv pip install --system --no-cache .
+RUN uv pip install --system --no-cache .
 
 RUN python -c "\
 from tree_sitter_language_pack import get_parser; \
@@ -26,6 +24,7 @@ RUN groupadd -r kbuser && useradd -r -g kbuser -m -d /home/kbuser kbuser && \
 USER kbuser
 
 ENV EMBEDDING__DEVICE=cpu
+ENV EMBEDDING__BACKEND=onnx
 
 EXPOSE 8100
 

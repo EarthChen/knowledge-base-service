@@ -2,10 +2,17 @@
 
 Provides compound queries that first find semantically relevant entities,
 then expand them via graph relationships to discover related code.
+
+Search uses a **layered hybrid** strategy:
+  Layer 1 — exact & fuzzy name match via graph (keyword_search)
+  Layer 2 — vector similarity search (semantic_search)
+  Layer 3 — fusion & deduplication, then graph expansion
 """
 
 from __future__ import annotations
 
+import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -17,6 +24,38 @@ from query.graph_query import GraphQueryService
 from query.semantic_query import SemanticQueryService
 
 log = get_logger(__name__)
+
+_FQN_RE = re.compile(
+    r"[a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*){2,}"
+    r"(?:#[a-zA-Z_][\w]*(?:\([^)]*\))?)?"
+)
+
+_IDENT_RE = re.compile(
+    r"\b"
+    r"(?:"
+    r"[a-z]+(?:[A-Z][a-zA-Z0-9]*)+|"   # camelCase  e.g. loginV2
+    r"[A-Z][a-z]+(?:[A-Z][a-zA-Z0-9]*)+|"  # PascalCase e.g. MdpMoaWrapperService
+    r"[a-z]+(?:_[a-z0-9]+)+|"           # snake_case e.g. get_user_info
+    r"[a-zA-Z_][a-zA-Z0-9_]{2,}"        # plain identifier >=3 chars
+    r")"
+    r"\b"
+)
+
+
+def _extract_identifiers(query: str) -> list[str]:
+    """Extract probable code identifiers from a natural-language query."""
+    stop_words = {
+        "the", "this", "that", "what", "where", "which", "how", "does",
+        "function", "class", "method", "module", "file", "code", "find",
+        "search", "show", "get", "set", "for", "from", "with", "and",
+        "not", "are", "was", "has", "have", "all",
+    }
+    tokens = _IDENT_RE.findall(query)
+    return [t for t in tokens if t.lower() not in stop_words]
+
+
+async def _empty_list() -> list[dict[str, Any]]:
+    return []
 
 
 @dataclass
@@ -48,18 +87,95 @@ class HybridQueryService:
         include_callers: bool = True,
         include_callees: bool = True,
     ) -> HybridResult:
-        """Semantic search + graph expansion for comprehensive context.
+        """Layered hybrid search: keyword match + semantic search + graph expansion.
 
-        1. Find top-k semantically similar entities
-        2. For each Function, expand via CALLS edges
-        3. For each Class, expand via CONTAINS edges
+        Layer 1: exact & fuzzy name match (via FalkorDB keyword_search)
+        Layer 2: vector similarity search (via embedding model)
+        Layer 3: fusion (keyword hits scored higher), dedup, graph expansion
         """
-        semantic_result = await self._semantic.search_all(query_text, k)
+        fqn_matches = _FQN_RE.findall(query_text)
+        if fqn_matches:
+            identifiers = [m.split("(")[0].strip() for m in fqn_matches]
+        else:
+            identifiers = _extract_identifiers(query_text)
 
+        keyword_coro = self._keyword_search_multi(identifiers, k) if identifiers else _empty_list()
+        semantic_coro = self._semantic.search_all(query_text, k)
+
+        keyword_hits, semantic_result = await asyncio.gather(keyword_coro, semantic_coro)
+
+        merged = self._fuse_results(keyword_hits, semantic_result.matches, k)
+
+        graph_context = await self._expand_graph(merged, expand_depth, include_callers, include_callees)
+
+        return HybridResult(
+            semantic_matches=merged,
+            graph_context=graph_context,
+            query_text=query_text,
+            total=len(merged) + len(graph_context),
+        )
+
+    async def _keyword_search_multi(self, identifiers: list[str], k: int) -> list[dict[str, Any]]:
+        """Run keyword search for each extracted identifier and merge results."""
+        all_hits: list[dict[str, Any]] = []
+        seen_uids: set[str] = set()
+        for ident in identifiers[:3]:
+            hits = await self._store.keyword_search(ident, k=k)
+            for hit in hits:
+                uid = hit.get("uid", "")
+                if uid and uid not in seen_uids:
+                    seen_uids.add(uid)
+                    all_hits.append(hit)
+        return all_hits
+
+    @staticmethod
+    def _fuse_results(
+        keyword_hits: list[dict[str, Any]],
+        semantic_matches: list[dict[str, Any]],
+        k: int,
+    ) -> list[dict[str, Any]]:
+        """Merge keyword and semantic results, dedup by name+file, keyword hits first."""
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for hit in keyword_hits:
+            key = f"{hit.get('name', '')}:{hit.get('file', '')}:{hit.get('line', '')}"
+            if key not in seen:
+                seen.add(key)
+                merged.append({
+                    "type": hit.get("type", ""),
+                    "name": hit.get("name", ""),
+                    "file": hit.get("file", ""),
+                    "line": hit.get("line", 0),
+                    "score": hit.get("score", 1.0),
+                    "signature": hit.get("signature", ""),
+                    "docstring": hit.get("docstring", ""),
+                    "match_source": "keyword",
+                })
+
+        for m in semantic_matches:
+            key = f"{m.get('name', '')}:{m.get('file', '')}:{m.get('line', '')}"
+            if key not in seen:
+                seen.add(key)
+                entry = dict(m)
+                entry["match_source"] = "semantic"
+                merged.append(entry)
+
+        merged.sort(key=lambda x: x.get("score", 0), reverse=True)
+        return merged[:k]
+
+    async def _expand_graph(
+        self,
+        matches: list[dict[str, Any]],
+        expand_depth: int,
+        include_callers: bool,
+        include_callees: bool,
+    ) -> list[dict[str, Any]]:
+        """Expand matched entities through graph relationships."""
         graph_context: list[dict[str, Any]] = []
         seen_names: set[str] = set()
 
-        for match in semantic_result.matches:
+        for match in matches:
             name = match.get("name", "")
             entity_type = match.get("type", "")
 
@@ -67,7 +183,7 @@ class HybridQueryService:
                 continue
             seen_names.add(name)
 
-            if entity_type == str(NodeLabel.FUNCTION):
+            if entity_type == str(NodeLabel.FUNCTION) or entity_type == "Function":
                 if include_callees:
                     callees = await self._graph.find_call_chain(name, depth=expand_depth, direction="downstream")
                     for item in callees.data:
@@ -82,7 +198,7 @@ class HybridQueryService:
                         item["source"] = name
                         graph_context.append(item)
 
-            elif entity_type == str(NodeLabel.CLASS):
+            elif entity_type == str(NodeLabel.CLASS) or entity_type == "Class":
                 methods = await self._graph.find_class_methods(name)
                 for item in methods.data:
                     item["relationship"] = "method_of"
@@ -95,14 +211,14 @@ class HybridQueryService:
                     item["source"] = name
                     graph_context.append(item)
 
-        unique_context = self._deduplicate(graph_context)
+        return self._deduplicate(graph_context)
 
-        return HybridResult(
-            semantic_matches=semantic_result.matches,
-            graph_context=unique_context,
-            query_text=query_text,
-            total=len(semantic_result.matches) + len(unique_context),
-        )
+    async def search_keyword_only(self, query_text: str, k: int = 10) -> list[dict[str, Any]]:
+        """Convenience method: keyword-only search (no vector)."""
+        identifiers = _extract_identifiers(query_text)
+        if not identifiers:
+            identifiers = [query_text.strip()]
+        return await self._keyword_search_multi(identifiers, k)
 
     async def find_related_to_file(self, file_path: str) -> HybridResult:
         """Find all entities in a file and their graph relationships."""

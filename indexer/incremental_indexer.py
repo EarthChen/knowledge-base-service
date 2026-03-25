@@ -34,15 +34,29 @@ class IncrementalIndexer:
         self._embedding = embedding_gen
 
     async def index_full(self, directory: str) -> dict[str, int]:
-        """Full reindex of all supported files in a directory."""
+        """Full reindex — processes files one at a time to cap memory usage."""
         log.info("full_index_start", directory=directory)
 
-        nodes, edges = self._builder.build_from_directory(directory)
-        await self._store.batch_upsert(nodes, edges)
+        total_nodes = 0
+        total_edges = 0
+        total_embeds = 0
 
-        embed_count = await self._generate_and_store_embeddings(nodes)
+        for fpath, nodes, edges in self._builder.iter_directory(directory):
+            await self._store.batch_upsert(nodes, edges)
+            total_nodes += len(nodes)
+            total_edges += len(edges)
+            total_embeds += await self._generate_and_store_embeddings(nodes)
 
-        stats = {"nodes": len(nodes), "edges": len(edges), "embeddings": embed_count}
+        xref = await self._store.resolve_cross_file_edges()
+
+        stats = {
+            "nodes": total_nodes,
+            "edges": total_edges,
+            "embeddings": total_embeds,
+            "inherits": xref.get("inherits", 0),
+            "imports": xref.get("imports", 0),
+            "references": xref.get("references", 0),
+        }
         log.info("full_index_complete", **stats)
         return stats
 
@@ -79,6 +93,8 @@ class IncrementalIndexer:
             total_nodes += len(nodes)
             total_edges += len(edges)
 
+        xref = await self._store.resolve_cross_file_edges()
+
         stats = {
             "added": len([f for _, s in changed_files if s == "A"]),
             "modified": len([f for _, s in changed_files if s == "M"]),
@@ -86,6 +102,9 @@ class IncrementalIndexer:
             "deleted_nodes": deleted_count,
             "nodes": total_nodes,
             "edges": total_edges,
+            "inherits": xref.get("inherits", 0),
+            "imports": xref.get("imports", 0),
+            "references": xref.get("references", 0),
         }
         log.info("incremental_index_complete", **stats)
         return stats

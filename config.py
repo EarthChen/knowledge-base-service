@@ -19,7 +19,12 @@ class EmbeddingConfig(BaseModel):
     model_name: str = "nomic-ai/CodeRankEmbed"
     dimension: int = 768
     device: str = "auto"
+    backend: str = "onnx"
+    onnx_path: str = ""
     batch_size: int = 32
+    chunk_size: int = 64
+    use_fp16: bool = True
+    max_length: int = 8192
     query_prefix: str = "Represent this query for searching relevant code: "
     trust_remote_code: bool = True
 

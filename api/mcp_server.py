@@ -271,38 +271,54 @@ class KnowledgeBaseMCPHandler:
         return {"mode": mode, "directory": directory, "stats": stats}
 
     async def _index_docs_full(self, directory: str) -> dict[str, int]:
-        """Index all documents (.md, .rst, .txt) in the directory."""
+        """Index all documents (.md, .rst, .txt) — one file at a time."""
         if not self._doc_indexer or not self._store:
             return {}
 
-        doc_nodes, doc_edges = self._doc_indexer.index_directory(directory)
-        if not doc_nodes:
-            return {"doc_nodes": 0, "doc_edges": 0, "doc_embeddings": 0}
+        from pathlib import Path
 
-        await self._store.batch_upsert(doc_nodes, doc_edges)
+        base = Path(directory)
+        total_nodes = 0
+        total_edges = 0
+        total_embeds = 0
 
-        embed_count = 0
-        if self._embedding:
-            embeddable = [n for n in doc_nodes if n.properties.get("content")]
-            if embeddable:
-                items = [
-                    {
-                        "name": n.properties.get("title", ""),
-                        "signature": "",
-                        "docstring": "",
-                        "code_snippet": n.properties.get("content", ""),
-                    }
-                    for n in embeddable
-                ]
-                embeddings = await self._embedding.generate_for_code(items)
-                for node, emb in zip(embeddable, embeddings):
-                    await self._store.set_node_embedding(node.uid, node.label, emb)
-                embed_count = len(embeddings)
+        for ext in self._doc_indexer.SUPPORTED_EXTENSIONS:
+            for fpath in base.rglob(f"*{ext}"):
+                if any(
+                    part in {"node_modules", ".git", ".venv", "venv", "__pycache__"}
+                    for part in fpath.parts
+                ):
+                    continue
+                try:
+                    doc = self._doc_indexer.parse_document(str(fpath))
+                    nodes, edges = self._doc_indexer.build_graph(doc)
+                    await self._store.batch_upsert(nodes, edges)
+                    total_nodes += len(nodes)
+                    total_edges += len(edges)
+
+                    if self._embedding:
+                        embeddable = [n for n in nodes if n.properties.get("content")]
+                        if embeddable:
+                            items = [
+                                {
+                                    "name": n.properties.get("title", ""),
+                                    "signature": "",
+                                    "docstring": "",
+                                    "code_snippet": n.properties.get("content", ""),
+                                }
+                                for n in embeddable
+                            ]
+                            embeddings = await self._embedding.generate_for_code(items)
+                            for node, emb in zip(embeddable, embeddings):
+                                await self._store.set_node_embedding(node.uid, node.label, emb)
+                            total_embeds += len(embeddings)
+                except Exception as exc:
+                    log.warning("doc_index_error", file=str(fpath), error=str(exc))
 
         return {
-            "doc_nodes": len(doc_nodes),
-            "doc_edges": len(doc_edges),
-            "doc_embeddings": embed_count,
+            "doc_nodes": total_nodes,
+            "doc_edges": total_edges,
+            "doc_embeddings": total_embeds,
         }
 
     async def _index_docs_incremental(

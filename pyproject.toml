@@ -13,13 +13,17 @@ dependencies = [
     "falkordb>=1.0.8,<2",
     "tree-sitter>=0.25.0",
     "tree-sitter-language-pack>=0.13.0",
-    "sentence-transformers>=2.7.0",
     "python-dotenv>=1.0.1",
+    "numpy>=1.26.0",
+    "onnxruntime>=1.17.0",
+    "transformers>=4.38.0",
+    "huggingface-hub>=0.21.0",
 ]
 
 [project.optional-dependencies]
-gpu = [
+torch = [
     "torch>=2.0.0",
+    "sentence-transformers>=2.7.0",
 ]
 dev = [
     "pytest>=8.0",

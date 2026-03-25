@@ -11,3 +11,9 @@ build/
 .ruff_cache/
 *.egg
 uv.lock
+
+# Dashboard build output (rebuild via: cd dashboard && pnpm build)
+static/
+
+# Node.js
+dashboard/node_modules/

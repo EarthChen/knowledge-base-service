@@ -52,11 +52,27 @@ graph TD
 - [uv](https://docs.astral.sh/uv/)
 - FalkorDB（通过 Docker 或原生安装）
 
-### 本地开发
+### 一键启动（推荐）
+
+```bash
+cp .env.example .env
+./dev.sh
+```
+
+脚本将自动：
+1. 启动 FalkorDB (Docker)
+2. 创建 Python 虚拟环境并安装依赖（如缺失）
+3. 安装 Node 依赖（如缺失）
+4. 启动 FastAPI 后端 (http://localhost:8100，`--reload` 模式)
+5. 启动 Vite 前端开发服务器 (http://localhost:5173，HMR 热重载)
+
+按 `Ctrl+C` 优雅停止所有服务。
+
+### 手动启动
 
 ```bash
 # 启动 FalkorDB
-docker run -d -p 6379:6379 falkordb/falkordb:latest
+docker compose up -d falkordb
 
 # 安装依赖
 uv venv && source .venv/bin/activate
@@ -64,25 +80,40 @@ uv pip install -e ".[dev]"
 
 # 配置
 cp .env.example .env
-# 编辑 .env — 设置 FALKORDB__HOST=localhost
 
-# 启动服务
+# 启动后端
 uv run uvicorn main:app --host 0.0.0.0 --port 8100 --reload
+
+# 启动前端开发服务器（可选，另开终端）
+cd dashboard && pnpm install && pnpm dev
 
 # 运行测试
 uv run pytest
 ```
 
-### Docker 部署
+### Dashboard
+
+内置 React Dashboard 可视化界面，支持中英文切换：
+
+- **概览** — 节点/边统计 + 分布图表
+- **搜索** — 语义搜索 + 混合搜索（向量 + 图扩展）
+- **图查询** — 9种查询类型的动态表单
+- **仓库管理** — 已索引仓库列表 + 删除操作
+- **索引** — 触发全量/增量索引
+- **设置** — 语言切换、API Token、服务信息
+
+访问：开发模式 http://localhost:5173 | 生产模式 http://localhost:8100
+
+构建生产版本：`cd dashboard && pnpm build`（输出到 `static/`，由 FastAPI 自动服务）
+
+### Docker 部署（仅 FalkorDB）
 
 ```bash
 cp .env.example .env
-# 按需编辑 .env
-
 docker compose up -d
 ```
 
-这将同时启动知识库服务和 FalkorDB。
+> **注意**: 当前 docker-compose 仅启动 FalkorDB。知识库服务建议本地运行以利用 MPS (Apple Silicon) / CUDA GPU 加速。在 Docker 容器内无法使用 MPS。
 
 ---
 
@@ -363,7 +394,64 @@ curl -X POST http://localhost:8100/api/v1/hybrid \
 2. 对每个结果，沿 CALLS、CONTAINS、INHERITS 边扩展 `expand_depth` 层
 3. 返回搜索结果和扩展的图上下文
 
-### 8. 查看图统计信息
+### 8. FQN 精确搜索
+
+当存在多个同名函数或类时，可使用 Java 全限定名（FQN）精确定位：
+
+```bash
+# 通过类 FQN 精确定位（在多个同名 EsClient 中找到特定的那个）
+curl -X POST http://localhost:8100/api/v1/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "com.immomo.moaservice.ultron.common.es.EsClient",
+    "k": 5,
+    "entity_type": "all"
+  }'
+
+# 通过 类#方法 FQN 精确定位
+curl -X POST http://localhost:8100/api/v1/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "com.immomo.moaservice.ultron.common.es.EsClient#insert",
+    "k": 5,
+    "entity_type": "all"
+  }'
+```
+
+FQN 格式说明：
+- 类: `包名.类名`，如 `com.immomo.moaservice.ultron.common.es.EsClient`
+- 方法: `包名.类名#方法名`，如 `com.immomo.moaservice.ultron.common.es.EsClient#insert`
+- FQN 从文件路径自动推断（基于 `src/main/java/` 或 `src/test/java/` 标记）
+
+> **注意**: FQN 在索引时自动计算并存储。对于已索引的旧数据，可调用 `POST /api/v1/admin/backfill-fqn` 批量补充。
+
+### 9. 远程代码获取
+
+当知识库部署在远程机器时，可通过 API 获取代码片段（无需访问源码目录）：
+
+```bash
+# 通过节点 UID 获取代码片段
+curl http://localhost:8100/api/v1/code/<node_uid>
+```
+
+**响应示例**:
+
+```json
+{
+  "name": "insert",
+  "file": "/path/to/EsClient.java",
+  "start_line": 209,
+  "end_line": 225,
+  "code_snippet": "public void insert(final String traceId, ...) { ... }",
+  "signature": "public void insert(final String traceId, final String index, final String jsonStr) throws Exception",
+  "fqn": "com.immomo.moaservice.ultron.common.es.EsClient#insert",
+  "type": "Function"
+}
+```
+
+> **提示**: 搜索结果中的 `uid` 字段即为节点 UID，可直接拼接到此 API 路径中。
+
+### 10. 查看图统计信息
 
 ```bash
 curl http://localhost:8100/api/v1/stats
@@ -524,6 +612,114 @@ curl -X POST http://localhost:8100/api/v1/mcp/tool \
 
 ---
 
+## AI Agent 集成指南
+
+本节说明 AI Agent（如 Cursor、Claude、GPT 等）应如何使用知识库来辅助代码开发。
+
+### Agent 推荐工作流
+
+```mermaid
+graph TD
+    A[用户提问] --> B{问题类型}
+    B -->|"找某个函数/类"| C[FQN 或关键词搜索]
+    B -->|"理解代码逻辑"| D[混合搜索 + 图扩展]
+    B -->|"代码在哪里"| E[语义搜索]
+    B -->|"调用链/依赖分析"| F[图查询]
+    C --> G[获取代码片段]
+    D --> G
+    E --> G
+    F --> G
+    G --> H[生成回答]
+```
+
+### 1. 搜索策略
+
+**优先级**: FQN 精确搜索 > 关键词搜索 > 语义搜索 > 图查询
+
+| 场景 | 推荐方式 | 端点 |
+|------|----------|------|
+| 知道完整类名/方法名 | FQN 搜索 | `POST /search` with FQN |
+| 知道函数/类名 | 关键词搜索 | `POST /search` with name |
+| 用自然语言描述需求 | 语义搜索 | `POST /search` |
+| 需要调用链/依赖分析 | 图查询 | `POST /graph` |
+| 需要完整上下文 | 混合搜索 | `POST /hybrid` |
+
+### 2. 典型 Agent 调用流程
+
+**场景一: 用户问 "loginV2 方法做了什么"**
+
+```bash
+# Step 1: 搜索 loginV2
+POST /api/v1/search
+{"query": "loginV2", "k": 5, "entity_type": "function"}
+
+# Step 2: 获取代码片段（用返回结果中的 uid）
+GET /api/v1/code/<uid>
+
+# Step 3: 查看调用链
+POST /api/v1/graph
+{"query_type": "call_chain", "name": "loginV2", "depth": 2, "direction": "downstream"}
+```
+
+**场景二: 用户问 "EsClient 有哪些方法"**
+
+```bash
+# Step 1: 用 FQN 精确定位
+POST /api/v1/search
+{"query": "com.immomo.moaservice.ultron.common.es.EsClient", "k": 1, "entity_type": "class"}
+
+# Step 2: 列出类方法
+POST /api/v1/graph
+{"query_type": "class_methods", "name": "EsClient"}
+```
+
+**场景三: 用户问 "认证流程是怎样的"**
+
+```bash
+# Step 1: 混合搜索获取语义匹配 + 图上下文
+POST /api/v1/hybrid
+{"query": "用户认证流程", "k": 5, "expand_depth": 2}
+
+# Step 2: 对关键函数获取代码
+GET /api/v1/code/<uid>
+```
+
+### 3. 消歧义策略
+
+当搜索结果返回多个同名实体时，Agent 应该：
+
+1. **检查 FQN 字段**: 每个结果包含 `fqn` 字段，可区分不同包下的同名类/方法
+2. **检查 file 字段**: 查看文件路径确定归属项目
+3. **让用户确认**: 如果仍不确定，展示所有候选结果让用户选择
+4. **使用 FQN 精确搜索**: 确认后用完整 FQN 重新搜索
+
+### 4. MCP 工具调用
+
+Agent 可通过 MCP 协议直接调用工具：
+
+```json
+// 自然语言搜索
+{"tool_name": "rag_query", "arguments": {"query": "用户登录流程", "k": 5}}
+
+// 图查询
+{"tool_name": "rag_graph", "arguments": {"query_type": "call_chain", "name": "loginV2", "depth": 3}}
+
+// 触发索引
+{"tool_name": "rag_index", "arguments": {"directory": "/path/to/repo", "mode": "full"}}
+```
+
+### 5. 远程部署场景
+
+当知识库部署在远程服务器时，Agent 无法直接读取代码文件。使用以下流程：
+
+1. 通过搜索 API 找到目标代码实体（返回 uid）
+2. 通过 `GET /api/v1/code/{uid}` 获取代码片段
+3. 代码片段存储在 Function 节点的 `code_snippet` 属性中
+
+> **限制**: 当前 `code_snippet` 仅存储于 Function 节点（Class 节点不含完整代码）。如需查看完整类代码，可通过 `class_methods` 图查询获取所有方法的代码片段。
+
+---
+
 ## 配置
 
 所有配置通过环境变量（`.env` 文件）管理：
@@ -577,8 +773,8 @@ curl -X POST http://localhost:8100/api/v1/mcp/tool \
 
 | 标签 | 关键属性 | 说明 |
 |---|---|---|
-| `Function` | name, file, start_line, end_line, signature, docstring, code_snippet, language, embedding | 函数/方法定义 |
-| `Class` | name, file, start_line, end_line, docstring, language, base_classes, embedding | 类定义 |
+| `Function` | name, file, start_line, end_line, signature, docstring, code_snippet, language, fqn, embedding | 函数/方法定义 |
+| `Class` | name, file, start_line, end_line, docstring, language, base_classes, fqn, embedding | 类定义 |
 | `Module` | name, path, language | 源文件/模块 |
 | `Document` | name, file, title, content, content_hash, section, embedding | 文档（Markdown/RST 章节） |
 
@@ -599,7 +795,7 @@ curl -X POST http://localhost:8100/api/v1/mcp/tool \
 
 ### 索引
 
-- 每种节点标签的 `uid` 属性上建立标量索引
+- 每种节点标签的 `uid`、`name`、`fqn` 属性上建立标量索引
 - Function、Class、Document 的 `embedding` 属性上建立向量索引（余弦相似度）
 
 ---
@@ -732,6 +928,24 @@ curl -X POST http://localhost:8100/api/v1/mcp/tool \
 | `k` | int | 否 | 语义搜索结果数（默认 5） |
 | `expand_depth` | int | 否 | 图扩展深度（默认 2） |
 
+### 代码获取
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/code/{node_uid}` | 返回节点的代码片段、签名、FQN 等信息 |
+
+### 管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/admin/backfill-fqn` | 为已有 Java 节点批量补充 FQN 属性 |
+
+### 图探索
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/graph/explore` | 返回实体周围的节点和边，用于力导向图可视化 |
+
 ### 工具
 
 | 方法 | 路径 | 说明 |
@@ -748,10 +962,11 @@ curl -X POST http://localhost:8100/api/v1/mcp/tool \
 
 ```
 knowledge-base-service/
-├── main.py                     # FastAPI 应用入口
+├── main.py                     # FastAPI 应用入口 + SPA 路由
 ├── config.py                   # Pydantic Settings 配置
 ├── service.py                  # 服务编排器（门面模式）
 ├── log.py                      # 结构化日志（structlog）
+├── dev.sh                      # 一键启动脚本
 ├── indexer/
 │   ├── tree_sitter_parser.py   # 多语言 AST 解析器
 │   ├── code_graph_builder.py   # AST → 属性图节点/边
@@ -767,8 +982,17 @@ knowledge-base-service/
 │   └── hybrid_query.py         # 语义 + 图扩展
 ├── api/
 │   └── mcp_server.py           # MCP 工具定义 & 处理器
+├── dashboard/                  # React Dashboard 源码
+│   ├── src/
+│   │   ├── api/               # API client + React Query hooks
+│   │   ├── components/        # Layout, StatCard, Toast, Skeleton...
+│   │   ├── i18n/              # 多语言 (en/zh)
+│   │   └── pages/             # Overview, Search, Graph, Repos, Indexing, Settings
+│   ├── vite.config.ts
+│   └── package.json
+├── static/                     # Dashboard 构建产物（gitignored）
 ├── tests/                      # 单元测试
-├── docker-compose.yaml         # 独立部署
+├── docker-compose.yaml         # FalkorDB Docker 部署
 ├── Dockerfile
 └── pyproject.toml
 ```

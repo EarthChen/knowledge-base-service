@@ -85,6 +85,8 @@ const zh: Translations = {
     cypherQuery: "Cypher 查询",
     runQuery: "执行查询",
     running: "执行中...",
+    flowChart: "关系图",
+    resultCount: "个结果",
   },
   repos: {
     title: "仓库管理",

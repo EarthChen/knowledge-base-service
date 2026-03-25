@@ -85,6 +85,8 @@ const en: Translations = {
     cypherQuery: "Cypher Query",
     runQuery: "Run Query",
     running: "Running...",
+    flowChart: "Flow Chart",
+    resultCount: "results",
   },
   repos: {
     title: "Repositories",

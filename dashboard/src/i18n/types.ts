@@ -85,6 +85,8 @@ export interface Translations {
     cypherQuery: string;
     runQuery: string;
     running: string;
+    flowChart: string;
+    resultCount: string;
   };
   repos: {
     title: string;

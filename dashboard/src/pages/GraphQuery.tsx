@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { GitFork } from "lucide-react";
+import { GitFork, BarChart3, Code2 } from "lucide-react";
 import { useGraphQuery } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import JsonView from "../components/JsonView";
+import GraphFlowChart from "../components/GraphFlowChart";
 
 type QueryType =
   | "call_chain"
@@ -204,7 +205,85 @@ export default function GraphQuery() {
         </div>
       )}
 
-      {mutation.data && <JsonView data={mutation.data} />}
+      {mutation.data && <GraphQueryResult
+        data={mutation.data}
+        queryType={queryType}
+        name={name}
+        direction={direction}
+      />}
+    </div>
+  );
+}
+
+const VISUALIZABLE_TYPES = new Set([
+  "call_chain", "inheritance_tree", "class_methods",
+  "module_dependencies", "reverse_dependencies",
+]);
+
+function GraphQueryResult({
+  data,
+  queryType,
+  name,
+  direction,
+}: {
+  data: Record<string, unknown>;
+  queryType: string;
+  name: string;
+  direction: string;
+}) {
+  const [viewMode, setViewMode] = useState<"chart" | "json">(
+    VISUALIZABLE_TYPES.has(queryType) ? "chart" : "json"
+  );
+  const { t } = useI18n();
+
+  const results = (data.results ?? data.methods ?? []) as Array<{
+    name: string;
+    file?: string;
+    line?: number;
+    type?: string;
+  }>;
+  const canVisualize = VISUALIZABLE_TYPES.has(queryType) && results.length > 0;
+
+  return (
+    <div className="space-y-3">
+      {canVisualize && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => setViewMode("chart")}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              viewMode === "chart"
+                ? "bg-sky-500/20 text-sky-400"
+                : "text-slate-500 hover:text-slate-300"
+            }`}
+          >
+            <BarChart3 size={14} /> {t.graph.flowChart ?? "Flow Chart"}
+          </button>
+          <button
+            onClick={() => setViewMode("json")}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              viewMode === "json"
+                ? "bg-purple-500/20 text-purple-400"
+                : "text-slate-500 hover:text-slate-300"
+            }`}
+          >
+            <Code2 size={14} /> JSON
+          </button>
+          <span className="ml-auto text-xs text-slate-500">
+            {results.length} {t.graph.resultCount ?? "results"}
+          </span>
+        </div>
+      )}
+
+      {viewMode === "chart" && canVisualize ? (
+        <GraphFlowChart
+          queryType={queryType}
+          rootName={name || String(data.function ?? data.class ?? data.module ?? "")}
+          results={results}
+          direction={direction}
+        />
+      ) : (
+        <JsonView data={data} />
+      )}
     </div>
   );
 }

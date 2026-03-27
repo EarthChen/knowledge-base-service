@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "knowledge-base": {
+      "url": "http://localhost:8100/api/v1/mcp",
+      "headers": {
+        "Authorization": "Bearer <your-api-token>"
+      }
+    }
+  }
+}

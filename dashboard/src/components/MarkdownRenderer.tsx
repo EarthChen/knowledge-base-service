@@ -23,10 +23,97 @@ mermaid.initialize({
 
 let mermaidCounter = 0;
 
+function DiagramModal({ svg, onClose }: { svg: string; onClose: () => void }) {
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "+" || e.key === "=") setScale((s) => Math.min(s + 0.25, 5));
+      if (e.key === "-") setScale((s) => Math.max(s - 0.25, 0.25));
+      if (e.key === "0") setScale(1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      setScale((s) => {
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        return Math.min(Math.max(s + delta, 0.25), 5);
+      });
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex max-h-[90vh] max-w-[95vw] flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setScale((s) => Math.max(s - 0.25, 0.25))}
+              className="rounded px-2 py-1 text-sm text-slate-400 hover:bg-slate-800 hover:text-white"
+            >
+              −
+            </button>
+            <span className="min-w-[4rem] text-center text-sm text-slate-300">
+              {Math.round(scale * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={() => setScale((s) => Math.min(s + 0.25, 5))}
+              className="rounded px-2 py-1 text-sm text-slate-400 hover:bg-slate-800 hover:text-white"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              onClick={() => setScale(1)}
+              className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-800 hover:text-slate-300"
+            >
+              Reset
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-600">Esc to close · Scroll to zoom</span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        <div
+          className="overflow-auto p-6"
+          onWheel={handleWheel}
+        >
+          <div
+            className="origin-top-left transition-transform duration-150 [&_svg]:max-w-none"
+            style={{ transform: `scale(${scale})` }}
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MermaidBlock({ code }: { code: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,11 +150,19 @@ function MermaidBlock({ code }: { code: string }) {
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="my-3 flex justify-center overflow-x-auto rounded-lg border border-slate-700 bg-slate-900/60 p-4 [&_svg]:max-w-full"
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
+    <>
+      <div
+        ref={containerRef}
+        className="group relative my-3 flex cursor-pointer justify-center overflow-x-auto rounded-lg border border-slate-700 bg-slate-900/60 p-4 transition-colors hover:border-sky-600/50 [&_svg]:max-w-full"
+        onClick={() => setModalOpen(true)}
+      >
+        <div dangerouslySetInnerHTML={{ __html: svg }} />
+        <div className="absolute right-2 top-2 rounded-md bg-slate-800/90 px-2 py-1 text-xs text-slate-400 opacity-0 transition-opacity group-hover:opacity-100">
+          Click to zoom
+        </div>
+      </div>
+      {modalOpen && <DiagramModal svg={svg} onClose={() => setModalOpen(false)} />}
+    </>
   );
 }
 

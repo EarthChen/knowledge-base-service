@@ -63,6 +63,13 @@ function treeHasMatch(node: TreeNode, query: string): boolean {
   return false;
 }
 
+function findReadme(node: TreeNode): DocumentItem | undefined {
+  return node.files.find((f) => {
+    const name = f.file.replace(/\\/g, "/").split("/").pop()?.toLowerCase() ?? "";
+    return name === "readme.md" || name === "readme.rst";
+  });
+}
+
 function TreeView({
   node,
   depth,
@@ -112,7 +119,14 @@ function TreeView({
           <div key={`${depth}-${dn}`} className="select-none">
             <button
               type="button"
-              onClick={() => onToggle(dirPath)}
+              onClick={() => {
+                const wasOpen = expanded.has(dirPath);
+                onToggle(dirPath);
+                if (!wasOpen) {
+                  const readme = findReadme(node.dirs[dn]);
+                  if (readme) onSelect(readme.uid);
+                }
+              }}
               className="flex w-full items-center gap-1.5 rounded-lg py-1.5 pr-2 text-sm text-slate-500 transition-colors hover:bg-slate-800/50 hover:text-slate-300"
               style={{ paddingLeft: pad }}
             >

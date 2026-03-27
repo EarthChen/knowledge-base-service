@@ -1006,9 +1006,11 @@ knowledge-base-service/
 │   ├── superpowers/            # 设计规格 & 实施计划
 │   │   ├── specs/              #   规格文档
 │   │   └── plans/              #   实施计划
-│   └── templates/              # 可复用模板（Cursor Rules / MCP 配置 / Shell 命令）
+│   └── templates/              # 可复用模板（Rules / Skills / MCP 配置 / Shell 命令）
 │       ├── knowledge-base-coding.mdc   # Cursor Rule: 编码时查询 KB
 │       ├── knowledge-base-docs.mdc     # Cursor Rule: 文档维护时查询 KB
+│       ├── kb-doc-writer/SKILL.md      # Cursor Skill: 基于 KB 编写文档
+│       ├── kb-doc-auditor/SKILL.md     # Cursor Skill: 文档准确性审计
 │       ├── mcp-config.json             # Cursor MCP 连接配置
 │       └── kb-shell-commands.md        # Shell curl 命令模板（非 MCP 环境）
 ├── scripts/
@@ -1027,12 +1029,16 @@ knowledge-base-service/
 
 ### 模板索引
 
-| 文件 | 用途 | 适用场景 |
-|------|------|----------|
-| [`docs/templates/mcp-config.json`](docs/templates/mcp-config.json) | Cursor MCP 连接配置 | 接入 KB 的第一步，配置 Agent 到 KB 的 MCP 连接 |
-| [`docs/templates/knowledge-base-coding.mdc`](docs/templates/knowledge-base-coding.mdc) | Cursor Rule: 编码时查询 KB | 编写跨服务代码时，强制 Agent 先查 KB 再写代码 |
-| [`docs/templates/knowledge-base-docs.mdc`](docs/templates/knowledge-base-docs.mdc) | Cursor Rule: 文档维护时查询 KB | 编写/更新文档时，确保代码引用来自 KB 真实数据 |
-| [`docs/templates/kb-shell-commands.md`](docs/templates/kb-shell-commands.md) | Shell curl 命令模板 | 非 MCP 环境（如 ACP Gateway、CI 脚本）通过 HTTP 直接查询 KB |
+| 类型 | 文件 | 用途 | 适用场景 |
+|------|------|------|----------|
+| 配置 | [`docs/templates/mcp-config.json`](docs/templates/mcp-config.json) | Cursor MCP 连接配置 | 接入 KB 的第一步，配置 Agent 到 KB 的 MCP 连接 |
+| Rule | [`docs/templates/knowledge-base-coding.mdc`](docs/templates/knowledge-base-coding.mdc) | 编码时查询 KB | 跨服务代码编写时，强制 Agent 先查 KB 再写代码（alwaysApply） |
+| Rule | [`docs/templates/knowledge-base-docs.mdc`](docs/templates/knowledge-base-docs.mdc) | 文档维护时查询 KB | 编写/更新 `.md` 文档时，确保代码引用来自 KB 真实数据（alwaysApply） |
+| Skill | [`docs/templates/kb-doc-writer/SKILL.md`](docs/templates/kb-doc-writer/SKILL.md) | 基于 KB 编写文档 | 开发者主动触发，7 步流程：全貌 → 接口 → 调用链 → 编写 → 验证 → 索引 |
+| Skill | [`docs/templates/kb-doc-auditor/SKILL.md`](docs/templates/kb-doc-auditor/SKILL.md) | 文档准确性审计 | 定期/按需审计 docs/ 中的代码引用是否与真实代码一致，生成审计报告 |
+| Shell | [`docs/templates/kb-shell-commands.md`](docs/templates/kb-shell-commands.md) | Shell curl 命令模板 | 非 MCP 环境（如 ACP Gateway、CI 脚本）通过 HTTP 直接查询 KB |
+
+> **Rule vs Skill**：Rule 轻量常驻（每次 Agent 对话自动加载），Skill 按需激活（复杂多步骤工作流，手动触发）。两者互补。
 
 ### 使用方式
 
@@ -1058,7 +1064,21 @@ cp docs/templates/knowledge-base-docs.mdc <your-project>/.cursor/rules/
 
 规则内置降级策略：KB 不可用时自动退回常规模式，不阻塞开发。
 
-#### 3. Shell 命令模板（非 MCP 环境）
+#### 3. Cursor Skills（复杂文档工作流，按需激活）
+
+```bash
+# 文档编写 Skill — 基于 KB 查询结果编写项目文档（7 步工作流）
+cp -r docs/templates/kb-doc-writer ~/.cursor/skills/
+
+# 文档审计 Skill — 验证文档中的代码引用是否准确
+cp -r docs/templates/kb-doc-auditor ~/.cursor/skills/
+```
+
+安装后在 Cursor 中通过 Agent 对话手动激活：
+- "请使用 kb-doc-writer 为当前项目编写 API 文档"
+- "请使用 kb-doc-auditor 审计 docs/ 目录下的文档准确性"
+
+#### 4. Shell 命令模板（非 MCP 环境）
 
 适用于 ACP Gateway Agent、CI/CD 脚本等无法直接使用 MCP 的场景：
 

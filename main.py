@@ -414,6 +414,29 @@ async def list_documents(
     return {"documents": documents, "total": len(documents)}
 
 
+_NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)[\.\s]")
+
+def _infer_section_levels(sections: list[dict[str, Any]]) -> None:
+    """Infer heading levels from section title numbering patterns.
+
+    e.g. "1. Title" -> level 2, "1.1 Title" -> level 3, "1.1.1 Title" -> level 4
+    First section without numbering treated as level 1.
+    Non-numbered sections inherit the previous section's level.
+    """
+    prev_level = 2
+    for i, s in enumerate(sections):
+        title = s.get("title", "")
+        m = _NUMBERED_HEADING_RE.match(title)
+        if m:
+            dots = m.group(1).count(".")
+            s["level"] = 2 + dots
+        elif i == 0:
+            s["level"] = 1
+        else:
+            s["level"] = prev_level
+        prev_level = s["level"]
+
+
 @viewer_router.get("/documents/{doc_uid:path}")
 async def get_document(
     doc_uid: str,
@@ -446,8 +469,16 @@ async def get_document(
             "content": r.get("content") or "",
             "start_line": r.get("start_line"),
             "uid": suid,
-            "level": r.get("level") or 2,
+            "level": r.get("level"),
         })
+
+    has_stored_levels = any(s.get("level") is not None for s in sections)
+    if not has_stored_levels:
+        _infer_section_levels(sections)
+
+    for s in sections:
+        if s.get("level") is None:
+            s["level"] = 2
 
     return {
         "title": first.get("title") or "",

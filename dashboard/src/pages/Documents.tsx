@@ -185,9 +185,19 @@ function SectionNav({
   onScrollTo: (uid: string) => void;
   label: string;
 }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-
   const minLevel = Math.min(...sections.map((s) => s.level ?? 2));
+
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    for (let i = 0; i < sections.length; i++) {
+      const currentLvl = sections[i].level ?? 2;
+      const next = sections[i + 1];
+      if (next && (next.level ?? 2) > currentLvl) {
+        initial.add(sections[i].uid);
+      }
+    }
+    return initial;
+  });
 
   const toggleCollapse = (uid: string) => {
     setCollapsed((prev) => {

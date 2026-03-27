@@ -53,7 +53,7 @@ function DiagramModal({ svg, onClose }: { svg: string; onClose: () => void }) {
       onClick={onClose}
     >
       <div
-        className="relative flex max-h-[90vh] max-w-[95vw] flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900"
+        className="relative flex h-[95vh] w-[95vw] flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2">

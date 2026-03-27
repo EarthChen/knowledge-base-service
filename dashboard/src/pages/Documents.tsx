@@ -206,6 +206,10 @@ export default function Documents() {
       const allPaths = collectAllDirPaths(tree, "");
       setExpanded(new Set(allPaths));
       setExpandedInit(true);
+      const rootReadme = findReadme(tree);
+      if (rootReadme) {
+        setSelectedUid(rootReadme.uid);
+      }
     }
   }, [tree, expandedInit, listData?.documents]);
 

@@ -16,25 +16,71 @@ Usage:
   kb_query.py index /path/to/repo --mode full                # Full index
   kb_query.py repos                                          # List indexed repos
 
-Environment variables:
-  KB_URL    Knowledge base API URL (default: http://localhost:8100/api/v1)
-  KB_TOKEN  API authentication token (required)
+Configuration (loaded in priority order):
+  1. Project .env file  (./. env or parent directories up to git root)
+  2. Environment variables (KB_URL, KB_TOKEN)
+  3. Defaults (KB_URL=http://localhost:8100/api/v1)
+
+.env file format:
+  KB_URL=http://localhost:8100/api/v1
+  KB_TOKEN=your-api-token
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+from pathlib import Path
 import sys
 import urllib.error
 import urllib.request
+
+
+def _load_dotenv() -> None:
+    """Load .env file from current directory or any parent up to git root.
+
+    Values already set in os.environ take precedence (env vars override .env).
+    """
+    search_dir = Path.cwd()
+    env_file = None
+
+    while True:
+        candidate = search_dir / ".env"
+        if candidate.is_file():
+            env_file = candidate
+            break
+        if (search_dir / ".git").exists():
+            break
+        parent = search_dir.parent
+        if parent == search_dir:
+            break
+        search_dir = parent
+
+    if env_file is None:
+        return
+
+    with open(env_file, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip("\"'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_dotenv()
 
 
 def _api(method: str, path: str, body: dict | None = None) -> dict:
     kb_url = os.environ.get("KB_URL", "http://localhost:8100/api/v1")
     kb_token = os.environ.get("KB_TOKEN", "")
     if not kb_token:
-        print("Error: KB_TOKEN environment variable is required", file=sys.stderr)
+        print("Error: KB_TOKEN is required. Set it in .env or environment variable.", file=sys.stderr)
         sys.exit(1)
 
     url = f"{kb_url.rstrip('/')}/{path.lstrip('/')}"

@@ -20,12 +20,23 @@ description: 基于知识库编写/更新项目文档，确保文档内容与真
 
 ### 脚本使用方式
 
-当 MCP 不可用时，通过本 Skill 附带的 `scripts/kb_query.py` 脚本查询知识库：
+当 MCP 不可用时，通过本 Skill 附带的 `scripts/kb_query.py` 脚本查询知识库。
 
-```bash
-export KB_URL="http://localhost:8100/api/v1"   # 知识库 API 地址
-export KB_TOKEN="your-api-token"               # API 认证令牌
+**配置方式（二选一）：**
+
+方式一：在项目根目录创建 `.env` 文件（推荐）：
 ```
+KB_URL=http://localhost:8100/api/v1
+KB_TOKEN=your-api-token
+```
+
+方式二：设置环境变量：
+```bash
+export KB_URL="http://localhost:8100/api/v1"
+export KB_TOKEN="your-api-token"
+```
+
+脚本会按优先级加载配置：`.env` 文件 → 环境变量 → 默认值。环境变量可覆盖 `.env` 中的值。
 
 脚本无第三方依赖（仅使用 Python 标准库），支持全部查询类型。添加 `--brief` 输出人类可读摘要：
 

@@ -416,13 +416,32 @@ async def list_documents(
 
 _NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)[\.\s]")
 
-def _infer_section_levels(sections: list[dict[str, Any]]) -> None:
-    """Infer heading levels from section title numbering patterns.
+def _infer_section_levels(sections: list[dict[str, Any]], file_path: str | None = None) -> None:
+    """Infer heading levels from original file or numbered title patterns."""
+    heading_levels: dict[str, int] = {}
 
-    e.g. "1. Title" -> level 2, "1.1 Title" -> level 3, "1.1.1 Title" -> level 4
-    First section without numbering treated as level 1.
-    Non-numbered sections inherit the previous section's level.
-    """
+    if file_path:
+        try:
+            fpath = Path(file_path)
+            if fpath.is_file():
+                raw = fpath.read_text(encoding="utf-8")
+                for line in raw.split("\n"):
+                    stripped = line.lstrip()
+                    if stripped.startswith("#"):
+                        hashes = len(stripped) - len(stripped.lstrip("#"))
+                        title = stripped[hashes:].strip()
+                        heading_levels[title] = hashes
+        except OSError:
+            pass
+
+    if heading_levels:
+        for s in sections:
+            title = s.get("title", "")
+            clean_title = title.rsplit(" > ", 1)[-1] if " > " in title else title
+            if clean_title in heading_levels:
+                s["level"] = heading_levels[clean_title]
+        return
+
     prev_level = 2
     for i, s in enumerate(sections):
         title = s.get("title", "")
@@ -474,7 +493,7 @@ async def get_document(
 
     has_stored_levels = any(s.get("level") is not None for s in sections)
     if not has_stored_levels:
-        _infer_section_levels(sections)
+        _infer_section_levels(sections, file_path=first.get("file"))
 
     for s in sections:
         if s.get("level") is None:

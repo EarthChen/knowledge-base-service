@@ -19,10 +19,10 @@ import { useI18n } from "../i18n/context";
 import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "../api/types";
 
 const NODE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  Function: { bg: "#0c4a6e", border: "#0ea5e9", text: "#e0f2fe" },
-  Class:    { bg: "#4a1d6a", border: "#a855f7", text: "#f3e8ff" },
-  Module:   { bg: "#14532d", border: "#22c55e", text: "#dcfce7" },
-  Unknown:  { bg: "#1e293b", border: "#64748b", text: "#e2e8f0" },
+  Function: { bg: "#e0f2fe", border: "#0ea5e9", text: "#0c4a6e" },
+  Class:    { bg: "#faf5ff", border: "#a855f7", text: "#581c87" },
+  Module:   { bg: "#ecfdf5", border: "#22c55e", text: "#14532d" },
+  Unknown:  { bg: "#f1f5f9", border: "#64748b", text: "#334155" },
 };
 
 const EDGE_COLORS: Record<string, string> = {
@@ -78,8 +78,8 @@ function buildFlowEdges(apiEdges: ApiEdge[], nodeIds: Set<string>): Edge[] {
       label: e.type,
       animated: e.type === "CALLS",
       style: { stroke: EDGE_COLORS[e.type] || "#64748b", strokeWidth: 1.5 },
-      labelStyle: { fontSize: 10, fill: "#94a3b8" },
-      labelBgStyle: { fill: "#0f172a", fillOpacity: 0.85 },
+      labelStyle: { fontSize: 10, fill: "#64748b" },
+      labelBgStyle: { fill: "#f8fafc", fillOpacity: 0.92 },
       markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_COLORS[e.type] || "#64748b", width: 16, height: 16 },
     }));
 }
@@ -154,15 +154,15 @@ export default function GraphExplorer() {
   );
 
   const inputClass =
-    "rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30";
+    "rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300";
 
   return (
     <div className="flex h-full flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
           <Network size={20} /> {t.explorer.title}
         </h2>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
+        <div className="flex items-center gap-2 text-xs text-gray-400">
           <span>
             {nodes.length} {t.explorer.nodes} · {edges.length} {t.explorer.edges}
           </span>
@@ -171,13 +171,13 @@ export default function GraphExplorer() {
 
       <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
         <label className="flex-1 min-w-[200px]">
-          <span className="mb-1 block text-xs font-medium text-slate-400">
+          <span className="mb-1 block text-xs font-medium text-gray-500">
             {t.explorer.entityName}
           </span>
           <div className="relative">
             <Search
               size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
             />
             <input
               type="text"
@@ -189,7 +189,7 @@ export default function GraphExplorer() {
           </div>
         </label>
         <label>
-          <span className="mb-1 block text-xs font-medium text-slate-400">
+          <span className="mb-1 block text-xs font-medium text-gray-500">
             {t.explorer.depth}
           </span>
           <input
@@ -202,7 +202,7 @@ export default function GraphExplorer() {
           />
         </label>
         <label>
-          <span className="mb-1 block text-xs font-medium text-slate-400">
+          <span className="mb-1 block text-xs font-medium text-gray-500">
             {t.explorer.limit}
           </span>
           <input
@@ -230,14 +230,14 @@ export default function GraphExplorer() {
       </form>
 
       {mutation.error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-600">
           {mutation.error.message}
         </div>
       )}
 
       <div
         ref={containerRef}
-        className="flex-1 min-h-[500px] rounded-xl border border-slate-800 bg-slate-950 overflow-hidden"
+        className="flex-1 min-h-[500px] rounded-xl border border-gray-200 bg-gray-50 overflow-hidden"
       >
         {nodes.length > 0 ? (
           <ReactFlow
@@ -253,28 +253,28 @@ export default function GraphExplorer() {
             maxZoom={3}
             proOptions={{ hideAttribution: true }}
           >
-            <Background color="#1e293b" gap={20} />
+            <Background color="#cbd5e1" gap={20} />
             <Controls
               showInteractive={false}
-              style={{ background: "#1e293b", borderColor: "#334155" }}
+              style={{ background: "#f8fafc", borderColor: "#e2e8f0" }}
             />
             <MiniMap
               nodeColor={(n) => {
                 const type = n.data?.type as string;
                 return NODE_COLORS[type]?.border || "#64748b";
               }}
-              style={{ background: "#0f172a", borderColor: "#334155" }}
-              maskColor="rgba(15, 23, 42, 0.7)"
+              style={{ background: "#f1f5f9", borderColor: "#e2e8f0" }}
+              maskColor="rgba(241, 245, 249, 0.75)"
             />
 
             <Panel position="top-left" className="space-y-1.5">
-              <div className="rounded-lg bg-slate-900/90 border border-slate-800 px-3 py-2 backdrop-blur">
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              <div className="rounded-lg bg-white/90 border border-gray-200 px-3 py-2 backdrop-blur shadow-sm">
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                   {t.explorer.nodeTypes}
                 </p>
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
                   {legend.map((l) => (
-                    <span key={l.type} className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                    <span key={l.type} className="flex items-center gap-1.5 text-[11px] text-gray-500">
                       <span
                         className="inline-block h-2.5 w-2.5 rounded-sm"
                         style={{ backgroundColor: l.color }}
@@ -283,12 +283,12 @@ export default function GraphExplorer() {
                     </span>
                   ))}
                 </div>
-                <p className="mt-2 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                <p className="mt-2 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                   {t.explorer.edgeTypes}
                 </p>
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
                   {edgeLegend.map((l) => (
-                    <span key={l.type} className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                    <span key={l.type} className="flex items-center gap-1.5 text-[11px] text-gray-500">
                       <span
                         className="inline-block h-0.5 w-4 rounded-full"
                         style={{ backgroundColor: l.color }}
@@ -302,18 +302,18 @@ export default function GraphExplorer() {
 
             {selectedNode && (
               <Panel position="bottom-right">
-                <div className="w-72 rounded-lg bg-slate-900/95 border border-slate-700 p-3 backdrop-blur shadow-xl">
+                <div className="w-72 rounded-lg bg-white/95 border border-gray-300 p-3 backdrop-blur shadow-xl">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-white">
+                    <span className="text-xs font-semibold text-gray-900">
                       {selectedNode.data?.label as string}
                     </span>
                     <span
                       className="rounded px-1.5 py-0.5 text-[10px] font-medium"
                       style={{
                         backgroundColor:
-                          NODE_COLORS[selectedNode.data?.type as string]?.bg || "#1e293b",
+                          NODE_COLORS[selectedNode.data?.type as string]?.bg || "#f1f5f9",
                         color:
-                          NODE_COLORS[selectedNode.data?.type as string]?.text || "#e2e8f0",
+                          NODE_COLORS[selectedNode.data?.type as string]?.text || "#334155",
                         border: `1px solid ${
                           NODE_COLORS[selectedNode.data?.type as string]?.border || "#64748b"
                         }`,
@@ -323,12 +323,12 @@ export default function GraphExplorer() {
                     </span>
                   </div>
                   {selectedNode.data?.file ? (
-                    <p className="text-[11px] text-slate-400 truncate">
+                    <p className="text-[11px] text-gray-500 truncate">
                       {String(selectedNode.data.file)}
                       {selectedNode.data?.line ? `:${String(selectedNode.data.line)}` : ""}
                     </p>
                   ) : null}
-                  <p className="mt-2 text-[10px] text-slate-500">
+                  <p className="mt-2 text-[10px] text-gray-400">
                     {t.explorer.doubleClickHint}
                   </p>
                 </div>
@@ -336,7 +336,7 @@ export default function GraphExplorer() {
             )}
           </ReactFlow>
         ) : (
-          <div className="flex h-full items-center justify-center text-slate-600">
+          <div className="flex h-full items-center justify-center text-gray-500">
             <div className="text-center">
               <Network size={48} className="mx-auto mb-3 opacity-30" />
               <p className="text-sm">{t.explorer.emptyHint}</p>

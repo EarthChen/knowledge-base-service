@@ -36,11 +36,11 @@ export default function SearchPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-white">{t.search.title}</h2>
+      <h2 className="text-lg font-semibold text-gray-900">{t.search.title}</h2>
 
       <form
         onSubmit={handleSearch}
-        className="rounded-xl border border-slate-800 bg-slate-850 p-5"
+        className="rounded-xl border border-gray-200 bg-white p-5"
       >
         <div className="flex gap-2">
           <button
@@ -48,8 +48,8 @@ export default function SearchPage() {
             onClick={() => setMode("semantic")}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               mode === "semantic"
-                ? "bg-sky-500/20 text-sky-400"
-                : "text-slate-500 hover:text-slate-300"
+                ? "bg-sky-100 text-sky-600"
+                : "text-gray-400 hover:text-gray-700"
             }`}
           >
             <Search size={14} /> {t.search.semantic}
@@ -59,8 +59,8 @@ export default function SearchPage() {
             onClick={() => setMode("hybrid")}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               mode === "hybrid"
-                ? "bg-purple-500/20 text-purple-400"
-                : "text-slate-500 hover:text-slate-300"
+                ? "bg-purple-100 text-purple-600"
+                : "text-gray-400 hover:text-gray-700"
             }`}
           >
             <Zap size={14} /> {t.search.hybrid}
@@ -73,7 +73,7 @@ export default function SearchPage() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t.search.placeholder}
-            className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30"
+            className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300"
           />
           <button
             type="submit"
@@ -86,12 +86,12 @@ export default function SearchPage() {
 
         <div className="mt-3 flex flex-wrap items-center gap-4">
           {mode === "semantic" && (
-            <label className="flex items-center gap-2 text-xs text-slate-400">
+            <label className="flex items-center gap-2 text-xs text-gray-500">
               {t.search.type}
               <select
                 value={entityType}
                 onChange={(e) => setEntityType(e.target.value)}
-                className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-white outline-none"
+                className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
               >
                 <option value="all">{t.search.all}</option>
                 <option value="function">{t.search.function}</option>
@@ -100,7 +100,7 @@ export default function SearchPage() {
               </select>
             </label>
           )}
-          <label className="flex items-center gap-2 text-xs text-slate-400">
+          <label className="flex items-center gap-2 text-xs text-gray-500">
             {t.search.topK}
             <input
               type="number"
@@ -108,11 +108,11 @@ export default function SearchPage() {
               max={50}
               value={k}
               onChange={(e) => setK(Number(e.target.value) || 10)}
-              className="w-16 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-white outline-none"
+              className="w-16 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
             />
           </label>
           {mode === "hybrid" && (
-            <label className="flex items-center gap-2 text-xs text-slate-400">
+            <label className="flex items-center gap-2 text-xs text-gray-500">
               {t.search.expandDepth}
               <input
                 type="number"
@@ -120,7 +120,7 @@ export default function SearchPage() {
                 max={5}
                 value={expandDepth}
                 onChange={(e) => setExpandDepth(Number(e.target.value) || 2)}
-                className="w-16 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-white outline-none"
+                className="w-16 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
               />
             </label>
           )}
@@ -128,14 +128,14 @@ export default function SearchPage() {
       </form>
 
       {error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
           {(error as Error).message}
         </div>
       )}
 
       {mode === "semantic" && semanticMatches.length > 0 && (
         <div className="space-y-3">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-gray-400">
             {semantic.data?.total ?? 0} {t.search.resultsFor} "{semantic.data?.query}"
           </p>
           {semanticMatches.map((m, i) => (
@@ -146,13 +146,13 @@ export default function SearchPage() {
 
       {mode === "hybrid" && hybridResult && (
         <div className="space-y-4">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-gray-400">
             {hybridResult.total ?? 0} {t.search.resultsFor} "{hybridResult.query}"
           </p>
 
           {hybridResult.semantic_matches?.length > 0 && (
             <div className="space-y-3">
-              <h3 className="text-sm font-medium text-slate-300">{t.search.semanticMatches}</h3>
+              <h3 className="text-sm font-medium text-gray-700">{t.search.semanticMatches}</h3>
               {hybridResult.semantic_matches.map((m, i) => (
                 <SearchResultCard key={`s-${i}`} match={m} />
               ))}
@@ -161,7 +161,7 @@ export default function SearchPage() {
 
           {hybridResult.graph_context?.length > 0 && (
             <div>
-              <h3 className="mb-2 text-sm font-medium text-slate-300">
+              <h3 className="mb-2 text-sm font-medium text-gray-700">
                 {t.search.graphContext}
               </h3>
               <JsonView data={hybridResult.graph_context} />

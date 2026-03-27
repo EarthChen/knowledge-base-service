@@ -16,10 +16,10 @@ const NODE_W = 180;
 const NODE_H = 44;
 
 const TYPE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  Function: { bg: "#064e3b", border: "#10b981", text: "#6ee7b7" },
-  Class: { bg: "#0c4a6e", border: "#0ea5e9", text: "#7dd3fc" },
-  Module: { bg: "#3b0764", border: "#a855f7", text: "#d8b4fe" },
-  root: { bg: "#78350f", border: "#f59e0b", text: "#fde68a" },
+  Function: { bg: "#ecfdf5", border: "#10b981", text: "#065f46" },
+  Class: { bg: "#e0f2fe", border: "#0ea5e9", text: "#0c4a6e" },
+  Module: { bg: "#faf5ff", border: "#a855f7", text: "#581c87" },
+  root: { bg: "#fef3c7", border: "#f59e0b", text: "#78350f" },
 };
 
 function getColor(type: string, isRoot: boolean) {
@@ -253,7 +253,7 @@ export default function GraphFlowChart({ queryType, rootName, results, direction
   if (results.length === 0) return null;
 
   return (
-    <div className="h-[500px] rounded-xl border border-slate-800 bg-slate-900">
+    <div className="h-[500px] rounded-xl border border-gray-200 bg-white">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -266,18 +266,18 @@ export default function GraphFlowChart({ queryType, rootName, results, direction
         minZoom={0.2}
         maxZoom={2}
       >
-        <Background color="#1e293b" gap={20} />
+        <Background color="#e2e8f0" gap={20} />
         <Controls
           showInteractive={false}
-          style={{ background: "#1e293b", borderColor: "#334155" }}
+          style={{ background: "#ffffff", borderColor: "#cbd5e1" }}
         />
         <MiniMap
           nodeColor={(n) => {
             const c = getColor(String(n.data?.entityType || "Function"), n.id.startsWith("root_"));
             return c.border;
           }}
-          maskColor="rgba(0,0,0,0.7)"
-          style={{ background: "#0f172a", borderColor: "#334155" }}
+          maskColor="rgba(255,255,255,0.7)"
+          style={{ background: "#f8fafc", borderColor: "#cbd5e1" }}
         />
       </ReactFlow>
     </div>

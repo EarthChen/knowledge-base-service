@@ -23,6 +23,10 @@ log = get_logger(__name__)
 
 _DOC_EXTENSIONS = {".md", ".markdown", ".rst", ".txt"}
 
+def _get_exclude_dirs() -> set[str]:
+    from config import get_settings
+    return set(get_settings().exclude_dirs)
+
 
 class IncrementalIndexer:
     """Orchestrates code + document indexing — full or incremental."""
@@ -87,6 +91,7 @@ class IncrementalIndexer:
 
         deleted_count = 0
         for fpath in deleted_files:
+            deleted_count += await self._store.delete_by_file(fpath)
             full_path = str(Path(directory) / fpath)
             deleted_count += await self._store.delete_by_file(full_path)
 
@@ -97,6 +102,7 @@ class IncrementalIndexer:
 
         for fpath in modified_files:
             full_path = str(Path(directory) / fpath)
+            await self._store.delete_by_file(fpath)
             await self._store.delete_by_file(full_path)
             if not Path(full_path).exists():
                 continue
@@ -105,7 +111,7 @@ class IncrementalIndexer:
 
             if suffix in _DOC_EXTENSIONS:
                 try:
-                    doc = self._doc_indexer.parse_document(full_path)
+                    doc = self._doc_indexer.parse_document(full_path, store_path=fpath)
                     doc_nodes, doc_edges = self._doc_indexer.build_graph(doc)
                     await self._store.batch_upsert(doc_nodes, doc_edges)
                     await self._generate_and_store_embeddings(doc_nodes)
@@ -114,7 +120,7 @@ class IncrementalIndexer:
                 except Exception as exc:
                     log.warning("incremental_doc_index_error", file=full_path, error=str(exc))
             else:
-                nodes, edges = self._builder.build_from_file(full_path)
+                nodes, edges = self._builder.build_from_file(full_path, store_path=fpath)
                 await self._store.batch_upsert(nodes, edges)
                 await self._generate_and_store_embeddings(nodes)
                 total_nodes += len(nodes)
@@ -138,10 +144,19 @@ class IncrementalIndexer:
         log.info("incremental_index_complete", **stats)
         return stats
 
-    async def index_file(self, file_path: str, content: str | None = None) -> dict[str, int]:
-        """Index or reindex a single file."""
-        await self._store.delete_by_file(file_path)
-        nodes, edges = self._builder.build_from_file(file_path, content)
+    async def index_file(
+        self, file_path: str, content: str | None = None, *, store_path: str | None = None,
+    ) -> dict[str, int]:
+        """Index or reindex a single file.
+
+        *store_path* is the path persisted in the graph (relative to repo root).
+        When *None* it equals *file_path* (backward compatible).
+        """
+        persist = store_path or file_path
+        await self._store.delete_by_file(persist)
+        if persist != file_path:
+            await self._store.delete_by_file(file_path)
+        nodes, edges = self._builder.build_from_file(file_path, content, store_path=persist)
         await self._store.batch_upsert(nodes, edges)
         embed_count = await self._generate_and_store_embeddings(nodes)
         return {"nodes": len(nodes), "edges": len(edges), "embeddings": embed_count}
@@ -174,6 +189,9 @@ class IncrementalIndexer:
 
     def _is_indexable_file(self, file_path: str) -> bool:
         """Check if a file is indexable (code or document)."""
+        parts = Path(file_path).parts
+        if any(part in _get_exclude_dirs() for part in parts):
+            return False
         suffix = Path(file_path).suffix.lower()
         return self._builder.detect_language(file_path) is not None or suffix in _DOC_EXTENSIONS
 

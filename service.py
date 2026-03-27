@@ -133,15 +133,14 @@ class KnowledgeBaseService:
         from pathlib import Path
 
         base = Path(directory)
+        exclude_dirs = set(self._doc_indexer._exclude_dirs)
         for ext in self._doc_indexer.SUPPORTED_EXTENSIONS:
             for fpath in base.rglob(f"*{ext}"):
-                if any(
-                    part in {"node_modules", ".git", ".venv", "venv", "__pycache__"}
-                    for part in fpath.parts
-                ):
+                if any(part in exclude_dirs for part in fpath.parts):
                     continue
                 try:
-                    doc = self._doc_indexer.parse_document(str(fpath))
+                    rel = str(fpath.relative_to(base))
+                    doc = self._doc_indexer.parse_document(str(fpath), store_path=rel)
                     nodes, edges = self._doc_indexer.build_graph(doc)
                     await self._store.batch_upsert(nodes, edges)
                     doc_nodes_total += len(nodes)

@@ -78,6 +78,16 @@ class Settings(BaseSettings):
         }
     )
 
+    exclude_dirs: list[str] = Field(
+        default_factory=lambda: [
+            "node_modules", ".git", ".venv", "venv", "__pycache__",
+            "dist", "build", ".tox", ".mypy_cache", ".pytest_cache",
+            "vendor", "target",
+            ".cursor", ".agent", ".agents", ".vscode", ".idea", ".fleet",
+            ".windsurf", ".continue", ".aider", ".copilot",
+        ]
+    )
+
     api_token: str = ""
     api_tokens: str = ""
     tokens_file: str = "tokens.yaml"

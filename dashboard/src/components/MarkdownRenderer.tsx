@@ -5,18 +5,18 @@ import mermaid from "mermaid";
 
 mermaid.initialize({
   startOnLoad: false,
-  theme: "dark",
+  theme: "default",
   themeVariables: {
-    darkMode: true,
-    background: "#1e293b",
-    primaryColor: "#38bdf8",
-    primaryTextColor: "#e2e8f0",
-    secondaryColor: "#334155",
-    lineColor: "#64748b",
-    textColor: "#cbd5e1",
-    mainBkg: "#1e293b",
-    nodeBorder: "#475569",
-    clusterBkg: "#0f172a",
+    darkMode: false,
+    background: "#ffffff",
+    primaryColor: "#dbeafe",
+    primaryTextColor: "#1e293b",
+    secondaryColor: "#e2e8f0",
+    lineColor: "#94a3b8",
+    textColor: "#334155",
+    mainBkg: "#ffffff",
+    nodeBorder: "#93c5fd",
+    clusterBkg: "#f8fafc",
   },
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
 });
@@ -49,46 +49,46 @@ function DiagramModal({ svg, onClose }: { svg: string; onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="relative flex h-[95vh] w-[95vw] flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900"
+        className="relative flex h-[95vh] w-[95vw] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setScale((s) => Math.max(s - 0.25, 0.25))}
-              className="rounded px-2 py-1 text-sm text-slate-400 hover:bg-slate-800 hover:text-white"
+              className="rounded px-2 py-1 text-sm text-gray-500 hover:bg-gray-100 hover:text-gray-900"
             >
               −
             </button>
-            <span className="min-w-[4rem] text-center text-sm text-slate-300">
+            <span className="min-w-[4rem] text-center text-sm text-gray-700">
               {Math.round(scale * 100)}%
             </span>
             <button
               type="button"
               onClick={() => setScale((s) => Math.min(s + 0.25, 5))}
-              className="rounded px-2 py-1 text-sm text-slate-400 hover:bg-slate-800 hover:text-white"
+              className="rounded px-2 py-1 text-sm text-gray-500 hover:bg-gray-100 hover:text-gray-900"
             >
               +
             </button>
             <button
               type="button"
               onClick={() => setScale(1)}
-              className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-800 hover:text-slate-300"
+              className="rounded px-2 py-1 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700"
             >
               Reset
             </button>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-xs text-slate-600">Esc to close · Scroll to zoom</span>
+            <span className="text-xs text-gray-400">Esc to close · Scroll to zoom</span>
             <button
               type="button"
               onClick={onClose}
-              className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+              className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
             >
               ✕
             </button>
@@ -135,7 +135,7 @@ function MermaidBlock({ code }: { code: string }) {
 
   if (error) {
     return (
-      <pre className="rounded-lg border border-red-800/50 bg-red-950/30 p-4 text-sm text-red-300">
+      <pre className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
         {code}
       </pre>
     );
@@ -143,7 +143,7 @@ function MermaidBlock({ code }: { code: string }) {
 
   if (!svg) {
     return (
-      <div className="flex items-center justify-center rounded-lg border border-slate-700 bg-slate-900/60 p-6 text-sm text-slate-500">
+      <div className="flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50 p-6 text-sm text-gray-500">
         Rendering diagram…
       </div>
     );
@@ -153,11 +153,11 @@ function MermaidBlock({ code }: { code: string }) {
     <>
       <div
         ref={containerRef}
-        className="group relative my-3 flex cursor-pointer justify-center overflow-x-auto rounded-lg border border-slate-700 bg-slate-900/60 p-4 transition-colors hover:border-sky-600/50 [&_svg]:max-w-full"
+        className="group relative my-3 flex cursor-pointer justify-center overflow-x-auto rounded-lg border border-gray-200 bg-gray-50 p-4 transition-colors hover:border-sky-400 [&_svg]:max-w-full"
         onClick={() => setModalOpen(true)}
       >
         <div dangerouslySetInnerHTML={{ __html: svg }} />
-        <div className="absolute right-2 top-2 rounded-md bg-slate-800/90 px-2 py-1 text-xs text-slate-400 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="absolute right-2 top-2 rounded-md bg-gray-700/90 px-2 py-1 text-xs text-gray-100 opacity-0 transition-opacity group-hover:opacity-100">
           Click to zoom
         </div>
       </div>
@@ -178,7 +178,7 @@ function CodeBlock({ className, children, node: _node, ...props }: ComponentProp
   if (!match) {
     return (
       <code
-        className="rounded-md border border-slate-700 bg-slate-900/80 px-1.5 py-0.5 text-[0.85em] text-sky-300"
+        className="rounded-md border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[0.85em] text-sky-700"
         {...props}
       >
         {children}
@@ -187,7 +187,7 @@ function CodeBlock({ className, children, node: _node, ...props }: ComponentProp
   }
 
   return (
-    <pre className="my-3 overflow-x-auto rounded-lg border border-slate-700 bg-slate-900/80 p-4 text-sm leading-relaxed">
+    <pre className="my-3 overflow-x-auto rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm leading-relaxed">
       <code className={className} {...props}>
         {children}
       </code>
@@ -205,7 +205,7 @@ const markdownComponents = {
         href={href}
         target={isExternal ? "_blank" : "_self"}
         rel={isExternal ? "noopener noreferrer" : undefined}
-        className="text-sky-400 underline decoration-sky-400/40 underline-offset-2 transition-colors hover:text-sky-300 hover:decoration-sky-300/60"
+        className="text-sky-600 underline decoration-sky-600/40 underline-offset-2 transition-colors hover:text-sky-500 hover:decoration-sky-500/60"
         {...props}
       >
         {children}
@@ -213,37 +213,37 @@ const markdownComponents = {
     );
   },
   h1: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"h1"> & { node?: unknown }) => (
-    <h1 className="mb-4 mt-6 text-2xl font-bold text-white first:mt-0" {...props}>
+    <h1 className="mb-4 mt-6 text-2xl font-bold text-gray-900 first:mt-0" {...props}>
       {children}
     </h1>
   ),
   h2: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"h2"> & { node?: unknown }) => (
-    <h2 className="mb-3 mt-5 text-xl font-semibold text-white first:mt-0" {...props}>
+    <h2 className="mb-3 mt-5 text-xl font-semibold text-gray-900 first:mt-0" {...props}>
       {children}
     </h2>
   ),
   h3: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"h3"> & { node?: unknown }) => (
-    <h3 className="mb-2 mt-4 text-lg font-semibold text-slate-200 first:mt-0" {...props}>
+    <h3 className="mb-2 mt-4 text-lg font-semibold text-gray-800 first:mt-0" {...props}>
       {children}
     </h3>
   ),
   h4: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"h4"> & { node?: unknown }) => (
-    <h4 className="mb-2 mt-3 text-base font-semibold text-slate-200 first:mt-0" {...props}>
+    <h4 className="mb-2 mt-3 text-base font-semibold text-gray-800 first:mt-0" {...props}>
       {children}
     </h4>
   ),
   p: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"p"> & { node?: unknown }) => (
-    <p className="mb-3 leading-relaxed text-slate-300 last:mb-0" {...props}>
+    <p className="mb-3 leading-relaxed text-gray-600 last:mb-0" {...props}>
       {children}
     </p>
   ),
   ul: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"ul"> & { node?: unknown }) => (
-    <ul className="mb-3 ml-6 list-disc space-y-1 text-slate-300" {...props}>
+    <ul className="mb-3 ml-6 list-disc space-y-1 text-gray-600" {...props}>
       {children}
     </ul>
   ),
   ol: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"ol"> & { node?: unknown }) => (
-    <ol className="mb-3 ml-6 list-decimal space-y-1 text-slate-300" {...props}>
+    <ol className="mb-3 ml-6 list-decimal space-y-1 text-gray-600" {...props}>
       {children}
     </ol>
   ),
@@ -254,7 +254,7 @@ const markdownComponents = {
   ),
   blockquote: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"blockquote"> & { node?: unknown }) => (
     <blockquote
-      className="my-3 border-l-4 border-sky-500/40 pl-4 text-slate-400 italic"
+      className="my-3 border-l-4 border-sky-400 pl-4 text-gray-500 italic"
       {...props}
     >
       {children}
@@ -268,7 +268,7 @@ const markdownComponents = {
     </div>
   ),
   thead: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"thead"> & { node?: unknown }) => (
-    <thead className="border-b border-slate-700 text-left text-slate-300" {...props}>
+    <thead className="border-b border-gray-300 text-left text-gray-700" {...props}>
       {children}
     </thead>
   ),
@@ -278,18 +278,18 @@ const markdownComponents = {
     </th>
   ),
   td: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"td"> & { node?: unknown }) => (
-    <td className="border-t border-slate-800 px-3 py-2 text-slate-400" {...props}>
+    <td className="border-t border-gray-200 px-3 py-2 text-gray-500" {...props}>
       {children}
     </td>
   ),
   hr: ({ node: _, ...props }: ComponentPropsWithoutRef<"hr"> & { node?: unknown }) => (
-    <hr className="my-6 border-slate-700" {...props} />
+    <hr className="my-6 border-gray-200" {...props} />
   ),
   img: ({ src, alt, node: _, ...props }: ComponentPropsWithoutRef<"img"> & { node?: unknown }) => (
     <img
       src={src}
       alt={alt}
-      className="my-3 max-w-full rounded-lg border border-slate-700"
+      className="my-3 max-w-full rounded-lg border border-gray-200"
       loading="lazy"
       {...props}
     />
@@ -321,7 +321,7 @@ export default function MarkdownRenderer({ content, className = "", onDocLink }:
                 e.preventDefault();
                 onDocLink(href);
               }}
-              className="text-sky-400 underline decoration-sky-400/40 underline-offset-2 transition-colors hover:text-sky-300 hover:decoration-sky-300/60 cursor-pointer"
+              className="text-sky-600 underline decoration-sky-600/40 underline-offset-2 transition-colors hover:text-sky-500 hover:decoration-sky-500/60 cursor-pointer"
               {...props}
             >
               {children}
@@ -334,7 +334,7 @@ export default function MarkdownRenderer({ content, className = "", onDocLink }:
             href={href}
             target={isExternal ? "_blank" : "_self"}
             rel={isExternal ? "noopener noreferrer" : undefined}
-            className="text-sky-400 underline decoration-sky-400/40 underline-offset-2 transition-colors hover:text-sky-300 hover:decoration-sky-300/60"
+            className="text-sky-600 underline decoration-sky-600/40 underline-offset-2 transition-colors hover:text-sky-500 hover:decoration-sky-500/60"
             {...props}
           >
             {children}

@@ -34,33 +34,33 @@ export default function Repositories() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
           <FolderGit2 size={20} /> {t.repos.title}
         </h2>
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-gray-400">
           {repos.length} {t.repos.repoCount}
         </span>
       </div>
 
       {error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
           {(error as Error).message}
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-slate-800">
+      <div className="overflow-hidden rounded-xl border border-gray-200">
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-800 bg-slate-850">
+          <thead className="border-b border-gray-200 bg-gray-50">
             <tr>
-              <th className="px-5 py-3 font-medium text-slate-400">{t.repos.repository}</th>
-              <th className="px-5 py-3 font-medium text-slate-400">{t.repos.nodes}</th>
-              <th className="px-5 py-3 text-right font-medium text-slate-400">{t.repos.actions}</th>
+              <th className="px-5 py-3 font-medium text-gray-500">{t.repos.repository}</th>
+              <th className="px-5 py-3 font-medium text-gray-500">{t.repos.nodes}</th>
+              <th className="px-5 py-3 text-right font-medium text-gray-500">{t.repos.actions}</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               Array.from({ length: 3 }).map((_, i) => (
-                <tr key={i} className="border-b border-slate-800/50">
+                <tr key={i} className="border-b border-gray-200/80">
                   <td className="px-5 py-3">
                     <SkeletonLine className="h-4 w-48" />
                   </td>
@@ -74,7 +74,7 @@ export default function Repositories() {
               ))
             ) : repos.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-5 py-10 text-center text-slate-500">
+                <td colSpan={3} className="px-5 py-10 text-center text-gray-400">
                   {t.repos.noRepos}
                 </td>
               </tr>
@@ -82,18 +82,18 @@ export default function Repositories() {
               repos.map((r) => (
                 <tr
                   key={r.repository}
-                  className="border-b border-slate-800/50 transition-colors hover:bg-slate-800/30"
+                  className="border-b border-gray-200/80 transition-colors hover:bg-gray-50"
                 >
-                  <td className="px-5 py-3 font-medium text-slate-200">
+                  <td className="px-5 py-3 font-medium text-gray-700">
                     {r.repository}
                   </td>
-                  <td className="px-5 py-3 text-slate-400">{r.nodes}</td>
+                  <td className="px-5 py-3 text-gray-500">{r.nodes}</td>
                   <td className="px-5 py-3 text-right">
                     {isAdmin && (
                       <button
                         onClick={() => handleDelete(r.repository)}
                         disabled={deleteMutation.isPending}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-100 disabled:opacity-50"
                       >
                         {deleteMutation.isPending ? (
                           <Loader2 size={12} className="animate-spin" />

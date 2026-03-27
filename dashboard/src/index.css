@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 @theme {
-  --color-slate-850: #172033;
-  --color-slate-925: #0c1322;
+  --color-slate-850: #f8fafc;
+  --color-slate-925: #f1f5f9;
 }
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
-  @apply bg-slate-925 text-slate-200 antialiased;
+  @apply bg-slate-925 text-gray-700 antialiased;
   font-family: "Inter", system-ui, -apple-system, sans-serif;
 }
 
@@ -22,9 +22,9 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.35);
+  background: rgba(100, 116, 139, 0.25);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.55);
+  background: rgba(100, 116, 139, 0.45);
 }

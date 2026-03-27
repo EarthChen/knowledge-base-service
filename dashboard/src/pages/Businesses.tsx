@@ -55,7 +55,7 @@ export default function Businesses() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-white">{t.businesses.title}</h2>
+        <h2 className="text-lg font-semibold text-gray-900">{t.businesses.title}</h2>
         {isAdmin && (
           <button
             onClick={() => setShowForm(!showForm)}
@@ -68,38 +68,38 @@ export default function Businesses() {
       </div>
 
       {showForm && (
-        <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-5 space-y-4">
+        <div className="rounded-xl border border-gray-300 bg-gray-50 p-5 space-y-4">
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-400">
+            <label className="mb-1 block text-xs font-medium text-gray-500">
               {t.businesses.idLabel}
             </label>
             <input
               value={formId}
               onChange={(e) => setFormId(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
               placeholder="team-alpha"
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-400">
+            <label className="mb-1 block text-xs font-medium text-gray-500">
               {t.businesses.nameLabel}
             </label>
             <input
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
               placeholder="Team Alpha"
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-400">
+            <label className="mb-1 block text-xs font-medium text-gray-500">
               {t.businesses.descLabel}
             </label>
             <input
               value={formDesc}
               onChange={(e) => setFormDesc(e.target.value)}
               placeholder={t.businesses.descPlaceholder}
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
             />
           </div>
           <div className="flex gap-3">
@@ -112,7 +112,7 @@ export default function Businesses() {
             </button>
             <button
               onClick={() => setShowForm(false)}
-              className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-400 hover:bg-slate-800 transition-colors"
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors"
             >
               {t.businesses.cancel}
             </button>
@@ -121,9 +121,9 @@ export default function Businesses() {
       )}
 
       {isLoading ? (
-        <div className="text-sm text-slate-500">Loading...</div>
+        <div className="text-sm text-gray-400">Loading...</div>
       ) : !data?.businesses?.length ? (
-        <div className="rounded-xl border border-slate-800 p-8 text-center text-sm text-slate-500">
+        <div className="rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-400">
           {t.businesses.empty}
         </div>
       ) : (
@@ -133,8 +133,8 @@ export default function Businesses() {
               key={biz.id}
               className={`group relative rounded-xl border p-5 transition-colors ${
                 currentBusiness === biz.id
-                  ? "border-sky-500/50 bg-sky-500/5"
-                  : "border-slate-800 bg-slate-800/30 hover:border-slate-700"
+                  ? "border-sky-400 bg-sky-50"
+                  : "border-gray-200 bg-white hover:border-gray-300"
               }`}
             >
               <div className="flex items-start justify-between">
@@ -142,21 +142,21 @@ export default function Businesses() {
                   <div
                     className={`flex h-10 w-10 items-center justify-center rounded-lg ${
                       currentBusiness === biz.id
-                        ? "bg-sky-500/15 text-sky-400"
-                        : "bg-slate-800 text-slate-400"
+                        ? "bg-sky-50 text-sky-700"
+                        : "bg-gray-100 text-gray-500"
                     }`}
                   >
                     <Building2 size={20} />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-white">{biz.name}</h3>
-                    <p className="text-xs text-slate-500">{biz.id}</p>
+                    <h3 className="text-sm font-semibold text-gray-900">{biz.name}</h3>
+                    <p className="text-xs text-gray-400">{biz.id}</p>
                   </div>
                 </div>
                 {isAdmin && biz.id !== "default" && (
                   <button
                     onClick={() => handleDelete(biz.id)}
-                    className="rounded p-1 text-slate-600 opacity-0 hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100 transition-all"
+                    className="rounded p-1 text-gray-500 opacity-0 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 transition-all"
                     title={t.businesses.deleteBtn}
                   >
                     <Trash2 size={16} />
@@ -164,22 +164,22 @@ export default function Businesses() {
                 )}
               </div>
               {biz.description && (
-                <p className="mt-3 text-xs text-slate-400 line-clamp-2">
+                <p className="mt-3 text-xs text-gray-500 line-clamp-2">
                   {biz.description}
                 </p>
               )}
               <div className="mt-4 flex items-center justify-between">
-                <span className="text-[11px] text-slate-600">
+                <span className="text-[11px] text-gray-500">
                   {new Date(biz.created_at * 1000).toLocaleDateString()}
                 </span>
                 {currentBusiness === biz.id ? (
-                  <span className="rounded-full bg-sky-500/15 px-2.5 py-0.5 text-[11px] font-medium text-sky-400">
+                  <span className="rounded-full bg-sky-50 px-2.5 py-0.5 text-[11px] font-medium text-sky-700">
                     {t.businesses.current}
                   </span>
                 ) : (
                   <button
                     onClick={() => setCurrentBusiness(biz.id)}
-                    className="rounded-full border border-slate-700 px-2.5 py-0.5 text-[11px] text-slate-400 hover:border-sky-500 hover:text-sky-400 transition-colors"
+                    className="rounded-full border border-gray-300 px-2.5 py-0.5 text-[11px] text-gray-500 hover:border-sky-400 hover:text-sky-600 transition-colors"
                   >
                     {t.businesses.switchTo}
                   </button>

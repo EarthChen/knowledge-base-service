@@ -22,7 +22,7 @@ export default function Overview() {
 
   if (error) {
     return (
-      <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-6 text-red-400">
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-600">
         {t.overview.failedToLoadStats}: {(error as Error).message}
       </div>
     );
@@ -45,7 +45,7 @@ export default function Overview() {
               "rgba(168, 85, 247, 0.85)",
               "rgba(251, 191, 36, 0.85)",
             ],
-            borderColor: "#172033",
+            borderColor: "#f1f5f9",
             borderWidth: 2,
           },
         ],
@@ -93,7 +93,7 @@ export default function Overview() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-white">{t.overview.title}</h2>
+      <h2 className="text-lg font-semibold text-gray-900">{t.overview.title}</h2>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {isLoading ? (
@@ -104,41 +104,41 @@ export default function Overview() {
               label={t.overview.functions}
               value={stats?.function_count ?? 0}
               icon={Code}
-              color="bg-emerald-500/15 text-emerald-400"
+              color="bg-emerald-50 text-emerald-700"
             />
             <StatCard
               label={t.overview.classes}
               value={stats?.class_count ?? 0}
               icon={Blocks}
-              color="bg-sky-500/15 text-sky-400"
+              color="bg-sky-50 text-sky-700"
             />
             <StatCard
               label={t.overview.modules}
               value={stats?.module_count ?? 0}
               icon={Package}
-              color="bg-purple-500/15 text-purple-400"
+              color="bg-purple-50 text-purple-700"
             />
             <StatCard
               label={t.overview.documents}
               value={stats?.document_count ?? 0}
               icon={FileText}
-              color="bg-amber-500/15 text-amber-400"
+              color="bg-amber-50 text-amber-700"
             />
           </>
         )}
       </div>
 
       {stats && (
-        <div className="rounded-xl border border-slate-800 bg-slate-850 p-5">
-          <div className="flex items-center gap-2 text-sm font-medium text-slate-400">
+        <div className="rounded-xl border border-gray-200 bg-white p-5">
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-500">
             <ArrowRightLeft size={16} />
             {t.overview.edgeCounts}
           </div>
           <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-5">
             {edgePairs.map(([label, count]) => (
               <div key={label as string} className="text-center">
-                <p className="text-xs text-slate-500">{label as string}</p>
-                <p className="mt-0.5 text-lg font-semibold text-white">
+                <p className="text-xs text-gray-400">{label as string}</p>
+                <p className="mt-0.5 text-lg font-semibold text-gray-900">
                   {count as number}
                 </p>
               </div>
@@ -149,8 +149,8 @@ export default function Overview() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {nodeData && (
-          <div className="rounded-xl border border-slate-800 bg-slate-850 p-5">
-            <h3 className="mb-4 text-sm font-medium text-slate-400">
+          <div className="rounded-xl border border-gray-200 bg-white p-5">
+            <h3 className="mb-4 text-sm font-medium text-gray-500">
               {t.overview.nodeDistribution}
             </h3>
             <div className="relative mx-auto h-64 max-w-xs">
@@ -162,7 +162,7 @@ export default function Overview() {
                   plugins: {
                     legend: {
                       position: "bottom",
-                      labels: { color: "#cbd5e1", padding: 12, font: { size: 11 } },
+                      labels: { color: "#64748b", padding: 12, font: { size: 11 } },
                     },
                   },
                 }}
@@ -172,8 +172,8 @@ export default function Overview() {
         )}
 
         {edgeData && (
-          <div className="rounded-xl border border-slate-800 bg-slate-850 p-5">
-            <h3 className="mb-4 text-sm font-medium text-slate-400">
+          <div className="rounded-xl border border-gray-200 bg-white p-5">
+            <h3 className="mb-4 text-sm font-medium text-gray-500">
               {t.overview.edgeDistribution}
             </h3>
             <div className="relative h-64">
@@ -184,13 +184,13 @@ export default function Overview() {
                   maintainAspectRatio: false,
                   scales: {
                     x: {
-                      ticks: { color: "#94a3b8", font: { size: 10 } },
-                      grid: { color: "rgba(51,65,85,0.4)" },
+                      ticks: { color: "#64748b", font: { size: 10 } },
+                      grid: { color: "rgba(203,213,225,0.5)" },
                     },
                     y: {
                       beginAtZero: true,
-                      ticks: { color: "#94a3b8" },
-                      grid: { color: "rgba(51,65,85,0.4)" },
+                      ticks: { color: "#64748b" },
+                      grid: { color: "rgba(203,213,225,0.5)" },
                     },
                   },
                   plugins: { legend: { display: false } },

@@ -23,6 +23,7 @@ from config import get_settings
 from log import get_logger, setup_logging
 from service import KnowledgeBaseService
 from service_registry import ServiceRegistry
+from store.graph_queries import GraphQueryRepository
 
 log = get_logger(__name__)
 
@@ -240,10 +241,8 @@ async def trigger_index(
     result = await svc.mcp_handler.handle_rag_index(args)
 
     if req.repository:
-        await svc.store.execute_query(
-            "MATCH (n) WHERE n.file STARTS WITH $dir AND n.repository IS NULL SET n.repository = $repo",
-            {"dir": req.directory, "repo": req.repository},
-        )
+        queries = GraphQueryRepository(svc.store)
+        await queries.tag_unowned_nodes(req.repository, directory=req.directory)
 
     return result
 
@@ -309,8 +308,8 @@ async def index_files(
 
 async def _tag_repository(svc: KnowledgeBaseService, file_path: str, repository: str) -> None:
     """Tag all nodes from a file with a repository label."""
-    cypher = "MATCH (n) WHERE n.file = $file SET n.repository = $repo"
-    await svc.store.execute_query(cypher, {"file": file_path, "repo": repository})
+    queries = GraphQueryRepository(svc.store)
+    await queries.tag_nodes_with_repository(file_path, repository)
 
 
 @viewer_router.get("/stats")
@@ -320,12 +319,9 @@ async def graph_stats(
 ) -> dict[str, Any]:
     stats = await svc.graph_query.get_graph_stats()
     if repository:
-        repo_count = await svc.store.execute_query(
-            "MATCH (n) WHERE n.repository = $repo RETURN count(n) AS cnt",
-            {"repo": repository},
-        )
+        queries = GraphQueryRepository(svc.store)
         stats["repository"] = repository
-        stats["repository_nodes"] = repo_count.data[0]["cnt"] if repo_count.data else 0
+        stats["repository_nodes"] = await queries.get_repository_node_count(repository)
     return stats
 
 
@@ -334,13 +330,8 @@ async def list_repositories(
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
     """List all indexed repositories with node counts."""
-    result = await svc.store.execute_query(
-        "MATCH (n) WHERE n.repository IS NOT NULL "
-        "RETURN n.repository AS repo, count(n) AS cnt "
-        "ORDER BY cnt DESC",
-        {},
-    )
-    repos = [{"repository": r["repo"], "nodes": r["cnt"]} for r in result.data]
+    queries = GraphQueryRepository(svc.store)
+    repos = await queries.list_repositories()
     return {"repositories": repos, "total": len(repos)}
 
 
@@ -363,22 +354,8 @@ async def list_documents(
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
     """List top-level document nodes with section metadata for sidebar navigation."""
-    base_cypher = (
-        "MATCH (n:Document)-[:CONTAINS]->(sec:Document) "
-        "{where_clause}"
-        "RETURN n.uid AS uid, n.name AS name, n.file AS file, n.title AS title, "
-        "n.repository AS repository, n.content_hash AS content_hash, "
-        "sec.uid AS sec_uid, sec.name AS sec_name, sec.title AS sec_title, "
-        "sec.start_line AS sec_start_line "
-        "ORDER BY n.file, sec.start_line"
-    )
-    if repository:
-        cypher = base_cypher.format(where_clause="WHERE n.repository = $repo ")
-        params: dict[str, Any] = {"repo": repository}
-    else:
-        cypher = base_cypher.format(where_clause="")
-        params = {}
-    result = await svc.store.execute_query(cypher, params)
+    queries = GraphQueryRepository(svc.store)
+    result = await queries.list_documents(repository)
 
     by_uid: dict[str, dict[str, Any]] = {}
     for r in result.data:
@@ -462,15 +439,8 @@ async def get_document(
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
     """Return a root document and all section children with full section content."""
-    cypher = (
-        "MATCH (doc:Document {uid: $uid})-[:CONTAINS]->(section:Document) "
-        "RETURN doc.title AS title, doc.file AS file, doc.repository AS repository, "
-        "section.uid AS section_uid, section.name AS section_name, "
-        "section.title AS section_title, section.content AS content, "
-        "section.start_line AS start_line, section.level AS level "
-        "ORDER BY section.start_line"
-    )
-    result = await svc.store.execute_query(cypher, {"uid": doc_uid})
+    queries = GraphQueryRepository(svc.store)
+    result = await queries.get_document(doc_uid)
     if not result.data:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -513,12 +483,22 @@ async def delete_repository_index(
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
     """Delete all indexed data for a specific repository."""
-    result = await svc.store.execute_query(
-        "MATCH (n) WHERE n.repository = $repo DETACH DELETE n RETURN count(n) AS deleted",
-        {"repo": repository},
-    )
-    deleted = result.data[0]["deleted"] if result.data else 0
+    queries = GraphQueryRepository(svc.store)
+    deleted = await queries.delete_repository(repository)
     return {"repository": repository, "deleted_nodes": deleted}
+
+
+@admin_router.post("/admin/cleanup-excluded-dirs")
+async def cleanup_excluded_dirs(
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Delete nodes from IDE/agent tool directories that should not be indexed."""
+    from config import get_settings
+    all_dirs = get_settings().exclude_dirs
+    exclude_patterns = [d for d in all_dirs if d.startswith(".")]
+    queries = GraphQueryRepository(svc.store)
+    total_deleted = await queries.cleanup_excluded_dirs(exclude_patterns)
+    return {"deleted_nodes": total_deleted, "patterns": exclude_patterns}
 
 
 @viewer_router.post("/graph/explore")
@@ -533,15 +513,10 @@ async def graph_explore(
     Phase 2 — query all edges between the collected node set.
     """
 
+    queries = GraphQueryRepository(svc.store)
+
     if not req.name:
-        overview_q = (
-            "MATCH (n) "
-            "WHERE n:Function OR n:Class OR n:Module "
-            "WITH n, rand() AS r ORDER BY r LIMIT $limit "
-            "RETURN n.uid AS uid, n.name AS name, labels(n)[0] AS type, "
-            "n.file AS file, n.start_line AS line"
-        )
-        result = await svc.store.execute_query(overview_q, {"limit": req.limit})
+        result = await queries.explore_overview(req.limit)
         nodes = [
             {"id": r["uid"], "name": r["name"], "type": r["type"],
              "file": r["file"], "line": r["line"]}
@@ -549,19 +524,7 @@ async def graph_explore(
         ]
         return {"nodes": nodes, "edges": []}
 
-    nodes_q = (
-        "MATCH (center) "
-        "WHERE (center:Function OR center:Class OR center:Module) "
-        "AND (center.name = $name OR center.fqn = $name) "
-        f"OPTIONAL MATCH (center)-[*1..{req.depth}]-(neighbor) "
-        "WHERE neighbor:Function OR neighbor:Class OR neighbor:Module "
-        "WITH center, collect(DISTINCT neighbor) AS nbrs "
-        "UNWIND ([center] + nbrs) AS n "
-        "WITH DISTINCT n LIMIT $limit "
-        "RETURN n.uid AS uid, n.name AS name, labels(n)[0] AS type, "
-        "n.file AS file, n.start_line AS line"
-    )
-    nodes_result = await svc.store.execute_query(nodes_q, {"name": req.name, "limit": req.limit})
+    nodes_result = await queries.explore_by_name(req.name, req.depth, req.limit)
 
     if not nodes_result.data:
         return {"nodes": [], "edges": []}
@@ -588,12 +551,7 @@ async def graph_explore(
                 nd["is_center"] = True
                 break
 
-    edges_q = (
-        "MATCH (a)-[rel]->(b) "
-        "WHERE a.uid IN $uids AND b.uid IN $uids "
-        "RETURN a.uid AS source, b.uid AS target, type(rel) AS rel_type"
-    )
-    edges_result = await svc.store.execute_query(edges_q, {"uids": node_uids})
+    edges_result = await queries.explore_edges(node_uids)
 
     edges_list: list[dict[str, Any]] = []
     edge_keys: set[str] = set()
@@ -615,34 +573,24 @@ async def backfill_fqn(
 ) -> dict[str, Any]:
     """Compute and set fqn property for all Java Class/Function nodes."""
     from indexer.code_graph_builder import compute_fqn
-    result = await svc.store.execute_query(
-        "MATCH (n) WHERE (n:Class OR n:Function) AND n.file ENDS WITH '.java' "
-        "AND n.fqn IS NULL "
-        "RETURN n.uid AS uid, n.name AS name, n.file AS file, labels(n)[0] AS label",
-    )
+    queries = GraphQueryRepository(svc.store)
+    candidates = await queries.backfill_fqn_candidates()
 
     updated = 0
-    for row in result.data:
+    for row in candidates:
         label = row.get("label", "")
         parent_class = ""
         if label == "Function":
-            file_fqn = row.get("file", "")
-            cls_result = await svc.store.execute_query(
-                "MATCH (c:Class)-[:CONTAINS]->(f:Function {uid: $uid}) RETURN c.name AS cname LIMIT 1",
-                {"uid": row["uid"]},
-            )
-            if cls_result.data:
-                parent_class = cls_result.data[0].get("cname", "")
+            parent = await queries.get_function_parent_class(row["uid"])
+            if parent:
+                parent_class = parent
 
         fqn = compute_fqn(row.get("file", ""), row.get("name", ""), label, parent_class=parent_class)
         if fqn:
-            await svc.store.execute_query(
-                "MATCH (n {uid: $uid}) SET n.fqn = $fqn",
-                {"uid": row["uid"], "fqn": fqn},
-            )
+            await queries.set_node_fqn(row["uid"], fqn)
             updated += 1
 
-    return {"updated": updated, "total_checked": len(result.data)}
+    return {"updated": updated, "total_checked": len(candidates)}
 
 
 @viewer_router.get("/code/{node_uid:path}")
@@ -651,17 +599,11 @@ async def get_code_snippet(
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
     """Return the code snippet for a node, useful when KB is on a remote machine."""
-    result = await svc.store.execute_query(
-        "MATCH (n {uid: $uid}) "
-        "RETURN n.name AS name, n.file AS file, n.start_line AS start_line, "
-        "n.end_line AS end_line, coalesce(n.code_snippet, '') AS code_snippet, "
-        "coalesce(n.signature, '') AS signature, coalesce(n.docstring, '') AS docstring, "
-        "coalesce(n.fqn, '') AS fqn, labels(n)[0] AS type",
-        {"uid": node_uid},
-    )
-    if not result.data:
+    queries = GraphQueryRepository(svc.store)
+    data = await queries.get_code_snippet(node_uid)
+    if not data:
         raise HTTPException(status_code=404, detail="Node not found")
-    return result.data[0]
+    return data
 
 
 @editor_router.post("/mcp/tool")
@@ -754,12 +696,14 @@ async def delete_business(business_id: str) -> dict[str, Any]:
 class SyncRepoRequest(BaseModel):
     """Request to git pull and incrementally re-index a repository."""
     repository: str = Field(..., description="Repository name (must already be indexed)")
+    directory: str | None = Field(default=None, description="Repository root directory (required when using relative paths)")
     base_ref: str = Field(default="HEAD~1", description="Git diff base reference")
     head_ref: str = Field(default="HEAD", description="Git diff head reference")
 
 
 class SyncAllRequest(BaseModel):
     """Request to sync all indexed repositories."""
+    repo_dirs: dict[str, str] | None = Field(default=None, description="Mapping of repo name → local directory path (required for relative-path indexed repos)")
     base_ref: str = Field(default="HEAD~1", description="Git diff base reference")
     head_ref: str = Field(default="HEAD", description="Git diff head reference")
 
@@ -788,20 +732,18 @@ async def sync_repository(
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
     """Git pull a repository and run incremental re-indexing."""
-    result = await svc.store.execute_query(
-        "MATCH (n {repository: $repo}) RETURN DISTINCT n.file AS file LIMIT 1",
-        {"repo": req.repository},
-    )
-    if not result.data:
-        raise HTTPException(status_code=404, detail=f"Repository '{req.repository}' not found in index")
+    repo_dir: str | None = req.directory
+    queries = GraphQueryRepository(svc.store)
+    if not repo_dir:
+        sample_file = await queries.get_repository_sample_file(req.repository)
+        if sample_file is None:
+            raise HTTPException(status_code=404, detail=f"Repository '{req.repository}' not found in index")
 
-    sample_file = result.data[0].get("file", "")
-    if not sample_file:
-        raise HTTPException(status_code=500, detail="Cannot determine repository directory")
+        sample_file = sample_file or ""
+        repo_dir = _infer_repo_root(sample_file, req.repository) if sample_file and sample_file.startswith("/") else None
 
-    repo_dir = _infer_repo_root(sample_file, req.repository)
     if not repo_dir or not Path(repo_dir).is_dir():
-        raise HTTPException(status_code=500, detail=f"Repository directory not found: {repo_dir}")
+        raise HTTPException(status_code=500, detail=f"Repository directory not found. Provide 'directory' in request.")
 
     pull_result = await _git_pull(repo_dir)
 
@@ -816,10 +758,7 @@ async def sync_repository(
     index_stats = await svc.indexer.index_incremental(repo_dir, req.base_ref, req.head_ref)
 
     if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
-        await svc.store.execute_query(
-            "MATCH (n) WHERE n.file STARTS WITH $dir AND n.repository IS NULL SET n.repository = $repo",
-            {"dir": repo_dir, "repo": req.repository},
-        )
+        await queries.tag_unowned_nodes(req.repository)
 
     return {
         "repository": req.repository,
@@ -835,27 +774,28 @@ async def sync_all_repositories(
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
     """Git pull all indexed repositories and run incremental re-indexing for each."""
-    repos_result = await svc.store.execute_query(
-        "MATCH (n) WHERE n.repository IS NOT NULL "
-        "RETURN DISTINCT n.repository AS repo, collect(DISTINCT n.file)[0] AS sample_file",
-    )
+    queries = GraphQueryRepository(svc.store)
+    repos_rows = await queries.list_repositories_with_samples()
 
-    if not repos_result.data:
+    if not repos_rows:
         return {"synced": [], "total": 0}
 
     base_ref = (req.base_ref if req else "HEAD~1")
     head_ref = (req.head_ref if req else "HEAD")
+    repo_dirs_map = (req.repo_dirs if req else None) or {}
 
     results = []
-    for row in repos_result.data:
+    for row in repos_rows:
         repo = row.get("repo", "")
         sample_file = row.get("sample_file", "")
-        if not repo or not sample_file:
+        if not repo:
             continue
 
-        repo_dir = _infer_repo_root(sample_file, repo)
+        repo_dir = repo_dirs_map.get(repo)
+        if not repo_dir and sample_file and sample_file.startswith("/"):
+            repo_dir = _infer_repo_root(sample_file, repo)
         if not repo_dir or not Path(repo_dir).is_dir():
-            results.append({"repository": repo, "status": "error", "detail": "directory not found"})
+            results.append({"repository": repo, "status": "error", "detail": "directory not found; provide repo_dirs mapping"})
             continue
 
         try:
@@ -866,10 +806,7 @@ async def sync_all_repositories(
 
             index_stats = await svc.indexer.index_incremental(repo_dir, base_ref, head_ref)
             if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
-                await svc.store.execute_query(
-                    "MATCH (n) WHERE n.file STARTS WITH $dir AND n.repository IS NULL SET n.repository = $repo",
-                    {"dir": repo_dir, "repo": repo},
-                )
+                await queries.tag_unowned_nodes(repo)
             results.append({"repository": repo, "status": "synced", "stats": index_stats})
         except Exception as exc:
             log.warning("sync_repo_error", repo=repo, error=str(exc))
@@ -889,6 +826,57 @@ def _infer_repo_root(sample_file: str, repo_name: str) -> str | None:
         if Path(candidate).is_dir():
             return candidate
     return None
+
+
+@admin_router.post("/admin/migrate-to-relative-paths")
+async def migrate_to_relative_paths(
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Migrate stored absolute file paths to relative paths (per repository).
+
+    Uses batch Cypher operations — replaces the repo-root prefix in
+    ``file``, ``path``, and ``uid`` properties in a single pass per repo.
+    """
+    queries = GraphQueryRepository(svc.store)
+    repos_rows = await queries.list_repositories_with_multiple_samples()
+
+    if not repos_rows:
+        return {"status": "nothing_to_migrate", "repos": []}
+
+    repo_stats: list[dict] = []
+    for row in repos_rows:
+        repo = row.get("repo", "")
+        samples = row.get("samples", [])
+        if not repo or not samples:
+            continue
+
+        root = None
+        for sample in samples:
+            if not sample or not sample.startswith("/"):
+                continue
+            root = _infer_repo_root(sample, repo)
+            if root:
+                break
+
+        if not root:
+            repo_stats.append({"repo": repo, "status": "skip", "detail": "no absolute paths or cannot infer root"})
+            continue
+
+        prefix = root.rstrip("/") + "/"
+
+        cnt = await queries.count_nodes_with_prefix(repo, prefix)
+
+        if cnt == 0:
+            repo_stats.append({"repo": repo, "status": "skip", "detail": "already migrated"})
+            continue
+
+        await queries.migrate_file_paths(repo, prefix)
+
+        await queries.migrate_node_paths(repo, prefix)
+
+        repo_stats.append({"repo": repo, "status": "migrated", "nodes_updated": cnt, "prefix_removed": prefix})
+
+    return {"status": "completed", "repos": repo_stats}
 
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"

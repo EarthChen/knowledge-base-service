@@ -47,15 +47,24 @@ class DocumentIndexer:
     SUPPORTED_EXTENSIONS = {".md", ".markdown", ".rst", ".txt"}
 
     def __init__(self, exclude_patterns: list[str] | None = None) -> None:
-        self._exclude_dirs = set(exclude_patterns or [])
-        self._exclude_dirs.update({"node_modules", ".git", ".venv", "venv", "__pycache__"})
+        if exclude_patterns is not None:
+            self._exclude_dirs = set(exclude_patterns)
+        else:
+            from config import get_settings
+            self._exclude_dirs = set(get_settings().exclude_dirs)
 
-    def parse_document(self, file_path: str, content: str | None = None) -> ParsedDocument:
+    def parse_document(
+        self, file_path: str, content: str | None = None, *, store_path: str | None = None,
+    ) -> ParsedDocument:
+        """Parse a document.  *store_path* is what gets stored as the
+        persistent file path (relative to repo root).  Falls back to
+        *file_path* when not supplied."""
         if content is None:
             content = Path(file_path).read_text(encoding="utf-8", errors="replace")
 
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
-        title = Path(file_path).stem
+        persist_path = store_path or file_path
+        title = Path(persist_path).stem
 
         ext = Path(file_path).suffix.lower()
         if ext == ".rst":
@@ -70,7 +79,7 @@ class DocumentIndexer:
 
         return ParsedDocument(
             title=title,
-            path=file_path,
+            path=persist_path,
             sections=sections,
             content_hash=content_hash,
             code_references=code_refs,
@@ -128,7 +137,8 @@ class DocumentIndexer:
                 if any(part in self._exclude_dirs for part in fpath.parts):
                     continue
                 try:
-                    doc = self.parse_document(str(fpath))
+                    rel = str(fpath.relative_to(base))
+                    doc = self.parse_document(str(fpath), store_path=rel)
                     nodes, edges = self.build_graph(doc)
                     all_nodes.extend(nodes)
                     all_edges.extend(edges)

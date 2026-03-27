@@ -52,9 +52,9 @@ const ICON_MAP = {
 };
 
 const STYLE_MAP = {
-  success: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
-  error: "border-red-500/30 bg-red-500/10 text-red-400",
-  info: "border-sky-500/30 bg-sky-500/10 text-sky-400",
+  success: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  error: "border-red-200 bg-red-50 text-red-700",
+  info: "border-sky-200 bg-sky-50 text-sky-700",
 };
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {

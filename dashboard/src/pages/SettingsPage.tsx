@@ -25,18 +25,18 @@ export default function SettingsPage() {
   }
 
   const inputClass =
-    "w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30";
+    "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300";
 
   return (
     <div className="space-y-6">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
+      <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
         <Settings size={20} /> {t.settings.title}
       </h2>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-850 p-5">
+      <div className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="flex items-center gap-2">
-          <Globe size={16} className="text-slate-400" />
-          <h3 className="text-sm font-medium text-slate-300">{t.settings.language}</h3>
+          <Globe size={16} className="text-gray-500" />
+          <h3 className="text-sm font-medium text-gray-700">{t.settings.language}</h3>
         </div>
         <div className="mt-3 flex gap-2">
           {LOCALE_OPTIONS.map((opt) => (
@@ -45,8 +45,8 @@ export default function SettingsPage() {
               onClick={() => setLocale(opt.value)}
               className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                 locale === opt.value
-                  ? "bg-sky-500/20 text-sky-400"
-                  : "border border-slate-700 text-slate-400 hover:text-slate-200"
+                  ? "bg-sky-100 text-sky-600"
+                  : "border border-gray-300 text-gray-500 hover:text-gray-700"
               }`}
             >
               {opt.label}
@@ -55,9 +55,9 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-850 p-5">
-        <h3 className="text-sm font-medium text-slate-300">{t.settings.apiToken}</h3>
-        <p className="mt-1 text-xs text-slate-500">
+      <div className="rounded-xl border border-gray-200 bg-white p-5">
+        <h3 className="text-sm font-medium text-gray-700">{t.settings.apiToken}</h3>
+        <p className="mt-1 text-xs text-gray-400">
           {t.settings.apiTokenDesc}
         </p>
         <div className="mt-3 flex gap-2">
@@ -72,7 +72,7 @@ export default function SettingsPage() {
             <button
               type="button"
               onClick={() => setShowToken(!showToken)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
             >
               {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
@@ -86,22 +86,22 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-850 p-5">
-        <h3 className="text-sm font-medium text-slate-300">{t.settings.serviceInfo}</h3>
+      <div className="rounded-xl border border-gray-200 bg-white p-5">
+        <h3 className="text-sm font-medium text-gray-700">{t.settings.serviceInfo}</h3>
         <div className="mt-3 space-y-2 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-slate-500">{t.settings.health}</span>
-            <span className={health?.status === "ok" ? "text-emerald-400" : "text-amber-400"}>
+            <span className="text-gray-400">{t.settings.health}</span>
+            <span className={health?.status === "ok" ? "text-emerald-600" : "text-amber-600"}>
               {health?.status === "ok" ? t.sidebar.healthy : t.sidebar.unreachable}
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-slate-500">{t.settings.apiBase}</span>
-            <span className="font-mono text-xs text-slate-300">/api/v1</span>
+            <span className="text-gray-400">{t.settings.apiBase}</span>
+            <span className="font-mono text-xs text-gray-700">/api/v1</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-slate-500">{t.settings.deployment}</span>
-            <span className="text-slate-300">{t.settings.deploymentValue}</span>
+            <span className="text-gray-400">{t.settings.deployment}</span>
+            <span className="text-gray-700">{t.settings.deploymentValue}</span>
           </div>
         </div>
       </div>

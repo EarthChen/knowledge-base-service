@@ -62,14 +62,20 @@ class CodeGraphBuilder:
         suffix = Path(file_path).suffix
         return self._ext_to_lang.get(suffix)
 
-    def build_from_file(self, file_path: str, content: str | None = None) -> tuple[list[GraphNode], list[GraphEdge]]:
-        """Parse a single file and return graph nodes + edges."""
+    def build_from_file(
+        self, file_path: str, content: str | None = None, *, store_path: str | None = None,
+    ) -> tuple[list[GraphNode], list[GraphEdge]]:
+        """Parse a single file and return graph nodes + edges.
+
+        ``store_path`` is what gets persisted as the ``file`` property.
+        When *None* it equals *file_path* (backward compatible).
+        """
         language = self.detect_language(file_path)
         if not language:
             return [], []
 
         parse_result = self._parser.parse_file(file_path, language, content)
-        return self._build_graph(parse_result, file_path, language)
+        return self._build_graph(parse_result, store_path or file_path, language)
 
     def iter_directory(
         self,
@@ -77,13 +83,11 @@ class CodeGraphBuilder:
         exclude_patterns: list[str] | None = None,
     ) -> Iterator[tuple[str, list[GraphNode], list[GraphEdge]]]:
         """Yield ``(file_path, nodes, edges)`` per file — constant memory."""
-        exclude = set(exclude_patterns or [])
-        default_excludes = {
-            "__pycache__", "node_modules", ".git", ".venv", "venv",
-            "dist", "build", ".tox", ".mypy_cache", ".pytest_cache",
-            "vendor", "target",
-        }
-        exclude.update(default_excludes)
+        if exclude_patterns is not None:
+            exclude = set(exclude_patterns)
+        else:
+            from config import get_settings
+            exclude = set(get_settings().exclude_dirs)
 
         base = Path(directory)
         for ext in self._ext_to_lang:
@@ -91,8 +95,9 @@ class CodeGraphBuilder:
                 if any(part in exclude for part in fpath.parts):
                     continue
                 try:
-                    nodes, edges = self.build_from_file(str(fpath))
-                    yield str(fpath), nodes, edges
+                    rel = str(fpath.relative_to(base))
+                    nodes, edges = self.build_from_file(str(fpath), store_path=rel)
+                    yield rel, nodes, edges
                 except Exception as exc:
                     log.warning("file_parse_error", file=str(fpath), error=str(exc))
 

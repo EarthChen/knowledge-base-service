@@ -127,7 +127,7 @@ function TreeView({
                   if (readme) onSelect(readme.uid);
                 }
               }}
-              className="flex w-full items-center gap-1.5 rounded-lg py-1.5 pr-2 text-sm text-slate-500 transition-colors hover:bg-slate-800/50 hover:text-slate-300"
+              className="flex w-full items-center gap-1.5 rounded-lg py-1.5 pr-2 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
               style={{ paddingLeft: pad }}
             >
               <ChevronRight
@@ -135,9 +135,9 @@ function TreeView({
                 className={`shrink-0 transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`}
               />
               {isOpen ? (
-                <FolderOpen size={16} className="shrink-0 text-amber-500/90" />
+                <FolderOpen size={16} className="shrink-0 text-amber-600" />
               ) : (
-                <Folder size={16} className="shrink-0 text-amber-500/90" />
+                <Folder size={16} className="shrink-0 text-amber-600" />
               )}
               <span className="truncate font-medium">{dn}</span>
             </button>
@@ -163,12 +163,12 @@ function TreeView({
           onClick={() => onSelect(doc.uid)}
           className={`flex w-full items-center gap-2 rounded-lg py-1.5 pr-2 text-left text-sm transition-colors ${
             selectedUid === doc.uid
-              ? "bg-sky-500/15 text-sky-400"
-              : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+              ? "bg-sky-50 text-sky-600"
+              : "text-gray-500 hover:bg-gray-100 hover:text-gray-800"
           }`}
           style={{ paddingLeft: pad + 18 }}
         >
-          <FileText size={16} className="shrink-0 text-slate-500" />
+          <FileText size={16} className="shrink-0 text-gray-500" />
           <span className="truncate">{doc.title}</span>
         </button>
       ))}
@@ -187,17 +187,7 @@ function SectionNav({
 }) {
   const minLevel = Math.min(...sections.map((s) => s.level ?? 2));
 
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    const initial = new Set<string>();
-    for (let i = 0; i < sections.length; i++) {
-      const currentLvl = sections[i].level ?? 2;
-      const next = sections[i + 1];
-      if (next && (next.level ?? 2) > currentLvl) {
-        initial.add(sections[i].uid);
-      }
-    }
-    return initial;
-  });
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const toggleCollapse = (uid: string) => {
     setCollapsed((prev) => {
@@ -233,8 +223,8 @@ function SectionNav({
   };
 
   return (
-    <nav className="w-full shrink-0 border-t border-slate-800 p-3 lg:w-56 lg:border-l lg:border-t-0">
-      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+    <nav className="w-full shrink-0 border-t border-gray-200 p-3 lg:w-56 lg:border-l lg:border-t-0">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
         {label}
       </p>
       <ul className="max-h-48 space-y-0.5 overflow-y-auto lg:max-h-none">
@@ -251,7 +241,7 @@ function SectionNav({
                   <button
                     type="button"
                     onClick={() => toggleCollapse(s.uid)}
-                    className="mr-0.5 shrink-0 rounded p-0.5 text-slate-600 hover:text-slate-400"
+                    className="mr-0.5 shrink-0 rounded p-0.5 text-gray-400 hover:text-gray-600"
                   >
                     <ChevronRight
                       size={12}
@@ -264,8 +254,8 @@ function SectionNav({
                 <button
                   type="button"
                   onClick={() => onScrollTo(s.uid)}
-                  className={`w-full rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-slate-800/80 hover:text-sky-400 ${
-                    lvl === 0 ? "font-medium text-slate-300" : "text-slate-500"
+                  className={`w-full rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-gray-100 hover:text-sky-600 ${
+                    lvl === 0 ? "font-medium text-gray-800" : "text-gray-500"
                   }`}
                 >
                   {s.title}
@@ -364,15 +354,15 @@ export default function Documents() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
           <FileText size={20} /> {t.documents.title}
         </h2>
       </div>
 
       <div className="flex min-h-[calc(100vh-10rem)] flex-col gap-4 lg:flex-row">
-        <aside className="flex min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-800/50 lg:w-72">
-        <div className="border-b border-slate-800 p-3">
-          <label className="mb-1 block text-xs font-medium text-slate-500">
+        <aside className="flex min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white lg:w-72">
+        <div className="border-b border-gray-200 p-3">
+          <label className="mb-1 block text-xs font-medium text-gray-500">
             {t.repos.repository}
           </label>
           <select
@@ -382,7 +372,7 @@ export default function Documents() {
               setSelectedUid(null);
               setExpandedInit(false);
             }}
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-300 outline-none ring-sky-500/30 focus:ring-2"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 outline-none ring-sky-300 focus:ring-2"
           >
             <option value="">{t.documents.allRepos}</option>
             {repos.map((r) => (
@@ -392,21 +382,21 @@ export default function Documents() {
             ))}
           </select>
         </div>
-        <div className="border-b border-slate-800 px-3 py-2">
+        <div className="border-b border-gray-200 px-3 py-2">
           <div className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t.search.placeholder}
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 py-1.5 pl-8 pr-8 text-sm text-slate-300 outline-none ring-sky-500/30 placeholder:text-slate-600 focus:ring-2"
+              className="w-full rounded-lg border border-gray-300 bg-white py-1.5 pl-8 pr-8 text-sm text-gray-700 outline-none ring-sky-300 placeholder:text-gray-400 focus:ring-2"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
               >
                 <X size={14} />
               </button>
@@ -416,14 +406,14 @@ export default function Documents() {
             <button
               type="button"
               onClick={handleExpandAll}
-              className="rounded px-2 py-0.5 text-xs text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300"
+              className="rounded px-2 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
             >
               {t.documents.expandAll ?? "Expand All"}
             </button>
             <button
               type="button"
               onClick={handleCollapseAll}
-              className="rounded px-2 py-0.5 text-xs text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300"
+              className="rounded px-2 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
             >
               {t.documents.collapseAll ?? "Collapse All"}
             </button>
@@ -437,11 +427,11 @@ export default function Documents() {
               ))}
             </div>
           ) : listError ? (
-            <div className="p-3 text-sm text-red-400">
+            <div className="p-3 text-sm text-red-600">
               {(listError as Error).message}
             </div>
           ) : (listData?.documents.length ?? 0) === 0 ? (
-            <div className="p-3 text-sm text-slate-500">{t.search.noResults}</div>
+            <div className="p-3 text-sm text-gray-500">{t.search.noResults}</div>
           ) : (
             <TreeView
               node={tree}
@@ -457,29 +447,29 @@ export default function Documents() {
         </div>
         </aside>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-800/50">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white">
         {!selectedUid ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-slate-500">
-            <FileText size={40} className="text-slate-600" />
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-gray-500">
+            <FileText size={40} className="text-gray-400" />
             <p className="text-sm">{t.documents.selectDoc}</p>
           </div>
         ) : detailLoading ? (
-          <div className="flex flex-1 items-center justify-center gap-2 text-slate-500">
+          <div className="flex flex-1 items-center justify-center gap-2 text-gray-500">
             <Loader2 size={20} className="animate-spin" />
             <span className="text-sm">{t.search.searching}</span>
           </div>
         ) : detailError ? (
-          <div className="p-6 text-sm text-red-400">
+          <div className="p-6 text-sm text-red-600">
             {(detailError as Error).message}
           </div>
         ) : detail ? (
           <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-b border-slate-800 lg:border-b-0 lg:border-r">
-              <div className="shrink-0 border-b border-slate-800 p-4">
-                <h2 className="text-lg font-semibold text-white">{detail.title}</h2>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                  <span className="font-mono text-slate-400">{detail.file}</span>
-                  <span className="rounded-md border border-slate-700 bg-slate-900/80 px-2 py-0.5 text-sky-400">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-b border-gray-200 lg:border-b-0 lg:border-r">
+              <div className="shrink-0 border-b border-gray-200 p-4">
+                <h2 className="text-lg font-semibold text-gray-900">{detail.title}</h2>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                  <span className="font-mono text-gray-500">{detail.file}</span>
+                  <span className="rounded-md border border-gray-300 bg-sky-50 px-2 py-0.5 text-sky-600">
                     {detail.repository}
                   </span>
                 </div>
@@ -489,9 +479,9 @@ export default function Documents() {
                   <div
                     key={section.uid}
                     id={`doc-section-${section.uid}`}
-                    className="scroll-mt-4 border-b border-slate-800/80 pb-6 last:border-0 last:pb-0"
+                    className="scroll-mt-4 border-b border-gray-200 pb-6 last:border-0 last:pb-0"
                   >
-                    <h3 className="mb-3 text-sm font-semibold text-slate-200">
+                    <h3 className="mb-3 text-sm font-semibold text-gray-700">
                       {section.title}
                     </h3>
                     <MarkdownRenderer content={section.content} onDocLink={handleDocLink} />

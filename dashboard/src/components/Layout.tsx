@@ -46,49 +46,49 @@ export default function Layout() {
     <div className="flex h-screen overflow-hidden">
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-30 bg-black/30 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-slate-800 bg-slate-925 transition-transform duration-200 lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-gray-200 bg-white transition-transform duration-200 lg:static lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="flex h-14 items-center gap-2.5 border-b border-slate-800 px-5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/15 text-sky-400">
+        <div className="flex h-14 items-center gap-2.5 border-b border-gray-200 px-5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 text-sky-600">
             <Database size={18} />
           </div>
-          <span className="text-sm font-semibold tracking-tight text-white">
+          <span className="text-sm font-semibold tracking-tight text-gray-900">
             Knowledge Base
           </span>
         </div>
 
         {/* Business selector — hidden when token is bound to a specific business */}
         {isBound ? (
-          <div className="border-b border-slate-800 px-3 py-2">
-            <div className="flex items-center gap-2 rounded-lg border border-slate-700/50 bg-slate-900/50 px-3 py-1.5 text-sm text-slate-500">
+          <div className="border-b border-gray-200 px-3 py-2">
+            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm text-gray-500">
               <Building2 size={14} />
               <span className="truncate">{currentBizName}</span>
             </div>
           </div>
         ) : (
-          <div className="relative border-b border-slate-800 px-3 py-2">
+          <div className="relative border-b border-gray-200 px-3 py-2">
             <button
               onClick={() => setBizDropdownOpen(!bizDropdownOpen)}
-              className="flex w-full items-center justify-between rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-300 hover:border-slate-600 transition-colors"
+              className="flex w-full items-center justify-between rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:border-gray-400 transition-colors"
             >
               <span className="truncate">{currentBizName}</span>
               <ChevronDown
                 size={14}
-                className={`ml-2 shrink-0 text-slate-500 transition-transform ${
+                className={`ml-2 shrink-0 text-gray-500 transition-transform ${
                   bizDropdownOpen ? "rotate-180" : ""
                 }`}
               />
             </button>
             {bizDropdownOpen && (
-              <div className="absolute left-3 right-3 z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 py-1 shadow-xl">
+              <div className="absolute left-3 right-3 z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
                 {businesses.map((biz) => (
                   <button
                     key={biz.id}
@@ -98,8 +98,8 @@ export default function Layout() {
                     }}
                     className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
                       currentBusiness === biz.id
-                        ? "bg-sky-500/10 text-sky-400"
-                        : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                        ? "bg-sky-50 text-sky-600"
+                        : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
                     }`}
                   >
                     <Building2 size={14} />
@@ -122,8 +122,8 @@ export default function Layout() {
                   className={({ isActive }) =>
                     `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                       isActive
-                        ? "bg-slate-800 text-white"
-                        : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+                        ? "bg-gray-100 text-gray-900"
+                        : "text-gray-500 hover:bg-gray-100 hover:text-gray-800"
                     }`
                   }
                 >
@@ -135,8 +135,8 @@ export default function Layout() {
           </ul>
         </nav>
 
-        <div className="border-t border-slate-800 px-4 py-3">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+        <div className="border-t border-gray-200 px-4 py-3">
+          <div className="flex items-center gap-2 text-xs text-gray-500">
             <Activity size={14} />
             <span>{t.sidebar.service}</span>
             <span
@@ -146,7 +146,7 @@ export default function Layout() {
                   : "bg-amber-500"
               }`}
             />
-            <span className={isHealthy ? "text-emerald-400" : "text-amber-400"}>
+            <span className={isHealthy ? "text-emerald-600" : "text-amber-600"}>
               {isHealthy ? t.sidebar.healthy : t.sidebar.unreachable}
             </span>
           </div>
@@ -154,14 +154,14 @@ export default function Layout() {
       </aside>
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 items-center gap-3 border-b border-slate-800 px-4 lg:px-6">
+        <header className="flex h-14 items-center gap-3 border-b border-gray-200 px-4 lg:px-6">
           <button
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 lg:hidden"
+            className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 lg:hidden"
             onClick={() => setSidebarOpen(!sidebarOpen)}
           >
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <h1 className="text-sm font-medium text-slate-300">
+          <h1 className="text-sm font-medium text-gray-600">
             {t.app.headerTitle}
           </h1>
         </header>

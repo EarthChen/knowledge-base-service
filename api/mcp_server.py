@@ -286,15 +286,14 @@ class KnowledgeBaseMCPHandler:
         total_edges = 0
         total_embeds = 0
 
+        exclude_dirs = set(self._doc_indexer._exclude_dirs)
         for ext in self._doc_indexer.SUPPORTED_EXTENSIONS:
             for fpath in base.rglob(f"*{ext}"):
-                if any(
-                    part in {"node_modules", ".git", ".venv", "venv", "__pycache__"}
-                    for part in fpath.parts
-                ):
+                if any(part in exclude_dirs for part in fpath.parts):
                     continue
                 try:
-                    doc = self._doc_indexer.parse_document(str(fpath))
+                    rel = str(fpath.relative_to(base))
+                    doc = self._doc_indexer.parse_document(str(fpath), store_path=rel)
                     nodes, edges = self._doc_indexer.build_graph(doc)
                     await self._store.batch_upsert(nodes, edges)
                     total_nodes += len(nodes)
@@ -375,7 +374,7 @@ class KnowledgeBaseMCPHandler:
                 if not Path(full_path).exists():
                     continue
 
-                doc = self._doc_indexer.parse_document(full_path)
+                doc = self._doc_indexer.parse_document(full_path, store_path=fpath)
                 nodes, edges = self._doc_indexer.build_graph(doc)
                 await self._store.batch_upsert(nodes, edges)
                 total_nodes += len(nodes)

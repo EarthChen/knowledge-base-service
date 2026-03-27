@@ -42,21 +42,21 @@ export default function Indexing() {
   }
 
   const inputClass =
-    "w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30";
+    "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300";
 
   return (
     <div className="space-y-6">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
+      <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
         <Database size={20} /> {t.indexing.title}
       </h2>
 
       <form
         onSubmit={handleSubmit}
-        className="space-y-4 rounded-xl border border-slate-800 bg-slate-850 p-5"
+        className="space-y-4 rounded-xl border border-gray-200 bg-white p-5"
       >
         <div className="flex gap-4">
           {(["full", "incremental"] as const).map((m) => (
-            <label key={m} className="flex items-center gap-2 text-sm text-slate-300">
+            <label key={m} className="flex items-center gap-2 text-sm text-gray-700">
               <input
                 type="radio"
                 name="index-mode"
@@ -70,7 +70,7 @@ export default function Indexing() {
           ))}
         </div>
 
-        <label className="block text-xs font-medium text-slate-400">
+        <label className="block text-xs font-medium text-gray-500">
           {t.indexing.directoryPath}
           <input
             type="text"
@@ -81,7 +81,7 @@ export default function Indexing() {
           />
         </label>
 
-        <label className="block text-xs font-medium text-slate-400">
+        <label className="block text-xs font-medium text-gray-500">
           {t.indexing.repoName}
           <input
             type="text"
@@ -94,7 +94,7 @@ export default function Indexing() {
 
         {mode === "incremental" && (
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-medium text-slate-400">
+            <label className="block text-xs font-medium text-gray-500">
               {t.indexing.baseRef}
               <input
                 type="text"
@@ -103,7 +103,7 @@ export default function Indexing() {
                 className={`mt-1 ${inputClass}`}
               />
             </label>
-            <label className="block text-xs font-medium text-slate-400">
+            <label className="block text-xs font-medium text-gray-500">
               {t.indexing.headRef}
               <input
                 type="text"
@@ -127,7 +127,7 @@ export default function Indexing() {
 
       {mutation.data && (
         <div className="space-y-2">
-          <h3 className="text-sm font-medium text-emerald-400">{t.indexing.indexingResult}</h3>
+          <h3 className="text-sm font-medium text-emerald-700">{t.indexing.indexingResult}</h3>
           <JsonView data={mutation.data} />
         </div>
       )}

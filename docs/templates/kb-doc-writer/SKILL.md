@@ -214,14 +214,15 @@ python3 scripts/kb_query.py graph find_entity --name "<实体名>"
 
 **6b. 本地代码确认（必须）**
 
-对 KB 返回的每个实体，用 Read/Grep 读取本地源文件确认最新签名：
+KB 返回的 `file` 是**仓库内相对路径**（如 `src/main/java/com/xxx/Service.java`），需要拼接项目根目录才能定位本地文件。
 
 ```bash
-# 用 KB 返回的 file + start_line 定位，然后 Read 本地文件
-Read(path="<KB返回的file>", offset=<start_line-5>, limit=20)
+# KB 返回 file="src/main/java/com/xxx/Service.java", start_line=42
+# 假设项目根目录为 /Users/you/work/my-project
+Read(path="<项目根目录>/<KB返回的file>", offset=<start_line-5>, limit=20)
 
-# 或用 Grep 搜索
-Grep(pattern="<方法名>", path="<KB返回的file>")
+# 或用 Grep 搜索（不需要拼接完整路径）
+Grep(pattern="<方法名>", path="<项目根目录>")
 ```
 
 Shell 模式批量验证示例：

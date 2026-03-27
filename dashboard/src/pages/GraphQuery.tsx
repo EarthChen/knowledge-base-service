@@ -100,19 +100,19 @@ export default function GraphQuery() {
   }
 
   const inputClass =
-    "w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30";
+    "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300";
 
   return (
     <div className="space-y-6">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
+      <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
         <GitFork size={20} /> {t.graph.title}
       </h2>
 
       <form
         onSubmit={handleRun}
-        className="space-y-4 rounded-xl border border-slate-800 bg-slate-850 p-5"
+        className="space-y-4 rounded-xl border border-gray-200 bg-white p-5"
       >
-        <label className="block text-xs font-medium text-slate-400">
+        <label className="block text-xs font-medium text-gray-500">
           {t.graph.queryType}
           <select
             value={queryType}
@@ -128,7 +128,7 @@ export default function GraphQuery() {
         </label>
 
         {fields.showName && (
-          <label className="block text-xs font-medium text-slate-400">
+          <label className="block text-xs font-medium text-gray-500">
             {nameLabel}
             <input
               type="text"
@@ -141,7 +141,7 @@ export default function GraphQuery() {
         )}
 
         {fields.showFile && (
-          <label className="block text-xs font-medium text-slate-400">
+          <label className="block text-xs font-medium text-gray-500">
             {t.graph.filePath}
             <input
               type="text"
@@ -154,7 +154,7 @@ export default function GraphQuery() {
         )}
 
         {fields.showDepth && (
-          <label className="block text-xs font-medium text-slate-400">
+          <label className="block text-xs font-medium text-gray-500">
             {t.graph.depth}
             <input
               type="number"
@@ -168,7 +168,7 @@ export default function GraphQuery() {
         )}
 
         {fields.showDirection && (
-          <label className="block text-xs font-medium text-slate-400">
+          <label className="block text-xs font-medium text-gray-500">
             {t.graph.direction}
             <select
               value={direction}
@@ -182,7 +182,7 @@ export default function GraphQuery() {
         )}
 
         {fields.showEntityType && (
-          <label className="block text-xs font-medium text-slate-400">
+          <label className="block text-xs font-medium text-gray-500">
             {t.graph.entityType}
             <select
               value={entityType}
@@ -197,7 +197,7 @@ export default function GraphQuery() {
         )}
 
         {fields.showCypher && (
-          <label className="block text-xs font-medium text-slate-400">
+          <label className="block text-xs font-medium text-gray-500">
             {t.graph.cypherQuery}
             <textarea
               value={cypher}
@@ -219,7 +219,7 @@ export default function GraphQuery() {
       </form>
 
       {mutation.error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
           {mutation.error.message}
         </div>
       )}
@@ -274,8 +274,8 @@ function GraphQueryResult({
             onClick={() => setViewMode("chart")}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               viewMode === "chart"
-                ? "bg-sky-500/20 text-sky-400"
-                : "text-slate-500 hover:text-slate-300"
+                ? "bg-sky-100 text-sky-600"
+                : "text-gray-400 hover:text-gray-700"
             }`}
           >
             <BarChart3 size={14} /> {t.graph.flowChart ?? "Flow Chart"}
@@ -284,16 +284,16 @@ function GraphQueryResult({
             onClick={() => setViewMode("json")}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               viewMode === "json"
-                ? "bg-purple-500/20 text-purple-400"
-                : "text-slate-500 hover:text-slate-300"
+                ? "bg-purple-100 text-purple-600"
+                : "text-gray-400 hover:text-gray-700"
             }`}
           >
             <Code2 size={14} /> JSON
           </button>
-          <span className="ml-auto text-xs text-slate-500">
+          <span className="ml-auto text-xs text-gray-400">
             {results.length} {t.graph.resultCount ?? "results"}
             {viewMode === "chart" && (
-              <span className="ml-3 text-slate-600">
+              <span className="ml-3 text-gray-500">
                 {t.graph.doubleClickDrillDown ?? "Double-click node to drill down"}
               </span>
             )}

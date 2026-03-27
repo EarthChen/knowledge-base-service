@@ -1001,12 +1001,91 @@ knowledge-base-service/
 ├── static/                     # Dashboard 构建产物（gitignored）
 ├── docs/
 │   ├── MCP-INTEGRATION.md      # MCP 集成指南（配置、认证、工作流）
-│   └── proposals/              # 设计提案
+│   ├── ONBOARDING.md           # 业务项目接入指南（完整步骤）
+│   ├── proposals/              # 设计提案
+│   ├── superpowers/            # 设计规格 & 实施计划
+│   │   ├── specs/              #   规格文档
+│   │   └── plans/              #   实施计划
+│   └── templates/              # 可复用模板（Cursor Rules / MCP 配置 / Shell 命令）
+│       ├── knowledge-base-coding.mdc   # Cursor Rule: 编码时查询 KB
+│       ├── knowledge-base-docs.mdc     # Cursor Rule: 文档维护时查询 KB
+│       ├── mcp-config.json             # Cursor MCP 连接配置
+│       └── kb-shell-commands.md        # Shell curl 命令模板（非 MCP 环境）
+├── scripts/
+│   ├── index-services.sh       # 批量索引多服务脚本
+│   ├── reindex_all.py          # 全量重索引脚本
+│   └── export_onnx.py          # ONNX 模型导出
 ├── tests/                      # 单元测试
 ├── docker-compose.yaml         # FalkorDB Docker 部署
 ├── Dockerfile
 └── pyproject.toml
 ```
+
+## 模板与工具
+
+`docs/templates/` 和 `scripts/` 提供了可直接复用的配置模板和自动化脚本，覆盖从 Cursor IDE 集成到 CI/CD 的完整场景。
+
+### 模板索引
+
+| 文件 | 用途 | 适用场景 |
+|------|------|----------|
+| [`docs/templates/mcp-config.json`](docs/templates/mcp-config.json) | Cursor MCP 连接配置 | 接入 KB 的第一步，配置 Agent 到 KB 的 MCP 连接 |
+| [`docs/templates/knowledge-base-coding.mdc`](docs/templates/knowledge-base-coding.mdc) | Cursor Rule: 编码时查询 KB | 编写跨服务代码时，强制 Agent 先查 KB 再写代码 |
+| [`docs/templates/knowledge-base-docs.mdc`](docs/templates/knowledge-base-docs.mdc) | Cursor Rule: 文档维护时查询 KB | 编写/更新文档时，确保代码引用来自 KB 真实数据 |
+| [`docs/templates/kb-shell-commands.md`](docs/templates/kb-shell-commands.md) | Shell curl 命令模板 | 非 MCP 环境（如 ACP Gateway、CI 脚本）通过 HTTP 直接查询 KB |
+
+### 使用方式
+
+#### 1. Cursor MCP 配置（开发者直接使用 KB）
+
+```bash
+# 复制 MCP 配置到项目
+cp docs/templates/mcp-config.json <your-project>/.cursor/mcp.json
+
+# 修改 token 和 URL
+# 默认 URL: http://localhost:8100/api/v1/mcp
+```
+
+#### 2. Cursor Rules（编码/文档时自动触发 KB 查询）
+
+```bash
+# 编码规则 — 跨服务调用、继承实现、公共方法修改前必须查 KB
+cp docs/templates/knowledge-base-coding.mdc <your-project>/.cursor/rules/
+
+# 文档规则 — 文档中的代码引用必须来自 KB 查询结果
+cp docs/templates/knowledge-base-docs.mdc <your-project>/.cursor/rules/
+```
+
+规则内置降级策略：KB 不可用时自动退回常规模式，不阻塞开发。
+
+#### 3. Shell 命令模板（非 MCP 环境）
+
+适用于 ACP Gateway Agent、CI/CD 脚本等无法直接使用 MCP 的场景：
+
+```bash
+# 语义搜索
+curl -s -X POST 'http://localhost:8100/api/v1/search' \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <token>' \
+  -d '{"query": "用户认证流程", "k": 5, "entity_type": "all"}'
+
+# 图查询（调用链）
+curl -s -X POST 'http://localhost:8100/api/v1/graph' \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <token>' \
+  -d '{"query_type": "call_chain", "name": "loginV2", "depth": 3, "direction": "downstream"}'
+```
+
+完整命令集见 [`docs/templates/kb-shell-commands.md`](docs/templates/kb-shell-commands.md)。
+
+### 自动化脚本
+
+| 脚本 | 用途 | 示例 |
+|------|------|------|
+| [`scripts/index-services.sh`](scripts/index-services.sh) | 批量索引多个服务 | `bash scripts/index-services.sh --base-dir /path/to/services --kb-token <token>` |
+| [`scripts/reindex_all.py`](scripts/reindex_all.py) | 全量重新索引 | `uv run scripts/reindex_all.py` |
+
+---
 
 ## 业务项目接入
 
@@ -1017,7 +1096,8 @@ knowledge-base-service/
 1. 确认仓库已索引（Dashboard 查看或 `GET /api/v1/repositories`）
 2. 复制 `docs/templates/mcp-config.json` → 项目 `.cursor/mcp.json`，修改 token
 3. 复制 `docs/templates/knowledge-base-coding.mdc` → 项目 `.cursor/rules/`
-4. 在 Cursor 中验证 Agent 可查询知识库
+4. （可选）复制 `docs/templates/knowledge-base-docs.mdc` → 项目 `.cursor/rules/`（文档维护场景）
+5. 在 Cursor 中验证 Agent 可查询知识库
 
 批量索引多个服务：
 

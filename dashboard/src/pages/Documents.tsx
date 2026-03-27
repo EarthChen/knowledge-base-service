@@ -4,6 +4,7 @@ import { useDocuments, useDocument, useRepositories } from "../api/hooks";
 import type { DocumentItem } from "../api/types";
 import { useI18n } from "../i18n/context";
 import { SkeletonLine } from "../components/Skeleton";
+import MarkdownRenderer from "../components/MarkdownRenderer";
 
 interface TreeNode {
   dirs: Record<string, TreeNode>;
@@ -209,12 +210,10 @@ export default function Documents() {
                     id={`doc-section-${section.uid}`}
                     className="scroll-mt-4 border-b border-slate-800/80 pb-6 last:border-0 last:pb-0"
                   >
-                    <h3 className="mb-2 text-sm font-semibold text-slate-200">
+                    <h3 className="mb-3 text-sm font-semibold text-slate-200">
                       {section.title}
                     </h3>
-                    <pre className="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-slate-300">
-                      {section.content}
-                    </pre>
+                    <MarkdownRenderer content={section.content} />
                   </div>
                 ))}
               </div>

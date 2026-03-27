@@ -149,12 +149,44 @@ curl -s -X POST '{kb_url}/search' \
 
 ### Step 5: 生成/更新文档
 
-基于 Step 1-4 的查询结果编写文档。遵循以下规范：
+基于 Step 1-4 的查询结果编写文档。
 
-- **文档结构**遵循 code-review-bot `doc-maintenance` Skill 定义的标准（8 维度 + 规模自适应拆分）
+#### 文档结构标准
+
+推荐的项目文档结构（8 维度）：
+
+```
+project-root/
+├── README.md                    # P0 项目概览: 功能描述、技术栈、快速开始
+└── docs/
+    ├── architecture.md          # P3 架构设计: 模块职责、数据流、技术选型 (含 Mermaid 图)
+    ├── api.md                   # P1 API 参考: 接口定义、参数、返回值、错误码
+    ├── database.md              # P2 数据库设计: ER图、表结构概览、分库分表策略
+    ├── configuration.md         # P5 配置指南: 环境变量表、配置文件说明、默认值
+    ├── business-flows.md        # P4 核心业务流程: 流程图、状态机、业务规则
+    ├── deployment.md            # 部署指南: Docker/K8s、依赖服务、健康检查
+    ├── development.md           # 开发指南: 本地环境搭建、测试运行、代码规范
+    └── changelog.md             # 变更日志: Keep a Changelog 格式
+```
+
+#### 规模自适应拆分
+
+当内容过多时，按以下规则拆分为目录：
+
+| 维度 | 单文件阈值 | 拆分策略 |
+|------|-----------|----------|
+| API/RPC 接口 | ≤ 20 个方法 → `api.md` | 20-50 → 按可见性拆分（internal/external）；50+ → 按业务域拆分 `api/` |
+| 配置项 | ≤ 30 项 → `configuration.md` | 30-80 → 静态/动态拆分；80+ → 按中间件类型拆分 `config/` |
+| 业务流程 | ≤ 5 个流程 → `business-flows.md` | 5-15 → 按业务域拆分 `flows/`；15+ → 按业务域 + 子目录 |
+
+#### 内容质量要求
+
 - **代码引用**必须来自 KB 查询结果，不得凭记忆编写类名、方法签名
 - **流程图**使用 Mermaid 语法，数据来自 `call_chain` 图查询
 - **配置表格**从代码中 Grep 获取，用 KB 确认字段含义
+- 代码示例必须使用项目实际使用的编程语言
+- 架构图使用 Mermaid 语法
+- 保持与项目现有文档相同的语言和风格
 
 ### Step 6: 交叉验证
 

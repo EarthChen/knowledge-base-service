@@ -211,6 +211,15 @@ Read(path="<KB返回的file>", offset=<start_line-5>, limit=20)
 Grep(pattern="<方法名>", path="<KB返回的file>")
 ```
 
+Shell 模式批量验证示例（注意 shell 变量不能直接嵌入 Python f-string）：
+
+```bash
+for name in ClassName1 ClassName2; do
+  echo "--- $name ---"
+  ./scripts/kb-query.sh graph find_entity --name "$name"
+done
+```
+
 **6c. 不一致处理**
 
 - KB 与本地一致 → 文档引用正确

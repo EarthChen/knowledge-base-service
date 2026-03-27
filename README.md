@@ -1008,6 +1008,23 @@ knowledge-base-service/
 └── pyproject.toml
 ```
 
+## 业务项目接入
+
+> **完整文档**: [docs/ONBOARDING.md](docs/ONBOARDING.md) — 包含配置 Cursor MCP、安装 Rules、验证接入等详细步骤。
+
+快速开始：
+
+1. 确认仓库已索引（Dashboard 查看或 `GET /api/v1/repositories`）
+2. 复制 `docs/templates/mcp-config.json` → 项目 `.cursor/mcp.json`，修改 token
+3. 复制 `docs/templates/knowledge-base-coding.mdc` → 项目 `.cursor/rules/`
+4. 在 Cursor 中验证 Agent 可查询知识库
+
+批量索引多个服务：
+
+```bash
+bash scripts/index-services.sh --base-dir /path/to/services --kb-token your-token
+```
+
 ## 与 ACP Gateway 集成
 
 与 ACP Gateway 配合使用时，Gateway 会将 RAG 请求代理到本服务。

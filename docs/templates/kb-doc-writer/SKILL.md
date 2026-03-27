@@ -179,14 +179,13 @@ project-root/
 - 架构图使用 Mermaid 语法
 - 保持与项目现有文档相同的语言和风格
 
-### Step 6: 交叉验证
+### Step 6: 交叉验证（本地代码为权威）
 
-文档编写完成后，验证其中每个关键引用：
+文档编写完成后，执行双重验证。KB 索引可能略滞后于最新代码，因此**本地代码是最终权威**。
 
-1. 提取文档中提到的所有类名、方法名
-2. 对每个名称执行语义搜索确认在代码中真实存在
-3. 对签名有疑问的，用图查询 `find_entity` 获取精确定义
-4. 修正任何不匹配的引用
+**6a. KB 搜索定位**
+
+提取文档中提到的所有类名、方法名，通过 KB 查找其所在文件和行号：
 
 **MCP:**
 ```
@@ -198,6 +197,36 @@ rag_graph(query_type="find_entity", name="<实体名>", entity_type="any")
 ```bash
 ./scripts/kb-query.sh search "<类名或方法名>" --type function --k 3
 ./scripts/kb-query.sh graph find_entity --name "<实体名>"
+```
+
+**6b. 本地代码确认（必须）**
+
+对 KB 返回的每个实体，用 Read/Grep 读取本地源文件确认最新签名：
+
+```bash
+# 用 KB 返回的 file + start_line 定位，然后 Read 本地文件
+Read(path="<KB返回的file>", offset=<start_line-5>, limit=20)
+
+# 或用 Grep 搜索
+Grep(pattern="<方法名>", path="<KB返回的file>")
+```
+
+**6c. 不一致处理**
+
+- KB 与本地一致 → 文档引用正确
+- KB 与本地不一致 → **以本地代码为准**，更新文档中的签名
+- KB 中不存在但本地存在 → 正常引用，KB 索引尚未更新
+- KB 中存在但本地已删除 → 从文档中移除该引用
+- 发现多处不一致 → 可选触发增量索引更新 KB：
+
+**MCP:**
+```
+rag_index(directory="<项目路径>", mode="incremental")
+```
+
+**Shell:**
+```bash
+./scripts/kb-query.sh index "<项目路径>"
 ```
 
 ### Step 7: 索引新文档

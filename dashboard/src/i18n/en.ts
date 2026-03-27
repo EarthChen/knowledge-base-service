@@ -108,6 +108,8 @@ const en: Translations = {
     selectDoc: "Select a document from the sidebar",
     allRepos: "All Repositories",
     sections: "Section Navigation",
+    expandAll: "Expand All",
+    collapseAll: "Collapse All",
   },
   indexing: {
     title: "Indexing",

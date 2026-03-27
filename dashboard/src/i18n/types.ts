@@ -108,6 +108,8 @@ export interface Translations {
     selectDoc: string;
     allRepos: string;
     sections: string;
+    expandAll: string;
+    collapseAll: string;
   };
   indexing: {
     title: string;

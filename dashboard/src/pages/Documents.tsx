@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { FileText, Folder, Loader2 } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+import { ChevronRight, FileText, Folder, FolderOpen, Loader2, Search, X } from "lucide-react";
 import { useDocuments, useDocument, useRepositories } from "../api/hooks";
 import type { DocumentItem } from "../api/types";
 import { useI18n } from "../i18n/context";
@@ -39,41 +39,110 @@ function buildTree(docs: DocumentItem[]): TreeNode {
   return root;
 }
 
+function collectAllDirPaths(node: TreeNode, prefix: string): string[] {
+  const paths: string[] = [];
+  for (const dn of Object.keys(node.dirs)) {
+    const dirPath = prefix ? `${prefix}/${dn}` : dn;
+    paths.push(dirPath);
+    paths.push(...collectAllDirPaths(node.dirs[dn], dirPath));
+  }
+  return paths;
+}
+
+function treeHasMatch(node: TreeNode, query: string): boolean {
+  for (const doc of node.files) {
+    if (doc.title.toLowerCase().includes(query) || doc.file.toLowerCase().includes(query)) {
+      return true;
+    }
+  }
+  for (const dn of Object.keys(node.dirs)) {
+    if (dn.toLowerCase().includes(query) || treeHasMatch(node.dirs[dn], query)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function TreeView({
   node,
   depth,
   selectedUid,
   onSelect,
+  expanded,
+  onToggle,
+  pathPrefix,
+  searchQuery,
 }: {
   node: TreeNode;
   depth: number;
   selectedUid: string | null;
   onSelect: (uid: string) => void;
+  expanded: Set<string>;
+  onToggle: (path: string) => void;
+  pathPrefix: string;
+  searchQuery: string;
 }) {
   const dirNames = Object.keys(node.dirs).sort();
   const sortedFiles = [...node.files].sort((a, b) => a.title.localeCompare(b.title));
   const pad = 8 + depth * 12;
+  const lowerQuery = searchQuery.toLowerCase();
+
+  const filteredFiles = lowerQuery
+    ? sortedFiles.filter(
+        (doc) =>
+          doc.title.toLowerCase().includes(lowerQuery) ||
+          doc.file.toLowerCase().includes(lowerQuery),
+      )
+    : sortedFiles;
+
+  const filteredDirs = lowerQuery
+    ? dirNames.filter(
+        (dn) =>
+          dn.toLowerCase().includes(lowerQuery) ||
+          treeHasMatch(node.dirs[dn], lowerQuery),
+      )
+    : dirNames;
 
   return (
     <>
-      {dirNames.map((dn) => (
-        <div key={`${depth}-${dn}`} className="select-none">
-          <div
-            className="flex items-center gap-2 py-1.5 text-sm text-slate-500"
-            style={{ paddingLeft: pad }}
-          >
-            <Folder size={16} className="shrink-0 text-amber-500/90" />
-            <span className="truncate font-medium">{dn}</span>
+      {filteredDirs.map((dn) => {
+        const dirPath = pathPrefix ? `${pathPrefix}/${dn}` : dn;
+        const isOpen = expanded.has(dirPath);
+        return (
+          <div key={`${depth}-${dn}`} className="select-none">
+            <button
+              type="button"
+              onClick={() => onToggle(dirPath)}
+              className="flex w-full items-center gap-1.5 rounded-lg py-1.5 pr-2 text-sm text-slate-500 transition-colors hover:bg-slate-800/50 hover:text-slate-300"
+              style={{ paddingLeft: pad }}
+            >
+              <ChevronRight
+                size={14}
+                className={`shrink-0 transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`}
+              />
+              {isOpen ? (
+                <FolderOpen size={16} className="shrink-0 text-amber-500/90" />
+              ) : (
+                <Folder size={16} className="shrink-0 text-amber-500/90" />
+              )}
+              <span className="truncate font-medium">{dn}</span>
+            </button>
+            {isOpen && (
+              <TreeView
+                node={node.dirs[dn]}
+                depth={depth + 1}
+                selectedUid={selectedUid}
+                onSelect={onSelect}
+                expanded={expanded}
+                onToggle={onToggle}
+                pathPrefix={dirPath}
+                searchQuery={searchQuery}
+              />
+            )}
           </div>
-          <TreeView
-            node={node.dirs[dn]}
-            depth={depth + 1}
-            selectedUid={selectedUid}
-            onSelect={onSelect}
-          />
-        </div>
-      ))}
-      {sortedFiles.map((doc) => (
+        );
+      })}
+      {filteredFiles.map((doc) => (
         <button
           key={doc.uid}
           type="button"
@@ -83,7 +152,7 @@ function TreeView({
               ? "bg-sky-500/15 text-sky-400"
               : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
           }`}
-          style={{ paddingLeft: pad }}
+          style={{ paddingLeft: pad + 18 }}
         >
           <FileText size={16} className="shrink-0 text-slate-500" />
           <span className="truncate">{doc.title}</span>
@@ -97,6 +166,9 @@ export default function Documents() {
   const { t } = useI18n();
   const [repository, setRepository] = useState<string>("");
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expandedInit, setExpandedInit] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: reposData } = useRepositories();
   const {
@@ -114,6 +186,35 @@ export default function Documents() {
     () => buildTree(listData?.documents ?? []),
     [listData?.documents],
   );
+
+  useMemo(() => {
+    if (!expandedInit && listData?.documents && listData.documents.length > 0) {
+      const allPaths = collectAllDirPaths(tree, "");
+      setExpanded(new Set(allPaths));
+      setExpandedInit(true);
+    }
+  }, [tree, expandedInit, listData?.documents]);
+
+  const handleToggle = useCallback((path: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleExpandAll = useCallback(() => {
+    const allPaths = collectAllDirPaths(tree, "");
+    setExpanded(new Set(allPaths));
+  }, [tree]);
+
+  const handleCollapseAll = useCallback(() => {
+    setExpanded(new Set());
+  }, []);
 
   const repos = reposData?.repositories ?? [];
 
@@ -141,6 +242,7 @@ export default function Documents() {
             onChange={(e) => {
               setRepository(e.target.value);
               setSelectedUid(null);
+              setExpandedInit(false);
             }}
             className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-300 outline-none ring-sky-500/30 focus:ring-2"
           >
@@ -151,6 +253,43 @@ export default function Documents() {
               </option>
             ))}
           </select>
+        </div>
+        <div className="border-b border-slate-800 px-3 py-2">
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t.search.placeholder}
+              className="w-full rounded-lg border border-slate-700 bg-slate-900 py-1.5 pl-8 pr-8 text-sm text-slate-300 outline-none ring-sky-500/30 placeholder:text-slate-600 focus:ring-2"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <div className="mt-1.5 flex gap-1">
+            <button
+              type="button"
+              onClick={handleExpandAll}
+              className="rounded px-2 py-0.5 text-xs text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300"
+            >
+              {t.documents.expandAll ?? "Expand All"}
+            </button>
+            <button
+              type="button"
+              onClick={handleCollapseAll}
+              className="rounded px-2 py-0.5 text-xs text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300"
+            >
+              {t.documents.collapseAll ?? "Collapse All"}
+            </button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {listLoading ? (
@@ -171,6 +310,10 @@ export default function Documents() {
               depth={0}
               selectedUid={selectedUid}
               onSelect={setSelectedUid}
+              expanded={expanded}
+              onToggle={handleToggle}
+              pathPrefix=""
+              searchQuery={searchQuery}
             />
           )}
         </div>

@@ -108,6 +108,8 @@ const zh: Translations = {
     selectDoc: "选择左侧文档查看",
     allRepos: "全部仓库",
     sections: "章节导航",
+    expandAll: "全部展开",
+    collapseAll: "全部折叠",
   },
   indexing: {
     title: "索引",

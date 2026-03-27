@@ -71,7 +71,7 @@ function MermaidBlock({ code }: { code: string }) {
   );
 }
 
-function CodeBlock({ className, children, ...props }: ComponentPropsWithoutRef<"code">) {
+function CodeBlock({ className, children, node: _node, ...props }: ComponentPropsWithoutRef<"code"> & { node?: unknown }) {
   const match = /language-(\w+)/.exec(className || "");
   const lang = match?.[1];
   const codeStr = String(children).replace(/\n$/, "");
@@ -102,58 +102,62 @@ function CodeBlock({ className, children, ...props }: ComponentPropsWithoutRef<"
 
 const markdownComponents = {
   code: CodeBlock,
-  a: ({ href, children, ...props }: ComponentPropsWithoutRef<"a">) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-sky-400 underline decoration-sky-400/40 underline-offset-2 transition-colors hover:text-sky-300 hover:decoration-sky-300/60"
-      {...props}
-    >
-      {children}
-    </a>
-  ),
-  h1: ({ children, ...props }: ComponentPropsWithoutRef<"h1">) => (
+  a: ({ href, children, node: _node, ...props }: ComponentPropsWithoutRef<"a"> & { node?: unknown }) => {
+    if (!href) return <span {...props}>{children}</span>;
+    const isExternal = href.startsWith("http://") || href.startsWith("https://");
+    return (
+      <a
+        href={href}
+        target={isExternal ? "_blank" : "_self"}
+        rel={isExternal ? "noopener noreferrer" : undefined}
+        className="text-sky-400 underline decoration-sky-400/40 underline-offset-2 transition-colors hover:text-sky-300 hover:decoration-sky-300/60"
+        {...props}
+      >
+        {children}
+      </a>
+    );
+  },
+  h1: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"h1"> & { node?: unknown }) => (
     <h1 className="mb-4 mt-6 text-2xl font-bold text-white first:mt-0" {...props}>
       {children}
     </h1>
   ),
-  h2: ({ children, ...props }: ComponentPropsWithoutRef<"h2">) => (
+  h2: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"h2"> & { node?: unknown }) => (
     <h2 className="mb-3 mt-5 text-xl font-semibold text-white first:mt-0" {...props}>
       {children}
     </h2>
   ),
-  h3: ({ children, ...props }: ComponentPropsWithoutRef<"h3">) => (
+  h3: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"h3"> & { node?: unknown }) => (
     <h3 className="mb-2 mt-4 text-lg font-semibold text-slate-200 first:mt-0" {...props}>
       {children}
     </h3>
   ),
-  h4: ({ children, ...props }: ComponentPropsWithoutRef<"h4">) => (
+  h4: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"h4"> & { node?: unknown }) => (
     <h4 className="mb-2 mt-3 text-base font-semibold text-slate-200 first:mt-0" {...props}>
       {children}
     </h4>
   ),
-  p: ({ children, ...props }: ComponentPropsWithoutRef<"p">) => (
+  p: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"p"> & { node?: unknown }) => (
     <p className="mb-3 leading-relaxed text-slate-300 last:mb-0" {...props}>
       {children}
     </p>
   ),
-  ul: ({ children, ...props }: ComponentPropsWithoutRef<"ul">) => (
+  ul: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"ul"> & { node?: unknown }) => (
     <ul className="mb-3 ml-6 list-disc space-y-1 text-slate-300" {...props}>
       {children}
     </ul>
   ),
-  ol: ({ children, ...props }: ComponentPropsWithoutRef<"ol">) => (
+  ol: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"ol"> & { node?: unknown }) => (
     <ol className="mb-3 ml-6 list-decimal space-y-1 text-slate-300" {...props}>
       {children}
     </ol>
   ),
-  li: ({ children, ...props }: ComponentPropsWithoutRef<"li">) => (
+  li: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"li"> & { node?: unknown }) => (
     <li className="leading-relaxed" {...props}>
       {children}
     </li>
   ),
-  blockquote: ({ children, ...props }: ComponentPropsWithoutRef<"blockquote">) => (
+  blockquote: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"blockquote"> & { node?: unknown }) => (
     <blockquote
       className="my-3 border-l-4 border-sky-500/40 pl-4 text-slate-400 italic"
       {...props}
@@ -161,32 +165,32 @@ const markdownComponents = {
       {children}
     </blockquote>
   ),
-  table: ({ children, ...props }: ComponentPropsWithoutRef<"table">) => (
+  table: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"table"> & { node?: unknown }) => (
     <div className="my-3 overflow-x-auto">
       <table className="w-full border-collapse text-sm" {...props}>
         {children}
       </table>
     </div>
   ),
-  thead: ({ children, ...props }: ComponentPropsWithoutRef<"thead">) => (
+  thead: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"thead"> & { node?: unknown }) => (
     <thead className="border-b border-slate-700 text-left text-slate-300" {...props}>
       {children}
     </thead>
   ),
-  th: ({ children, ...props }: ComponentPropsWithoutRef<"th">) => (
+  th: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"th"> & { node?: unknown }) => (
     <th className="px-3 py-2 font-semibold" {...props}>
       {children}
     </th>
   ),
-  td: ({ children, ...props }: ComponentPropsWithoutRef<"td">) => (
+  td: ({ children, node: _, ...props }: ComponentPropsWithoutRef<"td"> & { node?: unknown }) => (
     <td className="border-t border-slate-800 px-3 py-2 text-slate-400" {...props}>
       {children}
     </td>
   ),
-  hr: (props: ComponentPropsWithoutRef<"hr">) => (
+  hr: ({ node: _, ...props }: ComponentPropsWithoutRef<"hr"> & { node?: unknown }) => (
     <hr className="my-6 border-slate-700" {...props} />
   ),
-  img: ({ src, alt, ...props }: ComponentPropsWithoutRef<"img">) => (
+  img: ({ src, alt, node: _, ...props }: ComponentPropsWithoutRef<"img"> & { node?: unknown }) => (
     <img
       src={src}
       alt={alt}

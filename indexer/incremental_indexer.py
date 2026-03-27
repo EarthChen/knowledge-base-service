@@ -123,8 +123,8 @@ class IncrementalIndexer:
         xref = await self._store.resolve_cross_file_edges()
 
         stats = {
-            "added": len([f for _, s in changed_files if s == "A"]),
-            "modified": len([f for _, s in changed_files if s == "M"]),
+            "added": len([f for f, s in changed_files if s == "A"]),
+            "modified": len([f for f, s in changed_files if s == "M"]),
             "deleted": len(deleted_files),
             "deleted_nodes": deleted_count,
             "nodes": total_nodes,

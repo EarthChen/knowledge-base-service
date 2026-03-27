@@ -216,7 +216,25 @@ export default function Documents() {
     setExpanded(new Set());
   }, []);
 
+  const allDocs = listData?.documents ?? [];
   const repos = reposData?.repositories ?? [];
+
+  const handleDocLink = useCallback(
+    (href: string) => {
+      const normalizedHref = href.replace(/\\/g, "/").replace(/^\.\//, "");
+      const match = allDocs.find((doc) => {
+        const normalizedFile = doc.file.replace(/\\/g, "/");
+        return (
+          normalizedFile.endsWith(normalizedHref) ||
+          normalizedFile.endsWith(`/${normalizedHref}`)
+        );
+      });
+      if (match) {
+        setSelectedUid(match.uid);
+      }
+    },
+    [allDocs],
+  );
 
   function scrollToSection(uid: string) {
     const el = document.getElementById(`doc-section-${uid}`);
@@ -356,7 +374,7 @@ export default function Documents() {
                     <h3 className="mb-3 text-sm font-semibold text-slate-200">
                       {section.title}
                     </h3>
-                    <MarkdownRenderer content={section.content} />
+                    <MarkdownRenderer content={section.content} onDocLink={handleDocLink} />
                   </div>
                 ))}
               </div>

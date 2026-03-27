@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import mermaid from "mermaid";
@@ -204,12 +204,54 @@ const markdownComponents = {
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  onDocLink?: (filePath: string) => void;
 }
 
-export default function MarkdownRenderer({ content, className = "" }: MarkdownRendererProps) {
+export default function MarkdownRenderer({ content, className = "", onDocLink }: MarkdownRendererProps) {
+  const components = useMemo(() => {
+    if (!onDocLink) return markdownComponents;
+
+    return {
+      ...markdownComponents,
+      a: ({ href, children, node: _node, ...props }: ComponentPropsWithoutRef<"a"> & { node?: unknown }) => {
+        if (!href) return <span {...props}>{children}</span>;
+        const isExternal = href.startsWith("http://") || href.startsWith("https://") || href.startsWith("mailto:");
+        const isDocLink = !isExternal && (href.endsWith(".md") || href.endsWith(".rst") || href.endsWith(".txt"));
+
+        if (isDocLink) {
+          return (
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                onDocLink(href);
+              }}
+              className="text-sky-400 underline decoration-sky-400/40 underline-offset-2 transition-colors hover:text-sky-300 hover:decoration-sky-300/60 cursor-pointer"
+              {...props}
+            >
+              {children}
+            </a>
+          );
+        }
+
+        return (
+          <a
+            href={href}
+            target={isExternal ? "_blank" : "_self"}
+            rel={isExternal ? "noopener noreferrer" : undefined}
+            className="text-sky-400 underline decoration-sky-400/40 underline-offset-2 transition-colors hover:text-sky-300 hover:decoration-sky-300/60"
+            {...props}
+          >
+            {children}
+          </a>
+        );
+      },
+    };
+  }, [onDocLink]);
+
   return (
     <div className={`markdown-body ${className}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </ReactMarkdown>
     </div>

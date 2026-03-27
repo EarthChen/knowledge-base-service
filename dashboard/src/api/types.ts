@@ -106,6 +106,7 @@ export interface DocumentSection {
   content: string;
   start_line: number;
   uid: string;
+  level?: number;
 }
 
 export interface DocumentItem {

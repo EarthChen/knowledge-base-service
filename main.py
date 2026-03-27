@@ -425,7 +425,7 @@ async def get_document(
         "RETURN doc.title AS title, doc.file AS file, doc.repository AS repository, "
         "section.uid AS section_uid, section.name AS section_name, "
         "section.title AS section_title, section.content AS content, "
-        "section.start_line AS start_line "
+        "section.start_line AS start_line, section.level AS level "
         "ORDER BY section.start_line"
     )
     result = await svc.store.execute_query(cypher, {"uid": doc_uid})
@@ -446,6 +446,7 @@ async def get_document(
             "content": r.get("content") or "",
             "start_line": r.get("start_line"),
             "uid": suid,
+            "level": r.get("level") or 2,
         })
 
     return {

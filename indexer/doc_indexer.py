@@ -105,6 +105,7 @@ class DocumentIndexer:
                     "section": section.title,
                     "content": section_content,
                     "title": f"{doc.title} > {section.title}",
+                    "level": section.level,
                 },
             )
             nodes.append(section_node)

@@ -95,12 +95,12 @@ function DiagramModal({ svg, onClose }: { svg: string; onClose: () => void }) {
           </div>
         </div>
         <div
-          className="overflow-auto p-6"
+          className="flex-1 overflow-auto p-6"
           onWheel={handleWheel}
         >
           <div
-            className="origin-top-left transition-transform duration-150 [&_svg]:max-w-none"
-            style={{ transform: `scale(${scale})` }}
+            className="inline-block [&_svg]:block [&_svg]:max-w-none"
+            style={{ width: `${scale * 100}%` }}
             dangerouslySetInnerHTML={{ __html: svg }}
           />
         </div>

@@ -176,6 +176,99 @@ function TreeView({
   );
 }
 
+function SectionNav({
+  sections,
+  onScrollTo,
+  label,
+}: {
+  sections: { uid: string; title: string; level?: number }[];
+  onScrollTo: (uid: string) => void;
+  label: string;
+}) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const minLevel = Math.min(...sections.map((s) => s.level ?? 2));
+
+  const toggleCollapse = (uid: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(uid)) {
+        next.delete(uid);
+      } else {
+        next.add(uid);
+      }
+      return next;
+    });
+  };
+
+  const visibleSections: typeof sections = [];
+  let skipBelow: number | null = null;
+  for (const s of sections) {
+    const lvl = s.level ?? 2;
+    if (skipBelow !== null && lvl > skipBelow) {
+      continue;
+    }
+    skipBelow = null;
+    visibleSections.push(s);
+    if (collapsed.has(s.uid)) {
+      skipBelow = lvl;
+    }
+  }
+
+  const hasChildren = (idx: number): boolean => {
+    const current = visibleSections[idx];
+    const currentLvl = current.level ?? 2;
+    const next = sections[sections.indexOf(current) + 1];
+    return next !== undefined && (next.level ?? 2) > currentLvl;
+  };
+
+  return (
+    <nav className="w-full shrink-0 border-t border-slate-800 p-3 lg:w-56 lg:border-l lg:border-t-0">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <ul className="max-h-48 space-y-0.5 overflow-y-auto lg:max-h-none">
+        {visibleSections.map((s, i) => {
+          const lvl = (s.level ?? 2) - minLevel;
+          const pad = lvl * 12;
+          const isCollapsed = collapsed.has(s.uid);
+          const expandable = hasChildren(i);
+
+          return (
+            <li key={s.uid}>
+              <div className="flex items-center" style={{ paddingLeft: pad }}>
+                {expandable ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleCollapse(s.uid)}
+                    className="mr-0.5 shrink-0 rounded p-0.5 text-slate-600 hover:text-slate-400"
+                  >
+                    <ChevronRight
+                      size={12}
+                      className={`transition-transform duration-150 ${isCollapsed ? "" : "rotate-90"}`}
+                    />
+                  </button>
+                ) : (
+                  <span className="mr-0.5 inline-block w-[16px] shrink-0" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => onScrollTo(s.uid)}
+                  className={`w-full rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-slate-800/80 hover:text-sky-400 ${
+                    lvl === 0 ? "font-medium text-slate-300" : "text-slate-500"
+                  }`}
+                >
+                  {s.title}
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
 export default function Documents() {
   const { t } = useI18n();
   const [repository, setRepository] = useState<string>("");
@@ -203,8 +296,7 @@ export default function Documents() {
 
   useMemo(() => {
     if (!expandedInit && listData?.documents && listData.documents.length > 0) {
-      const allPaths = collectAllDirPaths(tree, "");
-      setExpanded(new Set(allPaths));
+      setExpanded(new Set());
       setExpandedInit(true);
       const rootReadme = findReadme(tree);
       if (rootReadme) {
@@ -398,24 +490,7 @@ export default function Documents() {
               </div>
             </div>
             {detail.sections.length > 0 && (
-              <nav className="w-full shrink-0 border-t border-slate-800 p-3 lg:w-52 lg:border-l lg:border-t-0">
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-                  {t.documents.sections}
-                </p>
-                <ul className="max-h-48 space-y-1 overflow-y-auto lg:max-h-none">
-                  {detail.sections.map((s) => (
-                    <li key={s.uid}>
-                      <button
-                        type="button"
-                        onClick={() => scrollToSection(s.uid)}
-                        className="w-full rounded-lg px-2 py-1.5 text-left text-xs text-slate-400 transition-colors hover:bg-slate-800/80 hover:text-sky-400"
-                      >
-                        {s.title}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </nav>
+              <SectionNav sections={detail.sections} onScrollTo={scrollToSection} label={t.documents.sections} />
             )}
           </div>
         ) : null}

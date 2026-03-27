@@ -14,15 +14,29 @@ description: 基于知识库编写/更新项目文档，确保文档内容与真
 | 环境 | 检测方式 | 查询方式 |
 |------|----------|----------|
 | Cursor IDE（MCP 可用） | Prompt 中**未**包含 `[KNOWLEDGE BASE - SHELL QUERY TOOLS]` | MCP 工具调用 |
-| ACP Gateway / CI 环境 | Prompt 中包含 `[KNOWLEDGE BASE - SHELL QUERY TOOLS]` | Shell curl 命令 |
+| ACP Gateway / CI / 无 MCP 环境 | Prompt 中包含 `[KNOWLEDGE BASE - SHELL QUERY TOOLS]`，或 MCP 不可用 | `scripts/kb-query.sh` 脚本 |
 
 下文每个查询步骤同时提供两种写法，使用 `MCP:` 和 `Shell:` 标签区分。
+
+### 脚本使用方式
+
+当 MCP 不可用时，通过本 Skill 附带的 `scripts/kb-query.sh` 脚本查询知识库：
+
+```bash
+export KB_URL="http://localhost:8100/api/v1"   # 知识库 API 地址
+export KB_TOKEN="your-api-token"               # API 认证令牌
+
+# 确认脚本可执行
+chmod +x scripts/kb-query.sh
+```
+
+脚本支持全部查询类型，详见 `./scripts/kb-query.sh help`。
 
 ## 前提条件
 
 - 项目已被知识库索引（`GET /api/v1/repositories` 可查到）
 - MCP 模式：Cursor MCP 已配置 `knowledge-base` 连接（`.cursor/mcp.json`）
-- Shell 模式：Prompt 中已注入 KB curl 命令模板
+- Shell 模式：设置 `KB_URL` 和 `KB_TOKEN` 环境变量
 
 ## 工作流
 
@@ -37,10 +51,7 @@ rag_graph(query_type="graph_stats")
 
 **Shell:**
 ```bash
-curl -s -X POST '{kb_url}/graph' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query_type": "graph_stats"}'
+./scripts/kb-query.sh graph stats
 ```
 
 如有多仓库，确认当前仓库名：
@@ -52,10 +63,9 @@ rag_query(query="<项目名>", k=1, entity_type="all")
 
 **Shell:**
 ```bash
-curl -s -X POST '{kb_url}/search' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query": "<项目名>", "k": 1, "entity_type": "all"}'
+./scripts/kb-query.sh search "<项目名>" --k 1
+# 或查看所有已索引仓库
+./scripts/kb-query.sh repos
 ```
 
 ### Step 2: 获取接口与核心类列表
@@ -70,15 +80,8 @@ rag_graph(query_type="class_methods", name="XxxService")
 
 **Shell:**
 ```bash
-curl -s -X POST '{kb_url}/graph' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query_type": "file_entities", "file": "src/main/java/.../controller/XxxController.java"}'
-
-curl -s -X POST '{kb_url}/graph' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query_type": "class_methods", "name": "XxxService"}'
+./scripts/kb-query.sh graph file_entities --file "src/main/java/.../controller/XxxController.java"
+./scripts/kb-query.sh graph class_methods --name "XxxService"
 ```
 
 对于需要了解继承关系的场景：
@@ -90,10 +93,7 @@ rag_graph(query_type="inheritance_tree", name="BaseService")
 
 **Shell:**
 ```bash
-curl -s -X POST '{kb_url}/graph' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query_type": "inheritance_tree", "name": "BaseService"}'
+./scripts/kb-query.sh graph inheritance_tree --name "BaseService"
 ```
 
 ### Step 3: 获取调用关系
@@ -107,10 +107,7 @@ rag_graph(query_type="call_chain", name="handleRequest", depth=3, direction="dow
 
 **Shell:**
 ```bash
-curl -s -X POST '{kb_url}/graph' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query_type": "call_chain", "name": "handleRequest", "depth": 3, "direction": "downstream"}'
+./scripts/kb-query.sh graph call_chain --name "handleRequest" --depth 3 --direction downstream
 ```
 
 查看谁调用了某个公共方法（影响范围分析）：
@@ -122,10 +119,7 @@ rag_graph(query_type="call_chain", name="saveOrder", depth=2, direction="upstrea
 
 **Shell:**
 ```bash
-curl -s -X POST '{kb_url}/graph' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query_type": "call_chain", "name": "saveOrder", "depth": 2, "direction": "upstream"}'
+./scripts/kb-query.sh graph call_chain --name "saveOrder" --depth 2 --direction upstream
 ```
 
 ### Step 4: 搜索已有文档
@@ -139,10 +133,7 @@ rag_query(query="<功能关键词> 文档", k=5, entity_type="document")
 
 **Shell:**
 ```bash
-curl -s -X POST '{kb_url}/search' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query": "<功能关键词> 文档", "k": 5, "entity_type": "document"}'
+./scripts/kb-query.sh search "<功能关键词> 文档" --type document --k 5
 ```
 
 如果已有文档，基于现有内容更新而非重写。
@@ -205,15 +196,8 @@ rag_graph(query_type="find_entity", name="<实体名>", entity_type="any")
 
 **Shell:**
 ```bash
-curl -s -X POST '{kb_url}/search' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query": "<类名或方法名>", "k": 3, "entity_type": "function"}'
-
-curl -s -X POST '{kb_url}/graph' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query_type": "find_entity", "name": "<实体名>", "entity_type": "any"}'
+./scripts/kb-query.sh search "<类名或方法名>" --type function --k 3
+./scripts/kb-query.sh graph find_entity --name "<实体名>"
 ```
 
 ### Step 7: 索引新文档
@@ -227,10 +211,9 @@ rag_index(directory="<项目路径>", mode="incremental")
 
 **Shell:**
 ```bash
-curl -s -X POST '{kb_url}/../index' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"directory": "<项目路径>", "mode": "incremental"}'
+./scripts/kb-query.sh index "<项目路径>"
+# 全量索引
+./scripts/kb-query.sh index "<项目路径>" --mode full
 ```
 
 ## 与 code-review-bot doc-maintenance 的分工

@@ -60,14 +60,19 @@ python3 scripts/kb_query.py --help
 - MCP 模式：Cursor MCP 已配置 `knowledge-base` 连接（`.cursor/mcp.json`）
 - 脚本模式：设置 `KB_URL` 和 `KB_TOKEN` 环境变量（或 `.env` 文件）
 
-## 查询精度指南
+## 查询精度规则（强制）
 
-为避免同名类/方法导致查询结果不准确（如多个模块中存在同名 `BaseService`），遵循以下原则：
+> **所有 KB 查询必须使用全限定名（FQN）。** 使用简单类名会导致同名实体干扰，返回错误结果。
 
-1. **优先使用全限定名（FQN）**：查询 `com.example.service.AuthService` 而非简单的 `AuthService`
-2. **多仓库环境先确认仓库**：Step 1 中通过 `repos` 确认目标仓库，后续查询结果中验证 `file` 路径是否属于目标项目
-3. **结果路径过滤**：查询返回多个结果时，通过比对 `file` 字段中的模块路径排除非目标仓库的同名实体
-4. **简单名兜底**：如果只知道简单类名，先用简单名查询，再通过 `file` 路径和上下文判断正确匹配
+**强制规则：**
+
+1. **所有查询必须使用 FQN**：查询 `com.example.service.AuthService` 而非 `AuthService`
+2. **FQN 推断方法**（按优先级尝试）：
+   - 文件路径推断：`src/main/java/com/example/service/AuthService.java` → `com.example.service.AuthService`
+   - 代码块中的 package/import 声明
+   - 不确定时先用 `find_entity` 预查询获取 FQN，再用 FQN 执行正式查询
+3. **多仓库环境**：Step 1 中必须通过 `repos` 确认目标仓库，后续查询结果中验证 `file` 路径属于目标项目
+4. **结果路径过滤**：返回多个结果时，通过 `file` 字段中的模块路径排除非目标项目的同名实体
 
 ## 工作流
 
@@ -101,56 +106,58 @@ python3 scripts/kb_query.py repos
 
 ### Step 2: 获取接口与核心类列表
 
-列出关键文件中的代码实体：
+列出关键文件中的代码实体。**查询时必须使用完整文件路径或 FQN。**
 
 **MCP:**
 ```
-rag_graph(query_type="file_entities", file="src/main/java/.../controller/XxxController.java")
-rag_graph(query_type="class_methods", name="XxxService")
+rag_graph(query_type="file_entities", file="src/main/java/com/example/controller/XxxController.java")
+rag_graph(query_type="class_methods", name="com.example.service.XxxService")
 ```
 
 **Shell:**
 ```bash
-python3 scripts/kb_query.py graph file_entities --file "src/main/java/.../controller/XxxController.java"
-python3 scripts/kb_query.py graph class_methods --name "XxxService"
+python3 scripts/kb_query.py graph file_entities --file "src/main/java/com/example/controller/XxxController.java"
+python3 scripts/kb_query.py graph class_methods --name "com.example.service.XxxService"
 ```
+
+> 如果不确定 FQN，先用 `find_entity` 查找：`python3 scripts/kb_query.py --brief graph find_entity --name "XxxService" --entity-type class`，从返回的 `file` 路径推断 FQN。
 
 对于需要了解继承关系的场景：
 
 **MCP:**
 ```
-rag_graph(query_type="inheritance_tree", name="BaseService")
+rag_graph(query_type="inheritance_tree", name="com.example.service.BaseService")
 ```
 
 **Shell:**
 ```bash
-python3 scripts/kb_query.py graph inheritance_tree --name "BaseService"
+python3 scripts/kb_query.py graph inheritance_tree --name "com.example.service.BaseService"
 ```
 
 ### Step 3: 获取调用关系
 
-追踪核心方法的调用链，理解业务流程：
+追踪核心方法的调用链，理解业务流程。**必须使用 FQN 或 `类FQN#方法名` 格式查询。**
 
 **MCP:**
 ```
-rag_graph(query_type="call_chain", name="handleRequest", depth=3, direction="downstream")
+rag_graph(query_type="call_chain", name="com.example.controller.XxxController#handleRequest", depth=3, direction="downstream")
 ```
 
 **Shell:**
 ```bash
-python3 scripts/kb_query.py graph call_chain --name "handleRequest" --depth 3 --direction downstream
+python3 scripts/kb_query.py graph call_chain --name "com.example.controller.XxxController#handleRequest" --depth 3 --direction downstream
 ```
 
 查看谁调用了某个公共方法（影响范围分析）：
 
 **MCP:**
 ```
-rag_graph(query_type="call_chain", name="saveOrder", depth=2, direction="upstream")
+rag_graph(query_type="call_chain", name="com.example.order.OrderService#saveOrder", depth=2, direction="upstream")
 ```
 
 **Shell:**
 ```bash
-python3 scripts/kb_query.py graph call_chain --name "saveOrder" --depth 2 --direction upstream
+python3 scripts/kb_query.py graph call_chain --name "com.example.order.OrderService#saveOrder" --depth 2 --direction upstream
 ```
 
 ### Step 4: 搜索已有文档

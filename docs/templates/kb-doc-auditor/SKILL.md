@@ -60,16 +60,22 @@ python3 scripts/kb_query.py --help
 - MCP 模式：Cursor MCP 已配置 `knowledge-base` 连接（`.cursor/mcp.json`）
 - 脚本模式：设置 `KB_URL` 和 `KB_TOKEN` 环境变量（或 `.env` 文件）
 
-## 查询精度指南
+## 查询精度规则（强制）
 
-为避免同名类/方法导致查询结果不准确（如多个模块中存在同名 `BaseService`），遵循以下原则：
+> **所有 KB 查询必须使用全限定名（FQN）。** 这不是建议，而是强制要求。使用简单类名会导致同名实体干扰，返回错误结果。
 
-1. **优先使用全限定名（FQN）**：当文档中包含 FQN 时，查询 `com.example.service.AuthService` 而非简单的 `AuthService`
-2. **多仓库环境先确认仓库**：通过 `repos` 命令确认目标仓库，查询结果中验证 `file` 路径是否属于目标项目
-3. **结果路径过滤**：查询返回多个结果时，通过比对 `file` 字段中的模块路径排除非目标仓库的同名实体
-4. **简单名兜底**：如果文档中只有简单类名，先用简单名查询，再通过 `file` 路径和上下文判断正确匹配
+**强制规则：**
 
-**确认仓库：**
+1. **所有查询必须使用 FQN**：查询 `com.example.service.AuthService` 而非 `AuthService`。Agent 必须在 Step 2 中推断出每个引用的 FQN，并在 Step 3 中用 FQN 执行查询
+2. **FQN 推断方法**（按优先级尝试）：
+   - 文档中已有的 FQN 或 import 声明 → 直接使用
+   - 文档中的文件路径引用 → 从路径推断（如 `src/main/java/com/example/service/AuthService.java` → `com.example.service.AuthService`）
+   - 代码块中的 package 声明 → 拼接 package + 类名
+   - 以上均无 → **先做一次预查询获取 FQN**，再用 FQN 执行正式验证
+3. **多仓库环境**：先通过 `repos` 确认目标仓库，查询结果中验证 `file` 路径属于目标项目
+4. **结果路径过滤**：返回多个结果时，通过 `file` 字段中的模块路径排除非目标项目的同名实体
+
+**确认仓库（多仓库场景必须先执行）：**
 
 **MCP:**
 ```
@@ -94,9 +100,11 @@ find docs/ -name "*.md" -type f | sort
 
 如果项目有 README.md，也纳入审计范围。
 
-### Step 2: 提取代码引用
+### Step 2: 提取代码引用并推断 FQN
 
-对每个文档文件，提取其中提到的代码引用：
+对每个文档文件，提取其中提到的代码引用，**并为每个引用推断其全限定名（FQN）**：
+
+**2a. 提取原始引用：**
 
 - **类名**：大写开头的驼峰词（如 `AuthService`、`OrderController`）
 - **方法名**：`类名#方法名` 或 `类名.方法名` 格式
@@ -104,13 +112,48 @@ find docs/ -name "*.md" -type f | sort
 - **代码块中的签名**：```java/python/go 代码块中的类/方法声明
 - **文件路径引用**：`src/main/java/...` 格式的路径
 
-### Step 3: 逐项验证
+**2b. 推断 FQN（必须）：**
 
-对每个提取的代码引用，通过 KB 验证其准确性。**优先使用 FQN 查询**，仅当文档中未提供 FQN 时才使用简单名。
+对每个提取的简单类名/方法名，必须尝试推断其 FQN：
 
-**FQN 验证（优先）：**
+| 文档中的线索 | 推断方法 | 示例 |
+|-------------|---------|------|
+| 已有 FQN | 直接使用 | `com.example.service.AuthService` |
+| 文件路径 `src/main/java/com/example/service/AuthService.java` | 路径转换 | → `com.example.service.AuthService` |
+| 代码块含 `package com.example.service` | package + 类名 | → `com.example.service.AuthService` |
+| import 语句 `import com.example.service.AuthService` | 直接提取 | → `com.example.service.AuthService` |
+| 以上均无 | **预查询获取 FQN** | 见下方 |
 
-当文档中提供了完全限定名或可从上下文推断时，直接用 FQN 查询：
+**预查询获取 FQN**（当文档无足够上下文时）：
+
+**MCP:**
+```
+rag_graph(query_type="find_entity", name="AuthService", entity_type="class")
+```
+
+**Shell:**
+```bash
+python3 scripts/kb_query.py --brief graph find_entity --name "AuthService" --entity-type class
+```
+
+从返回结果的 `file` 字段推断 FQN（如 `file: src/main/java/com/example/service/AuthService.java` → FQN: `com.example.service.AuthService`），并验证 `file` 路径属于目标项目。
+
+**2c. 输出格式：**
+
+建立待验证清单，每项必须包含 FQN：
+
+```
+| 文档文件 | 原始引用 | 推断的 FQN | 来源 |
+|---------|---------|-----------|------|
+| docs/api.md | AuthService | com.example.service.AuthService | 文件路径推断 |
+| docs/api.md | OrderService#createOrder | com.example.order.OrderService#createOrder | 预查询 |
+```
+
+### Step 3: 使用 FQN 逐项验证
+
+对 Step 2 清单中的每个引用，**必须使用其 FQN 进行查询**。禁止直接使用简单类名作为最终验证查询。
+
+**3a. FQN 精确验证（所有引用必须执行）：**
 
 **MCP:**
 ```
@@ -122,25 +165,35 @@ rag_query(query="com.example.service.AuthService", k=1, entity_type="all")
 python3 scripts/kb_query.py search "com.example.service.AuthService" --k 1
 ```
 
-**简单名验证（兜底）：**
-
-文档中只有简单类名/方法名时，查询后需通过 `file` 路径确认属于目标项目：
+**3b. 方法级验证（文档中引用了具体方法时）：**
 
 **MCP:**
 ```
-rag_query(query="<类名或方法名>", k=5, entity_type="class")
-rag_graph(query_type="find_entity", name="<实体名>", entity_type="any")
+rag_query(query="com.example.service.AuthService#authenticate", k=1, entity_type="function")
+rag_graph(query_type="class_methods", name="com.example.service.AuthService")
 ```
 
 **Shell:**
 ```bash
-python3 scripts/kb_query.py search "<类名或方法名>" --type class --k 5
-python3 scripts/kb_query.py --brief graph find_entity --name "<实体名>"
+python3 scripts/kb_query.py search "com.example.service.AuthService#authenticate" --type function --k 1
+python3 scripts/kb_query.py graph class_methods --name "com.example.service.AuthService"
 ```
 
-> 返回多个结果时，比对 `file` 字段中的模块路径（如 `src/main/java/com/example/...`），排除非目标项目的同名实体。
+**3c. 结果验证：**
 
-**签名验证**：查询到实体后，对比文档中写的签名与 KB 返回的 `signature` 字段是否一致。
+- 检查返回结果的 `file` 路径是否属于目标项目（排除其他仓库同名实体）
+- 对比文档中写的签名与 KB 返回的 `signature` 字段是否一致
+- 如果 FQN 查询无结果，用 `find_entity` 确认实体是否已被删除/重命名：
+
+**MCP:**
+```
+rag_graph(query_type="find_entity", name="AuthService", entity_type="any")
+```
+
+**Shell:**
+```bash
+python3 scripts/kb_query.py --brief graph find_entity --name "AuthService"
+```
 
 ### Step 4: 标记结果
 

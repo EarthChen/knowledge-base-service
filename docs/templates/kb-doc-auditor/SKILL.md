@@ -1,6 +1,6 @@
 ---
 name: kb-doc-auditor
-description: 审计项目文档的准确性，通过知识库验证文档中的代码引用是否与真实代码一致。支持 MCP 和 Shell curl 双模式。
+description: 审计项目文档的准确性，通过知识库验证文档中的代码引用是否与真实代码一致。支持 MCP 和 Python 脚本双模式，自动检测 MCP 可用性。
 ---
 
 # KB Doc Auditor
@@ -9,20 +9,78 @@ description: 审计项目文档的准确性，通过知识库验证文档中的�
 
 ## 环境适配
 
-本 Skill 同时支持两种 KB 查询方式，Agent 根据运行环境自动选择：
+本 Skill 支持两种 KB 查询方式，Agent 按以下优先级**自动检测**并选择：
 
-| 环境 | 检测方式 | 查询方式 |
+**自动检测流程：**
+
+1. **显式指定检查**：如果 Prompt 中包含 `[KNOWLEDGE BASE - SHELL QUERY TOOLS]`，直接使用脚本模式
+2. **MCP 可用性探测**：尝试调用任意一个 MCP KB 工具（推荐 `rag_graph(query_type="graph_stats")`）
+   - 调用成功 → 使用 **MCP 模式**
+   - 工具不存在 / 连接失败 / 超时 → 自动降级为 **脚本模式**
+
+| 模式 | 触发条件 | 查询方式 |
 |------|----------|----------|
-| Cursor IDE（MCP 可用） | Prompt 中**未**包含 `[KNOWLEDGE BASE - SHELL QUERY TOOLS]` | MCP 工具调用 |
-| ACP Gateway / CI 环境 | Prompt 中包含 `[KNOWLEDGE BASE - SHELL QUERY TOOLS]` | Shell curl 命令 |
+| MCP 模式 | MCP `knowledge-base` 工具可用且响应正常 | MCP 工具调用 |
+| 脚本模式（默认降级） | MCP 不可用，或显式指定 Shell 模式 | `scripts/kb_query.py` Python 脚本 |
+
+> **注意**：检测只需在 Step 1 时执行一次，后续步骤沿用检测结果。如果中途 MCP 断开，切换到脚本模式继续执行。
 
 下文每个查询步骤同时提供两种写法，使用 `MCP:` 和 `Shell:` 标签区分。
+
+### 脚本使用方式
+
+当 MCP 不可用时，通过本 Skill 附带的 `scripts/kb_query.py` 脚本查询知识库。
+
+**配置方式（二选一）：**
+
+方式一：在项目根目录创建 `.env` 文件（推荐）：
+```
+KB_URL=http://localhost:8100/api/v1
+KB_TOKEN=your-api-token
+```
+
+方式二：设置环境变量：
+```bash
+export KB_URL="http://localhost:8100/api/v1"
+export KB_TOKEN="your-api-token"
+```
+
+脚本会按优先级加载配置：`.env` 文件 → 环境变量 → 默认值。环境变量可覆盖 `.env` 中的值。
+
+脚本无第三方依赖（仅使用 Python 标准库），支持全部查询类型。添加 `--brief` 输出人类可读摘要：
+
+```bash
+python3 scripts/kb_query.py --brief search "AuthService"
+python3 scripts/kb_query.py --help
+```
 
 ## 前提条件
 
 - 项目已被知识库索引且索引是最新的
-- MCP 模式：Cursor MCP 已配置 `knowledge-base` 连接
-- Shell 模式：Prompt 中已注入 KB curl 命令模板
+- MCP 模式：Cursor MCP 已配置 `knowledge-base` 连接（`.cursor/mcp.json`）
+- 脚本模式：设置 `KB_URL` 和 `KB_TOKEN` 环境变量（或 `.env` 文件）
+
+## 查询精度指南
+
+为避免同名类/方法导致查询结果不准确（如多个模块中存在同名 `BaseService`），遵循以下原则：
+
+1. **优先使用全限定名（FQN）**：当文档中包含 FQN 时，查询 `com.example.service.AuthService` 而非简单的 `AuthService`
+2. **多仓库环境先确认仓库**：通过 `repos` 命令确认目标仓库，查询结果中验证 `file` 路径是否属于目标项目
+3. **结果路径过滤**：查询返回多个结果时，通过比对 `file` 字段中的模块路径排除非目标仓库的同名实体
+4. **简单名兜底**：如果文档中只有简单类名，先用简单名查询，再通过 `file` 路径和上下文判断正确匹配
+
+**确认仓库：**
+
+**MCP:**
+```
+rag_query(query="<项目名>", k=1, entity_type="all")
+```
+
+**Shell:**
+```bash
+python3 scripts/kb_query.py repos
+python3 scripts/kb_query.py search "<项目名>" --k 1
+```
 
 ## 工作流
 
@@ -48,43 +106,39 @@ find docs/ -name "*.md" -type f | sort
 
 ### Step 3: 逐项验证
 
-对每个提取的代码引用，通过 KB 验证其准确性：
+对每个提取的代码引用，通过 KB 验证其准确性。**优先使用 FQN 查询**，仅当文档中未提供 FQN 时才使用简单名。
 
-**类名/方法名验证：**
+**FQN 验证（优先）：**
+
+当文档中提供了完全限定名或可从上下文推断时，直接用 FQN 查询：
 
 **MCP:**
 ```
-rag_query(query="<类名或方法名>", k=3, entity_type="class")
+rag_query(query="com.example.service.AuthService", k=1, entity_type="all")
+```
+
+**Shell:**
+```bash
+python3 scripts/kb_query.py search "com.example.service.AuthService" --k 1
+```
+
+**简单名验证（兜底）：**
+
+文档中只有简单类名/方法名时，查询后需通过 `file` 路径确认属于目标项目：
+
+**MCP:**
+```
+rag_query(query="<类名或方法名>", k=5, entity_type="class")
 rag_graph(query_type="find_entity", name="<实体名>", entity_type="any")
 ```
 
 **Shell:**
 ```bash
-curl -s -X POST '{kb_url}/search' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query": "<类名或方法名>", "k": 3, "entity_type": "class"}'
-
-curl -s -X POST '{kb_url}/graph' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query_type": "find_entity", "name": "<实体名>", "entity_type": "any"}'
+python3 scripts/kb_query.py search "<类名或方法名>" --type class --k 5
+python3 scripts/kb_query.py --brief graph find_entity --name "<实体名>"
 ```
 
-**FQN 验证：**
-
-**MCP:**
-```
-rag_query(query="<完整FQN>", k=1, entity_type="all")
-```
-
-**Shell:**
-```bash
-curl -s -X POST '{kb_url}/search' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"query": "<完整FQN>", "k": 1, "entity_type": "all"}'
-```
+> 返回多个结果时，比对 `file` 字段中的模块路径（如 `src/main/java/com/example/...`），排除非目标项目的同名实体。
 
 **签名验证**：查询到实体后，对比文档中写的签名与 KB 返回的 `signature` 字段是否一致。
 
@@ -158,10 +212,7 @@ rag_index(directory="<项目路径>", mode="incremental")
 
 **Shell:**
 ```bash
-curl -s -X POST '{kb_url}/../index' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer {api_token}' \
-  -d '{"directory": "<项目路径>", "mode": "incremental"}'
+python3 scripts/kb_query.py index "<项目路径>"
 ```
 
 ## 推荐执行频率

@@ -1,6 +1,6 @@
 ---
 name: kb-doc-writer
-description: 基于知识库编写/更新项目文档，确保文档内容与真实代码一致。手动激活。支持 MCP 和 Shell curl 双模式。
+description: 基于知识库编写/更新项目文档，确保文档内容与真实代码一致。手动激活。支持 MCP 和 Python 脚本双模式，自动检测 MCP 可用性。
 ---
 
 # KB Doc Writer
@@ -9,12 +9,21 @@ description: 基于知识库编写/更新项目文档，确保文档内容与真
 
 ## 环境适配
 
-本 Skill 同时支持两种 KB 查询方式，Agent 根据运行环境自动选择：
+本 Skill 支持两种 KB 查询方式，Agent 按以下优先级**自动检测**并选择：
 
-| 环境 | 检测方式 | 查询方式 |
+**自动检测流程：**
+
+1. **显式指定检查**：如果 Prompt 中包含 `[KNOWLEDGE BASE - SHELL QUERY TOOLS]`，直接使用脚本模式
+2. **MCP 可用性探测**：尝试调用任意一个 MCP KB 工具（推荐 `rag_graph(query_type="graph_stats")`）
+   - 调用成功 → 使用 **MCP 模式**
+   - 工具不存在 / 连接失败 / 超时 → 自动降级为 **脚本模式**
+
+| 模式 | 触发条件 | 查询方式 |
 |------|----------|----------|
-| Cursor IDE（MCP 可用） | Prompt 中**未**包含 `[KNOWLEDGE BASE - SHELL QUERY TOOLS]` | MCP 工具调用 |
-| ACP Gateway / CI / 无 MCP 环境 | Prompt 中包含 `[KNOWLEDGE BASE - SHELL QUERY TOOLS]`，或 MCP 不可用 | `scripts/kb_query.py` 脚本 |
+| MCP 模式 | MCP `knowledge-base` 工具可用且响应正常 | MCP 工具调用 |
+| 脚本模式（默认降级） | MCP 不可用，或显式指定 Shell 模式 | `scripts/kb_query.py` Python 脚本 |
+
+> **注意**：检测只需在 Step 1 时执行一次，后续步骤沿用检测结果。如果中途 MCP 断开，切换到脚本模式继续执行。
 
 下文每个查询步骤同时提供两种写法，使用 `MCP:` 和 `Shell:` 标签区分。
 
@@ -49,7 +58,16 @@ python3 scripts/kb_query.py --help
 
 - 项目已被知识库索引（`GET /api/v1/repositories` 可查到）
 - MCP 模式：Cursor MCP 已配置 `knowledge-base` 连接（`.cursor/mcp.json`）
-- Shell 模式：设置 `KB_URL` 和 `KB_TOKEN` 环境变量
+- 脚本模式：设置 `KB_URL` 和 `KB_TOKEN` 环境变量（或 `.env` 文件）
+
+## 查询精度指南
+
+为避免同名类/方法导致查询结果不准确（如多个模块中存在同名 `BaseService`），遵循以下原则：
+
+1. **优先使用全限定名（FQN）**：查询 `com.example.service.AuthService` 而非简单的 `AuthService`
+2. **多仓库环境先确认仓库**：Step 1 中通过 `repos` 确认目标仓库，后续查询结果中验证 `file` 路径是否属于目标项目
+3. **结果路径过滤**：查询返回多个结果时，通过比对 `file` 字段中的模块路径排除非目标仓库的同名实体
+4. **简单名兜底**：如果只知道简单类名，先用简单名查询，再通过 `file` 路径和上下文判断正确匹配
 
 ## 工作流
 
@@ -198,19 +216,21 @@ project-root/
 
 **6a. KB 搜索定位**
 
-提取文档中提到的所有类名、方法名，通过 KB 查找其所在文件和行号：
+提取文档中提到的所有类名、方法名，通过 KB 查找其所在文件和行号。**优先使用 FQN 查询**以避免同名实体干扰：
 
 **MCP:**
 ```
-rag_query(query="<类名或方法名>", k=3, entity_type="function")
+rag_query(query="com.example.service.AuthService#authenticate", k=3, entity_type="function")
 rag_graph(query_type="find_entity", name="<实体名>", entity_type="any")
 ```
 
 **Shell:**
 ```bash
-python3 scripts/kb_query.py search "<类名或方法名>" --type function --k 3
-python3 scripts/kb_query.py graph find_entity --name "<实体名>"
+python3 scripts/kb_query.py search "com.example.service.AuthService" --type function --k 3
+python3 scripts/kb_query.py --brief graph find_entity --name "<实体名>"
 ```
+
+> 返回多个结果时，比对 `file` 字段中的模块路径，排除非目标项目的同名实体。
 
 **6b. 本地代码确认（必须）**
 
@@ -278,4 +298,4 @@ python3 scripts/kb_query.py index "<项目路径>" --mode full
 
 ## 降级策略
 
-KB 不可用时（MCP 连接失败/curl 超时），退回到 Grep + Read 方式获取代码信息，不阻塞文档编写。但完成后应在 KB 恢复时重新执行 Step 6 验证。
+KB 不可用时（MCP 连接失败/脚本调用超时），退回到 Grep + Read 方式获取代码信息，不阻塞文档编写。但完成后应在 KB 恢复时重新执行 Step 6 验证。

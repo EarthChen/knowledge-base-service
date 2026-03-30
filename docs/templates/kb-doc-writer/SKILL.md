@@ -62,30 +62,17 @@ python3 scripts/kb_query.py --help
 
 ## 查询精度规则（强制）
 
-> **两种 API 的 `name` 参数规则不同，必须严格区分。** 混用会导致查询返回 0 结果。
-
-**API 参数规则：**
-
-| API 类型 | `name` 参数格式 | 示例 |
-|---------|---------------|------|
-| `search`（语义搜索） | **FQN**（全限定名） | `com.example.service.AuthService` |
-| `graph find_entity` | **简单名** | `AuthService` |
-| `graph class_methods` | **简单名** | `AuthService` |
-| `graph call_chain` | **简单名** | `authenticate` |
-| `graph inheritance_tree` | **简单名** | `BaseService` |
-| `graph file_entities` | **完整文件路径** | `src/main/java/com/.../AuthService.java` |
+> **所有 KB 查询必须使用全限定名（FQN）。** 所有 API（`search`、`find_entity`、`class_methods`、`call_chain` 等）均支持 FQN，并会自动回退到简单名匹配。
 
 **精度保障流程（强制）：**
 
-1. **语义搜索用 FQN**：`search` 查询必须使用 FQN 以获得精确匹配
-2. **图查询用简单名 + 路径过滤**：图查询 API 仅支持简单名，返回结果后**必须通过 `file` 路径验证**属于目标项目
-3. **推荐验证模式**：先用 `file_entities`（最精确，通过文件路径定位）获取实体列表，再用 `search` FQN 获取详情
-4. **多仓库环境**：Step 1 中必须通过 `repos` 确认目标仓库，图查询结果中验证 `file` 路径属于目标项目
-
-**FQN 推断方法**（用于 `search` 查询）：
-- 文件路径引用 → 路径转换（`src/main/java/com/example/service/AuthService.java` → `com.example.service.AuthService`）
-- 代码块中的 package/import 声明
-- 不确定时先用 `find_entity` + 简单名定位 `file` 路径，再从路径推断 FQN
+1. **所有查询必须使用 FQN**：查询 `com.example.service.AuthService` 而非 `AuthService`
+2. **FQN 推断方法**（按优先级尝试）：
+   - 文件路径推断：`src/main/java/com/example/service/AuthService.java` → `com.example.service.AuthService`
+   - 代码块中的 package/import 声明
+   - 不确定时先用 `find_entity` + 简单名定位 `file` 路径，再从路径推断 FQN
+3. **多仓库环境**：Step 1 中必须通过 `repos` 确认目标仓库，查询结果中验证 `file` 路径属于目标项目
+4. **结果路径过滤**：返回多个结果时，通过 `file` 字段中的模块路径排除非目标项目的同名实体
 
 ## 工作流
 
@@ -119,61 +106,59 @@ python3 scripts/kb_query.py repos
 
 ### Step 2: 获取接口与核心类列表
 
-列出关键文件中的代码实体。**`file_entities` 用完整文件路径，`class_methods` 用简单类名（图查询不支持 FQN）。**
+列出关键文件中的代码实体。**所有查询必须使用 FQN 或完整文件路径。**
 
 **MCP:**
 ```
 rag_graph(query_type="file_entities", file="src/main/java/com/example/controller/XxxController.java")
-rag_graph(query_type="class_methods", name="XxxService")
+rag_graph(query_type="class_methods", name="com.example.service.XxxService")
 ```
 
 **Shell:**
 ```bash
 python3 scripts/kb_query.py graph file_entities --file "src/main/java/com/example/controller/XxxController.java"
-python3 scripts/kb_query.py graph class_methods --name "XxxService"
+python3 scripts/kb_query.py graph class_methods --name "com.example.service.XxxService"
 ```
 
-> `class_methods` 返回多个同名类的结果时，通过 `file` 路径过滤目标项目。如不确定文件路径，先用 `find_entity` 定位：`python3 scripts/kb_query.py --brief graph find_entity --name "XxxService" --entity-type class`
+> 如果不确定 FQN，先用 `find_entity` + 简单名定位 `file` 路径，再从路径推断 FQN：`python3 scripts/kb_query.py --brief graph find_entity --name "XxxService" --entity-type class`
 
-对于需要了解继承关系的场景（图查询，用简单名）：
+对于需要了解继承关系的场景：
 
 **MCP:**
 ```
-rag_graph(query_type="inheritance_tree", name="BaseService")
+rag_graph(query_type="inheritance_tree", name="com.example.service.BaseService")
 ```
 
 **Shell:**
 ```bash
-python3 scripts/kb_query.py graph inheritance_tree --name "BaseService"
+python3 scripts/kb_query.py graph inheritance_tree --name "com.example.service.BaseService"
 ```
 
 ### Step 3: 获取调用关系
 
-追踪核心方法的调用链，理解业务流程。**`call_chain` 是图查询，`name` 用简单方法名。** 结果中通过 `file` 路径确认属于目标项目。
+追踪核心方法的调用链，理解业务流程。**必须使用 FQN 或 `类FQN#方法名` 格式查询。**
 
 **MCP:**
 ```
-rag_graph(query_type="call_chain", name="handleRequest", depth=3, direction="downstream")
+rag_graph(query_type="call_chain", name="com.example.controller.XxxController#handleRequest", depth=3, direction="downstream")
 ```
 
 **Shell:**
 ```bash
-python3 scripts/kb_query.py graph call_chain --name "handleRequest" --depth 3 --direction downstream
+python3 scripts/kb_query.py graph call_chain --name "com.example.controller.XxxController#handleRequest" --depth 3 --direction downstream
 ```
 
 查看谁调用了某个公共方法（影响范围分析）：
 
 **MCP:**
 ```
-rag_graph(query_type="call_chain", name="saveOrder", depth=2, direction="upstream")
+rag_graph(query_type="call_chain", name="com.example.order.OrderService#saveOrder", depth=2, direction="upstream")
 ```
 
 **Shell:**
 ```bash
-python3 scripts/kb_query.py graph call_chain --name "saveOrder" --depth 2 --direction upstream
+python3 scripts/kb_query.py graph call_chain --name "com.example.order.OrderService#saveOrder" --depth 2 --direction upstream
 ```
-
-> 同名方法较多时，结果需通过 `file` 路径过滤。也可先用 `search` FQN 确认目标方法的精确位置。
 
 ### Step 4: 搜索已有文档
 
@@ -238,21 +223,21 @@ project-root/
 
 **6a. KB 搜索定位**
 
-提取文档中提到的所有类名、方法名，通过 KB 查找其所在文件和行号。**`search` 用 FQN，`find_entity` 用简单名：**
+提取文档中提到的所有类名、方法名，通过 KB 查找其所在文件和行号。**所有查询使用 FQN：**
 
 **MCP:**
 ```
 rag_query(query="com.example.service.AuthService#authenticate", k=3, entity_type="function")
-rag_graph(query_type="find_entity", name="AuthService", entity_type="any")
+rag_graph(query_type="find_entity", name="com.example.service.AuthService", entity_type="any")
 ```
 
 **Shell:**
 ```bash
 python3 scripts/kb_query.py search "com.example.service.AuthService" --type function --k 3
-python3 scripts/kb_query.py --brief graph find_entity --name "AuthService"
+python3 scripts/kb_query.py --brief graph find_entity --name "com.example.service.AuthService"
 ```
 
-> `find_entity` 是图查询，只接受简单名。返回多个结果时，通过 `file` 路径过滤目标项目的实体。
+> 返回多个结果时，通过 `file` 路径过滤目标项目的实体。
 
 **6b. 本地代码确认（必须）**
 

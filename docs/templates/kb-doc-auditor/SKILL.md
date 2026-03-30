@@ -62,31 +62,29 @@ python3 scripts/kb_query.py --help
 
 ## 查询精度规则（强制）
 
-> **两种 API 的 `name` 参数规则不同，必须严格区分。** 混用会导致查询返回 0 结果。
+> **所有 KB 查询必须使用全限定名（FQN）。** 所有 API（`search`、`find_entity`、`class_methods`、`call_chain` 等）均支持 FQN，并会自动回退到简单名匹配。
 
 **API 参数规则：**
 
 | API 类型 | `name` 参数格式 | 示例 |
 |---------|---------------|------|
-| `search`（语义搜索） | **FQN**（全限定名） | `com.example.service.AuthService` |
-| `graph find_entity` | **简单名** | `AuthService` |
-| `graph class_methods` | **简单名** | `AuthService` |
-| `graph call_chain` | **简单名** | `authenticate` |
-| `graph inheritance_tree` | **简单名** | `BaseService` |
+| `search`（语义搜索） | **FQN** | `com.example.service.AuthService` |
+| `graph find_entity` | **FQN** 或简单名 | `com.example.service.AuthService` |
+| `graph class_methods` | **FQN** 或简单名 | `com.example.service.AuthService` |
+| `graph call_chain` | **FQN#方法名** 或简单名 | `com.example.service.AuthService#authenticate` |
+| `graph inheritance_tree` | **FQN** 或简单名 | `com.example.service.BaseService` |
 | `graph file_entities` | **完整文件路径** | `src/main/java/com/.../AuthService.java` |
 
 **精度保障流程（强制）：**
 
-1. **语义搜索用 FQN**：`search` 查询必须使用 FQN 以获得精确匹配
-2. **图查询用简单名 + 路径过滤**：图查询 API 仅支持简单名，返回结果后**必须通过 `file` 路径验证**属于目标项目
-3. **推荐验证模式**：先用 `file_entities`（最精确，通过文件路径定位）确认实体存在，再用 `search` FQN 查询获取签名详情
-4. **多仓库环境**：先通过 `repos` 确认目标仓库，图查询结果中验证 `file` 路径属于目标项目
-
-**FQN 推断方法**（用于 `search` 查询）：
-- 文档中已有的 FQN 或 import 声明 → 直接使用
-- 文件路径引用 → 路径转换（如 `src/main/java/com/example/service/AuthService.java` → `com.example.service.AuthService`）
-- 代码块中的 package 声明 → 拼接 package + 类名
-- 以上均无 → 先用 `find_entity` + 简单名定位 `file` 路径，再从路径推断 FQN
+1. **所有查询必须使用 FQN**：Agent 必须在 Step 2 中推断出每个引用的 FQN，并在 Step 3 中用 FQN 执行查询
+2. **FQN 推断方法**（按优先级尝试）：
+   - 文档中已有的 FQN 或 import 声明 → 直接使用
+   - 文件路径引用 → 路径转换（如 `src/main/java/com/example/service/AuthService.java` → `com.example.service.AuthService`）
+   - 代码块中的 package 声明 → 拼接 package + 类名
+   - 以上均无 → 先用 `find_entity` + 简单名定位 `file` 路径，再从路径推断 FQN
+3. **多仓库环境**：先通过 `repos` 确认目标仓库，查询结果中验证 `file` 路径属于目标项目
+4. **结果路径过滤**：返回多个结果时，通过 `file` 字段中的模块路径排除非目标项目的同名实体
 
 **确认仓库（多仓库场景必须先执行）：**
 
@@ -164,24 +162,22 @@ python3 scripts/kb_query.py --brief graph find_entity --name "AuthService" --ent
 | docs/api.md | OrderService#createOrder | com.example.order.OrderService#createOrder | 预查询 |
 ```
 
-### Step 3: 逐项验证
+### Step 3: 使用 FQN 逐项验证
 
-对 Step 2 清单中的每个引用进行验证。**注意：`search` 用 FQN，图查询（`find_entity`/`class_methods`）用简单名。**
+对 Step 2 清单中的每个引用，**必须使用其 FQN 进行查询**。所有 API 均支持 FQN 输入。
 
-**3a. 推荐验证方式：file_entities + search FQN（最精确）**
-
-先用 `file_entities` 通过文件路径定位实体，再用 `search` FQN 获取签名详情：
+**3a. FQN 精确验证（所有引用必须执行）：**
 
 **MCP:**
 ```
-rag_graph(query_type="file_entities", file="src/main/java/com/example/service/AuthService.java")
 rag_query(query="com.example.service.AuthService", k=1, entity_type="all")
+rag_graph(query_type="find_entity", name="com.example.service.AuthService", entity_type="class")
 ```
 
 **Shell:**
 ```bash
-python3 scripts/kb_query.py --brief graph file_entities --file "src/main/java/com/example/service/AuthService.java"
 python3 scripts/kb_query.py search "com.example.service.AuthService" --k 1
+python3 scripts/kb_query.py --brief graph find_entity --name "com.example.service.AuthService" --entity-type class
 ```
 
 **3b. 方法级验证（文档中引用了具体方法时）：**
@@ -189,22 +185,20 @@ python3 scripts/kb_query.py search "com.example.service.AuthService" --k 1
 **MCP:**
 ```
 rag_query(query="com.example.service.AuthService#authenticate", k=1, entity_type="function")
-rag_graph(query_type="class_methods", name="AuthService")
+rag_graph(query_type="class_methods", name="com.example.service.AuthService")
 ```
 
 **Shell:**
 ```bash
 python3 scripts/kb_query.py search "com.example.service.AuthService#authenticate" --type function --k 1
-python3 scripts/kb_query.py graph class_methods --name "AuthService"
+python3 scripts/kb_query.py graph class_methods --name "com.example.service.AuthService"
 ```
-
-> `class_methods` 的 `name` 参数用**简单类名**，图查询不支持 FQN。
 
 **3c. 结果验证：**
 
-- **路径过滤**：图查询返回多个结果时，通过 `file` 路径确认属于目标项目
+- **路径过滤**：返回多个结果时，通过 `file` 路径确认属于目标项目
 - **签名比对**：对比文档中写的签名与 KB 返回的 `signature` 字段是否一致
-- 如果查询无结果，用 `find_entity`（简单名）确认实体是否已被删除/重命名：
+- 如果 FQN 查询无结果，可能 FQN 推断有误，用简单名确认实体是否存在：
 
 **MCP:**
 ```

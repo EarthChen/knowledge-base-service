@@ -12,6 +12,7 @@ from pathlib import Path
 import urllib.request
 
 API = "http://localhost:8100/api/v1"
+API_TOKEN = os.environ.get("KB_API_TOKEN", "sk-admin-test")
 PROJECTS_DIR = "/Users/earthchen/work/momo/amar"
 PID = None
 
@@ -52,6 +53,7 @@ def api_call(method: str, path: str, data: dict | None = None) -> dict:
         req.add_header("Content-Type", "application/json")
     else:
         req = urllib.request.Request(url, method=method)
+    req.add_header("Authorization", f"Bearer {API_TOKEN}")
     with urllib.request.urlopen(req, timeout=1800) as resp:
         return json.loads(resp.read())
 

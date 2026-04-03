@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from auth import Role, TokenInfo, get_current_role, require_role, resolve_business_id, resolve_token
 from config import get_settings
+from indexer.task_manager import IndexTaskManager
 from log import get_logger, setup_logging
 from service import KnowledgeBaseService
 from service_registry import ServiceRegistry
@@ -28,16 +29,18 @@ from store.graph_queries import GraphQueryRepository
 log = get_logger(__name__)
 
 _registry: ServiceRegistry | None = None
+_task_manager: IndexTaskManager | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    global _registry
+    global _registry, _task_manager
     settings = get_settings()
     setup_logging(level=settings.log_level)
     log.info("kb_service_starting", host=settings.host, port=settings.port)
 
     _registry = ServiceRegistry(settings)
+    _task_manager = IndexTaskManager()
     await _registry.start()
 
     app.state.registry = _registry
@@ -230,21 +233,78 @@ async def hybrid_search(
     }
 
 
+@viewer_router.get("/index/tasks")
+async def list_index_tasks() -> dict[str, Any]:
+    if _task_manager is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    tasks = _task_manager.list_tasks()
+    return {"tasks": [t.to_dict() for t in tasks], "total": len(tasks)}
+
+
+@viewer_router.get("/index/tasks/{task_id}")
+async def get_index_task(task_id: str) -> dict[str, Any]:
+    if _task_manager is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    task = _task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task.to_dict()
+
+
 @editor_router.post("/index")
 async def trigger_index(
     req: IndexRequest,
-    svc: KnowledgeBaseService = Depends(_get_service),
+    business_id: str = Depends(_get_effective_business_id),
 ) -> dict[str, Any]:
-    args = req.model_dump()
-    if req.repository:
-        args["repository"] = req.repository
-    result = await svc.mcp_handler.handle_rag_index(args)
+    if _task_manager is None or _registry is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
 
-    if req.repository:
-        queries = GraphQueryRepository(svc.store)
-        await queries.tag_unowned_nodes(req.repository, directory=req.directory)
+    task = _task_manager.create_task(
+        mode=req.mode,
+        directory=req.directory,
+        repository=req.repository,
+        business_id=business_id,
+    )
 
-    return result
+    asyncio.create_task(_run_index_task(task.task_id, req, business_id))
+
+    return {
+        "task_id": task.task_id,
+        "status": task.status,
+        "mode": req.mode,
+        "directory": req.directory,
+    }
+
+
+async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> None:
+    """Background coroutine that runs the actual indexing work."""
+    if _task_manager is None or _registry is None:
+        return
+
+    _task_manager.mark_running(task_id)
+    progress_cb = _task_manager.make_progress_callback(task_id)
+
+    try:
+        svc = await _registry.get_service(business_id)
+
+        args = req.model_dump()
+        if req.repository:
+            args["repository"] = req.repository
+
+        result = await svc.mcp_handler.handle_rag_index(args, progress_callback=progress_cb)
+
+        if result.get("error"):
+            _task_manager.mark_failed(task_id, result["error"])
+            return
+
+        if req.repository:
+            queries = GraphQueryRepository(svc.store)
+            await queries.tag_unowned_nodes(req.repository, directory=req.directory)
+
+        _task_manager.mark_completed(task_id, result)
+    except Exception as exc:
+        log.error("index_task_failed", task_id=task_id, error=str(exc))
+        _task_manager.mark_failed(task_id, str(exc))
 
 
 @editor_router.post("/index/files")

@@ -12,6 +12,7 @@ Tools exposed:
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from log import get_logger
@@ -255,7 +256,9 @@ class KnowledgeBaseMCPHandler:
 
         return {"error": f"Unknown query_type: {query_type}"}
 
-    async def handle_rag_index(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def handle_rag_index(
+        self, args: dict[str, Any], progress_callback: Callable[..., None] | None = None,
+    ) -> dict[str, Any]:
         directory = args.get("directory", "")
         mode = args.get("mode", "full")
 
@@ -265,16 +268,22 @@ class KnowledgeBaseMCPHandler:
         if mode == "incremental":
             base_ref = args.get("base_ref", "HEAD~1")
             head_ref = args.get("head_ref", "HEAD")
-            stats = await self._indexer.index_incremental(directory, base_ref, head_ref)
-            doc_stats = await self._index_docs_incremental(directory, base_ref, head_ref)
+            stats = await self._indexer.index_incremental(
+                directory, base_ref, head_ref, progress_callback=progress_callback,
+            )
+            doc_stats = await self._index_docs_incremental(
+                directory, base_ref, head_ref, progress_callback=progress_callback,
+            )
         else:
-            stats = await self._indexer.index_full(directory)
-            doc_stats = await self._index_docs_full(directory)
+            stats = await self._indexer.index_full(directory, progress_callback=progress_callback)
+            doc_stats = await self._index_docs_full(directory, progress_callback=progress_callback)
 
         stats.update(doc_stats)
         return {"mode": mode, "directory": directory, "stats": stats}
 
-    async def _index_docs_full(self, directory: str) -> dict[str, int]:
+    async def _index_docs_full(
+        self, directory: str, progress_callback: Callable[..., None] | None = None,
+    ) -> dict[str, int]:
         """Index all documents (.md, .rst, .txt) — one file at a time."""
         if not self._doc_indexer or not self._store:
             return {}
@@ -287,36 +296,53 @@ class KnowledgeBaseMCPHandler:
         total_embeds = 0
 
         exclude_dirs = set(self._doc_indexer._exclude_dirs)
+        doc_paths: list[Path] = []
         for ext in self._doc_indexer.SUPPORTED_EXTENSIONS:
             for fpath in base.rglob(f"*{ext}"):
                 if any(part in exclude_dirs for part in fpath.parts):
                     continue
-                try:
-                    rel = str(fpath.relative_to(base))
-                    doc = self._doc_indexer.parse_document(str(fpath), store_path=rel)
-                    nodes, edges = self._doc_indexer.build_graph(doc)
-                    await self._store.batch_upsert(nodes, edges)
-                    total_nodes += len(nodes)
-                    total_edges += len(edges)
+                doc_paths.append(fpath)
 
-                    if self._embedding:
-                        embeddable = [n for n in nodes if n.properties.get("content")]
-                        if embeddable:
-                            items = [
-                                {
-                                    "name": n.properties.get("title", ""),
-                                    "signature": "",
-                                    "docstring": "",
-                                    "code_snippet": n.properties.get("content", ""),
-                                }
-                                for n in embeddable
-                            ]
-                            embeddings = await self._embedding.generate_for_code(items)
-                            for node, emb in zip(embeddable, embeddings):
-                                await self._store.set_node_embedding(node.uid, node.label, emb)
-                            total_embeds += len(embeddings)
-                except Exception as exc:
-                    log.warning("doc_index_error", file=str(fpath), error=str(exc))
+        if progress_callback:
+            progress_callback(phase="indexing_docs", total_files=len(doc_paths))
+
+        processed = 0
+        for fpath in doc_paths:
+            try:
+                rel = str(fpath.relative_to(base))
+                doc = self._doc_indexer.parse_document(str(fpath), store_path=rel)
+                nodes, edges = self._doc_indexer.build_graph(doc)
+                await self._store.batch_upsert(nodes, edges)
+                total_nodes += len(nodes)
+                total_edges += len(edges)
+
+                if self._embedding:
+                    embeddable = [n for n in nodes if n.properties.get("content")]
+                    if embeddable:
+                        items = [
+                            {
+                                "name": n.properties.get("title", ""),
+                                "signature": "",
+                                "docstring": "",
+                                "code_snippet": n.properties.get("content", ""),
+                            }
+                            for n in embeddable
+                        ]
+                        embeddings = await self._embedding.generate_for_code(items)
+                        for node, emb in zip(embeddable, embeddings):
+                            await self._store.set_node_embedding(node.uid, node.label, emb)
+                        total_embeds += len(embeddings)
+                processed += 1
+                if progress_callback:
+                    progress_callback(
+                        current_file=str(fpath),
+                        processed_files=processed,
+                        doc_nodes=total_nodes,
+                        doc_edges=total_edges,
+                        doc_embeddings=total_embeds,
+                    )
+            except Exception as exc:
+                log.warning("doc_index_error", file=str(fpath), error=str(exc))
 
         return {
             "doc_nodes": total_nodes,
@@ -325,7 +351,11 @@ class KnowledgeBaseMCPHandler:
         }
 
     async def _index_docs_incremental(
-        self, directory: str, base_ref: str, head_ref: str,
+        self,
+        directory: str,
+        base_ref: str,
+        head_ref: str,
+        progress_callback: Callable[..., None] | None = None,
     ) -> dict[str, int]:
         """Incrementally index changed document files based on git diff."""
         if not self._doc_indexer or not self._store:
@@ -361,41 +391,51 @@ class KnowledgeBaseMCPHandler:
             if not changed:
                 return {"doc_nodes": 0, "doc_edges": 0, "doc_embeddings": 0}
 
+            if progress_callback:
+                progress_callback(phase="indexing_docs", total_files=len(changed))
+
             total_nodes = 0
             total_edges = 0
             total_embeds = 0
 
+            processed = 0
             for fpath, status in changed:
                 await self._store.delete_by_file(fpath)
-                if status == "D":
-                    continue
+                if status != "D":
+                    full_path = str(Path(directory) / fpath)
+                    if Path(full_path).exists():
+                        doc = self._doc_indexer.parse_document(full_path, store_path=fpath)
+                        nodes, edges = self._doc_indexer.build_graph(doc)
+                        await self._store.batch_upsert(nodes, edges)
+                        total_nodes += len(nodes)
+                        total_edges += len(edges)
 
-                full_path = str(Path(directory) / fpath)
-                if not Path(full_path).exists():
-                    continue
+                        if self._embedding:
+                            embeddable = [n for n in nodes if n.properties.get("content")]
+                            if embeddable:
+                                items = [
+                                    {
+                                        "name": n.properties.get("title", ""),
+                                        "signature": "",
+                                        "docstring": "",
+                                        "code_snippet": n.properties.get("content", ""),
+                                    }
+                                    for n in embeddable
+                                ]
+                                embeddings = await self._embedding.generate_for_code(items)
+                                for node, emb in zip(embeddable, embeddings):
+                                    await self._store.set_node_embedding(node.uid, node.label, emb)
+                                total_embeds += len(embeddings)
 
-                doc = self._doc_indexer.parse_document(full_path, store_path=fpath)
-                nodes, edges = self._doc_indexer.build_graph(doc)
-                await self._store.batch_upsert(nodes, edges)
-                total_nodes += len(nodes)
-                total_edges += len(edges)
-
-                if self._embedding:
-                    embeddable = [n for n in nodes if n.properties.get("content")]
-                    if embeddable:
-                        items = [
-                            {
-                                "name": n.properties.get("title", ""),
-                                "signature": "",
-                                "docstring": "",
-                                "code_snippet": n.properties.get("content", ""),
-                            }
-                            for n in embeddable
-                        ]
-                        embeddings = await self._embedding.generate_for_code(items)
-                        for node, emb in zip(embeddable, embeddings):
-                            await self._store.set_node_embedding(node.uid, node.label, emb)
-                        total_embeds += len(embeddings)
+                processed += 1
+                if progress_callback:
+                    progress_callback(
+                        current_file=fpath,
+                        processed_files=processed,
+                        doc_nodes=total_nodes,
+                        doc_edges=total_edges,
+                        doc_embeddings=total_embeds,
+                    )
 
             return {
                 "doc_nodes": total_nodes,

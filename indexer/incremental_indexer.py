@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from log import get_logger
@@ -43,20 +44,37 @@ class IncrementalIndexer:
         self._embedding = embedding_gen
         self._doc_indexer = doc_indexer or DocumentIndexer()
 
-    async def index_full(self, directory: str) -> dict[str, int]:
+    async def index_full(
+        self, directory: str, progress_callback: Callable[..., None] | None = None,
+    ) -> dict[str, int]:
         """Full reindex — processes files one at a time to cap memory usage."""
         log.info("full_index_start", directory=directory)
 
         total_nodes = 0
         total_edges = 0
         total_embeds = 0
+        processed = 0
+
+        if progress_callback:
+            progress_callback(phase="indexing_code")
 
         for fpath, nodes, edges in self._builder.iter_directory(directory):
             await self._store.batch_upsert(nodes, edges)
             total_nodes += len(nodes)
             total_edges += len(edges)
             total_embeds += await self._generate_and_store_embeddings(nodes)
+            processed += 1
+            if progress_callback:
+                progress_callback(
+                    current_file=fpath,
+                    processed_files=processed,
+                    nodes=total_nodes,
+                    edges=total_edges,
+                    embeddings=total_embeds,
+                )
 
+        if progress_callback:
+            progress_callback(phase="resolving_references")
         xref = await self._store.resolve_cross_file_edges()
 
         stats = {
@@ -75,6 +93,7 @@ class IncrementalIndexer:
         directory: str,
         base_ref: str = "HEAD~1",
         head_ref: str = "HEAD",
+        progress_callback: Callable[..., None] | None = None,
     ) -> dict[str, int]:
         """Incremental index based on git diff between two refs.
 
@@ -89,6 +108,9 @@ class IncrementalIndexer:
         deleted_files = [f for f, status in changed_files if status == "D"]
         modified_files = [f for f, status in changed_files if status in ("A", "M")]
 
+        if progress_callback:
+            progress_callback(phase="indexing_code", total_files=len(modified_files))
+
         deleted_count = 0
         for fpath in deleted_files:
             deleted_count += await self._store.delete_by_file(fpath)
@@ -100,6 +122,7 @@ class IncrementalIndexer:
         total_doc_nodes = 0
         total_doc_edges = 0
 
+        processed_count = 0
         for fpath in modified_files:
             full_path = str(Path(directory) / fpath)
             await self._store.delete_by_file(fpath)
@@ -126,6 +149,17 @@ class IncrementalIndexer:
                 total_nodes += len(nodes)
                 total_edges += len(edges)
 
+            processed_count += 1
+            if progress_callback:
+                progress_callback(
+                    current_file=fpath,
+                    processed_files=processed_count,
+                    nodes=total_nodes,
+                    edges=total_edges,
+                )
+
+        if progress_callback:
+            progress_callback(phase="resolving_references")
         xref = await self._store.resolve_cross_file_edges()
 
         stats = {

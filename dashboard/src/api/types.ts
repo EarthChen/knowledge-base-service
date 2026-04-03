@@ -73,8 +73,40 @@ export interface HybridSearchResponse {
 }
 
 export interface IndexResponse {
+  task_id: string;
+  status: string;
+  mode: string;
+  directory: string;
   stats?: Record<string, number>;
   [key: string]: unknown;
+}
+
+export interface IndexTaskProgress {
+  phase: string;
+  total_files: number;
+  processed_files: number;
+  current_file: string;
+  stats: Record<string, number>;
+}
+
+export interface IndexTask {
+  task_id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  mode: string;
+  directory: string;
+  repository: string | null;
+  business_id: string;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  progress: IndexTaskProgress;
+  result: Record<string, unknown> | null;
+  error: string | null;
+}
+
+export interface IndexTasksResponse {
+  tasks: IndexTask[];
+  total: number;
 }
 
 export interface HealthResponse {

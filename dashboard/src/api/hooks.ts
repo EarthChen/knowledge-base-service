@@ -9,6 +9,8 @@ import type {
   HybridSearchResponse,
   HealthResponse,
   IndexResponse,
+  IndexTask,
+  IndexTasksResponse,
   GraphExploreResponse,
   CodeSnippetResponse,
   DocumentsResponse,
@@ -71,6 +73,29 @@ export function useIndex() {
   return useMutation<IndexResponse, Error, Record<string, unknown>>({
     mutationFn: (body) =>
       api("/index", { method: "POST", body: JSON.stringify(body) }),
+  });
+}
+
+export function useIndexTasks() {
+  return useQuery<IndexTasksResponse>({
+    queryKey: ["index-tasks"],
+    queryFn: () => api("/index/tasks", { method: "GET" }),
+    refetchInterval: 3000,
+  });
+}
+
+export function useIndexTask(taskId: string | null) {
+  return useQuery<IndexTask>({
+    queryKey: ["index-task", taskId],
+    queryFn: () => api(`/index/tasks/${encodeURIComponent(taskId!)}`, { method: "GET" }),
+    enabled: !!taskId,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (data && (data.status === "completed" || data.status === "failed")) {
+        return false;
+      }
+      return 1000;
+    },
   });
 }
 

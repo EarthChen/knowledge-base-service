@@ -114,7 +114,9 @@ export interface Translations {
   indexing: {
     title: string;
     full: string;
+    fullDesc: string;
     incremental: string;
+    incrementalDesc: string;
     directoryPath: string;
     directoryPlaceholder: string;
     repoName: string;
@@ -127,6 +129,23 @@ export interface Translations {
     indexingFailed: string;
     directoryRequired: string;
     indexingResult: string;
+    taskId: string;
+    phase: string;
+    progress: string;
+    files: string;
+    currentFile: string;
+    taskPending: string;
+    taskRunning: string;
+    taskCompleted: string;
+    taskFailed: string;
+    phaseScan: string;
+    phaseCode: string;
+    phaseDocs: string;
+    phaseRefs: string;
+    phaseComplete: string;
+    recentTasks: string;
+    noTasks: string;
+    viewDetails: string;
   };
   explorer: {
     title: string;

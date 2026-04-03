@@ -101,11 +101,34 @@ def main() -> None:
                 "mode": "full",
                 "repository": name,
             })
+            task_id = result.get("task_id")
+            if task_id:
+                print(f"  Task: {task_id} — polling for completion...")
+                while True:
+                    time.sleep(3)
+                    task = api_call("GET", f"/index/tasks/{task_id}")
+                    status = task.get("status", "")
+                    progress = task.get("progress", {})
+                    phase = progress.get("phase", "")
+                    pf = progress.get("processed_files", 0)
+                    tf = progress.get("total_files", 0)
+                    if tf > 0:
+                        print(f"\r  [{phase}] {pf}/{tf} files", end="", flush=True)
+                    if status in ("completed", "failed"):
+                        print()
+                        break
+                if status == "failed":
+                    print(f"  FAILED: {task.get('error', 'unknown')}")
+                    continue
+                result = task.get("result", {})
+            else:
+                result = result
+
             elapsed = time.time() - t0
             mem_after = get_memory_cpu(pid)
             peak_rss = max(peak_rss, mem_after["rss_mb"])
 
-            s = result.get("stats", {})
+            s = result.get("stats", result)
             total_stats["nodes"] += s.get("nodes", 0) + s.get("doc_nodes", 0)
             total_stats["edges"] += s.get("edges", 0) + s.get("doc_edges", 0)
             total_stats["embeds"] += s.get("embeddings", 0) + s.get("doc_embeddings", 0)

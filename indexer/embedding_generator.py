@@ -202,7 +202,7 @@ class _OnnxBackend(_EmbeddingBackend):
             return ["CPUExecutionProvider"]
 
         providers: list = []
-        if device in ("auto", "coreml") and "CoreMLExecutionProvider" in available:
+        if device in ("auto", "mps", "coreml") and "CoreMLExecutionProvider" in available:
             providers.append(("CoreMLExecutionProvider", {"ModelFormat": "MLProgram"}))
         if device in ("auto", "cuda") and "CUDAExecutionProvider" in available:
             providers.append("CUDAExecutionProvider")
@@ -272,9 +272,14 @@ class _TorchBackend(_EmbeddingBackend):
             device=device,
             trust_remote_code=self._config.trust_remote_code,
         )
-        if self._config.use_fp16 and device != "cpu":
+        if self._config.use_fp16 and device == "cuda":
             self._model.half()
             log.info("torch_backend_using_fp16", device=device)
+        elif self._config.use_fp16 and device == "mps":
+            log.info(
+                "torch_backend_skipping_fp16_mps",
+                reason="MPS has limited fp16 support, using fp32 for stability",
+            )
         log.info("torch_backend_loaded", dimension=self._config.dimension, device=device)
 
     def encode(self, texts: list[str], batch_size: int) -> np.ndarray:
@@ -321,10 +326,16 @@ class EmbeddingGenerator:
 
     def _get_backend(self) -> _EmbeddingBackend:
         if self._backend is None:
-            if self._config.backend == "onnx":
+            effective_backend = self._config.resolve_backend()
+            if effective_backend == "onnx":
                 self._backend = _OnnxBackend(self._config)
             else:
                 self._backend = _TorchBackend(self._config)
+            log.info(
+                "embedding_backend_selected",
+                backend=effective_backend,
+                device=self._config.resolve_device(),
+            )
         return self._backend
 
     def unload_model(self) -> None:

@@ -4,9 +4,10 @@ services:
     ports:
       - "${FALKORDB_PORT:-6379}:6379"
     volumes:
-      - /Users/earthchen/docker/data/falkordb:/data
+      - /Users/earthchen/docker/data/falkordb:/var/lib/falkordb/data
     environment:
       - FALKORDB_ARGS=TIMEOUT 0
+      - REDIS_ARGS=--appendonly yes --appendfsync everysec
     deploy:
       resources:
         limits:
@@ -18,4 +19,3 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-

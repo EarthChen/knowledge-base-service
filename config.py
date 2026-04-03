@@ -47,6 +47,20 @@ class EmbeddingConfig(BaseModel):
             pass
         return "cpu"
 
+    def resolve_backend(self) -> str:
+        """Resolve the best backend given current device and platform.
+
+        On Mac with MPS available, prefer torch backend for GPU acceleration
+        (ONNX Runtime does not support MPS; CoreML may be unavailable).
+        """
+        if self.backend != "auto":
+            return self.backend
+
+        device = self.resolve_device()
+        if device == "mps":
+            return "torch"
+        return "onnx"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(

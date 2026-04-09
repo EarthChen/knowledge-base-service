@@ -13,6 +13,7 @@ from falkordb import FalkorDB, Graph
 
 from config import FalkorDBConfig
 from log import get_logger
+from redis_startup import await_with_busy_loading_retry, run_sync_with_busy_loading_retry
 
 from .schema import VECTOR_INDEX_CONFIGS, EdgeType, GraphEdge, GraphNode, NodeLabel
 
@@ -72,7 +73,7 @@ class FalkorDBStore:
 
     async def connect(self) -> None:
         loop = asyncio.get_running_loop()
-        self._db = await loop.run_in_executor(None, self._create_connection)
+        self._db = await run_sync_with_busy_loading_retry(loop, self._create_connection)
         self._graph = self._db.select_graph(self._config.graph_name)
         log.info(
             "falkordb_connected",
@@ -80,7 +81,7 @@ class FalkorDBStore:
             port=self._config.port,
             graph=self._config.graph_name,
         )
-        await self._ensure_schema()
+        await await_with_busy_loading_retry(self._ensure_schema)
 
     def _create_connection(self) -> FalkorDB:
         kwargs: dict[str, Any] = {

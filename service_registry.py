@@ -10,9 +10,12 @@ import asyncio
 from typing import Any
 
 from falkordb import FalkorDB
+from redis.exceptions import BusyLoadingError
 
 from config import Settings
+from indexer.embedding_generator import EmbeddingGenerator
 from log import get_logger
+from redis_startup import await_with_busy_loading_retry, run_sync_with_busy_loading_retry
 from service import KnowledgeBaseService
 from store.business_manager import BusinessManager, graph_name_for
 from store.falkordb_store import FalkorDBStore
@@ -33,14 +36,19 @@ class ServiceRegistry:
     async def start(self) -> None:
         """Create FalkorDB connection and ensure default business exists."""
         loop = asyncio.get_running_loop()
-        self._db = await loop.run_in_executor(None, self._create_connection)
+        self._db = await run_sync_with_busy_loading_retry(loop, self._create_connection)
         self._business_mgr = BusinessManager(self._db)
 
-        await loop.run_in_executor(None, self._business_mgr.ensure_default)
-        await self._maybe_migrate_legacy_graph()
+        await run_sync_with_busy_loading_retry(loop, self._business_mgr.ensure_default)
+        await await_with_busy_loading_retry(self._maybe_migrate_legacy_graph)
 
         default_svc = await self._create_service("default")
         self._services["default"] = default_svc
+
+        emb = EmbeddingGenerator.shared(self._settings.embedding)
+        await loop.run_in_executor(None, emb.ensure_model_loaded)
+        log.info("embedding_model_ready")
+
         log.info("service_registry_started")
 
     async def stop(self) -> None:
@@ -125,6 +133,9 @@ class ServiceRegistry:
 
     async def _create_service(self, business_id: str) -> KnowledgeBaseService:
         """Build a per-business KBService sharing the registry's FalkorDB connection."""
+        return await await_with_busy_loading_retry(lambda: self._create_service_once(business_id))
+
+    async def _create_service_once(self, business_id: str) -> KnowledgeBaseService:
         if self._db is None:
             raise RuntimeError("ServiceRegistry not started")
 
@@ -139,6 +150,30 @@ class ServiceRegistry:
             settings=self._settings,
         )
         return svc
+
+    async def readiness(self) -> tuple[dict[str, Any], int]:
+        """Return health payload and HTTP status: 200 when Redis and embeddings are usable, else 503."""
+        if self._db is None:
+            return {"status": "initializing", "redis": "disconnected"}, 503
+
+        loop = asyncio.get_running_loop()
+
+        def _ping() -> None:
+            self._db.connection.ping()
+
+        try:
+            await loop.run_in_executor(None, _ping)
+        except BusyLoadingError:
+            return {"status": "initializing", "redis": "loading"}, 503
+        except Exception as exc:
+            log.warning("health_redis_ping_failed", error=str(exc))
+            return {"status": "unhealthy", "redis": f"error: {exc!s}"}, 503
+
+        emb = EmbeddingGenerator.shared(self._settings.embedding)
+        if not emb.is_model_loaded():
+            return {"status": "initializing", "embedding": "not_loaded"}, 503
+
+        return {"status": "ok", "redis": "ready", "embedding": "ready"}, 200
 
     async def _maybe_migrate_legacy_graph(self) -> None:
         """Migrate legacy 'code_knowledge' graph to 'kb_default' on first run."""

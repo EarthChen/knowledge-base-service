@@ -68,6 +68,9 @@ class _EmbeddingBackend(ABC):
     def load(self) -> None: ...
 
     @abstractmethod
+    def is_loaded(self) -> bool: ...
+
+    @abstractmethod
     def encode(self, texts: list[str], batch_size: int) -> np.ndarray: ...
 
     @abstractmethod
@@ -105,6 +108,9 @@ class _OnnxBackend(_EmbeddingBackend):
             path=onnx_path,
             providers=[p if isinstance(p, str) else p[0] for p in providers],
         )
+
+    def is_loaded(self) -> bool:
+        return self._session is not None and self._tokenizer is not None
 
     def _resolve_onnx_path(self) -> str:
         """Locate or download the ONNX model file.
@@ -282,6 +288,9 @@ class _TorchBackend(_EmbeddingBackend):
             )
         log.info("torch_backend_loaded", dimension=self._config.dimension, device=device)
 
+    def is_loaded(self) -> bool:
+        return self._model is not None
+
     def encode(self, texts: list[str], batch_size: int) -> np.ndarray:
         self.load()
         assert self._model is not None
@@ -337,6 +346,16 @@ class EmbeddingGenerator:
                 device=self._config.resolve_device(),
             )
         return self._backend
+
+    def ensure_model_loaded(self) -> None:
+        """Load the embedding backend synchronously (for startup warmup and readiness checks)."""
+        self._get_backend().load()
+
+    def is_model_loaded(self) -> bool:
+        """True once the backend has finished loading weights."""
+        if self._backend is None:
+            return False
+        return self._backend.is_loaded()
 
     def unload_model(self) -> None:
         """Explicitly release model memory."""

@@ -271,9 +271,7 @@ class KnowledgeBaseMCPHandler:
             stats = await self._indexer.index_incremental(
                 directory, base_ref, head_ref, progress_callback=progress_callback,
             )
-            doc_stats = await self._index_docs_incremental(
-                directory, base_ref, head_ref, progress_callback=progress_callback,
-            )
+            doc_stats = {}
         else:
             stats = await self._indexer.index_full(directory, progress_callback=progress_callback)
             doc_stats = await self._index_docs_full(directory, progress_callback=progress_callback)

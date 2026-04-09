@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -684,8 +684,14 @@ async def mcp_tools_list(
 
 
 @public_router.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health() -> JSONResponse:
+    if _registry is None:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "initializing", "detail": "registry not started"},
+        )
+    body, status_code = await _registry.readiness()
+    return JSONResponse(status_code=status_code, content=body)
 
 
 @public_router.get("/auth/me")
@@ -768,6 +774,29 @@ class SyncAllRequest(BaseModel):
     head_ref: str = Field(default="HEAD", description="Git diff head reference")
 
 
+async def _git_rev_parse(repo_dir: str, ref: str = "HEAD") -> str | None:
+    """Resolve a git ref to a full SHA. Returns None on failure."""
+    import subprocess
+
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(
+                ["git", "rev-parse", ref],
+                capture_output=True,
+                text=True,
+                cwd=repo_dir,
+                timeout=10,
+            ),
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception as exc:
+        log.warning("git_rev_parse_failed", ref=ref, error=str(exc))
+    return None
+
+
 async def _git_pull(directory: str) -> dict[str, str]:
     """Run git pull in a directory."""
     loop = asyncio.get_running_loop()
@@ -805,6 +834,9 @@ async def sync_repository(
     if not repo_dir or not Path(repo_dir).is_dir():
         raise HTTPException(status_code=500, detail=f"Repository directory not found. Provide 'directory' in request.")
 
+    # Record pre-pull HEAD so incremental diff covers the full pull range
+    pre_pull_head = await _git_rev_parse(repo_dir, "HEAD")
+
     pull_result = await _git_pull(repo_dir)
 
     if pull_result["stdout"] == "Already up to date.":
@@ -815,7 +847,8 @@ async def sync_repository(
             "index_stats": None,
         }
 
-    index_stats = await svc.indexer.index_incremental(repo_dir, req.base_ref, req.head_ref)
+    base = pre_pull_head if pre_pull_head else req.base_ref
+    index_stats = await svc.indexer.index_incremental(repo_dir, base, req.head_ref)
 
     if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
         await queries.tag_unowned_nodes(req.repository)
@@ -859,12 +892,16 @@ async def sync_all_repositories(
             continue
 
         try:
+            # Record pre-pull HEAD so incremental diff covers the full pull range
+            pre_pull_head = await _git_rev_parse(repo_dir, "HEAD")
+
             pull_result = await _git_pull(repo_dir)
             if pull_result["stdout"] == "Already up to date.":
                 results.append({"repository": repo, "status": "up_to_date"})
                 continue
 
-            index_stats = await svc.indexer.index_incremental(repo_dir, base_ref, head_ref)
+            base = pre_pull_head if pre_pull_head else base_ref
+            index_stats = await svc.indexer.index_incremental(repo_dir, base, head_ref)
             if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
                 await queries.tag_unowned_nodes(repo)
             results.append({"repository": repo, "status": "synced", "stats": index_stats})

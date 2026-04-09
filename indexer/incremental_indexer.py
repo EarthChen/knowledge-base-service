@@ -249,20 +249,29 @@ class IncrementalIndexer:
                 ),
             )
             if result.returncode != 0:
-                log.warning("git_diff_failed", stderr=result.stderr.strip())
-                return []
+                error_msg = result.stderr.strip()
+                log.error("git_diff_failed", stderr=error_msg, base_ref=base_ref, head_ref=head_ref)
+                raise RuntimeError(f"git diff failed: {error_msg}")
 
             files: list[tuple[str, str]] = []
             for line in result.stdout.strip().split("\n"):
                 if not line.strip():
                     continue
-                parts = line.split("\t", 1)
-                if len(parts) == 2:
-                    status, fpath = parts
-                    if self._is_indexable_file(fpath):
-                        files.append((fpath, status[0]))
+                parts = line.split("\t")
+                if len(parts) >= 2:
+                    status = parts[0]
+                    if status[0] in ("R", "C") and len(parts) >= 3:
+                        old_path, new_path = parts[1], parts[2]
+                        if self._is_indexable_file(old_path):
+                            files.append((old_path, "D"))
+                        if self._is_indexable_file(new_path):
+                            files.append((new_path, "A"))
+                    else:
+                        fpath = parts[1]
+                        if self._is_indexable_file(fpath):
+                            files.append((fpath, status[0]))
             return files
 
         except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
-            log.warning("git_diff_error", error=str(exc))
-            return []
+            log.error("git_diff_error", error=str(exc))
+            raise RuntimeError(f"git diff error: {exc}") from exc

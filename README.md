@@ -133,6 +133,8 @@ curl -X POST http://localhost:8100/api/v1/index \
   }'
 ```
 
+**响应说明**：`POST /api/v1/index` 立即返回后台任务信封，不等待索引完成。响应体包含 `task_id`、`status`（初始多为 `pending`）、`mode`、`directory`。请用 `GET /api/v1/index/tasks` 列出任务，或 `GET /api/v1/index/tasks/{task_id}` 轮询进度与完成后的 `result` / `error`。
+
 全量索引会：
 1. 递归扫描目录中所有支持的源码文件
 2. 使用 Tree-sitter 解析每个文件的 AST（函数、类、导入、调用关系）
@@ -164,6 +166,8 @@ curl -X POST http://localhost:8100/api/v1/index \
 2. 对于删除的文件：从图中移除对应的所有节点和边
 3. 对于新增/修改的文件：先删除旧数据，再重新解析并写入
 4. 为变更的节点重新生成向量嵌入
+
+**重命名与复制（`git diff --name-status`）**：对 `R`（重命名）和 `C`（复制）条目，旧路径按**删除**处理，新路径按**新增**处理，保证图中路径与当前工作区一致。
 
 #### 通过 GitLab Webhook 自动触发
 
@@ -245,6 +249,22 @@ curl -X DELETE http://localhost:8100/api/v1/index/repo-a
 
 > **说明**: 不指定 `repository` 参数时，数据不带仓库标签，所有仓库共享一个图。建议在多仓库环境中始终指定 `repository`。
 
+#### 仓库同步（git pull + 增量索引）
+
+对已配置本地克隆目录的仓库，可调用管理端点在拉取代码后执行增量索引。同步前会记录 **pull 之前的 `HEAD` SHA**，再执行 `git pull`，并以「拉取前 HEAD → 当前 `HEAD`」作为增量 diff 范围，避免漏掉一次 pull 中的全部变更。
+
+```bash
+# 同步单个已索引仓库（需能解析出本地 directory，或在请求体中提供 directory）
+curl -X POST http://localhost:8100/api/v1/sync/repo \
+  -H "Content-Type: application/json" \
+  -d '{"repository": "my-project", "directory": "/path/to/repo", "base_ref": "HEAD~1", "head_ref": "HEAD"}'
+
+# 同步所有已索引仓库（相对路径索引的仓库需在 body 中提供 repo_dirs 映射）
+curl -X POST http://localhost:8100/api/v1/sync/all \
+  -H "Content-Type: application/json" \
+  -d '{"repo_dirs": {"repo-a": "/path/to/repo-a"}, "base_ref": "HEAD~1", "head_ref": "HEAD"}'
+```
+
 ### 5. 语义搜索
 
 使用自然语言搜索代码（可选按仓库过滤）：
@@ -287,20 +307,21 @@ curl -X POST http://localhost:8100/api/v1/search \
   }'
 ```
 
-**响应示例**:
+**响应示例**（`matches` 为语义命中与关键词命中的合并列表；语义命中使用单行号字段 `line`，对应图中的 `start_line`）:
 
 ```json
 {
-  "results": [
+  "matches": [
     {
+      "type": "Function",
       "name": "authenticate_request",
       "file": "src/auth/middleware.py",
-      "start_line": 15,
-      "end_line": 42,
+      "line": 15,
       "signature": "async def authenticate_request(request: Request) -> Tenant",
       "docstring": "Verify API key and return tenant info.",
-      "code_snippet": "...",
-      "score": 0.87
+      "score": 0.87,
+      "uid": "Function:src/auth/middleware.py:authenticate_request:15",
+      "fqn": ""
     }
   ],
   "total": 3,
@@ -337,7 +358,7 @@ curl -X POST http://localhost:8100/api/v1/graph \
 curl -X POST http://localhost:8100/api/v1/graph \
   -H "Content-Type: application/json" \
   -d '{
-    "query_type": "inheritance",
+    "query_type": "inheritance_tree",
     "name": "BaseService"
   }'
 
@@ -353,7 +374,7 @@ curl -X POST http://localhost:8100/api/v1/graph \
 curl -X POST http://localhost:8100/api/v1/graph \
   -H "Content-Type: application/json" \
   -d '{
-    "query_type": "module_deps",
+    "query_type": "module_dependencies",
     "name": "auth"
   }'
 
@@ -365,13 +386,12 @@ curl -X POST http://localhost:8100/api/v1/graph \
     "file": "src/main.py"
   }'
 
-# 执行自定义 Cypher 查询
+# 执行自定义 Cypher 查询（仅 `cypher` 字段；参数需写在查询字面量中）
 curl -X POST http://localhost:8100/api/v1/graph \
   -H "Content-Type: application/json" \
   -d '{
-    "query_type": "custom",
-    "cypher": "MATCH (f:Function)-[:CALLS]->(g:Function) WHERE f.name = $name RETURN g.name, g.file",
-    "params": {"name": "main"}
+    "query_type": "raw_cypher",
+    "cypher": "MATCH (f:Function)-[:CALLS]->(g:Function) WHERE f.name = '\''main'\'' RETURN g.name, g.file"
   }'
 ```
 
@@ -457,25 +477,19 @@ curl http://localhost:8100/api/v1/code/<node_uid>
 curl http://localhost:8100/api/v1/stats
 ```
 
-**响应示例**:
+**响应示例**（扁平计数，由 `query/graph_query.py` 的 `get_graph_stats` 生成；带 `?repository=` 时还会包含 `repository`、`repository_nodes`）:
 
 ```json
 {
-  "nodes": {
-    "Function": 245,
-    "Class": 38,
-    "Module": 52,
-    "Document": 15
-  },
-  "edges": {
-    "CALLS": 412,
-    "INHERITS": 12,
-    "IMPORTS": 178,
-    "CONTAINS": 320,
-    "REFERENCES": 45
-  },
-  "total_nodes": 350,
-  "total_edges": 967
+  "function_count": 245,
+  "class_count": 38,
+  "module_count": 52,
+  "document_count": 15,
+  "calls_count": 412,
+  "inherits_count": 12,
+  "imports_count": 178,
+  "contains_count": 320,
+  "references_count": 45
 }
 ```
 
@@ -746,6 +760,8 @@ Agent 可通过 MCP 协议直接调用工具：
 | `FALKORDB_PASSWORD` | FalkorDB 密码 | - |
 | `FALKORDB__GRAPH_NAME` | 图数据库名称 | `code_knowledge` |
 
+**Redis 数据集加载**：若 FalkorDB/Redis 启动后仍在将 RDB/AOF 载入内存，客户端会收到 `BusyLoadingError`。本服务在连接与 schema 初始化等步骤中对该错误自动重试（最多 10 次，初始间隔 2 秒，指数退避），直至 Redis 可响应或重试耗尽。
+
 ### 嵌入模型配置
 
 | 变量 | 说明 | 默认值 |
@@ -812,10 +828,14 @@ Agent 可通过 MCP 协议直接调用工具：
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/v1/index` | 触发目录级代码和文档索引 |
+| POST | `/api/v1/index` | 触发目录级代码和文档索引（异步任务，见下） |
+| GET | `/api/v1/index/tasks` | 列出后台索引任务 |
+| GET | `/api/v1/index/tasks/{task_id}` | 查询单个索引任务状态与结果 |
 | POST | `/api/v1/index/files` | 直接传入文件内容索引（无需本地目录） |
 | DELETE | `/api/v1/index/{repository}` | 删除指定仓库的所有索引数据 |
 | GET | `/api/v1/repositories` | 列出所有已索引的仓库 |
+| POST | `/api/v1/sync/repo` | 对单个仓库执行 `git pull` 后增量索引 |
+| POST | `/api/v1/sync/all` | 对所有已索引仓库依次 `git pull` 并增量索引 |
 
 #### POST /api/v1/index — 目录索引
 
@@ -836,6 +856,8 @@ Agent 可通过 MCP 协议直接调用工具：
 | `base_ref` | string | 否 | 增量模式的基准 Git 引用（如 `HEAD~1`） |
 | `head_ref` | string | 否 | 增量模式的目标 Git 引用（如 `HEAD`） |
 | `repository` | string | 否 | 仓库标识（用于多仓库命名空间隔离） |
+
+**响应**：立即返回 JSON，包含 `task_id`、`status`（初始多为 `pending`）、`mode`、`directory`。实际索引进度与完成后的统计在后台执行；请使用 `GET /api/v1/index/tasks` 或 `GET /api/v1/index/tasks/{task_id}` 轮询。
 
 #### POST /api/v1/index/files — 文件内容索引
 
@@ -881,6 +903,8 @@ Agent 可通过 MCP 协议直接调用工具：
 | `k` | int | 否 | 返回结果数（默认 10） |
 | `entity_type` | string | 否 | `"all"`（默认）, `"function"`, `"class"`, `"document"` |
 
+**响应**：`matches`（合并语义与关键词命中）、`total`、`query`。语义命中使用 `line` 表示起始行。
+
 #### POST /api/v1/graph — 图查询
 
 ```json
@@ -899,7 +923,7 @@ Agent 可通过 MCP 协议直接调用工具：
 | `file` | string | 视类型 | 文件路径 |
 | `depth` | int | 否 | 遍历深度（默认 3） |
 | `direction` | string | 否 | `"downstream"` / `"upstream"` |
-| `cypher` | string | 视类型 | 自定义 Cypher（`custom` 类型） |
+| `cypher` | string | 视类型 | 自定义 Cypher（仅 `raw_cypher` 类型） |
 | `entity_type` | string | 否 | `"function"` / `"class"` / `"any"` |
 
 支持的 `query_type`:
@@ -907,14 +931,14 @@ Agent 可通过 MCP 协议直接调用工具：
 | query_type | 说明 | 必需参数 |
 |------------|------|----------|
 | `call_chain` | 追踪函数调用路径 | `name`, `depth`, `direction` |
-| `inheritance` | 类继承树 | `name` |
+| `inheritance_tree` | 类继承树 | `name` |
 | `class_methods` | 列出类的方法 | `name` |
-| `module_deps` | 模块依赖图 | `name` |
+| `module_dependencies` | 模块依赖图 | `name` |
 | `reverse_dependencies` | 反向依赖 | `name` |
 | `find_entity` | 查找实体 | `name`, `entity_type` |
 | `file_entities` | 文件内所有实体 | `file` |
 | `graph_stats` | 图统计信息 | 无 |
-| `custom` | 原始 Cypher 查询 | `cypher` |
+| `raw_cypher` | 原始 Cypher 查询 | `cypher` |
 
 #### POST /api/v1/hybrid — 混合搜索
 
@@ -956,9 +980,20 @@ Agent 可通过 MCP 协议直接调用工具：
 |------|------|------|
 | GET | `/api/v1/stats` | 返回图统计信息（可选 `?repository=` 按仓库过滤） |
 | GET | `/api/v1/repositories` | 列出已索引仓库及节点数 |
-| GET | `/api/v1/health` | 健康检查 |
+| GET | `/api/v1/health` | 健康检查（见下：仅当 Redis 与嵌入模型均就绪时返回 200） |
 | GET | `/api/v1/mcp/tools` | 列出 MCP 工具定义 |
 | POST | `/api/v1/mcp/tool` | 执行 MCP 工具调用 |
+
+#### GET /api/v1/health
+
+- **200**：`{"status": "ok", "redis": "ready", "embedding": "ready"}` — 仅当 **Redis/FalkorDB 可 ping** 且 **嵌入模型已加载** 时返回。
+- **503**：未就绪或异常，例如：
+  - Redis 仍在加载数据集：`{"status": "initializing", "redis": "loading", ...}`
+  - 嵌入未加载：`{"status": "initializing", "embedding": "not_loaded"}`
+  - 注册表未启动：`{"status": "initializing", "detail": "registry not started"}`
+  - Redis 不可用：`{"status": "unhealthy", "redis": "error: ..."}`（或初始化阶段的 `"redis": "disconnected"`）
+
+业务上可将 **200** 视为「可对索引进行向量操作」的就绪信号。
 
 ---
 

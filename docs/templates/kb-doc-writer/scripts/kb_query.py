@@ -118,13 +118,13 @@ def cmd_search(args: argparse.Namespace) -> None:
     result = _api("POST", "search", body)
 
     if args.brief:
-        results = result.get("results", [])
-        print(f"Found {len(results)} results for '{args.query}':")
-        for r in results:
+        matches = result.get("matches") or result.get("results", [])
+        print(f"Found {len(matches)} results for '{args.query}':")
+        for r in matches:
             score = r.get("score", 0)
             name = r.get("name", "?")
             fpath = r.get("file", "?")
-            line = r.get("start_line", "?")
+            line = r.get("line", r.get("start_line", "?"))
             print(f"  [{score:.2f}] {name}  ({fpath}:{line})")
     else:
         _print_json(result)
@@ -145,7 +145,7 @@ def cmd_graph(args: argparse.Namespace) -> None:
     elif qt == "class_methods":
         result = _api("POST", "graph", {"query_type": "class_methods", "name": args.name})
     elif qt in ("inheritance_tree", "inheritance"):
-        result = _api("POST", "graph", {"query_type": "inheritance", "name": args.name})
+        result = _api("POST", "graph", {"query_type": "inheritance_tree", "name": args.name})
     elif qt == "file_entities":
         result = _api("POST", "graph", {"query_type": "file_entities", "file": args.file})
     elif qt == "find_entity":
@@ -155,7 +155,7 @@ def cmd_graph(args: argparse.Namespace) -> None:
             "entity_type": args.entity_type,
         })
     elif qt == "module_deps":
-        result = _api("POST", "graph", {"query_type": "module_deps", "name": args.name})
+        result = _api("POST", "graph", {"query_type": "module_dependencies", "name": args.name})
     else:
         print(f"Error: Unknown graph type '{qt}'", file=sys.stderr)
         sys.exit(1)

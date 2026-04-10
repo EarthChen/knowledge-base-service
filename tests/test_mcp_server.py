@@ -4,12 +4,12 @@ from api.mcp_server import MCP_TOOLS_MANIFEST
 
 
 class TestMCPToolsManifest:
-    def test_has_three_tools(self):
-        assert len(MCP_TOOLS_MANIFEST) == 3
+    def test_has_four_tools(self):
+        assert len(MCP_TOOLS_MANIFEST) == 4
 
     def test_tool_names(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}
-        assert names == {"rag_query", "rag_graph", "rag_index"}
+        assert names == {"rag_query", "rag_graph", "rag_index", "rag_business_search"}
 
     def test_rag_query_schema(self):
         tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "rag_query")
@@ -25,6 +25,11 @@ class TestMCPToolsManifest:
         assert "call_chain" in query_type_enum
         assert "inheritance_tree" in query_type_enum
         assert "raw_cypher" in query_type_enum
+        assert "business_flow" in query_type_enum
+        assert "flows_for_function" in query_type_enum
+        assert "related_concepts" in query_type_enum
+        assert "explore_domain" in query_type_enum
+        assert "flow_dependencies" in query_type_enum
 
     def test_rag_index_schema(self):
         tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "rag_index")

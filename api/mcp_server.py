@@ -11,15 +11,13 @@ Tools exposed:
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
-
-from log import get_logger
 
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator
 from indexer.incremental_indexer import IncrementalIndexer
+from log import get_logger
 from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
 from store.falkordb_store import FalkorDBStore
@@ -78,6 +76,11 @@ MCP_TOOLS_MANIFEST = [
                         "file_entities",
                         "graph_stats",
                         "raw_cypher",
+                        "business_flow",
+                        "flows_for_function",
+                        "related_concepts",
+                        "explore_domain",
+                        "flow_dependencies",
                     ],
                     "description": "Type of graph query to execute.",
                 },
@@ -147,6 +150,39 @@ MCP_TOOLS_MANIFEST = [
             "required": ["directory"],
         },
     },
+    {
+        "name": "rag_business_search",
+        "description": (
+            "搜索业务流程和业务概念，支持自然语言查询。可以搜索业务流程（如'用户下单'）、"
+            "业务概念（如'私信'），并返回关联的代码位置。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "业务语义查询（自然语言）",
+                },
+                "search_type": {
+                    "type": "string",
+                    "enum": ["flow", "concept", "all"],
+                    "default": "all",
+                    "description": "搜索类型：flow=业务流程, concept=业务概念, all=全部",
+                },
+                "k": {
+                    "type": "integer",
+                    "default": 5,
+                    "description": "返回结果数量",
+                },
+                "include_code": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "是否包含关联的代码位置",
+                },
+            },
+            "required": ["query"],
+        },
+    },
 ]
 
 
@@ -178,6 +214,7 @@ class KnowledgeBaseMCPHandler:
             "rag_query": self.handle_rag_query,
             "rag_graph": self.handle_rag_graph,
             "rag_index": self.handle_rag_index,
+            "rag_business_search": self.handle_rag_business_search,
         }
 
         handler = handlers.get(tool_name)
@@ -254,7 +291,50 @@ class KnowledgeBaseMCPHandler:
             result = await self._graph.execute_raw(cypher)
             return {"type": "raw_cypher", "results": result.data}
 
+        elif query_type == "business_flow":
+            result = await self._graph.find_business_flow(name, k=depth or 10)
+            return {"type": "business_flow", "name": name, "results": result.data}
+
+        elif query_type == "flows_for_function":
+            result = await self._graph.find_flows_for_function(name)
+            return {"type": "flows_for_function", "function": name, "results": result.data}
+
+        elif query_type == "related_concepts":
+            result = await self._graph.find_related_concepts(name)
+            return {"type": "related_concepts", "entity": name, "results": result.data}
+
+        elif query_type == "explore_domain":
+            result = await self._graph.explore_business_domain(name)
+            return {"type": "explore_domain", "category": name, "results": result.data}
+
+        elif query_type == "flow_dependencies":
+            result = await self._graph.find_flow_dependencies(name)
+            return {"type": "flow_dependencies", "flow": name, "results": result.data}
+
         return {"error": f"Unknown query_type: {query_type}"}
+
+    async def handle_rag_business_search(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        query = arguments["query"]
+        search_type = arguments.get("search_type", "all")
+        k = arguments.get("k", 5)
+        include_code = arguments.get("include_code", True)
+
+        results: dict[str, Any] = {}
+        if search_type in ("flow", "all"):
+            flow_result = await self._hybrid._semantic.search_business_flows(query, k)
+            results["flows"] = flow_result.matches
+        if search_type in ("concept", "all"):
+            concept_result = await self._hybrid._semantic.search_business_concepts(query, k)
+            results["concepts"] = concept_result.matches
+
+        if include_code:
+            for flow in results.get("flows", []):
+                flow_name = flow.get("name", "")
+                if flow_name:
+                    code_result = await self._graph.find_business_flow(flow_name, k=5)
+                    flow["code_locations"] = code_result.data
+
+        return {"status": "success", "results": results}
 
     async def handle_rag_index(
         self, args: dict[str, Any], progress_callback: Callable[..., None] | None = None,

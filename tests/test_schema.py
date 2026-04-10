@@ -1,6 +1,6 @@
 """Tests for graph schema definitions."""
 
-from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, VECTOR_INDEX_CONFIGS
+from store.schema import VECTOR_INDEX_CONFIGS, EdgeType, GraphEdge, GraphNode, NodeLabel
 
 
 class TestGraphNode:
@@ -31,6 +31,8 @@ class TestGraphNode:
         assert NodeLabel.CLASS == "Class"
         assert NodeLabel.MODULE == "Module"
         assert NodeLabel.DOCUMENT == "Document"
+        assert NodeLabel.BUSINESS_FLOW == "BusinessFlow"
+        assert NodeLabel.BUSINESS_CONCEPT == "BusinessConcept"
 
 
 class TestGraphEdge:
@@ -61,17 +63,24 @@ class TestGraphEdge:
         assert EdgeType.CONTAINS == "CONTAINS"
         assert EdgeType.USES_TYPE == "USES_TYPE"
         assert EdgeType.REFERENCES == "REFERENCES"
+        assert EdgeType.IMPLEMENTS == "IMPLEMENTS"
+        assert EdgeType.RELATES_TO == "RELATES_TO"
+        assert EdgeType.PART_OF == "PART_OF"
+        assert EdgeType.CONCEPT_IN == "CONCEPT_IN"
 
 
 class TestVectorIndexConfigs:
     def test_configs_exist(self):
-        assert len(VECTOR_INDEX_CONFIGS) == 3
+        assert len(VECTOR_INDEX_CONFIGS) == 6
 
     def test_configs_cover_labels(self):
         labels = {c["label"] for c in VECTOR_INDEX_CONFIGS}
         assert NodeLabel.FUNCTION in labels
         assert NodeLabel.CLASS in labels
         assert NodeLabel.DOCUMENT in labels
+        assert NodeLabel.MODULE in labels
+        assert NodeLabel.BUSINESS_FLOW in labels
+        assert NodeLabel.BUSINESS_CONCEPT in labels
 
     def test_all_use_cosine(self):
         for cfg in VECTOR_INDEX_CONFIGS:

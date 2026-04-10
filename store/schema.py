@@ -5,6 +5,7 @@ Node types:
   - Class(name, file, start_line, end_line, docstring, language, base_classes)
   - Module(name, path, language, description)
   - Document(title, path, content_hash, section)
+  - BusinessFlow, BusinessConcept (business semantics)
 
 Edge types:
   - CALLS(caller → callee)
@@ -13,6 +14,7 @@ Edge types:
   - CONTAINS(parent → child)  e.g. class → method, module → function
   - USES_TYPE(function → type)
   - REFERENCES(doc → code_entity)
+  - IMPLEMENTS, RELATES_TO, PART_OF, CONCEPT_IN (business semantics)
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ class NodeLabel(StrEnum):
     CLASS = "Class"
     MODULE = "Module"
     DOCUMENT = "Document"
+    BUSINESS_FLOW = "BusinessFlow"
+    BUSINESS_CONCEPT = "BusinessConcept"
 
 
 class EdgeType(StrEnum):
@@ -35,6 +39,10 @@ class EdgeType(StrEnum):
     CONTAINS = "CONTAINS"
     USES_TYPE = "USES_TYPE"
     REFERENCES = "REFERENCES"
+    IMPLEMENTS = "IMPLEMENTS"
+    RELATES_TO = "RELATES_TO"
+    PART_OF = "PART_OF"
+    CONCEPT_IN = "CONCEPT_IN"
 
 
 @dataclass
@@ -60,19 +68,10 @@ class GraphEdge:
 
 
 VECTOR_INDEX_CONFIGS = [
-    {
-        "label": NodeLabel.FUNCTION,
-        "attribute": "embedding",
-        "similarity": "cosine",
-    },
-    {
-        "label": NodeLabel.CLASS,
-        "attribute": "embedding",
-        "similarity": "cosine",
-    },
-    {
-        "label": NodeLabel.DOCUMENT,
-        "attribute": "embedding",
-        "similarity": "cosine",
-    },
+    {"label": NodeLabel.FUNCTION, "attribute": "embedding", "similarity": "cosine"},
+    {"label": NodeLabel.CLASS, "attribute": "embedding", "similarity": "cosine"},
+    {"label": NodeLabel.DOCUMENT, "attribute": "embedding", "similarity": "cosine"},
+    {"label": NodeLabel.BUSINESS_FLOW, "attribute": "embedding", "similarity": "cosine"},
+    {"label": NodeLabel.BUSINESS_CONCEPT, "attribute": "embedding", "similarity": "cosine"},
+    {"label": NodeLabel.MODULE, "attribute": "embedding", "similarity": "cosine"},
 ]

@@ -65,7 +65,11 @@ class LLMProvider:
         }
         data = await self._request(body)
         raw = data["choices"][0]["message"]["content"]
-        return json.loads(raw)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.error("LLM returned invalid JSON: %s", raw[:200], exc_info=True)
+            raise ValueError(f"LLM returned invalid JSON: {raw[:100]}") from exc
 
     async def _request(self, body: dict[str, Any]) -> dict[str, Any]:
         max_attempts = self._config.retry_count

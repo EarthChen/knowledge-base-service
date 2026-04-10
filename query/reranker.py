@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -38,7 +39,7 @@ class Reranker:
             logger.warning("Failed to load reranker model, disabling reranking", exc_info=True)
             self._config.enabled = False
 
-    def rerank(
+    async def rerank(
         self,
         query: str,
         candidates: list[dict[str, Any]],
@@ -53,15 +54,17 @@ class Reranker:
             return candidates[:top_k]
 
         texts = [self._candidate_text(c) for c in candidates]
-        scores = self._compute_scores(query, texts)
+        scores = await self._compute_scores(query, texts)
 
         scored = list(zip(candidates, scores))
         scored.sort(key=lambda x: x[1], reverse=True)
         return [item for item, _ in scored[:top_k]]
 
-    def _compute_scores(self, query: str, texts: list[str]) -> list[float]:
+    async def _compute_scores(self, query: str, texts: list[str]) -> list[float]:
         pairs = [(query, t) for t in texts]
-        return self._model.predict(pairs, batch_size=self._config.batch_size).tolist()
+        return await asyncio.to_thread(
+            lambda: self._model.predict(pairs, batch_size=self._config.batch_size).tolist()
+        )
 
     @staticmethod
     def _candidate_text(candidate: dict[str, Any]) -> str:

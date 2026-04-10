@@ -198,8 +198,9 @@ class DeepSearchEngine:
         except Exception:
             logger.warning("Failed to synthesize results", exc_info=True)
             return {
-                "sufficient": True,
-                "analysis": "搜索结果汇总失败",
+                "sufficient": False,
+                "analysis": "搜索结果汇总失败，请重试或缩小查询范围。",
                 "business_flows": [],
                 "code_locations": [],
+                "error": True,
             }

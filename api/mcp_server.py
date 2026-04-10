@@ -323,10 +323,10 @@ class KnowledgeBaseMCPHandler:
 
         results: dict[str, Any] = {}
         if search_type in ("flow", "all"):
-            flow_result = await self._hybrid._semantic.search_business_flows(query, k)
+            flow_result = await self._hybrid.semantic.search_business_flows(query, k)
             results["flows"] = flow_result.matches
         if search_type in ("concept", "all"):
-            concept_result = await self._hybrid._semantic.search_business_concepts(query, k)
+            concept_result = await self._hybrid.semantic.search_business_concepts(query, k)
             results["concepts"] = concept_result.matches
 
         if include_code:

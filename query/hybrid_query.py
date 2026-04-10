@@ -80,6 +80,10 @@ class HybridQueryService:
         self._graph = graph_svc
         self._reranker = reranker
 
+    @property
+    def semantic(self) -> SemanticQueryService:
+        return self._semantic
+
     async def search_with_context(
         self,
         query_text: str,
@@ -110,7 +114,7 @@ class HybridQueryService:
         )
 
         if self._reranker:
-            merged = self._reranker.rerank(query_text, merged, top_k=k)
+            merged = await self._reranker.rerank(query_text, merged, top_k=k)
         else:
             merged = merged[:k]
 

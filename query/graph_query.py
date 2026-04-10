@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from log import get_logger
-
 from store.falkordb_store import FalkorDBStore
 
 log = get_logger(__name__)
@@ -266,3 +265,58 @@ class GraphQueryService:
             stats[edge_type.lower() + "_count"] = rows[0][0] if rows else 0
 
         return stats
+
+    async def find_business_flow(self, name: str, k: int = 10) -> QueryResult:
+        """Find a business flow and its implementing functions/classes."""
+        query = (
+            "MATCH (bf:BusinessFlow)-[r:IMPLEMENTS]->(n) "
+            "WHERE bf.name CONTAINS $name "
+            "RETURN bf, r, n ORDER BY r.step_order LIMIT $k"
+        )
+        params = {"name": name, "k": k}
+        rows = await self._store.execute_query(query, params)
+        return QueryResult(data=list(rows.data), query=query, params=params)
+
+    async def find_flows_for_function(self, function_name: str) -> QueryResult:
+        """Reverse lookup: find business flows that a function belongs to."""
+        params = _make_params(function_name)
+        where = _where_name("f")
+        query = (
+            f"MATCH (bf:BusinessFlow)-[:IMPLEMENTS]->(f:Function) "
+            f"WHERE {where} RETURN bf, f"
+        )
+        rows = await self._store.execute_query(query, params)
+        return QueryResult(data=list(rows.data), query=query, params=params)
+
+    async def find_related_concepts(self, entity_name: str) -> QueryResult:
+        """Find business concepts related to a given entity."""
+        query = (
+            "MATCH (bc:BusinessConcept)-[r:RELATES_TO]->(n) "
+            "WHERE n.name = $name "
+            "RETURN bc, r, n ORDER BY r.relevance_score DESC"
+        )
+        params = {"name": entity_name}
+        rows = await self._store.execute_query(query, params)
+        return QueryResult(data=list(rows.data), query=query, params=params)
+
+    async def explore_business_domain(self, category: str) -> QueryResult:
+        """Explore all flows and concepts in a business domain."""
+        query = (
+            "MATCH (bf:BusinessFlow) WHERE bf.category = $category "
+            "OPTIONAL MATCH (bf)-[:IMPLEMENTS]->(f) "
+            "RETURN bf, collect(f) AS functions"
+        )
+        params = {"category": category}
+        rows = await self._store.execute_query(query, params)
+        return QueryResult(data=list(rows.data), query=query, params=params)
+
+    async def find_flow_dependencies(self, flow_name: str) -> QueryResult:
+        """Find parent/child flow relationships."""
+        query = (
+            "MATCH path=(bf:BusinessFlow)-[:PART_OF*0..3]->(parent:BusinessFlow) "
+            "WHERE bf.name CONTAINS $name "
+            "RETURN bf, parent, length(path) AS depth ORDER BY depth"
+        )
+        params = {"name": flow_name}
+        rows = await self._store.execute_query(query, params)
+        return QueryResult(data=list(rows.data), query=query, params=params)

@@ -15,7 +15,7 @@ from config import FalkorDBConfig
 from log import get_logger
 from redis_startup import await_with_busy_loading_retry, run_sync_with_busy_loading_retry
 
-from .schema import VECTOR_INDEX_CONFIGS, EdgeType, GraphEdge, GraphNode, NodeLabel
+from .schema import VECTOR_INDEX_CONFIGS, GraphEdge, GraphNode, NodeLabel
 
 log = get_logger(__name__)
 
@@ -59,7 +59,7 @@ class FalkorDBStore:
         db: FalkorDB,
         graph_name: str,
         embedding_dim: int = 1024,
-    ) -> "FalkorDBStore":
+    ) -> FalkorDBStore:
         """Create a store from an existing FalkorDB connection with a specific graph."""
         instance = cls.__new__(cls)
         instance._config = None  # type: ignore[assignment]
@@ -151,6 +151,19 @@ class FalkorDBStore:
             None, lambda: self._graph.query(query, params={"uid": uid})  # type: ignore[union-attr]
         )
 
+    async def update_node_property(
+        self, label: NodeLabel, uid: str, prop: str, value: object
+    ) -> None:
+        """Update a single property on an existing node."""
+        loop = asyncio.get_running_loop()
+        query = f"MATCH (n:{label} {{uid: $uid}}) SET n.{prop} = $value"
+        await loop.run_in_executor(
+            None,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                query, params={"uid": uid, "value": value}
+            ),
+        )
+
     async def upsert_edge(self, edge: GraphEdge) -> None:
         loop = asyncio.get_running_loop()
         prop_clause = ""
@@ -189,7 +202,7 @@ class FalkorDBStore:
         log.info("falkordb_deleted_by_file", file=file_path, deleted=deleted)
         return deleted
 
-    async def execute_query(self, cypher: str, params: dict[str, Any] | None = None) -> "QueryResultWrapper":
+    async def execute_query(self, cypher: str, params: dict[str, Any] | None = None) -> QueryResultWrapper:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
@@ -238,7 +251,7 @@ class FalkorDBStore:
         results: list[dict[str, Any]] = []
         seen_uids: set[str] = set()
 
-        _RETURN_CLAUSE = (
+        return_clause = (
             "RETURN n.uid AS uid, n.name AS name, n.file AS file, "
             "n.start_line AS line, labels(n)[0] AS type, "
             "coalesce(n.signature, '') AS signature, "
@@ -250,7 +263,7 @@ class FalkorDBStore:
             fqn_q = (
                 "MATCH (n) "
                 "WHERE (n:Function OR n:Class OR n:Module) AND n.fqn = $fqn "
-                f"{_RETURN_CLAUSE} LIMIT $k"
+                f"{return_clause} LIMIT $k"
             )
             try:
                 rows = await loop.run_in_executor(
@@ -281,7 +294,7 @@ class FalkorDBStore:
                     combo_q = (
                         "MATCH (c:Class)-[:CONTAINS]->(f:Function {name: $method}) "
                         "WHERE c.name = $class_name "
-                        f"WITH f AS n {_RETURN_CLAUSE} LIMIT $k"
+                        f"WITH f AS n {return_clause} LIMIT $k"
                     )
                     try:
                         rows = await loop.run_in_executor(
@@ -308,7 +321,7 @@ class FalkorDBStore:
         exact_q = (
             "MATCH (n) "
             "WHERE (n:Function OR n:Class OR n:Module) AND n.name = $name "
-            f"{_RETURN_CLAUSE} LIMIT $k"
+            f"{return_clause} LIMIT $k"
         )
         try:
             rows = await loop.run_in_executor(
@@ -335,7 +348,7 @@ class FalkorDBStore:
             "WHERE (n:Function OR n:Class OR n:Module) "
             "AND toLower(n.name) CONTAINS toLower($keyword) "
             "AND n.name <> $keyword "
-            f"{_RETURN_CLAUSE} "
+            f"{return_clause} "
             "ORDER BY size(n.name) "
             "LIMIT $k"
         )

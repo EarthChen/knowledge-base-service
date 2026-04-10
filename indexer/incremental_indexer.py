@@ -11,6 +11,7 @@ import asyncio
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.doc_indexer import DocumentIndexer
@@ -18,6 +19,9 @@ from indexer.embedding_generator import EmbeddingGenerator
 from log import get_logger
 from store.falkordb_store import FalkorDBStore
 from store.schema import NodeLabel
+
+if TYPE_CHECKING:
+    from indexer.enrichment import CodeSummaryEnricher
 
 log = get_logger(__name__)
 
@@ -37,11 +41,13 @@ class IncrementalIndexer:
         graph_builder: CodeGraphBuilder,
         embedding_gen: EmbeddingGenerator,
         doc_indexer: DocumentIndexer | None = None,
+        enricher: CodeSummaryEnricher | None = None,
     ) -> None:
         self._store = store
         self._builder = graph_builder
         self._embedding = embedding_gen
         self._doc_indexer = doc_indexer or DocumentIndexer()
+        self._enricher = enricher
 
     async def index_full(
         self, directory: str, progress_callback: Callable[..., None] | None = None,
@@ -202,6 +208,27 @@ class IncrementalIndexer:
         ]
         if not embeddable:
             return 0
+
+        if self._enricher:
+            code_nodes = [n for n in embeddable if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS)]
+            if code_nodes:
+                items_for_enrich = [
+                    {
+                        "name": n.properties.get("name", ""),
+                        "signature": n.properties.get("signature", ""),
+                        "docstring": n.properties.get("docstring", ""),
+                        "code_snippet": n.properties.get("code_snippet", ""),
+                        "file": n.properties.get("file", ""),
+                    }
+                    for n in code_nodes
+                ]
+                summaries = await self._enricher.enrich_batch(items_for_enrich)
+                for node, summary in zip(code_nodes, summaries):
+                    if summary:
+                        node.properties["business_summary"] = summary
+                        await self._store.update_node_property(
+                            node.label, node.uid, "business_summary", summary
+                        )
 
         items = [
             {

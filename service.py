@@ -6,15 +6,14 @@ the knowledge base (store, indexer, query services, MCP handler).
 
 from __future__ import annotations
 
-from config import Settings
-from log import get_logger
-
 from api.mcp_server import KnowledgeBaseMCPHandler
+from config import Settings
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator
 from indexer.incremental_indexer import IncrementalIndexer
 from indexer.tree_sitter_parser import TreeSitterParser
+from log import get_logger
 from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
 from query.semantic_query import SemanticQueryService
@@ -40,7 +39,7 @@ class KnowledgeBaseService:
         self._init_components(settings)
 
     @classmethod
-    def from_components(cls, store: FalkorDBStore, settings: Settings) -> "KnowledgeBaseService":
+    def from_components(cls, store: FalkorDBStore, settings: Settings) -> KnowledgeBaseService:
         """Create a service with a pre-built store (used by ServiceRegistry for per-business instances)."""
         instance = cls.__new__(cls)
         instance._settings = settings
@@ -51,6 +50,16 @@ class KnowledgeBaseService:
     def _init_components(self, settings: Settings) -> None:
         """Wire up all sub-components against the current store."""
         self._embedding = EmbeddingGenerator.shared(config=settings.embedding)
+
+        self._llm_provider = None
+        self._enricher = None
+        if settings.llm.enabled:
+            from indexer.enrichment import CodeSummaryEnricher
+            from llm.provider import LLMProvider
+
+            self._llm_provider = LLMProvider(settings.llm)
+            self._enricher = CodeSummaryEnricher(llm=self._llm_provider)
+
         self._parser = TreeSitterParser(supported_languages=settings.supported_languages)
         self._graph_builder = CodeGraphBuilder(
             parser=self._parser,
@@ -62,6 +71,7 @@ class KnowledgeBaseService:
             graph_builder=self._graph_builder,
             embedding_gen=self._embedding,
             doc_indexer=self._doc_indexer,
+            enricher=self._enricher,
         )
 
         self._graph_query = GraphQueryService(store=self._store)
@@ -105,6 +115,10 @@ class KnowledgeBaseService:
     @property
     def doc_indexer(self) -> DocumentIndexer:
         return self._doc_indexer
+
+    @property
+    def llm_provider(self):
+        return self._llm_provider
 
     @property
     def graph_query(self) -> GraphQueryService:

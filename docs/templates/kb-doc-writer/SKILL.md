@@ -1,11 +1,13 @@
 ---
 name: kb-doc-writer
-description: 基于知识库编写/更新项目文档，确保文档内容与真实代码一致。手动激活。支持 MCP 和 Python 脚本双模式，自动检测 MCP 可用性。
+description: Use when writing or updating project technical documentation and need to ensure code references are accurate. Queries the knowledge base for real code definitions. Supports MCP and shell script dual-mode with auto-detection.
 ---
 
 # KB Doc Writer
 
-基于知识库（Knowledge Base）为项目编写或更新技术文档。通过查询真实代码定义，杜绝文档中的臆造引用。
+基于知识库为项目编写或更新技术文档。通过查询真实代码定义，杜绝文档中的臆造引用。
+
+**完整 Shell 命令参考**: 详见 `kb-shell-commands.md`（与本 SKILL.md 同目录）。
 
 ## 环境适配
 

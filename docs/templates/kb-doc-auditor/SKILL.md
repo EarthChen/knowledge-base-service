@@ -1,11 +1,13 @@
 ---
 name: kb-doc-auditor
-description: 审计项目文档的准确性，通过知识库验证文档中的代码引用是否与真实代码一致。支持 MCP 和 Python 脚本双模式，自动检测 MCP 可用性。
+description: Use when auditing project documentation accuracy after code changes, refactoring, or before releases. Verifies code references in docs against the knowledge base. Supports MCP and shell script dual-mode with auto-detection.
 ---
 
 # KB Doc Auditor
 
-通过知识库验证项目文档中所有代码引用的准确性，生成审计报告。适用于定期检查或大规模代码变更后的文档健康度评估。
+通过知识库验证项目文档中所有代码引用的准确性，生成审计报告。
+
+**完整 Shell 命令参考**: 详见 `kb-shell-commands.md`（与本 SKILL.md 同目录）。
 
 ## 环境适配
 

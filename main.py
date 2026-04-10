@@ -104,6 +104,19 @@ class HybridSearchRequest(BaseModel):
     expand_depth: int = Field(default=2, ge=1, le=5)
 
 
+class DeepSearchRequest(BaseModel):
+    query: str
+    max_iterations: int = Field(default=3, ge=1, le=5)
+    include_code: bool = True
+
+
+class BusinessSearchRequest(BaseModel):
+    query: str
+    search_type: str = Field(default="all", pattern="^(flow|concept|all)$")
+    k: int = Field(default=5, ge=1, le=20)
+    include_code: bool = True
+
+
 class IndexRequest(BaseModel):
     directory: str
     mode: str = Field(default="full", pattern="^(full|incremental)$")
@@ -231,6 +244,42 @@ async def hybrid_search(
         "total": result.total,
         "query": result.query_text,
     }
+
+
+@viewer_router.post("/deep-search")
+async def deep_search(
+    req: DeepSearchRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    if not svc.deep_search:
+        raise HTTPException(
+            status_code=501,
+            detail="LLM not configured, deep search unavailable",
+        )
+    return await svc.deep_search.search(
+        req.query,
+        max_iterations=req.max_iterations,
+        include_code=req.include_code,
+    )
+
+
+@viewer_router.post("/business/search")
+async def business_search(
+    req: BusinessSearchRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    results: dict[str, Any] = {}
+    if req.search_type in ("flow", "all"):
+        flow_result = await svc.semantic_query.search_business_flows(
+            req.query, req.k
+        )
+        results["flows"] = flow_result.matches
+    if req.search_type in ("concept", "all"):
+        concept_result = await svc.semantic_query.search_business_concepts(
+            req.query, req.k
+        )
+        results["concepts"] = concept_result.matches
+    return {"status": "success", "results": results}
 
 
 @viewer_router.get("/index/tasks")

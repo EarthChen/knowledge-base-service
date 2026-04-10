@@ -98,6 +98,16 @@ class KnowledgeBaseService:
             embedding_gen=self._embedding,
         )
 
+        self._deep_search = None
+        if settings.llm.enabled and self._llm_provider is not None:
+            from query.deep_search import DeepSearchEngine
+
+            self._deep_search = DeepSearchEngine(
+                llm=self._llm_provider,
+                hybrid_svc=self._hybrid_query,
+                graph_svc=self._graph_query,
+            )
+
     async def start(self) -> None:
         log.info("knowledge_base_starting")
         await self._store.connect()
@@ -139,6 +149,10 @@ class KnowledgeBaseService:
     @property
     def mcp_handler(self) -> KnowledgeBaseMCPHandler:
         return self._mcp_handler
+
+    @property
+    def deep_search(self):
+        return self._deep_search
 
     async def index_directory(self, directory: str) -> dict[str, int]:
         """Full index of code + docs in a directory (streaming per-file)."""

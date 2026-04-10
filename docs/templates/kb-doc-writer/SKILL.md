@@ -160,6 +160,29 @@ rag_graph(query_type="call_chain", name="com.example.order.OrderService#saveOrde
 python3 scripts/kb_query.py graph call_chain --name "com.example.order.OrderService#saveOrder" --depth 2 --direction upstream
 ```
 
+### Step 3b: 获取业务流程上下文
+
+查询与当前文档主题相关的业务流程和业务概念：
+
+**MCP:**
+```
+rag_business_search(query="<业务关键词>", search_type="all", k=5, include_code=true)
+rag_graph(query_type="business_flow", name="<流程名>")
+rag_graph(query_type="related_concepts", name="<实体名>")
+```
+
+**Shell:**
+```bash
+python3 scripts/kb_query.py business-search "<业务关键词>" --search-type all --k 5
+python3 scripts/kb_query.py graph business_flow --name "<流程名>"
+python3 scripts/kb_query.py graph related_concepts --name "<实体名>"
+```
+
+利用业务流程信息：
+- 在架构文档中引用业务流程图
+- 确保文档中的业务术语与知识库中的 BusinessConcept 一致
+- 在流程文档中关联代码实现位置
+
 ### Step 4: 搜索已有文档
 
 避免重复编写，检查是否已有相关文档：

@@ -15,6 +15,11 @@ Usage:
   kb_query.py index /path/to/repo                            # Incremental index
   kb_query.py index /path/to/repo --mode full                # Full index
   kb_query.py repos                                          # List indexed repos
+  kb_query.py business-search "用户下单流程"                   # Business flow search
+  kb_query.py business-search "私信" --search-type concept    # Business concept search
+  kb_query.py deep-search "支付回调失败影响哪些业务"            # LLM deep search
+  kb_query.py graph business_flow --name "用户下单"           # Business flow graph query
+  kb_query.py graph flows_for_function --name "handlePayment" # Find flows for function
 
 Configuration (loaded in priority order):
   1. Project .env file  (./. env or parent directories up to git root)
@@ -30,10 +35,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 
 def _load_dotenv() -> None:
@@ -130,6 +135,52 @@ def cmd_search(args: argparse.Namespace) -> None:
         _print_json(result)
 
 
+def cmd_business_search(args: argparse.Namespace) -> None:
+    body = {"query": args.query, "search_type": args.search_type, "k": args.k, "include_code": args.include_code}
+    result = _api("POST", "business/search", body)
+
+    if args.brief:
+        results = result.get("results", {})
+        flows = results.get("flows", [])
+        concepts = results.get("concepts", [])
+        print(f"Business search for '{args.query}':")
+        if flows:
+            print(f"  Flows ({len(flows)}):")
+            for f in flows:
+                print(f"    - {f.get('name', '?')}: {f.get('description', '')[:80]}")
+                for loc in f.get("code_locations", []):
+                    if isinstance(loc, dict):
+                        print(f"      └── {loc.get('name', '?')} ({loc.get('file', '?')})")
+        if concepts:
+            print(f"  Concepts ({len(concepts)}):")
+            for c in concepts:
+                print(f"    - {c.get('name', '?')}: {c.get('description', '')[:80]}")
+    else:
+        _print_json(result)
+
+
+def cmd_deep_search(args: argparse.Namespace) -> None:
+    body = {"query": args.query, "max_iterations": args.max_iterations, "include_code": args.include_code}
+    result = _api("POST", "deep-search", body)
+
+    if args.brief:
+        analysis = result.get("analysis", "")
+        flows = result.get("business_flows", [])
+        code_locs = result.get("code_locations", [])
+        print(f"Deep search: '{args.query}'")
+        print(f"\nAnalysis:\n{analysis}")
+        if flows:
+            print(f"\nBusiness flows ({len(flows)}):")
+            for f in flows:
+                print(f"  - {f.get('name', '?')}: {f.get('impact', '')}")
+        if code_locs:
+            print(f"\nCode locations ({len(code_locs)}):")
+            for loc in code_locs:
+                print(f"  - {loc.get('function', '?')} ({loc.get('file', '?')})")
+    else:
+        _print_json(result)
+
+
 def cmd_graph(args: argparse.Namespace) -> None:
     qt = args.graph_type
 
@@ -156,6 +207,16 @@ def cmd_graph(args: argparse.Namespace) -> None:
         })
     elif qt == "module_deps":
         result = _api("POST", "graph", {"query_type": "module_dependencies", "name": args.name})
+    elif qt == "business_flow":
+        result = _api("POST", "graph", {"query_type": "business_flow", "name": args.name, "depth": args.depth})
+    elif qt == "flows_for_function":
+        result = _api("POST", "graph", {"query_type": "flows_for_function", "name": args.name})
+    elif qt == "related_concepts":
+        result = _api("POST", "graph", {"query_type": "related_concepts", "name": args.name})
+    elif qt == "explore_domain":
+        result = _api("POST", "graph", {"query_type": "explore_domain", "name": args.name})
+    elif qt == "flow_dependencies":
+        result = _api("POST", "graph", {"query_type": "flow_dependencies", "name": args.name})
     else:
         print(f"Error: Unknown graph type '{qt}'", file=sys.stderr)
         sys.exit(1)
@@ -237,6 +298,8 @@ def main() -> None:
     p_graph.add_argument("graph_type", choices=[
         "stats", "call_chain", "class_methods", "inheritance_tree",
         "file_entities", "find_entity", "module_deps",
+        "business_flow", "flows_for_function", "related_concepts",
+        "explore_domain", "flow_dependencies",
     ])
     p_graph.add_argument("--name", default="", help="Entity name")
     p_graph.add_argument("--file", default="", help="File path (for file_entities)")
@@ -261,6 +324,21 @@ def main() -> None:
     # repos
     p_repos = sub.add_parser("repos", help="List indexed repositories")
     p_repos.set_defaults(func=cmd_repos)
+
+    # business-search
+    p_biz = sub.add_parser("business-search", help="Business flow and concept search")
+    p_biz.add_argument("query", help="Business query (natural language)")
+    p_biz.add_argument("--search-type", default="all", choices=["flow", "concept", "all"])
+    p_biz.add_argument("--k", type=int, default=5)
+    p_biz.add_argument("--include-code", action="store_true", default=True)
+    p_biz.set_defaults(func=cmd_business_search)
+
+    # deep-search
+    p_deep = sub.add_parser("deep-search", help="LLM-enhanced deep search (Dashboard)")
+    p_deep.add_argument("query", help="Search query (natural language)")
+    p_deep.add_argument("--max-iterations", type=int, default=3)
+    p_deep.add_argument("--include-code", action="store_true", default=True)
+    p_deep.set_defaults(func=cmd_deep_search)
 
     args = parser.parse_args()
     args.func(args)

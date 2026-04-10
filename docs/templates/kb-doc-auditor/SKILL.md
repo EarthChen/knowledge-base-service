@@ -210,6 +210,20 @@ rag_graph(query_type="find_entity", name="AuthService", entity_type="any")
 python3 scripts/kb_query.py --brief graph find_entity --name "AuthService"
 ```
 
+**3d. 业务流程验证（文档引用业务流程时）：**
+
+**MCP:**
+```
+rag_business_search(query="用户下单", search_type="flow", k=3, include_code=true)
+rag_graph(query_type="business_flow", name="用户下单")
+```
+
+**Shell:**
+```bash
+python3 scripts/kb_query.py business-search "用户下单" --search-type flow --k 3
+python3 scripts/kb_query.py graph business_flow --name "用户下单"
+```
+
 ### Step 4: 标记结果
 
 对每个代码引用标记验证结果：

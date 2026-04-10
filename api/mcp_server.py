@@ -314,7 +314,9 @@ class KnowledgeBaseMCPHandler:
         return {"error": f"Unknown query_type: {query_type}"}
 
     async def handle_rag_business_search(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        query = arguments["query"]
+        query = arguments.get("query", "")
+        if not query:
+            return {"error": "query parameter is required"}
         search_type = arguments.get("search_type", "all")
         k = arguments.get("k", 5)
         include_code = arguments.get("include_code", True)

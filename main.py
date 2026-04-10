@@ -279,6 +279,14 @@ async def business_search(
             req.query, req.k
         )
         results["concepts"] = concept_result.matches
+
+    if req.include_code:
+        for flow in results.get("flows", []):
+            flow_name = flow.get("name", "")
+            if flow_name:
+                code_result = await svc.graph_query.find_business_flow(flow_name, k=5)
+                flow["code_locations"] = code_result.data
+
     return {"status": "success", "results": results}
 
 

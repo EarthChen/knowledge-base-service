@@ -234,7 +234,7 @@ class HybridQueryService:
                             "related_function": name,
                         })
             except Exception:
-                pass
+                log.warning("business_flow_lookup_failed", function=name, exc_info=True)
 
         return self._deduplicate(graph_context)
 

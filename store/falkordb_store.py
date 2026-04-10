@@ -151,10 +151,20 @@ class FalkorDBStore:
             None, lambda: self._graph.query(query, params={"uid": uid})  # type: ignore[union-attr]
         )
 
+    _ALLOWED_PROPERTIES = frozenset({
+        "business_summary", "description", "embedding", "fqn",
+        "confidence_score", "category", "source", "aliases",
+    })
+
     async def update_node_property(
         self, label: NodeLabel, uid: str, prop: str, value: object
     ) -> None:
-        """Update a single property on an existing node."""
+        """Update a single property on an existing node.
+
+        Only properties in _ALLOWED_PROPERTIES can be set to prevent Cypher injection.
+        """
+        if prop not in self._ALLOWED_PROPERTIES:
+            raise ValueError(f"Property '{prop}' is not in the allowed whitelist")
         loop = asyncio.get_running_loop()
         query = f"MATCH (n:{label} {{uid: $uid}}) SET n.{prop} = $value"
         await loop.run_in_executor(

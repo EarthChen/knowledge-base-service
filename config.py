@@ -76,6 +76,16 @@ class LLMConfig(BaseModel):
     temperature: float = 0.1
 
 
+class RerankConfig(BaseModel):
+    """Configuration for cross-encoder reranking."""
+
+    enabled: bool = False
+    model_name: str = "BAAI/bge-reranker-v2-m3"
+    device: str = "auto"
+    batch_size: int = 32
+    top_n: int = 30
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -93,6 +103,7 @@ class Settings(BaseSettings):
     falkordb: FalkorDBConfig = Field(default_factory=FalkorDBConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    rerank: RerankConfig = Field(default_factory=RerankConfig)
 
     supported_languages: list[str] = Field(
         default_factory=lambda: ["python", "java", "go", "javascript", "typescript"]

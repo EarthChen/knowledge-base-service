@@ -17,11 +17,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from log import get_logger
-
-from store.falkordb_store import FalkorDBStore
-from store.schema import NodeLabel
 from query.graph_query import GraphQueryService
 from query.semantic_query import SemanticQueryService
+from store.falkordb_store import FalkorDBStore
+from store.schema import NodeLabel
 
 log = get_logger(__name__)
 
@@ -74,10 +73,12 @@ class HybridQueryService:
         store: FalkorDBStore,
         semantic_svc: SemanticQueryService,
         graph_svc: GraphQueryService,
+        reranker=None,
     ) -> None:
         self._store = store
         self._semantic = semantic_svc
         self._graph = graph_svc
+        self._reranker = reranker
 
     async def search_with_context(
         self,
@@ -104,7 +105,14 @@ class HybridQueryService:
 
         keyword_hits, semantic_result = await asyncio.gather(keyword_coro, semantic_coro)
 
-        merged = self._fuse_results(keyword_hits, semantic_result.matches, k)
+        merged = self._fuse_results(
+            keyword_hits, semantic_result.matches, k * 3 if self._reranker else k
+        )
+
+        if self._reranker:
+            merged = self._reranker.rerank(query_text, merged, top_k=k)
+        else:
+            merged = merged[:k]
 
         graph_context = await self._expand_graph(merged, expand_depth, include_callers, include_callees)
 
@@ -210,6 +218,23 @@ class HybridQueryService:
                     item["relationship"] = "subclass_of"
                     item["source"] = name
                     graph_context.append(item)
+
+        for match in matches:
+            name = match.get("name", "")
+            if not name:
+                continue
+            try:
+                flows_result = await self._graph.find_flows_for_function(name)
+                if flows_result.data:
+                    for row in flows_result.data:
+                        graph_context.append({
+                            "type": "business_flow",
+                            "source": "flow_association",
+                            "data": row,
+                            "related_function": name,
+                        })
+            except Exception:
+                pass
 
         return self._deduplicate(graph_context)
 

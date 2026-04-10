@@ -16,6 +16,7 @@ from indexer.tree_sitter_parser import TreeSitterParser
 from log import get_logger
 from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
+from query.reranker import Reranker
 from query.semantic_query import SemanticQueryService
 from store.falkordb_store import FalkorDBStore
 
@@ -79,10 +80,13 @@ class KnowledgeBaseService:
             store=self._store,
             embedding_gen=self._embedding,
         )
+        self._reranker = Reranker(settings.rerank) if settings.rerank.enabled else None
+
         self._hybrid_query = HybridQueryService(
             store=self._store,
             semantic_svc=self._semantic_query,
             graph_svc=self._graph_query,
+            reranker=self._reranker,
         )
 
         self._mcp_handler = KnowledgeBaseMCPHandler(

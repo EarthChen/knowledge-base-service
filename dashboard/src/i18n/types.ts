@@ -60,6 +60,26 @@ export interface Translations {
     line: string;
     viewCode: string;
     hideCode: string;
+    deep: string;
+    business: string;
+    deepPlaceholder: string;
+    businessPlaceholder: string;
+    maxIterations: string;
+    searchType: string;
+    flow: string;
+    concept: string;
+    includeCode: string;
+    analysis: string;
+    businessFlows: string;
+    codeLocations: string;
+    llmRequired: string;
+    flowResults: string;
+    conceptResults: string;
+    confidence: string;
+    category: string;
+    aliases: string;
+    noAnalysis: string;
+    deepSearching: string;
   };
   graph: {
     title: string;

@@ -15,6 +15,8 @@ import type {
   CodeSnippetResponse,
   DocumentsResponse,
   DocumentDetail,
+  DeepSearchResponse,
+  BusinessSearchResponse,
 } from "./types";
 
 export function useHealth() {
@@ -59,6 +61,28 @@ export function useHybridSearch() {
   >({
     mutationFn: (body) =>
       api("/hybrid", { method: "POST", body: JSON.stringify(body) }),
+  });
+}
+
+export function useDeepSearch() {
+  return useMutation<
+    DeepSearchResponse,
+    Error,
+    { query: string; max_iterations: number; include_code: boolean }
+  >({
+    mutationFn: (body) =>
+      api("/deep-search", { method: "POST", body: JSON.stringify(body) }),
+  });
+}
+
+export function useBusinessSearch() {
+  return useMutation<
+    BusinessSearchResponse,
+    Error,
+    { query: string; search_type: string; k: number; include_code: boolean }
+  >({
+    mutationFn: (body) =>
+      api("/business/search", { method: "POST", body: JSON.stringify(body) }),
   });
 }
 

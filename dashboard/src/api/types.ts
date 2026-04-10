@@ -160,3 +160,48 @@ export interface DocumentDetail {
   repository: string;
   sections: DocumentSection[];
 }
+
+export interface BusinessFlowMatch {
+  name: string;
+  description: string;
+  category?: string;
+  confidence_score?: number;
+  score: number;
+  code_locations?: Array<{
+    name: string;
+    file: string;
+    line?: number;
+    type?: string;
+  }>;
+}
+
+export interface BusinessConceptMatch {
+  name: string;
+  description: string;
+  aliases?: string[];
+  category?: string;
+  score: number;
+}
+
+export interface BusinessSearchResponse {
+  flows?: BusinessFlowMatch[];
+  concepts?: BusinessConceptMatch[];
+}
+
+export interface DeepSearchResponse {
+  analysis?: string;
+  business_flows?: Array<{
+    name: string;
+    impact?: string;
+    [key: string]: unknown;
+  }>;
+  code_locations?: Array<{
+    function?: string;
+    file?: string;
+    relevance?: string;
+    [key: string]: unknown;
+  }>;
+  sufficient?: boolean;
+  error?: boolean;
+  [key: string]: unknown;
+}

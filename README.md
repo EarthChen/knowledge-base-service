@@ -97,7 +97,7 @@ uv run pytest
 
 - **概览** — 节点/边统计 + 分布图表
 - **搜索** — 语义搜索 + 混合搜索（向量 + 图扩展）
-- **图查询** — 9种查询类型的动态表单
+- **图查询** — 多种查询类型（含代码结构类与业务流程类）的动态表单
 - **仓库管理** — 已索引仓库列表 + 删除操作
 - **索引** — 触发全量/增量索引
 - **设置** — 语言切换、API Token、服务信息
@@ -471,7 +471,23 @@ curl http://localhost:8100/api/v1/code/<node_uid>
 
 > **提示**: 搜索结果中的 `uid` 字段即为节点 UID，可直接拼接到此 API 路径中。
 
-### 10. 查看图统计信息
+### 10. 业务语义搜索与深度检索
+
+在基础语义搜索之上，服务可选启用 **LLM 索引管线** 与 **Cross-encoder 重排序**，形成面向业务语言的检索能力：
+
+| 能力 | 说明 |
+|------|------|
+| **代码 / 模块语义** | LLM 为 Function / Class 生成 `business_summary`；Module 可带描述与向量，嵌入检索更贴近「做什么」而非仅符号名 |
+| **业务图谱** | 从调用链与文档推断 `BusinessFlow`、`BusinessConcept` 节点，以及 `IMPLEMENTS`、`RELATES_TO`、`PART_OF`、`CONCEPT_IN` 等边 |
+| **六类向量检索** | 除 Function / Class / Document 外，增加 BusinessFlow、BusinessConcept、Module 的向量索引（与 bge-m3 维度一致） |
+| **重排序** | 可选启用 `BAAI/bge-reranker-v2-m3`，在混合检索融合后对候选结果精排 |
+| **Dashboard 深度搜索** | `POST /api/v1/deep-search` 在服务端用 LLM 拆解查询、多轮调用混合搜索与图查询并汇总（需配置 LLM；未配置时返回 501） |
+
+面向 HTTP / Agent 的业务语义查询还可使用 **`POST /api/v1/business/search`**：按 `search_type`（`flow` / `concept` / `all`）检索业务流程与业务概念，行为与 MCP 工具 `rag_business_search` 一致。
+
+MCP 侧：`rag_graph` 增加业务流程相关 `query_type`；新增 **`rag_business_search`** 专查流程与概念。详见 [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md)。
+
+### 11. 查看图统计信息
 
 ```bash
 curl http://localhost:8100/api/v1/stats
@@ -594,6 +610,11 @@ Agent 查询代码结构关系：
 - `file_entities` — 文件内实体
 - `graph_stats` — 图统计
 - `raw_cypher` — 自定义 Cypher
+- `business_flow`、`flows_for_function`、`related_concepts`、`explore_domain`、`flow_dependencies` — 业务流程 / 概念图查询（见 [MCP 文档](docs/MCP-INTEGRATION.md)）
+
+#### `rag_business_search` — 业务流程与概念搜索
+
+语义检索 `BusinessFlow` / `BusinessConcept`，可选返回关联代码位置。
 
 #### `rag_index` — 触发索引
 
@@ -773,6 +794,28 @@ Agent 可通过 MCP 协议直接调用工具：
 | `EMBEDDING__QUERY_PREFIX` | 查询指令前缀（bge-m3 不需要） | `` |
 | `EMBEDDING__TRUST_REMOTE_CODE` | 允许加载远程模型代码 | `true` |
 
+### LLM（OpenAI 兼容协议，可选）
+
+用于索引阶段摘要 / 流程推断 / 概念提取，以及 Dashboard `deep-search`。`base_url` 可指向 OpenAI 或 **acp-gateway** 等兼容网关。
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `LLM__ENABLED` | 是否启用 LLM 能力 | `false` |
+| `LLM__BASE_URL` | API 根路径（如 `https://api.openai.com/v1`） | `https://api.openai.com/v1` |
+| `LLM__API_KEY` | API Key | （空） |
+| `LLM__MODEL` | 索引 enrichment 等使用的模型 | `gpt-4o-mini` |
+
+其他字段见 `config.py` 中 `LLMConfig`（如 `LLM__DEEP_SEARCH_MODEL`、`LLM__MAX_CONCURRENT`、`LLM__TIMEOUT` 等）。
+
+### Cross-encoder 重排序（可选）
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `RERANK__ENABLED` | 是否启用混合检索后的精排 | `false` |
+| `RERANK__MODEL_NAME` | 交叉编码器模型 | `BAAI/bge-reranker-v2-m3` |
+
+其余见 `RerankConfig`（`RERANK__DEVICE`、`RERANK__BATCH_SIZE`、`RERANK__TOP_N` 等）。
+
 ---
 
 ## 支持语言
@@ -797,6 +840,10 @@ Agent 可通过 MCP 协议直接调用工具：
 | `Class` | name, file, start_line, end_line, docstring, language, base_classes, fqn, embedding | 类定义 |
 | `Module` | name, path, language | 源文件/模块 |
 | `Document` | name, file, title, content, content_hash, section, embedding | 文档（Markdown/RST 章节） |
+| `BusinessFlow` | name, description, category, source, embedding, … | 业务流程（可由调用链推断或文档补充） |
+| `BusinessConcept` | name, description, aliases, category, embedding, … | 业务概念 / 领域术语 |
+
+Function / Class 可含 **`business_summary`**（LLM 生成的业务描述）；Module 可含 **`description`** 与 **`embedding`**。
 
 ### 边类型
 
@@ -808,6 +855,10 @@ Agent 可通过 MCP 协议直接调用工具：
 | `CONTAINS` | 父 → 子 | 类→方法、模块→函数、文档→章节 |
 | `USES_TYPE` | 函数 → 类型 | 类型引用（保留） |
 | `REFERENCES` | 文档 → 代码实体 | 文档对代码的引用 |
+| `IMPLEMENTS` | BusinessFlow → Function/Class | 流程由哪些代码实现 |
+| `RELATES_TO` | BusinessConcept → Function/Class/Module/Document | 概念与实现或文档的相关性 |
+| `PART_OF` | BusinessFlow → BusinessFlow | 子流程层级 |
+| `CONCEPT_IN` | BusinessConcept → BusinessFlow | 概念归属某流程 |
 
 ### UID 格式
 
@@ -816,7 +867,7 @@ Agent 可通过 MCP 协议直接调用工具：
 ### 索引
 
 - 每种节点标签的 `uid`、`name`、`fqn` 属性上建立标量索引
-- Function、Class、Document 的 `embedding` 属性上建立向量索引（余弦相似度）
+- **六类**节点在 `embedding` 上建立向量索引（余弦相似度）：Function、Class、Document、**BusinessFlow**、**BusinessConcept**、**Module**
 
 ---
 
@@ -885,7 +936,9 @@ Agent 可通过 MCP 协议直接调用工具：
 |------|------|------|
 | POST | `/api/v1/search` | 语义搜索 |
 | POST | `/api/v1/graph` | 图查询 |
-| POST | `/api/v1/hybrid` | 混合搜索 |
+| POST | `/api/v1/hybrid` | 混合搜索（可选 rerank；图扩展中可含业务流程关联） |
+| POST | `/api/v1/business/search` | 业务流程 / 业务概念语义搜索（`search_type`: flow / concept / all） |
+| POST | `/api/v1/deep-search` | Dashboard 用 LLM 增强深度搜索（需 `LLM__ENABLED`；否则 501） |
 
 #### POST /api/v1/search — 语义搜索
 
@@ -939,6 +992,47 @@ Agent 可通过 MCP 协议直接调用工具：
 | `file_entities` | 文件内所有实体 | `file` |
 | `graph_stats` | 图统计信息 | 无 |
 | `raw_cypher` | 原始 Cypher 查询 | `cypher` |
+| `business_flow` | 业务流程及其实现代码 | `name` |
+| `flows_for_function` | 函数所属业务流程 | `name`（函数名） |
+| `related_concepts` | 相关概念 | `name`（实体名） |
+| `explore_domain` | 按分类浏览流程 | `name`（领域 `category`） |
+| `flow_dependencies` | 流程层级依赖 | `name`（流程名） |
+
+#### POST /api/v1/business/search — 业务语义搜索
+
+```json
+{
+  "query": "下单与支付",
+  "search_type": "all",
+  "k": 5
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `query` | string | 是 | 自然语言查询 |
+| `search_type` | string | 否 | `flow`、`concept` 或 `all`（默认） |
+| `k` | int | 否 | 每类返回条数上限 |
+
+**响应**：`status`、`results.flows`、`results.concepts`（语义命中列表）。若需为流程补充关联代码位置，请使用 MCP 工具 `rag_business_search`（`include_code: true`）。
+
+#### POST /api/v1/deep-search — LLM 深度搜索
+
+```json
+{
+  "query": "支付失败时可能影响哪些业务流程？",
+  "max_iterations": 3,
+  "include_code": true
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `query` | string | 是 | 自然语言问题 |
+| `max_iterations` | int | 否 | 多轮检索上限（默认 3，最大 5） |
+| `include_code` | bool | 否 | 是否在分析中包含代码位置信息 |
+
+**响应（节选）**：`analysis`、`business_flows`、`code_locations`、`search_trace`。需启用 LLM。
 
 #### POST /api/v1/hybrid — 混合搜索
 
@@ -1014,7 +1108,12 @@ knowledge-base-service/
 │   ├── code_graph_builder.py   # AST → 属性图节点/边
 │   ├── embedding_generator.py  # sentence-transformers 向量嵌入
 │   ├── incremental_indexer.py  # 全量 & 增量索引
-│   └── doc_indexer.py          # Markdown/RST 文档解析器
+│   ├── doc_indexer.py          # Markdown/RST 文档解析器
+│   ├── enrichment.py           # LLM 代码摘要 enrichment
+│   ├── business_flow_inferencer.py  # 业务流程推断
+│   └── concept_extractor.py    # 文档概念提取
+├── llm/
+│   └── provider.py             # OpenAI 兼容 LLM 客户端（可接 acp-gateway）
 ├── store/
 │   ├── schema.py               # 节点/边类型定义
 │   ├── falkordb_store.py       # FalkorDB 异步封装（Cypher + 向量）
@@ -1022,7 +1121,9 @@ knowledge-base-service/
 ├── query/
 │   ├── graph_query.py          # Cypher 图遍历查询
 │   ├── semantic_query.py       # 向量相似度搜索
-│   └── hybrid_query.py         # 语义 + 图扩展
+│   ├── hybrid_query.py         # 语义 + 图扩展
+│   ├── reranker.py             # Cross-encoder 重排序
+│   └── deep_search.py          # Dashboard LLM 深度搜索编排
 ├── api/
 │   └── mcp_server.py           # MCP 工具定义 & 处理器
 ├── dashboard/                  # React Dashboard 源码

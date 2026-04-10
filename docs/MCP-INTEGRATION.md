@@ -99,6 +99,11 @@ graph LR
 | `file_entities` | 列出文件内所有实体 | `file` |
 | `graph_stats` | 图统计信息 | 无 |
 | `raw_cypher` | 自定义 Cypher 查询 | `cypher` |
+| `business_flow` | 按名称检索业务流程及其实现代码（`IMPLEMENTS`） | `name`（流程名关键词）；`depth` 可作返回条数上限 |
+| `flows_for_function` | 某函数所属的业务流程（反向查询） | `name`（函数名） |
+| `related_concepts` | 与某实体相关的业务概念 | `name`（实体名） |
+| `explore_domain` | 按业务领域分类浏览流程 | `name`（`category` 分类名） |
+| `flow_dependencies` | 流程层级 / 子流程关系（`PART_OF`） | `name`（流程名） |
 
 **调用示例:**
 
@@ -114,7 +119,36 @@ graph LR
 }
 ```
 
-### 3. `rag_index` — 触发索引
+### 3. `rag_business_search` — 业务流程 / 概念语义搜索
+
+面向**业务语义**的专用检索：在已索引的 `BusinessFlow`、`BusinessConcept` 节点上做向量检索，可选附带关联代码位置。适合「用户下单」「私信」等业务语言查询。
+
+**参数:**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `query` | string | 是 | — | 自然语言业务查询 |
+| `search_type` | string | 否 | all | `flow`（仅流程）、`concept`（仅概念）、`all` |
+| `k` | integer | 否 | 5 | 每类返回条数 |
+| `include_code` | boolean | 否 | true | 是否为命中的流程补充 `code_locations`（图查询） |
+
+**调用示例:**
+
+```json
+{
+  "tool_name": "rag_business_search",
+  "arguments": {
+    "query": "用户下单与支付",
+    "search_type": "all",
+    "k": 5,
+    "include_code": true
+  }
+}
+```
+
+**返回结构（节选）:** `status`、`results.flows`、`results.concepts`；当 `include_code` 为 true 时，流程项中可含 `code_locations`。
+
+### 4. `rag_index` — 触发索引
 
 触发代码仓库的全量或增量索引。
 
@@ -264,6 +298,7 @@ API_TOKEN=your-secret-token
 |------|----------|------|
 | `rag_query` | editor | 执行 MCP 工具调用需要 editor 权限 |
 | `rag_graph` | editor | 同上 |
+| `rag_business_search` | editor | 同上 |
 | `rag_index` | editor | 同上 |
 | 工具列表 (`GET /mcp/tools`) | viewer | 查看可用工具只需 viewer |
 

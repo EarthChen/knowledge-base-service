@@ -4,7 +4,9 @@
 
 ## 概述
 
-知识库服务提供基于代码图与向量检索的 **RAG 查询能力**（如 `rag_query`、`rag_graph`），将多仓库源码与文档索引为可检索的知识图谱。业务侧接入后，可在 Cursor Agent 中优先使用真实定义与调用关系，**减少臆造 API、降低跨服务协作中的理解偏差**。
+知识库服务提供基于代码图与向量检索的 **RAG 查询能力**（如 `rag_query`、`rag_graph`、`rag_business_search`），将多仓库源码与文档索引为可检索的知识图谱。业务侧接入后，可在 Cursor Agent 中优先使用真实定义与调用关系，**减少臆造 API、降低跨服务协作中的理解偏差**。
+
+启用 **LLM 与业务语义索引** 后（运维在服务端配置，见下文），索引管线可为代码生成业务摘要、推断业务流程节点（`BusinessFlow`）、从文档提取业务概念（`BusinessConcept`），检索侧支持六类向量与可选 Cross-encoder 重排序；Agent 通过 **`rag_graph`** 的新增 `query_type`（如 `business_flow`、`flows_for_function`）与 **`rag_business_search`** 查询业务语义，**无需**在业务仓库侧单独部署 LLM。
 
 ## 前置条件
 
@@ -13,6 +15,15 @@
 | **KB 服务地址** | 默认 `http://localhost:8100`；生产/联调环境以运维或平台提供的地址为准。 |
 | **访问令牌** | 需向**管理员**申请 API Token，并确认角色为 **editor**（可触发索引等写操作）或 **viewer**（只读查询）。 |
 | **仓库已纳入索引** | 在浏览器打开 KB 的 **`/dashboard`** 查看仓库列表，或调用 `GET /api/v1/repositories` 确认你的业务仓库已在列表中且状态正常。 |
+
+### 服务端可选能力（业务开发者只需了解）
+
+| 配置 | 作用 |
+|------|------|
+| `LLM__ENABLED` / `LLM__BASE_URL` / `LLM__API_KEY` / `LLM__MODEL` | 开启后：索引阶段可写入 `business_summary`、业务流程 / 概念节点；Dashboard 可使用 `POST /api/v1/deep-search`。 |
+| `RERANK__ENABLED` / `RERANK__MODEL_NAME` | 开启后：混合检索结果经 `BAAI/bge-reranker-v2-m3` 精排（CPU/GPU 由服务端决定）。 |
+
+详细变量说明见 [README.md § 配置](../README.md#配置)。完整设计见 [语义搜索增强规格](./superpowers/specs/2026-04-10-semantic-search-enhancement-design.md)。
 
 更多架构与能力说明见 [README.md](../README.md)。
 
@@ -57,7 +68,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 **规则作用简述：**
 
-- **knowledge-base-coding.mdc**：在 Java/Python/Go/TS/JS 等代码文件中，要求 Agent 在跨服务调用、不确定 API 签名等场景下**优先通过 MCP 查询知识库**（`rag_query` / `rag_graph`），并给出查询策略与降级说明。  
+- **knowledge-base-coding.mdc**：在 Java/Python/Go/TS/JS 等代码文件中，要求 Agent 在跨服务调用、不确定 API 签名等场景下**优先通过 MCP 查询知识库**（`rag_query` / `rag_graph` / 业务语义时 `rag_business_search`），并给出查询策略与降级说明。  
 - **knowledge-base-docs.mdc**：在 Markdown/RST 文档中，要求编写前检索已有文档与真实代码引用，维护文档与代码一致性，并在适当时机触发增量索引相关指引。
 
 ---
@@ -66,7 +77,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 1. 在 Cursor 中打开业务仓库中的任意代码文件。  
 2. 对 Agent 提出一个需要**跨服务/跨模块**真实信息的问题，例如：「请查询某某服务对外暴露的接口定义及调用方」。  
-3. 确认 Agent **调用了 MCP 工具链中的 `rag_query`（或按集成文档所示的等价查询工具）**，且返回内容来自知识库（含类名、路径、片段等），而非纯推测。  
+3. 确认 Agent **调用了 MCP 工具链中的 `rag_query` 或 `rag_business_search`（或按 [MCP-INTEGRATION.md](./MCP-INTEGRATION.md) 的等价工具）**，且返回内容来自知识库（含类名、路径、片段等），而非纯推测。  
 
 若始终无 MCP 调用，请检查 `.cursor/mcp.json`、Cursor MCP 是否已启用，以及 Token 与网络是否可达（详见 [MCP-INTEGRATION.md](./MCP-INTEGRATION.md)）。
 
@@ -93,6 +104,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 | 2 | **关键词** | 已知模块、配置项、错误码等短词 |
 | 3 | **语义/自然语言** | 只有功能描述，不确定符号名 |
 | 4 | **图查询（graph）** | 调用链、继承关系、上下游影响分析 |
+| 5 | **业务语义（business）** | 流程 / 领域概念：`rag_business_search` 或 `rag_graph` 的 `business_flow` 等 |
 
 ### 常用 Prompt 示例
 

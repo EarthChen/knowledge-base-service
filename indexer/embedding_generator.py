@@ -28,14 +28,22 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
-def _format_code_text(name: str, signature: str, docstring: str, code_snippet: str) -> str:
+def _format_code_text(
+    name: str,
+    signature: str,
+    docstring: str,
+    code_snippet: str,
+    business_summary: str = "",
+) -> str:
     """Build a concise textual representation for embedding."""
     parts = []
+    if business_summary:
+        parts.append(f"Business: {business_summary}")
     if name:
         parts.append(f"Name: {name}")
     if signature:
         parts.append(f"Signature: {signature}")
-    if docstring:
+    if docstring and not business_summary:
         parts.append(f"Description: {docstring[:500]}")
     if code_snippet:
         parts.append(f"Code: {code_snippet[:1000]}")
@@ -320,14 +328,14 @@ class _TorchBackend(_EmbeddingBackend):
 class EmbeddingGenerator:
     """Generates embeddings using a configurable backend (ONNX or PyTorch)."""
 
-    _shared_instance: "EmbeddingGenerator | None" = None
+    _shared_instance: EmbeddingGenerator | None = None
 
     def __init__(self, config: EmbeddingConfig) -> None:
         self._config = config
         self._backend: _EmbeddingBackend | None = None
 
     @classmethod
-    def shared(cls, config: EmbeddingConfig) -> "EmbeddingGenerator":
+    def shared(cls, config: EmbeddingConfig) -> EmbeddingGenerator:
         """Return a singleton instance to avoid loading the model multiple times."""
         if cls._shared_instance is None:
             cls._shared_instance = cls(config)
@@ -399,6 +407,7 @@ class EmbeddingGenerator:
                 item.get("signature", ""),
                 item.get("docstring", ""),
                 item.get("code_snippet", ""),
+                item.get("business_summary", ""),
             )
             for item in items
         ]

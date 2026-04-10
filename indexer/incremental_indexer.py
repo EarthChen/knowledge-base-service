@@ -12,13 +12,12 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
-from log import get_logger
-
-from store.falkordb_store import FalkorDBStore
-from store.schema import NodeLabel
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator
+from log import get_logger
+from store.falkordb_store import FalkorDBStore
+from store.schema import NodeLabel
 
 log = get_logger(__name__)
 
@@ -210,6 +209,7 @@ class IncrementalIndexer:
                 "signature": n.properties.get("signature", ""),
                 "docstring": n.properties.get("docstring", ""),
                 "code_snippet": n.properties.get("code_snippet", n.properties.get("content", "")),
+                "business_summary": n.properties.get("business_summary", ""),
             }
             for n in embeddable
         ]

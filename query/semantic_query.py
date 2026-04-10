@@ -6,12 +6,12 @@ and documentation sections based on natural language queries.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
-from log import get_logger
-
 from indexer.embedding_generator import EmbeddingGenerator
+from log import get_logger
 from store.falkordb_store import FalkorDBStore
 from store.schema import NodeLabel
 
@@ -44,13 +44,41 @@ class SemanticQueryService:
         """Find document sections semantically similar to the query."""
         return await self._search_by_label(query_text, NodeLabel.DOCUMENT, k)
 
+    async def search_business_flows(self, query_text: str, k: int = 10) -> SemanticResult:
+        return await self._search_by_label(query_text, NodeLabel.BUSINESS_FLOW, k)
+
+    async def search_business_concepts(self, query_text: str, k: int = 10) -> SemanticResult:
+        return await self._search_by_label(query_text, NodeLabel.BUSINESS_CONCEPT, k)
+
+    async def search_modules(self, query_text: str, k: int = 10) -> SemanticResult:
+        return await self._search_by_label(query_text, NodeLabel.MODULE, k)
+
     async def search_all(self, query_text: str, k: int = 10) -> SemanticResult:
         """Search across all entity types and merge results by score."""
-        func_results = await self._search_by_label(query_text, NodeLabel.FUNCTION, k)
-        class_results = await self._search_by_label(query_text, NodeLabel.CLASS, k)
-        doc_results = await self._search_by_label(query_text, NodeLabel.DOCUMENT, k)
+        (
+            func_results,
+            class_results,
+            doc_results,
+            flow_results,
+            concept_results,
+            module_results,
+        ) = await asyncio.gather(
+            self._search_by_label(query_text, NodeLabel.FUNCTION, k),
+            self._search_by_label(query_text, NodeLabel.CLASS, k),
+            self._search_by_label(query_text, NodeLabel.DOCUMENT, k),
+            self._search_by_label(query_text, NodeLabel.BUSINESS_FLOW, k),
+            self._search_by_label(query_text, NodeLabel.BUSINESS_CONCEPT, k),
+            self._search_by_label(query_text, NodeLabel.MODULE, k),
+        )
 
-        all_matches = func_results.matches + class_results.matches + doc_results.matches
+        all_matches = (
+            func_results.matches
+            + class_results.matches
+            + doc_results.matches
+            + flow_results.matches
+            + concept_results.matches
+            + module_results.matches
+        )
         all_matches.sort(key=lambda x: x.get("score", 0), reverse=True)
         top_matches = all_matches[:k]
 

@@ -1176,7 +1176,7 @@ knowledge-base-service/
 
 > **Rule vs Skill**：Rule 轻量常驻（每次 Agent 对话自动加载），Skill 按需激活（复杂多步骤工作流，手动触发）。两者互补。
 >
-> **双模式适配**：两个 Skill（kb-doc-writer、kb-doc-auditor）同时支持 MCP 工具调用和 Shell curl 命令。Agent 根据 Prompt 中是否包含 `[KNOWLEDGE BASE - SHELL QUERY TOOLS]` 段落自动选择调用方式，因此可在开发者 Cursor IDE（MCP）和 ACP Gateway Agent（Shell curl）两种环境下使用。
+> **双模式适配**：两个 Skill（kb-doc-writer、kb-doc-auditor）同时支持 MCP 工具调用和 Shell curl 命令。Agent 根据 Prompt 中是否包含 `[KNOWLEDGE BASE - AVAILABLE]` 段落自动选择调用方式，因此可在开发者 Cursor IDE（MCP）和 ACP Gateway Agent（Shell curl）两种环境下使用。
 
 ### 使用方式
 

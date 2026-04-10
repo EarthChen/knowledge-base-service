@@ -13,7 +13,7 @@ description: 基于知识库编写/更新项目文档，确保文档内容与真
 
 **自动检测流程：**
 
-1. **显式指定检查**：如果 Prompt 中包含 `[KNOWLEDGE BASE - SHELL QUERY TOOLS]`，直接使用脚本模式
+1. **显式指定检查**：如果 Prompt 中包含 `[KNOWLEDGE BASE - AVAILABLE]`，直接使用脚本模式
 2. **MCP 可用性探测**：尝试调用任意一个 MCP KB 工具（推荐 `rag_graph(query_type="graph_stats")`）
    - 调用成功 → 使用 **MCP 模式**
    - 工具不存在 / 连接失败 / 超时 → 自动降级为 **脚本模式**

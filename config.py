@@ -62,6 +62,20 @@ class EmbeddingConfig(BaseModel):
         return "onnx"
 
 
+class LLMConfig(BaseModel):
+    """Configuration for LLM provider (OpenAI-compatible protocol)."""
+
+    enabled: bool = False
+    base_url: str = "https://api.openai.com/v1"
+    api_key: str = ""
+    model: str = "gpt-4o-mini"
+    deep_search_model: str = "gpt-4o"
+    max_concurrent: int = 10
+    timeout: int = 30
+    retry_count: int = 3
+    temperature: float = 0.1
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -78,6 +92,7 @@ class Settings(BaseSettings):
 
     falkordb: FalkorDBConfig = Field(default_factory=FalkorDBConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
 
     supported_languages: list[str] = Field(
         default_factory=lambda: ["python", "java", "go", "javascript", "typescript"]

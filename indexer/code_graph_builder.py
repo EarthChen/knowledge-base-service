@@ -9,10 +9,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from log import get_logger
-
-from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 from indexer.tree_sitter_parser import ParseResult, TreeSitterParser
+from log import get_logger
+from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 
 log = get_logger(__name__)
 
@@ -144,7 +143,35 @@ class CodeGraphBuilder:
         )
         nodes.append(module_node)
 
+        import_target_by_name: dict[str, GraphNode] = {}
+        import_edge_keys: set[tuple[str, str]] = set()
+        for imp in result.imports:
+            mod_name = imp.module.split(".")[-1] if imp.module else ""
+            if not mod_name:
+                continue
+            if mod_name not in import_target_by_name:
+                ext_path = f"<import:{mod_name}>"
+                import_target_by_name[mod_name] = GraphNode(
+                    label=NodeLabel.MODULE,
+                    properties={
+                        "name": mod_name,
+                        "path": ext_path,
+                        "language": language,
+                    },
+                )
+                nodes.append(import_target_by_name[mod_name])
+            tgt = import_target_by_name[mod_name]
+            pair = (module_node.uid, tgt.uid)
+            if pair not in import_edge_keys:
+                import_edge_keys.add(pair)
+                edges.append(GraphEdge(
+                    edge_type=EdgeType.IMPORTS,
+                    source_uid=module_node.uid,
+                    target_uid=tgt.uid,
+                ))
+
         func_uid_map: dict[str, str] = {}
+        class_uid_by_name: dict[str, str] = {}
 
         for cls in result.classes:
             cls_props: dict[str, object] = {
@@ -161,12 +188,26 @@ class CodeGraphBuilder:
                 cls_props["fqn"] = cls_fqn
             class_node = GraphNode(label=NodeLabel.CLASS, properties=cls_props)
             nodes.append(class_node)
+            class_uid_by_name[cls.name] = class_node.uid
 
             edges.append(GraphEdge(
                 edge_type=EdgeType.CONTAINS,
                 source_uid=module_node.uid,
                 target_uid=class_node.uid,
             ))
+
+        for cls in result.classes:
+            child_uid = class_uid_by_name.get(cls.name)
+            if not child_uid:
+                continue
+            for base in cls.base_classes:
+                parent_uid = class_uid_by_name.get(base)
+                if parent_uid and parent_uid != child_uid:
+                    edges.append(GraphEdge(
+                        edge_type=EdgeType.INHERITS,
+                        source_uid=child_uid,
+                        target_uid=parent_uid,
+                    ))
 
         for func in result.functions:
             func_props: dict[str, object] = {

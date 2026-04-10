@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from log import get_logger
-
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 
 log = get_logger(__name__)
@@ -123,6 +122,28 @@ class DocumentIndexer:
                 edge_type=EdgeType.CONTAINS,
                 source_uid=doc_node.uid,
                 target_uid=section_node.uid,
+            ))
+
+        ref_target_by_name: dict[str, GraphNode] = {}
+        for ref in doc.code_references:
+            if ref in ref_target_by_name:
+                target = ref_target_by_name[ref]
+            else:
+                label = NodeLabel.CLASS if ref[:1].isupper() else NodeLabel.FUNCTION
+                target = GraphNode(
+                    label=label,
+                    properties={
+                        "name": ref,
+                        "file": doc.path,
+                        "start_line": 0,
+                    },
+                )
+                nodes.append(target)
+                ref_target_by_name[ref] = target
+            edges.append(GraphEdge(
+                edge_type=EdgeType.REFERENCES,
+                source_uid=doc_node.uid,
+                target_uid=target.uid,
             ))
 
         return nodes, edges

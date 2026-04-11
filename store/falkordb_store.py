@@ -198,6 +198,28 @@ class FalkorDBStore:
         for edge in edges:
             await self.upsert_edge(edge)
 
+    async def get_nodes_by_file(self, file_path: str) -> list:
+        """Retrieve embeddable nodes (Function, Class, Document) for a given file path."""
+        from store.schema import GraphNode
+
+        embeddable_labels = ["Function", "Class", "Document"]
+        nodes: list = []
+        loop = asyncio.get_running_loop()
+        for lbl in embeddable_labels:
+            cypher = f"MATCH (n:{lbl} {{file: $file}}) RETURN n"
+            result = await loop.run_in_executor(
+                None,
+                lambda q=cypher: self._graph.query(q, params={"file": file_path}),  # type: ignore[union-attr]
+            )
+            for row in result.result_set or []:
+                node_data = row[0] if row else None
+                if node_data and hasattr(node_data, "properties"):
+                    props = dict(node_data.properties)
+                    label = NodeLabel(lbl)
+                    uid = props.pop("uid", "") or f"{label}:{file_path}:{props.get('name', '')}:{props.get('start_line', 0)}"
+                    nodes.append(GraphNode(label=label, properties=props, uid=uid))
+        return nodes
+
     async def delete_by_file(self, file_path: str) -> int:
         """Remove all nodes and their edges for a given file path. Returns count deleted."""
         loop = asyncio.get_running_loop()

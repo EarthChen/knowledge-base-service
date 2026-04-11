@@ -52,14 +52,23 @@ class IncrementalIndexer:
     async def index_full(
         self, directory: str, progress_callback: Callable[..., None] | None = None,
     ) -> dict[str, int]:
-        """Full reindex — three phases: parse, enrich (1 ACP task), embed."""
+        """Full reindex — streaming parse, single-task enrich, per-file embed.
+
+        Memory-efficient: parse phase only collects lightweight enrichment
+        items (name, signature, etc.) and node UIDs.  Full node objects are
+        released after upsert.  Embedding is generated per-file in a second
+        pass, reading enriched ``business_summary`` from the graph store.
+        """
         log.info("full_index_start", directory=directory)
 
         total_nodes = 0
         total_edges = 0
         total_embeds = 0
         processed = 0
-        all_file_nodes: list[list] = []
+
+        enrich_items: list[dict[str, str]] = []
+        enrich_refs: list[tuple] = []
+        file_paths_for_embed: list[str] = []
 
         if progress_callback:
             progress_callback(phase="indexing_code")
@@ -68,7 +77,19 @@ class IncrementalIndexer:
             await self._store.batch_upsert(nodes, edges)
             total_nodes += len(nodes)
             total_edges += len(edges)
-            all_file_nodes.append(nodes)
+            file_paths_for_embed.append(fpath)
+
+            for n in nodes:
+                if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS):
+                    enrich_refs.append((n.label, n.uid))
+                    enrich_items.append({
+                        "name": n.properties.get("name", ""),
+                        "signature": n.properties.get("signature", ""),
+                        "docstring": n.properties.get("docstring", ""),
+                        "code_snippet": n.properties.get("code_snippet", ""),
+                        "file": n.properties.get("file", ""),
+                    })
+
             processed += 1
             if progress_callback:
                 progress_callback(
@@ -80,12 +101,17 @@ class IncrementalIndexer:
 
         if progress_callback:
             progress_callback(phase="enriching")
-        await self._batch_enrich_all(all_file_nodes)
+        await self._enrich_from_items(enrich_items, enrich_refs)
+        del enrich_items, enrich_refs
 
         if progress_callback:
             progress_callback(phase="embedding")
-        for nodes in all_file_nodes:
-            total_embeds += await self._generate_and_store_embeddings(nodes, skip_enrich=True)
+        for fpath in file_paths_for_embed:
+            nodes_for_embed = await self._store.get_nodes_by_file(fpath)
+            if nodes_for_embed:
+                total_embeds += await self._generate_and_store_embeddings(
+                    nodes_for_embed, skip_enrich=True,
+                )
 
         if progress_callback:
             progress_callback(phase="resolving_references")
@@ -109,7 +135,7 @@ class IncrementalIndexer:
         head_ref: str = "HEAD",
         progress_callback: Callable[..., None] | None = None,
     ) -> dict[str, int]:
-        """Incremental index — three phases: parse changed files, enrich (1 task), embed."""
+        """Incremental index — streaming parse, single-task enrich, per-file embed."""
         changed_files = await self._get_changed_files(directory, base_ref, head_ref)
         if not changed_files:
             log.info("incremental_index_no_changes")
@@ -131,8 +157,11 @@ class IncrementalIndexer:
         total_edges = 0
         total_doc_nodes = 0
         total_doc_edges = 0
-        all_code_nodes: list[list] = []
-        all_doc_nodes: list[list] = []
+
+        enrich_items: list[dict[str, str]] = []
+        enrich_refs: list[tuple] = []
+        code_file_paths: list[str] = []
+        doc_file_paths: list[str] = []
 
         processed_count = 0
         for fpath in modified_files:
@@ -149,7 +178,7 @@ class IncrementalIndexer:
                     doc = self._doc_indexer.parse_document(full_path, store_path=fpath)
                     doc_nodes, doc_edges = self._doc_indexer.build_graph(doc)
                     await self._store.batch_upsert(doc_nodes, doc_edges)
-                    all_doc_nodes.append(doc_nodes)
+                    doc_file_paths.append(fpath)
                     total_doc_nodes += len(doc_nodes)
                     total_doc_edges += len(doc_edges)
                 except Exception as exc:
@@ -157,9 +186,19 @@ class IncrementalIndexer:
             else:
                 nodes, edges = self._builder.build_from_file(full_path, store_path=fpath)
                 await self._store.batch_upsert(nodes, edges)
-                all_code_nodes.append(nodes)
+                code_file_paths.append(fpath)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
+                for n in nodes:
+                    if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS):
+                        enrich_refs.append((n.label, n.uid))
+                        enrich_items.append({
+                            "name": n.properties.get("name", ""),
+                            "signature": n.properties.get("signature", ""),
+                            "docstring": n.properties.get("docstring", ""),
+                            "code_snippet": n.properties.get("code_snippet", ""),
+                            "file": n.properties.get("file", ""),
+                        })
 
             processed_count += 1
             if progress_callback:
@@ -172,15 +211,18 @@ class IncrementalIndexer:
 
         if progress_callback:
             progress_callback(phase="enriching")
-        await self._batch_enrich_all(all_code_nodes)
+        await self._enrich_from_items(enrich_items, enrich_refs)
+        del enrich_items, enrich_refs
 
         if progress_callback:
             progress_callback(phase="embedding")
         total_embeds = 0
-        for nodes in all_code_nodes:
-            total_embeds += await self._generate_and_store_embeddings(nodes, skip_enrich=True)
-        for doc_nodes in all_doc_nodes:
-            total_embeds += await self._generate_and_store_embeddings(doc_nodes, skip_enrich=True)
+        for fpath in code_file_paths + doc_file_paths:
+            nodes_for_embed = await self._store.get_nodes_by_file(fpath)
+            if nodes_for_embed:
+                total_embeds += await self._generate_and_store_embeddings(
+                    nodes_for_embed, skip_enrich=True,
+                )
 
         if progress_callback:
             progress_callback(phase="resolving_references")
@@ -220,49 +262,39 @@ class IncrementalIndexer:
         embed_count = await self._generate_and_store_embeddings(nodes)
         return {"nodes": len(nodes), "edges": len(edges), "embeddings": embed_count}
 
-    async def _batch_enrich_all(self, all_file_nodes: list[list]) -> int:
-        """Enrich all code entities across all files in a single ACP task."""
-        if not self._enricher:
+    async def _enrich_from_items(
+        self,
+        items: list[dict[str, str]],
+        refs: list[tuple],
+    ) -> int:
+        """Enrich code entities in a single ACP task using pre-collected items.
+
+        *refs* is a parallel list of ``(label, uid)`` tuples — only UIDs are
+        kept in memory instead of full node objects.  After enrichment,
+        ``business_summary`` is written directly to the graph store.
+        """
+        if not self._enricher or not items:
             return 0
 
-        code_node_list: list[tuple] = []
-        items_for_enrich: list[dict[str, str]] = []
+        log.info("batch_enrich_start", total_entities=len(items))
+        summaries = await self._enricher.enrich_batch(items)
 
-        for nodes in all_file_nodes:
-            for n in nodes:
-                if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS):
-                    code_node_list.append(n)
-                    items_for_enrich.append({
-                        "name": n.properties.get("name", ""),
-                        "signature": n.properties.get("signature", ""),
-                        "docstring": n.properties.get("docstring", ""),
-                        "code_snippet": n.properties.get("code_snippet", ""),
-                        "file": n.properties.get("file", ""),
-                    })
-
-        if not items_for_enrich:
-            return 0
-
-        log.info("batch_enrich_start", total_entities=len(items_for_enrich))
-        summaries = await self._enricher.enrich_batch(items_for_enrich)
-
-        if len(summaries) != len(items_for_enrich):
+        if len(summaries) != len(items):
             log.warning(
                 "batch_enrich_length_mismatch",
-                expected=len(items_for_enrich),
+                expected=len(items),
                 got=len(summaries),
             )
 
         enriched = 0
-        for node, summary in zip(code_node_list, summaries):
+        for (label, uid), summary in zip(refs, summaries):
             if summary:
-                node.properties["business_summary"] = summary
                 await self._store.update_node_property(
-                    node.label, node.uid, "business_summary", summary,
+                    label, uid, "business_summary", summary,
                 )
                 enriched += 1
 
-        log.info("batch_enrich_complete", enriched=enriched, total=len(items_for_enrich))
+        log.info("batch_enrich_complete", enriched=enriched, total=len(items))
         return enriched
 
     async def _generate_and_store_embeddings(

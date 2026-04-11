@@ -11,21 +11,24 @@ import asyncio
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator
+from indexer.enrichment import is_trivial_enrichment_entity, truncate_enrichment_item
 from log import get_logger
 from store.falkordb_store import FalkorDBStore
 from store.schema import NodeLabel
 
 if TYPE_CHECKING:
     from indexer.enrichment import CodeSummaryEnricher
+    from llm.gateway_client import RepoTaskManager
 
 log = get_logger(__name__)
 
 _DOC_EXTENSIONS = {".md", ".markdown", ".rst", ".txt"}
+_ENRICH_BATCH_SIZE = 50
 
 def _get_exclude_dirs() -> set[str]:
     from config import get_settings
@@ -42,36 +45,77 @@ class IncrementalIndexer:
         embedding_gen: EmbeddingGenerator,
         doc_indexer: DocumentIndexer | None = None,
         enricher: CodeSummaryEnricher | None = None,
+        repo_task_manager: RepoTaskManager | None = None,
     ) -> None:
         self._store = store
         self._builder = graph_builder
         self._embedding = embedding_gen
         self._doc_indexer = doc_indexer or DocumentIndexer()
         self._enricher = enricher
+        self._repo_task_mgr = repo_task_manager
+
+    @property
+    def enrichment_available(self) -> bool:
+        """Whether LLM 摘要（直连或网关）可用于补全 business_summary。"""
+        return self._enricher is not None or self._repo_task_mgr is not None
+
+    def _enrichment_backend_label(self) -> str:
+        """Return API progress label for LLM enrichment mode (empty if disabled)."""
+        if not self._enricher:
+            return ""
+        if self._repo_task_mgr and getattr(self._enricher, "_gw", None):
+            return "gateway"
+        return "direct"
 
     async def index_full(
         self, directory: str, progress_callback: Callable[..., None] | None = None,
     ) -> dict[str, int]:
-        """Full reindex — streaming parse, single-task enrich, per-file embed.
+        """Full reindex — pipelined parse+enrich (1 ACP task) then embed.
 
-        Memory-efficient: parse phase only collects lightweight enrichment
-        items (name, signature, etc.) and node UIDs.  Full node objects are
-        released after upsert.  Embedding is generated per-file in a second
-        pass, reading enriched ``business_summary`` from the graph store.
+        Parse and enrichment run concurrently: as files are parsed, code
+        entities are streamed into the feedback loop via an asyncio queue.
+        Only lightweight enrichment items flow through the queue; full node
+        objects are released after upsert.
         """
         log.info("full_index_start", directory=directory)
+
+        enrich_backend = self._enrichment_backend_label()
 
         total_nodes = 0
         total_edges = 0
         total_embeds = 0
         processed = 0
-
-        enrich_items: list[dict[str, str]] = []
-        enrich_refs: list[tuple] = []
         file_paths_for_embed: list[str] = []
+        enrich_refs: dict[str, list[tuple]] = {}
+        enrich_candidates = 0
+        enrich_skipped_trivial = 0
+
+        enrich_queue: asyncio.Queue[list[dict[str, str]] | None] = asyncio.Queue()
+        summary_map: dict[str, str] = {}
 
         if progress_callback:
-            progress_callback(phase="indexing_code")
+            progress_callback(
+                phase="indexing_and_enriching",
+                enrichment_backend=enrich_backend,
+            )
+
+        repo_id = f"enrich:{directory.rstrip('/').rsplit('/', 1)[-1]}"
+
+        async def _enrichment_consumer() -> None:
+            if self._repo_task_mgr:
+                result = await self._repo_task_mgr.enrich_stream(repo_id, enrich_queue)
+                summary_map.update(result)
+                return
+            if self._enricher and hasattr(self._enricher, '_gw') and self._enricher._gw:
+                result = await self._enricher._gw.enrich_stream(enrich_queue)
+                summary_map.update(result)
+                return
+            while await enrich_queue.get() is not None:
+                pass
+
+        enrichment_task = asyncio.create_task(_enrichment_consumer())
+
+        batch_buffer: list[dict[str, str]] = []
 
         for fpath, nodes, edges in self._builder.iter_directory(directory):
             await self._store.batch_upsert(nodes, edges)
@@ -81,14 +125,26 @@ class IncrementalIndexer:
 
             for n in nodes:
                 if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS):
-                    enrich_refs.append((n.label, n.uid))
-                    enrich_items.append({
+                    enrich_candidates += 1
+                    item = {
                         "name": n.properties.get("name", ""),
                         "signature": n.properties.get("signature", ""),
                         "docstring": n.properties.get("docstring", ""),
                         "code_snippet": n.properties.get("code_snippet", ""),
                         "file": n.properties.get("file", ""),
-                    })
+                        "entity_kind": (
+                            "function" if n.label == NodeLabel.FUNCTION else "class"
+                        ),
+                    }
+                    if is_trivial_enrichment_entity(item):
+                        enrich_skipped_trivial += 1
+                        continue
+                    item = truncate_enrichment_item(item)
+                    enrich_refs.setdefault(item["name"], []).append((n.label, n.uid))
+                    batch_buffer.append(item)
+                    if len(batch_buffer) >= _ENRICH_BATCH_SIZE:
+                        await enrich_queue.put(batch_buffer)
+                        batch_buffer = []
 
             processed += 1
             if progress_callback:
@@ -99,10 +155,29 @@ class IncrementalIndexer:
                     edges=total_edges,
                 )
 
+        if batch_buffer:
+            await enrich_queue.put(batch_buffer)
+        await enrich_queue.put(None)
+
+        await enrichment_task
+
+        enriched = 0
+        for name, summary in summary_map.items():
+            if name in enrich_refs and summary:
+                for label, uid in enrich_refs[name]:
+                    await self._store.update_node_property(label, uid, "business_summary", summary)
+                    enriched += 1
+        total_entities = sum(len(v) for v in enrich_refs.values())
+        log.info(
+            "pipeline_enrich_complete",
+            enriched=enriched,
+            total_queued=total_entities,
+            candidates=enrich_candidates,
+            skipped_trivial=enrich_skipped_trivial,
+        )
+
         if progress_callback:
-            progress_callback(phase="enriching")
-        await self._enrich_from_items(enrich_items, enrich_refs)
-        del enrich_items, enrich_refs
+            progress_callback(enriched_count=enriched)
 
         if progress_callback:
             progress_callback(phase="embedding")
@@ -124,6 +199,7 @@ class IncrementalIndexer:
             "inherits": xref.get("inherits", 0),
             "imports": xref.get("imports", 0),
             "references": xref.get("references", 0),
+            "enriched": enriched,
         }
         log.info("full_index_complete", **stats)
         return stats
@@ -160,6 +236,8 @@ class IncrementalIndexer:
 
         enrich_items: list[dict[str, str]] = []
         enrich_refs: list[tuple] = []
+        enrich_candidates = 0
+        enrich_skipped_trivial = 0
         code_file_paths: list[str] = []
         doc_file_paths: list[str] = []
 
@@ -191,14 +269,22 @@ class IncrementalIndexer:
                 total_edges += len(edges)
                 for n in nodes:
                     if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS):
-                        enrich_refs.append((n.label, n.uid))
-                        enrich_items.append({
+                        enrich_candidates += 1
+                        item = {
                             "name": n.properties.get("name", ""),
                             "signature": n.properties.get("signature", ""),
                             "docstring": n.properties.get("docstring", ""),
                             "code_snippet": n.properties.get("code_snippet", ""),
                             "file": n.properties.get("file", ""),
-                        })
+                            "entity_kind": (
+                                "function" if n.label == NodeLabel.FUNCTION else "class"
+                            ),
+                        }
+                        if is_trivial_enrichment_entity(item):
+                            enrich_skipped_trivial += 1
+                            continue
+                        enrich_refs.append((n.label, n.uid))
+                        enrich_items.append(truncate_enrichment_item(item))
 
             processed_count += 1
             if progress_callback:
@@ -209,10 +295,22 @@ class IncrementalIndexer:
                     edges=total_edges,
                 )
 
-        if progress_callback:
-            progress_callback(phase="enriching")
-        await self._enrich_from_items(enrich_items, enrich_refs)
+        enrich_backend = self._enrichment_backend_label()
+        if enrich_backend and progress_callback:
+            progress_callback(phase="enriching", enrichment_backend=enrich_backend)
+        repo_id = f"enrich:{directory.rstrip('/').rsplit('/', 1)[-1]}"
+        if enrich_items:
+            log.info(
+                "incremental_enrich_prefilter",
+                candidates=enrich_candidates,
+                skipped_trivial=enrich_skipped_trivial,
+                queued=len(enrich_items),
+            )
+        enriched_n = await self._enrich_from_items(enrich_items, enrich_refs, repo_id=repo_id)
         del enrich_items, enrich_refs
+
+        if progress_callback and enrich_backend:
+            progress_callback(enriched_count=enriched_n)
 
         if progress_callback:
             progress_callback(phase="embedding")
@@ -241,9 +339,84 @@ class IncrementalIndexer:
             "inherits": xref.get("inherits", 0),
             "imports": xref.get("imports", 0),
             "references": xref.get("references", 0),
+            "enriched": enriched_n,
         }
         log.info("incremental_index_complete", **stats)
         return stats
+
+    async def enrich_only(
+        self,
+        entities: list[dict[str, Any]],
+        repo_id: str,
+        progress_callback: Callable[..., None] | None = None,
+    ) -> int:
+        """对已入库的 Function/Class 批量生成 business_summary（不重新解析或嵌入）。"""
+        if not self._enricher and not self._repo_task_mgr:
+            return 0
+
+        work_items: list[dict[str, str]] = []
+        work_refs: list[tuple[NodeLabel, str]] = []
+
+        for row in entities:
+            label_raw = (row.get("label") or "").strip()
+            if label_raw == "Function":
+                entity_kind = "function"
+                nl: NodeLabel = NodeLabel.FUNCTION
+            elif label_raw == "Class":
+                entity_kind = "class"
+                nl = NodeLabel.CLASS
+            else:
+                continue
+
+            uid = row.get("uid") or ""
+            if not uid:
+                continue
+
+            item = {
+                "name": row.get("name") or "",
+                "signature": row.get("signature") or "",
+                "docstring": row.get("docstring") or "",
+                "code_snippet": row.get("code_snippet") or "",
+                "file": row.get("file") or "",
+                "entity_kind": entity_kind,
+            }
+            if is_trivial_enrichment_entity(item):
+                continue
+            work_items.append(truncate_enrichment_item(item))
+            work_refs.append((nl, uid))
+
+        total = len(work_items)
+        if not total:
+            return 0
+
+        enrich_backend = self._enrichment_backend_label()
+        if progress_callback:
+            kwargs: dict[str, Any] = {
+                "phase": "enriching",
+                "total_files": total,
+                "processed_files": 0,
+            }
+            if enrich_backend:
+                kwargs["enrichment_backend"] = enrich_backend
+            progress_callback(**kwargs)
+
+        enriched_total = 0
+        for i in range(0, total, _ENRICH_BATCH_SIZE):
+            batch_items = work_items[i : i + _ENRICH_BATCH_SIZE]
+            batch_refs = work_refs[i : i + _ENRICH_BATCH_SIZE]
+            n_done = await self._enrich_from_items(
+                batch_items, batch_refs, repo_id=repo_id,
+            )
+            enriched_total += n_done
+            processed = min(i + _ENRICH_BATCH_SIZE, total)
+            if progress_callback:
+                progress_callback(
+                    processed_files=processed,
+                    total_files=total,
+                    enriched_count=enriched_total,
+                )
+
+        return enriched_total
 
     async def index_file(
         self, file_path: str, content: str | None = None, *, store_path: str | None = None,
@@ -266,18 +439,30 @@ class IncrementalIndexer:
         self,
         items: list[dict[str, str]],
         refs: list[tuple],
+        repo_id: str = "",
     ) -> int:
         """Enrich code entities in a single ACP task using pre-collected items.
 
         *refs* is a parallel list of ``(label, uid)`` tuples — only UIDs are
         kept in memory instead of full node objects.  After enrichment,
         ``business_summary`` is written directly to the graph store.
+
+        When *repo_id* is provided and a :class:`RepoTaskManager` is available,
+        enrichment reuses the persistent task for that repository.
         """
-        if not self._enricher or not items:
+        if not items:
+            return 0
+        if not self._enricher and not self._repo_task_mgr:
             return 0
 
         log.info("batch_enrich_start", total_entities=len(items))
-        summaries = await self._enricher.enrich_batch(items)
+
+        if self._repo_task_mgr and repo_id:
+            summaries = await self._repo_task_mgr.enrich(repo_id, items)
+        elif self._enricher:
+            summaries = await self._enricher.enrich_batch(items)
+        else:
+            return 0
 
         if len(summaries) != len(items):
             log.warning(
@@ -318,6 +503,9 @@ class IncrementalIndexer:
                         "docstring": n.properties.get("docstring", ""),
                         "code_snippet": n.properties.get("code_snippet", ""),
                         "file": n.properties.get("file", ""),
+                        "entity_kind": (
+                            "function" if n.label == NodeLabel.FUNCTION else "class"
+                        ),
                     }
                     for n in code_nodes
                 ]

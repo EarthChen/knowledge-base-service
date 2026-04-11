@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Database, Loader2, CheckCircle2, XCircle, Clock, ArrowRight } from "lucide-react";
-import { useIndex, useIndexTask, useIndexTasks } from "../api/hooks";
+import { useEnrich, useIndex, useIndexTask, useIndexTasks, useRepositories } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import { useToast } from "../components/Toast";
 import JsonView from "../components/JsonView";
@@ -11,10 +11,22 @@ function phaseLabel(phase: string, t: Record<string, string>): string {
     scanning: t.phaseScan,
     indexing_code: t.phaseCode,
     indexing_docs: t.phaseDocs,
+    indexing_and_enriching: t.phaseIndexingEnriching,
+    enriching: t.phaseEnriching,
+    embedding: t.phaseEmbedding,
     resolving_references: t.phaseRefs,
     completed: t.phaseComplete,
   };
   return map[phase] || phase;
+}
+
+function enrichmentModeLabel(
+  backend: string | undefined,
+  t: Record<string, string>,
+): string {
+  if (backend === "gateway") return t.enrichmentGateway;
+  if (backend === "direct") return t.enrichmentDirect;
+  return t.enrichmentDisabled;
 }
 
 function statusBadge(status: string, t: Record<string, string>) {
@@ -41,6 +53,12 @@ function TaskProgress({ task }: { task: IndexTask }) {
   const pct = progress.total_files > 0
     ? Math.round((progress.processed_files / progress.total_files) * 100)
     : 0;
+  const enrichBackend = progress.enrichment_backend;
+  const showEnrichmentRow =
+    !!enrichBackend ||
+    (progress.enriched_count != null && progress.enriched_count > 0) ||
+    progress.phase === "indexing_and_enriching" ||
+    progress.phase === "enriching";
 
   return (
     <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-5">
@@ -53,6 +71,18 @@ function TaskProgress({ task }: { task: IndexTask }) {
           {task.mode} • {task.directory}
         </span>
       </div>
+
+      {showEnrichmentRow && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-100 bg-amber-50/80 px-3 py-2 text-xs text-amber-900">
+          <span className="font-medium">{ti.enrichmentMode}:</span>
+          <span>{enrichmentModeLabel(enrichBackend, ti)}</span>
+          {(progress.enriched_count != null && progress.enriched_count > 0) && (
+            <span className="text-amber-800">
+              · {ti.entitiesEnriched}: <strong>{progress.enriched_count}</strong>
+            </span>
+          )}
+        </div>
+      )}
 
       {task.status === "running" && (
         <>
@@ -92,7 +122,19 @@ function TaskProgress({ task }: { task: IndexTask }) {
       )}
 
       {task.status === "completed" && task.result && (
-        <JsonView data={task.result} />
+        <div className="space-y-3">
+          {typeof task.result.stats === "object" &&
+            task.result.stats !== null &&
+            "enriched" in (task.result.stats as Record<string, unknown>) && (
+              <p className="text-sm text-gray-700">
+                {ti.entitiesEnriched}:{" "}
+                <strong>
+                  {String((task.result.stats as Record<string, unknown>).enriched)}
+                </strong>
+              </p>
+            )}
+          <JsonView data={task.result} />
+        </div>
       )}
 
       {task.status === "failed" && task.error && (
@@ -109,9 +151,14 @@ export default function Indexing() {
   const [baseRef, setBaseRef] = useState("HEAD~1");
   const [headRef, setHeadRef] = useState("HEAD");
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [enrichModalOpen, setEnrichModalOpen] = useState(false);
+  const [enrichRepository, setEnrichRepository] = useState("");
+  const [enrichForce, setEnrichForce] = useState(false);
 
   const { t } = useI18n();
   const mutation = useIndex();
+  const enrichMutation = useEnrich();
+  const reposQuery = useRepositories();
   const { toast } = useToast();
   const activeTask = useIndexTask(activeTaskId);
   const tasksList = useIndexTasks();
@@ -134,12 +181,52 @@ export default function Indexing() {
     if (toastedTaskId === task_id) return;
     if (status === "completed") {
       setToastedTaskId(task_id);
-      toast("success", t.indexing.indexingComplete);
+      const isEnrich = activeTask.data.mode === "enrich";
+      toast("success", isEnrich ? t.indexing.enrichComplete : t.indexing.indexingComplete);
     } else if (status === "failed") {
       setToastedTaskId(task_id);
       toast("error", activeTask.data.error || t.indexing.indexingFailed);
     }
   }, [activeTask.data?.status, activeTask.data?.task_id]);
+
+  function openEnrichModal() {
+    const list = reposQuery.data?.repositories ?? [];
+    const fromIndex = repository.trim();
+    if (fromIndex && list.some((r) => r.repository === fromIndex)) {
+      setEnrichRepository(fromIndex);
+    } else if (fromIndex) {
+      setEnrichRepository(fromIndex);
+    } else if (list.length > 0) {
+      setEnrichRepository(list[0].repository);
+    } else {
+      setEnrichRepository("");
+    }
+    setEnrichForce(false);
+    setEnrichModalOpen(true);
+  }
+
+  async function handleEnrichSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const name = enrichRepository.trim();
+    if (!name) {
+      toast("error", t.indexing.enrichRepositoryRequired);
+      return;
+    }
+    try {
+      const res = await enrichMutation.mutateAsync({
+        repository: name,
+        force: enrichForce,
+      });
+      if (res.task_id) {
+        setActiveTaskId(res.task_id);
+        setToastedTaskId(null);
+        toast("success", `${t.indexing.taskId}: ${res.task_id}`);
+      }
+      setEnrichModalOpen(false);
+    } catch (err) {
+      toast("error", (err as Error).message || t.indexing.indexingFailed);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -258,7 +345,94 @@ export default function Indexing() {
           {(mutation.isPending || isRunning) && <Loader2 size={16} className="animate-spin" />}
           {isRunning ? t.indexing.indexingInProgress : t.indexing.startIndexing}
         </button>
+
+        <div className="flex flex-col gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-gray-500">{t.indexing.enrichDesc}</p>
+          <button
+            type="button"
+            onClick={openEnrichModal}
+            disabled={enrichMutation.isPending || isRunning}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-sky-600 bg-white px-5 py-2.5 text-sm font-medium text-sky-700 transition-colors hover:bg-sky-50 disabled:opacity-50"
+          >
+            {(enrichMutation.isPending || isRunning) && <Loader2 size={16} className="animate-spin" />}
+            {t.indexing.enrichTitle}
+          </button>
+        </div>
       </form>
+
+      {enrichModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="enrich-modal-title"
+        >
+          <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-lg">
+            <h3 id="enrich-modal-title" className="text-base font-semibold text-gray-900">
+              {t.indexing.enrichTitle}
+            </h3>
+            <p className="mt-1 text-sm text-gray-500">{t.indexing.enrichDesc}</p>
+            <form onSubmit={handleEnrichSubmit} className="mt-4 space-y-4">
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-gray-500">
+                  {t.indexing.enrichRepository}
+                </label>
+                {(reposQuery.data?.repositories?.length ?? 0) > 0 ? (
+                  <select
+                    value={enrichRepository}
+                    onChange={(e) => setEnrichRepository(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">{t.indexing.enrichRepository}</option>
+                    {reposQuery.data!.repositories.map((r) => (
+                      <option key={r.repository} value={r.repository}>
+                        {r.repository}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <>
+                    <p className="text-xs text-amber-700">{t.indexing.enrichManualHint}</p>
+                    <input
+                      type="text"
+                      value={enrichRepository}
+                      onChange={(e) => setEnrichRepository(e.target.value)}
+                      placeholder={t.indexing.repoPlaceholder}
+                      className={inputClass}
+                    />
+                  </>
+                )}
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={enrichForce}
+                  onChange={(e) => setEnrichForce(e.target.checked)}
+                  className="accent-sky-500"
+                />
+                {t.indexing.enrichForce}
+              </label>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEnrichModalOpen(false)}
+                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  {t.businesses.cancel}
+                </button>
+                <button
+                  type="submit"
+                  disabled={enrichMutation.isPending}
+                  className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                >
+                  {enrichMutation.isPending && <Loader2 size={16} className="animate-spin" />}
+                  {t.indexing.enrichTrigger}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {activeTask.data && (
         <TaskProgress task={activeTask.data} />

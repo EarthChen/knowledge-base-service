@@ -154,10 +154,13 @@ llm:
 
 ### 4.4 acp-gateway 任务复用
 
-当通过 acp-gateway 作为 LLM 层时，需要注意任务会话管理：
-- **任务复用**: 对同一个 enrichment 批次或 deep_search 会话，应复用同一个 acp-gateway 任务（task/session），避免每次 LLM 调用都创建新任务
-- **实现方式**: LLMProvider 在初始化时创建一个持久化的会话/任务 ID，后续的 LLM 调用都在同一个任务上下文中执行
-- **直连 OpenAI 时**: 无需任务复用，每次调用独立
+知识库侧通过 **`LLM__GATEWAY__ENABLED=true`** 与 `GatewayConfig`（`ws_url`、`http_url`、`idle_timeout`）显式启用 Gateway 反馈模式；**不再**根据 `base_url` 的 URL 模式推断是否走 Gateway。
+
+- **`RepoTaskManager`**：内部 `_tasks` 使用前缀区分用途——索引 enrichment 键为 **`enrich:{repo_name}`**（`repo_name` 为索引进程从目录路径取的最后一段）；Dashboard **`DeepSearchEngine`** 在 Gateway 启用且请求带 `business_id` 时，对 plan/synthesize 调用 **`prompt("search:{tenant_id}", ...)`**，每租户一个 **`_RepoTask`**。全量索引使用 **`enrich_stream`** 与解析流水线并发；增量索引使用 **`enrich`**（预填队列后同样走反馈循环）。
+- **Standby 与清理**：每轮结束后向网关发送待命指令；后台 **`_cleanup_loop`** 定期扫描，**空闲超过 `idle_timeout`（默认 3600s，最小 60）** 则关闭连接。
+- **`GatewayTaskClient`**：**`_run_feedback_loop`** 为 `enrich_batch` 与 `enrich_stream` 的共用核心；每轮最多 **`_MAX_ENTITIES_PER_ROUND`（50）** 个实体；队列批大小 **`_ENRICH_BATCH_SIZE`（50）**（固定常量，原 `enrichment_batch_size` 配置已移除）。
+- **未启用 Gateway**（`LLM__GATEWAY__ENABLED=false`）：enrichment 走 `LLMProvider` HTTP；deep_search 全程 `LLMProvider`。
+- **deep_search 与 Gateway**：启用 Gateway 且存在 `tenant_id` 时优先经 **`RepoTaskManager.prompt`**；解析失败或异常时**回退**到 `LLMProvider.complete_json`。
 
 ### 4.5 并发和容错
 
@@ -174,6 +177,8 @@ llm:
 
 **输入**: Function/Class 节点的 name, signature, docstring, code_snippet, file  
 **输出**: `business_summary` 属性  
+
+**实现说明（与代码对齐）**：Gateway 模式下提示词以 `gateway_client._ENRICHMENT_PROMPT` 为准（中文业务摘要 + JSON 数组输出 + `request_feedback` 分批）。全量索引时解析与 enrichment **并发**：实体经 **`asyncio.Queue`** 流式送入 `enrich_stream`；队列单批缓冲 **`_ENRICH_BATCH_SIZE`（50）**，反馈循环每轮最多 **`_MAX_ENTITIES_PER_ROUND`（50）** 个实体。
 
 **Prompt 模板**:
 
@@ -194,11 +199,11 @@ llm:
 ```
 
 **批处理策略**:
-- 按文件分组批量发送（提供文件级上下文）
-- `asyncio.Semaphore(max_concurrent)` 控制并发
-- 失败重试 3 次，超过后跳过并记录 warning
+- Gateway：**反馈循环**分批，而非按文件单批；全量与解析流水线重叠
+- 直连 LLM 时仍可按 `CodeSummaryEnricher` / `LLMProvider` 策略执行
+- 失败时记录 warning 并跳过等策略见实现
 
-**增量更新**: 与 git-diff 管道对齐，只对变更的文件重新 enrich。
+**增量更新**: 与 git-diff 管道对齐，只对变更文件收集实体后 `_enrich_from_items` 批量 enrich。
 
 ### 5.2 子管道 B: 业务流程推断（依赖 A）
 

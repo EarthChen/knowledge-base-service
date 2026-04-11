@@ -1,5 +1,11 @@
 # React + TypeScript + Vite
 
+## Knowledge Base Dashboard（本仓库前端）
+
+除下方 Vite 模板说明外，本目录实现知识库 **Dashboard**：**索引**页提供 **「业务摘要补全」**——仓库下拉框来自 **已索引仓库列表**、可选 **强制重新生成**，提交后与 `POST /api/v1/enrich` 一致的后台任务，进度在 **任务跟踪**（`GET /api/v1/index/tasks/{task_id}`）中查看。
+
+---
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

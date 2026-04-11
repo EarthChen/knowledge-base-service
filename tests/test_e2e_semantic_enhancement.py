@@ -57,8 +57,16 @@ class TestLLMEnrichmentPipeline:
                 "name": "handle_payment",
                 "signature": "def handle_payment()",
                 "docstring": "",
-                "code_snippet": "def handle_payment(): pass",
+                "code_snippet": (
+                    "def handle_payment():\n"
+                    "    validate()\n"
+                    "    charge()\n"
+                    "    notify()\n"
+                    "    log()\n"
+                    "    return ok\n"
+                ),
                 "file": "pay.py",
+                "entity_kind": "function",
             },
         ]
         summaries = await enricher.enrich_batch(items)

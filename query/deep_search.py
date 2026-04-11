@@ -10,14 +10,39 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from llm.gateway_client import RepoTaskManager
     from llm.provider import LLMProvider
     from query.graph_query import GraphQueryService
     from query.hybrid_query import HybridQueryService
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_json_object_from_llm(text: str) -> dict[str, Any] | None:
+    """Parse a JSON object from LLM text (fenced code or raw)."""
+    code_block = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    candidate = code_block.group(1).strip() if code_block else text.strip()
+    start = candidate.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    for i in range(start, len(candidate)):
+        ch = candidate[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    obj = json.loads(candidate[start : i + 1])
+                    return obj if isinstance(obj, dict) else None
+                except json.JSONDecodeError:
+                    return None
+    return None
 
 _PLAN_PROMPT = """你是一个代码知识库搜索助手。用户的查询是：
 
@@ -66,10 +91,12 @@ class DeepSearchEngine:
         llm: LLMProvider,
         hybrid_svc: HybridQueryService,
         graph_svc: GraphQueryService,
+        task_manager: RepoTaskManager | None = None,
     ) -> None:
         self._llm = llm
         self._hybrid = hybrid_svc
         self._graph = graph_svc
+        self._task_manager = task_manager
 
     async def search(
         self,
@@ -78,6 +105,7 @@ class DeepSearchEngine:
         max_iterations: int = 3,
         include_code: bool = True,
         model: str | None = None,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute a deep search with iterative refinement.
 
@@ -85,7 +113,7 @@ class DeepSearchEngine:
         """
         trace: list[dict[str, Any]] = []
 
-        plan = await self._plan_search(query, model=model)
+        plan = await self._plan_search(query, model=model, tenant_id=tenant_id)
         trace.append({"step": "plan", "result": plan})
 
         all_results: list[dict[str, Any]] = []
@@ -108,7 +136,9 @@ class DeepSearchEngine:
                 "result_count": len(results),
             })
 
-            synthesis = await self._synthesize(query, all_results, model=model)
+            synthesis = await self._synthesize(
+                query, all_results, model=model, tenant_id=tenant_id,
+            )
             trace.append({
                 "step": f"synthesize_iter_{iteration}",
                 "sufficient": synthesis.get("sufficient"),
@@ -125,9 +155,26 @@ class DeepSearchEngine:
         }
 
     async def _plan_search(
-        self, query: str, *, model: str | None = None
+        self,
+        query: str,
+        *,
+        model: str | None = None,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         prompt = _PLAN_PROMPT.format(query=query)
+        fallback = {
+            "intent": "search",
+            "sub_queries": [{"type": "rag_query", "query": query}],
+        }
+        if self._task_manager and tenant_id:
+            try:
+                raw = await self._task_manager.prompt(f"search:{tenant_id}", prompt)
+                parsed = _parse_json_object_from_llm(raw)
+                if parsed is not None:
+                    return parsed
+                logger.warning("Failed to parse plan JSON from gateway response")
+            except Exception:
+                logger.warning("Gateway plan search failed, falling back to LLM", exc_info=True)
         try:
             return await self._llm.complete_json(
                 [{"role": "user", "content": prompt}],
@@ -136,10 +183,7 @@ class DeepSearchEngine:
             )
         except Exception:
             logger.warning("Failed to plan search", exc_info=True)
-            return {
-                "intent": "search",
-                "sub_queries": [{"type": "rag_query", "query": query}],
-            }
+            return fallback
 
     async def _execute_sub_queries(
         self, sub_queries: list[dict[str, Any]]
@@ -186,9 +230,26 @@ class DeepSearchEngine:
         results: list[dict[str, Any]],
         *,
         model: str | None = None,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         results_text = json.dumps(results, ensure_ascii=False, default=str)[:4000]
         prompt = _SYNTHESIZE_PROMPT.format(query=query, results_text=results_text)
+        error_fallback = {
+            "sufficient": False,
+            "analysis": "搜索结果汇总失败，请重试或缩小查询范围。",
+            "business_flows": [],
+            "code_locations": [],
+            "error": True,
+        }
+        if self._task_manager and tenant_id:
+            try:
+                raw = await self._task_manager.prompt(f"search:{tenant_id}", prompt)
+                parsed = _parse_json_object_from_llm(raw)
+                if parsed is not None:
+                    return parsed
+                logger.warning("Failed to parse synthesis JSON from gateway response")
+            except Exception:
+                logger.warning("Gateway synthesize failed, falling back to LLM", exc_info=True)
         try:
             return await self._llm.complete_json(
                 [{"role": "user", "content": prompt}],
@@ -197,10 +258,4 @@ class DeepSearchEngine:
             )
         except Exception:
             logger.warning("Failed to synthesize results", exc_info=True)
-            return {
-                "sufficient": False,
-                "analysis": "搜索结果汇总失败，请重试或缩小查询范围。",
-                "business_flows": [],
-                "code_locations": [],
-                "error": True,
-            }
+            return error_fallback

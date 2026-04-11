@@ -1,3 +1,5 @@
+import type { EnrichRequest, TaskInfo } from "./types";
+
 const API_BASE = "/api/v1";
 const STORAGE_KEY = "kb_api_token";
 const BUSINESS_STORAGE_KEY = "kb_business_id";
@@ -59,4 +61,16 @@ export async function api<T = unknown>(
     throw new ApiError(msg || "Request failed", res.status, data);
   }
   return data as T;
+}
+
+/** 触发业务摘要补全（POST /enrich）。`businessId` 写入 X-Business-Id。 */
+export async function triggerEnrich(
+  businessId: string,
+  request: EnrichRequest,
+): Promise<TaskInfo> {
+  return api<TaskInfo>("/enrich", {
+    method: "POST",
+    body: JSON.stringify(request),
+    headers: { "X-Business-Id": businessId },
+  });
 }

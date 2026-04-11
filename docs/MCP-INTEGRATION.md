@@ -251,6 +251,8 @@ rag:
   api_token: "<kb-api-token>"
 ```
 
+**索引阶段的 LLM（与 MCP 并列）**：若在知识库侧设置 **`LLM__GATEWAY__ENABLED=true`**（`LLM__ENABLED` 等），`LLM__GATEWAY__WS_URL` / `HTTP_URL` 可留空并由 `LLM__BASE_URL` 推导；可用 **`LLM__GATEWAY__ENRICHMENT_ENABLED=false`** 跳过索引内摘要。索引时的业务摘要（`business_summary`）经 Gateway 的 **ACP WebSocket 任务**完成；服务内 **`RepoTaskManager`** 与 **`GatewayTaskClient`** 对齐处理反馈 **409** 等 HTTP 错误（standby 失败会换任务，循环中失败则返回部分结果）。`enrich:{repo_name}` 按仓库复用任务，Dashboard 深度搜索在带业务上下文时使用 `search:{tenant_id}`。**不再**用 URL 模式猜测 Gateway。架构与数据流见 [README — 索引管道流程](../README.md#索引管道流程)。仅补摘要可用 HTTP **`POST /api/v1/enrich`**。
+
 ## 认证与权限
 
 ### Token 配置

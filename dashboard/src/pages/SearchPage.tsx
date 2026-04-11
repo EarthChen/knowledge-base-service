@@ -1,15 +1,15 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Search, Zap, Brain, Building2 } from "lucide-react";
 import {
   useSemanticSearch,
   useHybridSearch,
-  useDeepSearch,
   useBusinessSearch,
 } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import SearchResultCard from "../components/SearchResultCard";
 import JsonView from "../components/JsonView";
-import MarkdownRenderer from "../components/MarkdownRenderer";
+import DeepSearchSection from "../components/DeepSearchSection";
 
 type SearchMode = "semantic" | "hybrid" | "deep" | "business";
 
@@ -19,21 +19,15 @@ export default function SearchPage() {
   const [entityType, setEntityType] = useState("all");
   const [k, setK] = useState(10);
   const [expandDepth, setExpandDepth] = useState(2);
-  const [maxIterations, setMaxIterations] = useState(3);
   const [includeCode, setIncludeCode] = useState(true);
   const [businessSearchType, setBusinessSearchType] = useState("all");
 
   const { t } = useI18n();
   const semantic = useSemanticSearch();
   const hybrid = useHybridSearch();
-  const deepSearch = useDeepSearch();
   const businessSearch = useBusinessSearch();
 
-  const isLoading =
-    semantic.isPending ||
-    hybrid.isPending ||
-    deepSearch.isPending ||
-    businessSearch.isPending;
+  const isLoading = semantic.isPending || hybrid.isPending || businessSearch.isPending;
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -42,12 +36,6 @@ export default function SearchPage() {
       semantic.mutate({ query: query.trim(), k, entity_type: entityType });
     } else if (mode === "hybrid") {
       hybrid.mutate({ query: query.trim(), k, expand_depth: expandDepth });
-    } else if (mode === "deep") {
-      deepSearch.mutate({
-        query: query.trim(),
-        max_iterations: maxIterations,
-        include_code: includeCode,
-      });
     } else {
       businessSearch.mutate({
         query: query.trim(),
@@ -60,30 +48,67 @@ export default function SearchPage() {
 
   const semanticMatches = semantic.data?.matches ?? [];
   const hybridResult = hybrid.data;
-  const error =
-    semantic.error || hybrid.error || deepSearch.error || businessSearch.error;
+  const error = semantic.error || hybrid.error || businessSearch.error;
 
   const placeholder =
-    mode === "deep"
-      ? t.search.deepPlaceholder
-      : mode === "business"
-        ? t.search.businessPlaceholder
-        : t.search.placeholder;
+    mode === "business" ? t.search.businessPlaceholder : t.search.placeholder;
 
-  const submitLabel = deepSearch.isPending
-    ? t.search.deepSearching
-    : isLoading
-      ? t.search.searching
-      : t.search.searchBtn;
+  const submitLabel = isLoading ? t.search.searching : t.search.searchBtn;
 
   const submitClass =
     mode === "semantic"
       ? "rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
       : mode === "hybrid"
         ? "rounded-lg bg-purple-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-purple-500 disabled:opacity-50"
-        : mode === "deep"
-          ? "rounded-lg bg-amber-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:opacity-50"
-          : "rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50";
+        : "rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50";
+
+  if (mode === "deep") {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-lg font-semibold text-gray-900">{t.search.title}</h2>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setMode("semantic")}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700"
+          >
+            <Search size={14} /> {t.search.semantic}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("hybrid")}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700"
+          >
+            <Zap size={14} /> {t.search.hybrid}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("deep")}
+            className="flex items-center gap-1.5 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-700"
+          >
+            <Brain size={14} /> {t.search.deep}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("business")}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700"
+          >
+            <Building2 size={14} /> {t.search.business}
+          </button>
+        </div>
+
+        <p className="text-xs text-gray-500">
+          {t.search.deepPageDesc}{" "}
+          <Link to="/deep-search" className="text-amber-700 underline hover:text-amber-800">
+            {t.nav.deepSearch}
+          </Link>
+        </p>
+
+        <DeepSearchSection showTitle={false} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -119,11 +144,7 @@ export default function SearchPage() {
           <button
             type="button"
             onClick={() => setMode("deep")}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              mode === "deep"
-                ? "bg-amber-100 text-amber-700"
-                : "text-gray-400 hover:text-gray-700"
-            }`}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700"
           >
             <Brain size={14} /> {t.search.deep}
           </button>
@@ -199,23 +220,6 @@ export default function SearchPage() {
               />
             </label>
           )}
-          {mode === "deep" && (
-            <label className="flex items-center gap-2 text-xs text-gray-500">
-              {t.search.maxIterations}
-              <input
-                type="number"
-                min={1}
-                max={5}
-                value={maxIterations}
-                onChange={(e) =>
-                  setMaxIterations(
-                    Math.min(5, Math.max(1, Number(e.target.value) || 3)),
-                  )
-                }
-                className="w-16 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
-              />
-            </label>
-          )}
           {mode === "business" && (
             <label className="flex items-center gap-2 text-xs text-gray-500">
               {t.search.searchType}
@@ -230,13 +234,13 @@ export default function SearchPage() {
               </select>
             </label>
           )}
-          {(mode === "deep" || mode === "business") && (
+          {mode === "business" && (
             <label className="flex cursor-pointer items-center gap-2 text-xs text-gray-500">
               <input
                 type="checkbox"
                 checked={includeCode}
                 onChange={(e) => setIncludeCode(e.target.checked)}
-                className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
               />
               {t.search.includeCode}
             </label>
@@ -284,73 +288,6 @@ export default function SearchPage() {
               <JsonView data={hybridResult.graph_context} />
             </div>
           )}
-        </div>
-      )}
-
-      {mode === "deep" && deepSearch.data && (
-        <div className="space-y-4">
-          {(deepSearch.data.error || deepSearch.data.sufficient === false) && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              {t.search.llmRequired}
-            </div>
-          )}
-          {deepSearch.data.analysis ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-5">
-              <h3 className="mb-2 text-sm font-medium text-gray-700">{t.search.analysis}</h3>
-              <div className="prose prose-sm max-w-none text-gray-600">
-                <MarkdownRenderer content={deepSearch.data.analysis} />
-              </div>
-            </div>
-          ) : !deepSearch.data.business_flows?.length &&
-            !deepSearch.data.code_locations?.length ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-5 text-sm text-gray-500">
-              {t.search.noAnalysis}
-            </div>
-          ) : null}
-          {deepSearch.data.business_flows?.length ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-5">
-              <h3 className="mb-3 text-sm font-medium text-gray-700">
-                {t.search.businessFlows} ({deepSearch.data.business_flows.length})
-              </h3>
-              <div className="space-y-2">
-                {deepSearch.data.business_flows.map((f, i) => (
-                  <div key={i} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                    <span className="font-medium text-gray-800">{f.name}</span>
-                    {f.impact && (
-                      <p className="mt-1 text-xs text-gray-500">{String(f.impact)}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          {deepSearch.data.code_locations?.length ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-5">
-              <h3 className="mb-3 text-sm font-medium text-gray-700">
-                {t.search.codeLocations} ({deepSearch.data.code_locations.length})
-              </h3>
-              <div className="space-y-2">
-                {deepSearch.data.code_locations.map((loc, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm"
-                  >
-                    {loc.function != null && (
-                      <code className="font-medium text-sky-700">{String(loc.function)}</code>
-                    )}
-                    {loc.file != null && (
-                      <span className="text-xs text-gray-400">{String(loc.file)}</span>
-                    )}
-                    {loc.relevance != null && (
-                      <span className="ml-auto text-xs text-gray-500">
-                        {String(loc.relevance)}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </div>
       )}
 

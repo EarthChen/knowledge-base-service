@@ -136,6 +136,13 @@ class IndexFilesRequest(BaseModel):
     repository: str | None = None
 
 
+class EnrichRequest(BaseModel):
+    """对已索引的 Function/Class 批量补全 business_summary（不重新解析代码）。"""
+
+    repository: str = Field(..., min_length=1, description="仓库名称")
+    force: bool = False
+
+
 class GraphExploreRequest(BaseModel):
     name: str = ""
     depth: int = Field(default=2, ge=1, le=5)
@@ -250,6 +257,7 @@ async def hybrid_search(
 async def deep_search(
     req: DeepSearchRequest,
     svc: KnowledgeBaseService = Depends(_get_service),
+    business_id: str = Depends(_get_effective_business_id),
 ) -> dict[str, Any]:
     if not svc.deep_search:
         raise HTTPException(
@@ -260,6 +268,7 @@ async def deep_search(
         req.query,
         max_iterations=req.max_iterations,
         include_code=req.include_code,
+        tenant_id=business_id,
     )
 
 
@@ -331,6 +340,76 @@ async def trigger_index(
         "mode": req.mode,
         "directory": req.directory,
     }
+
+
+@editor_router.post("/enrich")
+async def trigger_enrich(
+    req: EnrichRequest,
+    business_id: str = Depends(_get_effective_business_id),
+) -> dict[str, Any]:
+    """对已入库实体异步执行 LLM 业务摘要补全，可通过任务接口查询进度。"""
+    if _task_manager is None or _registry is None:
+        raise HTTPException(status_code=503, detail="服务未就绪")
+
+    task = _task_manager.create_task(
+        mode="enrich",
+        directory="",
+        repository=req.repository,
+        business_id=business_id,
+    )
+
+    asyncio.create_task(_run_enrich_task(task.task_id, req, business_id))
+
+    return {
+        "task_id": task.task_id,
+        "status": task.status,
+        "mode": "enrich",
+        "repository": req.repository,
+        "force": req.force,
+    }
+
+
+async def _run_enrich_task(task_id: str, req: EnrichRequest, business_id: str) -> None:
+    """后台执行仅摘要补全。"""
+    if _task_manager is None or _registry is None:
+        return
+
+    _task_manager.mark_running(task_id)
+    progress_cb = _task_manager.make_progress_callback(task_id)
+
+    try:
+        svc = await _registry.get_service(business_id)
+
+        if not svc.indexer.enrichment_available:
+            _task_manager.mark_failed(
+                task_id,
+                "未配置 LLM 或网关摘要能力，无法执行补全。请开启 LLM 并确保网关摘要可用。",
+            )
+            return
+
+        queries = GraphQueryRepository(svc.store)
+        entities = await queries.get_enrichable_entities(req.repository, req.force)
+
+        repo_id = f"enrich:{req.repository}"
+
+        enriched = await svc.indexer.enrich_only(
+            entities,
+            repo_id,
+            progress_callback=progress_cb,
+        )
+
+        _task_manager.mark_completed(
+            task_id,
+            {
+                "enriched": enriched,
+                "candidates": len(entities),
+                "repository": req.repository,
+                "force": req.force,
+            },
+        )
+    except Exception as exc:
+        log.error("enrich_task_failed", task_id=task_id, error=str(exc))
+        _task_manager.mark_failed(task_id, str(exc))
 
 
 async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> None:
@@ -1036,7 +1115,18 @@ async def migrate_to_relative_paths(
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _INDEX_HTML = _STATIC_DIR / "index.html"
 
-_SPA_ROUTES = {"search", "graph", "explorer", "repositories", "indexing", "settings", "businesses", "documents", "sync"}
+_SPA_ROUTES = {
+    "search",
+    "deep-search",
+    "graph",
+    "explorer",
+    "repositories",
+    "indexing",
+    "settings",
+    "businesses",
+    "documents",
+    "sync",
+}
 
 
 def create_app() -> FastAPI:

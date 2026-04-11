@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "./client";
+import { api, getCurrentBusiness, triggerEnrich } from "./client";
 import type {
   Business,
   BusinessesResponse,
@@ -17,6 +17,8 @@ import type {
   DocumentDetail,
   DeepSearchResponse,
   BusinessSearchResponse,
+  EnrichRequest,
+  TaskInfo,
 } from "./types";
 
 export function useHealth() {
@@ -97,6 +99,16 @@ export function useIndex() {
   return useMutation<IndexResponse, Error, Record<string, unknown>>({
     mutationFn: (body) =>
       api("/index", { method: "POST", body: JSON.stringify(body) }),
+  });
+}
+
+export function useEnrich() {
+  const qc = useQueryClient();
+  return useMutation<TaskInfo, Error, EnrichRequest>({
+    mutationFn: (body) => triggerEnrich(getCurrentBusiness(), body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["index-tasks"] });
+    },
   });
 }
 

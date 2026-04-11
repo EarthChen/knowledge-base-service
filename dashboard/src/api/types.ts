@@ -81,12 +81,32 @@ export interface IndexResponse {
   [key: string]: unknown;
 }
 
+/** POST /enrich 请求体 */
+export interface EnrichRequest {
+  repository: string;
+  force?: boolean;
+}
+
+/** 触发索引/补全类任务后的通用任务信息（含 enrich） */
+export interface TaskInfo {
+  task_id: string;
+  status: string;
+  mode: string;
+  repository?: string;
+  force?: boolean;
+  directory?: string;
+}
+
 export interface IndexTaskProgress {
   phase: string;
   total_files: number;
   processed_files: number;
   current_file: string;
   stats: Record<string, number>;
+  /** 服务端 LLM 增强模式：gateway | direct | 空 */
+  enrichment_backend?: string;
+  /** 当前任务已写入 business_summary 的实体数（进度或最终结果） */
+  enriched_count?: number;
 }
 
 export interface IndexTask {
@@ -203,5 +223,6 @@ export interface DeepSearchResponse {
   }>;
   sufficient?: boolean;
   error?: boolean;
+  search_trace?: Array<Record<string, unknown>>;
   [key: string]: unknown;
 }

@@ -19,6 +19,9 @@ class IndexProgress:
     processed_files: int = 0
     current_file: str = ""
     stats: dict[str, int] = field(default_factory=dict)
+    # LLM enrichment: "gateway" (ACP 网关) | "direct" (直连 LLM) | "" (未启用)
+    enrichment_backend: str = ""
+    enriched_count: int = 0
 
 
 @dataclass
@@ -53,6 +56,8 @@ class IndexTask:
                 "processed_files": self.progress.processed_files,
                 "current_file": self.progress.current_file,
                 "stats": dict(self.progress.stats),
+                "enrichment_backend": self.progress.enrichment_backend,
+                "enriched_count": self.progress.enriched_count,
             },
             "result": self.result,
             "error": self.error,
@@ -97,6 +102,8 @@ class IndexTaskManager:
             current_file: str = "",
             total_files: int = 0,
             processed_files: int = 0,
+            enrichment_backend: str = "",
+            enriched_count: int | None = None,
             **stats: int,
         ) -> None:
             task = self._tasks.get(task_id)
@@ -110,6 +117,10 @@ class IndexTaskManager:
                 task.progress.total_files = total_files
             if processed_files > 0:
                 task.progress.processed_files = processed_files
+            if enrichment_backend:
+                task.progress.enrichment_backend = enrichment_backend
+            if enriched_count is not None:
+                task.progress.enriched_count = enriched_count
             if stats:
                 task.progress.stats.update(stats)
         return callback

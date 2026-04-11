@@ -138,6 +138,40 @@ class GraphQueryRepository:
         )
         return result.data[0] if result.data else None
 
+    async def get_enrichable_entities(
+        self, repository: str | None, force: bool,
+    ) -> list[dict[str, Any]]:
+        """查询待 LLM 摘要的 Function/Class 行（可选仓库；force 为假时仅缺 business_summary）。"""
+        if force:
+            missing_filter = ""
+        else:
+            missing_filter = (
+                "AND (NOT exists(n.business_summary) OR n.business_summary = '')"
+            )
+
+        if repository:
+            cypher = (
+                "MATCH (n) "
+                "WHERE (n:Function OR n:Class) AND n.repository = $repo "
+                f"{missing_filter} "
+                "RETURN n.name AS name, coalesce(n.signature, '') AS signature, "
+                "coalesce(n.docstring, '') AS docstring, coalesce(n.code_snippet, '') AS code_snippet, "
+                "coalesce(n.file, '') AS file, labels(n)[0] AS label, n.uid AS uid"
+            )
+            params: dict[str, Any] = {"repo": repository}
+        else:
+            cypher = (
+                "MATCH (n) "
+                f"WHERE (n:Function OR n:Class) {missing_filter} "
+                "RETURN n.name AS name, coalesce(n.signature, '') AS signature, "
+                "coalesce(n.docstring, '') AS docstring, coalesce(n.code_snippet, '') AS code_snippet, "
+                "coalesce(n.file, '') AS file, labels(n)[0] AS label, n.uid AS uid"
+            )
+            params = {}
+
+        result = await self._store.execute_query(cypher, params)
+        return result.data
+
     # ── Graph exploration ───────────────────────────────────────
 
     async def explore_overview(self, limit: int) -> QueryResultWrapper:

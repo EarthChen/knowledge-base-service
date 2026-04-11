@@ -20,7 +20,7 @@
 
 | 配置 | 作用 |
 |------|------|
-| `LLM__ENABLED` / `LLM__BASE_URL` / `LLM__API_KEY` / `LLM__MODEL` | 开启后：索引阶段可写入 `business_summary`、业务流程 / 概念节点；Dashboard 可使用 `POST /api/v1/deep-search`。 |
+| `LLM__ENABLED` / `LLM__BASE_URL` / `LLM__API_KEY` / `LLM__MODEL` | 开启后：索引阶段可写入 `business_summary`、业务流程 / 概念节点；Dashboard 可使用 `POST /api/v1/deep-search`。另设 **`LLM__GATEWAY__ENABLED=true`** 时，WS/HTTP 可从 `LLM__BASE_URL` 自动推导；可用 **`LLM__GATEWAY__ENRICHMENT_ENABLED`** 单独关闭索引内摘要以提速。网关侧**复用按仓库的 ACP 任务**（键 `enrich:{repo_name}`；全量时为解析与摘要并发流水线），深度搜索可选复用每租户任务（`search:{tenant_id}`）。对已入库数据仅补摘要时可调用 **`POST /api/v1/enrich`**（与索引任务共用任务查询接口）。详见 [README § 配置](../README.md#配置) 中的「ACP Gateway 反馈模式」小节。 |
 | `RERANK__ENABLED` / `RERANK__MODEL_NAME` | 开启后：混合检索结果经 `BAAI/bge-reranker-v2-m3` 精排（CPU/GPU 由服务端决定）。 |
 
 详细变量说明见 [README.md § 配置](../README.md#配置)。完整设计见 [语义搜索增强规格](./superpowers/specs/2026-04-10-semantic-search-enhancement-design.md)。

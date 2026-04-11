@@ -32,6 +32,46 @@
 
 ### 索引管道流程
 
+**全量索引（`index_full`）**在启用 LLM 且 **`LLM__GATEWAY__ENABLED=true`**（显式开启 ACP Gateway 反馈模式）时，采用**解析与业务摘要并发的流水线**，缩短总耗时：
+
+1. **解析生产者**：`CodeGraphBuilder.iter_directory` 逐文件解析，`batch_upsert` 写入图；同时将 Function/Class 实体按批（默认每批 **50** 个）放入 `asyncio.Queue`。
+2. **摘要消费者**：后台任务通过 `RepoTaskManager.enrich_stream`（或回退到 `GatewayTaskClient.enrich_stream`）从队列读取批次，在**单次 ACP 反馈循环**中分批处理；与解析**同时进行**。
+3. **回写摘要**：流水线结束后，将 `business_summary` 写回图中对应节点。
+4. **向量阶段**：在摘要完成后，**按文件**从图库读取节点（`get_nodes_by_file`），用 bge-m3 生成嵌入并写回（解析阶段不再阻塞于整库向量化）。
+
+**增量索引（`index_incremental`）**仍为先收集变更文件的实体列表，再经 `_enrich_from_items` 调用 `RepoTaskManager.enrich`（内部同样走队列 + 反馈循环，但**非**与解析并发的流式管线），随后按文件 `get_nodes_by_file` 做嵌入。
+
+**轻量实体过滤（提速）**：对明显无需业务语义的符号跳过 LLM enrichment，显著减少调用次数——包括 getter/setter/常见访问器命名、构造函数，以及**有效代码行数 ≤4** 的小函数。送入模型的提示也更短：业务摘要上限 **100** 字（原 200）、docstring 截断 **200** 字符、代码片段最多 **10** 行。
+
+**仓库级任务复用（`RepoTaskManager`）**：索引 enrichment 在内部使用键 **`enrich:{repo_name}`**（`repo_name` 为索引进程从目录路径取的最后一段，通常即仓库目录名）；每个键对应**一个**持久 ACP 会话，多次全量/增量索引复用同一任务，每轮结束后进入 **standby**，由后台任务按 **`LLM__GATEWAY__IDLE_TIMEOUT`**（默认 3600 秒，最小 60）关闭闲置连接。底层 `_RepoTask` 持有 WebSocket、`session_id`、`task_id` 等状态。反馈循环的核心实现为 `GatewayTaskClient._run_feedback_loop`，由 `enrich_batch` 与 `enrich_stream` 共用。
+
+**Gateway 反馈 HTTP 与 409**：`GatewayTaskClient` 与 `RepoTaskManager` 在 `_submit_feedback` 中对 **`httpx.HTTPStatusError`（含 409 Conflict）** 统一处理：若 **standby** 阶段提交失败则**驱逐**该持久任务，下次使用会新建会话；若在**批间循环**中失败则**中止循环**并返回已得到的**部分**摘要结果，避免僵死等待。
+
+**Dashboard 深度搜索与任务键**：`DeepSearchEngine` 在 Gateway 启用且请求携带业务上下文（`business_id`）时，通过同一 `RepoTaskManager` 对规划与汇总步骤调用 `prompt`，键为 **`search:{tenant_id}`**（与 `business_id` 一致），每租户一个持久任务，同样 standby + 空闲回收。若 Gateway 未启用、无租户上下文或 Gateway 调用失败，则回退到 **`LLMProvider` 直连**。`enrich:` 与 `search:` 前缀避免两类任务在同一 `_tasks` 映射中冲突。
+
+```mermaid
+flowchart TB
+    subgraph full["全量 index_full（LLM + Gateway）"]
+        P[目录遍历解析 + batch_upsert] --> Q((asyncio.Queue<br/>批次 ≤50 实体))
+        P -.->|并发| E[enrich_stream<br/>反馈循环]
+        Q --> E
+        E --> GW[ACP Gateway<br/>单任务 / 多轮 feedback]
+        GW --> E
+        E --> W[回写 business_summary]
+        W --> F[按文件 get_nodes_by_file]
+        F --> V[bge-m3 嵌入]
+    end
+
+    subgraph inc["增量 index_incremental"]
+        G[git diff 变更文件] --> U[upsert 图]
+        U --> R["_enrich_from_items<br/>RepoTaskManager.enrich"]
+        R --> W2[回写 business_summary]
+        W2 --> F2[按文件嵌入]
+    end
+```
+
+下图保留**概念级**步骤（未区分流水线细节），便于与文档/ Dashboard 说明对照：
+
 ```mermaid
 graph TD
     A[源码目录] -->|扫描文件| B[Tree-sitter AST 解析]
@@ -39,9 +79,10 @@ graph TD
     A -->|扫描 .md/.rst| D[文档解析<br/>标题/章节/代码引用]
     C --> E[批量写入 FalkorDB]
     D --> E
-    E --> F[向量嵌入生成<br/>bge-m3]
-    F --> G[向量写入节点]
-    G --> H[✅ 索引完成]
+    E --> F[LLM 业务摘要可选<br/>全量时为队列流水线]
+    F --> G[向量嵌入生成<br/>bge-m3 按文件从图读取]
+    G --> H[向量写入节点]
+    H --> I[✅ 索引完成]
 ```
 
 ## 快速开始
@@ -99,7 +140,7 @@ uv run pytest
 - **搜索** — 语义搜索 + 混合搜索（向量 + 图扩展）
 - **图查询** — 多种查询类型（含代码结构类与业务流程类）的动态表单
 - **仓库管理** — 已索引仓库列表 + 删除操作
-- **索引** — 触发全量/增量索引
+- **索引** — 触发全量/增量索引；**业务摘要补全**（对已入库仓库仅跑 LLM `business_summary`，不重新解析代码）：仓库从已索引列表选择、可选强制重生成、进度与 `POST /api/v1/index` 相同任务体系（`GET /api/v1/index/tasks/{task_id}`）
 - **设置** — 语言切换、API Token、服务信息
 
 访问：开发模式 http://localhost:5173 | 生产模式 http://localhost:8100
@@ -139,8 +180,8 @@ curl -X POST http://localhost:8100/api/v1/index \
 1. 递归扫描目录中所有支持的源码文件
 2. 使用 Tree-sitter 解析每个文件的 AST（函数、类、导入、调用关系）
 3. 扫描 `.md`/`.rst` 文档，提取标题、章节和代码引用
-4. 将解析结果构建为属性图（节点 + 边）并写入 FalkorDB
-5. 使用 bge-m3 为所有 Function、Class、Document 节点生成向量嵌入
+4. 将解析结果构建为属性图（节点 + 边）并写入 FalkorDB；若启用 LLM 且 **`LLM__GATEWAY__ENABLED=true`**，解析与**分批业务摘要（`enrich_stream`）并发执行**
+5. 摘要写回后，按文件从图中取出节点，使用 bge-m3 为 Function、Class、Document 等生成向量嵌入
 6. 将向量写入节点的 `embedding` 属性
 
 > **耗时**: 首次索引根据仓库大小可能需要数分钟（主要耗时在模型加载和向量生成）。后续增量索引通常在秒级完成。
@@ -481,7 +522,7 @@ curl http://localhost:8100/api/v1/code/<node_uid>
 | **业务图谱** | 从调用链与文档推断 `BusinessFlow`、`BusinessConcept` 节点，以及 `IMPLEMENTS`、`RELATES_TO`、`PART_OF`、`CONCEPT_IN` 等边 |
 | **六类向量检索** | 除 Function / Class / Document 外，增加 BusinessFlow、BusinessConcept、Module 的向量索引（与 bge-m3 维度一致） |
 | **重排序** | 可选启用 `BAAI/bge-reranker-v2-m3`，在混合检索融合后对候选结果精排 |
-| **Dashboard 深度搜索** | `POST /api/v1/deep-search` 在服务端用 LLM 拆解查询、多轮调用混合搜索与图查询并汇总（需配置 LLM；未配置时返回 501） |
+| **Dashboard 深度搜索** | `POST /api/v1/deep-search` 在服务端用 LLM 拆解查询、多轮调用混合搜索与图查询并汇总（需配置 LLM；未配置时返回 501）。启用 **`LLM__GATEWAY__ENABLED`** 且请求带 `business_id` 时，规划/汇总可走 Gateway 上每租户复用的 ACP 任务（`search:{tenant_id}`），否则走直连 LLM |
 
 面向 HTTP / Agent 的业务语义查询还可使用 **`POST /api/v1/business/search`**：按 `search_type`（`flow` / `concept` / `all`）检索业务流程与业务概念，行为与 MCP 工具 `rag_business_search` 一致。
 
@@ -796,16 +837,41 @@ Agent 可通过 MCP 协议直接调用工具：
 
 ### LLM（OpenAI 兼容协议，可选）
 
-用于索引阶段摘要 / 流程推断 / 概念提取，以及 Dashboard `deep-search`。`base_url` 可指向 OpenAI 或 **acp-gateway** 等兼容网关。
+用于索引阶段摘要 / 流程推断 / 概念提取，以及 Dashboard `deep-search`。`LLM__BASE_URL` 为 OpenAI 兼容 HTTP API 根路径（直连 OpenAI、自建兼容服务或 Gateway 暴露的 OpenAI 兼容前缀均可）。
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `LLM__ENABLED` | 是否启用 LLM 能力 | `false` |
 | `LLM__BASE_URL` | API 根路径（如 `https://api.openai.com/v1`） | `https://api.openai.com/v1` |
-| `LLM__API_KEY` | API Key | （空） |
+| `LLM__API_KEY` | API Key（Gateway 模式下一并用于 WebSocket/反馈 HTTP） | （空） |
 | `LLM__MODEL` | 索引 enrichment 等使用的模型 | `gpt-4o-mini` |
 
 其他字段见 `config.py` 中 `LLMConfig`（如 `LLM__DEEP_SEARCH_MODEL`、`LLM__MAX_CONCURRENT`、`LLM__TIMEOUT` 等）。
+
+#### ACP Gateway 反馈模式（可选）
+
+是否走 Gateway 由 **`LLM__GATEWAY__ENABLED`** 决定，**不再**根据 URL 模式猜测。`LLM__GATEWAY__WS_URL` / `LLM__GATEWAY__HTTP_URL` 若留空，会按 `LLM__BASE_URL` **自动推导**（例如 `http://host:9090/v1` → HTTP 根 `http://host:9090`，WebSocket `ws://host:9090/acp/v1/connect`）。若 OpenAI 兼容 HTTP 与 Gateway **不在同一主机/端口**，请仍显式填写上述两项。**`LLM__GATEWAY__ENRICHMENT_ENABLED`** 可单独关闭索引阶段的 `business_summary` 生成（索引更快）；关闭后仍可用 **`POST /api/v1/enrich`** 或 Dashboard「业务摘要补全」在需要时补数据；Gateway 仍可服务于深度搜索等能力（视其它配置而定）。
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `LLM__GATEWAY__ENABLED` | 是否启用 Gateway 模式（`GatewayTaskClient` + `RepoTaskManager`） | `false` |
+| `LLM__GATEWAY__ENRICHMENT_ENABLED` | 是否在索引管线中执行 LLM enrichment（`business_summary`） | `true` |
+| `LLM__GATEWAY__WS_URL` | WebSocket 地址；空则按 `LLM__BASE_URL` 推导 | （空，自动推导） |
+| `LLM__GATEWAY__HTTP_URL` | 反馈 API 的 HTTP 根 URL；空则按 `LLM__BASE_URL` 推导 | （空，自动推导） |
+| `LLM__GATEWAY__IDLE_TIMEOUT` | 任务空闲多少秒后关闭连接（秒，最小 60） | `3600` |
+
+示例：
+
+```bash
+LLM__ENABLED=true
+LLM__GATEWAY__ENABLED=true
+# 可与 LLM__BASE_URL 指向同一 Gateway OpenAI 前缀，通常无需再写 WS/HTTP
+LLM__BASE_URL=http://localhost:9090/v1
+LLM__GATEWAY__IDLE_TIMEOUT=3600
+# LLM__API_KEY / LLM__MODEL 仍用于 OpenAI 兼容 HTTP 与 Gateway 认证
+```
+
+当 `LLM__GATEWAY__ENABLED=true` 时，服务会构造 `GatewayTaskClient` 与 **`RepoTaskManager`**：`KnowledgeBaseService.start()` 会启动后台清理循环，`stop()` 时关闭所有任务与 HTTP 客户端。索引侧每轮反馈最多 **50** 个实体（`_MAX_ENTITIES_PER_ROUND`），全量流水线队列每批 **50**（`_ENRICH_BATCH_SIZE`）；批大小为固定常量，**不再**通过已移除的 `enrichment_batch_size` 配置项暴露。
 
 ### Cross-encoder 重排序（可选）
 
@@ -880,6 +946,7 @@ Function / Class 可含 **`business_summary`**（LLM 生成的业务描述）；
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/v1/index` | 触发目录级代码和文档索引（异步任务，见下） |
+| POST | `/api/v1/enrich` | 仅对已索引实体跑 LLM 业务摘要补全（异步任务，见下） |
 | GET | `/api/v1/index/tasks` | 列出后台索引任务 |
 | GET | `/api/v1/index/tasks/{task_id}` | 查询单个索引任务状态与结果 |
 | POST | `/api/v1/index/files` | 直接传入文件内容索引（无需本地目录） |
@@ -909,6 +976,24 @@ Function / Class 可含 **`business_summary`**（LLM 生成的业务描述）；
 | `repository` | string | 否 | 仓库标识（用于多仓库命名空间隔离） |
 
 **响应**：立即返回 JSON，包含 `task_id`、`status`（初始多为 `pending`）、`mode`、`directory`。实际索引进度与完成后的统计在后台执行；请使用 `GET /api/v1/index/tasks` 或 `GET /api/v1/index/tasks/{task_id}` 轮询。
+
+#### POST /api/v1/enrich — 仅摘要补全（不重新索引）
+
+对已入库的 Function/Class 等实体异步执行 LLM `business_summary` 写入，**不**重新解析源码、**不**重建向量。适用于：曾关闭 enrichment 后补历史、更换摘要模型后重跑、或修补缺失摘要。
+
+```json
+{
+  "repository": "my-project",
+  "force": false
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `repository` | string | 是 | 仓库标识，非空 |
+| `force` | boolean | 否 | 默认 `false`；为 `true` 时对已有 `business_summary` 的实体也重新生成 |
+
+**响应**：立即返回 `task_id`、`status`、`mode`（`enrich`）、`repository`、`force`。进度与结果字段与目录索引任务相同，请用 **`GET /api/v1/index/tasks/{task_id}`** 轮询（`result` 中含 `enriched`、`candidates` 等）。
 
 #### POST /api/v1/index/files — 文件内容索引
 
@@ -1113,10 +1198,11 @@ knowledge-base-service/
 │   ├── business_flow_inferencer.py  # 业务流程推断
 │   └── concept_extractor.py    # 文档概念提取
 ├── llm/
-│   └── provider.py             # OpenAI 兼容 LLM 客户端（可接 acp-gateway）
+│   ├── provider.py             # OpenAI 兼容 LLM 客户端
+│   └── gateway_client.py       # GatewayTaskClient（反馈循环）/ RepoTaskManager（enrich:* / search:* 键复用 ACP 任务）
 ├── store/
 │   ├── schema.py               # 节点/边类型定义
-│   ├── falkordb_store.py       # FalkorDB 异步封装（Cypher + 向量）
+│   ├── falkordb_store.py       # FalkorDB 异步封装（Cypher + 向量；含按文件取节点 get_nodes_by_file）
 │   └── business_manager.py     # 业务元数据管理（Redis）
 ├── query/
 │   ├── graph_query.py          # Cypher 图遍历查询

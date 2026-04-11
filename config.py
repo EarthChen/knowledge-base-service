@@ -62,6 +62,29 @@ class EmbeddingConfig(BaseModel):
         return "onnx"
 
 
+class GatewayConfig(BaseModel):
+    """Configuration for ACP Gateway feedback-loop mode.
+
+    When enabled, LLM enrichment and optionally deep search use
+    the ACP Gateway's WebSocket + feedback mechanism, allowing
+    task reuse across indexing operations (one task = one billing unit).
+
+    ``ws_url`` and ``http_url`` are auto-derived from
+    ``LLMConfig.base_url`` when left empty, so typically only
+    ``enabled = true`` needs to be set.
+
+    ``enrichment_enabled`` controls whether indexing generates LLM
+    ``business_summary`` fields (gateway or direct). When false, indexing
+    skips enrichment for faster runs; gateway may still be used for deep search.
+    """
+
+    enabled: bool = False
+    enrichment_enabled: bool = True
+    ws_url: str = ""
+    http_url: str = ""
+    idle_timeout: int = Field(default=3600, ge=60)
+
+
 class LLMConfig(BaseModel):
     """Configuration for LLM provider (OpenAI-compatible protocol)."""
 
@@ -74,6 +97,28 @@ class LLMConfig(BaseModel):
     timeout: int = 30
     retry_count: int = 3
     temperature: float = 0.1
+    gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+
+    def resolve_gateway_urls(self) -> tuple[str, str]:
+        """Return ``(ws_url, http_url)`` for gateway connections.
+
+        Auto-derives from ``base_url`` when the gateway fields are empty.
+        E.g. ``http://localhost:9090/v1`` → ws ``ws://localhost:9090/acp/v1/connect``
+        and http ``http://localhost:9090``.
+        """
+        gw = self.gateway
+
+        if gw.http_url:
+            http_url = gw.http_url.rstrip("/")
+        else:
+            http_url = self.base_url.rsplit("/v1", 1)[0].rstrip("/")
+
+        if gw.ws_url:
+            ws_url = gw.ws_url
+        else:
+            ws_url = f"ws{http_url.removeprefix('http')}/acp/v1/connect"
+
+        return ws_url, http_url
 
 
 class RerankConfig(BaseModel):

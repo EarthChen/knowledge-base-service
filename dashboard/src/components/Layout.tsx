@@ -3,6 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import {
   LayoutDashboard,
   Search,
+  Brain,
   GitFork,
   Network,
   FolderGit2,
@@ -33,6 +34,7 @@ export default function Layout() {
   const NAV = [
     { to: "/", icon: LayoutDashboard, label: t.nav.overview },
     { to: "/search", icon: Search, label: t.nav.search },
+    { to: "/deep-search", icon: Brain, label: t.nav.deepSearch },
     { to: "/graph", icon: GitFork, label: t.nav.graphQuery },
     { to: "/explorer", icon: Network, label: t.nav.explorer },
     { to: "/repositories", icon: FolderGit2, label: t.nav.repositories },

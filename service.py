@@ -55,31 +55,50 @@ class KnowledgeBaseService:
         self._llm_provider = None
         self._enricher = None
         self._gateway_client = None
+        self._repo_task_mgr = None
         if settings.llm.enabled:
-            from indexer.enrichment import CodeSummaryEnricher
             from llm.provider import LLMProvider
 
             self._llm_provider = LLMProvider(settings.llm)
 
             gateway_client = None
-            if settings.llm.base_url.rstrip("/").endswith(":9090/v1"):
-                from llm.gateway_client import GatewayTaskClient
+            if settings.llm.gateway.enabled:
+                from llm.gateway_client import GatewayTaskClient, RepoTaskManager
 
-                gw_base = settings.llm.base_url.rsplit("/v1", 1)[0]
+                ws_url, http_url = settings.llm.resolve_gateway_urls()
+
                 gateway_client = GatewayTaskClient(
-                    gateway_ws_url=f"ws{gw_base.removeprefix('http')}/acp/v1/connect",
-                    gateway_http_url=gw_base,
+                    gateway_ws_url=ws_url,
+                    gateway_http_url=http_url,
                     api_key=settings.llm.api_key,
                     model=settings.llm.model,
                     timeout=settings.llm.timeout,
                 )
                 self._gateway_client = gateway_client
-                log.info("gateway_task_client_enabled", base=gw_base)
 
-            self._enricher = CodeSummaryEnricher(
-                llm=self._llm_provider,
-                gateway_client=gateway_client,
+                self._repo_task_mgr = RepoTaskManager(
+                    gateway_ws_url=ws_url,
+                    gateway_http_url=http_url,
+                    api_key=settings.llm.api_key,
+                    model=settings.llm.model,
+                    idle_timeout=settings.llm.gateway.idle_timeout,
+                    response_timeout=settings.llm.timeout,
+                )
+                log.info("repo_task_manager_enabled", ws_url=ws_url, http_url=http_url)
+
+            indexing_enrichment_on = (
+                not settings.llm.gateway.enabled or settings.llm.gateway.enrichment_enabled
             )
+            if indexing_enrichment_on:
+                from indexer.enrichment import CodeSummaryEnricher
+
+                self._enricher = CodeSummaryEnricher(
+                    llm=self._llm_provider,
+                    gateway_client=gateway_client,
+                )
+            else:
+                self._enricher = None
+                log.info("indexing_enrichment_disabled", gateway_enrichment_flag=False)
 
         self._parser = TreeSitterParser(supported_languages=settings.supported_languages)
         self._graph_builder = CodeGraphBuilder(
@@ -93,6 +112,7 @@ class KnowledgeBaseService:
             embedding_gen=self._embedding,
             doc_indexer=self._doc_indexer,
             enricher=self._enricher,
+            repo_task_manager=self._repo_task_mgr,
         )
 
         self._graph_query = GraphQueryService(store=self._store)
@@ -126,15 +146,20 @@ class KnowledgeBaseService:
                 llm=self._llm_provider,
                 hybrid_svc=self._hybrid_query,
                 graph_svc=self._graph_query,
+                task_manager=self._repo_task_mgr,
             )
 
     async def start(self) -> None:
         log.info("knowledge_base_starting")
         await self._store.connect()
+        if self._repo_task_mgr is not None:
+            await self._repo_task_mgr.start()
         log.info("knowledge_base_started")
 
     async def stop(self) -> None:
         log.info("knowledge_base_stopping")
+        if self._repo_task_mgr is not None:
+            await self._repo_task_mgr.close_all()
         if self._gateway_client is not None:
             await self._gateway_client.close()
         await self._store.close()

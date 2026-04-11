@@ -8,6 +8,7 @@ export interface Translations {
   nav: {
     overview: string;
     search: string;
+    deepSearch: string;
     graphQuery: string;
     explorer: string;
     repositories: string;
@@ -80,6 +81,10 @@ export interface Translations {
     aliases: string;
     noAnalysis: string;
     deepSearching: string;
+    deepPageTitle: string;
+    deepPageDesc: string;
+    searchTrace: string;
+    searchTraceHint: string;
   };
   graph: {
     title: string;
@@ -163,9 +168,25 @@ export interface Translations {
     phaseDocs: string;
     phaseRefs: string;
     phaseComplete: string;
+    phaseIndexingEnriching: string;
+    phaseEnriching: string;
+    phaseEmbedding: string;
+    enrichmentMode: string;
+    enrichmentGateway: string;
+    enrichmentDirect: string;
+    enrichmentDisabled: string;
+    entitiesEnriched: string;
     recentTasks: string;
     noTasks: string;
     viewDetails: string;
+    enrichTitle: string;
+    enrichDesc: string;
+    enrichForce: string;
+    enrichTrigger: string;
+    enrichRepository: string;
+    enrichRepositoryRequired: string;
+    enrichManualHint: string;
+    enrichComplete: string;
   };
   explorer: {
     title: string;

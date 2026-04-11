@@ -4,7 +4,7 @@
 
 **Goal:** 为 knowledge-base-service 构建多层次业务语义搜索体系，包含 LLM 代码 enrichment、业务流程图谱、搜索引擎增强和 Dashboard LLM 增强搜索。
 
-**Architecture:** 在现有 FalkorDB 图数据库上扩展业务语义层（BusinessFlow、BusinessConcept 节点），通过 LLM enrichment pipeline 自动生成业务摘要和流程关联，搜索引擎增加 cross-encoder reranking 和 6 类向量搜索，Dashboard 提供 LLM 增强的深度搜索。
+**Architecture:** 在现有 FalkorDB 图数据库上扩展业务语义层（BusinessFlow、BusinessConcept 节点），通过 LLM enrichment pipeline 自动生成业务摘要和流程关联；在 **`LLM__GATEWAY__ENABLED=true`** 时 **`RepoTaskManager` + `enrich_stream`**（键 `enrich:{repo_name}`）实现全量索引下解析与摘要并发及按仓库任务复用；Dashboard 深度搜索可选经同一管理器（`search:{tenant_id}`）复用 ACP 任务。搜索引擎增加 cross-encoder reranking 和 6 类向量搜索，Dashboard 提供 LLM 增强的深度搜索。
 
 **Tech Stack:** Python 3.12+, FastAPI, FalkorDB, BAAI/bge-m3 (embedding), BAAI/bge-reranker-v2-m3 (reranking), OpenAI-compatible LLM API, httpx (async HTTP), tenacity (retry)
 
@@ -40,12 +40,13 @@
 | `store/schema.py` | 新增 `BUSINESS_FLOW`, `BUSINESS_CONCEPT` NodeLabel 和 4 种 EdgeType |
 | `store/falkordb_store.py` | 新增向量索引配置，支持新节点类型的 CRUD |
 | `indexer/embedding_generator.py` | 修改 `_format_code_text` 支持 business_summary 优先 |
-| `indexer/incremental_indexer.py` | 集成 enrichment 流程，全量/增量索引时触发 |
+| `indexer/incremental_indexer.py` | 集成 enrichment；全量流水线 + 增量 `_enrich_from_items`；按文件嵌入 |
+| `llm/gateway_client.py` | `GatewayTaskClient` / `RepoTaskManager`、`_run_feedback_loop`、`enrich_stream` |
 | `query/semantic_query.py` | 扩展 `search_all` 支持 6 类向量搜索 |
 | `query/graph_query.py` | 新增业务流程查询方法 |
 | `query/hybrid_query.py` | 集成 reranking，扩展图扩展含业务流程上下文 |
 | `api/mcp_server.py` | 扩展 MCP_TOOLS_MANIFEST，新增 rag_business_search 工具 |
-| `service.py` | 注入新组件（LLMProvider, Reranker, DeepSearchEngine） |
+| `service.py` | 注入新组件（LLMProvider, `RepoTaskManager`/`GatewayTaskClient`、Reranker、DeepSearchEngine） |
 | `main.py` | 新增 `/api/v1/deep-search` 路由，新增 `/api/v1/business/search` 路由 |
 
 ---

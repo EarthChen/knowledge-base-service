@@ -3,6 +3,7 @@ import Layout from "./components/Layout";
 import { ToastProvider } from "./components/Toast";
 import Overview from "./pages/Overview";
 import SearchPage from "./pages/SearchPage";
+import DeepSearchPage from "./pages/DeepSearchPage";
 import GraphQuery from "./pages/GraphQuery";
 import GraphExplorer from "./pages/GraphExplorer";
 import Repositories from "./pages/Repositories";
@@ -18,6 +19,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route index element={<Overview />} />
           <Route path="search" element={<SearchPage />} />
+          <Route path="deep-search" element={<DeepSearchPage />} />
           <Route path="graph" element={<GraphQuery />} />
           <Route path="explorer" element={<GraphExplorer />} />
           <Route path="repositories" element={<Repositories />} />

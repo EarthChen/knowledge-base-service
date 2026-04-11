@@ -1,4 +1,11 @@
-"""Code summary enrichment — generates business_summary via LLM."""
+"""Code summary enrichment — generates business_summary via LLM.
+
+Supports two backends:
+- **OpenAI compat** (``LLMProvider``): one HTTP request per entity,
+  each consuming a separate ACP task.
+- **Gateway task** (``GatewayTaskClient``): one ACP task for the entire
+  batch, driven through the feedback-tool loop.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +15,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from llm.gateway_client import GatewayTaskClient
     from llm.provider import LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -28,15 +36,48 @@ _SUMMARY_PROMPT = """你是一个代码分析专家。请为以下代码生成�
 
 
 class CodeSummaryEnricher:
-    """Batch-generates business summaries for code entities using LLM."""
+    """Batch-generates business summaries for code entities using LLM.
 
-    def __init__(self, llm: LLMProvider) -> None:
+    When *gateway_client* is provided it takes precedence over *llm*,
+    processing the entire batch inside a single ACP task via the
+    feedback-tool loop (= one Cursor task for all entities).
+    """
+
+    def __init__(
+        self,
+        llm: LLMProvider | None = None,
+        gateway_client: GatewayTaskClient | None = None,
+    ) -> None:
         self._llm = llm
+        self._gw = gateway_client
 
     async def enrich_batch(self, items: list[dict[str, str]]) -> list[str]:
-        """Generate business_summary for each item. Returns list of summaries (same order as input).
-        On LLM failure, returns empty string for that item.
-        """
+        """Generate business_summary for each item (same order as input)."""
+        if self._gw is not None:
+            return await self._enrich_via_gateway(items)
+        if self._llm is not None:
+            return await self._enrich_via_llm(items)
+        logger.warning("No LLM backend configured — skipping enrichment")
+        return [""] * len(items)
+
+    # ------------------------------------------------------------------
+    # Gateway task mode — one task for the whole batch
+    # ------------------------------------------------------------------
+
+    async def _enrich_via_gateway(self, items: list[dict[str, str]]) -> list[str]:
+        try:
+            return await self._gw.enrich_batch(items)  # type: ignore[union-attr]
+        except Exception:
+            logger.exception("Gateway task enrichment failed, falling back to per-item LLM")
+            if self._llm is not None:
+                return await self._enrich_via_llm(items)
+            return [""] * len(items)
+
+    # ------------------------------------------------------------------
+    # Legacy per-item LLM mode
+    # ------------------------------------------------------------------
+
+    async def _enrich_via_llm(self, items: list[dict[str, str]]) -> list[str]:
         results: list[str] = [""] * len(items)
         groups: dict[str, list[tuple[int, dict[str, str]]]] = defaultdict(list)
         for idx, item in enumerate(items):
@@ -64,7 +105,7 @@ class CodeSummaryEnricher:
                     docstring=item.get("docstring", "")[:500],
                     code_snippet=item.get("code_snippet", "")[:1000],
                 )
-                summary = await self._llm.complete(
+                summary = await self._llm.complete(  # type: ignore[union-attr]
                     [{"role": "user", "content": prompt}]
                 )
                 results[idx] = summary.strip()

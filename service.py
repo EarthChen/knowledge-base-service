@@ -54,12 +54,32 @@ class KnowledgeBaseService:
 
         self._llm_provider = None
         self._enricher = None
+        self._gateway_client = None
         if settings.llm.enabled:
             from indexer.enrichment import CodeSummaryEnricher
             from llm.provider import LLMProvider
 
             self._llm_provider = LLMProvider(settings.llm)
-            self._enricher = CodeSummaryEnricher(llm=self._llm_provider)
+
+            gateway_client = None
+            if settings.llm.base_url.rstrip("/").endswith(":9090/v1"):
+                from llm.gateway_client import GatewayTaskClient
+
+                gw_base = settings.llm.base_url.rsplit("/v1", 1)[0]
+                gateway_client = GatewayTaskClient(
+                    gateway_ws_url=f"ws{gw_base.removeprefix('http')}/acp/v1/connect",
+                    gateway_http_url=gw_base,
+                    api_key=settings.llm.api_key,
+                    model=settings.llm.model,
+                    timeout=settings.llm.timeout,
+                )
+                self._gateway_client = gateway_client
+                log.info("gateway_task_client_enabled", base=gw_base)
+
+            self._enricher = CodeSummaryEnricher(
+                llm=self._llm_provider,
+                gateway_client=gateway_client,
+            )
 
         self._parser = TreeSitterParser(supported_languages=settings.supported_languages)
         self._graph_builder = CodeGraphBuilder(
@@ -115,6 +135,8 @@ class KnowledgeBaseService:
 
     async def stop(self) -> None:
         log.info("knowledge_base_stopping")
+        if self._gateway_client is not None:
+            await self._gateway_client.close()
         await self._store.close()
         log.info("knowledge_base_stopped")
 

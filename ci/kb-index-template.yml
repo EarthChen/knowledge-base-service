@@ -1,0 +1,71 @@
+# ============================================================
+#  Knowledge Base — GitLab CI Incremental Index Template
+# ============================================================
+#
+# Copy this file into your project's .gitlab-ci/ directory, then
+# include it from your .gitlab-ci.yml:
+#
+#   include:
+#     - local: ".gitlab-ci/kb-index.yml"
+#
+# Or reference it remotely from this repo (adjust URL accordingly):
+#
+#   include:
+#     - project: '<group>/knowledge-base-service'
+#       file: '/ci/kb-index-template.yml'
+#       ref: main
+#
+# Required CI/CD variables (group or project level):
+#   KB_API_URL    — Knowledge Base service base URL
+#                   e.g. http://10.x.x.x:8100
+#   KB_API_TOKEN  — Bearer token with editor+ role
+#
+# Optional CI/CD variables:
+#   KB_REPOSITORY — Override the repository name stored in the KB
+#                   (defaults to CI_PROJECT_PATH, e.g. ultron/ultron-basic-user)
+# ============================================================
+
+kb-incremental-index:
+  stage: .post
+  image: alpine:3.21
+  tags:
+    - docker
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "main")'
+  variables:
+    KB_REPOSITORY: "${KB_REPOSITORY:-$CI_PROJECT_PATH}"
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - |
+      echo "=== Knowledge Base Incremental Index ==="
+      echo "Repository: ${KB_REPOSITORY}"
+      echo "Git URL:    ${CI_PROJECT_URL}.git"
+      echo "Branch:     ${CI_COMMIT_BRANCH}"
+      echo "Commit:     ${CI_COMMIT_SHORT_SHA}"
+
+      if [ -z "${KB_API_URL}" ] || [ -z "${KB_API_TOKEN}" ]; then
+        echo "⚠️  KB_API_URL or KB_API_TOKEN not set, skipping index."
+        exit 0
+      fi
+
+      RESPONSE=$(curl -sf --max-time 30 \
+        -X POST "${KB_API_URL}/api/v1/index" \
+        -H "Authorization: Bearer ${KB_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{
+          \"git_url\": \"${CI_PROJECT_URL}.git\",
+          \"branch\": \"${CI_COMMIT_BRANCH}\",
+          \"mode\": \"incremental\",
+          \"base_ref\": \"${CI_COMMIT_BEFORE_SHA:-HEAD~1}\",
+          \"head_ref\": \"${CI_COMMIT_SHA}\",
+          \"repository\": \"${KB_REPOSITORY}\"
+        }" 2>&1) || {
+          echo "⚠️  KB API call failed (non-fatal): ${RESPONSE}"
+          exit 0
+        }
+
+      TASK_ID=$(echo "${RESPONSE}" | jq -r '.task_id // empty')
+      echo "Task created: ${TASK_ID}"
+      echo "${RESPONSE}" | jq .
+  allow_failure: true

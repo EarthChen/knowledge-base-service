@@ -140,7 +140,7 @@ class GitManager:
             shutil.rmtree(local_path, ignore_errors=True)
         local_path.parent.mkdir(parents=True, exist_ok=True)
 
-        args = ["clone", "--depth", "1"]
+        args = ["clone"]
         if branch:
             args.extend(["-b", branch])
         args.extend([clone_url, str(local_path)])
@@ -156,13 +156,6 @@ class GitManager:
                 "status": "clone_failed",
                 "detail": stderr[:500],
             }
-
-        if branch:
-            await self._run_git(
-                ["fetch", "--unshallow"],
-                cwd=str(local_path),
-                timeout=self._cfg.clone_timeout,
-            )
 
         log.info("git_clone_complete", repo=repo_name, path=str(local_path))
         return {

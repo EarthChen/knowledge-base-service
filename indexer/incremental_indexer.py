@@ -181,15 +181,22 @@ class IncrementalIndexer:
 
         if progress_callback:
             progress_callback(phase="embedding")
-        for fpath in file_paths_for_embed:
+        embed_file_count = len(file_paths_for_embed)
+        for idx, fpath in enumerate(file_paths_for_embed):
             nodes_for_embed = await self._store.get_nodes_by_file(fpath)
             if nodes_for_embed:
                 total_embeds += await self._generate_and_store_embeddings(
                     nodes_for_embed, skip_enrich=True,
                 )
+            if progress_callback and (idx + 1) % 20 == 0:
+                progress_callback(
+                    embeddings=total_embeds,
+                    current_file=fpath,
+                    phase=f"embedding ({idx + 1}/{embed_file_count})",
+                )
 
         if progress_callback:
-            progress_callback(phase="resolving_references")
+            progress_callback(phase="resolving_references", embeddings=total_embeds)
         xref = await self._store.resolve_cross_file_edges()
 
         stats = {
@@ -315,15 +322,23 @@ class IncrementalIndexer:
         if progress_callback:
             progress_callback(phase="embedding")
         total_embeds = 0
-        for fpath in code_file_paths + doc_file_paths:
+        all_embed_paths = code_file_paths + doc_file_paths
+        embed_total = len(all_embed_paths)
+        for idx, fpath in enumerate(all_embed_paths):
             nodes_for_embed = await self._store.get_nodes_by_file(fpath)
             if nodes_for_embed:
                 total_embeds += await self._generate_and_store_embeddings(
                     nodes_for_embed, skip_enrich=True,
                 )
+            if progress_callback and (idx + 1) % 20 == 0:
+                progress_callback(
+                    embeddings=total_embeds,
+                    current_file=fpath,
+                    phase=f"embedding ({idx + 1}/{embed_total})",
+                )
 
         if progress_callback:
-            progress_callback(phase="resolving_references")
+            progress_callback(phase="resolving_references", embeddings=total_embeds)
         xref = await self._store.resolve_cross_file_edges()
 
         stats = {

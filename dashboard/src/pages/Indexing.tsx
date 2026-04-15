@@ -235,10 +235,22 @@ export default function Indexing() {
       return;
     }
 
+    const val = directory.trim();
+    const isGitUrl =
+      val.startsWith("http://") ||
+      val.startsWith("https://") ||
+      val.startsWith("git@") ||
+      val.startsWith("ssh://") ||
+      val.endsWith(".git");
+
     const body: Record<string, unknown> = {
-      directory: directory.trim(),
       mode,
     };
+    if (isGitUrl) {
+      body.git_url = val;
+    } else {
+      body.directory = val;
+    }
     if (mode === "incremental") {
       body.base_ref = baseRef;
       body.head_ref = headRef;

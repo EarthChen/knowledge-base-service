@@ -81,6 +81,15 @@ admin_router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_role(Ro
 public_router = APIRouter(prefix="/api/v1")
 
 
+def _looks_like_git_url(value: str) -> bool:
+    """Heuristic: detect if a string is a git URL rather than a local path."""
+    if value.startswith(("http://", "https://", "git@", "ssh://")):
+        return True
+    if value.endswith(".git"):
+        return True
+    return False
+
+
 class SemanticSearchRequest(BaseModel):
     query: str
     k: int = Field(default=10, ge=1, le=50)
@@ -332,6 +341,9 @@ async def trigger_index(
             status_code=422,
             detail="Either 'directory' or 'git_url' must be provided",
         )
+
+    if not req.git_url and req.directory and _looks_like_git_url(req.directory):
+        req = req.model_copy(update={"git_url": req.directory, "directory": ""})
 
     task = _task_manager.create_task(
         mode=req.mode,

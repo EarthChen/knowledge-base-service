@@ -3,7 +3,11 @@
 # ============================================================
 #
 # Copy this file into your project's .gitlab-ci/ directory, then
-# include it from your .gitlab-ci.yml:
+# include it from your .gitlab-ci.yml and add the kb-index stage:
+#
+#   stages:
+#     - ...
+#     - kb-index
 #
 #   include:
 #     - local: ".gitlab-ci/kb-index.yml"
@@ -26,7 +30,7 @@
 # ============================================================
 
 kb-incremental-index:
-  stage: .post
+  stage: kb-index
   image: alpine:3.21
   tags:
     - docker

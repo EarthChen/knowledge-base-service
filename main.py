@@ -118,7 +118,9 @@ class BusinessSearchRequest(BaseModel):
 
 
 class IndexRequest(BaseModel):
-    directory: str
+    directory: str = ""
+    git_url: str = ""
+    branch: str | None = None
     mode: str = Field(default="full", pattern="^(full|incremental)$")
     base_ref: str = "HEAD~1"
     head_ref: str = "HEAD"
@@ -325,9 +327,15 @@ async def trigger_index(
     if _task_manager is None or _registry is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
+    if not req.directory and not req.git_url:
+        raise HTTPException(
+            status_code=422,
+            detail="Either 'directory' or 'git_url' must be provided",
+        )
+
     task = _task_manager.create_task(
         mode=req.mode,
-        directory=req.directory,
+        directory=req.directory or req.git_url,
         repository=req.repository,
         business_id=business_id,
     )
@@ -339,6 +347,7 @@ async def trigger_index(
         "status": task.status,
         "mode": req.mode,
         "directory": req.directory,
+        "git_url": req.git_url or None,
     }
 
 
@@ -413,7 +422,12 @@ async def _run_enrich_task(task_id: str, req: EnrichRequest, business_id: str) -
 
 
 async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> None:
-    """Background coroutine that runs the actual indexing work."""
+    """Background coroutine that runs the actual indexing work.
+
+    When ``git_url`` is provided, the task first clones/pulls the repo
+    from a (potentially private) GitLab instance, then indexes the
+    resulting local directory.
+    """
     if _task_manager is None or _registry is None:
         return
 
@@ -423,9 +437,43 @@ async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> 
     try:
         svc = await _registry.get_service(business_id)
 
+        directory = req.directory
+        repository = req.repository
+
+        if req.git_url:
+            from config import get_settings
+            from git_manager import GitManager
+
+            git_cfg = get_settings().git
+            if not git_cfg.gitlab_url and not git_cfg.gitlab_token:
+                log.warning("git_url_provided_but_no_git_config")
+
+            mgr = GitManager(git_cfg)
+            clone_result = await mgr.ensure_repo(req.git_url, branch=req.branch)
+            log.info("git_ensure_repo_result", task_id=task_id, **clone_result)
+
+            if clone_result["status"] in ("clone_failed", "pull_failed"):
+                _task_manager.mark_failed(
+                    task_id,
+                    f"Git operation failed: {clone_result.get('detail', '')}",
+                )
+                return
+
+            directory = clone_result["directory"]
+            if not repository:
+                repository = clone_result.get("repository", "")
+
+            if progress_cb:
+                progress_cb(f"Repository ready at {directory} (status: {clone_result['status']})")
+
+        if not directory:
+            _task_manager.mark_failed(task_id, "No directory resolved for indexing")
+            return
+
         args = req.model_dump()
-        if req.repository:
-            args["repository"] = req.repository
+        args["directory"] = directory
+        if repository:
+            args["repository"] = repository
 
         result = await svc.mcp_handler.handle_rag_index(args, progress_callback=progress_cb)
 
@@ -433,9 +481,9 @@ async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> 
             _task_manager.mark_failed(task_id, result["error"])
             return
 
-        if req.repository:
+        if repository:
             queries = GraphQueryRepository(svc.store)
-            await queries.tag_unowned_nodes(req.repository, directory=req.directory)
+            await queries.tag_unowned_nodes(repository, directory=directory)
 
         _task_manager.mark_completed(task_id, result)
     except Exception as exc:
@@ -899,6 +947,8 @@ class SyncRepoRequest(BaseModel):
     """Request to git pull and incrementally re-index a repository."""
     repository: str = Field(..., description="Repository name (must already be indexed)")
     directory: str | None = Field(default=None, description="Repository root directory (required when using relative paths)")
+    git_url: str = Field(default="", description="Git clone URL for remote repos (auto-clones if not yet local)")
+    branch: str | None = Field(default=None, description="Branch to checkout")
     base_ref: str = Field(default="HEAD~1", description="Git diff base reference")
     head_ref: str = Field(default="HEAD", description="Git diff head reference")
 
@@ -956,9 +1006,48 @@ async def sync_repository(
     req: SyncRepoRequest,
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """Git pull a repository and run incremental re-indexing."""
+    """Git pull a repository and run incremental re-indexing.
+
+    When ``git_url`` is provided, uses GitManager for clone/pull
+    (supports private GitLab with token or SSH key).
+    """
     repo_dir: str | None = req.directory
     queries = GraphQueryRepository(svc.store)
+
+    if req.git_url:
+        from git_manager import GitManager
+
+        mgr = GitManager(get_settings().git)
+        result = await mgr.ensure_repo(req.git_url, branch=req.branch)
+        if result["status"] in ("clone_failed", "pull_failed"):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Git operation failed: {result.get('detail', '')}",
+            )
+
+        repo_dir = result["directory"]
+        pre_head = result.get("pre_head", "")
+
+        if result["status"] == "up_to_date":
+            return {
+                "repository": req.repository,
+                "directory": repo_dir,
+                "git_pull": "already_up_to_date",
+                "index_stats": None,
+            }
+
+        base = pre_head if pre_head else req.base_ref
+        index_stats = await svc.indexer.index_incremental(repo_dir, base, req.head_ref)
+        if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
+            await queries.tag_unowned_nodes(req.repository)
+
+        return {
+            "repository": req.repository,
+            "directory": repo_dir,
+            "git_pull": result["status"],
+            "index_stats": index_stats,
+        }
+
     if not repo_dir:
         sample_file = await queries.get_repository_sample_file(req.repository)
         if sample_file is None:
@@ -968,9 +1057,8 @@ async def sync_repository(
         repo_dir = _infer_repo_root(sample_file, req.repository) if sample_file and sample_file.startswith("/") else None
 
     if not repo_dir or not Path(repo_dir).is_dir():
-        raise HTTPException(status_code=500, detail=f"Repository directory not found. Provide 'directory' in request.")
+        raise HTTPException(status_code=500, detail="Repository directory not found. Provide 'directory' or 'git_url' in request.")
 
-    # Record pre-pull HEAD so incremental diff covers the full pull range
     pre_pull_head = await _git_rev_parse(repo_dir, "HEAD")
 
     pull_result = await _git_pull(repo_dir)

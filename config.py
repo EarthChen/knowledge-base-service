@@ -131,6 +131,23 @@ class RerankConfig(BaseModel):
     top_n: int = 30
 
 
+class GitConfig(BaseModel):
+    """Git repository management for remote indexing.
+
+    When ``gitlab_url`` and ``gitlab_token`` are set, the index API
+    accepts ``git_url`` and automatically clones/pulls the repository
+    before indexing.  Supports HTTPS (token-injected) and SSH modes.
+    """
+
+    gitlab_url: str = ""
+    gitlab_token: str = ""
+    ssh_key_path: str = ""
+    clone_base_path: str = "./data/repos"
+    clone_timeout: int = 600
+    pull_timeout: int = 120
+    ssl_verify: bool = False
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -149,6 +166,7 @@ class Settings(BaseSettings):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     rerank: RerankConfig = Field(default_factory=RerankConfig)
+    git: GitConfig = Field(default_factory=GitConfig)
 
     supported_languages: list[str] = Field(
         default_factory=lambda: ["python", "java", "go", "javascript", "typescript"]

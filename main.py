@@ -475,6 +475,14 @@ async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> 
             if not repository:
                 repository = clone_result.get("repository", "")
 
+            if clone_result["status"] == "cloned" and req.mode == "incremental":
+                log.info(
+                    "auto_fallback_to_full",
+                    task_id=task_id,
+                    reason="first_clone_no_prior_index",
+                )
+                req = req.model_copy(update={"mode": "full"})
+
             if progress_cb:
                 progress_cb(f"Repository ready at {directory} (status: {clone_result['status']})")
 
@@ -482,8 +490,22 @@ async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> 
             _task_manager.mark_failed(task_id, "No directory resolved for indexing")
             return
 
+        effective_mode = req.mode
+        if effective_mode == "incremental" and repository:
+            queries = GraphQueryRepository(svc.store)
+            sample = await queries.get_repository_sample_file(repository)
+            if sample is None:
+                log.info(
+                    "auto_fallback_to_full",
+                    task_id=task_id,
+                    reason="repository_not_indexed_yet",
+                    repository=repository,
+                )
+                effective_mode = "full"
+
         args = req.model_dump()
         args["directory"] = directory
+        args["mode"] = effective_mode
         if repository:
             args["repository"] = repository
 

@@ -85,6 +85,8 @@ class SmartContext:
     di_dependencies: list[dict[str, Any]]
     architecture_layer: str
     related_interfaces: list[dict[str, Any]]
+    rpc_interface_contracts: list[dict[str, Any]]
+    event_context: dict[str, list[str]]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -98,6 +100,8 @@ class SmartContext:
             "di_dependencies": self.di_dependencies,
             "architecture_layer": self.architecture_layer,
             "related_interfaces": self.related_interfaces,
+            "rpc_interface_contracts": self.rpc_interface_contracts,
+            "event_context": self.event_context,
         }
 
 
@@ -420,6 +424,8 @@ class AgentWorkflowService:
                 sibling_methods=[], cross_repo_deps=[], entity_tables=[],
                 di_dependencies=[], architecture_layer="unknown",
                 related_interfaces=[],
+                rpc_interface_contracts=[],
+                event_context={"consumes": [], "produces": []},
             )
 
         target_uid = target.get("uid", "")
@@ -428,10 +434,13 @@ class AgentWorkflowService:
         callers = await self._get_callers(target_uid, target_label)
         callees = await self._get_callees(target_uid, target_label)
         parent_class, siblings = await self._get_class_context(target_uid, target_label)
-        cross_repo = await self._get_cross_repo_context(target_uid, target_label)
+        cross_repo, rpc_iface_contracts = await self._get_cross_repo_context(
+            target_uid, target_label, target, parent_class,
+        )
         entity_tables = await self._get_entity_table_context(target_uid, target_label, parent_class)
         di_deps = await self._get_di_dependencies(target_uid, target_label, parent_class)
         interfaces = await self._get_interface_context(target_uid, target_label, parent_class)
+        event_ctx = await self._get_event_context(target_uid, target_label, parent_class)
 
         return SmartContext(
             target=target,
@@ -444,6 +453,8 @@ class AgentWorkflowService:
             di_dependencies=di_deps,
             architecture_layer=target.get("architecture_layer", "unknown"),
             related_interfaces=interfaces,
+            rpc_interface_contracts=rpc_iface_contracts,
+            event_context=event_ctx,
         )
 
     async def _find_target_entity(
@@ -569,7 +580,26 @@ class AgentWorkflowService:
             log.warning("get_class_context_failed", uid=uid, error=str(exc))
             return None, []
 
-    async def _get_cross_repo_context(self, uid: str, label: str) -> list[dict[str, Any]]:
+    @staticmethod
+    def _is_rpc_provider_entity(
+        label: str,
+        target: dict[str, Any],
+        parent_class: dict[str, Any] | None,
+    ) -> bool:
+        if label == "Class":
+            roles = target.get("semantic_roles") or []
+        else:
+            roles = (parent_class or {}).get("semantic_roles") or []
+        return isinstance(roles, list) and "rpc_provider" in roles
+
+    async def _get_cross_repo_context(
+        self,
+        uid: str,
+        label: str,
+        target: dict[str, Any],
+        parent_class: dict[str, Any] | None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        rpc_contracts: list[dict[str, Any]] = []
         try:
             if label == "Function":
                 res = await self._store.execute_query(
@@ -587,10 +617,75 @@ class AgentWorkflowService:
                     f"LIMIT {_MAX_CONTEXT_ITEMS}",
                     {"uid": uid},
                 )
-            return res.data
+            deps = res.data
         except Exception as exc:
             log.warning("get_cross_repo_context_failed", uid=uid, error=str(exc))
-            return []
+            deps = []
+
+        if self._is_rpc_provider_entity(label, target, parent_class):
+            class_uid = uid if label == "Class" else (parent_class or {}).get("uid")
+            if class_uid:
+                try:
+                    cres = await self._store.execute_query(
+                        "MATCH (c:Class {uid: $uid})-[:IMPLEMENTS]->(iface:Class) "
+                        "WHERE coalesce(iface.is_rpc_contract, false) = true "
+                        "RETURN iface.uid AS uid, iface.name AS name, iface.fqn AS fqn, "
+                        "iface.contract_methods AS contract_methods "
+                        f"LIMIT {_MAX_CONTEXT_ITEMS}",
+                        {"uid": class_uid},
+                    )
+                    rpc_contracts = cres.data
+                except Exception as exc:
+                    log.warning(
+                        "get_rpc_interface_contracts_failed",
+                        uid=class_uid,
+                        error=str(exc),
+                    )
+
+        return deps, rpc_contracts
+
+    async def _get_event_context(
+        self,
+        uid: str,
+        label: str,
+        parent_class: dict[str, Any] | None,
+    ) -> dict[str, list[str]]:
+        func_uids: list[str] = []
+        if label == "Function":
+            func_uids = [uid]
+        else:
+            try:
+                res = await self._store.execute_query(
+                    "MATCH (c:Class {uid: $uid})-[:CONTAINS]->(f:Function) RETURN f.uid AS uid",
+                    {"uid": uid},
+                )
+                func_uids = [r["uid"] for r in res.data if r.get("uid")]
+            except Exception as exc:
+                log.warning("get_event_context_class_methods_failed", uid=uid, error=str(exc))
+                return {"consumes": [], "produces": []}
+
+        if not func_uids:
+            return {"consumes": [], "produces": []}
+
+        try:
+            c_res = await self._store.execute_query(
+                "MATCH (f:Function)-[:EVENT_CONSUMES]->(m:Module) "
+                "WHERE f.uid IN $uids "
+                "RETURN DISTINCT coalesce(m.kafka_topic, m.name) AS topic",
+                {"uids": func_uids},
+            )
+            p_res = await self._store.execute_query(
+                "MATCH (f:Function)-[:EVENT_PRODUCES]->(m:Module) "
+                "WHERE f.uid IN $uids "
+                "RETURN DISTINCT coalesce(m.kafka_topic, m.name) AS topic",
+                {"uids": func_uids},
+            )
+            consumes = sorted({r["topic"] for r in c_res.data if r.get("topic")})
+            produces = sorted({r["topic"] for r in p_res.data if r.get("topic")})
+            return {"consumes": consumes, "produces": produces}
+        except Exception as exc:
+            log.warning("get_event_context_failed", uid=uid, error=str(exc))
+            return {"consumes": [], "produces": []}
 
     async def _get_entity_table_context(
         self, uid: str, label: str, parent_class: dict[str, Any] | None

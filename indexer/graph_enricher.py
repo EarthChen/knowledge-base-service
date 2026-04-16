@@ -6,6 +6,7 @@ import re
 from typing import TYPE_CHECKING
 
 from log import get_logger
+from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 
 if TYPE_CHECKING:
     from store.falkordb_store import FalkorDBStore
@@ -29,6 +30,42 @@ _HTTP_ANNOTATION_PRIORITY: tuple[tuple[str, str], ...] = (
 )
 
 _RPC_PROVIDER_NAMES = frozenset({"MoaProvider", "DubboService"})
+
+# Kafka producer call sites: first quoted literal in send/publish-style calls (best-effort).
+_KAFKA_TOPIC_FROM_SNIPPET = re.compile(
+    r"(?:\.|\s)(?:send|sendDefault|convertAndSend|publish)\s*\(\s*[\"']([^\"']+)[\"']",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _kafka_topic_module_node(topic: str) -> GraphNode:
+    """Synthetic :Module node for a Kafka topic (cross-repo event tracing)."""
+    topic = (topic or "").strip()
+    vpath = f"<kafka-topic:{topic}>"
+    return GraphNode(
+        label=NodeLabel.MODULE,
+        properties={
+            "name": topic,
+            "path": vpath,
+            "file": vpath,
+            "language": "kafka",
+            "kafka_topic": topic,
+            "start_line": 0,
+        },
+    )
+
+
+def _topics_from_kafka_producer_snippet(snippet: str | None) -> list[str]:
+    if not snippet or not isinstance(snippet, str):
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _KAFKA_TOPIC_FROM_SNIPPET.finditer(snippet):
+        t = (m.group(1) or "").strip()
+        if t and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
 
 
 def _parse_annotation_arg(annotation: str) -> str:
@@ -204,7 +241,14 @@ class GraphEnricher:
         """Run all enrichment passes. Returns counts of enriched nodes."""
         api_count = await self._enrich_api_endpoints()
         layer_count = await self._enrich_architecture_layers()
-        return {"api_endpoints": api_count, "architecture_layers": layer_count}
+        rpc_contract_count = await self._enrich_rpc_contracts()
+        event_count = await self._enrich_event_tracking()
+        return {
+            "api_endpoints": api_count,
+            "architecture_layers": layer_count,
+            "rpc_contracts": rpc_contract_count,
+            "event_tracking": event_count,
+        }
 
     async def _enrich_api_endpoints(self) -> int:
         count = 0
@@ -343,4 +387,117 @@ class GraphEnricher:
                     log.warning("graph_enrich_layer_failed", uid=uid, error=str(exc))
         except Exception as exc:
             log.warning("graph_enrich_layer_pass_error", error=str(exc))
+        return count
+
+    async def _enrich_rpc_contracts(self) -> int:
+        """Mark RPC interface classes and store method signatures for contract surfaces."""
+        count = 0
+        try:
+            await self._store.execute_query(
+                "MATCH (iface:Class) WHERE coalesce(iface.is_interface, false) = true "
+                "SET iface.is_rpc_contract = false, iface.contract_methods = []",
+            )
+            res = await self._store.execute_query(
+                "MATCH (iface:Class) WHERE coalesce(iface.is_interface, false) = true "
+                "MATCH (p:Class)-[:IMPLEMENTS]->(iface) "
+                "WHERE p.semantic_roles IS NOT NULL AND 'rpc_provider' IN p.semantic_roles "
+                "RETURN DISTINCT iface.uid AS uid",
+            )
+            for row in res.data:
+                uid = row.get("uid")
+                if not uid:
+                    continue
+                mres = await self._store.execute_query(
+                    "MATCH (iface:Class {uid: $uid})-[:CONTAINS]->(m:Function) "
+                    "RETURN m.name AS name, m.signature AS signature ORDER BY m.name",
+                    {"uid": uid},
+                )
+                methods: list[str] = []
+                for mr in mres.data:
+                    sig = (mr.get("signature") or "").strip()
+                    name = (mr.get("name") or "").strip()
+                    methods.append(sig if sig else name)
+                try:
+                    await self._store.execute_query(
+                        "MATCH (iface:Class {uid: $uid}) "
+                        "SET iface.is_rpc_contract = true, iface.contract_methods = $methods",
+                        {"uid": uid, "methods": methods},
+                    )
+                    count += 1
+                except Exception as exc:
+                    log.warning("graph_enrich_rpc_contract_failed", uid=uid, error=str(exc))
+        except Exception as exc:
+            log.warning("graph_enrich_rpc_contracts_pass_error", error=str(exc))
+        return count
+
+    async def _enrich_event_tracking(self) -> int:
+        """Kafka EVENT_CONSUMES / EVENT_PRODUCES edges to synthetic topic :Module nodes."""
+        count = 0
+        try:
+            await self._store.execute_query("MATCH ()-[r:EVENT_PRODUCES]->() DELETE r")
+            await self._store.execute_query("MATCH ()-[r:EVENT_CONSUMES]->() DELETE r")
+
+            res_consume = await self._store.execute_query(
+                "MATCH (f:Function) "
+                "WHERE f.semantic_roles IS NOT NULL AND 'message_listener' IN f.semantic_roles "
+                "AND coalesce(f.kafka_topic, '') <> '' "
+                "RETURN f.uid AS uid, f.kafka_topic AS topic",
+            )
+            for row in res_consume.data:
+                func_uid = row.get("uid")
+                topic = (row.get("topic") or "").strip()
+                if not func_uid or not topic:
+                    continue
+                mod = _kafka_topic_module_node(topic)
+                try:
+                    await self._store.upsert_node(mod)
+                    await self._store.upsert_edge(
+                        GraphEdge(
+                            edge_type=EdgeType.EVENT_CONSUMES,
+                            source_uid=func_uid,
+                            target_uid=mod.uid,
+                        ),
+                    )
+                    count += 1
+                except Exception as exc:
+                    log.warning(
+                        "graph_enrich_event_consume_failed",
+                        uid=func_uid,
+                        topic=topic,
+                        error=str(exc),
+                    )
+
+            res_producers = await self._store.execute_query(
+                "MATCH (caller:Function)-[:CALLS]->(callee:Function) "
+                "WHERE callee.name IN ['send', 'publish'] "
+                "MATCH (owner:Class)-[:CONTAINS]->(callee) "
+                "WHERE toLower(owner.name) CONTAINS 'kafka' OR toLower(owner.name) CONTAINS 'template' "
+                "RETURN DISTINCT caller.uid AS uid, caller.code_snippet AS snippet",
+            )
+            for row in res_producers.data:
+                func_uid = row.get("uid")
+                if not func_uid:
+                    continue
+                topics = _topics_from_kafka_producer_snippet(row.get("snippet"))
+                for topic in topics:
+                    mod = _kafka_topic_module_node(topic)
+                    try:
+                        await self._store.upsert_node(mod)
+                        await self._store.upsert_edge(
+                            GraphEdge(
+                                edge_type=EdgeType.EVENT_PRODUCES,
+                                source_uid=func_uid,
+                                target_uid=mod.uid,
+                            ),
+                        )
+                        count += 1
+                    except Exception as exc:
+                        log.warning(
+                            "graph_enrich_event_produce_failed",
+                            uid=func_uid,
+                            topic=topic,
+                            error=str(exc),
+                        )
+        except Exception as exc:
+            log.warning("graph_enrich_event_tracking_pass_error", error=str(exc))
         return count

@@ -22,6 +22,8 @@ Edge types:
   - CROSS_REPO_CALLS(consumer → provider across repositories)
   - DEPENDS_ON(bean → injected bean via Spring DI)
   - ACCESSES_TABLE(repository/DAO class → entity class)
+  - EVENT_PRODUCES(function → Kafka topic module)
+  - EVENT_CONSUMES(function → Kafka topic module)
 """
 
 from __future__ import annotations
@@ -55,6 +57,8 @@ class EdgeType(StrEnum):
     CROSS_REPO_CALLS = "CROSS_REPO_CALLS"
     DEPENDS_ON = "DEPENDS_ON"
     ACCESSES_TABLE = "ACCESSES_TABLE"
+    EVENT_PRODUCES = "EVENT_PRODUCES"
+    EVENT_CONSUMES = "EVENT_CONSUMES"
 
 
 @dataclass

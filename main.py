@@ -874,6 +874,18 @@ async def get_index_report(
     return {"repository": repository, "report": report.to_dict()}
 
 
+@admin_router.post("/enrich/graph")
+async def enrich_graph(
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Run GraphEnricher on existing index data without re-parsing source files."""
+    from indexer.graph_enricher import GraphEnricher
+
+    enricher = GraphEnricher(svc.store)
+    result = await enricher.enrich()
+    return {"status": "completed", **result}
+
+
 @admin_router.get("/endpoints/{repository:path}")
 async def list_api_endpoints(
     repository: str,

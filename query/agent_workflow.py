@@ -656,7 +656,8 @@ class AgentWorkflowService:
         else:
             try:
                 res = await self._store.execute_query(
-                    "MATCH (c:Class {uid: $uid})-[:CONTAINS]->(f:Function) RETURN f.uid AS uid",
+                    "MATCH (c:Class {uid: $uid})-[:CONTAINS]->(f:Function) "
+                    "RETURN f.uid AS uid LIMIT 200",
                     {"uid": uid},
                 )
                 func_uids = [r["uid"] for r in res.data if r.get("uid")]

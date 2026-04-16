@@ -469,9 +469,9 @@ class GraphEnricher:
 
             res_producers = await self._store.execute_query(
                 "MATCH (caller:Function)-[:CALLS]->(callee:Function) "
-                "WHERE callee.name IN ['send', 'publish'] "
+                "WHERE callee.name IN ['send', 'sendDefault', 'convertAndSend', 'publish'] "
                 "MATCH (owner:Class)-[:CONTAINS]->(callee) "
-                "WHERE toLower(owner.name) CONTAINS 'kafka' OR toLower(owner.name) CONTAINS 'template' "
+                "WHERE toLower(owner.name) CONTAINS 'kafka' "
                 "RETURN DISTINCT caller.uid AS uid, caller.code_snippet AS snippet",
             )
             for row in res_producers.data:

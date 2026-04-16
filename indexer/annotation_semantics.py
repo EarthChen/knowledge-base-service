@@ -18,7 +18,6 @@ class SemanticRole(StrEnum):
     COMPONENT = "component"
     SCHEDULED_TASK = "scheduled_task"
     MESSAGE_LISTENER = "message_listener"
-    EVENT_PRODUCER = "event_producer"
     TRANSACTION = "transaction"
     ENTITY = "entity"
     DI_INJECT = "di_inject"

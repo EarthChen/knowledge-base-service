@@ -1,167 +1,205 @@
 #!/usr/bin/env python3
-"""Re-index all ultron-* projects with memory/CPU monitoring."""
+"""Re-index all repositories in the knowledge base."""
 
 from __future__ import annotations
 
+import argparse
+import asyncio
 import json
 import os
-import subprocess
-import time
+import sys
 from pathlib import Path
+from typing import Any
 
-import urllib.request
+import httpx
 
-API = "http://localhost:8100/api/v1"
-API_TOKEN = os.environ.get("KB_API_TOKEN", "sk-admin-test")
-PROJECTS_DIR = "/Users/earthchen/work/momo/amar"
-PID = None
+DEFAULT_BASE_URL = "http://localhost:38888"
 
 
-def get_pid() -> int | None:
-    result = subprocess.run(
-        ["lsof", "-ti:8100"], capture_output=True, text=True,
-    )
-    pids = result.stdout.strip().split("\n")
-    for pid in pids:
-        pid = pid.strip()
-        if pid:
-            return int(pid)
+def _client_headers(business_id: str, api_token: str) -> dict[str, str]:
+    h: dict[str, str] = {"X-Business-Id": business_id}
+    if api_token:
+        h["Authorization"] = f"Bearer {api_token}"
+    return h
+
+
+async def get_repositories(client: httpx.AsyncClient, base_url: str) -> list[str]:
+    """Fetch distinct repository names from GET /api/v1/repositories."""
+    r = await client.get(f"{base_url.rstrip('/')}/api/v1/repositories")
+    r.raise_for_status()
+    data = r.json()
+    repos: list[str] = []
+    for row in data.get("repositories") or []:
+        name = row.get("repository")
+        if name:
+            repos.append(str(name))
+    return repos
+
+
+def _resolve_directory(
+    repo: str,
+    repo_dir: Path | None,
+    paths_map: dict[str, str],
+) -> str | None:
+    if repo in paths_map:
+        p = Path(paths_map[repo])
+        return str(p.resolve()) if p.is_dir() else None
+    if repo_dir is not None:
+        p = repo_dir / repo
+        if p.is_dir():
+            return str(p.resolve())
     return None
 
 
-def get_memory_cpu(pid: int) -> dict:
-    result = subprocess.run(
-        ["ps", "-o", "rss=,vsz=,%mem=,%cpu=", "-p", str(pid)],
-        capture_output=True, text=True,
+async def reindex_repo(
+    client: httpx.AsyncClient,
+    base_url: str,
+    directory: str,
+    repository: str,
+) -> dict[str, Any]:
+    payload = {
+        "directory": directory,
+        "repository": repository,
+        "mode": "full",
+    }
+    r = await client.post(
+        f"{base_url.rstrip('/')}/api/v1/index",
+        json=payload,
     )
-    parts = result.stdout.strip().split()
-    if len(parts) >= 4:
-        return {
-            "rss_mb": int(parts[0]) / 1024,
-            "vsz_mb": int(parts[1]) / 1024,
-            "mem_pct": float(parts[2]),
-            "cpu_pct": float(parts[3]),
-        }
-    return {"rss_mb": 0, "vsz_mb": 0, "mem_pct": 0, "cpu_pct": 0}
-
-
-def api_call(method: str, path: str, data: dict | None = None) -> dict:
-    url = f"{API}{path}"
-    if data:
-        payload = json.dumps(data).encode()
-        req = urllib.request.Request(url, data=payload, method=method)
-        req.add_header("Content-Type", "application/json")
+    out: dict[str, Any] = {"repository": repository, "directory": directory}
+    try:
+        out["response"] = r.json()
+    except Exception:
+        out["response"] = {"raw": r.text}
+    out["http_status"] = r.status_code
+    if r.is_success:
+        out["task_id"] = (out.get("response") or {}).get("task_id")
     else:
-        req = urllib.request.Request(url, method=method)
-    req.add_header("Authorization", f"Bearer {API_TOKEN}")
-    with urllib.request.urlopen(req, timeout=1800) as resp:
-        return json.loads(resp.read())
+        err = out.get("response")
+        if isinstance(err, dict):
+            out["error"] = err.get("detail", r.text)
+        else:
+            out["error"] = r.text
+    return out
 
 
-def main() -> None:
-    pid = get_pid()
-    if not pid:
-        print("ERROR: KB service not running on port 8100")
-        return
+async def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--base-url",
+        default=os.environ.get("KB_BASE_URL", DEFAULT_BASE_URL),
+        help="Knowledge base HTTP base URL (env: KB_BASE_URL)",
+    )
+    default_rd = os.environ.get("KB_REPO_DIR", "").strip()
+    parser.add_argument(
+        "--repo-dir",
+        type=Path,
+        default=Path(default_rd) if default_rd else None,
+        help="Directory with one subdirectory per repository name (env: KB_REPO_DIR)",
+    )
+    parser.add_argument(
+        "--repo-paths",
+        type=Path,
+        default=None,
+        help="JSON file mapping repository name -> absolute path",
+    )
+    parser.add_argument(
+        "--repositories",
+        nargs="*",
+        default=None,
+        help="Only these repository names (default: all from the service)",
+    )
+    parser.add_argument(
+        "--via-api",
+        action="store_true",
+        help="Call POST /api/v1/reindex/all once (server resolves paths when possible)",
+    )
+    args = parser.parse_args()
 
-    print(f"Service PID: {pid}")
-    baseline = get_memory_cpu(pid)
-    print(f"Baseline: RSS={baseline['rss_mb']:.0f}MB, CPU={baseline['cpu_pct']:.0f}%")
+    base_url = args.base_url.rstrip("/")
+    api_token = os.environ.get("KB_API_TOKEN", "").strip()
+    business_id = os.environ.get("KB_BUSINESS_ID", "default")
 
-    repos = api_call("GET", "/repositories")
-    for repo in repos.get("repositories", []):
-        name = repo["repository"]
-        print(f"  Deleting old index: {name} ({repo['nodes']} nodes)")
-        api_call("DELETE", f"/index/{name}")
+    paths_map: dict[str, str] = {}
+    if args.repo_paths:
+        raw = json.loads(args.repo_paths.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            print("--repo-paths JSON must be an object", file=sys.stderr)
+            sys.exit(2)
+        paths_map = {str(k): str(v) for k, v in raw.items()}
 
-    print(f"\nCleared. Stats after delete:")
-    stats = api_call("GET", "/stats")
-    print(f"  Nodes: F={stats['function_count']} C={stats['class_count']} M={stats['module_count']} D={stats['document_count']}")
+    timeout = httpx.Timeout(600.0)
+    headers = _client_headers(business_id, api_token)
+    async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
+        if args.via_api:
+            body: dict[str, Any] = {"repositories": list(args.repositories or [])}
+            if args.repo_dir:
+                body["base_dir"] = str(args.repo_dir.resolve())
+            print("POST /api/v1/reindex/all ...", flush=True)
+            r = await client.post(f"{base_url}/api/v1/reindex/all", json=body)
+            print(r.text)
+            if not r.is_success:
+                sys.exit(1)
+            return
 
-    projects = sorted(Path(PROJECTS_DIR).glob("ultron-*"))
-    print(f"\nFound {len(projects)} ultron-* projects to index")
-    print("=" * 70)
+        names = (
+            list(args.repositories)
+            if args.repositories is not None
+            else await get_repositories(client, base_url)
+        )
+        if not names:
+            print("No repositories to re-index.", file=sys.stderr)
+            sys.exit(1)
 
-    total_stats = {"files": 0, "nodes": 0, "edges": 0, "embeds": 0}
-    peak_rss = baseline["rss_mb"]
+        if not paths_map and args.repo_dir is None:
+            print(
+                "Provide --repo-dir (or KB_REPO_DIR), --repo-paths, or use --via-api "
+                "(optionally with --repo-dir for base_dir).",
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
-    for i, proj in enumerate(projects, 1):
-        if not proj.is_dir():
-            continue
+        repo_base = args.repo_dir.resolve() if args.repo_dir else None
 
-        name = proj.name
-        print(f"\n[{i}/{len(projects)}] Indexing: {name}")
+        ok = 0
+        failed: list[dict[str, Any]] = []
 
-        mem_before = get_memory_cpu(pid)
-        t0 = time.time()
+        for i, repo in enumerate(names, 1):
+            directory = _resolve_directory(repo, repo_base, paths_map)
+            if not directory:
+                print(f"[{i}/{len(names)}] SKIP {repo}: no local directory resolved", flush=True)
+                failed.append({"repository": repo, "error": "no local directory"})
+                continue
 
-        try:
-            result = api_call("POST", "/index", {
-                "directory": str(proj),
-                "mode": "full",
-                "repository": name,
-            })
-            task_id = result.get("task_id")
-            if task_id:
-                print(f"  Task: {task_id} — polling for completion...")
-                while True:
-                    time.sleep(3)
-                    task = api_call("GET", f"/index/tasks/{task_id}")
-                    status = task.get("status", "")
-                    progress = task.get("progress", {})
-                    phase = progress.get("phase", "")
-                    pf = progress.get("processed_files", 0)
-                    tf = progress.get("total_files", 0)
-                    if tf > 0:
-                        print(f"\r  [{phase}] {pf}/{tf} files", end="", flush=True)
-                    if status in ("completed", "failed"):
-                        print()
-                        break
-                if status == "failed":
-                    print(f"  FAILED: {task.get('error', 'unknown')}")
-                    continue
-                result = task.get("result", {})
-            else:
-                result = result
+            print(f"[{i}/{len(names)}] START {repo} -> {directory}", flush=True)
+            try:
+                result = await reindex_repo(client, base_url, directory, repo)
+            except Exception as exc:
+                print(f"[{i}/{len(names)}] FAIL {repo}: {exc}", flush=True)
+                failed.append({"repository": repo, "error": str(exc)})
+                continue
 
-            elapsed = time.time() - t0
-            mem_after = get_memory_cpu(pid)
-            peak_rss = max(peak_rss, mem_after["rss_mb"])
+            if result.get("http_status", 0) >= 400:
+                print(
+                    f"[{i}/{len(names)}] FAIL {repo}: HTTP {result.get('http_status')} "
+                    f"{result.get('error', '')}",
+                    flush=True,
+                )
+                failed.append(result)
+                continue
 
-            s = result.get("stats", result)
-            total_stats["nodes"] += s.get("nodes", 0) + s.get("doc_nodes", 0)
-            total_stats["edges"] += s.get("edges", 0) + s.get("doc_edges", 0)
-            total_stats["embeds"] += s.get("embeddings", 0) + s.get("doc_embeddings", 0)
-            total_stats["files"] += 1
+            tid = result.get("task_id", "")
+            print(f"[{i}/{len(names)}] QUEUED {repo} task_id={tid}", flush=True)
+            ok += 1
 
-            print(f"  Done in {elapsed:.1f}s | "
-                  f"nodes={s.get('nodes', 0)} edges={s.get('edges', 0)} "
-                  f"embeds={s.get('embeddings', 0)} "
-                  f"inherits={s.get('inherits', 0)} imports={s.get('imports', 0)}")
-            print(f"  Memory: RSS={mem_after['rss_mb']:.0f}MB "
-                  f"(delta={mem_after['rss_mb']-mem_before['rss_mb']:+.0f}MB) "
-                  f"CPU={mem_after['cpu_pct']:.0f}%")
-
-        except Exception as exc:
-            print(f"  ERROR: {exc}")
-
-    print("\n" + "=" * 70)
-    print(f"INDEXING COMPLETE")
-    print(f"  Projects: {total_stats['files']}")
-    print(f"  Total nodes: {total_stats['nodes']}")
-    print(f"  Total edges: {total_stats['edges']}")
-    print(f"  Total embeddings: {total_stats['embeds']}")
-    print(f"  Peak RSS: {peak_rss:.0f}MB")
-
-    final_mem = get_memory_cpu(pid)
-    print(f"  Final RSS: {final_mem['rss_mb']:.0f}MB")
-    print(f"  Baseline: {baseline['rss_mb']:.0f}MB")
-
-    print("\nFinal graph stats:")
-    stats = api_call("GET", "/stats")
-    for k, v in stats.items():
-        print(f"  {k}: {v}")
+        print("--- summary ---")
+        print(f"total: {len(names)}, queued: {ok}, failed/skipped: {len(failed)}")
+        if failed:
+            for f in failed:
+                print(f"  - {f}")
+        if failed:
+            sys.exit(1)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

@@ -159,10 +159,17 @@ class AgentWorkflowService:
     def __init__(self, store: FalkorDBStore) -> None:
         self._store = store
 
+    _GIT_DIFF_TIMEOUT_SECONDS = 30
+    _SAFE_REF_PATTERN = re.compile(r"^[\w./-]+$")
+
     async def _get_diff_from_branch(
         self, repo_path: str, branch: str, base_branch: str = "master"
     ) -> str:
         """Run ``git diff base_branch...branch`` in the specified repo path."""
+        for ref_name in (branch, base_branch):
+            if not self._SAFE_REF_PATTERN.match(ref_name):
+                raise ValueError(f"Invalid git ref name: {ref_name}")
+
         root = Path(repo_path).expanduser().resolve()
         if not root.is_dir():
             raise ValueError(f"Repository path not found or not a directory: {repo_path}")
@@ -170,6 +177,7 @@ class AgentWorkflowService:
             raise ValueError(f"Not a git repository (no .git): {root}")
 
         spec = f"{base_branch}...{branch}"
+        env = {"GIT_CONFIG_NOSYSTEM": "1", "HOME": "/dev/null"}
         try:
             proc = await asyncio.create_subprocess_exec(
                 "git",
@@ -178,13 +186,24 @@ class AgentWorkflowService:
                 cwd=str(root),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env={**__import__("os").environ, **env},
             )
         except FileNotFoundError as exc:
             raise RuntimeError(
                 "git executable not found; ensure Git is installed and on PATH",
             ) from exc
 
-        stdout, stderr = await proc.communicate()
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=self._GIT_DIFF_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(
+                f"git diff timed out after {self._GIT_DIFF_TIMEOUT_SECONDS}s"
+            )
+
         out = stdout.decode("utf-8", errors="replace")
         err_txt = stderr.decode("utf-8", errors="replace").strip()
 

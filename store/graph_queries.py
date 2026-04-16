@@ -193,6 +193,7 @@ class GraphQueryRepository:
             "WHERE c.architecture_layer = $layer " + repo_clause +
             "WITH c ORDER BY coalesce(c.fqn, c.name) LIMIT $limit "
             "OPTIONAL MATCH (c)-[:CONTAINS]->(m:Function) "
+            "WITH c, m ORDER BY m.name LIMIT 2000 "
             "RETURN c.uid AS uid, c.name AS name, c.fqn AS fqn, c.file AS file, "
             "c.repository AS repository, c.semantic_roles AS semantic_roles, "
             "c.architecture_layer AS architecture_layer, "

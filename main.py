@@ -244,6 +244,7 @@ _ARCHITECTURE_LAYERS = frozenset({
     "messaging",
     "infrastructure",
     "model",
+    "unknown",
 })
 
 
@@ -698,6 +699,14 @@ async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> 
             _task_manager.mark_failed(task_id, result["error"])
             return
 
+        if repository:
+            queries = GraphQueryRepository(svc.store)
+            await queries.tag_unowned_nodes(
+                repository,
+                directory=directory,
+                git_url=req.git_url or None,
+            )
+
         cross_repo_stats: dict[str, Any] | None = None
         try:
             from indexer.cross_repo_enricher import CrossRepoEnricher
@@ -715,14 +724,6 @@ async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> 
 
         merged_result = dict(result)
         merged_result["cross_repo_enrichment"] = cross_repo_stats
-
-        if repository:
-            queries = GraphQueryRepository(svc.store)
-            await queries.tag_unowned_nodes(
-                repository,
-                directory=directory,
-                git_url=req.git_url or None,
-            )
 
         if req.git_url and repository and _repo_registry:
             _repo_registry.register(req.git_url, repository)

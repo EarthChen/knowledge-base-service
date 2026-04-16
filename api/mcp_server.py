@@ -32,7 +32,10 @@ log = get_logger(__name__)
 
 
 def _looks_like_git_url(value: str) -> bool:
-    """Heuristic: detect if a string is a git URL rather than a local path."""
+    """Heuristic: detect if a string is a git URL rather than a local path.
+
+    NOTE: duplicated in main.py — keep in sync or move to a shared util module.
+    """
     if value.startswith(("http://", "https://", "git@", "ssh://")):
         return True
     if value.endswith(".git"):

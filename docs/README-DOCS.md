@@ -15,7 +15,7 @@
 |------|------|
 | **G1 解析** | Java 字段级注解（`ParsedField`）、构造器注入（DI 字段伪 Function 节点）、类节点上的泛型形参、`code_snippet` 截断策略优化 |
 | **G2 图** | RPC 接口合约（Class 上 `is_rpc_contract`、`contract_methods`）、域事件（`EVENT_PRODUCES` / `EVENT_CONSUMES` 连到 Kafka Topic Module）、SmartContext 含 `rpc_interface_contracts` 与 `event_context` |
-| **G3 API/MCP** | `GET /api/v1/search/architecture`、`GET /api/v1/quality/{entity_uid}`、MCP `search_architecture` / `code_quality`、索引完成后自动跨仓库富集 |
+| **G3 API/MCP** | `GET /api/v1/search/architecture`（支持 `offset` / `search` 分页与类名过滤）、`GET /api/v1/quality/{entity_uid}`、MCP `search_architecture` / `code_quality`、索引完成后自动跨仓库富集；Dashboard **Architecture Explorer**（`/architecture`）按层浏览类与方法 |
 | **G4 PR 审查** | `POST /api/v1/review/context` 支持 `branch` + `repo_path` 本地 `git diff`；MCP `review_pr` 同步 `branch` / `repo_path` / `base_branch` |
 | **G5 Dashboard P2** | `GET /api/v1/stats/p2`、MCP `dashboard_stats` |
 | **G6 批量重索引** | `POST /api/v1/reindex/all`、`scripts/reindex_all.py` |

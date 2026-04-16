@@ -15,6 +15,7 @@ import {
   Activity,
   Building2,
   ChevronDown,
+  Layers,
 } from "lucide-react";
 import { useHealth } from "../api/hooks";
 import { useI18n } from "../i18n/context";
@@ -37,6 +38,7 @@ export default function Layout() {
     { to: "/deep-search", icon: Brain, label: t.nav.deepSearch },
     { to: "/graph", icon: GitFork, label: t.nav.graphQuery },
     { to: "/explorer", icon: Network, label: t.nav.explorer },
+    { to: "/architecture", icon: Layers, label: t.nav.architecture },
     { to: "/repositories", icon: FolderGit2, label: t.nav.repositories },
     { to: "/documents", icon: FileText, label: t.nav.documents },
     { to: "/indexing", icon: Database, label: t.nav.indexing },

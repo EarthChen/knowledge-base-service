@@ -23,6 +23,7 @@ import {
   FileStack,
   ListTree,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useP2Stats, useStats } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import StatCard from "../components/StatCard";
@@ -34,6 +35,7 @@ export default function Overview() {
   const { data: stats, isLoading, error } = useStats();
   const { data: p2, isLoading: p2Loading, error: p2Error } = useP2Stats();
   const { t } = useI18n();
+  const navigate = useNavigate();
 
   if (error) {
     return (
@@ -258,6 +260,20 @@ export default function Overview() {
                   indexAxis: "y",
                   responsive: true,
                   maintainAspectRatio: false,
+                  onClick: (_event, elements) => {
+                    if (!elements.length) return;
+                    const idx = elements[0].index;
+                    const label = archSorted[idx]?.[0];
+                    if (label) {
+                      navigate(`/architecture?layer=${encodeURIComponent(label)}`);
+                    }
+                  },
+                  onHover: (event, elements) => {
+                    const canvas = event.native?.target as HTMLCanvasElement | undefined;
+                    if (canvas) {
+                      canvas.style.cursor = elements.length ? "pointer" : "default";
+                    }
+                  },
                   scales: {
                     x: {
                       beginAtZero: true,

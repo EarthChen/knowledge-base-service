@@ -23,6 +23,7 @@ import type {
   SyncSchedulesResponse,
   SyncScheduleRequest,
   P2Stats,
+  ArchitectureSearchResponse,
 } from "./types";
 
 export function useHealth() {
@@ -284,5 +285,23 @@ export function useTriggerSync() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sync-schedules"] });
     },
+  });
+}
+
+export function useArchitectureSearch(
+  layer: string,
+  options: { repository?: string; search?: string; offset?: number; limit?: number } = {},
+) {
+  const params = new URLSearchParams();
+  params.set("layer", layer);
+  if (options.repository) params.set("repository", options.repository);
+  if (options.search) params.set("search", options.search);
+  if (options.offset !== undefined) params.set("offset", String(options.offset));
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+
+  return useQuery<ArchitectureSearchResponse>({
+    queryKey: ["architecture-search", layer, options],
+    queryFn: () => api(`/search/architecture?${params.toString()}`, { method: "GET" }),
+    enabled: !!layer,
   });
 }

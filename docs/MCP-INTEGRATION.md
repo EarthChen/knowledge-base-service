@@ -306,6 +306,8 @@ graph LR
 | `layer` | string | 是 | — | `presentation` / `business` / `data_access` / `rpc` / `messaging` / `infrastructure` / `model` |
 | `repository` | string | 否 | — | 可选仓库名，缩小结果范围 |
 | `limit` | integer | 否 | 50 | 最大返回类数量（服务端上限 500） |
+| `offset` | integer | 否 | 0 | 分页：跳过的类条数（须 ≥ 0） |
+| `search` | string | 否 | — | 可选：按**类名**子串过滤（大小写不敏感）；服务端会校验长度与非法字符 |
 
 **调用示例:**
 
@@ -315,7 +317,9 @@ graph LR
   "arguments": {
     "layer": "business",
     "repository": "my-service",
-    "limit": 50
+    "limit": 50,
+    "offset": 0,
+    "search": "Order"
   }
 }
 ```
@@ -504,11 +508,11 @@ curl -X POST http://localhost:8100/api/v1/context/build \
 
 ### `GET /api/v1/search/architecture`
 
-按架构分层列出类与方法（查询参数：`layer`、`repository?`、`limit?`）。
+按架构分层列出类与方法（查询参数：`layer`（必填）、`repository?`、`limit?`、`offset?`、`search?`；`search` 为类名子串过滤，与 MCP 一致）。
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8100/api/v1/search/architecture?layer=business&limit=50"
+  "http://localhost:8100/api/v1/search/architecture?layer=business&limit=50&offset=0&search=Order"
 ```
 
 ### `GET /api/v1/quality/{entity_uid}`

@@ -257,7 +257,7 @@ MCP_TOOLS_MANIFEST = [
         "name": "search_architecture",
         "description": (
             "Search indexed classes by architecture layer (presentation, business, data_access, "
-            "rpc, messaging, infrastructure, model). Returns each class with its methods."
+            "rpc, messaging, infrastructure, model, unknown). Returns each class with its methods."
         ),
         "inputSchema": {
             "type": "object",
@@ -272,6 +272,7 @@ MCP_TOOLS_MANIFEST = [
                         "messaging",
                         "infrastructure",
                         "model",
+                        "unknown",
                     ],
                     "description": "Architecture layer to filter Class nodes",
                 },
@@ -283,6 +284,15 @@ MCP_TOOLS_MANIFEST = [
                     "type": "integer",
                     "default": 50,
                     "description": "Max classes to return (capped at 500)",
+                },
+                "offset": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Number of classes to skip (pagination)",
+                },
+                "search": {
+                    "type": "string",
+                    "description": "Optional substring match on class name (case-insensitive)",
                 },
             },
             "required": ["layer"],
@@ -616,7 +626,7 @@ class KnowledgeBaseMCPHandler:
         return {"repository": repository, **report.to_dict()}
 
     async def handle_search_architecture(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        from store.graph_queries import GraphQueryRepository
+        from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 
         layer = (arguments.get("layer") or "").strip()
         if not layer:
@@ -629,25 +639,48 @@ class KnowledgeBaseMCPHandler:
             "messaging",
             "infrastructure",
             "model",
+            "unknown",
         }
         if layer not in _allowed:
             return {"error": f"Invalid layer; expected one of: {', '.join(sorted(_allowed))}"}
         repository = arguments.get("repository")
         if repository is not None:
             repository = str(repository).strip() or None
-        limit = int(arguments.get("limit", 50))
+        raw_limit = arguments.get("limit", 50)
+        raw_offset = arguments.get("offset", 0)
+        try:
+            limit = int(raw_limit) if raw_limit is not None else 50
+            offset = int(raw_offset) if raw_offset is not None else 0
+        except (TypeError, ValueError):
+            return {"error": "limit and offset must be integers"}
         limit = max(1, min(limit, 500))
+        if offset < 0:
+            return {"error": "offset must be >= 0"}
+        raw_search = arguments.get("search")
+        if raw_search is not None and not isinstance(raw_search, str):
+            raw_search = str(raw_search)
+        try:
+            search_param = validate_architecture_class_search(raw_search)
+        except ValueError as exc:
+            return {"error": str(exc)}
         if not self._store:
             return {"error": "Graph store not available"}
         try:
             queries = GraphQueryRepository(self._store)
-            classes = await queries.search_classes_by_architecture_layer(layer, repository, limit)
+            total_count = await queries.count_classes_by_architecture_layer(
+                layer, repository, search=search_param
+            )
+            classes = await queries.search_classes_by_architecture_layer(
+                layer, repository, limit, search=search_param, offset=offset
+            )
             return {
                 "layer": layer,
                 "repository": repository,
                 "limit": limit,
+                "offset": offset,
+                "search": search_param,
                 "classes": classes,
-                "total": len(classes),
+                "total_count": total_count,
             }
         except Exception as exc:
             log.error("mcp_search_architecture_failed", error=str(exc))

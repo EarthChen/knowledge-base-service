@@ -6,9 +6,27 @@ providing a single point of maintenance for the query vocabulary.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from repo_registry import RepoRegistry
+
+# Disallow characters that are unsafe or meaningless for parameterized class-name search.
+_ARCHITECTURE_CLASS_SEARCH_DISALLOWED = re.compile(r'[`"\';\\#\x00-\x1f]')
+
+
+def validate_architecture_class_search(search: str | None) -> str | None:
+    """Validate optional search text for architecture class listing; return trimmed value or None."""
+    if search is None:
+        return None
+    s = search.strip()
+    if not s:
+        return None
+    if len(s) > 500:
+        raise ValueError("search must be at most 500 characters")
+    if _ARCHITECTURE_CLASS_SEARCH_DISALLOWED.search(s):
+        raise ValueError("search contains disallowed characters")
+    return s
 
 from .falkordb_store import FalkorDBStore, QueryResultWrapper
 
@@ -175,23 +193,60 @@ class GraphQueryRepository:
         )
         return result.data[0] if result.data else None
 
+    async def count_classes_by_architecture_layer(
+        self,
+        layer: str,
+        repository: str | None = None,
+        search: str | None = None,
+    ) -> int:
+        """Count Class nodes in an architecture layer (no method expansion)."""
+        params: dict[str, Any] = {"layer": layer}
+        repo_clause = ""
+        if repository:
+            repo_clause = "AND c.repository = $repo "
+            params["repo"] = repository
+        search_clause = ""
+        search_norm = search.lower().strip() if search else ""
+        if search_norm:
+            search_clause = "AND toLower(c.name) CONTAINS $search "
+            params["search"] = search_norm
+
+        cypher = (
+            "MATCH (c:Class) "
+            "WHERE c.architecture_layer = $layer " + repo_clause + search_clause +
+            "RETURN count(c) AS cnt"
+        )
+        result = await self._store.execute_query(cypher, params)
+        row = result.data[0] if result.data else {}
+        cnt = row.get("cnt")
+        return int(cnt) if cnt is not None else 0
+
     async def search_classes_by_architecture_layer(
         self,
         layer: str,
         repository: str | None,
         limit: int,
+        *,
+        search: str | None = None,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
         """Return Class nodes in an architecture layer with contained methods."""
-        params: dict[str, Any] = {"layer": layer, "limit": limit}
+        params: dict[str, Any] = {"layer": layer, "limit": limit, "offset": offset}
         repo_clause = ""
         if repository:
             repo_clause = "AND c.repository = $repo "
             params["repo"] = repository
+        search_clause = ""
+        search_norm = search.lower().strip() if search else ""
+        if search_norm:
+            search_clause = "AND toLower(c.name) CONTAINS $search "
+            params["search"] = search_norm
 
         cypher = (
             "MATCH (c:Class) "
-            "WHERE c.architecture_layer = $layer " + repo_clause +
-            "WITH c ORDER BY coalesce(c.fqn, c.name) LIMIT $limit "
+            "WHERE c.architecture_layer = $layer " + repo_clause + search_clause +
+            "WITH c ORDER BY coalesce(c.fqn, c.name) "
+            "SKIP $offset LIMIT $limit "
             "OPTIONAL MATCH (c)-[:CONTAINS]->(m:Function) "
             "WITH c, m ORDER BY m.name LIMIT 2000 "
             "RETURN c.uid AS uid, c.name AS name, c.fqn AS fqn, c.file AS file, "

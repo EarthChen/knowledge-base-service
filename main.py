@@ -27,7 +27,7 @@ from repo_registry import RepoRegistry
 from scheduler import SyncScheduleConfig, SyncScheduler
 from service import KnowledgeBaseService
 from service_registry import ServiceRegistry
-from store.graph_queries import GraphQueryRepository
+from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 
 log = get_logger(__name__)
 
@@ -373,6 +373,11 @@ async def search_architecture(
     layer: str,
     repository: str | None = None,
     limit: int = 50,
+    offset: int = 0,
+    search: str | None = Query(
+        default=None,
+        description="Case-insensitive substring match on class name",
+    ),
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
     if layer not in _ARCHITECTURE_LAYERS:
@@ -380,16 +385,30 @@ async def search_architecture(
             status_code=422,
             detail=f"Invalid layer; expected one of: {', '.join(sorted(_ARCHITECTURE_LAYERS))}",
         )
+    if offset < 0:
+        raise HTTPException(status_code=422, detail="offset must be >= 0")
+    try:
+        search_param = validate_architecture_class_search(search)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     lim = max(1, min(limit, 500))
+    off = offset
     try:
         queries = GraphQueryRepository(svc.store)
-        classes = await queries.search_classes_by_architecture_layer(layer, repository, lim)
+        total_count = await queries.count_classes_by_architecture_layer(
+            layer, repository, search=search_param
+        )
+        classes = await queries.search_classes_by_architecture_layer(
+            layer, repository, lim, search=search_param, offset=off
+        )
         return {
             "layer": layer,
             "repository": repository,
             "limit": lim,
+            "offset": off,
+            "search": search_param,
             "classes": classes,
-            "total": len(classes),
+            "total_count": total_count,
         }
     except Exception as exc:
         log.error("search_architecture_failed", layer=layer, error=str(exc))

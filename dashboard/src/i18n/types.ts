@@ -11,6 +11,7 @@ export interface Translations {
     deepSearch: string;
     graphQuery: string;
     explorer: string;
+    architecture: string;
     repositories: string;
     documents: string;
     indexing: string;
@@ -214,6 +215,25 @@ export interface Translations {
     edgeTypes: string;
     doubleClickHint: string;
     emptyHint: string;
+  };
+  architecture: {
+    title: string;
+    layers: string;
+    searchPlaceholder: string;
+    allRepositories: string;
+    name: string;
+    fqn: string;
+    repository: string;
+    semanticRoles: string;
+    methodCount: string;
+    methods: string;
+    signature: string;
+    noClasses: string;
+    loading: string;
+    page: string;
+    of: string;
+    prev: string;
+    next: string;
   };
   businesses: {
     title: string;

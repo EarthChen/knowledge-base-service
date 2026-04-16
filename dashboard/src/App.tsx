@@ -6,6 +6,7 @@ import SearchPage from "./pages/SearchPage";
 import DeepSearchPage from "./pages/DeepSearchPage";
 import GraphQuery from "./pages/GraphQuery";
 import GraphExplorer from "./pages/GraphExplorer";
+import ArchitecturePage from "./pages/ArchitecturePage";
 import Repositories from "./pages/Repositories";
 import Indexing from "./pages/Indexing";
 import Businesses from "./pages/Businesses";
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="deep-search" element={<DeepSearchPage />} />
           <Route path="graph" element={<GraphQuery />} />
           <Route path="explorer" element={<GraphExplorer />} />
+          <Route path="architecture" element={<ArchitecturePage />} />
           <Route path="repositories" element={<Repositories />} />
           <Route path="documents" element={<Documents />} />
           <Route path="indexing" element={<Indexing />} />

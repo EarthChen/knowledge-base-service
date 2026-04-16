@@ -270,3 +270,31 @@ export interface DeepSearchResponse {
   search_trace?: Array<Record<string, unknown>>;
   [key: string]: unknown;
 }
+
+export interface ArchitectureMethod {
+  uid: string;
+  name: string;
+  signature: string;
+  fqn: string;
+}
+
+export interface ArchitectureClass {
+  uid: string;
+  name: string;
+  fqn: string | null;
+  file: string | null;
+  repository: string | null;
+  semantic_roles: string[] | null;
+  architecture_layer: string;
+  methods: ArchitectureMethod[];
+}
+
+export interface ArchitectureSearchResponse {
+  layer: string;
+  repository: string | null;
+  limit: number;
+  offset: number;
+  classes: ArchitectureClass[];
+  total: number;
+  total_count: number;
+}

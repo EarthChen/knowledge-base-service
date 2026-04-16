@@ -180,7 +180,14 @@ class IncrementalIndexer:
             await enrich_queue.put(batch_buffer)
         await enrich_queue.put(None)
 
-        await enrichment_task
+        try:
+            await enrichment_task
+        except Exception as exc:
+            log.warning(
+                "llm_enrichment_failed_non_fatal",
+                directory=directory,
+                error=str(exc),
+            )
 
         enriched = 0
         for name, summary in summary_map.items():

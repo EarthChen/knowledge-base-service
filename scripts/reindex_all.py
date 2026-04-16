@@ -45,9 +45,11 @@ def _resolve_directory(
         p = Path(paths_map[repo])
         return str(p.resolve()) if p.is_dir() else None
     if repo_dir is not None:
-        p = repo_dir / repo
+        p = (repo_dir / repo).resolve()
+        if not p.is_relative_to(repo_dir.resolve()):
+            return None
         if p.is_dir():
-            return str(p.resolve())
+            return str(p)
     return None
 
 

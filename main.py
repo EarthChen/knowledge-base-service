@@ -34,6 +34,8 @@ log = get_logger(__name__)
 _registry: ServiceRegistry | None = None
 _task_manager: IndexTaskManager | None = None
 _repo_registry: RepoRegistry | None = None
+_MAX_CONCURRENT_REINDEX = 3
+_reindex_sem = asyncio.Semaphore(_MAX_CONCURRENT_REINDEX)
 _scheduler: SyncScheduler | None = None
 
 
@@ -583,12 +585,21 @@ async def reindex_all_repositories(
             if rname and sf:
                 samples_map[str(rname)] = str(sf)
 
+    _SAFE_REPO_NAME = re.compile(r"^[\w][\w.\-]*$")
+    base_resolved = Path(base).resolve() if base else None
+
     for repo in repo_names:
         directory: str | None = None
-        if base:
-            candidate = str(Path(base) / repo)
-            if Path(candidate).is_dir():
-                directory = candidate
+        if base_resolved:
+            if not _SAFE_REPO_NAME.match(repo):
+                skipped.append({"repository": repo, "reason": "invalid repo name characters"})
+                continue
+            candidate = (base_resolved / repo).resolve()
+            if not candidate.is_relative_to(base_resolved):
+                skipped.append({"repository": repo, "reason": "path traversal detected"})
+                continue
+            if candidate.is_dir():
+                directory = str(candidate)
             else:
                 skipped.append({"repository": repo, "reason": f"not a directory: {candidate}"})
                 continue
@@ -615,7 +626,16 @@ async def reindex_all_repositories(
             repository=repo,
             business_id=business_id,
         )
-        asyncio.create_task(_run_index_task(task.task_id, idx, business_id))
+
+        async def _throttled_index(
+            sem: asyncio.Semaphore, tid: str, ir: IndexRequest, bid: str
+        ) -> None:
+            async with sem:
+                await _run_index_task(tid, ir, bid)
+
+        asyncio.create_task(
+            _throttled_index(_reindex_sem, task.task_id, idx, business_id)
+        )
         tasks_out.append({
             "repository": repo,
             "task_id": task.task_id,

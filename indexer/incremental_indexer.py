@@ -22,7 +22,7 @@ from indexer.embedding_generator import EmbeddingGenerator
 from indexer.enrichment import is_trivial_enrichment_entity, truncate_enrichment_item
 from log import get_logger
 from store.falkordb_store import FalkorDBStore
-from store.schema import NodeLabel
+from store.schema import GraphNode, NodeLabel
 
 if TYPE_CHECKING:
     from indexer.enrichment import CodeSummaryEnricher
@@ -32,6 +32,15 @@ log = get_logger(__name__)
 
 _DOC_EXTENSIONS = {".md", ".markdown", ".rst", ".txt"}
 _ENRICH_BATCH_SIZE = 50
+
+
+def _stamp_repository_on_nodes(nodes: list[GraphNode], repository: str | None) -> None:
+    """Set ``repository`` on node properties before upsert (avoids cross-repo tagging races)."""
+    if not repository:
+        return
+    for n in nodes:
+        n.properties["repository"] = repository
+
 
 def _get_exclude_dirs() -> set[str]:
     from config import get_settings
@@ -76,7 +85,11 @@ class IncrementalIndexer:
         return "direct"
 
     async def index_full(
-        self, directory: str, progress_callback: Callable[..., None] | None = None,
+        self,
+        directory: str,
+        progress_callback: Callable[..., None] | None = None,
+        *,
+        repository: str | None = None,
     ) -> dict[str, Any]:
         """Full reindex — pipelined parse+enrich (1 ACP task) then embed.
 
@@ -130,6 +143,7 @@ class IncrementalIndexer:
 
         for fpath, nodes, edges in self._builder.iter_directory(directory):
             try:
+                _stamp_repository_on_nodes(nodes, repository)
                 await self._store.batch_upsert(nodes, edges)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
@@ -255,6 +269,8 @@ class IncrementalIndexer:
         base_ref: str = "HEAD~1",
         head_ref: str = "HEAD",
         progress_callback: Callable[..., None] | None = None,
+        *,
+        repository: str | None = None,
     ) -> dict[str, Any]:
         """Incremental index — streaming parse, single-task enrich, per-file embed."""
         report = IndexReport()
@@ -324,6 +340,7 @@ class IncrementalIndexer:
                     try:
                         doc = self._doc_indexer.parse_document(full_path, store_path=fpath)
                         doc_nodes, doc_edges = self._doc_indexer.build_graph(doc)
+                        _stamp_repository_on_nodes(doc_nodes, repository)
                         await self._store.batch_upsert(doc_nodes, doc_edges)
                         doc_file_paths.append(fpath)
                         total_doc_nodes += len(doc_nodes)
@@ -334,6 +351,7 @@ class IncrementalIndexer:
                         report.record_file_failure(fpath, str(exc))
                 else:
                     nodes, edges = self._builder.build_from_file(full_path, store_path=fpath)
+                    _stamp_repository_on_nodes(nodes, repository)
                     await self._store.batch_upsert(nodes, edges)
                     code_file_paths.append(fpath)
                     total_nodes += len(nodes)
@@ -517,7 +535,12 @@ class IncrementalIndexer:
         return enriched_total
 
     async def index_file(
-        self, file_path: str, content: str | None = None, *, store_path: str | None = None,
+        self,
+        file_path: str,
+        content: str | None = None,
+        *,
+        store_path: str | None = None,
+        repository: str | None = None,
     ) -> dict[str, int]:
         """Index or reindex a single file.
 
@@ -529,6 +552,7 @@ class IncrementalIndexer:
         if persist != file_path:
             await self._store.delete_by_file(file_path)
         nodes, edges = self._builder.build_from_file(file_path, content, store_path=persist)
+        _stamp_repository_on_nodes(nodes, repository)
         await self._store.batch_upsert(nodes, edges)
         embed_count = await self._generate_and_store_embeddings(nodes)
         return {"nodes": len(nodes), "edges": len(edges), "embeddings": embed_count}

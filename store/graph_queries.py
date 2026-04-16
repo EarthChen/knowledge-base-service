@@ -7,6 +7,7 @@ providing a single point of maintenance for the query vocabulary.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 from repo_registry import RepoRegistry
@@ -54,13 +55,15 @@ class GraphQueryRepository:
         repository: str,
         directory: str | None = None,
         git_url: str | None = None,
+        file_prefix: str | None = None,
     ) -> None:
-        """Assign repository to nodes that don't have one yet.
+        """Assign repository to nodes that still lack one (narrow backfill only).
 
-        Supports both absolute-path (STARTS WITH $dir) and
-        relative-path (NOT STARTS WITH '/') scoping.
-        When ``git_url`` is set, also stores a normalized URL key on tagged nodes
-        (same as ``RepoRegistry``) for deduplication lookups.
+        Prefer setting ``repository`` during indexing; this must not scan the whole graph
+        for relative paths — that races when multiple repos index concurrently.
+
+        * ``directory`` — match only ``n.file`` under this absolute path prefix.
+        * ``file_prefix`` — optional extra match for repo-relative paths (e.g. a submodule folder).
         """
         git_key = RepoRegistry._normalize_key(git_url) if git_url else None
         if git_key is not None:
@@ -70,18 +73,20 @@ class GraphQueryRepository:
             set_clause = "SET n.repository = $repo"
             base_params = {"repo": repository}
 
+        where_base = "MATCH (n) WHERE n.repository IS NULL AND "
+
         if directory:
+            dir_prefix = Path(directory).resolve().as_posix().rstrip("/") + "/"
             await self._store.execute_query(
-                "MATCH (n) WHERE n.repository IS NULL AND "
-                "(n.file STARTS WITH $dir OR NOT n.file STARTS WITH '/') "
-                + set_clause,
-                {**base_params, "dir": directory},
+                where_base + "n.file STARTS WITH $dir_prefix " + set_clause,
+                {**base_params, "dir_prefix": dir_prefix},
             )
-        else:
+
+        if file_prefix:
+            fp = file_prefix.replace("\\", "/").strip().rstrip("/") + "/"
             await self._store.execute_query(
-                "MATCH (n) WHERE n.repository IS NULL AND NOT n.file STARTS WITH '/' "
-                + set_clause,
-                base_params,
+                where_base + "n.file STARTS WITH $file_prefix " + set_clause,
+                {**base_params, "file_prefix": fp},
             )
 
     async def get_repository_node_count(self, repository: str) -> int:

@@ -251,11 +251,14 @@ class SyncScheduler:
         base_ref = "HEAD~1"
         head_ref = "HEAD"
         base = pre_head if pre_head else base_ref
-        index_stats = await svc.indexer.index_incremental(repo_dir, base, head_ref)
+        index_stats = await svc.indexer.index_incremental(
+            repo_dir, base, head_ref, repository=repo_name,
+        )
 
         if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
             await queries.tag_unowned_nodes(
                 repo_name,
+                directory=repo_dir,
                 git_url=cfg.git_url,
             )
 

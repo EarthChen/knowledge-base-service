@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from auth import Role, TokenInfo, get_current_role, require_role, resolve_business_id, resolve_token
 from config import get_settings
+from indexer.incremental_indexer import _stamp_repository_on_nodes
 from indexer.task_manager import IndexTaskManager
 from log import get_logger, setup_logging
 from repo_registry import RepoRegistry
@@ -893,7 +894,9 @@ async def index_files(
 
     for file_req in req.files:
         repo = file_req.repository or req.repository
-        stats = await svc.indexer.index_file(file_req.file_path, file_req.content)
+        stats = await svc.indexer.index_file(
+            file_req.file_path, file_req.content, repository=repo,
+        )
         total_nodes += stats.get("nodes", 0)
         total_edges += stats.get("edges", 0)
         total_embeds += stats.get("embeddings", 0)
@@ -905,6 +908,7 @@ async def index_files(
         if ext in {"md", "markdown", "rst", "txt"}:
             doc = svc.doc_indexer.parse_document(file_req.file_path, file_req.content)
             doc_nodes, doc_edges = svc.doc_indexer.build_graph(doc)
+            _stamp_repository_on_nodes(doc_nodes, repo)
             await svc.store.batch_upsert(doc_nodes, doc_edges)
             total_nodes += len(doc_nodes)
             total_edges += len(doc_edges)
@@ -1699,10 +1703,13 @@ async def sync_repository(
             }
 
         base = pre_head if pre_head else req.base_ref
-        index_stats = await svc.indexer.index_incremental(repo_dir, base, req.head_ref)
+        index_stats = await svc.indexer.index_incremental(
+            repo_dir, base, req.head_ref, repository=repo_name,
+        )
         if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
             await queries.tag_unowned_nodes(
                 repo_name,
+                directory=repo_dir,
                 git_url=req.git_url,
             )
 
@@ -1748,10 +1755,12 @@ async def sync_repository(
         }
 
     base = pre_pull_head if pre_pull_head else req.base_ref
-    index_stats = await svc.indexer.index_incremental(repo_dir, base, req.head_ref)
+    index_stats = await svc.indexer.index_incremental(
+        repo_dir, base, req.head_ref, repository=req.repository,
+    )
 
     if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
-        await queries.tag_unowned_nodes(req.repository)
+        await queries.tag_unowned_nodes(req.repository, directory=repo_dir)
 
     return {
         "repository": req.repository,
@@ -1805,9 +1814,11 @@ async def sync_all_repositories(
                 continue
 
             base = pre_pull_head if pre_pull_head else base_ref
-            index_stats = await svc.indexer.index_incremental(repo_dir, base, head_ref)
+            index_stats = await svc.indexer.index_incremental(
+                repo_dir, base, head_ref, repository=repo,
+            )
             if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
-                await queries.tag_unowned_nodes(repo)
+                await queries.tag_unowned_nodes(repo, directory=repo_dir)
             results.append({"repository": repo, "status": "synced", "stats": index_stats})
         except Exception as exc:
             log.warning("sync_repo_error", repo=repo, error=str(exc))

@@ -775,28 +775,43 @@ class KnowledgeBaseMCPHandler:
         if not directory:
             return {"error": "directory parameter is required"}
 
+        repository = args.get("repository")
         if mode == "incremental":
             base_ref = args.get("base_ref", "HEAD~1")
             head_ref = args.get("head_ref", "HEAD")
             stats = await self._indexer.index_incremental(
-                directory, base_ref, head_ref, progress_callback=progress_callback,
+                directory,
+                base_ref,
+                head_ref,
+                progress_callback=progress_callback,
+                repository=repository,
             )
             doc_stats = {}
         else:
-            stats = await self._indexer.index_full(directory, progress_callback=progress_callback)
-            doc_stats = await self._index_docs_full(directory, progress_callback=progress_callback)
+            stats = await self._indexer.index_full(
+                directory, progress_callback=progress_callback, repository=repository,
+            )
+            doc_stats = await self._index_docs_full(
+                directory, progress_callback=progress_callback, repository=repository,
+            )
 
         stats.update(doc_stats)
         return {"mode": mode, "directory": directory, "stats": stats}
 
     async def _index_docs_full(
-        self, directory: str, progress_callback: Callable[..., None] | None = None,
+        self,
+        directory: str,
+        progress_callback: Callable[..., None] | None = None,
+        *,
+        repository: str | None = None,
     ) -> dict[str, int]:
         """Index all documents (.md, .rst, .txt) — one file at a time."""
         if not self._doc_indexer or not self._store:
             return {}
 
         from pathlib import Path
+
+        from indexer.incremental_indexer import _stamp_repository_on_nodes
 
         base = Path(directory)
         total_nodes = 0
@@ -820,6 +835,7 @@ class KnowledgeBaseMCPHandler:
                 rel = str(fpath.relative_to(base))
                 doc = self._doc_indexer.parse_document(str(fpath), store_path=rel)
                 nodes, edges = self._doc_indexer.build_graph(doc)
+                _stamp_repository_on_nodes(nodes, repository)
                 await self._store.batch_upsert(nodes, edges)
                 total_nodes += len(nodes)
                 total_edges += len(edges)

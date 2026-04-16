@@ -11,7 +11,7 @@ from config import Settings
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator
-from indexer.incremental_indexer import IncrementalIndexer
+from indexer.incremental_indexer import IncrementalIndexer, _stamp_repository_on_nodes
 from indexer.tree_sitter_parser import TreeSitterParser
 from log import get_logger
 from query.graph_query import GraphQueryService
@@ -206,9 +206,9 @@ class KnowledgeBaseService:
     def deep_search(self):
         return self._deep_search
 
-    async def index_directory(self, directory: str) -> dict[str, int]:
+    async def index_directory(self, directory: str, repository: str | None = None) -> dict[str, int]:
         """Full index of code + docs in a directory (streaming per-file)."""
-        code_stats = await self._incremental_indexer.index_full(directory)
+        code_stats = await self._incremental_indexer.index_full(directory, repository=repository)
 
         doc_nodes_total = 0
         doc_edges_total = 0
@@ -226,6 +226,7 @@ class KnowledgeBaseService:
                     rel = str(fpath.relative_to(base))
                     doc = self._doc_indexer.parse_document(str(fpath), store_path=rel)
                     nodes, edges = self._doc_indexer.build_graph(doc)
+                    _stamp_repository_on_nodes(nodes, repository)
                     await self._store.batch_upsert(nodes, edges)
                     doc_nodes_total += len(nodes)
                     doc_edges_total += len(edges)

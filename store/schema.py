@@ -19,6 +19,9 @@ Edge types:
   - IMPLEMENTS, RELATES_TO, PART_OF, CONCEPT_IN (business semantics)
   - PROVIDES_RPC(provider class → module)
   - CONSUMES_RPC(consumer function → module)
+  - CROSS_REPO_CALLS(consumer → provider across repositories)
+  - DEPENDS_ON(bean → injected bean via Spring DI)
+  - ACCESSES_TABLE(repository/DAO class → entity class)
 """
 
 from __future__ import annotations
@@ -49,6 +52,9 @@ class EdgeType(StrEnum):
     CONCEPT_IN = "CONCEPT_IN"
     PROVIDES_RPC = "PROVIDES_RPC"
     CONSUMES_RPC = "CONSUMES_RPC"
+    CROSS_REPO_CALLS = "CROSS_REPO_CALLS"
+    DEPENDS_ON = "DEPENDS_ON"
+    ACCESSES_TABLE = "ACCESSES_TABLE"
 
 
 @dataclass

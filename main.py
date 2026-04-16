@@ -183,6 +183,18 @@ class ImpactAnalysisRequest(BaseModel):
     max_depth: int = Field(default=5, ge=1, le=50)
 
 
+class ReviewContextRequest(BaseModel):
+    diff_text: str = Field(..., min_length=1, description="Unified diff text from git diff")
+    repository: str | None = None
+    max_depth: int = Field(default=3, ge=1, le=20)
+
+
+class SmartContextRequest(BaseModel):
+    entity_name: str = Field(..., min_length=1)
+    entity_type: str = Field(default="function", pattern="^(function|class)$")
+    repository: str | None = None
+
+
 class MCPToolCallRequest(BaseModel):
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
@@ -884,6 +896,52 @@ async def enrich_graph(
     enricher = GraphEnricher(svc.store)
     result = await enricher.enrich()
     return {"status": "completed", **result}
+
+
+@admin_router.post("/enrich/cross-repo")
+async def enrich_cross_repo(
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Run cross-repo enrichment: RPC resolution, DI graph, Entity mapping."""
+    from indexer.cross_repo_enricher import CrossRepoEnricher
+
+    enricher = CrossRepoEnricher(svc.store)
+    result = await enricher.enrich_all()
+    return {"status": "completed", **result}
+
+
+@editor_router.post("/review/context")
+async def build_review_context(
+    req: ReviewContextRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Build structured review context from a git diff for AI code review."""
+    from query.agent_workflow import AgentWorkflowService
+
+    workflow = AgentWorkflowService(svc.store)
+    ctx = await workflow.build_review_context(
+        diff_text=req.diff_text,
+        repository=req.repository,
+        max_depth=req.max_depth,
+    )
+    return ctx.to_dict()
+
+
+@editor_router.post("/context/build")
+async def build_smart_context(
+    req: SmartContextRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Build an optimal context package for a code entity."""
+    from query.agent_workflow import AgentWorkflowService
+
+    workflow = AgentWorkflowService(svc.store)
+    ctx = await workflow.build_smart_context(
+        entity_name=req.entity_name,
+        entity_type=req.entity_type,
+        repository=req.repository,
+    )
+    return ctx.to_dict()
 
 
 @admin_router.get("/endpoints/{repository:path}")

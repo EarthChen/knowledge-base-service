@@ -19,6 +19,8 @@ class SemanticRole(StrEnum):
     SCHEDULED_TASK = "scheduled_task"
     MESSAGE_LISTENER = "message_listener"
     TRANSACTION = "transaction"
+    ENTITY = "entity"
+    DI_INJECT = "di_inject"
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,15 @@ ANNOTATION_SEMANTICS: dict[str, AnnotationSemantic] = {
     "app.put": AnnotationSemantic(SemanticRole.HTTP_ENDPOINT, "method", "fastapi"),
     "app.delete": AnnotationSemantic(SemanticRole.HTTP_ENDPOINT, "method", "fastapi"),
     "app.patch": AnnotationSemantic(SemanticRole.HTTP_ENDPOINT, "method", "fastapi"),
+    # JPA / Spring Data Entity annotations
+    "Entity": AnnotationSemantic(SemanticRole.ENTITY, "class", "jpa"),
+    "Table": AnnotationSemantic(SemanticRole.ENTITY, "class", "jpa"),
+    "Document": AnnotationSemantic(SemanticRole.ENTITY, "class", "spring-data"),
+    "MappedSuperclass": AnnotationSemantic(SemanticRole.ENTITY, "class", "jpa"),
+    # Spring DI injection annotations
+    "Autowired": AnnotationSemantic(SemanticRole.DI_INJECT, "field", "spring"),
+    "Inject": AnnotationSemantic(SemanticRole.DI_INJECT, "field", "javax"),
+    "Resource": AnnotationSemantic(SemanticRole.DI_INJECT, "field", "javax"),
 }
 
 

@@ -238,6 +238,62 @@ MCP_TOOLS_MANIFEST = [
             "required": ["repository"],
         },
     },
+    {
+        "name": "review_pr",
+        "description": (
+            "Analyze a PR diff and build comprehensive review context. Returns changed entities, "
+            "impact analysis, affected API endpoints, cross-repository impacts, and review suggestions. "
+            "Use this when starting a code review to understand the blast radius of changes."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "diff_text": {
+                    "type": "string",
+                    "description": "Unified diff text from git diff",
+                },
+                "repository": {
+                    "type": "string",
+                    "description": "Optional repository name to scope the analysis",
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "default": 3,
+                    "description": "Maximum call chain depth for impact analysis",
+                },
+            },
+            "required": ["diff_text"],
+        },
+    },
+    {
+        "name": "build_context",
+        "description": (
+            "Build an optimal context package for a code entity (function or class). "
+            "Returns the entity's code, callers, callees, parent class, sibling methods, "
+            "cross-repository dependencies, entity tables, DI dependencies, and interfaces. "
+            "Use this to deeply understand a function or class before modifying it."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_name": {
+                    "type": "string",
+                    "description": "Name of the function or class to get context for",
+                },
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["function", "class"],
+                    "default": "function",
+                    "description": "Type of entity",
+                },
+                "repository": {
+                    "type": "string",
+                    "description": "Optional repository name to scope the search",
+                },
+            },
+            "required": ["entity_name"],
+        },
+    },
 ]
 
 
@@ -273,6 +329,8 @@ class KnowledgeBaseMCPHandler:
             "analyze_impact": self.handle_analyze_impact,
             "list_endpoints": self.handle_list_endpoints,
             "check_consistency": self.handle_check_consistency,
+            "review_pr": self.handle_review_pr,
+            "build_context": self.handle_build_context,
         }
 
         handler = handlers.get(tool_name)
@@ -444,6 +502,40 @@ class KnowledgeBaseMCPHandler:
         analysis = AnalysisService(self._store)
         report = await analysis.verify_consistency(str(resolved), repository=repository)
         return {"repository": repository, **report.to_dict()}
+
+    async def handle_review_pr(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        from query.agent_workflow import AgentWorkflowService
+
+        diff_text = arguments.get("diff_text", "")
+        if not diff_text:
+            return {"error": "diff_text parameter is required"}
+        if not self._store:
+            return {"error": "Graph store not available"}
+
+        workflow = AgentWorkflowService(self._store)
+        ctx = await workflow.build_review_context(
+            diff_text=diff_text,
+            repository=arguments.get("repository"),
+            max_depth=arguments.get("max_depth", 3),
+        )
+        return ctx.to_dict()
+
+    async def handle_build_context(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        from query.agent_workflow import AgentWorkflowService
+
+        entity_name = arguments.get("entity_name", "")
+        if not entity_name:
+            return {"error": "entity_name parameter is required"}
+        if not self._store:
+            return {"error": "Graph store not available"}
+
+        workflow = AgentWorkflowService(self._store)
+        ctx = await workflow.build_smart_context(
+            entity_name=entity_name,
+            entity_type=arguments.get("entity_type", "function"),
+            repository=arguments.get("repository"),
+        )
+        return ctx.to_dict()
 
     async def handle_rag_index(
         self, args: dict[str, Any], progress_callback: Callable[..., None] | None = None,

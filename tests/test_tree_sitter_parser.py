@@ -152,3 +152,121 @@ class TestUnsupportedLanguage:
     def test_parse_file_returns_parse_result(self, parser: TreeSitterParser):
         result = parser.parse_file("test.py", "python", "x = 1")
         assert isinstance(result, ParseResult)
+
+
+@pytest.fixture
+def java_parser():
+    return TreeSitterParser(supported_languages=["java"])
+
+
+class TestJavaAnnotationExtraction:
+    def test_java_marker_annotation(self, java_parser: TreeSitterParser):
+        code = "@Service\npublic class UserService { }\n"
+        result = java_parser.parse_file("UserService.java", "java", code)
+        assert len(result.classes) == 1
+        assert "@Service" in result.classes[0].decorators
+
+    def test_java_annotation_with_args(self, java_parser: TreeSitterParser):
+        code = '@RequestMapping("/api") public class Controller { }\n'
+        result = java_parser.parse_file("Controller.java", "java", code)
+        assert len(result.classes) == 1
+        decs = result.classes[0].decorators
+        assert any("@RequestMapping" in d and "/api" in d for d in decs)
+
+    def test_java_method_annotation(self, java_parser: TreeSitterParser):
+        code = """public class X {
+    @GetMapping("/users")
+    public void list() {}
+}
+"""
+        result = java_parser.parse_file("X.java", "java", code)
+        funcs = [f for f in result.functions if f.name == "list"]
+        assert len(funcs) == 1
+        assert any("@GetMapping" in d and "/users" in d for d in funcs[0].decorators)
+
+    def test_java_multiple_annotations(self, java_parser: TreeSitterParser):
+        code = "@MoaProvider @Service\npublic class Y { }\n"
+        result = java_parser.parse_file("Y.java", "java", code)
+        assert len(result.classes) == 1
+        decs = result.classes[0].decorators
+        assert "@MoaProvider" in decs and "@Service" in decs
+
+
+class TestPythonDecoratorExtraction:
+    def test_python_class_decorator(self, parser: TreeSitterParser):
+        code = "@dataclass\nclass Foo:\n    pass\n"
+        result = parser.parse_file("foo.py", "python", code)
+        assert len(result.classes) == 1
+        assert "@dataclass" in result.classes[0].decorators
+
+    def test_python_function_decorator(self, parser: TreeSitterParser):
+        code = """class Foo:
+    @staticmethod
+    def helper():
+        pass
+"""
+        result = parser.parse_file("foo.py", "python", code)
+        helpers = [f for f in result.functions if f.name == "helper"]
+        assert len(helpers) == 1
+        assert "@staticmethod" in helpers[0].decorators
+
+    def test_python_multiple_decorators(self, parser: TreeSitterParser):
+        code = '''@app.route("/")
+@login_required
+def index():
+    pass
+'''
+        result = parser.parse_file("app.py", "python", code)
+        funcs = [f for f in result.functions if f.name == "index"]
+        assert len(funcs) == 1
+        assert funcs[0].decorators == ['@app.route("/")', "@login_required"]
+
+
+class TestTypeExtraction:
+    def test_python_typed_parameters(self, parser: TreeSitterParser):
+        code = """def foo(x: int, y: str) -> bool:
+    return True
+"""
+        result = parser.parse_file("t.py", "python", code)
+        f = result.functions[0]
+        assert f.parameters == [{"name": "x", "type": "int"}, {"name": "y", "type": "str"}]
+        assert f.return_type == "bool"
+
+    def test_python_untyped_parameters(self, parser: TreeSitterParser):
+        code = """def foo(x, y):
+    pass
+"""
+        result = parser.parse_file("t.py", "python", code)
+        assert result.functions[0].parameters == [
+            {"name": "x", "type": ""},
+            {"name": "y", "type": ""},
+        ]
+
+    def test_python_skip_self(self, parser: TreeSitterParser):
+        code = """def foo(self, x: int):
+    pass
+"""
+        result = parser.parse_file("t.py", "python", code)
+        assert result.functions[0].parameters == [{"name": "x", "type": "int"}]
+
+    def test_java_typed_parameters(self, java_parser: TreeSitterParser):
+        code = """public class Demo {
+    public void getUser(Long id, String name) {}
+}
+"""
+        result = java_parser.parse_file("Demo.java", "java", code)
+        f = next(f for f in result.functions if f.name == "getUser")
+        assert f.parameters == [
+            {"name": "id", "type": "Long"},
+            {"name": "name", "type": "String"},
+        ]
+
+    def test_java_return_type(self, java_parser: TreeSitterParser):
+        code = """import java.util.List;
+public class Demo {
+    public List<User> getUsers() { return null; }
+}
+"""
+        result = java_parser.parse_file("Demo.java", "java", code)
+        f = next(f for f in result.functions if f.name == "getUsers")
+        assert f.return_type == "List<User>"

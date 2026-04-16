@@ -63,7 +63,23 @@ class BusinessFlowInferencer:
         """
         loop = asyncio.get_running_loop()
 
-        strong_query = (
+        strong_func_query = (
+            "MATCH (f:Function) "
+            "WHERE f.semantic_roles IS NOT NULL AND "
+            "ANY(r IN f.semantic_roles WHERE r IN "
+            "['http_endpoint', 'rpc_consumer', 'message_listener', 'scheduled_task']) "
+            "RETURN f"
+        )
+
+        strong_class_query = (
+            "MATCH (c:Class)-[:CONTAINS]->(f:Function) "
+            "WHERE c.semantic_roles IS NOT NULL AND "
+            "ANY(r IN c.semantic_roles WHERE r IN "
+            "['http_controller', 'rpc_provider']) "
+            "RETURN f"
+        )
+
+        legacy_strong_query = (
             "MATCH (f:Function) "
             "WHERE f.signature CONTAINS '@RequestMapping' "
             "OR f.signature CONTAINS '@GetMapping' "
@@ -84,16 +100,34 @@ class BusinessFlowInferencer:
             "RETURN DISTINCT f"
         )
 
-        strong_result = await loop.run_in_executor(
-            None, lambda: self._store._graph.query(strong_query)
-        )
+        strong_rows = []
+        try:
+            strong_func_result = await loop.run_in_executor(
+                None, lambda: self._store._graph.query(strong_func_query)
+            )
+            strong_class_result = await loop.run_in_executor(
+                None, lambda: self._store._graph.query(strong_class_query)
+            )
+            strong_rows = (strong_func_result.result_set or []) + (strong_class_result.result_set or [])
+        except Exception:
+            logger.warning(
+                "Semantic entry-point queries failed; falling back to signature-based matching",
+                exc_info=True,
+            )
+
+        if not strong_rows:
+            legacy_result = await loop.run_in_executor(
+                None, lambda: self._store._graph.query(legacy_strong_query)
+            )
+            strong_rows = legacy_result.result_set or []
+
         weak_result = await loop.run_in_executor(
             None, lambda: self._store._graph.query(weak_query)
         )
 
         entries = []
         seen: set[str] = set()
-        for row in strong_result.result_set or []:
+        for row in strong_rows:
             node = row[0]
             uid = node.properties.get("uid", node.properties.get("name", ""))
             if uid not in seen:

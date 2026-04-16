@@ -31,6 +31,8 @@ class ParsedFunction:
     docstring: str
     code_snippet: str
     language: str
+    parameters: list[dict[str, str]] = field(default_factory=list)
+    return_type: str = ""
     decorators: list[str] = field(default_factory=list)
     parent_class: str = ""
 
@@ -44,6 +46,9 @@ class ParsedClass:
     docstring: str
     language: str
     base_classes: list[str] = field(default_factory=list)
+    decorators: list[str] = field(default_factory=list)
+    interfaces: list[str] = field(default_factory=list)
+    is_interface: bool = False
     methods: list[ParsedFunction] = field(default_factory=list)
 
 
@@ -85,7 +90,10 @@ LANGUAGE_QUERIES: dict[str, dict[str, str]] = {
     },
     "java": {
         "function": "(method_declaration name: (identifier) @func.name) @func.def",
-        "class": "(class_declaration name: (identifier) @class.name) @class.def",
+        "class": """[
+            (class_declaration name: (identifier) @class.name) @class.def
+            (interface_declaration name: (identifier) @class.name) @class.def
+        ]""",
         "import": "(import_declaration (scoped_identifier) @import.name) @import.stmt",
         "call": "(method_invocation name: (identifier) @call.name) @call.expr",
     },
@@ -189,6 +197,8 @@ class TreeSitterParser:
             docstring = self._extract_docstring(func_node, language)
             signature = self._extract_signature(func_node, source, language)
             decorators = self._extract_decorators(func_node, language)
+            parameters = self._extract_parameters(func_node, language)
+            return_type = self._extract_return_type(func_node, language)
 
             functions.append(ParsedFunction(
                 name=name,
@@ -199,6 +209,8 @@ class TreeSitterParser:
                 docstring=docstring,
                 code_snippet=code_snippet,
                 language=language,
+                parameters=parameters,
+                return_type=return_type,
                 decorators=decorators,
             ))
 
@@ -224,8 +236,12 @@ class TreeSitterParser:
 
             class_node = class_nodes[0]
             name = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
+            is_interface = class_node.type == "interface_declaration"
             docstring = self._extract_docstring(class_node, language)
             base_classes = self._extract_base_classes(class_node, language)
+            interfaces = self._extract_interfaces(class_node, language)
+
+            decorators = self._extract_decorators(class_node, language)
 
             classes.append(ParsedClass(
                 name=name,
@@ -235,6 +251,9 @@ class TreeSitterParser:
                 docstring=docstring,
                 language=language,
                 base_classes=base_classes,
+                decorators=decorators,
+                interfaces=interfaces,
+                is_interface=is_interface,
             ))
 
         return classes
@@ -325,7 +344,7 @@ class TreeSitterParser:
         """Extract docstring from a function/class node."""
         body = None
         for child in node.children:
-            if child.type in ("block", "class_body", "statement_block"):
+            if child.type in ("block", "class_body", "interface_body", "statement_block"):
                 body = child
                 break
 
@@ -365,13 +384,257 @@ class TreeSitterParser:
 
     @staticmethod
     def _extract_decorators(node: Node, language: str) -> list[str]:
-        if language != "python":
-            return []
-        decorators: list[str] = []
+        """Extract decorators/annotations. Python/TS/JS: decorator nodes; Java: modifiers."""
+        if language == "python":
+            decorators: list[str] = []
+            parent = node.parent
+            if parent is not None and parent.type == "decorated_definition":
+                for child in parent.children:
+                    if child is node:
+                        break
+                    if child.type == "decorator":
+                        decorators.append(child.text.decode("utf-8") if child.text else "")
+            else:
+                for child in node.children:
+                    if child.type == "decorator":
+                        decorators.append(child.text.decode("utf-8") if child.text else "")
+            return decorators
+
+        if language == "java":
+            return TreeSitterParser._extract_java_annotations_from_node(node)
+
+        if language in ("typescript", "javascript"):
+            decorators: list[str] = []
+            for child in node.children:
+                if child.type == "decorator":
+                    decorators.append(child.text.decode("utf-8") if child.text else "")
+            cur = node.prev_named_sibling
+            while cur is not None and cur.type == "decorator":
+                text = cur.text.decode("utf-8") if cur.text else ""
+                if text:
+                    decorators.insert(0, text)
+                cur = cur.prev_named_sibling
+            return decorators
+
+        return []
+
+    @staticmethod
+    def _extract_java_annotations_from_node(node: Node) -> list[str]:
+        """Collect marker_annotation and annotation from modifiers (class or method)."""
+        out: list[str] = []
         for child in node.children:
-            if child.type == "decorator":
-                decorators.append(child.text.decode("utf-8") if child.text else "")
-        return decorators
+            if child.type != "modifiers":
+                continue
+            for mod_child in child.children:
+                if mod_child.type in ("marker_annotation", "annotation"):
+                    text = mod_child.text.decode("utf-8") if mod_child.text else ""
+                    if text:
+                        out.append(text)
+        return out
+
+    @staticmethod
+    def _node_text(node: Node | None) -> str:
+        if node is None or not node.text:
+            return ""
+        return node.text.decode("utf-8")
+
+    @staticmethod
+    def _strip_type_annotation(node: Node | None) -> str:
+        if node is None:
+            return ""
+        raw = TreeSitterParser._node_text(node)
+        if node.type == "type_annotation":
+            return raw.lstrip().lstrip(":").strip()
+        return raw.strip()
+
+    @staticmethod
+    def _extract_parameters(func_node: Node, language: str) -> list[dict[str, str]]:
+        if language == "python":
+            return TreeSitterParser._extract_parameters_python(func_node)
+        if language == "java":
+            return TreeSitterParser._extract_parameters_java(func_node)
+        if language in ("typescript", "javascript"):
+            return TreeSitterParser._extract_parameters_ts_js(func_node)
+        if language == "go":
+            return TreeSitterParser._extract_parameters_go(func_node)
+        return []
+
+    @staticmethod
+    def _extract_parameters_python(func_node: Node) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        params = func_node.child_by_field_name("parameters")
+        if params is None:
+            return out
+        for child in params.children:
+            if child.type in ("typed_parameter", "typed_default_parameter"):
+                pname = TreeSitterParser._python_parameter_name(child)
+                ptype = TreeSitterParser._python_parameter_type(child)
+                if pname and pname not in ("self", "cls"):
+                    out.append({"name": pname, "type": ptype})
+            elif child.type == "default_parameter":
+                for gc in child.children:
+                    if gc.type == "identifier":
+                        n = TreeSitterParser._node_text(gc)
+                        if n and n not in ("self", "cls"):
+                            out.append({"name": n, "type": ""})
+                        break
+            elif child.type == "identifier":
+                n = TreeSitterParser._node_text(child)
+                if n and n not in ("self", "cls"):
+                    out.append({"name": n, "type": ""})
+            elif child.type == "list_splat_pattern":
+                for gc in child.children:
+                    if gc.type == "identifier":
+                        out.append({"name": TreeSitterParser._node_text(gc), "type": ""})
+                        break
+            elif child.type == "dictionary_splat_pattern":
+                for gc in child.children:
+                    if gc.type == "identifier":
+                        out.append({"name": TreeSitterParser._node_text(gc), "type": ""})
+                        break
+        return out
+
+    @staticmethod
+    def _python_parameter_name(param: Node) -> str:
+        for ch in param.children:
+            if ch.type == "identifier":
+                return TreeSitterParser._node_text(ch)
+            if ch.type in ("list_splat_pattern", "dictionary_splat_pattern"):
+                for gc in ch.children:
+                    if gc.type == "identifier":
+                        return TreeSitterParser._node_text(gc)
+        return ""
+
+    @staticmethod
+    def _python_parameter_type(param: Node) -> str:
+        t = param.child_by_field_name("type")
+        if t is not None:
+            return TreeSitterParser._node_text(t).strip()
+        for ch in param.children:
+            if ch.type == "type":
+                return TreeSitterParser._node_text(ch).strip()
+        return ""
+
+    @staticmethod
+    def _extract_parameters_java(method_node: Node) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        fp = None
+        for ch in method_node.children:
+            if ch.type == "formal_parameters":
+                fp = ch
+                break
+        if fp is None:
+            return out
+        for ch in fp.children:
+            if ch.type == "formal_parameter":
+                t = ch.child_by_field_name("type")
+                n = ch.child_by_field_name("name")
+                out.append({
+                    "name": TreeSitterParser._node_text(n),
+                    "type": TreeSitterParser._node_text(t),
+                })
+            elif ch.type == "spread_parameter":
+                typ = ""
+                pname = ""
+                for sp in ch.children:
+                    if sp.type == "variable_declarator":
+                        for vv in sp.children:
+                            if vv.type == "identifier":
+                                pname = TreeSitterParser._node_text(vv)
+                    else:
+                        typ += TreeSitterParser._node_text(sp)
+                out.append({"name": pname, "type": typ})
+        return out
+
+    @staticmethod
+    def _ts_js_pattern_name(pattern: Node | None) -> str:
+        if pattern is None:
+            return ""
+        if pattern.type == "identifier":
+            return TreeSitterParser._node_text(pattern)
+        if pattern.type == "rest_pattern":
+            for ch in pattern.children:
+                if ch.type == "identifier":
+                    return TreeSitterParser._node_text(ch)
+        return TreeSitterParser._node_text(pattern)
+
+    @staticmethod
+    def _extract_parameters_ts_js(func_node: Node) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        fp = None
+        for ch in func_node.children:
+            if ch.type == "formal_parameters":
+                fp = ch
+                break
+        if fp is None:
+            return out
+        for ch in fp.children:
+            if ch.type == "identifier":
+                out.append({"name": TreeSitterParser._node_text(ch), "type": ""})
+            elif ch.type in ("required_parameter", "optional_parameter"):
+                pat = ch.child_by_field_name("pattern")
+                name = TreeSitterParser._ts_js_pattern_name(pat)
+                tnode = ch.child_by_field_name("type")
+                typ = TreeSitterParser._strip_type_annotation(tnode) if tnode else ""
+                if name:
+                    out.append({"name": name, "type": typ})
+        return out
+
+    @staticmethod
+    def _extract_parameters_go(func_node: Node) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        pl = func_node.child_by_field_name("parameters")
+        if pl is None or pl.type != "parameter_list":
+            return out
+        for ch in pl.children:
+            if ch.type != "parameter_declaration":
+                continue
+            chs = ch.children
+            names: list[str] = []
+            i = 0
+            while i < len(chs):
+                if chs[i].type == "identifier":
+                    names.append(TreeSitterParser._node_text(chs[i]))
+                    i += 1
+                    if i < len(chs) and chs[i].type == ",":
+                        i += 1
+                        continue
+                    break
+                break
+            typ = "".join(TreeSitterParser._node_text(chs[j]) for j in range(i, len(chs))).strip()
+            for n in names:
+                out.append({"name": n, "type": typ})
+        return out
+
+    @staticmethod
+    def _extract_return_type(func_node: Node, language: str) -> str:
+        if language == "java":
+            return TreeSitterParser._node_text(func_node.child_by_field_name("type")).strip()
+        if language == "python":
+            rt = func_node.child_by_field_name("return_type")
+            return TreeSitterParser._node_text(rt).strip() if rt else ""
+        if language in ("typescript", "javascript"):
+            rt = func_node.child_by_field_name("return_type")
+            return TreeSitterParser._strip_type_annotation(rt) if rt else ""
+        if language == "go":
+            return TreeSitterParser._extract_return_type_go(func_node)
+        return ""
+
+    @staticmethod
+    def _extract_return_type_go(func_node: Node) -> str:
+        if func_node.type != "function_declaration":
+            return ""
+        children = list(func_node.children)
+        block_idx = next((i for i, c in enumerate(children) if c.type == "block"), None)
+        if block_idx is None:
+            return ""
+        before_block = children[:block_idx]
+        segment = [c for c in before_block if c.type != "func"]
+        if len(segment) < 2 or segment[0].type != "identifier":
+            return ""
+        if len(segment) <= 2:
+            return ""
+        return "".join(TreeSitterParser._node_text(c) for c in segment[2:]).strip()
 
     @staticmethod
     def _extract_base_classes(class_node: Node, language: str) -> list[str]:
@@ -389,6 +652,42 @@ class TreeSitterParser:
                     if sub.type == "identifier" and sub.text:
                         bases.append(sub.text.decode("utf-8"))
         return bases
+
+    @staticmethod
+    def _java_type_list_simple_name(type_node: Node) -> str:
+        """Map one Java type_list entry to a simple name (for same-file / simple graph matching)."""
+        if type_node.type == "type_identifier":
+            return TreeSitterParser._node_text(type_node).strip()
+        if type_node.type == "scoped_type_identifier":
+            id_nodes = [c for c in type_node.children if c.type == "type_identifier"]
+            if id_nodes:
+                return TreeSitterParser._node_text(id_nodes[-1]).strip()
+            raw = TreeSitterParser._node_text(type_node).strip()
+            return raw.split(".")[-1] if raw else ""
+        if type_node.type == "generic_type":
+            for c in type_node.children:
+                if c.type in ("type_identifier", "scoped_type_identifier", "generic_type"):
+                    return TreeSitterParser._java_type_list_simple_name(c)
+        return ""
+
+    @staticmethod
+    def _extract_interfaces(class_node: Node, language: str) -> list[str]:
+        if language != "java":
+            return []
+        out: list[str] = []
+        for child in class_node.children:
+            if child.type not in ("super_interfaces", "extends_interfaces"):
+                continue
+            for sub in child.children:
+                if sub.type != "type_list":
+                    continue
+                for tl_child in sub.children:
+                    if tl_child.type == ",":
+                        continue
+                    name = TreeSitterParser._java_type_list_simple_name(tl_child)
+                    if name:
+                        out.append(name)
+        return out
 
     @staticmethod
     def _find_enclosing_function(line: int, func_ranges: list[tuple[str, int, int]]) -> str:

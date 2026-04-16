@@ -104,3 +104,32 @@ class TestBuildFromFile:
         func_nodes = [n for n in nodes if n.label == NodeLabel.FUNCTION]
         assert len(func_nodes) == 1
         assert func_nodes[0].properties["language"] == "javascript"
+
+
+class TestAnnotationAndSemanticRoles:
+    def test_python_decorator_stored_in_node(self, builder: CodeGraphBuilder):
+        code = '''@app.route("/")
+def index():
+    pass
+'''
+        nodes, _edges = builder.build_from_file("routes.py", content=code)
+        func_nodes = [n for n in nodes if n.label == NodeLabel.FUNCTION and n.properties.get("name") == "index"]
+        assert len(func_nodes) == 1
+        anns = func_nodes[0].properties.get("annotations", [])
+        assert any("app.route" in str(a) for a in anns)
+
+    def test_semantic_roles_not_set_when_empty(self, builder: CodeGraphBuilder):
+        code = "def plain():\n    pass\n"
+        nodes, _edges = builder.build_from_file("plain.py", content=code)
+        func_nodes = [n for n in nodes if n.label == NodeLabel.FUNCTION]
+        assert len(func_nodes) == 1
+        assert "semantic_roles" not in func_nodes[0].properties
+
+    def test_type_info_stored_in_node(self, builder: CodeGraphBuilder):
+        code = "def foo(x: int) -> str:\n    return str(x)\n"
+        nodes, _edges = builder.build_from_file("typed.py", content=code)
+        func_nodes = [n for n in nodes if n.label == NodeLabel.FUNCTION and n.properties.get("name") == "foo"]
+        assert len(func_nodes) == 1
+        props = func_nodes[0].properties
+        assert props.get("return_type") == "str"
+        assert props.get("parameters") == ["x:int"]

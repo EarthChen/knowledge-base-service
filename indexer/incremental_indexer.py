@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from indexer.code_graph_builder import CodeGraphBuilder
+from indexer.graph_enricher import GraphEnricher
+from indexer.index_report import IndexReport
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator
 from indexer.enrichment import is_trivial_enrichment_entity, truncate_enrichment_item
@@ -53,6 +56,11 @@ class IncrementalIndexer:
         self._doc_indexer = doc_indexer or DocumentIndexer()
         self._enricher = enricher
         self._repo_task_mgr = repo_task_manager
+        self._last_report: IndexReport | None = None
+
+    def get_last_report(self) -> IndexReport | None:
+        """Return the most recent index quality report from full or incremental indexing."""
+        return self._last_report
 
     @property
     def enrichment_available(self) -> bool:
@@ -69,7 +77,7 @@ class IncrementalIndexer:
 
     async def index_full(
         self, directory: str, progress_callback: Callable[..., None] | None = None,
-    ) -> dict[str, int]:
+    ) -> dict[str, Any]:
         """Full reindex — pipelined parse+enrich (1 ACP task) then embed.
 
         Parse and enrichment run concurrently: as files are parsed, code
@@ -78,6 +86,9 @@ class IncrementalIndexer:
         objects are released after upsert.
         """
         log.info("full_index_start", directory=directory)
+
+        report = IndexReport()
+        start_time = time.monotonic()
 
         enrich_backend = self._enrichment_backend_label()
 
@@ -118,42 +129,52 @@ class IncrementalIndexer:
         batch_buffer: list[dict[str, str]] = []
 
         for fpath, nodes, edges in self._builder.iter_directory(directory):
-            await self._store.batch_upsert(nodes, edges)
-            total_nodes += len(nodes)
-            total_edges += len(edges)
-            file_paths_for_embed.append(fpath)
+            try:
+                await self._store.batch_upsert(nodes, edges)
+                total_nodes += len(nodes)
+                total_edges += len(edges)
+                file_paths_for_embed.append(fpath)
 
-            for n in nodes:
-                if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS):
-                    enrich_candidates += 1
-                    item = {
-                        "name": n.properties.get("name", ""),
-                        "signature": n.properties.get("signature", ""),
-                        "docstring": n.properties.get("docstring", ""),
-                        "code_snippet": n.properties.get("code_snippet", ""),
-                        "file": n.properties.get("file", ""),
-                        "entity_kind": (
-                            "function" if n.label == NodeLabel.FUNCTION else "class"
-                        ),
-                    }
-                    if is_trivial_enrichment_entity(item):
-                        enrich_skipped_trivial += 1
-                        continue
-                    item = truncate_enrichment_item(item)
-                    enrich_refs.setdefault(item["name"], []).append((n.label, n.uid))
-                    batch_buffer.append(item)
-                    if len(batch_buffer) >= _ENRICH_BATCH_SIZE:
-                        await enrich_queue.put(batch_buffer)
-                        batch_buffer = []
+                for n in nodes:
+                    if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS):
+                        enrich_candidates += 1
+                        item = {
+                            "name": n.properties.get("name", ""),
+                            "signature": n.properties.get("signature", ""),
+                            "docstring": n.properties.get("docstring", ""),
+                            "code_snippet": n.properties.get("code_snippet", ""),
+                            "file": n.properties.get("file", ""),
+                            "entity_kind": (
+                                "function" if n.label == NodeLabel.FUNCTION else "class"
+                            ),
+                        }
+                        if is_trivial_enrichment_entity(item):
+                            enrich_skipped_trivial += 1
+                            continue
+                        item = truncate_enrichment_item(item)
+                        enrich_refs.setdefault(item["name"], []).append((n.label, n.uid))
+                        batch_buffer.append(item)
+                        if len(batch_buffer) >= _ENRICH_BATCH_SIZE:
+                            await enrich_queue.put(batch_buffer)
+                            batch_buffer = []
 
-            processed += 1
-            if progress_callback:
-                progress_callback(
-                    current_file=fpath,
-                    processed_files=processed,
-                    nodes=total_nodes,
-                    edges=total_edges,
-                )
+                processed += 1
+                if progress_callback:
+                    progress_callback(
+                        current_file=fpath,
+                        processed_files=processed,
+                        nodes=total_nodes,
+                        edges=total_edges,
+                    )
+
+                report.record_file_success(fpath, nodes, edges)
+            except Exception as exc:
+                report.record_file_failure(fpath, str(exc))
+                report.duration_seconds = time.monotonic() - start_time
+                report.finalize()
+                self._last_report = report
+                log.info("index_quality_report", report=report.to_dict())
+                raise
 
         if batch_buffer:
             await enrich_queue.put(batch_buffer)
@@ -199,6 +220,15 @@ class IncrementalIndexer:
             progress_callback(phase="resolving_references", embeddings=total_embeds)
         xref = await self._store.resolve_cross_file_edges()
 
+        enricher = GraphEnricher(self._store)
+        enrich_stats = await enricher.enrich()
+        log.info("graph_enrichment_complete", **enrich_stats)
+
+        report.duration_seconds = time.monotonic() - start_time
+        report.finalize()
+        self._last_report = report
+        log.info("index_quality_report", report=report.to_dict())
+
         stats = {
             "nodes": total_nodes,
             "edges": total_edges,
@@ -207,8 +237,9 @@ class IncrementalIndexer:
             "imports": xref.get("imports", 0),
             "references": xref.get("references", 0),
             "enriched": enriched,
+            "index_report": report.to_dict(),
         }
-        log.info("full_index_complete", **stats)
+        log.info("full_index_complete", **{k: v for k, v in stats.items() if k != "index_report"})
         return stats
 
     async def index_incremental(
@@ -217,12 +248,25 @@ class IncrementalIndexer:
         base_ref: str = "HEAD~1",
         head_ref: str = "HEAD",
         progress_callback: Callable[..., None] | None = None,
-    ) -> dict[str, int]:
+    ) -> dict[str, Any]:
         """Incremental index — streaming parse, single-task enrich, per-file embed."""
+        report = IndexReport()
+        start_time = time.monotonic()
+
         changed_files = await self._get_changed_files(directory, base_ref, head_ref)
         if not changed_files:
+            report.duration_seconds = time.monotonic() - start_time
+            report.finalize()
+            self._last_report = report
             log.info("incremental_index_no_changes")
-            return {"added": 0, "modified": 0, "deleted": 0, "nodes": 0, "edges": 0}
+            return {
+                "added": 0,
+                "modified": 0,
+                "deleted": 0,
+                "nodes": 0,
+                "edges": 0,
+                "index_report": report.to_dict(),
+            }
 
         deleted_files = [f for f, status in changed_files if status == "D"]
         modified_files = [f for f, status in changed_files if status in ("A", "M")]
@@ -232,9 +276,18 @@ class IncrementalIndexer:
 
         deleted_count = 0
         for fpath in deleted_files:
-            deleted_count += await self._store.delete_by_file(fpath)
-            full_path = str(Path(directory) / fpath)
-            deleted_count += await self._store.delete_by_file(full_path)
+            try:
+                deleted_count += await self._store.delete_by_file(fpath)
+                full_path = str(Path(directory) / fpath)
+                deleted_count += await self._store.delete_by_file(full_path)
+                report.record_file_success(fpath, [], [])
+            except Exception as exc:
+                report.record_file_failure(fpath, str(exc))
+                report.duration_seconds = time.monotonic() - start_time
+                report.finalize()
+                self._last_report = report
+                log.info("index_quality_report", report=report.to_dict())
+                raise
 
         total_nodes = 0
         total_edges = 0
@@ -250,57 +303,70 @@ class IncrementalIndexer:
 
         processed_count = 0
         for fpath in modified_files:
-            full_path = str(Path(directory) / fpath)
-            await self._store.delete_by_file(fpath)
-            await self._store.delete_by_file(full_path)
-            if not Path(full_path).exists():
-                continue
+            try:
+                full_path = str(Path(directory) / fpath)
+                await self._store.delete_by_file(fpath)
+                await self._store.delete_by_file(full_path)
+                if not Path(full_path).exists():
+                    report.record_file_skipped()
+                    continue
 
-            suffix = Path(fpath).suffix.lower()
+                suffix = Path(fpath).suffix.lower()
 
-            if suffix in _DOC_EXTENSIONS:
-                try:
-                    doc = self._doc_indexer.parse_document(full_path, store_path=fpath)
-                    doc_nodes, doc_edges = self._doc_indexer.build_graph(doc)
-                    await self._store.batch_upsert(doc_nodes, doc_edges)
-                    doc_file_paths.append(fpath)
-                    total_doc_nodes += len(doc_nodes)
-                    total_doc_edges += len(doc_edges)
-                except Exception as exc:
-                    log.warning("incremental_doc_index_error", file=full_path, error=str(exc))
-            else:
-                nodes, edges = self._builder.build_from_file(full_path, store_path=fpath)
-                await self._store.batch_upsert(nodes, edges)
-                code_file_paths.append(fpath)
-                total_nodes += len(nodes)
-                total_edges += len(edges)
-                for n in nodes:
-                    if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS):
-                        enrich_candidates += 1
-                        item = {
-                            "name": n.properties.get("name", ""),
-                            "signature": n.properties.get("signature", ""),
-                            "docstring": n.properties.get("docstring", ""),
-                            "code_snippet": n.properties.get("code_snippet", ""),
-                            "file": n.properties.get("file", ""),
-                            "entity_kind": (
-                                "function" if n.label == NodeLabel.FUNCTION else "class"
-                            ),
-                        }
-                        if is_trivial_enrichment_entity(item):
-                            enrich_skipped_trivial += 1
-                            continue
-                        enrich_refs.append((n.label, n.uid))
-                        enrich_items.append(truncate_enrichment_item(item))
+                if suffix in _DOC_EXTENSIONS:
+                    try:
+                        doc = self._doc_indexer.parse_document(full_path, store_path=fpath)
+                        doc_nodes, doc_edges = self._doc_indexer.build_graph(doc)
+                        await self._store.batch_upsert(doc_nodes, doc_edges)
+                        doc_file_paths.append(fpath)
+                        total_doc_nodes += len(doc_nodes)
+                        total_doc_edges += len(doc_edges)
+                        report.record_file_success(fpath, doc_nodes, doc_edges)
+                    except Exception as exc:
+                        log.warning("incremental_doc_index_error", file=full_path, error=str(exc))
+                        report.record_file_failure(fpath, str(exc))
+                else:
+                    nodes, edges = self._builder.build_from_file(full_path, store_path=fpath)
+                    await self._store.batch_upsert(nodes, edges)
+                    code_file_paths.append(fpath)
+                    total_nodes += len(nodes)
+                    total_edges += len(edges)
+                    for n in nodes:
+                        if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS):
+                            enrich_candidates += 1
+                            item = {
+                                "name": n.properties.get("name", ""),
+                                "signature": n.properties.get("signature", ""),
+                                "docstring": n.properties.get("docstring", ""),
+                                "code_snippet": n.properties.get("code_snippet", ""),
+                                "file": n.properties.get("file", ""),
+                                "entity_kind": (
+                                    "function" if n.label == NodeLabel.FUNCTION else "class"
+                                ),
+                            }
+                            if is_trivial_enrichment_entity(item):
+                                enrich_skipped_trivial += 1
+                                continue
+                            enrich_refs.append((n.label, n.uid))
+                            enrich_items.append(truncate_enrichment_item(item))
 
-            processed_count += 1
-            if progress_callback:
-                progress_callback(
-                    current_file=fpath,
-                    processed_files=processed_count,
-                    nodes=total_nodes,
-                    edges=total_edges,
-                )
+                    report.record_file_success(fpath, nodes, edges)
+
+                processed_count += 1
+                if progress_callback:
+                    progress_callback(
+                        current_file=fpath,
+                        processed_files=processed_count,
+                        nodes=total_nodes,
+                        edges=total_edges,
+                    )
+            except Exception as exc:
+                report.record_file_failure(fpath, str(exc))
+                report.duration_seconds = time.monotonic() - start_time
+                report.finalize()
+                self._last_report = report
+                log.info("index_quality_report", report=report.to_dict())
+                raise
 
         enrich_backend = self._enrichment_backend_label()
         if enrich_backend and progress_callback:
@@ -341,6 +407,15 @@ class IncrementalIndexer:
             progress_callback(phase="resolving_references", embeddings=total_embeds)
         xref = await self._store.resolve_cross_file_edges()
 
+        enricher = GraphEnricher(self._store)
+        enrich_stats = await enricher.enrich()
+        log.info("graph_enrichment_complete", **enrich_stats)
+
+        report.duration_seconds = time.monotonic() - start_time
+        report.finalize()
+        self._last_report = report
+        log.info("index_quality_report", report=report.to_dict())
+
         stats = {
             "added": len([f for f, s in changed_files if s == "A"]),
             "modified": len([f for f, s in changed_files if s == "M"]),
@@ -355,8 +430,9 @@ class IncrementalIndexer:
             "imports": xref.get("imports", 0),
             "references": xref.get("references", 0),
             "enriched": enriched_n,
+            "index_report": report.to_dict(),
         }
-        log.info("incremental_index_complete", **stats)
+        log.info("incremental_index_complete", **{k: v for k, v in stats.items() if k != "index_report"})
         return stats
 
     async def enrich_only(

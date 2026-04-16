@@ -178,6 +178,11 @@ class GraphExploreRequest(BaseModel):
     limit: int = Field(default=100, ge=1, le=500)
 
 
+class ImpactAnalysisRequest(BaseModel):
+    changed_functions: list[str] = Field(..., min_length=1)
+    max_depth: int = Field(default=5, ge=1, le=50)
+
+
 class MCPToolCallRequest(BaseModel):
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
@@ -855,6 +860,78 @@ async def delete_repository_index(
     queries = GraphQueryRepository(svc.store)
     deleted = await queries.delete_repository(repository)
     return {"repository": repository, "deleted_nodes": deleted}
+
+
+@admin_router.get("/index/report/{repository:path}")
+async def get_index_report(
+    repository: str,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Get the last indexing quality report for a repository."""
+    report = svc.incremental_indexer.get_last_report()
+    if report is None:
+        return {"repository": repository, "report": None, "message": "No indexing report available"}
+    return {"repository": repository, "report": report.to_dict()}
+
+
+@admin_router.get("/endpoints/{repository:path}")
+async def list_api_endpoints(
+    repository: str,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """List all discovered API endpoints for a repository."""
+    from query.endpoint_queries import query_all_endpoints
+
+    return await query_all_endpoints(svc.store, repository)
+
+
+@admin_router.post("/analysis/impact")
+async def analyze_impact(
+    req: ImpactAnalysisRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Analyze the impact of changed functions."""
+    from query.analysis_service import AnalysisService
+
+    analysis = AnalysisService(svc.store)
+    report = await analysis.analyze_impact(req.changed_functions, max_depth=req.max_depth)
+    return report.to_dict()
+
+
+@admin_router.get("/analysis/consistency/{repository:path}")
+async def check_consistency(
+    repository: str,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Check index consistency for a repository."""
+    from query.analysis_service import AnalysisService
+    from git_manager import GitManager
+
+    settings = get_settings()
+    git_mgr = GitManager(settings.git)
+    repo_path = git_mgr._repo_local_path(repository)
+    base_path = Path(settings.git.clone_base_path).resolve()
+    resolved = repo_path.resolve()
+    if not resolved.is_relative_to(base_path):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Repository path escapes clone base: {repository}",
+        )
+
+    analysis = AnalysisService(svc.store)
+    report = await analysis.verify_consistency(str(resolved), repository=repository)
+    return {"repository": repository, **report.to_dict()}
+
+
+@admin_router.get("/architecture/{repository:path}")
+async def get_architecture(
+    repository: str,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Get architecture layer breakdown."""
+    from query.endpoint_queries import query_architecture_layers
+
+    return await query_architecture_layers(svc.store, repository)
 
 
 @admin_router.post("/admin/cleanup-excluded-dirs")

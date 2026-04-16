@@ -1,8 +1,10 @@
 """Graph schema definitions for the code knowledge base.
 
 Node types:
-  - Function(name, file, start_line, end_line, docstring, code_snippet, language, signature)
-  - Class(name, file, start_line, end_line, docstring, language, base_classes)
+  - Function(name, file, start_line, end_line, docstring, code_snippet, language, signature,
+             annotations, semantic_roles)
+  - Class(name, file, start_line, end_line, docstring, language, base_classes,
+          annotations, semantic_roles)
   - Module(name, path, language, description)
   - Document(title, path, content_hash, section)
   - BusinessFlow, BusinessConcept (business semantics)
@@ -15,6 +17,8 @@ Edge types:
   - USES_TYPE(function → type)
   - REFERENCES(doc → code_entity)
   - IMPLEMENTS, RELATES_TO, PART_OF, CONCEPT_IN (business semantics)
+  - PROVIDES_RPC(provider class → module)
+  - CONSUMES_RPC(consumer function → module)
 """
 
 from __future__ import annotations
@@ -43,6 +47,8 @@ class EdgeType(StrEnum):
     RELATES_TO = "RELATES_TO"
     PART_OF = "PART_OF"
     CONCEPT_IN = "CONCEPT_IN"
+    PROVIDES_RPC = "PROVIDES_RPC"
+    CONSUMES_RPC = "CONSUMES_RPC"
 
 
 @dataclass

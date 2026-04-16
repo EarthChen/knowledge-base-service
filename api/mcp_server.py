@@ -7,10 +7,14 @@ Tools exposed:
   - rag_query: Natural language search over code and docs (semantic + graph expansion)
   - rag_graph: Execute structured graph queries (call chains, inheritance, etc.)
   - rag_index: Trigger indexing for a repository/directory
+  - analyze_impact: Blast-radius analysis for changed functions
+  - list_endpoints: HTTP, RPC, and Kafka endpoints from the graph
+  - check_consistency: Compare graph file paths to on-disk repository files
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
@@ -183,6 +187,57 @@ MCP_TOOLS_MANIFEST = [
             "required": ["query"],
         },
     },
+    {
+        "name": "analyze_impact",
+        "description": (
+            "Analyze the blast radius of code changes. Given function names that were modified, "
+            "returns all directly and transitively affected callers, affected architectural layers, "
+            "and entry points in the blast radius."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "changed_functions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Names of changed functions",
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "default": 5,
+                    "description": "Maximum call chain depth to trace",
+                },
+            },
+            "required": ["changed_functions"],
+        },
+    },
+    {
+        "name": "list_endpoints",
+        "description": (
+            "List all discovered API endpoints (HTTP, RPC, Kafka) in the indexed codebase."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "check_consistency",
+        "description": (
+            "Verify index consistency by comparing the graph against actual repository files. "
+            "Detects ghost nodes and missing files."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {
+                    "type": "string",
+                    "description": "Repository name or path",
+                },
+            },
+            "required": ["repository"],
+        },
+    },
 ]
 
 
@@ -215,6 +270,9 @@ class KnowledgeBaseMCPHandler:
             "rag_graph": self.handle_rag_graph,
             "rag_index": self.handle_rag_index,
             "rag_business_search": self.handle_rag_business_search,
+            "analyze_impact": self.handle_analyze_impact,
+            "list_endpoints": self.handle_list_endpoints,
+            "check_consistency": self.handle_check_consistency,
         }
 
         handler = handlers.get(tool_name)
@@ -338,6 +396,55 @@ class KnowledgeBaseMCPHandler:
 
         return {"status": "success", "results": results}
 
+    async def handle_analyze_impact(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        from query.analysis_service import AnalysisService
+
+        changed = arguments.get("changed_functions", [])
+        if not isinstance(changed, list):
+            return {"error": "changed_functions must be a list of strings"}
+        max_depth = arguments.get("max_depth", 5)
+        if not self._store:
+            return {"error": "Graph store not available"}
+        analysis = AnalysisService(self._store)
+        report = await analysis.analyze_impact(
+            [str(x) for x in changed],
+            max_depth=max_depth,
+        )
+        return report.to_dict()
+
+    async def handle_list_endpoints(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if not self._store:
+            return {"error": "Graph store not available"}
+        from query.endpoint_queries import query_all_endpoints
+
+        repository = arguments.get("repository", "")
+        return await query_all_endpoints(self._store, repository)
+
+    async def handle_check_consistency(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        from pathlib import Path
+
+        from config import get_settings
+        from git_manager import GitManager
+        from query.analysis_service import AnalysisService
+
+        repository = arguments.get("repository", "")
+        if not repository:
+            return {"error": "repository parameter is required"}
+        if not self._store:
+            return {"error": "Graph store not available"}
+
+        settings = get_settings()
+        git_mgr = GitManager(settings.git)
+        repo_path = git_mgr._repo_local_path(repository)
+        base_path = Path(settings.git.clone_base_path).resolve()
+        resolved = repo_path.resolve()
+        if not resolved.is_relative_to(base_path):
+            return {"error": f"Repository path escapes clone base: {repository}"}
+
+        analysis = AnalysisService(self._store)
+        report = await analysis.verify_consistency(str(resolved), repository=repository)
+        return {"repository": repository, **report.to_dict()}
+
     async def handle_rag_index(
         self, args: dict[str, Any], progress_callback: Callable[..., None] | None = None,
     ) -> dict[str, Any]:
@@ -441,7 +548,6 @@ class KnowledgeBaseMCPHandler:
         if not self._doc_indexer or not self._store:
             return {}
 
-        import asyncio
         import subprocess
         from pathlib import Path
 

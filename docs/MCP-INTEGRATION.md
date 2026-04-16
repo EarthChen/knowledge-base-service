@@ -175,6 +175,109 @@ graph LR
 }
 ```
 
+### 5. `analyze_impact` — 变更影响分析
+
+分析代码变更的爆炸半径：给定修改的函数名，返回所有直接/间接调用方、受影响的架构层和入口点。
+
+**参数:**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `changed_functions` | array[string] | 是 | — | 变更的函数名列表 |
+| `max_depth` | integer | 否 | 5 | 最大调用链追踪深度（1-50） |
+
+**调用示例:**
+
+```json
+{
+  "tool_name": "analyze_impact",
+  "arguments": {
+    "changed_functions": ["processPayment", "validateOrder"],
+    "max_depth": 5
+  }
+}
+```
+
+**返回结构:**
+
+```json
+{
+  "changed_functions": ["processPayment"],
+  "direct_callers": [{"uid": "...", "name": "handleCheckout", "file": "src/checkout.py", "depth": 1}],
+  "transitive_callers": [{"uid": "...", "name": "createOrder", "depth": 2}],
+  "affected_classes": ["CheckoutService", "OrderController"],
+  "affected_layers": ["business", "presentation"],
+  "affected_entry_points": [{"name": "handleCheckout", "semantic_roles": ["http_endpoint"]}],
+  "total_affected": 5,
+  "max_depth_reached": false
+}
+```
+
+### 6. `list_endpoints` — API 端点列表
+
+列出代码库中发现的所有 API 端点（HTTP、RPC、Kafka）。
+
+**参数:**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `repository` | string | 否 | — | 仓库名称（可选，用于作用域过滤） |
+
+**调用示例:**
+
+```json
+{
+  "tool_name": "list_endpoints",
+  "arguments": {}
+}
+```
+
+**返回结构:**
+
+```json
+{
+  "http_endpoints": [{"name": "getUser", "path": "/api/users", "method": "GET", "class": "UserController"}],
+  "rpc_endpoints": [{"class": "UserService", "interface": "com.example.IUserService", "method": "findById"}],
+  "kafka_endpoints": [{"name": "onUserCreated", "topic": "user-events", "file": "src/listener.java"}],
+  "total": 15
+}
+```
+
+### 7. `check_consistency` — 索引一致性校验
+
+对比图数据库中的文件与磁盘上的实际仓库文件，检测幽灵节点和缺失文件。
+
+**参数:**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `repository` | string | 是 | — | 仓库名称或路径 |
+
+**调用示例:**
+
+```json
+{
+  "tool_name": "check_consistency",
+  "arguments": {
+    "repository": "ultron-api"
+  }
+}
+```
+
+**返回结构:**
+
+```json
+{
+  "repository": "ultron-api",
+  "total_graph_files": 150,
+  "total_repo_files": 155,
+  "ghost_files": ["deleted_module.py"],
+  "missing_files": ["new_feature.py"],
+  "stale_files": [],
+  "is_consistent": false
+}
+```
+
 ## HTTP API 调用方式
 
 所有 MCP 工具均可通过 HTTP API 调用：
@@ -193,6 +296,16 @@ curl -X POST http://localhost:8100/api/v1/mcp/tool \
     "arguments": {"query": "数据库连接池管理", "k": 5}
   }'
 ```
+
+### P1 新增 REST API 端点（管理员权限）
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/endpoints/{repository}` | GET | 列出仓库所有 HTTP/RPC/Kafka 端点 |
+| `/api/v1/analysis/impact` | POST | 变更影响分析（body: `changed_functions`, `max_depth`） |
+| `/api/v1/analysis/consistency/{repository}` | GET | 索引与文件系统一致性校验 |
+| `/api/v1/architecture/{repository}` | GET | 架构分层统计 |
+| `/api/v1/index/report/{repository}` | GET | 最近一次索引质量报告 |
 
 ### 请求头说明
 
@@ -302,6 +415,9 @@ API_TOKEN=your-secret-token
 | `rag_graph` | editor | 同上 |
 | `rag_business_search` | editor | 同上 |
 | `rag_index` | editor | 同上 |
+| `analyze_impact` | editor | 变更影响分析 |
+| `list_endpoints` | editor | 列出 API 端点 |
+| `check_consistency` | editor | 索引一致性校验 |
 | 工具列表 (`GET /mcp/tools`) | viewer | 查看可用工具只需 viewer |
 
 ### 角色说明

@@ -174,6 +174,11 @@ class KnowledgeBaseService:
         return self._incremental_indexer
 
     @property
+    def incremental_indexer(self) -> IncrementalIndexer:
+        """Alias for :attr:`indexer` — incremental/full indexing orchestrator."""
+        return self._incremental_indexer
+
+    @property
     def doc_indexer(self) -> DocumentIndexer:
         return self._doc_indexer
 

@@ -4,12 +4,20 @@ from api.mcp_server import MCP_TOOLS_MANIFEST
 
 
 class TestMCPToolsManifest:
-    def test_has_four_tools(self):
-        assert len(MCP_TOOLS_MANIFEST) == 4
+    def test_has_seven_tools(self):
+        assert len(MCP_TOOLS_MANIFEST) == 7
 
     def test_tool_names(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}
-        assert names == {"rag_query", "rag_graph", "rag_index", "rag_business_search"}
+        assert names == {
+            "rag_query",
+            "rag_graph",
+            "rag_index",
+            "rag_business_search",
+            "analyze_impact",
+            "list_endpoints",
+            "check_consistency",
+        }
 
     def test_rag_query_schema(self):
         tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "rag_query")
@@ -38,6 +46,24 @@ class TestMCPToolsManifest:
         assert "directory" in schema["required"]
         assert "mode" in schema["properties"]
         assert schema["properties"]["mode"]["enum"] == ["full", "incremental"]
+
+    def test_analyze_impact_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "analyze_impact")
+        schema = tool["inputSchema"]
+        assert "changed_functions" in schema["properties"]
+        assert schema["properties"]["changed_functions"]["type"] == "array"
+        assert "changed_functions" in schema["required"]
+
+    def test_list_endpoints_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "list_endpoints")
+        schema = tool["inputSchema"]
+        assert schema["properties"] == {}
+
+    def test_check_consistency_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "check_consistency")
+        schema = tool["inputSchema"]
+        assert "repository" in schema["properties"]
+        assert "repository" in schema["required"]
 
     def test_all_tools_have_description(self):
         for tool in MCP_TOOLS_MANIFEST:

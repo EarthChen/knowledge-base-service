@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
+from indexer.annotation_semantics import classify_annotations
 from indexer.tree_sitter_parser import ParseResult, TreeSitterParser
 from log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
@@ -123,6 +124,17 @@ class CodeGraphBuilder:
         )
         return all_nodes, all_edges
 
+    @staticmethod
+    def _resolve_closest_uid(uids: list[str], call_line: int, result: ParseResult) -> str:
+        """Pick the overload whose line range contains *call_line*."""
+        if len(uids) == 1:
+            return uids[0]
+        for func in result.functions:
+            for uid in uids:
+                if uid.endswith(f":{func.name}:{func.start_line}") and func.start_line <= call_line <= func.end_line:
+                    return uid
+        return uids[0]
+
     def _build_graph(
         self, result: ParseResult, file_path: str, language: str,
     ) -> tuple[list[GraphNode], list[GraphEdge]]:
@@ -170,7 +182,7 @@ class CodeGraphBuilder:
                     target_uid=tgt.uid,
                 ))
 
-        func_uid_map: dict[str, str] = {}
+        func_uid_by_name: dict[str, list[str]] = {}
         class_uid_by_name: dict[str, str] = {}
 
         for cls in result.classes:
@@ -182,10 +194,18 @@ class CodeGraphBuilder:
                 "docstring": cls.docstring[:1000] if cls.docstring else "",
                 "language": language,
                 "base_classes": cls.base_classes,
+                "is_interface": cls.is_interface,
             }
+            if cls.interfaces:
+                cls_props["interfaces"] = cls.interfaces
             cls_fqn = compute_fqn(file_path, cls.name, "Class")
             if cls_fqn:
                 cls_props["fqn"] = cls_fqn
+            if cls.decorators:
+                cls_props["annotations"] = cls.decorators
+            semantic_roles = classify_annotations(cls.decorators)
+            if semantic_roles:
+                cls_props["semantic_roles"] = semantic_roles
             class_node = GraphNode(label=NodeLabel.CLASS, properties=cls_props)
             nodes.append(class_node)
             class_uid_by_name[cls.name] = class_node.uid
@@ -195,6 +215,13 @@ class CodeGraphBuilder:
                 source_uid=module_node.uid,
                 target_uid=class_node.uid,
             ))
+
+            if "rpc_provider" in semantic_roles:
+                edges.append(GraphEdge(
+                    edge_type=EdgeType.PROVIDES_RPC,
+                    source_uid=class_node.uid,
+                    target_uid=module_node.uid,
+                ))
 
         for cls in result.classes:
             child_uid = class_uid_by_name.get(cls.name)
@@ -207,6 +234,19 @@ class CodeGraphBuilder:
                         edge_type=EdgeType.INHERITS,
                         source_uid=child_uid,
                         target_uid=parent_uid,
+                    ))
+
+        for cls in result.classes:
+            child_uid = class_uid_by_name.get(cls.name)
+            if not child_uid:
+                continue
+            for iface in cls.interfaces:
+                iface_uid = class_uid_by_name.get(iface)
+                if iface_uid and iface_uid != child_uid:
+                    edges.append(GraphEdge(
+                        edge_type=EdgeType.IMPLEMENTS,
+                        source_uid=child_uid,
+                        target_uid=iface_uid,
                     ))
 
         for func in result.functions:
@@ -223,9 +263,18 @@ class CodeGraphBuilder:
             func_fqn = compute_fqn(file_path, func.name, "Function", parent_class=func.parent_class or "")
             if func_fqn:
                 func_props["fqn"] = func_fqn
+            if func.decorators:
+                func_props["annotations"] = func.decorators
+            semantic_roles = classify_annotations(func.decorators)
+            if semantic_roles:
+                func_props["semantic_roles"] = semantic_roles
+            if func.parameters:
+                func_props["parameters"] = [f"{p['name']}:{p['type']}" if p.get("type") else p["name"] for p in func.parameters]
+            if func.return_type:
+                func_props["return_type"] = func.return_type
             func_node = GraphNode(label=NodeLabel.FUNCTION, properties=func_props)
             nodes.append(func_node)
-            func_uid_map[func.name] = func_node.uid
+            func_uid_by_name.setdefault(func.name, []).append(func_node.uid)
 
             if func.parent_class:
                 parent_uid = f"{NodeLabel.CLASS}:{file_path}:{func.parent_class}:{0}"
@@ -245,10 +294,21 @@ class CodeGraphBuilder:
                     target_uid=func_node.uid,
                 ))
 
+            if "rpc_consumer" in semantic_roles:
+                edges.append(GraphEdge(
+                    edge_type=EdgeType.CONSUMES_RPC,
+                    source_uid=func_node.uid,
+                    target_uid=module_node.uid,
+                ))
+
         for call in result.calls:
-            caller_uid = func_uid_map.get(call.caller_name)
-            callee_uid = func_uid_map.get(call.callee_name)
-            if caller_uid and callee_uid and caller_uid != callee_uid:
+            caller_uids = func_uid_by_name.get(call.caller_name, [])
+            callee_uids = func_uid_by_name.get(call.callee_name, [])
+            if not caller_uids or not callee_uids:
+                continue
+            caller_uid = self._resolve_closest_uid(caller_uids, call.line, result)
+            callee_uid = callee_uids[0]
+            if caller_uid != callee_uid:
                 edges.append(GraphEdge(
                     edge_type=EdgeType.CALLS,
                     source_uid=caller_uid,

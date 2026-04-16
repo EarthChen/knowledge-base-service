@@ -12,6 +12,7 @@ Tools exposed:
   - check_consistency: Compare graph file paths to on-disk repository files
   - search_architecture: List classes (with methods) filtered by architecture layer
   - code_quality: Heuristic 0–100 quality score for a Function or Class node
+  - dashboard_stats: P2 enrichment aggregates (architecture layers, Kafka events, RPC, cross-repo)
 """
 
 from __future__ import annotations
@@ -389,6 +390,19 @@ MCP_TOOLS_MANIFEST = [
             "required": ["entity_name"],
         },
     },
+    {
+        "name": "dashboard_stats",
+        "description": (
+            "Return P2 enrichment statistics for the knowledge graph dashboard: "
+            "architecture layer counts, Kafka topic and event edge counts, RPC contract totals, "
+            "and cross-repository / DI / entity-table edge counts. "
+            "quality_overview is omitted (null) because bulk scoring is expensive."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -428,6 +442,7 @@ class KnowledgeBaseMCPHandler:
             "code_quality": self.handle_code_quality,
             "review_pr": self.handle_review_pr,
             "build_context": self.handle_build_context,
+            "dashboard_stats": self.handle_dashboard_stats,
         }
 
         handler = handlers.get(tool_name)
@@ -713,6 +728,10 @@ class KnowledgeBaseMCPHandler:
             repository=arguments.get("repository"),
         )
         return ctx.to_dict()
+
+    async def handle_dashboard_stats(self, _arguments: dict[str, Any]) -> dict[str, Any]:
+        stats = await self._graph.get_p2_stats()
+        return {"status": "success", "stats": stats}
 
     async def handle_rag_index(
         self, args: dict[str, Any], progress_callback: Callable[..., None] | None = None,

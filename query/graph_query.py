@@ -320,3 +320,79 @@ class GraphQueryService:
         params = {"name": flow_name}
         rows = await self._store.execute_query(query, params)
         return QueryResult(data=list(rows.data), query=query, params=params)
+
+    async def get_p2_stats(self) -> dict[str, Any]:
+        """P2 enrichment aggregates for dashboard (architecture, events, RPC, cross-repo)."""
+        store = self._store
+
+        def _cnt(res: object, key: str = "cnt") -> int:
+            if not getattr(res, "data", None):
+                return 0
+            row = res.data[0]
+            v = row.get(key, 0)
+            return int(v) if v is not None else 0
+
+        architecture_layers: dict[str, int] = {}
+        layer_rows = await store.execute_query(
+            "MATCH (c:Class) WHERE c.architecture_layer IS NOT NULL "
+            "RETURN c.architecture_layer AS layer, count(c) AS cnt"
+        )
+        for row in layer_rows.data:
+            layer = row.get("layer")
+            if layer is None:
+                continue
+            architecture_layers[str(layer)] = int(row.get("cnt") or 0)
+
+        kafka_topics = _cnt(
+            await store.execute_query(
+                "MATCH (m:Module) WHERE m.language = 'kafka' RETURN count(m) AS cnt"
+            )
+        )
+        producers = _cnt(
+            await store.execute_query("MATCH ()-[r:EVENT_PRODUCES]->() RETURN count(r) AS cnt")
+        )
+        consumers = _cnt(
+            await store.execute_query("MATCH ()-[r:EVENT_CONSUMES]->() RETURN count(r) AS cnt")
+        )
+
+        total_contracts = _cnt(
+            await store.execute_query(
+                "MATCH (c:Class) WHERE c.is_rpc_contract = true RETURN count(c) AS cnt"
+            )
+        )
+        contract_methods = _cnt(
+            await store.execute_query(
+                "MATCH (c:Class)-[:CONTAINS]->(m:Function) "
+                "WHERE coalesce(c.is_rpc_contract, false) = true "
+                "RETURN count(m) AS cnt"
+            )
+        )
+
+        cross_repo_call_edges = _cnt(
+            await store.execute_query("MATCH ()-[r:CROSS_REPO_CALLS]->() RETURN count(r) AS cnt")
+        )
+        di_dependency_edges = _cnt(
+            await store.execute_query("MATCH ()-[r:DEPENDS_ON]->() RETURN count(r) AS cnt")
+        )
+        entity_table_edges = _cnt(
+            await store.execute_query("MATCH ()-[r:ACCESSES_TABLE]->() RETURN count(r) AS cnt")
+        )
+
+        return {
+            "architecture_layers": architecture_layers,
+            "event_tracking": {
+                "kafka_topics": kafka_topics,
+                "producers": producers,
+                "consumers": consumers,
+            },
+            "rpc_contracts": {
+                "total_contracts": total_contracts,
+                "contract_methods": contract_methods,
+            },
+            "cross_repo": {
+                "cross_repo_call_edges": cross_repo_call_edges,
+                "di_dependency_edges": di_dependency_edges,
+                "entity_table_edges": entity_table_edges,
+            },
+            "quality_overview": None,
+        }

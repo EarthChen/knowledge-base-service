@@ -154,6 +154,19 @@ class IndexRequest(BaseModel):
     repository: str | None = None
 
 
+class ReindexAllRequest(BaseModel):
+    """Trigger full re-index for many repositories (background tasks)."""
+
+    base_dir: str | None = Field(
+        default=None,
+        description="Optional base directory; each repo is indexed from base_dir/repository_name when set.",
+    )
+    repositories: list[str] = Field(
+        default_factory=list,
+        description="When empty, all repositories present in the graph are re-indexed.",
+    )
+
+
 class IndexFileRequest(BaseModel):
     file_path: str
     content: str
@@ -529,6 +542,96 @@ async def trigger_index(
     }
 
 
+@editor_router.post("/reindex/all")
+async def reindex_all_repositories(
+    req: ReindexAllRequest,
+    business_id: str = Depends(_get_effective_business_id),
+) -> dict[str, Any]:
+    """Queue a full re-index for each repository (same semantics as POST /index with mode=full)."""
+    if _task_manager is None or _registry is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    svc = await _registry.get_service(business_id)
+    queries = GraphQueryRepository(svc.store)
+
+    if req.repositories:
+        repo_names = [r.strip() for r in req.repositories if r.strip()]
+    else:
+        rows = await queries.list_repositories()
+        repo_names = [str(r["repository"]) for r in rows if r.get("repository")]
+
+    if not repo_names:
+        return {
+            "tasks": [],
+            "task_ids": [],
+            "skipped": [],
+            "total": 0,
+            "queued": 0,
+            "message": "No repositories to re-index",
+        }
+
+    base = (req.base_dir or "").strip() or None
+
+    skipped: list[dict[str, Any]] = []
+    tasks_out: list[dict[str, Any]] = []
+
+    samples_map: dict[str, str] = {}
+    if base is None:
+        for row in await queries.list_repositories_with_samples():
+            rname = row.get("repo")
+            sf = row.get("sample_file")
+            if rname and sf:
+                samples_map[str(rname)] = str(sf)
+
+    for repo in repo_names:
+        directory: str | None = None
+        if base:
+            candidate = str(Path(base) / repo)
+            if Path(candidate).is_dir():
+                directory = candidate
+            else:
+                skipped.append({"repository": repo, "reason": f"not a directory: {candidate}"})
+                continue
+        else:
+            sample = samples_map.get(repo)
+            if not sample:
+                sf = await queries.get_repository_sample_file(repo)
+                sample = sf or ""
+            if sample and sample.startswith("/"):
+                directory = _infer_repo_root(sample, repo)
+            if not directory or not Path(directory).is_dir():
+                skipped.append({
+                    "repository": repo,
+                    "reason": (
+                        "could not resolve local directory; set base_dir or ensure indexed file paths are absolute"
+                    ),
+                })
+                continue
+
+        idx = IndexRequest(directory=directory, repository=repo, mode="full")
+        task = _task_manager.create_task(
+            mode="full",
+            directory=directory,
+            repository=repo,
+            business_id=business_id,
+        )
+        asyncio.create_task(_run_index_task(task.task_id, idx, business_id))
+        tasks_out.append({
+            "repository": repo,
+            "task_id": task.task_id,
+            "directory": directory,
+            "status": "queued",
+        })
+
+    return {
+        "tasks": tasks_out,
+        "task_ids": [t["task_id"] for t in tasks_out],
+        "skipped": skipped,
+        "total": len(tasks_out) + len(skipped),
+        "queued": len(tasks_out),
+    }
+
+
 @editor_router.post("/enrich")
 async def trigger_enrich(
     req: EnrichRequest,
@@ -809,6 +912,14 @@ async def graph_stats(
         stats["repository"] = repository
         stats["repository_nodes"] = await queries.get_repository_node_count(repository)
     return stats
+
+
+@viewer_router.get("/stats/p2")
+async def get_p2_stats(
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Return P2 enrichment stats for dashboard."""
+    return await svc.graph_query.get_p2_stats()
 
 
 @viewer_router.get("/repositories")

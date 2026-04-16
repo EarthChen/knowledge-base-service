@@ -243,7 +243,7 @@ class AgentWorkflowService:
 
         for file_path in changed_files[:50]:
             repo_filter = "AND n.repository = $repo " if repository else ""
-            params: dict[str, Any] = {"file_suffix": f"%{file_path}"}
+            params: dict[str, Any] = {"file_suffix": file_path}
             if repository:
                 params["repo"] = repository
 

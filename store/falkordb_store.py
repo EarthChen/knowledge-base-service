@@ -221,12 +221,19 @@ class FalkorDBStore:
         return nodes
 
     async def delete_by_file(self, file_path: str) -> int:
-        """Remove all nodes and their edges for a given file path. Returns count deleted."""
+        """Remove all nodes and their edges for a given file path. Returns count deleted.
+
+        Code entities use the ``file`` property; :Module nodes for a source file store the
+        path as ``path`` (see ``CodeGraphBuilder``). Match both so modules and their edges
+        are removed. Import placeholder modules use ``path`` like ``<import:foo>`` and do
+        not equal real file paths, so they are unaffected.
+        """
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
             lambda: self._graph.query(  # type: ignore[union-attr]
-                "MATCH (n {file: $file}) DETACH DELETE n RETURN count(n) AS deleted",
+                "MATCH (n) WHERE n.file = $file OR (n:Module AND n.path = $file) "
+                "DETACH DELETE n RETURN count(n) AS deleted",
                 params={"file": file_path},
             ),
         )

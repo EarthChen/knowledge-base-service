@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from repo_registry import RepoRegistry
+
 from .falkordb_store import FalkorDBStore, QueryResultWrapper
 
 
@@ -29,24 +31,39 @@ class GraphQueryRepository:
             {"file": file_path, "repo": repository},
         )
 
-    async def tag_unowned_nodes(self, repository: str, directory: str | None = None) -> None:
+    async def tag_unowned_nodes(
+        self,
+        repository: str,
+        directory: str | None = None,
+        git_url: str | None = None,
+    ) -> None:
         """Assign repository to nodes that don't have one yet.
 
         Supports both absolute-path (STARTS WITH $dir) and
         relative-path (NOT STARTS WITH '/') scoping.
+        When ``git_url`` is set, also stores a normalized URL key on tagged nodes
+        (same as ``RepoRegistry``) for deduplication lookups.
         """
+        git_key = RepoRegistry._normalize_key(git_url) if git_url else None
+        if git_key is not None:
+            set_clause = "SET n.repository = $repo, n.git_url = $gurl"
+            base_params: dict[str, Any] = {"repo": repository, "gurl": git_key}
+        else:
+            set_clause = "SET n.repository = $repo"
+            base_params = {"repo": repository}
+
         if directory:
             await self._store.execute_query(
                 "MATCH (n) WHERE n.repository IS NULL AND "
                 "(n.file STARTS WITH $dir OR NOT n.file STARTS WITH '/') "
-                "SET n.repository = $repo",
-                {"dir": directory, "repo": repository},
+                + set_clause,
+                {**base_params, "dir": directory},
             )
         else:
             await self._store.execute_query(
                 "MATCH (n) WHERE n.repository IS NULL AND NOT n.file STARTS WITH '/' "
-                "SET n.repository = $repo",
-                {"repo": repository},
+                + set_clause,
+                base_params,
             )
 
     async def get_repository_node_count(self, repository: str) -> int:
@@ -59,10 +76,30 @@ class GraphQueryRepository:
     async def list_repositories(self) -> list[dict[str, Any]]:
         result = await self._store.execute_query(
             "MATCH (n) WHERE n.repository IS NOT NULL "
-            "RETURN n.repository AS repo, count(n) AS cnt "
+            "RETURN n.repository AS repo, count(n) AS cnt, max(n.git_url) AS git_url "
             "ORDER BY cnt DESC",
         )
-        return [{"repository": r["repo"], "nodes": r["cnt"]} for r in result.data]
+        rows = []
+        for r in result.data:
+            row: dict[str, Any] = {"repository": r["repo"], "nodes": r["cnt"]}
+            gu = r.get("git_url")
+            if gu:
+                row["git_url"] = gu
+            rows.append(row)
+        return rows
+
+    async def find_repository_by_git_url(self, git_url: str) -> str | None:
+        """Return a repository name if any indexed node carries this URL key."""
+        key = RepoRegistry._normalize_key(git_url)
+        result = await self._store.execute_query(
+            "MATCH (n) WHERE n.git_url = $key AND n.repository IS NOT NULL "
+            "RETURN n.repository AS repo LIMIT 1",
+            {"key": key},
+        )
+        if not result.data:
+            return None
+        repo = result.data[0].get("repo")
+        return str(repo) if repo is not None else None
 
     async def list_repositories_with_samples(self) -> list[dict[str, Any]]:
         result = await self._store.execute_query(

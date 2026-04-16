@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
@@ -22,6 +23,8 @@ from auth import Role, TokenInfo, get_current_role, require_role, resolve_busine
 from config import get_settings
 from indexer.task_manager import IndexTaskManager
 from log import get_logger, setup_logging
+from repo_registry import RepoRegistry
+from scheduler import SyncScheduleConfig, SyncScheduler
 from service import KnowledgeBaseService
 from service_registry import ServiceRegistry
 from store.graph_queries import GraphQueryRepository
@@ -30,24 +33,39 @@ log = get_logger(__name__)
 
 _registry: ServiceRegistry | None = None
 _task_manager: IndexTaskManager | None = None
+_repo_registry: RepoRegistry | None = None
+_scheduler: SyncScheduler | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    global _registry, _task_manager
+    global _registry, _task_manager, _repo_registry, _scheduler
     settings = get_settings()
     setup_logging(level=settings.log_level)
     log.info("kb_service_starting", host=settings.host, port=settings.port)
 
     _registry = ServiceRegistry(settings)
     _task_manager = IndexTaskManager()
+    data_dir = Path(settings.git.clone_base_path).resolve().parent
+    _repo_registry = RepoRegistry(str(data_dir))
     await _registry.start()
 
+    _scheduler = SyncScheduler(
+        _registry,
+        settings,
+        repo_registry=_repo_registry,
+        schedule_store_path=data_dir / "sync_schedules.json",
+    )
+    await _scheduler.start()
+
     app.state.registry = _registry
+    app.state.scheduler = _scheduler
     log.info("kb_service_started")
     yield
 
     log.info("kb_service_stopping")
+    if _scheduler:
+        await _scheduler.stop()
     if _registry:
         await _registry.stop()
     log.info("kb_service_stopped")
@@ -169,6 +187,40 @@ _FQN_RE = re.compile(
     r"[a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*){2,}"
     r"(?:#[a-zA-Z_][\w]*(?:\([^)]*\))?)?"
 )
+
+
+async def _resolve_canonical_repository_for_git(
+    git_url: str,
+    requested_name: str | None,
+    registry: RepoRegistry,
+    queries: GraphQueryRepository,
+) -> tuple[str, str | None]:
+    """Pick a single repository name for a remote URL (registry + graph + normalize).
+
+    Returns ``(canonical_name, user_visible_warning_or_none)``.
+    """
+    from git_manager import normalize_repo_name
+
+    requested_stripped = requested_name.strip() if requested_name else None
+    candidate = requested_stripped or normalize_repo_name(git_url)
+    if not candidate:
+        tail = git_url.strip().rstrip("/").split("/")[-1]
+        if tail.endswith(".git"):
+            tail = tail[:-4]
+        candidate = tail or git_url.strip()
+
+    existing = registry.get_canonical_name(git_url)
+    if existing is None:
+        existing = await queries.find_repository_by_git_url(git_url)
+
+    if existing:
+        if candidate != existing:
+            return existing, (
+                f"已忽略仓库名 '{candidate}'，沿用同一 git URL 已登记或已索引名称 '{existing}'"
+            )
+        return existing, None
+
+    return candidate, None
 
 
 @viewer_router.post("/search")
@@ -472,8 +524,26 @@ async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> 
                 return
 
             directory = clone_result["directory"]
-            if not repository:
-                repository = clone_result.get("repository", "")
+
+            if _repo_registry is None:
+                _task_manager.mark_failed(task_id, "Repository registry not initialized")
+                return
+
+            queries_pre = GraphQueryRepository(svc.store)
+            canonical, name_warn = await _resolve_canonical_repository_for_git(
+                req.git_url,
+                req.repository,
+                _repo_registry,
+                queries_pre,
+            )
+            if name_warn:
+                log.warning(
+                    "repository_name_canonicalized",
+                    task_id=task_id,
+                    detail=name_warn,
+                    git_url=req.git_url,
+                )
+            repository = canonical
 
             if clone_result["status"] == "cloned" and req.mode == "incremental":
                 log.info(
@@ -517,7 +587,14 @@ async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> 
 
         if repository:
             queries = GraphQueryRepository(svc.store)
-            await queries.tag_unowned_nodes(repository, directory=directory)
+            await queries.tag_unowned_nodes(
+                repository,
+                directory=directory,
+                git_url=req.git_url or None,
+            )
+
+        if req.git_url and repository and _repo_registry:
+            _repo_registry.register(req.git_url, repository)
 
         _task_manager.mark_completed(task_id, result)
     except Exception as exc:
@@ -560,7 +637,6 @@ async def index_files(
 
             embeddable = [n for n in doc_nodes if n.properties.get("content")]
             if embeddable:
-                from indexer.embedding_generator import EmbeddingGenerator
                 items = [
                     {"name": n.properties.get("title", ""), "signature": "",
                      "docstring": "", "code_snippet": n.properties.get("content", "")}
@@ -607,9 +683,24 @@ async def graph_stats(
 async def list_repositories(
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """List all indexed repositories with node counts."""
+    """List all indexed repositories with node counts and optional git URL metadata."""
     queries = GraphQueryRepository(svc.store)
     repos = await queries.list_repositories()
+    reg_by_repo: dict[str, dict[str, Any]] = {}
+    if _repo_registry:
+        for entry in _repo_registry.list_all():
+            rname = entry.get("repository")
+            if rname:
+                reg_by_repo[str(rname)] = entry
+    for row in repos:
+        name = row.get("repository")
+        if not name:
+            continue
+        reg = reg_by_repo.get(str(name))
+        if reg:
+            if not row.get("git_url") and reg.get("git_url"):
+                row["git_url"] = reg["git_url"]
+            row["last_indexed"] = reg.get("last_indexed")
     return {"repositories": repos, "total": len(repos)}
 
 
@@ -755,7 +846,7 @@ async def get_document(
     }
 
 
-@admin_router.delete("/index/{repository}")
+@admin_router.delete("/index/{repository:path}")
 async def delete_repository_index(
     repository: str,
     svc: KnowledgeBaseService = Depends(_get_service),
@@ -980,7 +1071,10 @@ async def delete_business(business_id: str) -> dict[str, Any]:
 class SyncRepoRequest(BaseModel):
     """Request to git pull and incrementally re-index a repository."""
     repository: str = Field(..., description="Repository name (must already be indexed)")
-    directory: str | None = Field(default=None, description="Repository root directory (required when using relative paths)")
+    directory: str | None = Field(
+        default=None,
+        description="Repository root directory (required when using relative paths)",
+    )
     git_url: str = Field(default="", description="Git clone URL for remote repos (auto-clones if not yet local)")
     branch: str | None = Field(default=None, description="Branch to checkout")
     base_ref: str = Field(default="HEAD~1", description="Git diff base reference")
@@ -989,9 +1083,113 @@ class SyncRepoRequest(BaseModel):
 
 class SyncAllRequest(BaseModel):
     """Request to sync all indexed repositories."""
-    repo_dirs: dict[str, str] | None = Field(default=None, description="Mapping of repo name → local directory path (required for relative-path indexed repos)")
+    repo_dirs: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Mapping of repo name → local directory path "
+            "(required for relative-path indexed repos)"
+        ),
+    )
     base_ref: str = Field(default="HEAD~1", description="Git diff base reference")
     head_ref: str = Field(default="HEAD", description="Git diff head reference")
+
+
+class SyncScheduleRequest(BaseModel):
+    """Create or update a periodic git pull + incremental re-index schedule."""
+
+    repo_name: str = Field(..., min_length=1)
+    git_url: str = Field(..., min_length=1)
+    branch: str | None = None
+    interval_minutes: int = Field(default=60, ge=5, le=1440)
+    enabled: bool = True
+
+
+class SyncScheduleResponse(BaseModel):
+    """One persisted schedule row returned to clients."""
+
+    repo_name: str
+    git_url: str
+    branch: str | None
+    interval_minutes: int
+    enabled: bool
+    last_sync_at: str | None
+    last_sync_status: str
+    last_sync_detail: str
+    created_at: str
+
+
+def _schedule_to_response(cfg: SyncScheduleConfig) -> SyncScheduleResponse:
+    return SyncScheduleResponse(
+        repo_name=cfg.repo_name,
+        git_url=cfg.git_url,
+        branch=cfg.branch,
+        interval_minutes=cfg.interval_minutes,
+        enabled=cfg.enabled,
+        last_sync_at=cfg.last_sync_at,
+        last_sync_status=cfg.last_sync_status,
+        last_sync_detail=cfg.last_sync_detail,
+        created_at=cfg.created_at,
+    )
+
+
+def _require_scheduler() -> SyncScheduler:
+    if _scheduler is None:
+        raise HTTPException(status_code=503, detail="Scheduler not ready")
+    return _scheduler
+
+
+@admin_router.get("/sync/schedules")
+async def list_sync_schedules(
+    sched: SyncScheduler = Depends(_require_scheduler),
+) -> dict[str, Any]:
+    """List all periodic sync schedules."""
+    rows = await sched.list_schedules()
+    return {
+        "schedules": [_schedule_to_response(c).model_dump() for c in rows],
+        "total": len(rows),
+    }
+
+
+@admin_router.post("/sync/schedules")
+async def upsert_sync_schedule(
+    req: SyncScheduleRequest,
+    sched: SyncScheduler = Depends(_require_scheduler),
+) -> SyncScheduleResponse:
+    """Create or update a sync schedule for a repository."""
+    branch_raw = req.branch.strip() if req.branch else ""
+    cfg = SyncScheduleConfig(
+        repo_name=req.repo_name.strip(),
+        git_url=req.git_url.strip(),
+        branch=branch_raw if branch_raw else None,
+        interval_minutes=req.interval_minutes,
+        enabled=req.enabled,
+    )
+    saved = await sched.add_schedule(cfg)
+    return _schedule_to_response(saved)
+
+
+@admin_router.delete("/sync/schedules/{repo:path}")
+async def delete_sync_schedule(
+    repo: str,
+    sched: SyncScheduler = Depends(_require_scheduler),
+) -> dict[str, str]:
+    """Remove a sync schedule."""
+    ok = await sched.remove_schedule(repo)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"No schedule for repository '{repo}'")
+    return {"deleted": repo}
+
+
+@admin_router.post("/sync/schedules/{repo:path}/trigger")
+async def trigger_sync_schedule_now(
+    repo: str,
+    sched: SyncScheduler = Depends(_require_scheduler),
+) -> dict[str, Any]:
+    """Run git pull + incremental index immediately for a scheduled repository."""
+    try:
+        return await sched.trigger_sync_now(repo)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 async def _git_rev_parse(repo_dir: str, ref: str = "HEAD") -> str | None:
@@ -1051,6 +1249,9 @@ async def sync_repository(
     if req.git_url:
         from git_manager import GitManager
 
+        if _repo_registry is None:
+            raise HTTPException(status_code=503, detail="Repository registry not initialized")
+
         mgr = GitManager(get_settings().git)
         result = await mgr.ensure_repo(req.git_url, branch=req.branch)
         if result["status"] in ("clone_failed", "pull_failed"):
@@ -1059,12 +1260,21 @@ async def sync_repository(
                 detail=f"Git operation failed: {result.get('detail', '')}",
             )
 
+        repo_name, name_warn = await _resolve_canonical_repository_for_git(
+            req.git_url,
+            req.repository,
+            _repo_registry,
+            queries,
+        )
+        if name_warn:
+            log.warning("repository_name_canonicalized", detail=name_warn, git_url=req.git_url)
+
         repo_dir = result["directory"]
         pre_head = result.get("pre_head", "")
 
         if result["status"] == "up_to_date":
             return {
-                "repository": req.repository,
+                "repository": repo_name,
                 "directory": repo_dir,
                 "git_pull": "already_up_to_date",
                 "index_stats": None,
@@ -1073,10 +1283,16 @@ async def sync_repository(
         base = pre_head if pre_head else req.base_ref
         index_stats = await svc.indexer.index_incremental(repo_dir, base, req.head_ref)
         if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
-            await queries.tag_unowned_nodes(req.repository)
+            await queries.tag_unowned_nodes(
+                repo_name,
+                git_url=req.git_url,
+            )
+
+        if _repo_registry:
+            _repo_registry.register(req.git_url, repo_name)
 
         return {
-            "repository": req.repository,
+            "repository": repo_name,
             "directory": repo_dir,
             "git_pull": result["status"],
             "index_stats": index_stats,
@@ -1088,10 +1304,18 @@ async def sync_repository(
             raise HTTPException(status_code=404, detail=f"Repository '{req.repository}' not found in index")
 
         sample_file = sample_file or ""
-        repo_dir = _infer_repo_root(sample_file, req.repository) if sample_file and sample_file.startswith("/") else None
+        repo_dir = None
+        if sample_file and sample_file.startswith("/"):
+            repo_dir = _infer_repo_root(sample_file, req.repository)
 
     if not repo_dir or not Path(repo_dir).is_dir():
-        raise HTTPException(status_code=500, detail="Repository directory not found. Provide 'directory' or 'git_url' in request.")
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Repository directory not found. "
+                "Provide 'directory' or 'git_url' in request."
+            ),
+        )
 
     pre_pull_head = await _git_rev_parse(repo_dir, "HEAD")
 
@@ -1146,7 +1370,11 @@ async def sync_all_repositories(
         if not repo_dir and sample_file and sample_file.startswith("/"):
             repo_dir = _infer_repo_root(sample_file, repo)
         if not repo_dir or not Path(repo_dir).is_dir():
-            results.append({"repository": repo, "status": "error", "detail": "directory not found; provide repo_dirs mapping"})
+            results.append({
+                "repository": repo,
+                "status": "error",
+                "detail": "directory not found; provide repo_dirs mapping",
+            })
             continue
 
         try:

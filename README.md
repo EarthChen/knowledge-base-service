@@ -141,7 +141,7 @@ uv run pytest
 - **图查询** — 多种查询类型（含代码结构类与业务流程类）的动态表单
 - **仓库管理** — 已索引仓库列表 + 删除操作
 - **索引** — 触发全量/增量索引；**业务摘要补全**（对已入库仓库仅跑 LLM `business_summary`，不重新解析代码）：仓库从已索引列表选择、可选强制重生成、进度与 `POST /api/v1/index` 相同任务体系（`GET /api/v1/index/tasks/{task_id}`）
-- **设置** — 语言切换、API Token、服务信息
+- **设置** — 语言切换、API Token、服务信息；**定时同步**（管理员）— 配置周期性 `git pull` + 增量重索引，支持立即触发与计划管理
 
 访问：开发模式 http://localhost:5173 | 生产模式 http://localhost:8100
 
@@ -204,7 +204,7 @@ curl -X POST http://localhost:8100/api/v1/index \
 
 增量索引会：
 1. 执行 `git diff --name-status base_ref head_ref` 获取变更文件列表
-2. 对于删除的文件：从图中移除对应的所有节点和边
+2. 对于删除的文件：从图中移除对应的所有节点和边（含该文件对应的 **Module** 等容器节点）
 3. 对于新增/修改的文件：先删除旧数据，再重新解析并写入
 4. 为变更的节点重新生成向量嵌入
 
@@ -272,7 +272,7 @@ curl http://localhost:8100/api/v1/repositories
 # 查看特定仓库的统计
 curl "http://localhost:8100/api/v1/stats?repository=repo-a"
 
-# 删除某个仓库的所有索引数据
+# 删除某个仓库的所有索引数据（需管理员权限；仓库名含 / 时请用 %2F 编码，见上文「路径中的仓库名」）
 curl -X DELETE http://localhost:8100/api/v1/index/repo-a
 ```
 
@@ -290,6 +290,19 @@ curl -X DELETE http://localhost:8100/api/v1/index/repo-a
 
 > **说明**: 不指定 `repository` 参数时，数据不带仓库标签，所有仓库共享一个图。建议在多仓库环境中始终指定 `repository`。
 
+#### 仓库名称规范化
+
+通过 **`git_url` 远程克隆/索引**时，若未显式传 `repository`，服务会用 `normalize_repo_name(git_url)` 推导默认标识：
+
+- **HTTPS / `ssh://`**：取 URL 路径并去掉 `.git` 后缀，例如 `https://git.example.com/group/project.git` → `group/project`。
+- **SCP 风格 SSH**（`git@host:group/project.git`）：取冒号后路径并去掉 `.git`。
+
+若请求里带了 `repository`，但同一 `git_url` 在**仓库注册表**或图中**已有**登记名称，则**以已存在的 canonical 名称为准**，避免同一远程库被索引成多套数据；此时可能返回提示说明已忽略本次传入名称。
+
+#### 仓库注册表（RepoRegistry）
+
+服务在 `data/repo_registry.json`（工作目录下，与 `GIT__CLONE_BASE_PATH` 所在数据目录一致）持久保存 **`git_url`（去掉 `.git` 与尾部 `/` 后的规范化键）→ 首次索引使用的 `repository` 名称**。之后相同 URL 的索引进程会复用该名称，防止重复登记。`GET /api/v1/repositories` 会合并图中的仓库列表与注册表元数据。
+
 #### 仓库同步（git pull + 增量索引）
 
 对已配置本地克隆目录的仓库，可调用管理端点在拉取代码后执行增量索引。同步前会记录 **pull 之前的 `HEAD` SHA**，再执行 `git pull`，并以「拉取前 HEAD → 当前 `HEAD`」作为增量 diff 范围，避免漏掉一次 pull 中的全部变更。
@@ -305,6 +318,48 @@ curl -X POST http://localhost:8100/api/v1/sync/all \
   -H "Content-Type: application/json" \
   -d '{"repo_dirs": {"repo-a": "/path/to/repo-a"}, "base_ref": "HEAD~1", "head_ref": "HEAD"}'
 ```
+
+#### 定时自动同步（Dashboard + 管理端 API）
+
+在 **Dashboard → 设置 →「定时同步」** 中（需 **管理员** 角色的 API Token），可为已纳入索引的仓库配置：**Git 克隆地址**、可选**分支**、**间隔（分钟，5–1440）**、是否**启用**；支持**立即同步**与删除计划。后台按间隔执行 `git pull`（ff-only）并以 pull 前后 `HEAD` 为范围做**增量重索引**，计划保存在 **`data/sync_schedules.json`**，重启服务后仍有效。
+
+等价的 HTTP 接口（均需 `Authorization: Bearer <管理员 token>`）：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/sync/schedules` | 列出全部定时计划 |
+| POST | `/api/v1/sync/schedules` | 创建或更新一条计划 |
+| DELETE | `/api/v1/sync/schedules/{repo}` | 删除某仓库的计划 |
+| POST | `/api/v1/sync/schedules/{repo}/trigger` | 立即对该仓库执行一次 pull + 增量索引 |
+
+创建/更新请求体示例：
+
+```json
+{
+  "repo_name": "group/project",
+  "git_url": "https://git.example.com/group/project.git",
+  "branch": "main",
+  "interval_minutes": 120,
+  "enabled": true
+}
+```
+
+```bash
+# 列出计划
+curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:8100/api/v1/sync/schedules
+
+# 新建或更新计划
+curl -s -X POST http://localhost:8100/api/v1/sync/schedules \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"repo_name":"my-app","git_url":"https://git.example.com/org/my-app.git","interval_minutes":60,"enabled":true}'
+
+# 立即同步（仓库名含 / 时须对 / 做 URL 编码为 %2F）
+curl -s -X POST "http://localhost:8100/api/v1/sync/schedules/group%2Fproject/trigger" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+> **路径中的仓库名**：`repository` 若包含 `/`（如 `group/project`），出现在路径参数中时请将 `/` 编码为 **`%2F`**，否则路由可能无法匹配（历史上曾表现为 **405 Method Not Allowed**）。`DELETE /api/v1/index/{repository}` 删除索引数据时同样适用。
 
 ### 5. 语义搜索
 
@@ -954,6 +1009,10 @@ Function / Class 可含 **`business_summary`**（LLM 生成的业务描述）；
 | GET | `/api/v1/repositories` | 列出所有已索引的仓库 |
 | POST | `/api/v1/sync/repo` | 对单个仓库执行 `git pull` 后增量索引 |
 | POST | `/api/v1/sync/all` | 对所有已索引仓库依次 `git pull` 并增量索引 |
+| GET | `/api/v1/sync/schedules` | 列出定时同步计划（管理员） |
+| POST | `/api/v1/sync/schedules` | 创建或更新定时同步计划（管理员） |
+| DELETE | `/api/v1/sync/schedules/{repo}` | 删除定时计划；`repo` 含 `/` 时须 URL 编码（管理员） |
+| POST | `/api/v1/sync/schedules/{repo}/trigger` | 立即对该仓库执行 pull + 增量索引（管理员） |
 
 #### POST /api/v1/index — 目录索引
 
@@ -1182,6 +1241,8 @@ Function / Class 可含 **`business_summary`**（LLM 生成的业务描述）；
 knowledge-base-service/
 ├── main.py                     # FastAPI 应用入口 + SPA 路由
 ├── config.py                   # Pydantic Settings 配置
+├── repo_registry.py            # git URL → canonical 仓库名持久化（data/repo_registry.json）
+├── scheduler.py                # 定时 git pull + 增量索引（data/sync_schedules.json）
 ├── service.py                  # 服务编排器（门面模式）
 ├── service_registry.py         # 多业务服务注册表
 ├── auth.py                     # 角色权限控制 (RBAC)

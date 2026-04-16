@@ -599,7 +599,7 @@ alwaysApply: true
 
 - 增量索引已支持 `.md`/`.rst`/`.txt` 文档文件（不再仅限代码文件）
 - `resolve_cross_file_edges()` 已改为先清理旧边再重建，不会有残留
-- 通过 Dashboard 的 "Sync All" 功能可一键拉取最新代码并增量索引
+- 通过 Dashboard 的「同步」能力可一键拉取最新代码并增量索引；亦可在 **设置 → 定时同步**（管理员）配置周期性 pull + 增量重索引（对应 `GET/POST /api/v1/sync/schedules` 等，详见主 README）
 
 ### 推荐方案：日常增量 + 按需全量
 
@@ -613,12 +613,21 @@ graph LR
 
 ### Dashboard 同步功能
 
-知识库提供了两个 API 端点用于同步：
+**一次性同步**（管理员）：
 
 | 端点 | 说明 |
 |------|------|
 | `POST /api/v1/sync/repo` | 同步单个仓库：git pull + 增量索引 |
 | `POST /api/v1/sync/all` | 同步所有已索引仓库：逐个 git pull + 增量索引 |
+
+**定时同步**（管理员，配置持久化在服务端 `data/sync_schedules.json`，亦可于 **Dashboard → 设置 → 定时同步** 操作）：
+
+| 端点 | 说明 |
+|------|------|
+| `GET /api/v1/sync/schedules` | 列出所有定时计划 |
+| `POST /api/v1/sync/schedules` | 创建或更新计划（body：`repo_name`、`git_url`、`branch?`、`interval_minutes`、`enabled`） |
+| `DELETE /api/v1/sync/schedules/{repo}` | 删除计划；`repo` 含 `/` 时须将 `/` 编码为 `%2F` |
+| `POST /api/v1/sync/schedules/{repo}/trigger` | 立即对该仓库执行 pull + 增量索引 |
 
 ```bash
 # 同步单个仓库
@@ -629,6 +638,10 @@ curl -X POST http://localhost:8100/api/v1/sync/repo \
 # 同步所有仓库
 curl -X POST http://localhost:8100/api/v1/sync/all \
   -H "Authorization: Bearer sk-admin-xxx"
+
+# 列出定时同步计划
+curl -s -H "Authorization: Bearer sk-admin-xxx" \
+  http://localhost:8100/api/v1/sync/schedules
 ```
 
 已是最新的仓库会返回 `"status": "up_to_date"` 并跳过索引，仅处理有实际变更的仓库。

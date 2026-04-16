@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,26 @@ from config import GitConfig
 from log import get_logger
 
 log = get_logger(__name__)
+
+
+def normalize_repo_name(git_url: str) -> str:
+    """从任意 Git URL 或本地路径解析出用作仓库标识的路径（如 group/project）。
+
+    支持 HTTPS、``git@host:path`` 形式的 SSH，以及 ``ssh://`` URL；本地路径原样返回。
+    """
+    s = git_url.strip()
+    # SCP 风格 SSH：git@host:group/project(.git)
+    m = re.match(r"^git@[^:]+:(.+)$", s)
+    if m:
+        path = m.group(1)
+        return path[:-4] if path.endswith(".git") else path
+    if s.startswith(("http://", "https://", "ssh://")):
+        parsed = urlparse(s)
+        path = parsed.path.lstrip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        return path or s
+    return s
 
 
 class GitManager:
@@ -64,11 +85,9 @@ class GitManager:
 
         e.g. https://git.example.com/group/project.git → data/repos/group/project
         """
-        parsed = urlparse(git_url)
-        path_part = parsed.path.lstrip("/")
-        if path_part.endswith(".git"):
-            path_part = path_part[:-4]
-        local = self._base_path / path_part
+        path_part = normalize_repo_name(git_url)
+        base = Path(path_part)
+        local = base if base.is_absolute() else self._base_path / path_part
         if branch:
             local = local / branch
         return local
@@ -118,10 +137,7 @@ class GitManager:
         is_ssh = git_url.startswith("git@") or git_url.startswith("ssh://")
         clone_url = git_url if is_ssh else self._inject_token_into_url(git_url)
 
-        parsed = urlparse(git_url)
-        repo_name = parsed.path.lstrip("/")
-        if repo_name.endswith(".git"):
-            repo_name = repo_name[:-4]
+        repo_name = normalize_repo_name(git_url)
 
         if local_path.is_dir() and (local_path / ".git").is_dir():
             return await self._pull_repo(local_path, repo_name, branch)

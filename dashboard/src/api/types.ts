@@ -208,6 +208,31 @@ export interface BusinessSearchResponse {
   concepts?: BusinessConceptMatch[];
 }
 
+export interface SyncSchedule {
+  repo_name: string;
+  git_url: string;
+  branch: string | null;
+  interval_minutes: number;
+  enabled: boolean;
+  last_sync_at: string | null;
+  last_sync_status: string;
+  last_sync_detail: string;
+  created_at: string;
+}
+
+export interface SyncSchedulesResponse {
+  schedules: SyncSchedule[];
+  total: number;
+}
+
+export interface SyncScheduleRequest {
+  repo_name: string;
+  git_url: string;
+  branch: string | null;
+  interval_minutes: number;
+  enabled: boolean;
+}
+
 export interface DeepSearchResponse {
   analysis?: string;
   business_flows?: Array<{

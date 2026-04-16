@@ -19,6 +19,9 @@ import type {
   BusinessSearchResponse,
   EnrichRequest,
   TaskInfo,
+  SyncSchedule,
+  SyncSchedulesResponse,
+  SyncScheduleRequest,
 } from "./types";
 
 export function useHealth() {
@@ -225,5 +228,53 @@ export function useDocument(uid: string | null) {
     queryFn: () => api(`/documents/${encodeURIComponent(uid!)}`, { method: "GET" }),
     enabled: !!uid,
     staleTime: 60_000,
+  });
+}
+
+export function useSyncSchedules(options?: { enabled?: boolean }) {
+  return useQuery<SyncSchedulesResponse>({
+    queryKey: ["sync-schedules"],
+    queryFn: () => api("/sync/schedules", { method: "GET" }),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useCreateSyncSchedule() {
+  const qc = useQueryClient();
+  return useMutation<SyncSchedule, Error, SyncScheduleRequest>({
+    mutationFn: (body) =>
+      api<SyncSchedule>("/sync/schedules", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sync-schedules"] });
+    },
+  });
+}
+
+export function useDeleteSyncSchedule() {
+  const qc = useQueryClient();
+  return useMutation<{ deleted: string }, Error, string>({
+    mutationFn: (repo) => {
+      const path = repo.split("/").map(encodeURIComponent).join("/");
+      return api(`/sync/schedules/${path}`, { method: "DELETE" });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sync-schedules"] });
+    },
+  });
+}
+
+export function useTriggerSync() {
+  const qc = useQueryClient();
+  return useMutation<Record<string, unknown>, Error, string>({
+    mutationFn: (repo) => {
+      const path = repo.split("/").map(encodeURIComponent).join("/");
+      return api(`/sync/schedules/${path}/trigger`, { method: "POST" });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sync-schedules"] });
+    },
   });
 }

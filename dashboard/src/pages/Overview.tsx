@@ -8,8 +8,22 @@ import {
   BarElement,
 } from "chart.js";
 import { Doughnut, Bar } from "react-chartjs-2";
-import { Code, Blocks, Package, FileText, ArrowRightLeft } from "lucide-react";
-import { useStats } from "../api/hooks";
+import {
+  Code,
+  Blocks,
+  Package,
+  FileText,
+  ArrowRightLeft,
+  Network,
+  Zap,
+  GitBranch,
+  Layers,
+  Database,
+  Server,
+  FileStack,
+  ListTree,
+} from "lucide-react";
+import { useP2Stats, useStats } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import StatCard from "../components/StatCard";
 import { SkeletonCard } from "../components/Skeleton";
@@ -18,6 +32,7 @@ ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarEle
 
 export default function Overview() {
   const { data: stats, isLoading, error } = useStats();
+  const { data: p2, isLoading: p2Loading, error: p2Error } = useP2Stats();
   const { t } = useI18n();
 
   if (error) {
@@ -90,6 +105,26 @@ export default function Overview() {
         [t.overview.references, stats.references_count],
       ]
     : [];
+
+  const archSorted = p2
+    ? Object.entries(p2.architecture_layers).sort((a, b) => b[1] - a[1])
+    : [];
+
+  const archBarData =
+    archSorted.length > 0
+      ? {
+          labels: archSorted.map(([name]) => name),
+          datasets: [
+            {
+              label: "Count",
+              data: archSorted.map(([, v]) => v),
+              backgroundColor: "rgba(249, 115, 22, 0.75)",
+              borderColor: "rgb(234, 88, 12)",
+              borderWidth: 1,
+            },
+          ],
+        }
+      : null;
 
   return (
     <div className="space-y-6">
@@ -196,6 +231,166 @@ export default function Overview() {
                   plugins: { legend: { display: false } },
                 }}
               />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-4 border-t border-orange-100 pt-6">
+        <h3 className="text-base font-semibold text-orange-950">{t.overview.p2Title}</h3>
+
+        {p2Error && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            {t.overview.failedToLoadStats}: {(p2Error as Error).message}
+          </div>
+        )}
+
+        {!p2Error && archBarData && (
+          <div className="rounded-xl border border-orange-200/80 bg-gradient-to-br from-orange-50/80 to-rose-50/40 p-5">
+            <h4 className="mb-4 flex items-center gap-2 text-sm font-medium text-orange-900/80">
+              <Layers size={16} className="text-orange-600" />
+              {t.overview.architectureLayers}
+            </h4>
+            <div className="relative h-72 min-h-[12rem]">
+              <Bar
+                data={archBarData}
+                options={{
+                  indexAxis: "y",
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  scales: {
+                    x: {
+                      beginAtZero: true,
+                      ticks: { color: "#64748b" },
+                      grid: { color: "rgba(203,213,225,0.5)" },
+                    },
+                    y: {
+                      ticks: { color: "#64748b", font: { size: 10 } },
+                      grid: { color: "rgba(203,213,225,0.5)" },
+                    },
+                  },
+                  plugins: { legend: { display: false } },
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {!p2Error && p2Loading && !p2 && (
+          <div className="rounded-xl border border-orange-200/80 bg-white p-5">
+            <div className="mb-4 h-4 w-40 animate-pulse rounded bg-orange-100" />
+            <div className="relative h-72 animate-pulse rounded-lg bg-orange-50/80" />
+          </div>
+        )}
+
+        {!p2Error && !p2Loading && p2 && archSorted.length === 0 && (
+          <div className="rounded-xl border border-dashed border-orange-200 bg-orange-50/30 p-6 text-center text-sm text-orange-900/70">
+            {t.overview.architectureLayers}: —
+          </div>
+        )}
+
+        {!p2Error && (
+          <div className="space-y-5">
+            <div>
+              <p className="mb-3 text-sm font-medium text-indigo-900/80">{t.overview.crossRepo}</p>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {p2Loading && !p2 ? (
+                  <>
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <SkeletonCard key={i} />
+                    ))}
+                  </>
+                ) : (
+                  p2 && (
+                    <>
+                      <StatCard
+                        label={t.overview.diDependencies}
+                        value={p2.cross_repo.di_dependency_edges}
+                        icon={Network}
+                        color="bg-indigo-50 text-indigo-700"
+                      />
+                      <StatCard
+                        label={t.overview.crossRepoRpc}
+                        value={p2.cross_repo.cross_repo_call_edges}
+                        icon={GitBranch}
+                        color="bg-rose-50 text-rose-700"
+                      />
+                      <StatCard
+                        label={t.overview.entityTables}
+                        value={p2.cross_repo.entity_table_edges}
+                        icon={Database}
+                        color="bg-orange-50 text-orange-700"
+                      />
+                    </>
+                  )
+                )}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-3 text-sm font-medium text-rose-900/80">{t.overview.eventTracking}</p>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {p2Loading && !p2 ? (
+                  <>
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <SkeletonCard key={`ev-${i}`} />
+                    ))}
+                  </>
+                ) : (
+                  p2 && (
+                    <>
+                      <StatCard
+                        label={t.overview.kafkaTopics}
+                        value={p2.event_tracking.kafka_topics}
+                        icon={Layers}
+                        color="bg-amber-50 text-amber-800"
+                      />
+                      <StatCard
+                        label={t.overview.eventProducers}
+                        value={p2.event_tracking.producers}
+                        icon={Zap}
+                        color="bg-orange-50 text-orange-800"
+                      />
+                      <StatCard
+                        label={t.overview.eventConsumers}
+                        value={p2.event_tracking.consumers}
+                        icon={Server}
+                        color="bg-rose-50 text-rose-800"
+                      />
+                    </>
+                  )
+                )}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-3 text-sm font-medium text-violet-900/80">{t.overview.rpcContracts}</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {p2Loading && !p2 ? (
+                  <>
+                    {Array.from({ length: 2 }).map((_, i) => (
+                      <SkeletonCard key={`rpc-${i}`} />
+                    ))}
+                  </>
+                ) : (
+                  p2 && (
+                    <>
+                      <StatCard
+                        label={t.overview.totalContracts}
+                        value={p2.rpc_contracts.total_contracts}
+                        icon={FileStack}
+                        color="bg-violet-50 text-violet-700"
+                      />
+                      <StatCard
+                        label={t.overview.contractMethods}
+                        value={p2.rpc_contracts.contract_methods}
+                        icon={ListTree}
+                        color="bg-fuchsia-50 text-fuchsia-700"
+                      />
+                    </>
+                  )
+                )}
+              </div>
             </div>
           </div>
         )}

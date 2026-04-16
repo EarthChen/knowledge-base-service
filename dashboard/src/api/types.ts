@@ -24,6 +24,25 @@ export interface GraphStats {
   total_edges: number;
 }
 
+export interface P2Stats {
+  architecture_layers: Record<string, number>;
+  event_tracking: {
+    kafka_topics: number;
+    producers: number;
+    consumers: number;
+  };
+  rpc_contracts: {
+    total_contracts: number;
+    contract_methods: number;
+  };
+  cross_repo: {
+    cross_repo_call_edges: number;
+    di_dependency_edges: number;
+    entity_table_edges: number;
+  };
+  quality_overview: null | Record<string, unknown>;
+}
+
 export interface Repository {
   repository: string;
   nodes: number;

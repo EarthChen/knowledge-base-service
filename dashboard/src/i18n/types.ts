@@ -37,6 +37,19 @@ export interface Translations {
     nodeDistribution: string;
     edgeDistribution: string;
     failedToLoadStats: string;
+    p2Title: string;
+    architectureLayers: string;
+    eventTracking: string;
+    kafkaTopics: string;
+    eventProducers: string;
+    eventConsumers: string;
+    rpcContracts: string;
+    totalContracts: string;
+    contractMethods: string;
+    crossRepo: string;
+    crossRepoRpc: string;
+    diDependencies: string;
+    entityTables: string;
   };
   search: {
     title: string;

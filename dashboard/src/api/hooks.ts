@@ -22,6 +22,7 @@ import type {
   SyncSchedule,
   SyncSchedulesResponse,
   SyncScheduleRequest,
+  P2Stats,
 } from "./types";
 
 export function useHealth() {
@@ -37,6 +38,13 @@ export function useStats(repository?: string) {
   return useQuery<GraphStats>({
     queryKey: ["stats", repository],
     queryFn: () => api(`/stats${params}`, { method: "GET" }),
+  });
+}
+
+export function useP2Stats() {
+  return useQuery<P2Stats>({
+    queryKey: ["p2-stats"],
+    queryFn: () => api("/stats/p2", { method: "GET" }),
   });
 }
 

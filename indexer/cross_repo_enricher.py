@@ -195,42 +195,11 @@ class CrossRepoEnricher:
     # ─── P2-5: Spring DI Container Graph ────────────────────────────────
 
     async def _enrich_di_graph(self) -> int:
-        """Build DEPENDS_ON edges from @Autowired/@Inject/@Resource annotations."""
+        """Build DEPENDS_ON edges from DI annotations and constructor injection."""
         count = 0
         try:
             await self._store.execute_query(
                 "MATCH ()-[r:DEPENDS_ON]->() DELETE r"
-            )
-
-            classes_with_di = await self._store.execute_query(
-                "MATCH (c:Class) "
-                "WHERE c.annotations IS NOT NULL "
-                "RETURN c.uid AS uid, c.name AS name, c.annotations AS annotations, "
-                "c.repository AS repository"
-            )
-
-            for row in classes_with_di.data:
-                cls_uid = row.get("uid") or ""
-                annotations = row.get("annotations") or []
-                repository = row.get("repository") or ""
-                if not isinstance(annotations, list):
-                    continue
-
-                has_di = False
-                for raw in annotations:
-                    simple = _annotation_simple_name(raw)
-                    if simple in _DI_INJECT_NAMES:
-                        has_di = True
-                        break
-                if has_di:
-                    pass
-
-            fields_with_inject = await self._store.execute_query(
-                "MATCH (c:Class)-[:CONTAINS]->(f:Function) "
-                "WHERE f.annotations IS NOT NULL "
-                "RETURN c.uid AS class_uid, c.name AS class_name, c.repository AS repository, "
-                "f.uid AS func_uid, f.name AS func_name, f.annotations AS annotations, "
-                "f.signature AS signature"
             )
 
             all_classes = await self._store.execute_query(
@@ -250,33 +219,60 @@ class CrossRepoEnricher:
                     if simple and simple not in class_name_to_uid:
                         class_name_to_uid[simple] = uid
 
-            for row in fields_with_inject.data:
+            di_fields = await self._store.execute_query(
+                "MATCH (c:Class)-[:CONTAINS]->(f:Function) "
+                "WHERE (f.annotations IS NOT NULL AND size(f.annotations) > 0) "
+                "   OR (f.semantic_roles IS NOT NULL AND 'di_inject' IN f.semantic_roles) "
+                "RETURN c.uid AS class_uid, c.name AS class_name, c.repository AS repository, "
+                "f.uid AS func_uid, f.name AS func_name, f.annotations AS annotations, "
+                "f.signature AS signature, f.semantic_roles AS semantic_roles, "
+                "f.injection_type AS injection_type, f.field_type AS field_type"
+            )
+
+            for row in di_fields.data:
                 cls_uid = row.get("class_uid") or ""
                 func_annotations = row.get("annotations") or []
                 func_name = row.get("func_name") or ""
                 signature = row.get("signature") or ""
+                semantic_roles = row.get("semantic_roles") or []
+                stored_injection_type = row.get("injection_type") or ""
+                field_type = row.get("field_type") or ""
 
                 if not isinstance(func_annotations, list):
-                    continue
+                    func_annotations = []
+                if not isinstance(semantic_roles, list):
+                    semantic_roles = []
 
-                injection_type = ""
-                for raw in func_annotations:
-                    simple = _annotation_simple_name(raw)
-                    if simple in _DI_INJECT_NAMES:
-                        if func_name and (func_name.startswith("<init>")
-                                          or func_name == "__init__"
-                                          or "constructor" in func_name.lower()):
-                            injection_type = "constructor"
-                        elif func_name and func_name.startswith("set"):
-                            injection_type = "setter"
-                        else:
-                            injection_type = "field"
-                        break
+                injection_type = stored_injection_type
+                if not injection_type:
+                    for raw in func_annotations:
+                        simple = _annotation_simple_name(raw)
+                        if simple in _DI_INJECT_NAMES:
+                            if func_name and (func_name.startswith("<init>")
+                                              or func_name == "__init__"
+                                              or "constructor" in func_name.lower()):
+                                injection_type = "constructor"
+                            elif func_name and func_name.startswith("set"):
+                                injection_type = "setter"
+                            else:
+                                injection_type = "field"
+                            break
+
+                is_di = injection_type or "di_inject" in semantic_roles
+                if not is_di:
+                    continue
 
                 if not injection_type:
-                    continue
+                    injection_type = "constructor" if func_name.startswith("field:") else "field"
 
-                target_types = self._extract_type_names_from_signature(signature, func_name)
+                target_types: list[str] = []
+                if field_type:
+                    cleaned = re.sub(r"<.*>", "", field_type).strip()
+                    if cleaned and cleaned[0].isupper():
+                        target_types.append(cleaned)
+                if not target_types:
+                    target_types = self._extract_type_names_from_signature(signature, func_name)
+
                 for type_name in target_types:
                     target_uid = class_name_to_uid.get(type_name)
                     if not target_uid or target_uid == cls_uid:

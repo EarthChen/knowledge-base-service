@@ -175,6 +175,58 @@ class GraphQueryRepository:
         )
         return result.data[0] if result.data else None
 
+    async def search_classes_by_architecture_layer(
+        self,
+        layer: str,
+        repository: str | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Return Class nodes in an architecture layer with contained methods."""
+        params: dict[str, Any] = {"layer": layer, "limit": limit}
+        repo_clause = ""
+        if repository:
+            repo_clause = "AND c.repository = $repo "
+            params["repo"] = repository
+
+        cypher = (
+            "MATCH (c:Class) "
+            "WHERE c.architecture_layer = $layer " + repo_clause +
+            "WITH c ORDER BY coalesce(c.fqn, c.name) LIMIT $limit "
+            "OPTIONAL MATCH (c)-[:CONTAINS]->(m:Function) "
+            "RETURN c.uid AS uid, c.name AS name, c.fqn AS fqn, c.file AS file, "
+            "c.repository AS repository, c.semantic_roles AS semantic_roles, "
+            "c.architecture_layer AS architecture_layer, "
+            "m.uid AS m_uid, m.name AS m_name, m.signature AS m_signature, m.fqn AS m_fqn"
+        )
+        result = await self._store.execute_query(cypher, params)
+        by_uid: dict[str, dict[str, Any]] = {}
+        order: list[str] = []
+        for row in result.data:
+            uid = row.get("uid") or ""
+            if not uid:
+                continue
+            if uid not in by_uid:
+                order.append(uid)
+                by_uid[uid] = {
+                    "uid": uid,
+                    "name": row.get("name"),
+                    "fqn": row.get("fqn"),
+                    "file": row.get("file"),
+                    "repository": row.get("repository"),
+                    "semantic_roles": row.get("semantic_roles"),
+                    "architecture_layer": row.get("architecture_layer"),
+                    "methods": [],
+                }
+            m_uid = row.get("m_uid")
+            if m_uid:
+                by_uid[uid]["methods"].append({
+                    "uid": m_uid,
+                    "name": row.get("m_name"),
+                    "signature": row.get("m_signature") or "",
+                    "fqn": row.get("m_fqn") or "",
+                })
+        return [by_uid[u] for u in order if u in by_uid]
+
     async def get_enrichable_entities(
         self, repository: str | None, force: bool,
     ) -> list[dict[str, Any]]:

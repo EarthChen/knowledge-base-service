@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Self
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
@@ -236,6 +236,16 @@ _FQN_RE = re.compile(
     r"(?:#[a-zA-Z_][\w]*(?:\([^)]*\))?)?"
 )
 
+_ARCHITECTURE_LAYERS = frozenset({
+    "presentation",
+    "business",
+    "data_access",
+    "rpc",
+    "messaging",
+    "infrastructure",
+    "model",
+})
+
 
 async def _resolve_canonical_repository_for_git(
     git_url: str,
@@ -340,6 +350,61 @@ async def semantic_search(
     merged.sort(key=lambda x: x.get("score", 0), reverse=True)
     top = merged[:req.k]
     return {"matches": top, "total": len(top), "query": req.query}
+
+
+@viewer_router.get("/search/architecture")
+async def search_architecture(
+    layer: str,
+    repository: str | None = None,
+    limit: int = 50,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    if layer not in _ARCHITECTURE_LAYERS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid layer; expected one of: {', '.join(sorted(_ARCHITECTURE_LAYERS))}",
+        )
+    lim = max(1, min(limit, 500))
+    try:
+        queries = GraphQueryRepository(svc.store)
+        classes = await queries.search_classes_by_architecture_layer(layer, repository, lim)
+        return {
+            "layer": layer,
+            "repository": repository,
+            "limit": lim,
+            "classes": classes,
+            "total": len(classes),
+        }
+    except Exception as exc:
+        log.error("search_architecture_failed", layer=layer, error=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@viewer_router.get("/quality/{entity_uid:path}")
+async def get_code_quality(
+    entity_uid: str,
+    entity_type: str | None = Query(
+        default=None,
+        description="Optional: restrict to 'function' or 'class' (default: match either)",
+    ),
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    from query.agent_workflow import AgentWorkflowService
+
+    et = (entity_type or "").strip().lower()
+    if et and et not in ("function", "class"):
+        raise HTTPException(
+            status_code=422,
+            detail="entity_type must be 'function' or 'class' when provided",
+        )
+    try:
+        workflow = AgentWorkflowService(svc.store)
+        return await workflow.compute_quality_score(entity_uid, et)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("code_quality_failed", entity_uid=entity_uid, error=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @viewer_router.post("/graph")

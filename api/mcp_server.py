@@ -10,6 +10,8 @@ Tools exposed:
   - analyze_impact: Blast-radius analysis for changed functions
   - list_endpoints: HTTP, RPC, and Kafka endpoints from the graph
   - check_consistency: Compare graph file paths to on-disk repository files
+  - search_architecture: List classes (with methods) filtered by architecture layer
+  - code_quality: Heuristic 0–100 quality score for a Function or Class node
 """
 
 from __future__ import annotations
@@ -248,6 +250,63 @@ MCP_TOOLS_MANIFEST = [
         },
     },
     {
+        "name": "search_architecture",
+        "description": (
+            "Search indexed classes by architecture layer (presentation, business, data_access, "
+            "rpc, messaging, infrastructure, model). Returns each class with its methods."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "layer": {
+                    "type": "string",
+                    "enum": [
+                        "presentation",
+                        "business",
+                        "data_access",
+                        "rpc",
+                        "messaging",
+                        "infrastructure",
+                        "model",
+                    ],
+                    "description": "Architecture layer to filter Class nodes",
+                },
+                "repository": {
+                    "type": "string",
+                    "description": "Optional repository name to scope results",
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 50,
+                    "description": "Max classes to return (capped at 500)",
+                },
+            },
+            "required": ["layer"],
+        },
+    },
+    {
+        "name": "code_quality",
+        "description": (
+            "Compute a 0–100 heuristic quality score for a code entity (Function or Class) "
+            "using docstrings, typing, length, tests, naming, semantic roles, and complexity."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_uid": {
+                    "type": "string",
+                    "description": "Graph node uid of the Function or Class",
+                },
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["function", "class"],
+                    "description": "Optional: restrict match to Function or Class",
+                },
+            },
+            "required": ["entity_uid"],
+        },
+    },
+    {
         "name": "review_pr",
         "description": (
             "Analyze a PR diff and build comprehensive review context. Returns changed entities, "
@@ -362,6 +421,8 @@ class KnowledgeBaseMCPHandler:
             "analyze_impact": self.handle_analyze_impact,
             "list_endpoints": self.handle_list_endpoints,
             "check_consistency": self.handle_check_consistency,
+            "search_architecture": self.handle_search_architecture,
+            "code_quality": self.handle_code_quality,
             "review_pr": self.handle_review_pr,
             "build_context": self.handle_build_context,
         }
@@ -535,6 +596,66 @@ class KnowledgeBaseMCPHandler:
         analysis = AnalysisService(self._store)
         report = await analysis.verify_consistency(str(resolved), repository=repository)
         return {"repository": repository, **report.to_dict()}
+
+    async def handle_search_architecture(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        from store.graph_queries import GraphQueryRepository
+
+        layer = (arguments.get("layer") or "").strip()
+        if not layer:
+            return {"error": "layer is required"}
+        _allowed = {
+            "presentation",
+            "business",
+            "data_access",
+            "rpc",
+            "messaging",
+            "infrastructure",
+            "model",
+        }
+        if layer not in _allowed:
+            return {"error": f"Invalid layer; expected one of: {', '.join(sorted(_allowed))}"}
+        repository = arguments.get("repository")
+        if repository is not None:
+            repository = str(repository).strip() or None
+        limit = int(arguments.get("limit", 50))
+        limit = max(1, min(limit, 500))
+        if not self._store:
+            return {"error": "Graph store not available"}
+        try:
+            queries = GraphQueryRepository(self._store)
+            classes = await queries.search_classes_by_architecture_layer(layer, repository, limit)
+            return {
+                "layer": layer,
+                "repository": repository,
+                "limit": limit,
+                "classes": classes,
+                "total": len(classes),
+            }
+        except Exception as exc:
+            log.error("mcp_search_architecture_failed", error=str(exc))
+            return {"error": str(exc)}
+
+    async def handle_code_quality(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        from query.agent_workflow import AgentWorkflowService
+
+        uid = arguments.get("entity_uid", "")
+        if not uid:
+            return {"error": "entity_uid is required"}
+        if not self._store:
+            return {"error": "Graph store not available"}
+        et_raw = arguments.get("entity_type")
+        if et_raw is None or et_raw == "":
+            et = ""
+        else:
+            et = str(et_raw).strip().lower()
+        if et and et not in ("function", "class"):
+            return {"error": "entity_type must be 'function' or 'class' when provided"}
+        try:
+            workflow = AgentWorkflowService(self._store)
+            return await workflow.compute_quality_score(str(uid), et)
+        except Exception as exc:
+            log.error("mcp_code_quality_failed", error=str(exc))
+            return {"error": str(exc)}
 
     async def handle_review_pr(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from query.agent_workflow import AgentWorkflowService

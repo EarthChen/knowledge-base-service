@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from indexer.annotation_semantics import classify_annotations, lookup_annotation
-from indexer.tree_sitter_parser import ParseResult, TreeSitterParser
+from indexer.tree_sitter_parser import ParseResult, ParsedField, TreeSitterParser
 from log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 
@@ -18,6 +18,71 @@ log = get_logger(__name__)
 
 
 _JAVA_SRC_MARKERS = ("src/main/java/", "src/test/java/")
+
+_SPRING_BEAN_SEMANTIC_ROLES = frozenset({
+    "service", "repository", "component", "http_controller",
+})
+
+
+def _java_class_is_spring_di_bean(decorators: list[str]) -> bool:
+    roles = set(classify_annotations(decorators))
+    return bool(roles & _SPRING_BEAN_SEMANTIC_ROLES)
+
+
+def _java_simple_type_name_from_string(ftype: str) -> str:
+    t = ftype.strip()
+    if not t:
+        return ""
+    if "<" in t:
+        t = t.split("<", 1)[0].strip()
+    return t.split(".")[-1]
+
+
+def _java_constructors_for_class(result: ParseResult, cls_name: str) -> list:
+    out = []
+    for f in result.functions:
+        if f.language != "java" or f.parent_class != cls_name:
+            continue
+        if f.name == cls_name and not (f.return_type or "").strip():
+            out.append(f)
+    return out
+
+
+def _merge_java_constructor_injection_fields(result: ParseResult, file_path: str, language: str) -> list[ParsedField]:
+    """Append ctor-parameter deps when a Spring bean has a single constructor (Lombok-free DI)."""
+    if language != "java":
+        return list(result.fields)
+    merged = list(result.fields)
+    existing = {(f.parent_class, f.name) for f in merged}
+    for cls in result.classes:
+        if not _java_class_is_spring_di_bean(cls.decorators):
+            continue
+        ctors = _java_constructors_for_class(result, cls.name)
+        if len(ctors) != 1:
+            continue
+        ctor = ctors[0]
+        for p in ctor.parameters:
+            pname = (p.get("name") or "").strip()
+            ptype = (p.get("type") or "").strip()
+            if not pname:
+                continue
+            key = (cls.name, pname)
+            if key in existing:
+                continue
+            simple = _java_simple_type_name_from_string(ptype)
+            if not TreeSitterParser._java_type_looks_like_spring_bean(simple):
+                continue
+            merged.append(ParsedField(
+                name=pname,
+                field_type=ptype,
+                file=file_path,
+                line=ctor.start_line,
+                annotations=[],
+                parent_class=cls.name,
+                injection_type="constructor",
+            ))
+            existing.add(key)
+    return merged
 
 
 def compute_java_fqn(file_path: str, entity_name: str, is_method: bool = False, parent_class: str = "") -> str:
@@ -196,6 +261,10 @@ class CodeGraphBuilder:
                 "base_classes": cls.base_classes,
                 "is_interface": cls.is_interface,
             }
+            if cls.generic_type_params:
+                cls_props["generic_type_params"] = cls.generic_type_params
+            if cls.code_snippet:
+                cls_props["code_snippet"] = cls.code_snippet
             if cls.interfaces:
                 cls_props["interfaces"] = cls.interfaces
             cls_fqn = compute_fqn(file_path, cls.name, "Class")
@@ -301,7 +370,9 @@ class CodeGraphBuilder:
                     target_uid=module_node.uid,
                 ))
 
-        for fld in result.fields:
+        di_fields = _merge_java_constructor_injection_fields(result, file_path, language)
+
+        for fld in di_fields:
             parent_uid = class_uid_by_name.get(fld.parent_class, "")
             if not parent_uid:
                 continue
@@ -317,8 +388,9 @@ class CodeGraphBuilder:
                 lookup_annotation(a) is not None and lookup_annotation(a).role.value == "rpc_consumer"
                 for a in field_annotations
             )
+            has_ctor_di = fld.injection_type == "constructor"
 
-            if has_di or has_rpc_consumer:
+            if has_di or has_rpc_consumer or has_ctor_di:
                 field_props: dict[str, object] = {
                     "name": f"field:{fld.name}",
                     "file": file_path,
@@ -331,8 +403,14 @@ class CodeGraphBuilder:
                     "is_field": True,
                     "field_type": fld.field_type,
                 }
+                if has_di:
+                    field_props["injection_type"] = "field"
+                elif has_ctor_di:
+                    field_props["injection_type"] = "constructor"
                 if field_annotations:
                     field_props["annotations"] = field_annotations
+                if has_ctor_di and "di_inject" not in field_semantic_roles:
+                    field_semantic_roles = [*field_semantic_roles, "di_inject"]
                 if field_semantic_roles:
                     field_props["semantic_roles"] = field_semantic_roles
                 field_fqn = compute_fqn(file_path, f"field:{fld.name}", "Function", parent_class=fld.parent_class)

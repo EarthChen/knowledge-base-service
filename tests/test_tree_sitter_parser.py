@@ -102,7 +102,19 @@ def inner():
         result = parser.parse_file("test.py", "python", code)
 
         assert len(result.functions) == 1
-        assert len(result.functions[0].code_snippet) <= 2020
+        snip = result.functions[0].code_snippet
+        assert "truncated" in snip
+        assert len(snip) <= 3200
+        assert "total chars" in snip
+
+    def test_code_snippet_keeps_medium_methods_under_cap(self, parser: TreeSitterParser):
+        body = "\n".join([f"    y_{i} = {i}" for i in range(80)])
+        code = f"def medium():\n{body}\n"
+        result = parser.parse_file("test.py", "python", code)
+        assert len(result.functions) == 1
+        snip = result.functions[0].code_snippet
+        assert "truncated" not in snip
+        assert len(snip) <= 5000
 
     def test_decorators(self, parser: TreeSitterParser):
         code = '''class Foo:

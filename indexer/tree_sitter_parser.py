@@ -45,11 +45,14 @@ class ParsedClass:
     end_line: int
     docstring: str
     language: str
+    # Java: raw extended type strings may include generics, e.g. JpaRepository<User, Long>
     base_classes: list[str] = field(default_factory=list)
+    generic_type_params: list[str] = field(default_factory=list)
     decorators: list[str] = field(default_factory=list)
     interfaces: list[str] = field(default_factory=list)
     is_interface: bool = False
     methods: list[ParsedFunction] = field(default_factory=list)
+    code_snippet: str = ""
 
 
 @dataclass
@@ -71,6 +74,8 @@ class ParsedField:
     line: int
     annotations: list[str] = field(default_factory=list)
     parent_class: str = ""
+    # field (annotation-based), constructor (inferred ctor / private final bean)
+    injection_type: str = ""
 
 
 @dataclass
@@ -90,6 +95,13 @@ class ParseResult:
     fields: list[ParsedField] = field(default_factory=list)
 
 
+_JAVA_DI_NON_BEAN_SIMPLE_TYPES: frozenset[str] = frozenset({
+    "String", "Boolean", "Byte", "Character", "Double", "Float", "Integer", "Long", "Short",
+    "Object", "Void", "Class", "Throwable", "Exception", "RuntimeException",
+    "List", "Map", "Set", "Collection", "Iterable", "Optional", "Stream",
+})
+
+
 LANGUAGE_QUERIES: dict[str, dict[str, str]] = {
     "python": {
         "function": "(function_definition name: (identifier) @func.name) @func.def",
@@ -101,7 +113,10 @@ LANGUAGE_QUERIES: dict[str, dict[str, str]] = {
         "call": "(call function: [(identifier) @call.name (attribute attribute: (identifier) @call.name)]) @call.expr",
     },
     "java": {
-        "function": "(method_declaration name: (identifier) @func.name) @func.def",
+        "function": """[
+            (method_declaration name: (identifier) @func.name) @func.def
+            (constructor_declaration name: (identifier) @func.name) @func.def
+        ]""",
         "class": """[
             (class_declaration name: (identifier) @class.name) @class.def
             (interface_declaration name: (identifier) @class.name) @class.def
@@ -204,10 +219,8 @@ class TreeSitterParser:
 
             func_node = func_nodes[0]
             name = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
-            code_snippet = func_node.text.decode("utf-8") if func_node.text else ""
-
-            if len(code_snippet) > 2000:
-                code_snippet = code_snippet[:2000] + "\n# ... truncated"
+            raw_snippet = func_node.text.decode("utf-8") if func_node.text else ""
+            code_snippet = TreeSitterParser._truncate_code_snippet(raw_snippet)
 
             docstring = self._extract_docstring(func_node, language)
             signature = self._extract_signature(func_node, source, language)
@@ -253,10 +266,13 @@ class TreeSitterParser:
             name = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
             is_interface = class_node.type == "interface_declaration"
             docstring = self._extract_docstring(class_node, language)
-            base_classes = self._extract_base_classes(class_node, language)
+            base_classes, generic_type_params = self._extract_base_classes(class_node, language)
             interfaces = self._extract_interfaces(class_node, language)
 
             decorators = self._extract_decorators(class_node, language)
+
+            raw_class_snippet = class_node.text.decode("utf-8") if class_node.text else ""
+            class_snippet = TreeSitterParser._truncate_code_snippet(raw_class_snippet)
 
             classes.append(ParsedClass(
                 name=name,
@@ -266,9 +282,11 @@ class TreeSitterParser:
                 docstring=docstring,
                 language=language,
                 base_classes=base_classes,
+                generic_type_params=generic_type_params,
                 decorators=decorators,
                 interfaces=interfaces,
                 is_interface=is_interface,
+                code_snippet=class_snippet,
             ))
 
         return classes
@@ -652,8 +670,16 @@ class TreeSitterParser:
         return "".join(TreeSitterParser._node_text(c) for c in segment[2:]).strip()
 
     @staticmethod
-    def _extract_base_classes(class_node: Node, language: str) -> list[str]:
+    def _truncate_code_snippet(code_snippet: str) -> str:
+        if len(code_snippet) <= 5000:
+            return code_snippet
+        total = len(code_snippet)
+        return code_snippet[:3000] + f"\n# ... truncated ({total} total chars)"
+
+    @staticmethod
+    def _extract_base_classes(class_node: Node, language: str) -> tuple[list[str], list[str]]:
         bases: list[str] = []
+        generic_params: list[str] = []
         for child in class_node.children:
             if child.type == "argument_list":  # Python: class Foo(Base1, Base2)
                 for arg in child.children:
@@ -661,12 +687,91 @@ class TreeSitterParser:
                         bases.append(arg.text.decode("utf-8"))
             elif child.type == "superclass":  # Java: extends Base
                 if child.text:
-                    bases.append(child.text.decode("utf-8").replace("extends ", "").strip())
+                    raw = child.text.decode("utf-8").replace("extends ", "").strip()
+                    bases.append(raw)
+                    if language == "java":
+                        generic_params.extend(
+                            TreeSitterParser._java_type_arguments_from_super_ref(child),
+                        )
+            elif child.type == "extends_interfaces":  # Java interface extends Type
+                if language == "java":
+                    for sub in child.children:
+                        if sub.type != "type_list":
+                            continue
+                        for tl_child in sub.children:
+                            if tl_child.type == ",":
+                                continue
+                            raw = TreeSitterParser._node_text(tl_child).strip()
+                            if raw:
+                                bases.append(raw)
+                            generic_params.extend(
+                                TreeSitterParser._java_type_arguments_from_type_list_child(tl_child),
+                            )
+            elif child.type == "super_interfaces":  # Java class implements
+                if language == "java":
+                    for sub in child.children:
+                        if sub.type != "type_list":
+                            continue
+                        for tl_child in sub.children:
+                            if tl_child.type == ",":
+                                continue
+                            generic_params.extend(
+                                TreeSitterParser._java_type_arguments_from_type_list_child(tl_child),
+                            )
             elif child.type == "class_heritage":  # JS/TS: extends Base
                 for sub in child.children:
                     if sub.type == "identifier" and sub.text:
                         bases.append(sub.text.decode("utf-8"))
-        return bases
+        return bases, generic_params
+
+    @staticmethod
+    def _java_type_arguments_from_super_ref(super_node: Node) -> list[str]:
+        for ch in super_node.children:
+            if ch.type == "generic_type":
+                return TreeSitterParser._java_type_arguments_from_generic_type(ch)
+        return []
+
+    @staticmethod
+    def _java_type_arguments_from_type_list_child(tl_child: Node) -> list[str]:
+        if tl_child.type == "generic_type":
+            return TreeSitterParser._java_type_arguments_from_generic_type(tl_child)
+        return []
+
+    @staticmethod
+    def _java_type_arguments_from_generic_type(gt: Node) -> list[str]:
+        out: list[str] = []
+        for ch in gt.children:
+            if ch.type != "type_arguments":
+                continue
+            for arg in ch.children:
+                if arg.type == ",":
+                    continue
+                name = TreeSitterParser._java_type_argument_simple_name(arg)
+                if name:
+                    out.append(name)
+        return out
+
+    @staticmethod
+    def _java_type_argument_simple_name(node: Node) -> str:
+        if node.type == "type_identifier":
+            return TreeSitterParser._node_text(node).strip()
+        if node.type == "generic_type":
+            for c in node.children:
+                if c.type in ("type_identifier", "scoped_type_identifier"):
+                    return TreeSitterParser._java_type_identifier_simple(c)
+        if node.type == "scoped_type_identifier":
+            return TreeSitterParser._java_type_identifier_simple(node)
+        return ""
+
+    @staticmethod
+    def _java_type_identifier_simple(node: Node) -> str:
+        if node.type == "type_identifier":
+            return TreeSitterParser._node_text(node).strip()
+        if node.type == "scoped_type_identifier":
+            id_nodes = [c for c in node.children if c.type == "type_identifier"]
+            if id_nodes:
+                return TreeSitterParser._node_text(id_nodes[-1]).strip()
+        return TreeSitterParser._node_text(node).strip()
 
     @staticmethod
     def _java_type_list_simple_name(type_node: Node) -> str:
@@ -705,6 +810,59 @@ class TreeSitterParser:
         return out
 
     @staticmethod
+    def _java_field_modifiers_private_final(node: Node) -> tuple[bool, bool]:
+        private = False
+        final = False
+        for child in node.children:
+            if child.type != "modifiers":
+                continue
+            for m in child.children:
+                if m.type == "private":
+                    private = True
+                elif m.type == "final":
+                    final = True
+        return private, final
+
+    @staticmethod
+    def _java_field_decl_type_simple_name(node: Node) -> str:
+        for child in node.children:
+            if child.type in ("type_identifier", "scoped_type_identifier", "generic_type"):
+                return TreeSitterParser._java_di_simple_name_from_type_node(child)
+        return ""
+
+    @staticmethod
+    def _java_di_simple_name_from_type_node(tnode: Node) -> str:
+        if tnode.type == "type_identifier":
+            return TreeSitterParser._node_text(tnode).strip()
+        if tnode.type == "scoped_type_identifier":
+            id_nodes = [c for c in tnode.children if c.type == "type_identifier"]
+            if id_nodes:
+                return TreeSitterParser._node_text(id_nodes[-1]).strip()
+            raw = TreeSitterParser._node_text(tnode).strip()
+            return raw.split(".")[-1] if raw else ""
+        if tnode.type == "generic_type":
+            for c in tnode.children:
+                if c.type in ("type_identifier", "scoped_type_identifier", "generic_type"):
+                    return TreeSitterParser._java_di_simple_name_from_type_node(c)
+        return ""
+
+    @staticmethod
+    def _java_type_looks_like_spring_bean(simple_name: str) -> bool:
+        if not simple_name or not simple_name[0].isupper():
+            return False
+        return simple_name not in _JAVA_DI_NON_BEAN_SIMPLE_TYPES
+
+    @staticmethod
+    def _java_field_is_private_final_bean_candidate(node: Node) -> bool:
+        if node.type != "field_declaration":
+            return False
+        priv, fin = TreeSitterParser._java_field_modifiers_private_final(node)
+        if not (priv and fin):
+            return False
+        simple = TreeSitterParser._java_field_decl_type_simple_name(node)
+        return TreeSitterParser._java_type_looks_like_spring_bean(simple)
+
+    @staticmethod
     def _extract_java_fields(
         tree: "Tree", source: bytes, file_path: str, result: ParseResult,
     ) -> list[ParsedField]:
@@ -714,8 +872,12 @@ class TreeSitterParser:
         def _visit(node: Node) -> None:
             if node.type == "field_declaration":
                 annotations = TreeSitterParser._extract_java_annotations_from_node(node)
+                inferred_ctor = False
                 if not annotations:
-                    return
+                    if TreeSitterParser._java_field_is_private_final_bean_candidate(node):
+                        inferred_ctor = True
+                    else:
+                        return
 
                 field_type = ""
                 field_name = ""
@@ -741,6 +903,7 @@ class TreeSitterParser:
                         break
                     parent = parent.parent
 
+                inj = "constructor" if inferred_ctor else ""
                 fields.append(ParsedField(
                     name=field_name,
                     field_type=field_type,
@@ -748,6 +911,7 @@ class TreeSitterParser:
                     line=node.start_point[0] + 1,
                     annotations=annotations,
                     parent_class=parent_class,
+                    injection_type=inj,
                 ))
                 return
 

@@ -35,7 +35,7 @@ log = get_logger(__name__)
 _registry: ServiceRegistry | None = None
 _task_manager: IndexTaskManager | None = None
 _repo_registry: RepoRegistry | None = None
-_MAX_CONCURRENT_REINDEX = 3
+_MAX_CONCURRENT_REINDEX = 1
 _reindex_sem = asyncio.Semaphore(_MAX_CONCURRENT_REINDEX)
 _scheduler: SyncScheduler | None = None
 

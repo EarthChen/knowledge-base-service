@@ -19,6 +19,23 @@ graph LR
 
 ## 可用工具
 
+知识库 MCP 共暴露 **12** 个工具（与 `GET /api/v1/mcp/tools` 返回的 manifest 一致；测试见 `tests/test_mcp_server.py`）：
+
+| # | 工具 | 摘要 |
+|---|------|------|
+| 1 | `rag_query` | 自然语言语义搜索 + 图扩展 |
+| 2 | `rag_graph` | 结构化图查询（调用链、继承、Cypher 等） |
+| 3 | `rag_index` | 触发全量 / 增量索引 |
+| 4 | `rag_business_search` | 业务流程 / 业务概念语义搜索 |
+| 5 | `analyze_impact` | 变更爆炸半径分析 |
+| 6 | `list_endpoints` | HTTP / RPC / Kafka 端点列表 |
+| 7 | `check_consistency` | 图与仓库文件一致性校验 |
+| 8 | `search_architecture` | 按架构分层检索 Class（含方法） |
+| 9 | `code_quality` | 对 Function / Class 节点计算 0–100 质量分 |
+| 10 | `review_pr` | PR / 分支 diff 审查上下文 |
+| 11 | `build_context` | 单实体深度上下文（含 RPC 合约与事件摘要） |
+| 12 | `dashboard_stats` | P2 富集聚合统计（Dashboard） |
+
 ### 1. `rag_query` — 自然语言搜索
 
 通过语义搜索找到最相关的代码/文档，并沿图关系扩展上下文。
@@ -278,7 +295,55 @@ graph LR
 }
 ```
 
-### 8. `review_pr` — PR 代码审查上下文 (P2)
+### 8. `search_architecture` — 按架构分层检索类
+
+按 **架构分层**（`architecture_layer`）过滤已索引的 `Class` 节点，并返回每个类及其方法列表。对应 REST：`GET /api/v1/search/architecture`。
+
+**参数:**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `layer` | string | 是 | — | `presentation` / `business` / `data_access` / `rpc` / `messaging` / `infrastructure` / `model` |
+| `repository` | string | 否 | — | 可选仓库名，缩小结果范围 |
+| `limit` | integer | 否 | 50 | 最大返回类数量（服务端上限 500） |
+
+**调用示例:**
+
+```json
+{
+  "tool_name": "search_architecture",
+  "arguments": {
+    "layer": "business",
+    "repository": "my-service",
+    "limit": 50
+  }
+}
+```
+
+### 9. `code_quality` — 代码质量分
+
+对图中 **Function 或 Class** 节点（`entity_uid`）计算 **0–100** 启发式质量分（文档串、类型注解、长度、测试关联、命名、语义角色、复杂度等）。对应 REST：`GET /api/v1/quality/{entity_uid}`。
+
+**参数:**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `entity_uid` | string | 是 | — | 图中节点 `uid` |
+| `entity_type` | string | 否 | — | 可选 `function` 或 `class`，用于消歧 |
+
+**调用示例:**
+
+```json
+{
+  "tool_name": "code_quality",
+  "arguments": {
+    "entity_uid": "Function:abc123",
+    "entity_type": "function"
+  }
+}
+```
+
+### 10. `review_pr` — PR 代码审查上下文 (P2)
 
 分析 PR diff，构建结构化审查上下文。返回变更实体、影响分析、受影响 API 端点、跨仓库影响和审查建议。
 
@@ -339,9 +404,9 @@ graph LR
 }
 ```
 
-### 9. `build_context` — 智能上下文构建 (P2)
+### 11. `build_context` — 智能上下文构建 (P2)
 
-为代码实体构建最优上下文包，包含调用者、被调用者、父类、兄弟方法、跨仓库依赖、Entity 表、DI 依赖和接口信息。
+为代码实体构建最优上下文包，包含调用者、被调用者、父类、兄弟方法、跨仓库依赖、Entity 表、DI 依赖和接口信息；并包含 **RPC 接口合约**（`rpc_interface_contracts`）与 **Kafka 域事件摘要**（`event_context`: `consumes` / `produces`），与图中 RPC 合约节点及 `EVENT_PRODUCES` / `EVENT_CONSUMES` 边一致。
 
 **参数:**
 
@@ -376,7 +441,24 @@ graph LR
   "entity_tables": [],
   "di_dependencies": [],
   "architecture_layer": "rpc",
-  "related_interfaces": []
+  "related_interfaces": [],
+  "rpc_interface_contracts": [],
+  "event_context": {"consumes": [], "produces": []}
+}
+```
+
+### 12. `dashboard_stats` — P2 富集统计
+
+返回当前业务图上的 **P2 聚合指标**（架构分层计数、Kafka 主题与事件边、RPC 合约、跨仓库 / DI / 实体表边等），与 Dashboard 及 `GET /api/v1/stats/p2` 对齐。`quality_overview` 字段为预留，批量质量分较昂贵时可为 `null`。
+
+**参数:** 无。
+
+**调用示例:**
+
+```json
+{
+  "tool_name": "dashboard_stats",
+  "arguments": {}
 }
 ```
 
@@ -419,6 +501,50 @@ curl -X POST http://localhost:8100/api/v1/context/build \
   -H "Content-Type: application/json" \
   -d '{"entity_name": "GiftWebServiceImpl", "entity_type": "class"}'
 ```
+
+### `GET /api/v1/search/architecture`
+
+按架构分层列出类与方法（查询参数：`layer`、`repository?`、`limit?`）。
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8100/api/v1/search/architecture?layer=business&limit=50"
+```
+
+### `GET /api/v1/quality/{entity_uid}`
+
+对指定节点计算质量分（查询参数：`entity_type?` = `function` | `class`）。`entity_uid` 可能含特殊字符，请正确 URL 编码。
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8100/api/v1/quality/Function%3Aabc123?entity_type=function"
+```
+
+### `GET /api/v1/stats/p2`
+
+P2 富集聚合统计（与 `dashboard_stats` MCP 工具同源）。
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8100/api/v1/stats/p2
+```
+
+### `POST /api/v1/reindex/all`
+
+批量全量重索引：默认遍历当前业务下已注册的全部仓库；也可在 body 中指定 `repositories`、`base_dir` 等（见 OpenAPI / `ReindexAllRequest`）。需 **editor** 及以上权限。
+
+```bash
+curl -X POST http://localhost:8100/api/v1/reindex/all \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+辅助脚本：`scripts/reindex_all.py`（封装上述调用，便于运维批量重建）。
+
+### 索引后自动跨仓库富集
+
+单次索引任务成功完成后，服务端会尝试自动运行 **跨仓库富集**（`CrossRepoEnricher`，与 `POST /api/v1/enrich/cross-repo` 同源逻辑），将 RPC / DI / 实体表等边写入图中；结果会出现在索引任务合并结果中的 `cross_repo_enrichment` 字段。若失败仅记录日志，不阻塞索引成功状态。
 
 ## HTTP API 调用方式
 
@@ -560,6 +686,11 @@ API_TOKEN=your-secret-token
 | `analyze_impact` | editor | 变更影响分析 |
 | `list_endpoints` | editor | 列出 API 端点 |
 | `check_consistency` | editor | 索引一致性校验 |
+| `search_architecture` | editor | 架构分层类检索 |
+| `code_quality` | editor | 实体质量分 |
+| `review_pr` | editor | PR / 分支审查上下文 |
+| `build_context` | editor | 智能上下文包 |
+| `dashboard_stats` | editor | P2 聚合统计 |
 | 工具列表 (`GET /mcp/tools`) | viewer | 查看可用工具只需 viewer |
 
 ### 角色说明

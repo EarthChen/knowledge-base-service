@@ -85,6 +85,39 @@ Query layer — agent-optimized composite queries.
 ### MCP Tools (`api/mcp_server.py`)
 - [x] `review_pr` tool — PR diff analysis for code review agents
 - [x] `build_context` tool — smart context package for any entity
+- [x] `search_architecture`, `code_quality`, `dashboard_stats` — G3/G5 MCP 对齐 REST
+
+## Post-P2 extensions (G1–G6) — completed
+
+以下在 P2 基线交付后合入，已全部落地（详见 `docs/MCP-INTEGRATION.md`、`docs/README-DOCS.md`）。
+
+### G1: Parser enhancements
+- [x] Java 字段级注解与 `ParsedField`
+- [x] 构造器注入支持（DI 字段伪 Function 节点）
+- [x] Class 节点存储泛型形参
+- [x] `code_snippet` 截断优化
+
+### G2: Graph & SmartContext
+- [x] RPC 接口合约（`is_rpc_contract`、`contract_methods`）
+- [x] 域事件边 `EVENT_PRODUCES` / `EVENT_CONSUMES` 至 Kafka Topic Module
+- [x] SmartContext：`rpc_interface_contracts`、`event_context`
+
+### G3: API / MCP / enrichment
+- [x] `GET /api/v1/search/architecture`、`GET /api/v1/quality/{entity_uid}`
+- [x] MCP：`search_architecture`、`code_quality`
+- [x] 索引完成后自动跨仓库富集（与手动 `POST /api/v1/enrich/cross-repo` 同源）
+
+### G4: PR review
+- [x] `POST /api/v1/review/context`：`branch` + `repo_path` 本地 diff
+- [x] MCP `review_pr`：`branch`、`repo_path`、`base_branch`
+
+### G5: Dashboard P2
+- [x] `GET /api/v1/stats/p2`
+- [x] MCP `dashboard_stats`
+
+### G6: Bulk reindex
+- [x] `POST /api/v1/reindex/all`
+- [x] `scripts/reindex_all.py`
 
 ## Implementation Order
 

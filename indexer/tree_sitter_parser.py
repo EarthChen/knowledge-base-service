@@ -63,6 +63,17 @@ class ParsedImport:
 
 
 @dataclass
+class ParsedField:
+    """A class field declaration with annotations and type info."""
+    name: str
+    field_type: str
+    file: str
+    line: int
+    annotations: list[str] = field(default_factory=list)
+    parent_class: str = ""
+
+
+@dataclass
 class ParsedCall:
     caller_name: str
     callee_name: str
@@ -76,6 +87,7 @@ class ParseResult:
     classes: list[ParsedClass] = field(default_factory=list)
     imports: list[ParsedImport] = field(default_factory=list)
     calls: list[ParsedCall] = field(default_factory=list)
+    fields: list[ParsedField] = field(default_factory=list)
 
 
 LANGUAGE_QUERIES: dict[str, dict[str, str]] = {
@@ -166,6 +178,9 @@ class TreeSitterParser:
 
         if "call" in queries:
             result.calls = self._extract_calls(tree, source_bytes, file_path, language, queries["call"], result)
+
+        if language == "java":
+            result.fields = self._extract_java_fields(tree, source_bytes, file_path, result)
 
         return result
 
@@ -688,6 +703,59 @@ class TreeSitterParser:
                     if name:
                         out.append(name)
         return out
+
+    @staticmethod
+    def _extract_java_fields(
+        tree: "Tree", source: bytes, file_path: str, result: ParseResult,
+    ) -> list[ParsedField]:
+        """Extract annotated field declarations from Java class bodies."""
+        fields: list[ParsedField] = []
+
+        def _visit(node: Node) -> None:
+            if node.type == "field_declaration":
+                annotations = TreeSitterParser._extract_java_annotations_from_node(node)
+                if not annotations:
+                    return
+
+                field_type = ""
+                field_name = ""
+                for child in node.children:
+                    if child.type in ("type_identifier", "scoped_type_identifier", "generic_type"):
+                        field_type = (child.text.decode("utf-8") if child.text else "").strip()
+                    elif child.type == "variable_declarator":
+                        name_node = child.child_by_field_name("name")
+                        if name_node and name_node.text:
+                            field_name = name_node.text.decode("utf-8").strip()
+
+                if not field_name:
+                    return
+
+                parent_class = ""
+                parent = node.parent
+                while parent:
+                    if parent.type in ("class_declaration", "interface_declaration"):
+                        for ch in parent.children:
+                            if ch.type == "identifier":
+                                parent_class = (ch.text.decode("utf-8") if ch.text else "").strip()
+                                break
+                        break
+                    parent = parent.parent
+
+                fields.append(ParsedField(
+                    name=field_name,
+                    field_type=field_type,
+                    file=file_path,
+                    line=node.start_point[0] + 1,
+                    annotations=annotations,
+                    parent_class=parent_class,
+                ))
+                return
+
+            for child in node.children:
+                _visit(child)
+
+        _visit(tree.root_node)
+        return fields
 
     @staticmethod
     def _find_enclosing_function(line: int, func_ranges: list[tuple[str, int, int]]) -> str:

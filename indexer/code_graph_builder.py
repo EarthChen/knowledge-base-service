@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from indexer.annotation_semantics import classify_annotations
+from indexer.annotation_semantics import classify_annotations, lookup_annotation
 from indexer.tree_sitter_parser import ParseResult, TreeSitterParser
 from log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
@@ -300,6 +300,61 @@ class CodeGraphBuilder:
                     source_uid=func_node.uid,
                     target_uid=module_node.uid,
                 ))
+
+        for fld in result.fields:
+            parent_uid = class_uid_by_name.get(fld.parent_class, "")
+            if not parent_uid:
+                continue
+
+            field_annotations = fld.annotations
+            field_semantic_roles = classify_annotations(field_annotations)
+
+            has_di = any(
+                lookup_annotation(a) is not None and lookup_annotation(a).role.value == "di_inject"
+                for a in field_annotations
+            )
+            has_rpc_consumer = any(
+                lookup_annotation(a) is not None and lookup_annotation(a).role.value == "rpc_consumer"
+                for a in field_annotations
+            )
+
+            if has_di or has_rpc_consumer:
+                field_props: dict[str, object] = {
+                    "name": f"field:{fld.name}",
+                    "file": file_path,
+                    "start_line": fld.line,
+                    "end_line": fld.line,
+                    "signature": f"{fld.field_type} {fld.name}",
+                    "docstring": "",
+                    "code_snippet": "",
+                    "language": language,
+                    "is_field": True,
+                    "field_type": fld.field_type,
+                }
+                if field_annotations:
+                    field_props["annotations"] = field_annotations
+                if field_semantic_roles:
+                    field_props["semantic_roles"] = field_semantic_roles
+                field_fqn = compute_fqn(file_path, f"field:{fld.name}", "Function", parent_class=fld.parent_class)
+                if field_fqn:
+                    field_props["fqn"] = field_fqn
+
+                field_node = GraphNode(label=NodeLabel.FUNCTION, properties=field_props)
+                nodes.append(field_node)
+                func_uid_by_name.setdefault(f"field:{fld.name}", []).append(field_node.uid)
+
+                edges.append(GraphEdge(
+                    edge_type=EdgeType.CONTAINS,
+                    source_uid=parent_uid,
+                    target_uid=field_node.uid,
+                ))
+
+                if has_rpc_consumer:
+                    edges.append(GraphEdge(
+                        edge_type=EdgeType.CONSUMES_RPC,
+                        source_uid=field_node.uid,
+                        target_uid=module_node.uid,
+                    ))
 
         for call in result.calls:
             caller_uids = func_uid_by_name.get(call.caller_name, [])

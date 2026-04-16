@@ -1,7 +1,8 @@
 """Markdown and RST document indexer.
 
-Parses documents into sections, creates Document graph nodes,
-and establishes REFERENCES edges to code entities mentioned in docs.
+Parses documents into sections, creates Document graph nodes, and records
+inline code reference names on each document node (no phantom Class/Function
+nodes from backticks).
 """
 
 from __future__ import annotations
@@ -124,27 +125,9 @@ class DocumentIndexer:
                 target_uid=section_node.uid,
             ))
 
-        ref_target_by_name: dict[str, GraphNode] = {}
-        for ref in doc.code_references:
-            if ref in ref_target_by_name:
-                target = ref_target_by_name[ref]
-            else:
-                label = NodeLabel.CLASS if ref[:1].isupper() else NodeLabel.FUNCTION
-                target = GraphNode(
-                    label=label,
-                    properties={
-                        "name": ref,
-                        "file": doc.path,
-                        "start_line": 0,
-                    },
-                )
-                nodes.append(target)
-                ref_target_by_name[ref] = target
-            edges.append(GraphEdge(
-                edge_type=EdgeType.REFERENCES,
-                source_uid=doc_node.uid,
-                target_uid=target.uid,
-            ))
+        # Inline code references are stored on the document node only. We do not
+        # materialize Class/Function nodes from markdown backticks — those lack FQN
+        # and skew architecture-layer statistics.
 
         return nodes, edges
 

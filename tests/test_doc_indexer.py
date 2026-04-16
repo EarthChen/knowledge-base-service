@@ -161,10 +161,19 @@ class TestGraphBuilding:
         contains_edges = [e for e in edges if e.edge_type == EdgeType.CONTAINS]
         assert len(contains_edges) >= 1
 
-    def test_builds_references_edges(self, indexer: DocumentIndexer):
+    def test_code_references_on_document_node_not_phantom_graph_nodes(self, indexer: DocumentIndexer):
         content = "# Guide\n\nUse `AuthService` for authentication."
         doc = indexer.parse_document("doc.md", content)
         nodes, edges = indexer.build_graph(doc)
 
+        root_docs = [
+            n
+            for n in nodes
+            if n.label == NodeLabel.DOCUMENT and "section" not in n.properties
+        ]
+        assert root_docs
+        assert "AuthService" in root_docs[0].properties["code_references"]
         ref_edges = [e for e in edges if e.edge_type == EdgeType.REFERENCES]
-        assert len(ref_edges) >= 1
+        assert len(ref_edges) == 0
+        class_nodes = [n for n in nodes if n.label == NodeLabel.CLASS]
+        assert len(class_nodes) == 0

@@ -32,8 +32,9 @@ _HTTP_ANNOTATION_PRIORITY: tuple[tuple[str, str], ...] = (
 _RPC_PROVIDER_NAMES = frozenset({"MoaProvider", "DubboService"})
 
 # Kafka producer call sites: first quoted literal in send/publish-style calls (best-effort).
+# Longer send* names before bare "send" so prefixes do not steal the match.
 _KAFKA_TOPIC_FROM_SNIPPET = re.compile(
-    r"(?:\.|\s)(?:send|sendDefault|convertAndSend|publish)\s*\(\s*[\"']([^\"']+)[\"']",
+    r"(?:\.|\s)(?:sendSync|sendAsync|sendDefault|convertAndSend|send|publish)\s*\(\s*[\"']([^\"']+)[\"']",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -228,6 +229,70 @@ def _classify_architecture_layer(
         return "model"
     if ".config." in lower or ".configuration." in lower:
         return "infrastructure"
+
+    # Extended FQN heuristics from production package analysis (first match wins).
+    # Messaging — narrow matchers: listener/producer/consumer are unambiguous;
+    # .event./.events. only count as messaging when combined with kafka/mq/messaging
+    # to avoid misclassifying domain-event packages.
+    if (
+        ".listener." in lower
+        or ".listeners." in lower
+        or ".producer." in lower
+        or ".consumer." in lower
+    ):
+        return "messaging"
+    if (".event." in lower or ".events." in lower) and (
+        ".kafka." in lower or ".mq." in lower or ".messaging." in lower
+    ):
+        return "messaging"
+    # RPC (internal wrappers / integration facades)
+    if ".moa." in lower or ".external." in lower:
+        return "rpc"
+    # Business (org-style packages and request handlers)
+    if ".internal." in lower or ".handler." in lower or ".handlers." in lower:
+        return "business"
+    # Data access (short "repo" segment distinct from ".repository.")
+    if ".repo." in lower:
+        return "data_access"
+    # Model / API shapes / value types (including domain events)
+    if (
+        ".bean." in lower
+        or ".resp." in lower
+        or ".req." in lower
+        or ".request." in lower
+        or ".response." in lower
+        or ".param." in lower
+        or ".constant." in lower
+        or ".constants." in lower
+        or ".enum." in lower
+        or ".enums." in lower
+        or ".vo." in lower
+        or ".pojo." in lower
+        or ".domain." in lower
+        or ".event." in lower
+        or ".events." in lower
+    ):
+        return "model"
+    # Infrastructure / cross-cutting helpers
+    if (
+        ".util." in lower
+        or ".utils." in lower
+        or ".convert." in lower
+        or ".converter." in lower
+        or ".adapter." in lower
+        or ".wrapper." in lower
+        or ".autoconf." in lower
+        or ".autoconfigure." in lower
+        or ".error." in lower
+        or ".exception." in lower
+        or ".exceptions." in lower
+        or ".bi." in lower
+        or ".interceptor." in lower
+        or ".filter." in lower
+        or ".aspect." in lower
+    ):
+        return "infrastructure"
+
     return "unknown"
 
 
@@ -469,9 +534,9 @@ class GraphEnricher:
 
             res_producers = await self._store.execute_query(
                 "MATCH (caller:Function)-[:CALLS]->(callee:Function) "
-                "WHERE callee.name IN ['send', 'sendDefault', 'convertAndSend', 'publish'] "
+                "WHERE callee.name IN ['sendSync', 'sendAsync', 'send', 'sendDefault', 'convertAndSend', 'publish'] "
                 "MATCH (owner:Class)-[:CONTAINS]->(callee) "
-                "WHERE toLower(owner.name) CONTAINS 'kafka' "
+                "WHERE toLower(owner.name) CONTAINS 'kafka' OR toLower(owner.name) CONTAINS 'producer' "
                 "RETURN DISTINCT caller.uid AS uid, caller.code_snippet AS snippet",
             )
             for row in res_producers.data:

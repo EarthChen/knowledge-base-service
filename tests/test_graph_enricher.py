@@ -10,6 +10,7 @@ from indexer.graph_enricher import (
     _parse_annotation_arg,
     _pick_http_annotation,
     _class_request_mapping_base,
+    _topics_from_kafka_producer_snippet,
 )
 
 
@@ -150,6 +151,24 @@ class TestKafkaTopicFromListener:
         assert _kafka_topic_from_listener("@KafkaListener") == ""
 
 
+class TestTopicsFromKafkaProducerSnippet:
+    def test_send_sync_topic(self):
+        snippet = 'producer.sendSync("orders-outbound", payload)'
+        assert _topics_from_kafka_producer_snippet(snippet) == ["orders-outbound"]
+
+    def test_send_async_topic(self):
+        snippet = "kafkaProducer.sendAsync('events', msg, callback)"
+        assert _topics_from_kafka_producer_snippet(snippet) == ["events"]
+
+    def test_legacy_send_still_extracts(self):
+        snippet = '.send("legacy-topic", v)'
+        assert _topics_from_kafka_producer_snippet(snippet) == ["legacy-topic"]
+
+    def test_empty_or_none(self):
+        assert _topics_from_kafka_producer_snippet(None) == []
+        assert _topics_from_kafka_producer_snippet("") == []
+
+
 class TestClassifyArchitectureLayer:
     def test_http_controller(self):
         assert _classify_architecture_layer(["http_controller"], None) == "presentation"
@@ -192,3 +211,39 @@ class TestClassifyArchitectureLayer:
 
     def test_priority_http_controller_over_service(self):
         assert _classify_architecture_layer(["http_controller", "service"], None) == "presentation"
+
+    def test_fqn_extended_messaging_listener(self):
+        assert _classify_architecture_layer(None, "com.app.listener.OrderListener") == "messaging"
+
+    def test_fqn_extended_messaging_kafka_event(self):
+        assert _classify_architecture_layer(None, "com.app.kafka.event.OrderEvent") == "messaging"
+
+    def test_fqn_domain_event_goes_to_model(self):
+        assert _classify_architecture_layer(None, "com.app.domain.event.OrderCreated") == "model"
+
+    def test_fqn_plain_events_goes_to_model(self):
+        assert _classify_architecture_layer(None, "com.app.events.OrderCreated") == "model"
+
+    def test_fqn_extended_rpc_moa(self):
+        assert _classify_architecture_layer(None, "com.app.moa.UserMoaClient") == "rpc"
+
+    def test_fqn_extended_rpc_external(self):
+        assert _classify_architecture_layer(None, "com.app.external.PaymentGateway") == "rpc"
+
+    def test_fqn_extended_model_bean(self):
+        assert _classify_architecture_layer(None, "com.app.bean.UserBean") == "model"
+
+    def test_fqn_extended_model_domain(self):
+        assert _classify_architecture_layer(None, "com.app.domain.User") == "model"
+
+    def test_fqn_extended_data_access_repo(self):
+        assert _classify_architecture_layer(None, "com.app.repo.UserRepo") == "data_access"
+
+    def test_fqn_extended_business_handler(self):
+        assert _classify_architecture_layer(None, "com.app.handler.OrderHandler") == "business"
+
+    def test_fqn_extended_infrastructure_util(self):
+        assert _classify_architecture_layer(None, "com.app.util.StringHelper") == "infrastructure"
+
+    def test_fqn_extended_infrastructure_adapter(self):
+        assert _classify_architecture_layer(None, "com.app.adapter.RedisAdapter") == "infrastructure"

@@ -286,11 +286,17 @@ graph LR
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| `diff_text` | string | 是 | — | git diff 的统一差异文本 |
-| `repository` | string | 否 | — | 限定分析范围的仓库名 |
+| `diff_text` | string | 二选一* | — | git diff 的统一差异文本 |
+| `branch` | string | 二选一* | — | 与 `repo_path` 联用：要审查的分支名 |
+| `base_branch` | string | 否 | master | 与 `branch` 联用：基准分支（`git diff base...branch`） |
+| `repo_path` | string | 二选一* | — | 知识库**服务所在机器**上已 clone 的仓库根目录本地路径 |
+| `repo_url` | string | 否 | — | 远程仓库 URL（预留；若传入则仅校验格式，服务端暂不据此拉取 diff） |
+| `repository` | string | 否 | — | 限定分析范围的仓库名（图索引中的名称） |
 | `max_depth` | integer | 否 | 3 | 调用链追踪最大深度 |
 
-**调用示例:**
+\* **必须**提供其一：`diff_text`；或同时提供 `branch` + `repo_path`（由服务进程在该路径执行 `git diff`）。`repo_url` 远程拉取 diff 为预留能力，当前版本不在服务端执行 clone/fetch。
+
+**调用示例（原始 diff）:**
 
 ```json
 {
@@ -298,6 +304,21 @@ graph LR
   "arguments": {
     "diff_text": "diff --git a/...",
     "repository": "ultron/ultron-api",
+    "max_depth": 3
+  }
+}
+```
+
+**调用示例（本地仓库 + 分支，需在 KB 服务可访问的路径下存在 git 仓库）:**
+
+```json
+{
+  "tool_name": "review_pr",
+  "arguments": {
+    "repo_path": "/data/repos/my-service",
+    "branch": "feature/foo",
+    "base_branch": "master",
+    "repository": "my-service",
     "max_depth": 3
   }
 }
@@ -372,13 +393,20 @@ curl -X POST http://localhost:8100/api/v1/enrich/cross-repo \
 
 ### `POST /api/v1/review/context`
 
-从 git diff 构建 PR 审查上下文。
+从 git diff 构建 PR 审查上下文。请求体与 `review_pr` 一致：可提供 `diff_text`，或提供 `repo_path` + `branch`（可选 `base_branch`，默认 `master`）。可选 `repo_url` 仅做格式校验，供后续远程拉取能力扩展。
 
 ```bash
 curl -X POST http://localhost:8100/api/v1/review/context \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"diff_text": "diff --git ...", "repository": "ultron/ultron-api"}'
+```
+
+```bash
+curl -X POST http://localhost:8100/api/v1/review/context \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"repo_path": "/data/repos/my-service", "branch": "feature/foo", "base_branch": "master", "repository": "my-service"}'
 ```
 
 ### `POST /api/v1/context/build`

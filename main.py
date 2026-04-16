@@ -12,12 +12,12 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from auth import Role, TokenInfo, get_current_role, require_role, resolve_business_id, resolve_token
 from config import get_settings
@@ -184,9 +184,40 @@ class ImpactAnalysisRequest(BaseModel):
 
 
 class ReviewContextRequest(BaseModel):
-    diff_text: str = Field(..., min_length=1, description="Unified diff text from git diff")
+    diff_text: str | None = Field(
+        default=None,
+        description="Unified diff text from git diff (optional if branch and repo_path are set)",
+    )
+    branch: str | None = Field(default=None, description="Branch to compare against base_branch")
+    base_branch: str | None = Field(
+        default=None,
+        description='Base branch for git diff (defaults to "master" when using branch/repo_path)',
+    )
+    repo_url: str | None = Field(
+        default=None,
+        description="Remote git URL (reserved for future server-side fetch; validated when set)",
+    )
+    repo_path: str | None = Field(
+        default=None,
+        description="Local filesystem path to the git repository root (required with branch when diff_text is omitted)",
+    )
     repository: str | None = None
     max_depth: int = Field(default=3, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def validate_diff_source(self) -> Self:
+        has_diff = self.diff_text is not None and self.diff_text.strip() != ""
+        b = (self.branch or "").strip()
+        p = (self.repo_path or "").strip()
+        has_branch_path = bool(b) and bool(p)
+        if not has_diff and not has_branch_path:
+            raise ValueError(
+                "Provide either non-empty diff_text, or both branch and repo_path",
+            )
+        ru = (self.repo_url or "").strip()
+        if ru and not _looks_like_git_url(ru):
+            raise ValueError("repo_url does not look like a valid git remote URL")
+        return self
 
 
 class SmartContextRequest(BaseModel):
@@ -602,6 +633,24 @@ async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> 
             _task_manager.mark_failed(task_id, result["error"])
             return
 
+        cross_repo_stats: dict[str, Any] | None = None
+        try:
+            from indexer.cross_repo_enricher import CrossRepoEnricher
+
+            enricher = CrossRepoEnricher(svc.store)
+            cross_repo_stats = await enricher.enrich_all()
+            log.info(
+                "cross_repo_enrichment_after_index",
+                task_id=task_id,
+                **{k: v for k, v in (cross_repo_stats or {}).items()},
+            )
+        except Exception as exc:
+            log.error("cross_repo_enrichment_failed", task_id=task_id, error=str(exc))
+            cross_repo_stats = {"error": str(exc)}
+
+        merged_result = dict(result)
+        merged_result["cross_repo_enrichment"] = cross_repo_stats
+
         if repository:
             queries = GraphQueryRepository(svc.store)
             await queries.tag_unowned_nodes(
@@ -613,7 +662,7 @@ async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> 
         if req.git_url and repository and _repo_registry:
             _repo_registry.register(req.git_url, repository)
 
-        _task_manager.mark_completed(task_id, result)
+        _task_manager.mark_completed(task_id, merged_result)
     except Exception as exc:
         log.error("index_task_failed", task_id=task_id, error=str(exc))
         _task_manager.mark_failed(task_id, str(exc))
@@ -919,11 +968,17 @@ async def build_review_context(
     from query.agent_workflow import AgentWorkflowService
 
     workflow = AgentWorkflowService(svc.store)
-    ctx = await workflow.build_review_context(
-        diff_text=req.diff_text,
-        repository=req.repository,
-        max_depth=req.max_depth,
-    )
+    try:
+        ctx = await workflow.build_review_context(
+            diff_text=req.diff_text,
+            repository=req.repository,
+            max_depth=req.max_depth,
+            repo_path=req.repo_path,
+            branch=req.branch,
+            base_branch=req.base_branch,
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ctx.to_dict()
 
 

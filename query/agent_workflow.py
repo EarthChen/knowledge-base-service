@@ -6,8 +6,10 @@ code review and feature development tasks.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from log import get_logger
@@ -157,17 +159,69 @@ class AgentWorkflowService:
     def __init__(self, store: FalkorDBStore) -> None:
         self._store = store
 
+    async def _get_diff_from_branch(
+        self, repo_path: str, branch: str, base_branch: str = "master"
+    ) -> str:
+        """Run ``git diff base_branch...branch`` in the specified repo path."""
+        root = Path(repo_path).expanduser().resolve()
+        if not root.is_dir():
+            raise ValueError(f"Repository path not found or not a directory: {repo_path}")
+        if not (root / ".git").exists():
+            raise ValueError(f"Not a git repository (no .git): {root}")
+
+        spec = f"{base_branch}...{branch}"
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "git",
+                "diff",
+                spec,
+                cwd=str(root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "git executable not found; ensure Git is installed and on PATH",
+            ) from exc
+
+        stdout, stderr = await proc.communicate()
+        out = stdout.decode("utf-8", errors="replace")
+        err_txt = stderr.decode("utf-8", errors="replace").strip()
+
+        if proc.returncode != 0:
+            detail = err_txt or out.strip() or f"exit code {proc.returncode}"
+            raise RuntimeError(
+                f"git diff {spec} failed: {detail}",
+            )
+        return out
+
     # ─── P2-2: PR Review Context ────────────────────────────────────
 
     async def build_review_context(
         self,
-        diff_text: str,
+        diff_text: str | None = None,
         repository: str | None = None,
         max_depth: int = 3,
+        *,
+        repo_path: str | None = None,
+        branch: str | None = None,
+        base_branch: str | None = None,
     ) -> ReviewContext:
-        """Build a comprehensive review context from a git diff."""
-        changed_files = parse_diff_changed_files(diff_text)
-        changed_lines = parse_diff_changed_lines(diff_text)
+        """Build a comprehensive review context from a git diff or a local branch range."""
+        if diff_text is not None and diff_text.strip():
+            resolved = diff_text
+        elif repo_path and branch and branch.strip():
+            bb = (base_branch or "").strip() or "master"
+            resolved = await self._get_diff_from_branch(
+                repo_path, branch.strip(), bb
+            )
+        else:
+            raise ValueError(
+                "Provide either non-empty diff_text, or both repo_path and branch",
+            )
+
+        changed_files = parse_diff_changed_files(resolved)
+        changed_lines = parse_diff_changed_lines(resolved)
 
         changed_entities = await self._find_changed_entities(changed_files, changed_lines, repository)
 
@@ -744,3 +798,173 @@ class AgentWorkflowService:
         except Exception as exc:
             log.warning("get_interface_context_failed", uid=class_uid, error=str(exc))
             return []
+
+    _CONTROL_LINE_RE = re.compile(
+        r"^\s*(if|for|while|try)\b",
+        re.MULTILINE,
+    )
+
+    def _count_control_depth_proxy(self, snippet: str) -> int:
+        """Approximate nested control complexity via leading-keyword lines."""
+        return len(self._CONTROL_LINE_RE.findall(snippet or ""))
+
+    @staticmethod
+    def _naming_quality_ok(name: str) -> bool:
+        n = (name or "").strip()
+        if len(n) <= 1:
+            return False
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", n):
+            return False
+        if "_" in n:
+            return True
+        if n[0].islower():
+            return True
+        if len(n) > 1 and n[0].isupper() and any(ch.islower() for ch in n[1:]):
+            return True
+        return False
+
+    @staticmethod
+    def _signature_has_type_annotations(signature: str) -> bool:
+        s = signature or ""
+        if "->" in s:
+            return True
+        if ":" in s:
+            depth = 0
+            for i, ch in enumerate(s):
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                elif ch == ":" and depth > 0:
+                    return True
+        return False
+
+    async def _has_test_reference(self, entity_name: str) -> bool:
+        needle = (entity_name or "").strip()
+        if len(needle) < 2:
+            return False
+        try:
+            res = await self._store.execute_query(
+                "MATCH (t:Function) "
+                "WHERE toLower(t.file) CONTAINS 'test' "
+                "AND t.code_snippet IS NOT NULL AND t.code_snippet <> '' "
+                "AND t.code_snippet CONTAINS $needle "
+                "RETURN t.uid AS uid LIMIT 1",
+                {"needle": needle},
+            )
+            return bool(res.data)
+        except Exception as exc:
+            log.warning("has_test_reference_query_failed", error=str(exc))
+            return False
+
+    async def compute_quality_score(self, uid: str, entity_type: str = "") -> dict[str, Any]:
+        """Heuristic 0–100 quality score for a Function or Class node."""
+        breakdown: dict[str, Any] = {}
+        suggestions: list[str] = []
+        et = (entity_type or "").strip().lower()
+
+        if et == "function":
+            type_clause = "n:Function"
+        elif et == "class":
+            type_clause = "n:Class"
+        else:
+            type_clause = "n:Function OR n:Class"
+
+        try:
+            res = await self._store.execute_query(
+                f"MATCH (n {{uid: $uid}}) WHERE {type_clause} "
+                "RETURN labels(n)[0] AS label, n.name AS name, "
+                "coalesce(n.signature, '') AS signature, "
+                "coalesce(n.code_snippet, '') AS code_snippet, "
+                "coalesce(n.docstring, '') AS docstring, "
+                "n.semantic_roles AS semantic_roles",
+                {"uid": uid},
+            )
+        except Exception as exc:
+            log.warning("compute_quality_score_lookup_failed", uid=uid, error=str(exc))
+            return {
+                "score": 0,
+                "breakdown": {},
+                "suggestions": [f"Lookup failed: {exc}"],
+                "entity_uid": uid,
+            }
+
+        if not res.data:
+            return {
+                "score": 0,
+                "breakdown": {},
+                "suggestions": ["Entity not found or unsupported type for this uid"],
+                "entity_uid": uid,
+            }
+
+        row = res.data[0]
+        name = str(row.get("name") or "")
+        signature = str(row.get("signature") or "")
+        docstring = str(row.get("docstring") or "")
+        snippet = str(row.get("code_snippet") or "")
+        roles = row.get("semantic_roles")
+
+        score = 0
+
+        has_doc = bool(docstring.strip())
+        breakdown["has_docstring"] = has_doc
+        if has_doc:
+            score += 20
+        else:
+            suggestions.append("Add a docstring describing purpose and behavior.")
+
+        has_types = self._signature_has_type_annotations(signature)
+        breakdown["has_type_annotations"] = has_types
+        if has_types:
+            score += 15
+        else:
+            suggestions.append("Add parameter and return types to the signature where possible.")
+
+        line_count = len(snippet.splitlines()) if snippet else 0
+        reasonable = line_count < 200
+        breakdown["reasonable_length"] = reasonable
+        breakdown["line_count"] = line_count
+        if reasonable:
+            score += 15
+        else:
+            suggestions.append("Consider splitting or refactoring: body is very long.")
+
+        has_tests = await self._has_test_reference(name)
+        breakdown["has_tests"] = has_tests
+        if has_tests:
+            score += 15
+        else:
+            suggestions.append("Add or extend tests that reference this symbol.")
+
+        naming_ok = self._naming_quality_ok(name)
+        breakdown["naming_quality"] = naming_ok
+        if naming_ok:
+            score += 10
+        else:
+            suggestions.append("Use descriptive camelCase or snake_case names (avoid single-letter identifiers).")
+
+        has_semantic = isinstance(roles, list) and len(roles) > 0
+        breakdown["has_annotations"] = has_semantic
+        if has_semantic:
+            score += 10
+        else:
+            suggestions.append("Enrich indexing so semantic_roles are set where applicable.")
+
+        ctrl_count = self._count_control_depth_proxy(snippet)
+        complexity_ok = ctrl_count < 10
+        breakdown["complexity_ok"] = complexity_ok
+        breakdown["control_keyword_lines"] = ctrl_count
+        if complexity_ok:
+            score += 15
+        else:
+            suggestions.append("Reduce branching/loop nesting or extract helper methods.")
+
+        score = max(0, min(100, score))
+
+        return {
+            "score": score,
+            "breakdown": breakdown,
+            "suggestions": suggestions,
+            "entity_uid": uid,
+            "entity_name": name,
+        }

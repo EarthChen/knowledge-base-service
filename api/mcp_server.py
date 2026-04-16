@@ -29,6 +29,15 @@ from store.falkordb_store import FalkorDBStore
 log = get_logger(__name__)
 
 
+def _looks_like_git_url(value: str) -> bool:
+    """Heuristic: detect if a string is a git URL rather than a local path."""
+    if value.startswith(("http://", "https://", "git@", "ssh://")):
+        return True
+    if value.endswith(".git"):
+        return True
+    return False
+
+
 MCP_TOOLS_MANIFEST = [
     {
         "name": "rag_query",
@@ -250,7 +259,32 @@ MCP_TOOLS_MANIFEST = [
             "properties": {
                 "diff_text": {
                     "type": "string",
-                    "description": "Unified diff text from git diff",
+                    "description": (
+                        "Unified diff text from git diff. Optional if branch and repo_path are set."
+                    ),
+                },
+                "branch": {
+                    "type": "string",
+                    "description": (
+                        "Branch to compare against base_branch (requires repo_path on the KB host)."
+                    ),
+                },
+                "base_branch": {
+                    "type": "string",
+                    "description": 'Base branch for git diff (default "master").',
+                    "default": "master",
+                },
+                "repo_path": {
+                    "type": "string",
+                    "description": (
+                        "Local path to a git repository on the KB server; used with branch to run git diff."
+                    ),
+                },
+                "repo_url": {
+                    "type": "string",
+                    "description": (
+                        "Remote git URL (reserved for future server-side fetch; validated for format when set)."
+                    ),
                 },
                 "repository": {
                     "type": "string",
@@ -262,7 +296,6 @@ MCP_TOOLS_MANIFEST = [
                     "description": "Maximum call chain depth for impact analysis",
                 },
             },
-            "required": ["diff_text"],
         },
     },
     {
@@ -506,18 +539,38 @@ class KnowledgeBaseMCPHandler:
     async def handle_review_pr(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from query.agent_workflow import AgentWorkflowService
 
-        diff_text = arguments.get("diff_text", "")
-        if not diff_text:
-            return {"error": "diff_text parameter is required"}
+        diff_text = arguments.get("diff_text") or ""
+        branch = (arguments.get("branch") or "").strip()
+        repo_path = (arguments.get("repo_path") or "").strip()
+        base_branch = arguments.get("base_branch")
+        repo_url = (arguments.get("repo_url") or "").strip()
+        if repo_url and not _looks_like_git_url(repo_url):
+            return {"error": "repo_url does not look like a valid git remote URL"}
+
+        has_diff = bool(str(diff_text).strip())
+        has_branch_path = bool(branch) and bool(repo_path)
+        if not has_diff and not has_branch_path:
+            return {
+                "error": (
+                    "Provide either diff_text, or both branch and repo_path "
+                    "(local git repo path on the KB server)",
+                ),
+            }
         if not self._store:
             return {"error": "Graph store not available"}
 
         workflow = AgentWorkflowService(self._store)
-        ctx = await workflow.build_review_context(
-            diff_text=diff_text,
-            repository=arguments.get("repository"),
-            max_depth=arguments.get("max_depth", 3),
-        )
+        try:
+            ctx = await workflow.build_review_context(
+                diff_text=diff_text if has_diff else None,
+                repository=arguments.get("repository"),
+                max_depth=arguments.get("max_depth", 3),
+                repo_path=repo_path or None,
+                branch=branch or None,
+                base_branch=base_branch,
+            )
+        except (ValueError, RuntimeError) as exc:
+            return {"error": str(exc)}
         return ctx.to_dict()
 
     async def handle_build_context(self, arguments: dict[str, Any]) -> dict[str, Any]:

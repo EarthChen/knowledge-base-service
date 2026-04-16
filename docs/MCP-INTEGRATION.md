@@ -278,6 +278,120 @@ graph LR
 }
 ```
 
+### 8. `review_pr` — PR 代码审查上下文 (P2)
+
+分析 PR diff，构建结构化审查上下文。返回变更实体、影响分析、受影响 API 端点、跨仓库影响和审查建议。
+
+**参数:**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `diff_text` | string | 是 | — | git diff 的统一差异文本 |
+| `repository` | string | 否 | — | 限定分析范围的仓库名 |
+| `max_depth` | integer | 否 | 3 | 调用链追踪最大深度 |
+
+**调用示例:**
+
+```json
+{
+  "tool_name": "review_pr",
+  "arguments": {
+    "diff_text": "diff --git a/...",
+    "repository": "ultron/ultron-api",
+    "max_depth": 3
+  }
+}
+```
+
+**返回结构:**
+
+```json
+{
+  "changed_files": ["GiftWebServiceImpl.java"],
+  "changed_entities": [{"name": "getSendGiftCtx", "entity_type": "function", "architecture_layer": "rpc"}],
+  "impacts": [{"target_name": "getSendGiftCtx", "direct_callers": [...], "affected_endpoints": [...]}],
+  "affected_endpoints_summary": [...],
+  "cross_repo_summary": [...],
+  "affected_layers": ["rpc"],
+  "suggestions": ["This PR affects 1 API endpoint(s). Consider testing these endpoints."],
+  "summary": {"total_changed_files": 1, "total_changed_entities": 2, "total_affected_endpoints": 1}
+}
+```
+
+### 9. `build_context` — 智能上下文构建 (P2)
+
+为代码实体构建最优上下文包，包含调用者、被调用者、父类、兄弟方法、跨仓库依赖、Entity 表、DI 依赖和接口信息。
+
+**参数:**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `entity_name` | string | 是 | — | 函数或类名 |
+| `entity_type` | string | 否 | function | function 或 class |
+| `repository` | string | 否 | — | 限定搜索范围的仓库名 |
+
+**调用示例:**
+
+```json
+{
+  "tool_name": "build_context",
+  "arguments": {
+    "entity_name": "GiftWebServiceImpl",
+    "entity_type": "class"
+  }
+}
+```
+
+**返回结构:**
+
+```json
+{
+  "target": {"name": "GiftWebServiceImpl", "fqn": "...", "architecture_layer": "rpc", "semantic_roles": ["rpc_provider"]},
+  "callers": [],
+  "callees": [{"name": "getSendGiftVo", "signature": "..."}],
+  "parent_class": null,
+  "sibling_methods": [{"name": "sendGift", "signature": "..."}],
+  "cross_repo_deps": [],
+  "entity_tables": [],
+  "di_dependencies": [],
+  "architecture_layer": "rpc",
+  "related_interfaces": []
+}
+```
+
+## REST API 端点 (P2 新增)
+
+### `POST /api/v1/enrich/cross-repo`
+
+触发跨仓库增强：RPC 解析、DI 容器图、Entity 映射。
+
+```bash
+curl -X POST http://localhost:8100/api/v1/enrich/cross-repo \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### `POST /api/v1/review/context`
+
+从 git diff 构建 PR 审查上下文。
+
+```bash
+curl -X POST http://localhost:8100/api/v1/review/context \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"diff_text": "diff --git ...", "repository": "ultron/ultron-api"}'
+```
+
+### `POST /api/v1/context/build`
+
+构建代码实体的智能上下文包。
+
+```bash
+curl -X POST http://localhost:8100/api/v1/context/build \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"entity_name": "GiftWebServiceImpl", "entity_type": "class"}'
+```
+
 ## HTTP API 调用方式
 
 所有 MCP 工具均可通过 HTTP API 调用：

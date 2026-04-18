@@ -16,6 +16,7 @@ const zh: Translations = {
     documents: "文档浏览",
     indexing: "索引",
     businesses: "业务管理",
+    wiki: "Wiki",
     settings: "设置",
   },
   sidebar: {

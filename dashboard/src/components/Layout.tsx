@@ -16,6 +16,7 @@ import {
   Building2,
   ChevronDown,
   Layers,
+  BookOpen,
 } from "lucide-react";
 import { useHealth } from "../api/hooks";
 import { useI18n } from "../i18n/context";
@@ -43,6 +44,7 @@ export default function Layout() {
     { to: "/documents", icon: FileText, label: t.nav.documents },
     { to: "/indexing", icon: Database, label: t.nav.indexing },
     { to: "/businesses", icon: Building2, label: t.nav.businesses },
+    { to: "/wiki", icon: BookOpen, label: t.nav.wiki },
     { to: "/settings", icon: Settings, label: t.nav.settings },
   ] as const;
 

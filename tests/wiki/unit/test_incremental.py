@@ -222,7 +222,7 @@ class TestWikiIncrementalUpdater:
             source_locations=[],
             metadata=meta,
         )
-        fixed, n = updater._fix_broken_refs([p], {"classes/X.md"})
+        fixed, n = updater._fix_broken_refs([p], {"classes/Missing.md"})
         assert n == 1
         assert "Missing.md" not in fixed[0].content
         assert "gone" in fixed[0].content

@@ -183,8 +183,12 @@ class WikiIncrementalUpdater:
             pages_out.append(page)
             affected_paths.append(page.path)
 
-        valid_paths = set(affected_paths)
-        pages_out, broken_n = self._fix_broken_refs(pages_out, valid_paths)
+        deleted_page_paths = {
+            _wiki_path_for_node(uid_to_node[u], _page_type_for_node(uid_to_node[u]))
+            for u in deleted_uids
+            if u in uid_to_node
+        }
+        pages_out, broken_n = self._fix_broken_refs(pages_out, deleted_page_paths)
 
         self._cache.invalidate(repository)
 
@@ -314,8 +318,8 @@ class WikiIncrementalUpdater:
                 changed += 1
         return (changed / total) > 0.20
 
-    def _fix_broken_refs(self, pages: list[WikiPage], valid_paths: set[str]) -> tuple[list[WikiPage], int]:
-        """Scan pages for broken cross-ref links; remove or redirect stale refs."""
+    def _fix_broken_refs(self, pages: list[WikiPage], deleted_paths: set[str]) -> tuple[list[WikiPage], int]:
+        """Remove cross-ref links that point to known-deleted wiki pages."""
         fixed_pages: list[WikiPage] = []
         fixes = 0
         for page in pages:
@@ -327,7 +331,7 @@ class WikiIncrementalUpdater:
                 if path.startswith("http://") or path.startswith("https://") or path.startswith("#"):
                     return m.group(0)
                 normalized = path.split("#", 1)[0]
-                if normalized.endswith(".md") and normalized not in valid_paths:
+                if normalized.endswith(".md") and normalized in deleted_paths:
                     fixes += 1
                     return text
                 return m.group(0)

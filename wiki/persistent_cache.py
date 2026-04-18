@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
 import threading
 from pathlib import Path
 
@@ -87,7 +88,14 @@ class WikiPersistentCache:
                 "pages": [p.to_dict() for p in pages],
             }
             path = self._key_path(repository, scope, mode, graph_version)
-            path.write_text(json.dumps(payload), encoding="utf-8")
+            fd, tmp = tempfile.mkstemp(dir=str(self._dir), suffix=".tmp")
+            try:
+                with open(fd, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, ensure_ascii=False)
+                Path(tmp).replace(path)
+            except BaseException:
+                Path(tmp).unlink(missing_ok=True)
+                raise
             self._evict_oldest_if_needed()
 
     def invalidate(self, repository: str) -> int:

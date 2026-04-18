@@ -12,6 +12,7 @@ import Indexing from "./pages/Indexing";
 import Businesses from "./pages/Businesses";
 import Documents from "./pages/Documents";
 import SettingsPage from "./pages/SettingsPage";
+import WikiPage from "./pages/WikiPage";
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="documents" element={<Documents />} />
           <Route path="indexing" element={<Indexing />} />
           <Route path="businesses" element={<Businesses />} />
+          <Route path="wiki/*" element={<WikiPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>

@@ -16,6 +16,7 @@ export interface Translations {
     documents: string;
     indexing: string;
     businesses: string;
+    wiki: string;
     settings: string;
   };
   sidebar: {

@@ -16,6 +16,7 @@ const en: Translations = {
     documents: "Documents",
     indexing: "Indexing",
     businesses: "Businesses",
+    wiki: "Wiki",
     settings: "Settings",
   },
   sidebar: {

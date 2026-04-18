@@ -13,6 +13,7 @@ Tools exposed:
   - search_architecture: List classes (with methods) filtered by architecture layer
   - code_quality: Heuristic 0–100 quality score for a Function or Class node
   - dashboard_stats: P2 enrichment aggregates (architecture layers, Kafka events, RPC, cross-repo)
+  - generate_wiki, get_wiki_page, list_wiki_pages: Generated wiki pages (indexed code documentation)
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from log import get_logger
 from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
 from store.falkordb_store import FalkorDBStore
+from wiki.mcp_tools import WIKI_MCP_TOOLS_MANIFEST, WikiMCPHandler
 
 log = get_logger(__name__)
 
@@ -413,7 +415,7 @@ MCP_TOOLS_MANIFEST = [
             "properties": {},
         },
     },
-]
+] + WIKI_MCP_TOOLS_MANIFEST
 
 
 class KnowledgeBaseMCPHandler:
@@ -427,6 +429,7 @@ class KnowledgeBaseMCPHandler:
         doc_indexer: DocumentIndexer | None = None,
         store: FalkorDBStore | None = None,
         embedding_gen: EmbeddingGenerator | None = None,
+        wiki_handler: WikiMCPHandler | None = None,
     ) -> None:
         self._hybrid = hybrid_svc
         self._graph = graph_svc
@@ -434,6 +437,7 @@ class KnowledgeBaseMCPHandler:
         self._doc_indexer = doc_indexer
         self._store = store
         self._embedding = embedding_gen
+        self._wiki = wiki_handler if wiki_handler is not None else WikiMCPHandler(None)
 
     def get_tools_manifest(self) -> list[dict[str, Any]]:
         return MCP_TOOLS_MANIFEST
@@ -453,6 +457,9 @@ class KnowledgeBaseMCPHandler:
             "review_pr": self.handle_review_pr,
             "build_context": self.handle_build_context,
             "dashboard_stats": self.handle_dashboard_stats,
+            "generate_wiki": self._wiki.handle_generate_wiki,
+            "get_wiki_page": self._wiki.handle_get_wiki_page,
+            "list_wiki_pages": self._wiki.handle_list_wiki_pages,
         }
 
         handler = handlers.get(tool_name)

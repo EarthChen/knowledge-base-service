@@ -11,6 +11,11 @@ from wiki.diagram_gen import generate_call_flowchart, generate_class_diagram, ge
 from wiki.models import PageType, WikiConfig, WikiDiagram, WikiPage, WikiPageMetadata
 
 
+def _effective_wiki_language(language: str) -> str:
+    """Normalize wiki language; unknown codes fall back to English templates."""
+    return language if language in ("en", "zh") else "en"
+
+
 def _display_name(uid: str) -> str:
     parts = uid.rsplit(":", 2)
     if len(parts) >= 3:
@@ -67,18 +72,19 @@ class WikiComposer:
         path = _wiki_path(node, page_type)
 
         tier: int
+        eff_lang = _effective_wiki_language(config.language)
         if page_data.business_summary and page_data.business_summary.strip():
             tier = 1
             description = page_data.business_summary.strip()
         elif config.mode == "structure":
             tier = 3
-            description = self._tier3_structural(page_data, page_type)
+            description = self._tier3_structural(page_data, page_type, eff_lang)
         elif self._llm is not None:
             tier = 2
-            description = await self._tier2_llm(page_data, page_type, parent_context, glossary)
+            description = await self._tier2_llm(page_data, page_type, parent_context, glossary, config)
         else:
             tier = 3
-            description = self._tier3_structural(page_data, page_type)
+            description = self._tier3_structural(page_data, page_type, eff_lang)
 
         content = self._markdown_body(title, page_data, page_type, description)
         diagrams = self._build_diagrams(page_data, page_type)
@@ -108,14 +114,27 @@ class WikiComposer:
         page_type: PageType,
         parent_context: str,
         glossary: dict[str, str],
+        config: WikiConfig,
     ) -> str:
         assert self._llm is not None
-        style = self._ctx.build_style_sheet()
-        ctx_block = self._ctx.build_page_context(parent_context, glossary, style)
+        lang = _effective_wiki_language(config.language)
+        style = self._ctx.build_style_sheet(config.language)
+        ctx_block = self._ctx.build_page_context(
+            parent_context,
+            glossary,
+            style,
+            language=config.language,
+        )
         entity = self._entity_digest(page_data, page_type)
+        lang_directive = (
+            "Generate documentation in English."
+            if lang == "en"
+            else "请用中文生成文档。"
+        )
         prompt = (
             f"{ctx_block}\n\n"
             "## Task\n"
+            f"{lang_directive}\n\n"
             f"Write a concise Overview for this {page_type.value.replace('_', ' ')} page.\n\n"
             f"{entity}\n"
         )
@@ -144,13 +163,15 @@ class WikiComposer:
             lines.append(f"- Methods listed: {len(page_data.methods)}")
         return "\n".join(lines)
 
-    def _tier3_structural(self, page_data: PageData, page_type: PageType) -> str:
+    def _tier3_structural(self, page_data: PageData, page_type: PageType, language: str) -> str:
         node = page_data.node
+        eff = _effective_wiki_language(language)
+        # Template registry key: (page_type tier-3 branch, effective language)
         if node.label == NodeLabel.MODULE or page_type == PageType.MODULE_OVERVIEW:
-            return self._tier3_module_paragraph(node, page_data)
-        return self._tier3_class_paragraph(node, page_data)
+            return self._tier3_templates[(PageType.MODULE_OVERVIEW, eff)](self, node, page_data)
+        return self._tier3_templates[(PageType.CLASS_DETAIL, eff)](self, node, page_data)
 
-    def _tier3_module_paragraph(self, node: GraphNode, page_data: PageData) -> str:
+    def _tier3_module_paragraph_en(self, node: GraphNode, page_data: PageData) -> str:
         mod_name = _primary_name(node)
         path = str(node.properties.get("path") or "")
         children = page_data.children
@@ -178,7 +199,39 @@ class WikiComposer:
             pieces.append(f"It imports {', '.join(uniq)} among other dependencies.")
         return " ".join(pieces)
 
-    def _tier3_class_paragraph(self, node: GraphNode, page_data: PageData) -> str:
+    def _tier3_module_paragraph_zh(self, node: GraphNode, page_data: PageData) -> str:
+        mod_name = _primary_name(node)
+        path = str(node.properties.get("path") or "")
+        children = page_data.children
+        class_labels = [_primary_name(c) for c in children if c.label == NodeLabel.CLASS]
+        class_count = len(class_labels)
+        fn_count = sum(1 for c in children if c.label == NodeLabel.FUNCTION)
+        others = len(children) - len(class_labels)
+
+        header = f"**{mod_name}** 模块包含 {class_count} 个类和 {fn_count} 个函数。"
+        pieces: list[str] = [
+            header,
+            f"`{mod_name}` 模块{f'（路径 `{path}`）' if path else ''}组织代码库的一部分。",
+        ]
+        if class_labels:
+            preview = "、".join(class_labels[:8])
+            extra = ""
+            if len(class_labels) > 8:
+                extra = f"（另有 {len(class_labels) - 8} 个）"
+            pieces.append(f"其中包括：{preview}{extra}。")
+        elif others > 0:
+            pieces.append(f"此外包含 {others} 个嵌套单元。")
+        imp_targets = [
+            _display_name(e.target_uid)
+            for e in page_data.edges
+            if e.edge_type == EdgeType.IMPORTS and e.source_uid == node.uid
+        ]
+        if imp_targets:
+            uniq = list(dict.fromkeys(imp_targets))[:6]
+            pieces.append(f"模块导入了 {', '.join(uniq)} 等依赖。")
+        return " ".join(pieces)
+
+    def _tier3_class_paragraph_en(self, node: GraphNode, page_data: PageData) -> str:
         cls_name = _primary_name(node)
         methods = _sorted_method_names(page_data.methods)
         inherit_parents = [
@@ -225,6 +278,66 @@ class WikiComposer:
         if callees:
             uniq_callees = list(dict.fromkeys(callees))[:4]
             parts.append("It calls " + ", ".join(f"`{c}`" for c in uniq_callees) + ".")
+
+        return " ".join(parts)
+
+    def _tier3_class_paragraph_zh(self, node: GraphNode, page_data: PageData) -> str:
+        cls_name = _primary_name(node)
+        methods = _sorted_method_names(page_data.methods)
+        method_count = len(methods)
+        inherit_parents = [
+            _display_name(e.target_uid)
+            for e in page_data.edges
+            if e.edge_type == EdgeType.INHERITS and e.source_uid == node.uid
+        ]
+        impl_targets = [
+            _display_name(e.target_uid)
+            for e in page_data.edges
+            if e.edge_type == EdgeType.IMPLEMENTS and e.source_uid == node.uid
+        ]
+        callers = [
+            _display_name(e.source_uid)
+            for e in page_data.edges
+            if e.edge_type == EdgeType.CALLS and e.target_uid == node.uid
+        ]
+        callees = [
+            _display_name(e.target_uid)
+            for e in page_data.edges
+            if e.edge_type == EdgeType.CALLS and e.source_uid == node.uid
+        ]
+
+        inheritance_info = "具有继承关系"
+        if inherit_parents:
+            inheritance_info = f"继承自 `{inherit_parents[0]}`"
+        elif impl_targets:
+            inheritance_info = "实现接口"
+
+        parts: list[str] = [
+            f"**{cls_name}** 是一个{inheritance_info}的类，定义了 {method_count} 个方法。",
+            f"`{cls_name}` 是代码库中的一个核心类。",
+        ]
+
+        if inherit_parents:
+            extra = ""
+            if len(inherit_parents) > 1:
+                extra = f"（另有 {len(inherit_parents) - 1} 个父类型）"
+            parts.append(f"它继承自 `{inherit_parents[0]}`{extra}。")
+        elif impl_targets:
+            impl_txt = "、".join(f"`{t}`" for t in impl_targets[:3])
+            extra = f"（另有 {len(impl_targets) - 3} 个）" if len(impl_targets) > 3 else ""
+            parts.append(f"它实现：{impl_txt}{extra}。")
+
+        if methods:
+            shown = "、".join(f"`{m}()`" for m in methods[:5])
+            tail = f"（另有 {len(methods) - 5} 个）" if len(methods) > 5 else ""
+            parts.append(f"公开方法包括 {shown}{tail}。")
+
+        if callers:
+            uniq_callers = list(dict.fromkeys(callers))[:4]
+            parts.append("调用方包括 " + "、".join(f"`{c}`" for c in uniq_callers) + "。")
+        if callees:
+            uniq_callees = list(dict.fromkeys(callees))[:4]
+            parts.append("它会调用 " + "、".join(f"`{c}`" for c in uniq_callees) + "。")
 
         return " ".join(parts)
 
@@ -303,3 +416,12 @@ class WikiComposer:
                 WikiDiagram(diagram_type=fc.diagram_type, content=fc.content, title="Call flow"),
             )
         return out
+
+
+# Template registry keyed by ``(page_type, language)``; unknown ``language`` becomes ``en`` before lookup.
+WikiComposer._tier3_templates = {
+    (PageType.MODULE_OVERVIEW, "en"): WikiComposer._tier3_module_paragraph_en,
+    (PageType.MODULE_OVERVIEW, "zh"): WikiComposer._tier3_module_paragraph_zh,
+    (PageType.CLASS_DETAIL, "en"): WikiComposer._tier3_class_paragraph_en,
+    (PageType.CLASS_DETAIL, "zh"): WikiComposer._tier3_class_paragraph_zh,
+}

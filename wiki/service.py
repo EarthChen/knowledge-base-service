@@ -50,12 +50,25 @@ class WikiService:
         if not await self._repository_exists(repository):
             raise WikiRepoNotFoundError(repository)
 
-    def _config_for(self, mode: str, format: str, repository: str) -> WikiConfig:
-        return WikiConfig(repository=repository, mode=mode, format=format)
+    def _config_for(
+        self,
+        mode: str,
+        format: str,
+        repository: str,
+        language: str = "en",
+    ) -> WikiConfig:
+        return WikiConfig(repository=repository, mode=mode, format=format, language=language)
 
-    async def generate(self, repository: str, scope_raw: str, mode: str, format: str) -> dict[str, Any]:
+    async def generate(
+        self,
+        repository: str,
+        scope_raw: str,
+        mode: str,
+        format: str,
+        language: str = "en",
+    ) -> dict[str, Any]:
         scope = parse_scope(scope_raw)
-        config = self._config_for(mode, format, repository)
+        config = self._config_for(mode, format, repository, language)
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
         pages, degraded = await self._compose_all_pages(repository, structure, config)
@@ -77,10 +90,11 @@ class WikiService:
         scope_raw: str,
         mode: str,
         format: str,
+        language: str = "en",
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield ``{"page": page_dict}`` per page, then ``{"complete": export_bundle}``."""
         scope = parse_scope(scope_raw)
-        config = self._config_for(mode, format, repository)
+        config = self._config_for(mode, format, repository, language)
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
 

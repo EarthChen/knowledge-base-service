@@ -73,7 +73,20 @@ class WikiContextBuilder:
             parts.append(arch_summary.strip())
         return " ".join(parts) if parts else "Repository context is not yet specified."
 
-    def build_style_sheet(self) -> str:
+    def build_style_sheet(self, language: str = "en") -> str:
+        lang = language if language in ("en", "zh") else "en"
+        if lang == "zh":
+            return (
+                "## 语气\n"
+                "- 使用准确、中性的技术表述。\n"
+                "- 避免营销式措辞；描述行为与职责。\n\n"
+                "## 结构\n"
+                "- 先说明单元的用途，再说明与周边模块的关系。\n"
+                "- 列举信息时优先使用短段落与列表。\n\n"
+                "## 格式\n"
+                "- 按调用方要求的 Markdown 标题层级撰写。\n"
+                "- 在有助于理解时对类型与包名使用反引号标注。\n"
+            )
         return (
             "## Tone\n"
             "- Prefer precise, neutral technical language.\n"
@@ -100,12 +113,22 @@ class WikiContextBuilder:
             return suffix[:max_chars]
         return text[:room].rstrip() + suffix
 
-    def build_page_context(self, parent_summary: str, glossary: dict[str, str], style_sheet: str) -> str:
+    def build_page_context(
+        self,
+        parent_summary: str,
+        glossary: dict[str, str],
+        style_sheet: str,
+        language: str = "en",
+    ) -> str:
+        lang = language if language in ("en", "zh") else "en"
+        glossary_heading = "## Glossary" if lang == "en" else "## 术语表"
+        authoring_heading = "## Authoring rules" if lang == "en" else "## 撰写规范"
+        parent_heading = "## Parent context" if lang == "en" else "## 上级上下文"
         blocks: list[str] = []
         if parent_summary.strip():
-            blocks.append("## Parent context\n" + parent_summary.strip())
+            blocks.append(parent_heading + "\n" + parent_summary.strip())
         if glossary:
             lines = [f"- **{term}**: {definition}" for term, definition in sorted(glossary.items())]
-            blocks.append("## Glossary\n" + "\n".join(lines))
-        blocks.append("## Authoring rules\n" + style_sheet)
+            blocks.append(glossary_heading + "\n" + "\n".join(lines))
+        blocks.append(authoring_heading + "\n" + style_sheet)
         return "\n\n".join(blocks)

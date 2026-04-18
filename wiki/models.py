@@ -109,6 +109,8 @@ class WikiConfig:
             raise ValueError(f"Invalid mode '{self.mode}': must be 'full' or 'structure'")
         if self.format not in ("json", "markdown"):
             raise ValueError(f"Invalid format '{self.format}': must be 'json' or 'markdown'")
+        if self.language not in ("en", "zh"):
+            raise ValueError(f"Invalid language '{self.language}': must be 'en' or 'zh'")
 
 
 @dataclass

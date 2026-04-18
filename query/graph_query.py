@@ -7,6 +7,7 @@ call chains, inheritance trees, module dependencies, and entity lookups.
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
@@ -320,6 +321,291 @@ class GraphQueryService:
         params = {"name": flow_name}
         rows = await self._store.execute_query(query, params)
         return QueryResult(data=list(rows.data), query=query, params=params)
+
+    async def _wiki_paths_by_titles(self, repository: str, titles: list[str]) -> dict[str, str]:
+        """Resolve WikiPage.path by title (batch)."""
+        titles = [t for t in titles if t]
+        if not titles:
+            return {}
+        q = (
+            "UNWIND $titles AS t "
+            "MATCH (wp:WikiPage {repository: $repository}) "
+            "WHERE wp.title = t "
+            "RETURN DISTINCT t AS title, wp.path AS path"
+        )
+        rows = await self._store.execute_query(q, {"repository": repository, "titles": titles})
+        out: dict[str, str] = {}
+        for row in rows.data:
+            t = row.get("title")
+            p = row.get("path")
+            if t and p and t not in out:
+                out[str(t)] = str(p)
+        return out
+
+    @staticmethod
+    def _public_node(name: str, typ: str, file: str, line: Any) -> dict[str, Any]:
+        return {
+            "name": name or "",
+            "type": typ or "",
+            "file": file or "",
+            "line": int(line or 0),
+        }
+
+    async def traverse_call_chain(
+        self,
+        repository: str,
+        node_name: str,
+        direction: str = "callees",
+        max_depth: int = 3,
+    ) -> dict[str, Any]:
+        """MCP: walk CALLS from a Function root; returns root, ordered chain rows, and wiki paths."""
+        d = max(1, min(int(max_depth), 5))
+        params = {"repository": repository, **_make_params(node_name)}
+        where = _where_name("root")
+        root_q = (
+            f"MATCH (root:Function) WHERE root.repository = $repository AND {where} "
+            "RETURN root.name AS name, labels(root)[0] AS typ, root.file AS file, root.start_line AS line LIMIT 1"
+        )
+        root_rows = await self._store.execute_query(root_q, params)
+        if not root_rows.data:
+            return {"root": None, "chain": [], "total_nodes": 0}
+        rr = root_rows.data[0]
+        root_obj = self._public_node(str(rr.get("name", "")), str(rr.get("typ", "")), str(rr.get("file", "")), rr.get("line"))
+
+        if direction == "callers":
+            chain_q = (
+                f"MATCH (root:Function) WHERE root.repository = $repository AND {where} "
+                f"MATCH path = (caller:Function)-[:CALLS*1..{d}]->(root) "
+                "WITH caller, min(length(path)) AS depth "
+                "OPTIONAL MATCH (wp:WikiPage {repository: $repository}) "
+                "WHERE wp.title = caller.name "
+                "RETURN caller.name AS name, labels(caller)[0] AS typ, caller.file AS file, "
+                "caller.start_line AS line, depth, coalesce(wp.path, '') AS wiki_page_path "
+                "ORDER BY depth, name"
+            )
+        else:
+            chain_q = (
+                f"MATCH (root:Function) WHERE root.repository = $repository AND {where} "
+                f"MATCH path = (root)-[:CALLS*1..{d}]->(fn:Function) "
+                "WITH fn, min(length(path)) AS depth "
+                "OPTIONAL MATCH (wp:WikiPage {repository: $repository}) "
+                "WHERE wp.title = fn.name "
+                "RETURN fn.name AS name, labels(fn)[0] AS typ, fn.file AS file, "
+                "fn.start_line AS line, depth, coalesce(wp.path, '') AS wiki_page_path "
+                "ORDER BY depth, name"
+            )
+
+        crows = await self._store.execute_query(chain_q, params)
+        chain: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in crows.data:
+            nm = str(row.get("name", ""))
+            key = f"{nm}:{row.get('line', 0)}"
+            if key in seen:
+                continue
+            seen.add(key)
+            depth_i = int(row.get("depth", 1) or 1)
+            node_obj = self._public_node(nm, str(row.get("typ", "")), str(row.get("file", "")), row.get("line"))
+            chain.append(
+                {
+                    "depth": depth_i,
+                    "node": node_obj,
+                    "edge_type": "CALLS",
+                    "wiki_page_path": str(row.get("wiki_page_path", "") or ""),
+                },
+            )
+
+        total_nodes = 1 + len(chain)
+        return {"root": root_obj, "chain": chain, "total_nodes": total_nodes}
+
+    async def find_impact_scope(
+        self,
+        repository: str,
+        node_name: str,
+        max_hops: int = 2,
+    ) -> dict[str, Any]:
+        """MCP: reverse traversal along CALLS|IMPORTS|INHERITS toward target, grouped by shortest hop."""
+        mh = max(1, min(int(max_hops), 3))
+        params = {"repository": repository, **_make_params(node_name)}
+        tgt_where = _where_name("target")
+        tgt_q = (
+            "MATCH (target) WHERE (target:Function OR target:Class OR target:Module) "
+            f"AND target.repository = $repository AND {tgt_where} "
+            "RETURN target.name AS name, labels(target)[0] AS typ, target.file AS file, "
+            "target.start_line AS line LIMIT 1"
+        )
+        tgt_rows = await self._store.execute_query(tgt_q, params)
+        if not tgt_rows.data:
+            return {
+                "target": None,
+                "impact_by_hop": {},
+                "affected_wiki_pages": [],
+                "total_affected": 0,
+            }
+        tr = tgt_rows.data[0]
+        target_obj = self._public_node(str(tr.get("name", "")), str(tr.get("typ", "")), str(tr.get("file", "")), tr.get("line"))
+
+        wiki_map = await self._wiki_paths_by_titles(repository, [str(tr.get("name", "") or "")])
+        twiki = wiki_map.get(str(tr.get("name", "")), "")
+
+        hop_q = (
+            "MATCH (target) WHERE (target:Function OR target:Class OR target:Module) "
+            f"AND target.repository = $repository AND {tgt_where} "
+            f"MATCH p = (n)-[:CALLS|IMPORTS|INHERITS*1..{mh}]->(target) "
+            "WHERE id(n) <> id(target) "
+            "WITH n, min(length(p)) AS hop "
+            "RETURN DISTINCT n.name AS name, labels(n)[0] AS typ, hop "
+            "ORDER BY hop, name"
+        )
+        hop_rows = await self._store.execute_query(hop_q, params)
+
+        titles = list({str(r.get("name", "") or "") for r in hop_rows.data if r.get("name")})
+        wiki_extra = await self._wiki_paths_by_titles(repository, titles)
+        wiki_map.update(wiki_extra)
+
+        impact_by_hop: dict[str, list[dict[str, Any]]] = {
+            "0": [
+                {
+                    "name": str(tr.get("name", "") or ""),
+                    "type": str(tr.get("typ", "") or ""),
+                    "wiki_page": twiki,
+                },
+            ],
+        }
+
+        affected_pages: set[str] = set()
+        if twiki:
+            affected_pages.add(twiki)
+
+        total_marked: set[str] = {str(tr.get("name", "") or "")}
+
+        for row in hop_rows.data:
+            nm = str(row.get("name", "") or "")
+            hop_i = int(row.get("hop", 1) or 1)
+            key = str(hop_i)
+            typ = str(row.get("typ", "") or "")
+            wp = wiki_map.get(nm, "")
+            if wp:
+                affected_pages.add(wp)
+            total_marked.add(nm)
+            entry = {"name": nm, "type": typ, "wiki_page": wp}
+            impact_by_hop.setdefault(key, []).append(entry)
+
+        return {
+            "target": target_obj,
+            "impact_by_hop": impact_by_hop,
+            "affected_wiki_pages": sorted(affected_pages),
+            "total_affected": len(total_marked),
+        }
+
+    async def analyze_pr_impact(
+        self,
+        repository: str,
+        changed_files: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """MCP: map changed files to entities, add one-hop upstream impact, aggregate WikiPage paths."""
+        paths = []
+        for cf in changed_files:
+            p = str(cf.get("path", "")).replace("\\", "/").strip()
+            if p:
+                paths.append(p)
+        if not paths:
+            return {
+                "affected_pages": [],
+                "summary": {"high_impact": 0, "medium_impact": 0, "total_affected_pages": 0},
+            }
+
+        match_q = (
+            "UNWIND $paths AS fp "
+            "MATCH (n) "
+            "WHERE n.repository = $repository AND (n:Function OR n:Class) "
+            "AND ( "
+            "  replace(n.file, '\\\\', '/') = fp "
+            "  OR replace(n.file, '\\\\', '/') ENDS WITH '/' + fp "
+            "  OR replace(n.file, '\\\\', '/') ENDS WITH fp "
+            ") "
+            "RETURN DISTINCT n.uid AS uid, n.name AS name, n.file AS file"
+        )
+        direct_rows = await self._store.execute_query(match_q, {"repository": repository, "paths": paths})
+        if not direct_rows.data:
+            return {
+                "affected_pages": [],
+                "summary": {"high_impact": 0, "medium_impact": 0, "total_affected_pages": 0},
+            }
+
+        uids = [str(r["uid"]) for r in direct_rows.data if r.get("uid")]
+        hop_q = (
+            "UNWIND $uids AS uid "
+            "MATCH (entity) WHERE entity.uid = uid AND entity.repository = $repository "
+            "MATCH (hop)-[:CALLS|IMPORTS|INHERITS]->(entity) "
+            "WHERE hop.repository = $repository "
+            "RETURN DISTINCT hop.uid AS uid, hop.name AS name, hop.file AS file, labels(hop)[0] AS typ"
+        )
+        hop_rows = await self._store.execute_query(hop_q, {"repository": repository, "uids": uids})
+
+        all_names: list[str] = []
+        for r in direct_rows.data:
+            if r.get("name"):
+                all_names.append(str(r["name"]))
+        for r in hop_rows.data:
+            if r.get("name"):
+                all_names.append(str(r["name"]))
+        wiki_map = await self._wiki_paths_by_titles(repository, list(set(all_names)))
+
+        def bucket_for(name: str, file: str) -> str:
+            wp = wiki_map.get(name, "")
+            return wp if wp else f"file:{file}"
+
+        page_direct: dict[str, int] = defaultdict(int)
+        page_entities: dict[str, set[str]] = defaultdict(set)
+
+        for r in direct_rows.data:
+            nm = str(r.get("name", "") or "")
+            fp = str(r.get("file", "") or "")
+            buck = bucket_for(nm, fp)
+            page_entities[buck].add(nm)
+            page_direct[buck] += 1
+
+        for r in hop_rows.data:
+            nm = str(r.get("name", "") or "")
+            fp = str(r.get("file", "") or "")
+            buck = bucket_for(nm, fp)
+            page_entities[buck].add(nm)
+
+        affected_pages: list[dict[str, Any]] = []
+        high_count = 0
+        medium_count = 0
+        for wiki_path, names in sorted(page_entities.items()):
+            dc = page_direct.get(wiki_path, 0)
+            if dc >= 2:
+                level = "high"
+                reason = f"{dc} entities directly modified"
+                high_count += 1
+            elif dc == 1:
+                level = "medium"
+                reason = "1 entities directly modified"
+                medium_count += 1
+            else:
+                level = "medium"
+                reason = "1-hop impact"
+                medium_count += 1
+            affected_pages.append(
+                {
+                    "wiki_page_path": wiki_path,
+                    "impact_level": level,
+                    "reason": reason,
+                    "affected_entities": sorted(names),
+                },
+            )
+
+        return {
+            "affected_pages": affected_pages,
+            "summary": {
+                "high_impact": high_count,
+                "medium_impact": medium_count,
+                "total_affected_pages": len(affected_pages),
+            },
+        }
 
     async def get_p2_stats(self) -> dict[str, Any]:
         """P2 enrichment aggregates for dashboard (architecture, events, RPC, cross-repo)."""

@@ -34,7 +34,7 @@ class TestConceptExtractor:
     async def test_extract_from_document(self, mock_llm):
         from indexer.concept_extractor import ConceptExtractor
 
-        extractor = ConceptExtractor(llm=mock_llm)
+        extractor = ConceptExtractor(llm=mock_llm, concept_extraction_enabled=True)
         result = await extractor.extract("# 私信系统\n用户可以通过私信功能发送即时消息...")
         assert len(result["concepts"]) == 1
         assert result["concepts"][0]["name"] == "私信"
@@ -45,7 +45,7 @@ class TestConceptExtractor:
     async def test_handles_empty_document(self, mock_llm):
         from indexer.concept_extractor import ConceptExtractor
 
-        extractor = ConceptExtractor(llm=mock_llm)
+        extractor = ConceptExtractor(llm=mock_llm, concept_extraction_enabled=True)
         result = await extractor.extract("")
         assert len(result["concepts"]) == 0
         assert len(result["flows"]) == 0
@@ -56,7 +56,7 @@ class TestConceptExtractor:
         from indexer.concept_extractor import ConceptExtractor
 
         mock_llm.complete_json = AsyncMock(side_effect=Exception("fail"))
-        extractor = ConceptExtractor(llm=mock_llm)
+        extractor = ConceptExtractor(llm=mock_llm, concept_extraction_enabled=True)
         result = await extractor.extract("some content")
         assert result == {"concepts": [], "flows": []}
 
@@ -64,7 +64,7 @@ class TestConceptExtractor:
     async def test_extract_batch(self, mock_llm):
         from indexer.concept_extractor import ConceptExtractor
 
-        extractor = ConceptExtractor(llm=mock_llm)
+        extractor = ConceptExtractor(llm=mock_llm, concept_extraction_enabled=True)
         docs = [{"content": "doc1 content"}, {"content": "doc2 content"}]
         results = await extractor.extract_batch(docs)
         assert len(results) == 2

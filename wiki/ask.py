@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 import uuid
@@ -63,6 +64,288 @@ class SearchPort(Protocol):
 @runtime_checkable
 class LLMPort(Protocol):
     async def complete(self, messages: list[dict], **kwargs: Any) -> str: ...
+
+
+@runtime_checkable
+class GraphPort(Protocol):
+    async def execute_query(self, cypher: str, params: dict | None = None) -> Any: ...
+
+
+def detect_question_type(question: str) -> str:
+    """Classify question type by keyword matching (no LLM call).
+
+    Returns one of: 'concept', 'flow', 'relation', 'impact', 'general'
+
+    Priority when multiple cues appear: relation > impact > flow > concept > general.
+    """
+    if not question or not question.strip():
+        return "general"
+    q = question.strip()
+    lower = q.lower()
+
+    if any(k in q for k in ("关系", "区别", "比较")):
+        return "relation"
+    if " vs " in f" {lower} " or lower.rstrip(".").endswith(" vs"):
+        return "relation"
+    if re.search(r"\b(difference|differences|compare|comparison)\b", lower):
+        return "relation"
+
+    if any(k in q for k in ("影响", "依赖")):
+        return "impact"
+    if re.search(r"\b(impact|affect|affects|affected|depends?|dependent|dependency)\b", lower):
+        return "impact"
+
+    if any(k in q for k in ("怎么", "流程", "步骤")):
+        return "flow"
+    if re.search(r"\b(how|process|workflow|steps)\b", lower):
+        return "flow"
+
+    if "是什么" in q or "什么是" in q:
+        return "concept"
+    if re.search(r"\bwhat\s+is\b", lower):
+        return "concept"
+    if "定义" in q:
+        return "concept"
+    if re.search(r"\bdescribe\b", lower):
+        return "concept"
+
+    return "general"
+
+
+def _graph_rows(result: Any) -> list[dict[str, Any]]:
+    if result is None:
+        return []
+    data = getattr(result, "data", None)
+    if isinstance(data, list):
+        return list(data)
+    if isinstance(result, list):
+        return list(result)
+    return []
+
+
+def _truncate_to_token_budget(text: str, max_tokens: int) -> str:
+    if max_tokens <= 0:
+        return ""
+    if _estimate_tokens(text) <= max_tokens:
+        return text
+    max_chars = max(max_tokens * 4, 0)
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "…"
+
+
+class GraphEnhancedContextCollector:
+    """Collects richer context by traversing the code graph."""
+
+    def __init__(self, graph: GraphPort) -> None:
+        self._graph = graph
+
+    @staticmethod
+    def _seed_names(search_results: list[SearchResult]) -> list[str]:
+        seen: set[str] = set()
+        names: list[str] = []
+        for r in search_results[:5]:
+            if r.source_locations:
+                for loc in r.source_locations:
+                    for key in ("entity", "name", "fqn"):
+                        raw = loc.get(key)
+                        if raw is None:
+                            continue
+                        s = str(raw).strip()
+                        if s and s not in seen:
+                            seen.add(s)
+                            names.append(s)
+            else:
+                t = str(r.title).strip()
+                if t and t not in seen:
+                    seen.add(t)
+                    names.append(t)
+        return names[:12]
+
+    async def _query_wiki_pages(self, repository: str, paths: list[str]) -> str:
+        if not paths:
+            return ""
+        cypher = (
+            "MATCH (wp:WikiPage) "
+            "WHERE wp.repository = $repository AND wp.path IN $paths "
+            "RETURN wp.path AS page_path, wp.title AS title, wp.content AS content "
+            "ORDER BY wp.path"
+        )
+        rows = _graph_rows(await self._graph.execute_query(cypher, {"repository": repository, "paths": paths}))
+        lines: list[str] = []
+        for row in rows:
+            title = str(row.get("title") or "")
+            pp = str(row.get("page_path") or "")
+            body = str(row.get("content") or "")
+            lines.append(f"### {title} ({pp})\n{body}")
+        return "\n\n".join(lines).strip()
+
+    async def _query_one_hop(self, names: list[str]) -> str:
+        if not names:
+            return ""
+        cypher = (
+            "MATCH (n)-[r:CALLS|INHERITS|IMPORTS]-(m) "
+            "WHERE n.name IN $names "
+            "RETURN type(r) AS rel_type, n.name AS from_name, m.name AS to_name LIMIT 25"
+        )
+        rows = _graph_rows(await self._graph.execute_query(cypher, {"names": names}))
+        lines: list[str] = []
+        for row in rows:
+            lines.append(f"{row.get('from_name')} -[{row.get('rel_type')}]-> {row.get('to_name')}")
+        return "\n".join(lines)
+
+    async def _query_flow_callees(self, names: list[str]) -> str:
+        if not names:
+            return ""
+        cypher = (
+            "MATCH (n) WHERE n.name IN $names "
+            "MATCH path = (n)-[:CALLS*2..3]->(m) "
+            "RETURN [x IN nodes(path) | coalesce(x.name, x.fqn, '')] AS chain LIMIT 15"
+        )
+        rows = _graph_rows(await self._graph.execute_query(cypher, {"names": names}))
+        lines: list[str] = []
+        for row in rows:
+            chain = row.get("chain") or []
+            if isinstance(chain, list):
+                lines.append(" -> ".join(str(x) for x in chain if x))
+        return "\n".join(lines)
+
+    async def _query_relation_paths(self, names: list[str]) -> str:
+        if len(names) < 2:
+            return ""
+        cypher = (
+            "MATCH (seed) WHERE seed.name IN $names AND (seed:Function OR seed:Class OR seed:Module) "
+            "WITH collect(DISTINCT seed) AS seeds "
+            "WHERE size(seeds) >= 2 "
+            "WITH seeds[0] AS seed_a, seeds[-1] AS seed_b "
+            "MATCH p = shortestPath((seed_a)-[:CALLS|INHERITS|IMPORTS*1..4]-(seed_b)) "
+            "RETURN length(p) AS len, [x IN nodes(p) | coalesce(x.name, x.fqn, '')] AS path LIMIT 5"
+        )
+        rows = _graph_rows(await self._graph.execute_query(cypher, {"names": names}))
+        lines: list[str] = []
+        for row in rows:
+            path = row.get("path") or []
+            if isinstance(path, list):
+                lines.append(" -> ".join(str(x) for x in path if x))
+        return "\n".join(lines)
+
+    async def _query_impact_callers(self, names: list[str]) -> str:
+        if not names:
+            return ""
+        cypher = (
+            "MATCH (n) WHERE n.name IN $names "
+            "MATCH path = (caller)-[:CALLS*1..3]->(n) "
+            "RETURN DISTINCT caller.name AS caller LIMIT 25"
+        )
+        rows = _graph_rows(await self._graph.execute_query(cypher, {"names": names}))
+        lines: list[str] = []
+        for row in rows:
+            c = row.get("caller")
+            if c:
+                lines.append(str(c))
+        return "\n".join(lines)
+
+    async def _query_signatures(self, names: list[str]) -> str:
+        if not names:
+            return ""
+        cypher = (
+            "MATCH (n) WHERE n.name IN $names AND (n:Function OR n:Class OR n:Method) "
+            "RETURN n.name AS name, coalesce(n.signature, '') AS signature, "
+            "coalesce(n.docstring, '') AS docstring LIMIT 20"
+        )
+        rows = _graph_rows(await self._graph.execute_query(cypher, {"names": names}))
+        lines: list[str] = []
+        for row in rows:
+            nm = row.get("name", "")
+            sig = row.get("signature", "")
+            doc = row.get("docstring", "")
+            lines.append(f"{nm}: {sig}\n{doc}".strip())
+        return "\n".join(lines)
+
+    async def _query_module_overview(self, repository: str, names: list[str]) -> str:
+        if not names:
+            return ""
+        cypher = (
+            "MATCH (m:Module)-[:CONTAINS|DECLARED_IN*0..3]-(n) "
+            "WHERE n.name IN $names AND m.repository = $repository "
+            "RETURN coalesce(m.name, m.path, '') AS module, "
+            "coalesce(m.summary, m.overview, '') AS overview LIMIT 8"
+        )
+        rows = _graph_rows(await self._graph.execute_query(cypher, {"repository": repository, "names": names}))
+        lines: list[str] = []
+        for row in rows:
+            mod = row.get("module", "")
+            ov = row.get("overview") or row.get("summary", "")
+            lines.append(f"{mod}: {ov}".strip())
+        return "\n".join(lines)
+
+    def _assemble_sections(self, sections: list[tuple[str, str]], token_budget: int) -> str:
+        parts: list[str] = []
+        remaining = token_budget
+        for title, body in sections:
+            body = body.strip()
+            if not body:
+                continue
+            header = f"## {title}\n"
+            candidate = header + body
+            cost = _estimate_tokens(candidate)
+            if cost <= remaining:
+                parts.append(candidate.rstrip())
+                remaining -= cost
+                continue
+            overhead = _estimate_tokens(header)
+            body_budget = max(remaining - overhead, 0)
+            truncated_body = _truncate_to_token_budget(body, body_budget)
+            if truncated_body:
+                parts.append((header + truncated_body).rstrip())
+            break
+        text = "\n\n".join(parts).strip()
+        if _estimate_tokens(text) > token_budget:
+            return _truncate_to_token_budget(text, token_budget)
+        return text
+
+    async def collect(
+        self,
+        repository: str,
+        search_results: list[SearchResult],
+        question_type: str,
+        token_budget: int = 8000,
+    ) -> str:
+        """Build enriched context string within token budget.
+
+        Collection priority:
+        1. Full Wiki page content for top results
+        2. Call chain context (callers/callees, 1-3 hops based on question_type)
+        3. Entity code signatures (docstring, parameters, return type)
+        4. Module architecture context (module overview summary)
+
+        All context sorted by relevance, truncated at token_budget.
+        """
+        paths = [r.page_path for r in search_results[:5]]
+        names = self._seed_names(search_results)
+
+        wiki_text = await self._query_wiki_pages(repository, paths)
+
+        graph_section = ""
+        if question_type in ("concept", "general"):
+            graph_section = await self._query_one_hop(names)
+        elif question_type == "flow":
+            graph_section = await self._query_flow_callees(names)
+        elif question_type == "relation":
+            graph_section = await self._query_relation_paths(names)
+        elif question_type == "impact":
+            graph_section = await self._query_impact_callers(names)
+
+        sig_text = await self._query_signatures(names)
+        mod_text = await self._query_module_overview(repository, names)
+
+        sections: list[tuple[str, str]] = [
+            ("Full wiki pages", wiki_text),
+            ("Graph context", graph_section),
+            ("Entity signatures", sig_text),
+            ("Module architecture", mod_text),
+        ]
+        return self._assemble_sections(sections, token_budget)
 
 
 class ConversationStore:
@@ -184,10 +467,12 @@ class WikiAskService:
         search: SearchPort,
         llm: LLMPort,
         conversation_store: ConversationStore | None = None,
+        graph: GraphPort | None = None,
     ) -> None:
         self._search = search
         self._llm = llm
         self._store = conversation_store or ConversationStore()
+        self._graph = graph
 
     def _resolve_conversation(
         self,
@@ -252,6 +537,17 @@ class WikiAskService:
         if not isinstance(search_resp, SearchResponse):
             raise TypeError("search must return SearchResponse")
         formatted = _format_search_results(search_resp)
+        if self._graph is not None:
+            collector = GraphEnhancedContextCollector(self._graph)
+            qtype = detect_question_type(question)
+            enriched = await collector.collect(
+                repository,
+                search_resp.results,
+                qtype,
+                token_budget=8000,
+            )
+            if enriched.strip():
+                formatted = enriched
         sources = _results_to_ask_sources(search_resp.results)
         messages = self._build_messages(repository, formatted, prior_turns, question)
 

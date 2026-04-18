@@ -90,6 +90,10 @@ class LLMConfig(BaseModel):
     """Configuration for LLM provider (OpenAI-compatible protocol)."""
 
     enabled: bool = False
+    # Optional indexing-time LLM passes (default off; see gateway.enrichment_enabled for
+    # business_summary / CodeSummaryEnricher).
+    concept_extraction_enabled: bool = False
+    business_flow_enabled: bool = False
     default_provider: str = "gateway"
     fallback_provider: str = ""
     providers: dict[str, dict[str, Any]] = Field(default_factory=dict)

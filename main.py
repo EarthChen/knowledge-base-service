@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import warnings
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,7 +18,7 @@ from typing import Any, Self
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.routes.provider_routes import provider_router
 from api.routes.wiki_routes import wiki_router
@@ -114,6 +115,42 @@ def _looks_like_git_url(value: str) -> bool:
     return False
 
 
+_HYBRID_ENTITY_TYPE_TO_LABEL: dict[str, str] = {
+    "function": "Function",
+    "class": "Class",
+    "module": "Module",
+    "document": "Document",
+    "flow": "BusinessFlow",
+    "concept": "BusinessConcept",
+}
+_HYBRID_ENTITY_FILTER_CHOICES = frozenset(_HYBRID_ENTITY_TYPE_TO_LABEL.keys())
+
+
+def _filter_hybrid_semantic_matches(
+    matches: list[dict[str, Any]],
+    entity_type: str | None,
+) -> list[dict[str, Any]]:
+    """Keep hybrid semantic hits whose ``type`` matches the requested entity kind."""
+    if entity_type is None:
+        return matches
+    label = _HYBRID_ENTITY_TYPE_TO_LABEL.get(entity_type)
+    if label is None:
+        return matches
+    return [m for m in matches if m.get("type") == label]
+
+
+def _deprecated_search_json(
+    payload: dict[str, Any],
+    deprecated_message: str,
+    warn_message: str,
+) -> JSONResponse:
+    warnings.warn(warn_message, DeprecationWarning)
+    return JSONResponse(
+        content={**payload, "_deprecated": deprecated_message},
+        headers={"Deprecation": "true"},
+    )
+
+
 class SemanticSearchRequest(BaseModel):
     query: str
     k: int = Field(default=10, ge=1, le=50)
@@ -135,6 +172,28 @@ class HybridSearchRequest(BaseModel):
     query: str
     k: int = Field(default=5, ge=1, le=20)
     expand_depth: int = Field(default=2, ge=1, le=5)
+    entity_type: str | None = Field(
+        default=None,
+        description=(
+            "Optional filter: function, class, module, document, flow (BusinessFlow), "
+            "concept (BusinessConcept); omit for all entity kinds."
+        ),
+    )
+
+    @field_validator("entity_type", mode="before")
+    @classmethod
+    def _normalize_hybrid_entity_type(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        if not isinstance(value, str):
+            raise TypeError("entity_type must be a string or null")
+        key = value.strip().lower()
+        if key not in _HYBRID_ENTITY_FILTER_CHOICES:
+            allowed = ", ".join(sorted(_HYBRID_ENTITY_FILTER_CHOICES))
+            raise ValueError(f"entity_type must be one of: {allowed}, or null")
+        return key
 
 
 class DeepSearchRequest(BaseModel):
@@ -305,7 +364,7 @@ async def _resolve_canonical_repository_for_git(
 async def semantic_search(
     req: SemanticSearchRequest,
     svc: KnowledgeBaseService = Depends(_get_service),
-) -> dict[str, Any]:
+) -> JSONResponse:
     from query.hybrid_query import _extract_identifiers
 
     if req.entity_type == "function":
@@ -369,7 +428,11 @@ async def semantic_search(
 
     merged.sort(key=lambda x: x.get("score", 0), reverse=True)
     top = merged[:req.k]
-    return {"matches": top, "total": len(top), "query": req.query}
+    return _deprecated_search_json(
+        {"matches": top, "total": len(top), "query": req.query},
+        deprecated_message="Use POST /api/v1/hybrid instead",
+        warn_message="Deprecated: use /hybrid",
+    )
 
 
 @viewer_router.get("/search/architecture")
@@ -460,10 +523,15 @@ async def hybrid_search(
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
     result = await svc.hybrid_query.search_with_context(req.query, k=req.k, expand_depth=req.expand_depth)
+    semantic_matches = _filter_hybrid_semantic_matches(
+        result.semantic_matches,
+        req.entity_type,
+    )
+    total = len(semantic_matches) + len(result.graph_context)
     return {
-        "semantic_matches": result.semantic_matches,
+        "semantic_matches": semantic_matches,
         "graph_context": result.graph_context,
-        "total": result.total,
+        "total": total,
         "query": result.query_text,
     }
 
@@ -491,7 +559,7 @@ async def deep_search(
 async def business_search(
     req: BusinessSearchRequest,
     svc: KnowledgeBaseService = Depends(_get_service),
-) -> dict[str, Any]:
+) -> JSONResponse:
     results: dict[str, Any] = {}
     if req.search_type in ("flow", "all"):
         flow_result = await svc.semantic_query.search_business_flows(
@@ -511,7 +579,13 @@ async def business_search(
                 code_result = await svc.graph_query.find_business_flow(flow_name, k=5)
                 flow["code_locations"] = code_result.data
 
-    return {"status": "success", "results": results}
+    return _deprecated_search_json(
+        {"status": "success", "results": results},
+        deprecated_message=(
+            "Use POST /api/v1/hybrid with entity_type filter instead"
+        ),
+        warn_message="Deprecated: use /hybrid with entity_type filter",
+    )
 
 
 @viewer_router.get("/index/tasks")

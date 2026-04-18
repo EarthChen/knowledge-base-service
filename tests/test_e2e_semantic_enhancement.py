@@ -92,7 +92,7 @@ class TestBusinessSemanticGraph:
             "sub_flows": [],
         })
         mock_store = MagicMock(spec=FalkorDBStore)
-        inferencer = BusinessFlowInferencer(llm=mock_llm, store=mock_store)
+        inferencer = BusinessFlowInferencer(llm=mock_llm, store=mock_store, business_flow_enabled=True)
 
         chain = [{"name": "register", "business_summary": "注册入口", "file": "auth.py"}]
         result = await inferencer.infer_from_chain(chain)
@@ -113,7 +113,7 @@ class TestBusinessSemanticGraph:
             "concepts": [{"name": "钱包", "description": "用户虚拟钱包", "aliases": ["wallet"], "category": "支付"}],
             "flows": [{"name": "充值", "description": "用户充值流程", "category": "支付"}],
         })
-        extractor = ConceptExtractor(llm=mock_llm)
+        extractor = ConceptExtractor(llm=mock_llm, concept_extraction_enabled=True)
 
         result = await extractor.extract("# 钱包系统\n支持用户充值和提现")
         assert len(result["concepts"]) == 1

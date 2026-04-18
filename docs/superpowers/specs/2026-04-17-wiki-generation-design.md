@@ -1135,13 +1135,29 @@ T-A3 Incremental update       T-B3 Custom compatible           T-C3 Dashboard Wi
 
 ---
 
-### P3 — Automation (~2 weeks)
+### P3 — Automation + Smart Enhancement + Search Simplification (~2 weeks)
 
-**Deliverables:**
-- [ ] Webhook-triggered Wiki update on push/PR
-- [ ] Scheduled Wiki regeneration (daily/weekly)
-- [ ] Wiki diff: show what changed in Wiki between two commits
-- [ ] Integration with code-review-bot: auto-attach relevant Wiki pages to PR
+**Track A — 自动化触发：**
+- [ ] Webhook push 触发自动更新（GitHub/GitLab/Gitea 验签 + 去重合并）
+- [ ] 定时 Wiki 再生（interval 模式，asyncio 调度器）
+
+**Track B — 智能增强：**
+- [ ] Ask v2 图增强上下文（问题类型检测 + N 跳调用链 + token 预算裁剪）
+- [ ] 图遍历 MCP 工具集（traverse_call_chain、find_impact_scope、analyze_pr_impact）
+- [ ] PR 影响分析纯数据 API（MCP + HTTP，不发 comment）
+
+**Track C — 搜索能力简化：**
+- [ ] 废弃 `/search` 和 `/business/search`，统一到 `/hybrid`
+- [ ] 废弃 MCP `rag_business_search`，合并到 `rag_query`
+- [ ] ConceptExtractor + BusinessFlowInferencer 默认关闭
+
+**延后至 P3+：**
+- Wiki Snapshot + Diff 可视化
+- 自定义模板（Jinja）
+- Redis 缓存层
+- Cron 表达式调度
+
+> 详细设计见 `PROPOSAL_20260418_175423_p3-detailed-design.md`
 
 ---
 

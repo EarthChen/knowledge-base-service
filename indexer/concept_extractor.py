@@ -31,11 +31,23 @@ _EXTRACT_PROMPT = """以下是项目文档。请提取其中的业务概念和�
 class ConceptExtractor:
     """Extracts business concepts and flow descriptions from documents."""
 
-    def __init__(self, llm: LLMProvider) -> None:
+    def __init__(
+        self,
+        llm: LLMProvider,
+        *,
+        concept_extraction_enabled: bool | None = None,
+    ) -> None:
         self._llm = llm
+        if concept_extraction_enabled is None:
+            from config import get_settings
+
+            concept_extraction_enabled = get_settings().llm.concept_extraction_enabled
+        self._concept_extraction_enabled = concept_extraction_enabled
 
     async def extract(self, content: str) -> dict[str, list[dict[str, Any]]]:
         """Extract concepts and flows from document content."""
+        if not self._concept_extraction_enabled:
+            return {"concepts": [], "flows": []}
         if not content or not content.strip():
             return {"concepts": [], "flows": []}
 

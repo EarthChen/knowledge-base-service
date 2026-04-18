@@ -41,6 +41,35 @@ class WikiPipeline(Protocol):
         ...
 
 
+@runtime_checkable
+class GraphQueryPort(Protocol):
+    """Graph traversal for MCP wiki tools (no LLM); implemented by GraphQueryService in production."""
+
+    async def traverse_call_chain(
+        self,
+        repository: str,
+        node_name: str,
+        direction: str = "callees",
+        max_depth: int = 3,
+    ) -> dict[str, Any]:
+        ...
+
+    async def find_impact_scope(
+        self,
+        repository: str,
+        node_name: str,
+        max_hops: int = 2,
+    ) -> dict[str, Any]:
+        ...
+
+    async def analyze_pr_impact(
+        self,
+        repository: str,
+        changed_files: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        ...
+
+
 WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
     {
         "name": "generate_wiki",
@@ -162,14 +191,85 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
             "required": ["repository", "question"],
         },
     },
+    {
+        "name": "traverse_call_chain",
+        "description": (
+            "Walk CALLS edges from a Function node to list callees or callers with optional wiki page paths."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {"type": "string", "description": "Repository identifier in the knowledge base."},
+                "node_name": {"type": "string", "description": "Function name or FQN to start from."},
+                "direction": {
+                    "type": "string",
+                    "enum": ["callees", "callers"],
+                    "description": "callees: root calls others; callers: others call root.",
+                    "default": "callees",
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Maximum CALLS hops (1–5).",
+                    "default": 3,
+                },
+            },
+            "required": ["repository", "node_name"],
+        },
+    },
+    {
+        "name": "find_impact_scope",
+        "description": (
+            "Compute reverse impact along CALLS, IMPORTS, and INHERITS toward a target entity, grouped by hop."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {"type": "string", "description": "Repository identifier."},
+                "node_name": {"type": "string", "description": "Target function, class, or module name / FQN."},
+                "max_hops": {
+                    "type": "integer",
+                    "description": "Maximum reverse hops (1–3).",
+                    "default": 2,
+                },
+            },
+            "required": ["repository", "node_name"],
+        },
+    },
+    {
+        "name": "analyze_pr_impact",
+        "description": (
+            "Map changed files to code entities, expand one hop upstream in the graph, "
+            "and summarize affected WikiPage paths with impact levels."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {"type": "string", "description": "Repository identifier."},
+                "changed_files": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "status": {"type": "string"},
+                        },
+                        "required": ["path", "status"],
+                    },
+                    "description": "List of changed file paths and git status codes.",
+                },
+            },
+            "required": ["repository", "changed_files"],
+        },
+    },
 ]
 
 
 class WikiMCPHandler:
     """Holds wiki pipeline components and serves MCP tool calls."""
 
-    def __init__(self, pipeline: WikiPipeline | None = None) -> None:
+    def __init__(self, pipeline: WikiPipeline | None = None, graph: GraphQueryPort | None = None) -> None:
         self._pipeline = pipeline
+        self._graph = graph
 
     @staticmethod
     def _mcp_error(code: str, message: str) -> dict[str, Any]:
@@ -177,6 +277,9 @@ class WikiMCPHandler:
 
     def _not_configured(self) -> dict[str, Any]:
         return self._mcp_error("service_unavailable", "Wiki pipeline not configured")
+
+    def _graph_not_configured(self) -> dict[str, Any]:
+        return self._mcp_error("service_unavailable", "Graph traversal not configured")
 
     async def handle_generate_wiki(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._pipeline is None:
@@ -304,5 +407,102 @@ class WikiMCPHandler:
         conversation_id = arguments.get("conversation_id")
         try:
             return await self._pipeline.ask_about_code(repository, question, scope, conversation_id)
+        except Exception as exc:
+            return self._mcp_error("internal_error", str(exc))
+
+    def _require_graph(self) -> dict[str, Any] | None:
+        if self._graph is None:
+            return self._graph_not_configured()
+        return None
+
+    @staticmethod
+    def _parse_direction(raw: object, default: str = "callees") -> str:
+        s = str(raw) if raw is not None else default
+        s = s.strip() or default
+        return s if s in ("callees", "callers") else default
+
+    @staticmethod
+    def _clamp_int(value: object, default: int, min_v: int, max_v: int) -> int:
+        try:
+            n = int(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            n = default
+        return max(min_v, min(n, max_v))
+
+    async def handle_traverse_call_chain(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if (err := self._require_graph()) is not None:
+            return err
+        assert self._graph is not None
+        repository = str(arguments.get("repository", "")).strip()
+        if not repository:
+            return self._mcp_error("invalid_params", "repository parameter is required")
+        node_name = str(arguments.get("node_name", "")).strip()
+        if not node_name:
+            return self._mcp_error("invalid_params", "node_name parameter is required")
+        direction = self._parse_direction(arguments.get("direction", "callees"), "callees")
+        max_depth = self._clamp_int(arguments.get("max_depth", 3), 3, 1, 5)
+        try:
+            return await self._graph.traverse_call_chain(
+                repository=repository,
+                node_name=node_name,
+                direction=direction,
+                max_depth=max_depth,
+            )
+        except Exception as exc:
+            return self._mcp_error("internal_error", str(exc))
+
+    async def handle_find_impact_scope(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if (err := self._require_graph()) is not None:
+            return err
+        assert self._graph is not None
+        repository = str(arguments.get("repository", "")).strip()
+        if not repository:
+            return self._mcp_error("invalid_params", "repository parameter is required")
+        node_name = str(arguments.get("node_name", "")).strip()
+        if not node_name:
+            return self._mcp_error("invalid_params", "node_name parameter is required")
+        max_hops = self._clamp_int(arguments.get("max_hops", 2), 2, 1, 3)
+        try:
+            return await self._graph.find_impact_scope(
+                repository=repository,
+                node_name=node_name,
+                max_hops=max_hops,
+            )
+        except Exception as exc:
+            return self._mcp_error("internal_error", str(exc))
+
+    async def handle_analyze_pr_impact(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if (err := self._require_graph()) is not None:
+            return err
+        assert self._graph is not None
+        repository = str(arguments.get("repository", "")).strip()
+        if not repository:
+            return self._mcp_error("invalid_params", "repository parameter is required")
+        raw_cf = arguments.get("changed_files")
+        if raw_cf is None:
+            return self._mcp_error("invalid_params", "changed_files parameter is required")
+        if not isinstance(raw_cf, list):
+            return self._mcp_error("invalid_params", "changed_files must be a list")
+        changed_files: list[dict[str, Any]] = []
+        for item in raw_cf:
+            if isinstance(item, dict):
+                changed_files.append(
+                    {
+                        "path": str(item.get("path", "")),
+                        "status": str(item.get("status", "")),
+                    },
+                )
+            else:
+                changed_files.append({"path": "", "status": ""})
+        if not changed_files:
+            return {
+                "affected_pages": [],
+                "summary": {"high_impact": 0, "medium_impact": 0, "total_affected_pages": 0},
+            }
+        try:
+            return await self._graph.analyze_pr_impact(
+                repository=repository,
+                changed_files=changed_files,
+            )
         except Exception as exc:
             return self._mcp_error("internal_error", str(exc))

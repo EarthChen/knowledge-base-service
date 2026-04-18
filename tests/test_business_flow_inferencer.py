@@ -30,7 +30,7 @@ class TestBusinessFlowInferencer:
     @pytest.mark.asyncio
     async def test_infer_from_call_chain(self, mock_llm, mock_store):
         from indexer.business_flow_inferencer import BusinessFlowInferencer
-        inferencer = BusinessFlowInferencer(llm=mock_llm, store=mock_store)
+        inferencer = BusinessFlowInferencer(llm=mock_llm, store=mock_store, business_flow_enabled=True)
         chain = [
             {"name": "createOrder", "business_summary": "创建订单入口", "file": "order.py"},
             {"name": "validateStock", "business_summary": "验证库存", "file": "stock.py"},
@@ -45,7 +45,7 @@ class TestBusinessFlowInferencer:
     async def test_handles_llm_failure(self, mock_llm, mock_store):
         from indexer.business_flow_inferencer import BusinessFlowInferencer
         mock_llm.complete_json = AsyncMock(side_effect=Exception("LLM error"))
-        inferencer = BusinessFlowInferencer(llm=mock_llm, store=mock_store)
+        inferencer = BusinessFlowInferencer(llm=mock_llm, store=mock_store, business_flow_enabled=True)
         chain = [{"name": "func", "business_summary": "test", "file": "a.py"}]
         result = await inferencer.infer_from_chain(chain)
         assert result is None
@@ -53,7 +53,7 @@ class TestBusinessFlowInferencer:
     @pytest.mark.asyncio
     async def test_chain_text_formatting(self, mock_llm, mock_store):
         from indexer.business_flow_inferencer import BusinessFlowInferencer
-        inferencer = BusinessFlowInferencer(llm=mock_llm, store=mock_store)
+        inferencer = BusinessFlowInferencer(llm=mock_llm, store=mock_store, business_flow_enabled=True)
         chain = [
             {"name": "a", "business_summary": "desc_a", "file": "x.py"},
             {"name": "b", "file": "y.py"},

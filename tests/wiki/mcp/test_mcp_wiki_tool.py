@@ -125,6 +125,9 @@ class TestWikiToolsRegistered:
             "list_wiki_pages",
             "search_wiki",
             "ask_about_code",
+            "traverse_call_chain",
+            "find_impact_scope",
+            "analyze_pr_impact",
         }
 
     def test_search_wiki_tool_registered(self):
@@ -145,8 +148,8 @@ class TestWikiToolsRegistered:
         assert "repository" in req
         assert "question" in req
 
-    def test_wiki_manifest_has_5_tools(self):
-        assert len(WIKI_MCP_TOOLS_MANIFEST) == 5
+    def test_wiki_manifest_has_8_tools(self):
+        assert len(WIKI_MCP_TOOLS_MANIFEST) == 8
 
 
 class TestGenerateWiki:

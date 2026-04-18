@@ -34,12 +34,25 @@ _FLOW_INFERENCE_PROMPT = """以下是一条代码调用链。请分析它实现�
 class BusinessFlowInferencer:
     """Infers business flows from code call chains."""
 
-    def __init__(self, llm: LLMProvider, store: FalkorDBStore) -> None:
+    def __init__(
+        self,
+        llm: LLMProvider,
+        store: FalkorDBStore,
+        *,
+        business_flow_enabled: bool | None = None,
+    ) -> None:
         self._llm = llm
         self._store = store
+        if business_flow_enabled is None:
+            from config import get_settings
+
+            business_flow_enabled = get_settings().llm.business_flow_enabled
+        self._business_flow_enabled = business_flow_enabled
 
     async def infer_from_chain(self, chain: list[dict[str, str]]) -> dict[str, Any] | None:
         """Infer a business flow from a call chain."""
+        if not self._business_flow_enabled:
+            return None
         chain_text = "\n".join(
             f"  {'→ ' if i > 0 else ''}{item['name']} ({item.get('business_summary', 'N/A')}) [{item.get('file', '')}]"
             for i, item in enumerate(chain)

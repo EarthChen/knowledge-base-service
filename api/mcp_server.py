@@ -14,6 +14,7 @@ Tools exposed:
   - code_quality: Heuristic 0–100 quality score for a Function or Class node
   - dashboard_stats: P2 enrichment aggregates (architecture layers, Kafka events, RPC, cross-repo)
   - generate_wiki, get_wiki_page, list_wiki_pages, search_wiki, ask_about_code: Wiki generation and Q&A
+  - traverse_call_chain, find_impact_scope, analyze_pr_impact: Wiki-scoped graph traversal (no LLM)
 """
 
 from __future__ import annotations
@@ -29,9 +30,60 @@ from log import get_logger
 from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
 from store.falkordb_store import FalkorDBStore
+from store.schema import NodeLabel
 from wiki.mcp_tools import WIKI_MCP_TOOLS_MANIFEST, WikiMCPHandler
 
 log = get_logger(__name__)
+
+_ENTITY_FILTER_LABELS: dict[str, frozenset[str]] = {
+    "function": frozenset({str(NodeLabel.FUNCTION)}),
+    "class": frozenset({str(NodeLabel.CLASS)}),
+    "module": frozenset({str(NodeLabel.MODULE)}),
+    "document": frozenset({str(NodeLabel.DOCUMENT)}),
+}
+
+
+def _normalize_entity_type_arg(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return s.lower() if s else None
+
+
+def _filter_semantic_matches_by_entity_type(
+    matches: list[dict[str, Any]],
+    entity_type: str | None,
+) -> list[dict[str, Any]]:
+    if not entity_type:
+        return matches
+    if entity_type in ("flow", "concept"):
+        return matches
+    allowed = _ENTITY_FILTER_LABELS.get(entity_type)
+    if not allowed:
+        return matches
+    return [m for m in matches if m.get("type") in allowed]
+
+
+def _filter_graph_context_by_entity_type(
+    graph_context: list[dict[str, Any]],
+    entity_type: str | None,
+) -> list[dict[str, Any]]:
+    if not entity_type:
+        return graph_context
+    if entity_type in ("flow", "concept"):
+        return graph_context
+    allowed = _ENTITY_FILTER_LABELS.get(entity_type)
+    if not allowed:
+        return graph_context
+    fn_label = str(NodeLabel.FUNCTION)
+    out: list[dict[str, Any]] = []
+    for item in graph_context:
+        t = item.get("type", "")
+        if t in allowed:
+            out.append(item)
+        elif t == "business_flow" and fn_label in allowed:
+            out.append(item)
+    return out
 
 
 def _looks_like_git_url(value: str) -> bool:
@@ -70,6 +122,13 @@ MCP_TOOLS_MANIFEST = [
                     "type": "integer",
                     "description": "Depth of graph expansion from semantic matches.",
                     "default": 2,
+                },
+                "entity_type": {
+                    "type": "string",
+                    "description": (
+                        "Filter by entity type: 'function', 'class', 'module', 'document', 'flow', 'concept'. "
+                        "When 'flow' or 'concept', searches business entities."
+                    ),
                 },
             },
             "required": ["query"],
@@ -174,11 +233,13 @@ MCP_TOOLS_MANIFEST = [
     {
         "name": "rag_business_search",
         "description": (
+            "[DEPRECATED] "
             "搜索业务流程和业务概念，支持自然语言查询。可以搜索业务流程（如'用户下单'）、"
             "业务概念（如'私信'），并返回关联的代码位置。"
         ),
         "inputSchema": {
             "type": "object",
+            "_deprecated": "Use rag_query with entity_type parameter instead",
             "properties": {
                 "query": {
                     "type": "string",
@@ -462,6 +523,9 @@ class KnowledgeBaseMCPHandler:
             "list_wiki_pages": self._wiki.handle_list_wiki_pages,
             "search_wiki": self._wiki.handle_search_wiki,
             "ask_about_code": self._wiki.handle_ask_about_code,
+            "traverse_call_chain": self._wiki.handle_traverse_call_chain,
+            "find_impact_scope": self._wiki.handle_find_impact_scope,
+            "analyze_pr_impact": self._wiki.handle_analyze_pr_impact,
         }
 
         handler = handlers.get(tool_name)
@@ -478,13 +542,39 @@ class KnowledgeBaseMCPHandler:
         query_text = args.get("query", "")
         k = args.get("k", 5)
         expand_depth = args.get("expand_depth", 2)
+        entity_type = _normalize_entity_type_arg(args.get("entity_type"))
+
+        if entity_type in ("flow", "concept"):
+            if not str(query_text).strip():
+                return {"error": "query parameter is required"}
+            search_type = "flow" if entity_type == "flow" else "concept"
+            business = await self._collect_business_search_results(
+                str(query_text),
+                search_type,
+                int(k) if k is not None else 5,
+                True,
+            )
+            semantic_matches: list[dict[str, Any]] = []
+            if entity_type == "flow":
+                semantic_matches = business.get("flows", [])
+            else:
+                semantic_matches = business.get("concepts", [])
+            return {
+                "query": str(query_text),
+                "semantic_matches": semantic_matches,
+                "graph_context": [],
+                "total_results": len(semantic_matches),
+            }
 
         result = await self._hybrid.search_with_context(query_text, k=k, expand_depth=expand_depth)
+        matches = _filter_semantic_matches_by_entity_type(result.semantic_matches, entity_type)
+        graph_ctx = _filter_graph_context_by_entity_type(result.graph_context, entity_type)
+        total = len(matches) + len(graph_ctx)
         return {
             "query": result.query_text,
-            "semantic_matches": result.semantic_matches,
-            "graph_context": result.graph_context,
-            "total_results": result.total,
+            "semantic_matches": matches,
+            "graph_context": graph_ctx,
+            "total_results": total,
         }
 
     async def handle_rag_graph(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -560,14 +650,13 @@ class KnowledgeBaseMCPHandler:
 
         return {"error": f"Unknown query_type: {query_type}"}
 
-    async def handle_rag_business_search(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        query = arguments.get("query", "")
-        if not query:
-            return {"error": "query parameter is required"}
-        search_type = arguments.get("search_type", "all")
-        k = arguments.get("k", 5)
-        include_code = arguments.get("include_code", True)
-
+    async def _collect_business_search_results(
+        self,
+        query: str,
+        search_type: str,
+        k: int,
+        include_code: bool,
+    ) -> dict[str, Any]:
         results: dict[str, Any] = {}
         if search_type in ("flow", "all"):
             flow_result = await self._hybrid.semantic.search_business_flows(query, k)
@@ -583,7 +672,22 @@ class KnowledgeBaseMCPHandler:
                     code_result = await self._graph.find_business_flow(flow_name, k=5)
                     flow["code_locations"] = code_result.data
 
-        return {"status": "success", "results": results}
+        return results
+
+    async def handle_rag_business_search(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        query = arguments.get("query", "")
+        if not query:
+            return {"error": "query parameter is required"}
+        search_type = arguments.get("search_type", "all")
+        k = arguments.get("k", 5)
+        include_code = arguments.get("include_code", True)
+
+        results = await self._collect_business_search_results(query, search_type, k, include_code)
+        return {
+            "status": "success",
+            "results": results,
+            "_deprecated": "Use rag_query with entity_type parameter instead",
+        }
 
     async def handle_analyze_impact(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from query.analysis_service import AnalysisService

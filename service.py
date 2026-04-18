@@ -7,6 +7,7 @@ the knowledge base (store, indexer, query services, MCP handler).
 from __future__ import annotations
 
 from api.mcp_server import KnowledgeBaseMCPHandler
+from wiki.mcp_tools import WikiMCPHandler
 from config import Settings
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.doc_indexer import DocumentIndexer
@@ -136,6 +137,7 @@ class KnowledgeBaseService:
             doc_indexer=self._doc_indexer,
             store=self._store,
             embedding_gen=self._embedding,
+            wiki_handler=WikiMCPHandler(pipeline=None, graph=self._graph_query),
         )
 
         self._deep_search = None

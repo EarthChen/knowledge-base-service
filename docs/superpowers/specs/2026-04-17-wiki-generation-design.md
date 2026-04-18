@@ -969,7 +969,11 @@ Templates are defined per page type (module overview, class detail) and populate
 
 ## 5. Phased Delivery Plan
 
+**Delivery status:** **P1**, **P1.5**, and **P2** are **completed** (implementation in `main` as of 2026-04-18). **P3** (webhooks, schedules, wiki diff, review-bot hooks) remains **planned**.
+
 ### P1 — MVP: On-Demand Local Generation (~3.5 weeks)
+
+**Status:** **Completed**
 
 #### Build Order & Dependency Graph
 
@@ -1035,6 +1039,8 @@ T1.3 StructurePlanner ─┘                                      ├──→ T
 
 ### P1.5 — Search + Ask + Hybrid Pipeline (~1.5 weeks)
 
+**Status:** **Completed**
+
 P1.5 adds interactive capabilities that address the largest feature gap vs DeepWiki.
 
 | Task | Description | Effort | Dependencies |
@@ -1056,6 +1062,8 @@ P1.5 adds interactive capabilities that address the largest feature gap vs DeepW
 ---
 
 ### P2 — Full Repo + UI + Multi-Provider (~3 weeks)
+
+**Status:** **Completed**
 
 #### Track Structure
 
@@ -1154,7 +1162,7 @@ T-A3 Incremental update       T-B3 Custom compatible           T-C3 Dashboard Wi
 | `tests/wiki/` | Unit + integration + API tests for wiki module | P1 |
 | `wiki/search.py` | **3-path hybrid search pipeline**: RRF fusion, graph-aware query expansion | P1.5 |
 | `wiki/ask.py` | **Wiki Ask Feature**: hybrid search + LLM generation + conversation history | P1.5 |
-| `dashboard/src/pages/Wiki.tsx` | Wiki browse UI (tree + MD renderer + Mermaid + **Ask sidebar** + **IDE deep links**) | P2 |
+| `dashboard/src/pages/WikiPage.tsx` | Wiki browse UI (tree + MD renderer + Mermaid + **Ask sidebar** + **IDE deep links**) | P2 |
 
 ### Existing Files Modified
 

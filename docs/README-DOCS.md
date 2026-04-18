@@ -7,6 +7,7 @@
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | P2 提案（跨仓库 RPC、PR 审查、Smart Context、实体表、Spring DI） | ✅ 已完成 | 见 [PROPOSAL_20260416_174915_p2_cross_service_intelligence.md](proposals/PROPOSAL_20260416_174915_p2_cross_service_intelligence.md) |
+| Wiki Generation（P1 / P1.5 / P2） | ✅ 已实现 | 设计规格 [superpowers/specs/2026-04-17-wiki-generation-design.md](superpowers/specs/2026-04-17-wiki-generation-design.md)；P2 细化 [superpowers/specs/PROPOSAL_20260418_170517_p2-detailed-design.md](superpowers/specs/PROPOSAL_20260418_170517_p2-detailed-design.md)；架构摘要 [wiki-generation-architecture.md](wiki-generation-architecture.md) |
 | G1–G6 增量能力 | ✅ 已完成 | 解析与图增强、API/MCP、Dashboard P2、批量重索引等（见下表） |
 
 ### G1–G6 能力摘要
@@ -33,6 +34,7 @@
 
 | 文档 | 用途 |
 |------|------|
+| [wiki-generation-architecture.md](wiki-generation-architecture.md) | Wiki 生成架构（管线、检索、LLM、模块索引）；英文简明版 |
 | [MCP-INTEGRATION.md](MCP-INTEGRATION.md) | MCP 工具（12 个）、HTTP 调用、Cursor 配置、权限与推荐工作流 |
 | [ONBOARDING.md](ONBOARDING.md) | 新成员上手与服务约定 |
 | [../README.md](../README.md) | 服务总览、索引管道、API 与部署 |

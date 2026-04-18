@@ -141,6 +141,7 @@ uv run pytest
 - **图查询** — 多种查询类型（含代码结构类与业务流程类）的动态表单
 - **仓库管理** — 已索引仓库列表 + 删除操作
 - **索引** — 触发全量/增量索引；**业务摘要补全**（对已入库仓库仅跑 LLM `business_summary`，不重新解析代码）：仓库从已索引列表选择、可选强制重生成、进度与 `POST /api/v1/index` 相同任务体系（`GET /api/v1/index/tasks/{task_id}`）
+- **Wiki** — 浏览已生成 Wiki（目录树、Markdown + Mermaid、混合搜索、`/wiki`）
 - **设置** — 语言切换、API Token、服务信息；**定时同步**（管理员）— 配置周期性 `git pull` + 增量重索引，支持立即触发与计划管理
 
 访问：开发模式 http://localhost:5173 | 生产模式 http://localhost:8100
@@ -582,6 +583,107 @@ curl http://localhost:8100/api/v1/code/<node_uid>
 面向 HTTP / Agent 的业务语义查询还可使用 **`POST /api/v1/business/search`**：按 `search_type`（`flow` / `concept` / `all`）检索业务流程与业务概念，行为与 MCP 工具 `rag_business_search` 一致。
 
 MCP 侧：`rag_graph` 增加业务流程相关 `query_type`；新增 **`rag_business_search`** 专查流程与概念。详见 [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md)。
+
+---
+
+## Wiki Generation
+
+English naming follows the REST paths below. Wiki turns the indexed **code graph** (Tree-sitter → FalkorDB) into Markdown with **deterministic Mermaid** diagrams, optional **LLM** narration (3-tier fallback: pre-computed summaries → LLM → structural templates), **hybrid search** (graph + vector + FTS with RRF), and **SSE Ask** over the same retrieval stack.
+
+**Implementation phases:** **P1** core composer pipeline; **P1.5** search + Ask + 5 MCP tools; **P2** full-repo composition, multi-provider LLM, disk export, persistent cache, incremental updates, Dashboard `WikiPage`.
+
+Architecture (high level):
+
+```mermaid
+flowchart LR
+    subgraph api [API]
+        G[POST /wiki/generate]
+        S[POST /wiki/search]
+        A[POST /wiki/ask SSE]
+    end
+    subgraph wiki [wiki module]
+        SP[StructurePlanner]
+        DC[DataCollector]
+        CP[WikiComposer]
+        DG[DiagramGen]
+        EX[Exporter / DiskExporter]
+    end
+    subgraph store [KBS]
+        FK[(FalkorDB)]
+        EM[bge-m3 embeddings]
+    end
+    G --> SP --> DC --> CP --> DG --> EX
+    S --> FK
+    S --> EM
+    A --> S
+    CP --> LLM[LLM providers]
+```
+
+### Wiki HTTP API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/wiki/generate` | Generate wiki (sync for module/class scope; **202 + task_id** for `scope: repo`) |
+| POST | `/api/v1/wiki/generate` | Same URL with header `Accept: text/event-stream` — **SSE** stream (`wiki-page`, `wiki-complete` events) |
+| POST | `/api/v1/wiki/quick` | Quick wiki: clone/index path or fast path when repo already indexed |
+| GET | `/api/v1/wiki/tasks/{task_id}` | Poll async wiki / quick tasks |
+| GET | `/api/v1/wiki/{repository}/pages` | List generated pages (`scope` query optional) |
+| GET | `/api/v1/wiki/{repository}/pages/{path}` | Fetch one page by wiki path (URL-encoded) |
+| POST | `/api/v1/wiki/search` | Hybrid wiki search (`mode`: hybrid, graph, semantic, keyword) |
+| POST | `/api/v1/wiki/ask` | Ask about code (**SSE**; conversation id optional) |
+| GET | `/api/v1/llm/providers` | List configured LLM provider names |
+
+Example — generate a module wiki (requires indexed `repository`):
+
+```bash
+curl -s -X POST http://localhost:8100/api/v1/wiki/generate \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "repository": "my-repo",
+    "scope": "module:src/service.py",
+    "mode": "structure",
+    "format": "json",
+    "language": "en"
+  }'
+```
+
+Example — SSE generation:
+
+```bash
+curl -N -X POST http://localhost:8100/api/v1/wiki/generate \
+  -H "Accept: text/event-stream" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"repository":"my-repo","scope":"repo","mode":"structure","format":"json","language":"en"}'
+```
+
+### Wiki MCP tools (5)
+
+Registered alongside existing RAG tools; call via `GET/POST /api/v1/mcp/*` as usual.
+
+| Tool | Purpose |
+|------|---------|
+| `generate_wiki` | Generate wiki for a scope |
+| `get_wiki_page` | Get one page |
+| `list_wiki_pages` | List pages / tree |
+| `search_wiki` | Hybrid search over wiki |
+| `ask_about_code` | Streaming Q&A |
+
+### LLM providers (Wiki + enrichment)
+
+Wiki generation uses `LLMProviderFactory` (`llm/provider_factory.py`): **gateway** (ACP / existing bridge), **openai**, **azure**, **custom** OpenAI-compatible endpoints. Defaults and credentials come from **`LLMConfig`** (`config.py`).
+
+| Variable | Meaning |
+|----------|---------|
+| `LLM__ENABLED` | Enable LLM features (`full` wiki mode, Ask, etc.) |
+| `LLM__DEFAULT_PROVIDER` | `gateway` \| `openai` \| `azure` \| `custom` |
+| `LLM__FALLBACK_PROVIDER` | Optional secondary provider on transport failure |
+| `LLM__PROVIDERS` | Provider-specific keys (nested settings; configure per `config.py` / `.env` conventions) |
+
+Use **`GET /api/v1/llm/providers`** to see which providers are available at runtime. Optional request field **`llm_provider`** on wiki generate/quick overrides the default when allowed by RBAC.
+
+Design detail: [docs/superpowers/specs/2026-04-17-wiki-generation-design.md](docs/superpowers/specs/2026-04-17-wiki-generation-design.md) · Architecture summary: [docs/wiki-generation-architecture.md](docs/wiki-generation-architecture.md).
 
 ### 11. 查看图统计信息
 
@@ -1222,6 +1324,19 @@ Function / Class 可含 **`business_summary`**（LLM 生成的业务描述）；
 | GET | `/api/v1/mcp/tools` | 列出 MCP 工具定义 |
 | POST | `/api/v1/mcp/tool` | 执行 MCP 工具调用 |
 
+### Wiki
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/wiki/generate` | 生成 Wiki（同步或 **SSE**：`Accept: text/event-stream`；`scope=repo` 时为异步 **202** + `task_id`） |
+| POST | `/api/v1/wiki/quick` | 快速 Wiki（未索引则后台克隆/索引任务） |
+| GET | `/api/v1/wiki/tasks/{task_id}` | 查询 Wiki / quick 异步任务 |
+| GET | `/api/v1/wiki/{repository}/pages` | 列出 Wiki 页面 |
+| GET | `/api/v1/wiki/{repository}/pages/{path}` | 获取单页内容（路径含 `/` 需编码） |
+| POST | `/api/v1/wiki/search` | Wiki 混合检索 |
+| POST | `/api/v1/wiki/ask` | 代码问答（SSE） |
+| GET | `/api/v1/llm/providers` | 列出 LLM 提供方名称 |
+
 #### GET /api/v1/health
 
 - **200**：`{"status": "ok", "redis": "ready", "embedding": "ready"}` — 仅当 **Redis/FalkorDB 可 ping** 且 **嵌入模型已加载** 时返回。
@@ -1260,6 +1375,11 @@ knowledge-base-service/
 │   └── concept_extractor.py    # 文档概念提取
 ├── llm/
 │   ├── provider.py             # OpenAI 兼容 LLM 客户端
+│   ├── base_provider.py        # BaseLLMProvider、Gateway 适配、LLMPortBridge（Wiki 等）
+│   ├── provider_factory.py     # 多 Provider 工厂与 fallback
+│   ├── openai_provider.py      # OpenAI 直连
+│   ├── azure_provider.py       # Azure OpenAI
+│   ├── custom_provider.py      # 自定义 OpenAI 兼容端点
 │   └── gateway_client.py       # GatewayTaskClient（反馈循环）/ RepoTaskManager（enrich:* / search:* 键复用 ACP 任务）
 ├── store/
 │   ├── schema.py               # 节点/边类型定义
@@ -1271,18 +1391,23 @@ knowledge-base-service/
 │   ├── hybrid_query.py         # 语义 + 图扩展
 │   ├── reranker.py             # Cross-encoder 重排序
 │   └── deep_search.py          # Dashboard LLM 深度搜索编排
+├── wiki/                       # Wiki 生成：编排、检索、导出、缓存、P2 全仓/增量
 ├── api/
-│   └── mcp_server.py           # MCP 工具定义 & 处理器
+│   ├── mcp_server.py           # MCP 工具定义 & 处理器（含 Wiki 工具）
+│   └── routes/
+│       ├── wiki_routes.py      # Wiki REST + SSE
+│       └── provider_routes.py  # GET /llm/providers
 ├── dashboard/                  # React Dashboard 源码
 │   ├── src/
 │   │   ├── api/               # API client + React Query hooks
 │   │   ├── components/        # Layout, StatCard, Toast, Skeleton...
 │   │   ├── i18n/              # 多语言 (en/zh)
-│   │   └── pages/             # Overview, Search, Graph, Repos, Indexing, Settings
+│   │   └── pages/             # Overview, Search, Graph, Repos, Indexing, Wiki, Settings
 │   ├── vite.config.ts
 │   └── package.json
 ├── static/                     # Dashboard 构建产物（gitignored）
 ├── docs/
+│   ├── wiki-generation-architecture.md  # Wiki 管线与检索架构（英文摘要）
 │   ├── MCP-INTEGRATION.md      # MCP 集成指南（配置、认证、工作流）
 │   ├── ONBOARDING.md           # 业务项目接入指南（完整步骤）
 │   ├── proposals/              # 设计提案

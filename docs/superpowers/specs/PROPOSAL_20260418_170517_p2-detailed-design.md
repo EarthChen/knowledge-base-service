@@ -1,6 +1,6 @@
 # P2 Detailed Design Supplement — Wiki Generation
 
-> **Status**: `[AwaitingApproval]`
+> **Status**: `[Implemented]`
 > **Parent Spec**: `2026-04-17-wiki-generation-design.md` Section P2
 > **Created**: 2026-04-18
 > **Purpose**: Supplement the P2 high-level plan with executable technical design for all 14 identified gaps.
@@ -701,7 +701,7 @@ Subagent-23: P2 Integration Tests [2d]
 | `llm/base_provider.py` | 90% | Interface contract |
 | `llm/provider_factory.py` | 85% | Factory + fallback logic |
 | `wiki/persistent_cache.py` | 90% | Cache correctness critical |
-| `dashboard/src/pages/Wiki.tsx` | N/A | Frontend covered by E2E |
+| `dashboard/src/pages/WikiPage.tsx` | N/A | Frontend covered by E2E |
 | **Overall wiki module** | **≥80%** | **Project quality gate** |
 
 ---
@@ -727,12 +727,14 @@ Subagent-23: P2 Integration Tests [2d]
 
 ## Approval Checklist
 
-- [ ] Track A: compose_repo_wiki data flow approved
-- [ ] Track A: New page type templates approved
-- [ ] Track A: Incremental update algorithm approved
-- [ ] Track B: Provider interface + factory approved
-- [ ] Track B: Security controls approved
-- [ ] Track C: Persistent cache design approved
-- [ ] Track C: Dashboard architecture approved
-- [ ] Subagent dispatch plan approved
-- [ ] Effort estimates approved
+Implementation matches this design; items below are recorded as **done** for traceability.
+
+- [x] Track A: compose_repo_wiki data flow approved
+- [x] Track A: New page type templates approved
+- [x] Track A: Incremental update algorithm approved
+- [x] Track B: Provider interface + factory approved
+- [x] Track B: Security controls approved
+- [x] Track C: Persistent cache design approved
+- [x] Track C: Dashboard architecture approved
+- [x] Subagent dispatch plan approved
+- [x] Effort estimates approved

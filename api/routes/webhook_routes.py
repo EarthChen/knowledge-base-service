@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+import copy
+from typing import Annotated, Any
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from auth import Role, TokenInfo, require_role
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -15,6 +17,19 @@ from wiki.webhook.receiver import WebhookReceiver
 webhook_router = APIRouter(prefix="/api/v1/hooks", tags=["webhooks"])
 
 _VALID_PROVIDERS = frozenset({"github", "gitlab", "gitea"})
+
+
+def _mask_webhook_config_for_response(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of config with provider secrets redacted for API responses."""
+    out = copy.deepcopy(cfg)
+    providers = out.get("providers") or {}
+    if isinstance(providers, dict):
+        for prov in providers.values():
+            if isinstance(prov, dict):
+                sec = prov.get("secret")
+                if isinstance(sec, str) and sec.strip():
+                    prov["secret"] = "***configured***"
+    return out
 
 
 def default_webhook_config() -> dict[str, Any]:
@@ -82,21 +97,28 @@ class WebhookConfigUpdate(BaseModel):
 
 
 @webhook_router.get("/config")
-async def get_webhook_config(request: Request) -> dict[str, Any]:
+async def get_webhook_config(
+    request: Request,
+    _auth: Annotated[TokenInfo | None, Depends(require_role(Role.ADMIN))],
+) -> dict[str, Any]:
     """Return the current webhook configuration."""
     cfg = getattr(request.app.state, "webhook_config", None)
     if cfg is None:
-        return default_webhook_config()
-    return dict(cfg)
+        return _mask_webhook_config_for_response(default_webhook_config())
+    return _mask_webhook_config_for_response(dict(cfg))
 
 
 @webhook_router.put("/config")
-async def update_webhook_config(body: WebhookConfigUpdate, request: Request) -> dict[str, Any]:
+async def update_webhook_config(
+    body: WebhookConfigUpdate,
+    request: Request,
+    _auth: Annotated[TokenInfo | None, Depends(require_role(Role.ADMIN))],
+) -> dict[str, Any]:
     """Replace webhook configuration and rebuild debouncer/dispatcher."""
     updated = body.model_dump()
     request.app.state.webhook_config = updated
     apply_webhook_runtime(request.app)
-    return dict(updated)
+    return _mask_webhook_config_for_response(updated)
 
 
 @webhook_router.post("/{provider}")

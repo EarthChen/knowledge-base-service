@@ -7,7 +7,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
+from log import get_logger
 from wiki.scheduler.task_lock import TaskLock
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -94,6 +97,7 @@ class WikiScheduler:
                         try:
                             await self._regenerate_fn(repo)
                         except Exception:
+                            log.exception("wiki scheduler regenerate failed", repository=repo)
                             self._repo_last_result[repo] = "failed"
                             now = datetime.now(tz=UTC)
                             self._repo_last_run[repo] = now

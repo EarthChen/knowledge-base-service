@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from auth import Role, require_role
+from log import get_logger
 from query.graph_query import GraphQueryService
 from git_manager import normalize_repo_name
 from wiki.ask import WikiAskService
@@ -34,6 +35,8 @@ from wiki.models import (
 from wiki.search import SearchResponse, WikiSearchService
 from wiki.service import WikiRepoNotFoundError, WikiService
 from wiki.structure_planner import WikiScopeError
+
+log = get_logger(__name__)
 
 
 class WikiTaskRegistry:
@@ -697,11 +700,15 @@ async def analyze_pr_impact(
             changed_files=changed_payload,
         )
     except Exception as exc:
+        log.exception(
+            "analyze_pr_impact graph query failed",
+            repository=repository,
+        )
         raise HTTPException(
             status_code=503,
             detail={
                 "error": "graph_query_failed",
-                "detail": str(exc),
+                "detail": "graph_query_failed",
             },
         ) from exc
 

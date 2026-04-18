@@ -64,6 +64,7 @@ const zh: Translations = {
     all: "全部",
     function: "函数",
     class: "类",
+    module: "模块",
     document: "文档",
     topK: "返回数量：",
     expandDepth: "展开深度：",

@@ -89,6 +89,7 @@ export interface HybridSearchResponse {
   graph_context: unknown[];
   total: number;
   query: string;
+  entity_type?: string;
 }
 
 export interface IndexResponse {
@@ -200,31 +201,36 @@ export interface DocumentDetail {
   sections: DocumentSection[];
 }
 
-export interface BusinessFlowMatch {
-  name: string;
-  description: string;
-  category?: string;
-  confidence_score?: number;
-  score: number;
-  code_locations?: Array<{
-    name: string;
-    file: string;
-    line?: number;
-    type?: string;
-  }>;
+export interface WebhookProviderConfig {
+  secret: string;
 }
 
-export interface BusinessConceptMatch {
-  name: string;
-  description: string;
-  aliases?: string[];
-  category?: string;
-  score: number;
+export interface WebhookConfig {
+  enabled: boolean;
+  debounce_seconds: number;
+  auto_update_branches: string[];
+  providers: Record<string, WebhookProviderConfig>;
 }
 
-export interface BusinessSearchResponse {
-  flows?: BusinessFlowMatch[];
-  concepts?: BusinessConceptMatch[];
+export interface AnalyzeImpactFile {
+  path: string;
+  status: "added" | "modified" | "removed" | "renamed";
+}
+
+export interface ImpactPage {
+  wiki_page_path: string;
+  impact_level: string;
+  reason: string;
+  affected_entities: string[];
+}
+
+export interface AnalyzeImpactResponse {
+  affected_pages: ImpactPage[];
+  summary: {
+    high_impact: number;
+    medium_impact: number;
+    total_affected_pages: number;
+  };
 }
 
 export interface SyncSchedule {

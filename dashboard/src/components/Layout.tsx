@@ -3,8 +3,6 @@ import { NavLink, Outlet } from "react-router-dom";
 import {
   LayoutDashboard,
   Search,
-  Brain,
-  GitFork,
   Network,
   FolderGit2,
   FileText,
@@ -17,6 +15,7 @@ import {
   ChevronDown,
   Layers,
   BookOpen,
+  GitPullRequest,
 } from "lucide-react";
 import { useHealth } from "../api/hooks";
 import { useI18n } from "../i18n/context";
@@ -26,27 +25,44 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bizDropdownOpen, setBizDropdownOpen] = useState(false);
   const { data: health } = useHealth();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const isZh = locale === "zh";
   const { currentBusiness, setCurrentBusiness, businesses, isBound } = useBusiness();
   const isHealthy = health?.status === "ok";
 
   const currentBizName =
     businesses.find((b) => b.id === currentBusiness)?.name || currentBusiness;
 
-  const NAV = [
-    { to: "/", icon: LayoutDashboard, label: t.nav.overview },
-    { to: "/search", icon: Search, label: t.nav.search },
-    { to: "/deep-search", icon: Brain, label: t.nav.deepSearch },
-    { to: "/graph", icon: GitFork, label: t.nav.graphQuery },
-    { to: "/explorer", icon: Network, label: t.nav.explorer },
-    { to: "/architecture", icon: Layers, label: t.nav.architecture },
-    { to: "/repositories", icon: FolderGit2, label: t.nav.repositories },
-    { to: "/documents", icon: FileText, label: t.nav.documents },
-    { to: "/indexing", icon: Database, label: t.nav.indexing },
-    { to: "/businesses", icon: Building2, label: t.nav.businesses },
-    { to: "/wiki", icon: BookOpen, label: t.nav.wiki },
-    { to: "/settings", icon: Settings, label: t.nav.settings },
-  ] as const;
+  type NavItem = { to: string; icon: typeof LayoutDashboard; label: string };
+  type NavGroup = { title: string; items: NavItem[] };
+
+  const NAV_GROUPS: NavGroup[] = [
+    {
+      title: isZh ? "知识探索" : "Explore",
+      items: [
+        { to: "/", icon: LayoutDashboard, label: t.nav.overview },
+        { to: "/search", icon: Search, label: t.nav.search },
+        { to: "/explorer", icon: Network, label: t.nav.explorer },
+      ],
+    },
+    {
+      title: isZh ? "Wiki 空间" : "Wiki",
+      items: [
+        { to: "/wiki", icon: BookOpen, label: t.nav.wiki },
+        { to: "/pr-impact", icon: GitPullRequest, label: isZh ? "PR 影响分析" : "PR Impact" },
+      ],
+    },
+    {
+      title: isZh ? "管理" : "Manage",
+      items: [
+        { to: "/repositories", icon: FolderGit2, label: t.nav.repositories },
+        { to: "/indexing", icon: Database, label: t.nav.indexing },
+        { to: "/architecture", icon: Layers, label: t.nav.architecture },
+        { to: "/documents", icon: FileText, label: t.nav.documents },
+        { to: "/settings", icon: Settings, label: t.nav.settings },
+      ],
+    },
+  ];
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -118,27 +134,34 @@ export default function Layout() {
         )}
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          <ul className="space-y-1">
-            {NAV.map(({ to, icon: Icon, label }) => (
-              <li key={to}>
-                <NavLink
-                  to={to}
-                  end={to === "/"}
-                  onClick={() => setSidebarOpen(false)}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      isActive
-                        ? "bg-gray-100 text-gray-900"
-                        : "text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-                    }`
-                  }
-                >
-                  <Icon size={18} />
-                  {label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
+          {NAV_GROUPS.map((group) => (
+            <div key={group.title} className="mb-4">
+              <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                {group.title}
+              </p>
+              <ul className="space-y-0.5">
+                {group.items.map(({ to, icon: Icon, label }) => (
+                  <li key={to}>
+                    <NavLink
+                      to={to}
+                      end={to === "/"}
+                      onClick={() => setSidebarOpen(false)}
+                      className={({ isActive }) =>
+                        `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                          isActive
+                            ? "bg-gray-100 text-gray-900"
+                            : "text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                        }`
+                      }
+                    >
+                      <Icon size={18} />
+                      {label}
+                    </NavLink>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </nav>
 
         <div className="border-t border-gray-200 px-4 py-3">

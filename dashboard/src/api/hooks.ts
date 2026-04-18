@@ -5,7 +5,6 @@ import type {
   BusinessesResponse,
   GraphStats,
   RepositoriesResponse,
-  SearchResponse,
   HybridSearchResponse,
   HealthResponse,
   IndexResponse,
@@ -16,7 +15,6 @@ import type {
   DocumentsResponse,
   DocumentDetail,
   DeepSearchResponse,
-  BusinessSearchResponse,
   EnrichRequest,
   TaskInfo,
   SyncSchedule,
@@ -24,6 +22,9 @@ import type {
   SyncScheduleRequest,
   P2Stats,
   ArchitectureSearchResponse,
+  WebhookConfig,
+  AnalyzeImpactResponse,
+  AnalyzeImpactFile,
 } from "./types";
 
 export function useHealth() {
@@ -56,22 +57,11 @@ export function useRepositories() {
   });
 }
 
-export function useSemanticSearch() {
-  return useMutation<
-    SearchResponse,
-    Error,
-    { query: string; k: number; entity_type: string }
-  >({
-    mutationFn: (body) =>
-      api("/search", { method: "POST", body: JSON.stringify(body) }),
-  });
-}
-
 export function useHybridSearch() {
   return useMutation<
     HybridSearchResponse,
     Error,
-    { query: string; k: number; expand_depth: number }
+    { query: string; k: number; expand_depth: number; entity_type?: string }
   >({
     mutationFn: (body) =>
       api("/hybrid", { method: "POST", body: JSON.stringify(body) }),
@@ -89,14 +79,37 @@ export function useDeepSearch() {
   });
 }
 
-export function useBusinessSearch() {
-  return useMutation<
-    BusinessSearchResponse,
-    Error,
-    { query: string; search_type: string; k: number; include_code: boolean }
-  >({
+export function useWebhookConfig(options?: { enabled?: boolean }) {
+  return useQuery<WebhookConfig>({
+    queryKey: ["webhook-config"],
+    queryFn: () => api("/hooks/config", { method: "GET" }),
+    staleTime: 60_000,
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useUpdateWebhookConfig() {
+  const qc = useQueryClient();
+  return useMutation<WebhookConfig, Error, WebhookConfig>({
     mutationFn: (body) =>
-      api("/business/search", { method: "POST", body: JSON.stringify(body) }),
+      api("/hooks/config", { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["webhook-config"] });
+    },
+  });
+}
+
+export function useAnalyzeImpact() {
+  return useMutation<
+    AnalyzeImpactResponse,
+    Error,
+    { repository: string; changed_files: AnalyzeImpactFile[] }
+  >({
+    mutationFn: ({ repository, changed_files }) =>
+      api(`/wiki/${encodeURIComponent(repository)}/analyze-impact`, {
+        method: "POST",
+        body: JSON.stringify({ changed_files }),
+      }),
   });
 }
 
@@ -184,40 +197,6 @@ export function useDeleteRepository() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["repositories"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
-    },
-  });
-}
-
-export function useBusinesses() {
-  return useQuery<BusinessesResponse>({
-    queryKey: ["businesses"],
-    queryFn: () => api("/businesses", { method: "GET" }),
-    staleTime: 60_000,
-  });
-}
-
-export function useCreateBusiness() {
-  const qc = useQueryClient();
-  return useMutation<
-    Business,
-    Error,
-    { id: string; name: string; description: string }
-  >({
-    mutationFn: (body) =>
-      api("/businesses", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["businesses"] });
-    },
-  });
-}
-
-export function useDeleteBusiness() {
-  const qc = useQueryClient();
-  return useMutation<{ deleted: string }, Error, string>({
-    mutationFn: (id) =>
-      api(`/businesses/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["businesses"] });
     },
   });
 }

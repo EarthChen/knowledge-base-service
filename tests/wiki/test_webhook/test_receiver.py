@@ -20,6 +20,18 @@ def _gitea_sig(secret: str, body: bytes) -> str:
     return hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
 
+class TestVerifySignatureEmptySecret:
+    def test_rejects_empty_or_whitespace_secret(self) -> None:
+        body = b'{"x":1}'
+        gh_header = _github_sig("real-secret", body)
+        gl_header = "token-value"
+        gt_header = _gitea_sig("real-secret", body)
+        for blank in ("", "   ", "\t"):
+            assert WebhookReceiver.verify_signature("github", blank, body, gh_header) is False
+            assert WebhookReceiver.verify_signature("gitlab", blank, body, gl_header) is False
+            assert WebhookReceiver.verify_signature("gitea", blank, body, gt_header) is False
+
+
 class TestVerifySignatureGithub:
     def test_accepts_valid_hmac_sha256(self) -> None:
         secret = "gh-secret"

@@ -47,6 +47,9 @@ class WebhookReceiver:
         payload_bytes: bytes,
         signature_header: str | None,
     ) -> bool:
+        if not secret or not secret.strip():
+            return False
+
         if provider == "github":
             if not signature_header or not signature_header.startswith("sha256="):
                 return False

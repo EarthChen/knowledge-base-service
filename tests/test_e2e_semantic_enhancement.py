@@ -206,10 +206,11 @@ class TestSearchEngineEnhancement:
 class TestMCPToolManifest:
     """Test MCP tool manifest includes new tools."""
 
-    def test_manifest_has_business_search_tool(self):
+    def test_manifest_has_core_rag_tools(self):
         from api.mcp_server import MCP_TOOLS_MANIFEST
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}
-        assert "rag_business_search" in names
+        assert "rag_query" in names
+        assert "rag_graph" in names
 
     def test_rag_graph_includes_business_query_types(self):
         from api.mcp_server import MCP_TOOLS_MANIFEST
@@ -221,14 +222,12 @@ class TestMCPToolManifest:
         assert "explore_domain" in query_types
         assert "flow_dependencies" in query_types
 
-    def test_business_search_tool_schema(self):
+    def test_rag_query_tool_supports_entity_type_for_business_entities(self):
         from api.mcp_server import MCP_TOOLS_MANIFEST
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "rag_business_search")
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "rag_query")
         props = tool["inputSchema"]["properties"]
         assert "query" in props
-        assert "search_type" in props
-        assert "k" in props
-        assert "include_code" in props
+        assert "entity_type" in props
         assert tool["inputSchema"]["required"] == ["query"]
 
 

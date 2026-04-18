@@ -217,7 +217,7 @@ class TestAnalyzeImpactApi:
         detail = r.json().get("detail")
         assert isinstance(detail, dict)
         assert detail.get("error") == "graph_query_failed"
-        assert "neo4j down" in str(detail.get("detail", ""))
+        assert detail.get("detail") == "graph_query_failed"
 
 
 class TestAnalyzeImpactIntegrationWikiService:

@@ -8,6 +8,7 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock
 
+import auth
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
@@ -33,7 +34,10 @@ def _minimal_github_push_payload() -> dict[str, Any]:
 
 
 @pytest.fixture
-def webhook_client() -> TestClient:
+def webhook_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    # Open-access mode for tests (no configured API tokens → require_role allows callers).
+    monkeypatch.setattr(auth, "_token_registry", {})
+
     app = FastAPI()
     updater = AsyncMock()
     cfg = {
@@ -101,7 +105,7 @@ class TestWebhookConfigEndpoints:
         assert data["enabled"] is True
         assert data["debounce_seconds"] == 30
         assert data["auto_update_branches"] == ["main", "master"]
-        assert data["providers"]["github"]["secret"] == "gh-test-secret"
+        assert data["providers"]["github"]["secret"] == "***configured***"
 
     def test_put_config_updates_state(self, webhook_client: TestClient) -> None:
         r = webhook_client.put(

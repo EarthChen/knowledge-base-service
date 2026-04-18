@@ -64,6 +64,7 @@ const en: Translations = {
     all: "All",
     function: "Function",
     class: "Class",
+    module: "Module",
     document: "Document",
     topK: "Top-K:",
     expandDepth: "Expand Depth:",

@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Building2, Plus, Trash2 } from "lucide-react";
-import { useBusinesses, useCreateBusiness, useDeleteBusiness } from "../api/hooks";
+import { api } from "../api/client";
+import type { Business, BusinessesResponse } from "../api/types";
 import { useI18n } from "../i18n/context";
 import { useBusiness } from "../contexts/BusinessContext";
 import { useAuth } from "../contexts/AuthContext";
@@ -9,9 +11,28 @@ import { useToast } from "../components/Toast";
 export default function Businesses() {
   const { t } = useI18n();
   const { currentBusiness, setCurrentBusiness } = useBusiness();
-  const { data, isLoading } = useBusinesses();
-  const createMut = useCreateBusiness();
-  const deleteMut = useDeleteBusiness();
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<BusinessesResponse>({
+    queryKey: ["businesses"],
+    queryFn: () => api("/businesses", { method: "GET" }),
+    staleTime: 60_000,
+  });
+  const createMut = useMutation<Business, Error, { id: string; name: string; description: string }>(
+    {
+      mutationFn: (body) =>
+        api("/businesses", { method: "POST", body: JSON.stringify(body) }),
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ["businesses"] });
+      },
+    },
+  );
+  const deleteMut = useMutation<{ deleted: string }, Error, string>({
+    mutationFn: (id) =>
+      api(`/businesses/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["businesses"] });
+    },
+  });
   const { toast } = useToast();
   const { isAdmin } = useAuth();
 

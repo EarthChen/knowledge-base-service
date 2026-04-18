@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Loader2, MessageCircle, Send } from "lucide-rea
 import { Link } from "react-router-dom";
 import { useWikiAsk } from "../../hooks/useWikiAsk";
 import type { WikiAskSource } from "../../hooks/wikiTypes";
+import { useI18n } from "../../i18n/context";
 import { buildIdeHref, type EditorId } from "./editorLinks";
 import { EDITOR_PREF_KEY } from "./SourceLink";
 
@@ -66,6 +67,8 @@ type Props = {
 };
 
 export default function AskPanel({ repository }: Props) {
+  const { locale } = useI18n();
+  const isZh = locale === "zh";
   const [open, setOpen] = useState(true);
   const [input, setInput] = useState("");
   const { answer, sources, isStreaming, error, ask, cancel, reset, conversationId } =
@@ -177,6 +180,11 @@ export default function AskPanel({ repository }: Props) {
                   <SourceRef key={`${s.wiki_page}-${s.entity}-${i}`} repository={repository} s={s} />
                 ))}
               </ul>
+              <p className="mt-2 text-xs text-gray-400">
+                {isZh
+                  ? "Ask v2: 上下文由图增强搜索提供，包含调用链和模块上下文"
+                  : "Ask v2: Context enhanced by graph search including call chains and module context"}
+              </p>
             </div>
           )}
         </div>

@@ -64,6 +64,7 @@ export interface Translations {
     all: string;
     function: string;
     class: string;
+    module: string;
     document: string;
     topK: string;
     expandDepth: string;

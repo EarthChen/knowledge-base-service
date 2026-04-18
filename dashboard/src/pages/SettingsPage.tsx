@@ -11,13 +11,24 @@ import {
   Trash2,
   RefreshCw,
   Loader2,
+  Webhook,
+  CalendarClock,
 } from "lucide-react";
 import { getToken, setToken } from "../api/client";
-import { useHealth, useRepositories, useSyncSchedules, useCreateSyncSchedule, useDeleteSyncSchedule, useTriggerSync } from "../api/hooks";
+import {
+  useHealth,
+  useRepositories,
+  useSyncSchedules,
+  useCreateSyncSchedule,
+  useDeleteSyncSchedule,
+  useTriggerSync,
+  useWebhookConfig,
+  useUpdateWebhookConfig,
+} from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import { useToast } from "../components/Toast";
 import type { Locale } from "../i18n/types";
-import type { SyncSchedule, SyncScheduleRequest } from "../api/types";
+import type { SyncSchedule, SyncScheduleRequest, WebhookConfig } from "../api/types";
 import { useAuth } from "../contexts/AuthContext";
 import { SkeletonLine } from "../components/Skeleton";
 
@@ -30,6 +41,8 @@ function schedulePath(repo: string) {
   return repo.split("/").map(encodeURIComponent).join("/");
 }
 
+const WEBHOOK_PROVIDERS = ["github", "gitlab", "gitea"] as const;
+
 export default function SettingsPage() {
   const [tokenValue, setTokenValue] = useState(getToken());
   const [showToken, setShowToken] = useState(false);
@@ -37,6 +50,15 @@ export default function SettingsPage() {
   const { t, locale, setLocale } = useI18n();
   const { toast } = useToast();
   const { isAdmin, isLoading: authLoading } = useAuth();
+  const isZh = locale === "zh";
+
+  const {
+    data: webhookConfig,
+    isLoading: webhookLoading,
+    error: webhookError,
+    refetch: refetchWebhook,
+  } = useWebhookConfig({ enabled: isAdmin && !authLoading });
+  const updateWebhook = useUpdateWebhookConfig();
 
   const { data: reposData } = useRepositories();
   const {
@@ -57,6 +79,74 @@ export default function SettingsPage() {
   const [formBranch, setFormBranch] = useState("");
   const [formInterval, setFormInterval] = useState(60);
   const [formEnabled, setFormEnabled] = useState(true);
+
+  const [webhookModalOpen, setWebhookModalOpen] = useState(false);
+  const [whEnabled, setWhEnabled] = useState(false);
+  const [whDebounce, setWhDebounce] = useState(60);
+  const [whBranches, setWhBranches] = useState("");
+  const [whSecretGithub, setWhSecretGithub] = useState("");
+  const [whSecretGitlab, setWhSecretGitlab] = useState("");
+  const [whSecretGitea, setWhSecretGitea] = useState("");
+
+  function openWebhookModal() {
+    const c = webhookConfig;
+    const unmask = (val: string | undefined) =>
+      val === "***configured***" ? "" : (val ?? "");
+    if (c) {
+      setWhEnabled(c.enabled);
+      setWhDebounce(c.debounce_seconds);
+      setWhBranches(c.auto_update_branches.join(", "));
+      setWhSecretGithub(unmask(c.providers?.github?.secret));
+      setWhSecretGitlab(unmask(c.providers?.gitlab?.secret));
+      setWhSecretGitea(unmask(c.providers?.gitea?.secret));
+    } else {
+      setWhEnabled(false);
+      setWhDebounce(60);
+      setWhBranches("");
+      setWhSecretGithub("");
+      setWhSecretGitlab("");
+      setWhSecretGitea("");
+    }
+    setWebhookModalOpen(true);
+  }
+
+  function closeWebhookModal() {
+    setWebhookModalOpen(false);
+  }
+
+  async function submitWebhookModal(e: React.FormEvent) {
+    e.preventDefault();
+    const debounce = Math.min(86400, Math.max(1, Math.floor(Number(whDebounce))));
+    const branches = whBranches
+      .split(/[,，]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const base = webhookConfig;
+    const resolveSecret = (field: string, provider: string) => {
+      if (field.trim()) return field.trim();
+      const existing = base?.providers?.[provider]?.secret ?? "";
+      return existing === "***configured***" ? "" : existing;
+    };
+    const body: WebhookConfig = {
+      enabled: whEnabled,
+      debounce_seconds: debounce,
+      auto_update_branches: branches,
+      providers: {
+        ...(base?.providers ?? {}),
+        github: { secret: resolveSecret(whSecretGithub, "github") },
+        gitlab: { secret: resolveSecret(whSecretGitlab, "gitlab") },
+        gitea: { secret: resolveSecret(whSecretGitea, "gitea") },
+      },
+    };
+    try {
+      await updateWebhook.mutateAsync(body);
+      toast("success", isZh ? "Webhook 配置已保存" : "Webhook configuration saved");
+      closeWebhookModal();
+      refetchWebhook();
+    } catch (err) {
+      toast("error", (err as Error).message);
+    }
+  }
 
   function handleSave() {
     setToken(tokenValue.trim());
@@ -254,6 +344,161 @@ export default function SettingsPage() {
             <span className="text-gray-700">{t.settings.deploymentValue}</span>
           </div>
         </div>
+      </div>
+
+      {isAdmin && (
+        <div className="rounded-xl border border-gray-200 bg-white p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Webhook size={18} className="text-gray-500" />
+              <h3 className="text-sm font-medium text-gray-800">
+                {isZh ? "Webhook 配置" : "Webhook Configuration"}
+              </h3>
+            </div>
+            <button
+              type="button"
+              onClick={openWebhookModal}
+              disabled={webhookLoading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <Pencil size={14} /> {isZh ? "编辑配置" : "Edit configuration"}
+            </button>
+          </div>
+
+          {webhookError && (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+              {(webhookError as Error).message ||
+                (isZh ? "加载 Webhook 配置失败" : "Failed to load webhook configuration")}
+            </div>
+          )}
+
+          {webhookLoading ? (
+            <div className="mt-4 space-y-3">
+              <SkeletonLine className="h-4 w-full max-w-md" />
+              <SkeletonLine className="h-4 w-48" />
+              <SkeletonLine className="h-20 w-full" />
+            </div>
+          ) : webhookConfig ? (
+            <div className="mt-4 space-y-4 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
+                <span className="text-gray-500">{isZh ? "总开关" : "Master switch"}</span>
+                <span
+                  className={
+                    webhookConfig.enabled ? "font-medium text-emerald-600" : "font-medium text-gray-500"
+                  }
+                >
+                  {webhookConfig.enabled
+                    ? isZh
+                      ? "已启用"
+                      : "Enabled"
+                    : isZh
+                      ? "已禁用"
+                      : "Disabled"}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-gray-500">{isZh ? "防抖（秒）" : "Debounce (seconds)"}</span>
+                <span className="text-gray-800">{webhookConfig.debounce_seconds}</span>
+              </div>
+              <div>
+                <div className="text-gray-500">{isZh ? "自动更新分支" : "Auto-update branches"}</div>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {(webhookConfig.auto_update_branches?.length ?? 0) === 0 ? (
+                    <span className="text-gray-400">—</span>
+                  ) : (
+                    webhookConfig.auto_update_branches.map((b) => (
+                      <span
+                        key={b}
+                        className="rounded-md bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-700"
+                      >
+                        {b}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[480px] text-left text-sm">
+                  <thead className="border-b border-gray-200 bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 font-medium text-gray-500">
+                        {isZh ? "提供商" : "Provider"}
+                      </th>
+                      <th className="px-3 py-2 font-medium text-gray-500">
+                        {isZh ? "密钥" : "Secret"}
+                      </th>
+                      <th className="px-3 py-2 font-medium text-gray-500">
+                        {isZh ? "开关" : "Switch"}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {WEBHOOK_PROVIDERS.map((key) => {
+                      const secret = webhookConfig.providers?.[key]?.secret;
+                      const configured = !!(secret && String(secret).trim());
+                      const label =
+                        key === "github" ? "GitHub" : key === "gitlab" ? "GitLab" : "Gitea";
+                      return (
+                        <tr key={key} className="border-b border-gray-100">
+                          <td className="px-3 py-2 font-medium text-gray-800">{label}</td>
+                          <td className="px-3 py-2 text-gray-700">
+                            {configured
+                              ? "***configured***"
+                              : isZh
+                                ? "未配置"
+                                : "Not configured"}
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+                              checked={webhookConfig.enabled}
+                              readOnly
+                              disabled
+                              title={
+                                isZh
+                                  ? "Webhook 总开关状态（在编辑中修改）"
+                                  : "Global webhook toggle (edit in modal)"
+                              }
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : !webhookError ? (
+            <p className="mt-4 text-sm text-gray-400">
+              {isZh ? "暂无配置数据" : "No configuration loaded"}
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-gray-200 bg-white p-5">
+        <div className="flex items-center gap-2">
+          <CalendarClock size={18} className="text-gray-500" />
+          <h3 className="text-sm font-medium text-gray-800">
+            {isZh ? "Wiki 定时再生成" : "Wiki Scheduled Regeneration"}
+          </h3>
+        </div>
+        <p className="mt-2 text-xs text-gray-500">
+          {isZh
+            ? "由 P3 Webhook 与调度器（Scheduler）功能协同驱动 Wiki 内容的定时与事件触发更新。"
+            : "Driven by P3 Webhook and Scheduler features for timed and event-triggered wiki updates."}
+        </p>
+        <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+          {isZh
+            ? "由 Webhook 事件触发或按计划自动执行"
+            : "Triggered by webhook events or runs on schedule"}
+        </div>
+        <p className="mt-3 text-xs text-amber-800">
+          {isZh
+            ? "提示：当 Webhook 启用时，代码推送会自动触发增量更新。"
+            : "Tip: When webhooks are enabled, code pushes trigger incremental updates automatically."}
+        </p>
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white p-5">
@@ -508,6 +753,103 @@ export default function SettingsPage() {
                   className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
                 >
                   {upsert.isPending ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  {t.sync.save}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {webhookModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 shadow-xl">
+            <h4 className="text-base font-semibold text-gray-900">
+              {isZh ? "编辑 Webhook 配置" : "Edit webhook configuration"}
+            </h4>
+            <form onSubmit={submitWebhookModal} className="mt-4 space-y-3">
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-gray-300 text-sky-600"
+                  checked={whEnabled}
+                  onChange={(e) => setWhEnabled(e.target.checked)}
+                />
+                {isZh ? "启用 Webhook（总开关）" : "Enable webhooks (master switch)"}
+              </label>
+              <div>
+                <label className="text-xs font-medium text-gray-600">
+                  {isZh ? "防抖间隔（秒，1–86400）" : "Debounce seconds (1–86400)"}
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={86400}
+                  className={`${inputClass} mt-1`}
+                  value={whDebounce}
+                  onChange={(e) => setWhDebounce(Number(e.target.value))}
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">
+                  {isZh ? "自动更新分支（逗号分隔）" : "Auto-update branches (comma-separated)"}
+                </label>
+                <input
+                  className={`${inputClass} mt-1`}
+                  value={whBranches}
+                  onChange={(e) => setWhBranches(e.target.value)}
+                  placeholder={isZh ? "例如 main, develop" : "e.g. main, develop"}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">GitHub secret</label>
+                <input
+                  type="password"
+                  className={`${inputClass} mt-1`}
+                  value={whSecretGithub}
+                  onChange={(e) => setWhSecretGithub(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">GitLab secret</label>
+                <input
+                  type="password"
+                  className={`${inputClass} mt-1`}
+                  value={whSecretGitlab}
+                  onChange={(e) => setWhSecretGitlab(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">Gitea secret</label>
+                <input
+                  type="password"
+                  className={`${inputClass} mt-1`}
+                  value={whSecretGitea}
+                  onChange={(e) => setWhSecretGitea(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeWebhookModal}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  {t.sync.cancel}
+                </button>
+                <button
+                  type="submit"
+                  disabled={updateWebhook.isPending}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                >
+                  {updateWebhook.isPending ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Save size={14} />
+                  )}
                   {t.sync.save}
                 </button>
               </div>

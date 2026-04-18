@@ -13,7 +13,7 @@ Tools exposed:
   - search_architecture: List classes (with methods) filtered by architecture layer
   - code_quality: Heuristic 0–100 quality score for a Function or Class node
   - dashboard_stats: P2 enrichment aggregates (architecture layers, Kafka events, RPC, cross-repo)
-  - generate_wiki, get_wiki_page, list_wiki_pages: Generated wiki pages (indexed code documentation)
+  - generate_wiki, get_wiki_page, list_wiki_pages, search_wiki, ask_about_code: Wiki generation and Q&A
 """
 
 from __future__ import annotations
@@ -460,6 +460,8 @@ class KnowledgeBaseMCPHandler:
             "generate_wiki": self._wiki.handle_generate_wiki,
             "get_wiki_page": self._wiki.handle_get_wiki_page,
             "list_wiki_pages": self._wiki.handle_list_wiki_pages,
+            "search_wiki": self._wiki.handle_search_wiki,
+            "ask_about_code": self._wiki.handle_ask_about_code,
         }
 
         handler = handlers.get(tool_name)

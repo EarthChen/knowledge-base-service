@@ -52,6 +52,38 @@ def wiki_pipeline() -> AsyncMock:
             "total_pages": 1,
         },
     )
+    p.search_wiki = AsyncMock(
+        return_value={
+            "results": [
+                {
+                    "page_path": "overview.md",
+                    "title": "App",
+                    "score": 0.9,
+                    "snippet": "App overview",
+                    "source_locations": [],
+                    "context": {},
+                },
+            ],
+            "query_expansion": {"original": "test", "expanded": []},
+            "total": 1,
+        },
+    )
+    p.ask_about_code = AsyncMock(
+        return_value={
+            "content": "The App class handles...",
+            "sources": [
+                {
+                    "entity": "App",
+                    "file_path": "src/App.java",
+                    "start_line": 1,
+                    "wiki_page": "overview.md",
+                    "relevance_score": 0.9,
+                },
+            ],
+            "conversation_id": "conv-123",
+            "tokens_used": 100,
+        },
+    )
     return p
 
 
@@ -87,7 +119,34 @@ class TestWikiToolsRegistered:
     def test_wiki_manifest_matches_mcp_extension(self):
         """Wiki entries are appended to the main manifest (same definitions as WIKI slice)."""
         wiki_names = {t["name"] for t in WIKI_MCP_TOOLS_MANIFEST}
-        assert wiki_names == {"generate_wiki", "get_wiki_page", "list_wiki_pages"}
+        assert wiki_names == {
+            "generate_wiki",
+            "get_wiki_page",
+            "list_wiki_pages",
+            "search_wiki",
+            "ask_about_code",
+        }
+
+    def test_search_wiki_tool_registered(self):
+        names = {t["name"] for t in MCP_TOOLS_MANIFEST}
+        assert "search_wiki" in names
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "search_wiki")
+        assert "inputSchema" in tool
+        req = tool["inputSchema"].get("required", [])
+        assert "repository" in req
+        assert "query" in req
+
+    def test_ask_about_code_tool_registered(self):
+        names = {t["name"] for t in MCP_TOOLS_MANIFEST}
+        assert "ask_about_code" in names
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "ask_about_code")
+        assert "inputSchema" in tool
+        req = tool["inputSchema"].get("required", [])
+        assert "repository" in req
+        assert "question" in req
+
+    def test_wiki_manifest_has_5_tools(self):
+        assert len(WIKI_MCP_TOOLS_MANIFEST) == 5
 
 
 class TestGenerateWiki:
@@ -181,3 +240,89 @@ class TestErrorPropagation:
             {"repository": "r", "scope": "repo", "mode": "full"},
         )
         assert result == {"error": "graph offline"}
+
+
+class TestSearchWiki:
+    @pytest.mark.asyncio
+    async def test_search_wiki_valid(self, kb_handler: KnowledgeBaseMCPHandler, wiki_pipeline: AsyncMock):
+        result = await kb_handler.handle_tool_call(
+            "search_wiki",
+            {"repository": "demo-repo", "query": "App class", "mode": "hybrid", "limit": 10, "min_score": 0.0},
+        )
+        assert "error" not in result
+        assert result["total"] == 1
+        assert len(result["results"]) == 1
+        assert result["results"][0]["score"] == 0.9
+        assert result["results"][0]["snippet"] == "App overview"
+        wiki_pipeline.search_wiki.assert_awaited_once_with(
+            "demo-repo", "App class", "hybrid", 10, 0.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_search_wiki_empty_query(self, kb_handler: KnowledgeBaseMCPHandler):
+        result = await kb_handler.handle_tool_call(
+            "search_wiki",
+            {"repository": "demo-repo", "query": "   "},
+        )
+        assert "error" in result
+        assert result["error"]["code"] == "invalid_params"
+
+    @pytest.mark.asyncio
+    async def test_search_wiki_not_configured(self):
+        kb = KnowledgeBaseMCPHandler(
+            hybrid_svc=MagicMock(),
+            graph_svc=MagicMock(),
+            indexer=MagicMock(),
+            wiki_handler=WikiMCPHandler(None),
+        )
+        result = await kb.handle_tool_call(
+            "search_wiki",
+            {"repository": "demo-repo", "query": "x"},
+        )
+        assert "error" in result
+        assert result["error"]["code"] == "service_unavailable"
+
+
+class TestAskAboutCode:
+    @pytest.mark.asyncio
+    async def test_ask_about_code_valid(self, kb_handler: KnowledgeBaseMCPHandler, wiki_pipeline: AsyncMock):
+        result = await kb_handler.handle_tool_call(
+            "ask_about_code",
+            {
+                "repository": "demo-repo",
+                "question": "What does App do?",
+                "scope": "module:src",
+                "conversation_id": "cid-1",
+            },
+        )
+        assert "error" not in result
+        assert result["content"] == "The App class handles..."
+        assert len(result["sources"]) == 1
+        assert result["sources"][0]["entity"] == "App"
+        wiki_pipeline.ask_about_code.assert_awaited_once_with(
+            "demo-repo", "What does App do?", "module:src", "cid-1",
+        )
+
+    @pytest.mark.asyncio
+    async def test_ask_about_code_empty_question(self, kb_handler: KnowledgeBaseMCPHandler):
+        result = await kb_handler.handle_tool_call(
+            "ask_about_code",
+            {"repository": "demo-repo", "question": ""},
+        )
+        assert "error" in result
+        assert result["error"]["code"] == "invalid_params"
+
+    @pytest.mark.asyncio
+    async def test_ask_about_code_not_configured(self):
+        kb = KnowledgeBaseMCPHandler(
+            hybrid_svc=MagicMock(),
+            graph_svc=MagicMock(),
+            indexer=MagicMock(),
+            wiki_handler=WikiMCPHandler(None),
+        )
+        result = await kb.handle_tool_call(
+            "ask_about_code",
+            {"repository": "demo-repo", "question": "Why?"},
+        )
+        assert "error" in result
+        assert result["error"]["code"] == "service_unavailable"

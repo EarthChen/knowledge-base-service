@@ -20,6 +20,25 @@ class WikiPipeline(Protocol):
     async def list_wiki_pages(self, repository: str, scope: str | None) -> dict[str, Any]:
         ...
 
+    async def search_wiki(
+        self,
+        repository: str,
+        query: str,
+        mode: str = "hybrid",
+        limit: int = 10,
+        min_score: float = 0.0,
+    ) -> dict[str, Any]:
+        ...
+
+    async def ask_about_code(
+        self,
+        repository: str,
+        question: str,
+        scope: str | None = None,
+        conversation_id: str | None = None,
+    ) -> dict[str, Any]:
+        ...
+
 
 WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
     {
@@ -87,6 +106,55 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
                 },
             },
             "required": ["repository"],
+        },
+    },
+    {
+        "name": "search_wiki",
+        "description": (
+            "Search generated Wiki pages using hybrid search (graph + vector + full-text). "
+            "Returns ranked results with scores, snippets, source locations, and hierarchical context."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {"type": "string", "description": "Repository name"},
+                "query": {"type": "string", "description": "Search query string"},
+                "mode": {
+                    "type": "string",
+                    "description": (
+                        "Search mode: 'hybrid' (default) | 'graph' | 'semantic' | 'keyword'"
+                    ),
+                    "default": "hybrid",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results (default: 10)",
+                    "default": 10,
+                },
+                "min_score": {
+                    "type": "number",
+                    "description": "Minimum relevance score threshold (0.0-1.0)",
+                    "default": 0.0,
+                },
+            },
+            "required": ["repository", "query"],
+        },
+    },
+    {
+        "name": "ask_about_code",
+        "description": (
+            "Interactive Q&A about code using Wiki context + hybrid search. "
+            "Returns answer with source code references."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {"type": "string", "description": "Repository name"},
+                "question": {"type": "string", "description": "Natural language question about the code"},
+                "scope": {"type": "string", "description": "Optional scope to focus the search"},
+                "conversation_id": {"type": "string", "description": "Optional ID for multi-turn conversation"},
+            },
+            "required": ["repository", "question"],
         },
     },
 ]
@@ -181,3 +249,30 @@ class WikiMCPHandler:
                 scope_filter = s
 
         return await self._pipeline.list_wiki_pages(repository, scope_filter)
+
+    async def handle_search_wiki(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self._pipeline is None:
+            return self._not_configured()
+        repository = str(arguments.get("repository", "")).strip()
+        if not repository:
+            return self._mcp_error("invalid_params", "repository parameter is required")
+        query = str(arguments.get("query", "")).strip()
+        if not query:
+            return self._mcp_error("invalid_params", "query parameter is required")
+        mode = arguments.get("mode", "hybrid")
+        limit = int(arguments.get("limit", 10))
+        min_score = float(arguments.get("min_score", 0.0))
+        return await self._pipeline.search_wiki(repository, query, mode, limit, min_score)
+
+    async def handle_ask_about_code(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self._pipeline is None:
+            return self._not_configured()
+        repository = str(arguments.get("repository", "")).strip()
+        if not repository:
+            return self._mcp_error("invalid_params", "repository parameter is required")
+        question = str(arguments.get("question", "")).strip()
+        if not question:
+            return self._mcp_error("invalid_params", "question parameter is required")
+        scope = arguments.get("scope")
+        conversation_id = arguments.get("conversation_id")
+        return await self._pipeline.ask_about_code(repository, question, scope, conversation_id)

@@ -143,7 +143,7 @@ class TestWikiGenerateSync:
         )
         structure = WikiStructure(repository="r1", root=root, total_pages=1)
 
-        async def gen(repo: str, scope: str, mode: str, fmt: str) -> dict:
+        async def gen(repo: str, scope: str, mode: str, fmt: str, language: str = "en") -> dict:
             await svc._ensure_repo(repo)
             pages, deg = await svc._compose_all_pages(
                 repo,

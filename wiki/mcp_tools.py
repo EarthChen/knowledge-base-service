@@ -27,6 +27,7 @@ class WikiPipeline(Protocol):
         mode: str = "hybrid",
         limit: int = 10,
         min_score: float = 0.0,
+        scope: str | None = None,
     ) -> dict[str, Any]:
         ...
 
@@ -135,6 +136,10 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
                     "type": "number",
                     "description": "Minimum relevance score threshold (0.0-1.0)",
                     "default": 0.0,
+                },
+                "scope": {
+                    "type": "string",
+                    "description": "Optional wiki page path prefix to filter results (exact path or subtree).",
                 },
             },
             "required": ["repository", "query"],
@@ -260,9 +265,31 @@ class WikiMCPHandler:
         if not query:
             return self._mcp_error("invalid_params", "query parameter is required")
         mode = arguments.get("mode", "hybrid")
-        limit = int(arguments.get("limit", 10))
-        min_score = float(arguments.get("min_score", 0.0))
-        return await self._pipeline.search_wiki(repository, query, mode, limit, min_score)
+        try:
+            limit = int(arguments.get("limit", 10))
+        except (ValueError, TypeError):
+            return self._mcp_error("invalid_params", "limit must be an integer")
+        try:
+            min_score = float(arguments.get("min_score", 0.0))
+        except (ValueError, TypeError):
+            return self._mcp_error("invalid_params", "min_score must be a number")
+        raw_scope = arguments.get("scope")
+        scope_filter: str | None = None
+        if raw_scope is not None:
+            s = str(raw_scope).strip()
+            if s:
+                scope_filter = s
+        try:
+            return await self._pipeline.search_wiki(
+                repository,
+                query,
+                mode,
+                limit,
+                min_score,
+                scope_filter,
+            )
+        except Exception as exc:
+            return self._mcp_error("internal_error", str(exc))
 
     async def handle_ask_about_code(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._pipeline is None:
@@ -275,4 +302,7 @@ class WikiMCPHandler:
             return self._mcp_error("invalid_params", "question parameter is required")
         scope = arguments.get("scope")
         conversation_id = arguments.get("conversation_id")
-        return await self._pipeline.ask_about_code(repository, question, scope, conversation_id)
+        try:
+            return await self._pipeline.ask_about_code(repository, question, scope, conversation_id)
+        except Exception as exc:
+            return self._mcp_error("internal_error", str(exc))

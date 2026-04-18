@@ -47,6 +47,7 @@ class WikiGenerateBody(BaseModel):
     scope: str = Field(..., min_length=1)
     mode: str = Field(default="structure", pattern="^(full|structure)$")
     format: str = Field(default="json", pattern="^(markdown|json)$")
+    language: str = Field(default="en", pattern="^(en|zh)$")
 
 
 class WikiQuickBody(BaseModel):
@@ -54,6 +55,7 @@ class WikiQuickBody(BaseModel):
     branch: str | None = None
     token: str | None = None
     mode: str = Field(default="structure", pattern="^(full|structure)$")
+    language: str = Field(default="en", pattern="^(en|zh)$")
 
 
 class WikiSearchBody(BaseModel):
@@ -62,6 +64,7 @@ class WikiSearchBody(BaseModel):
     mode: str = Field(default="hybrid", pattern="^(hybrid|graph|semantic|keyword)$")
     limit: int = Field(default=10, ge=1, le=100)
     min_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    scope: str | None = None
 
 
 class WikiAskBody(BaseModel):
@@ -313,6 +316,7 @@ async def _run_wiki_task(
                 body.scope,
                 body.mode,
                 body.format,
+                body.language,
             )
             rec["result"] = result
             rec["status"] = "completed"
@@ -333,6 +337,7 @@ async def _run_wiki_quick_task(
     branch: str | None,
     token: str | None,
     mode: str,
+    language: str,
     registry: WikiTaskRegistry,
     sem: asyncio.Semaphore,
     background_fn: Callable[..., Any] | None,
@@ -344,7 +349,13 @@ async def _run_wiki_quick_task(
             rec["status"] = "running"
             if background_fn is None:
                 raise RuntimeError("wiki_quick_background is not configured")
-            bg_out = background_fn(git_url=git_url, branch=branch, token=token, mode=mode)
+            bg_out = background_fn(
+                git_url=git_url,
+                branch=branch,
+                token=token,
+                mode=mode,
+                language=language,
+            )
             if asyncio.iscoroutine(bg_out):
                 result = await bg_out
             else:
@@ -393,6 +404,7 @@ async def wiki_generate(
                     body.scope,
                     body.mode,
                     body.format,
+                    body.language,
                 ):
                     if "page" in ev:
                         payload = json.dumps(ev["page"])
@@ -439,6 +451,7 @@ async def wiki_generate(
                 body.scope,
                 body.mode,
                 body.format,
+                body.language,
             )
     except WikiRepoNotFoundError as exc:
         raise HTTPException(
@@ -511,6 +524,7 @@ async def wiki_quick(
                 body.branch,
                 body.token,
                 body.mode,
+                body.language,
                 registry,
                 sem,
                 bg_fn,
@@ -530,7 +544,7 @@ async def wiki_quick(
 
     try:
         async with sem:
-            result = await svc.generate(repo, _QUICK_SCOPE, body.mode, _QUICK_FORMAT)
+            result = await svc.generate(repo, _QUICK_SCOPE, body.mode, _QUICK_FORMAT, body.language)
     except WikiRepoNotFoundError as exc:
         raise HTTPException(
             status_code=404,
@@ -575,6 +589,7 @@ async def wiki_search(
         mode=body.mode,
         limit=body.limit,
         min_score=body.min_score,
+        scope=body.scope,
     )
     return _search_response_to_json(result)
 
@@ -585,16 +600,20 @@ async def wiki_ask(
     ask_svc: WikiAskService = Depends(get_wiki_ask_dep),
 ) -> StreamingResponse:
     async def sse() -> Any:
-        async for ev in ask_svc.ask_stream(
-            repository=body.repository,
-            question=body.question,
-            scope=body.scope,
-            conversation_id=body.conversation_id,
-            mode=body.mode,
-        ):
-            event = str(ev.get("event", "message"))
-            payload = json.dumps(ev.get("data") or {})
-            yield f"event: {event}\ndata: {payload}\n\n"
+        try:
+            async for ev in ask_svc.ask_stream(
+                repository=body.repository,
+                question=body.question,
+                scope=body.scope,
+                conversation_id=body.conversation_id,
+                mode=body.mode,
+            ):
+                event = str(ev.get("event", "message"))
+                payload = json.dumps(ev.get("data") or {})
+                yield f"event: {event}\ndata: {payload}\n\n"
+        except Exception as exc:
+            err = json.dumps({"error": "ask_failed", "detail": str(exc)})
+            yield f"event: error\ndata: {err}\n\n"
 
     return StreamingResponse(sse(), media_type="text/event-stream")
 

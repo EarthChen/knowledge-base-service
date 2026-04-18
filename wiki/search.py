@@ -323,7 +323,7 @@ class WikiSearchService:
             filtered: list[SearchResult] = []
             for r in results:
                 pp = r.page_path.strip()
-                if pp == sn or pp.startswith(sn + "/") or pp.startswith(sn):
+                if pp == sn or pp.startswith(sn + "/"):
                     filtered.append(r)
             results = filtered
 

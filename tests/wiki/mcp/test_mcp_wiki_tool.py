@@ -255,7 +255,7 @@ class TestSearchWiki:
         assert result["results"][0]["score"] == 0.9
         assert result["results"][0]["snippet"] == "App overview"
         wiki_pipeline.search_wiki.assert_awaited_once_with(
-            "demo-repo", "App class", "hybrid", 10, 0.0,
+            "demo-repo", "App class", "hybrid", 10, 0.0, None,
         )
 
     @pytest.mark.asyncio

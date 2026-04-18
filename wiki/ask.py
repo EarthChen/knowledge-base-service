@@ -540,14 +540,17 @@ class WikiAskService:
         if self._graph is not None:
             collector = GraphEnhancedContextCollector(self._graph)
             qtype = detect_question_type(question)
-            enriched = await collector.collect(
-                repository,
-                search_resp.results,
-                qtype,
-                token_budget=8000,
-            )
-            if enriched.strip():
-                formatted = enriched
+            try:
+                enriched = await collector.collect(
+                    repository,
+                    search_resp.results,
+                    qtype,
+                    token_budget=8000,
+                )
+                if enriched.strip():
+                    formatted = enriched
+            except Exception:
+                pass
         sources = _results_to_ask_sources(search_resp.results)
         messages = self._build_messages(repository, formatted, prior_turns, question)
 

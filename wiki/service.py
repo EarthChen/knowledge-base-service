@@ -64,6 +64,10 @@ class WikiService:
         if not await self._repository_exists(repository):
             raise WikiRepoNotFoundError(repository)
 
+    async def ensure_repository(self, repository: str) -> None:
+        """Raise ``WikiRepoNotFoundError`` when the repository is not indexed."""
+        await self._ensure_repo(repository)
+
     def _config_for(
         self,
         mode: str,

@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from auth import Role, require_role
+from query.graph_query import GraphQueryService
 from git_manager import normalize_repo_name
 from wiki.ask import WikiAskService
 from wiki.cache import WikiCache
@@ -77,6 +78,15 @@ class WikiAskBody(BaseModel):
     mode: str = Field(default="hybrid", pattern="^(hybrid|graph|semantic|keyword)$")
 
 
+class AnalyzeImpactFile(BaseModel):
+    path: str
+    status: str = Field(pattern="^(added|modified|removed|renamed)$")
+
+
+class AnalyzeImpactBody(BaseModel):
+    changed_files: list[AnalyzeImpactFile]
+
+
 _QUICK_SCOPE = "repo"
 _QUICK_FORMAT = "json"
 
@@ -128,6 +138,20 @@ async def get_wiki_ask_dep(request: Request) -> WikiAskService:
             },
         )
     return svc
+
+
+def get_graph_query_dep(request: Request) -> GraphQueryService:
+    """Resolve graph query service; use with ``Depends`` when the graph is required for every request."""
+    gq = getattr(request.app.state, "graph_query_service", None)
+    if gq is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "service_unavailable",
+                "detail": "Graph query is not configured",
+            },
+        )
+    return gq
 
 
 def get_task_registry_dep(request: Request) -> WikiTaskRegistry:
@@ -631,6 +655,55 @@ async def wiki_ask(
             yield f"event: error\ndata: {err}\n\n"
 
     return StreamingResponse(sse(), media_type="text/event-stream")
+
+
+@wiki_router.post("/{repository}/analyze-impact", response_model=None)
+async def analyze_pr_impact(
+    repository: str,
+    body: AnalyzeImpactBody,
+    request: Request,
+    wiki_svc: WikiService = Depends(get_wiki_service_dep),
+) -> dict[str, Any]:
+    """Analyze the impact of changed files on Wiki pages.
+
+    Pure data API — returns affected Wiki pages and impact levels.
+    External PR Bot services call this API and compose their own comments.
+    """
+    if not body.changed_files:
+        return {
+            "affected_pages": [],
+            "summary": {"high_impact": 0, "medium_impact": 0, "total_affected_pages": 0},
+        }
+
+    graph_svc = get_graph_query_dep(request)
+
+    try:
+        await wiki_svc.ensure_repository(repository)
+    except WikiRepoNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "repo_not_found",
+                "detail": (
+                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
+                ),
+            },
+        ) from exc
+
+    changed_payload = [{"path": f.path, "status": f.status} for f in body.changed_files]
+    try:
+        return await graph_svc.analyze_pr_impact(
+            repository=repository,
+            changed_files=changed_payload,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "graph_query_failed",
+                "detail": str(exc),
+            },
+        ) from exc
 
 
 @wiki_router.get("/{repository}/pages", response_model=None)

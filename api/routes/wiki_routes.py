@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from dataclasses import asdict
 from collections.abc import Callable
+from dataclasses import asdict
 from typing import Annotated, Any
 from urllib.parse import unquote
 

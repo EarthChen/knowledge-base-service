@@ -6,8 +6,9 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
+from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
-from typing import Any, AsyncIterator, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from wiki.search import SearchResponse, SearchResult
 
@@ -209,9 +210,12 @@ class WikiAskService:
         prior_turns: list[ConversationTurn],
         question: str,
     ) -> list[dict[str, str]]:
-        system_message = f"""You are a code documentation expert. Answer questions about the codebase using the provided context.
-Always reference source code locations when available.
-Repository: {repository}"""
+        system_message = (
+            "You are a code documentation expert. Answer questions about the codebase "
+            "using the provided context.\n"
+            "Always reference source code locations when available.\n"
+            f"Repository: {repository}"
+        )
 
         context_message = f"""Relevant Wiki pages and code:
 {formatted_results}"""

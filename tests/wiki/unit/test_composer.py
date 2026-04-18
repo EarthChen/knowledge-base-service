@@ -305,3 +305,144 @@ class TestTier3Templates:
         assert "usercontroller" in rel or "controller" in rel
         assert "call" in rel or "depends" in rel or "uses" in rel
 
+
+class TestComposerCoverageGaps:
+    """Hit _primary_name fallbacks, tier-2 entity digest, and zh tier-3 branches."""
+
+    async def test_primary_name_uses_path_segment_when_name_missing(self) -> None:
+        mod = GraphNode(
+            label=NodeLabel.MODULE,
+            uid="mod:onlypath",
+            properties={"path": "src/deep/pkg/widget"},
+        )
+        pd = PageData(
+            node=mod,
+            edges=[],
+            children=[],
+            source_location=_loc("src/deep/pkg/widget/__init__.py", 1, 1, "widget"),
+            method_locations=[],
+            business_summary=None,
+            methods=[],
+        )
+        composer = WikiComposer(llm=None, context_builder=WikiContextBuilder())
+        cfg = WikiConfig(repository="demo", mode="structure")
+        page = await composer.compose_page(pd, PageType.MODULE_OVERVIEW, cfg)
+        assert "widget" in page.title
+
+    async def test_tier2_entity_digest_includes_module_path_and_child_counts(self) -> None:
+        mod = GraphNode(
+            label=NodeLabel.MODULE,
+            uid="mod:api",
+            properties={"name": "api", "path": "projects/api"},
+        )
+        child = _class_node("class:C.java:C:1", "C", "f.java", 1, 2, "p.C")
+        pd = PageData(
+            node=mod,
+            edges=[_edge(EdgeType.IMPORTS, mod.uid, "mod:dep")],
+            children=[child],
+            source_location=_loc("api/__init__.py", 1, 1, "api"),
+            method_locations=[],
+            business_summary=None,
+            methods=[],
+        )
+        llm = AsyncMock()
+        llm.generate = AsyncMock(return_value="Overview body.")
+        composer = WikiComposer(llm=llm, context_builder=WikiContextBuilder())
+        cfg = WikiConfig(repository="demo", mode="full")
+        await composer.compose_page(pd, PageType.MODULE_OVERVIEW, cfg)
+        prompt = llm.generate.call_args[0][0]
+        assert "- Path: projects/api" in prompt
+        assert "Child classes/modules listed: 1" in prompt
+
+    async def test_tier2_entity_digest_class_includes_fqn_and_methods_count(self) -> None:
+        cls = GraphNode(
+            label=NodeLabel.CLASS,
+            properties={
+                "name": "Thing",
+                "fqn": "pkg.Thing",
+                "file": "src/T.java",
+                "start_line": 1,
+                "end_line": 50,
+            },
+            uid="class:T.java:Thing:1",
+        )
+        m1 = _fn("fn1", "run", 5, "src/T.java")
+        pd = PageData(
+            node=cls,
+            edges=[],
+            children=[],
+            source_location=_loc("src/T.java", 1, 50, "pkg.Thing"),
+            method_locations=[],
+            business_summary=None,
+            methods=[m1],
+        )
+        llm = AsyncMock()
+        llm.generate = AsyncMock(return_value="Body.")
+        composer = WikiComposer(llm=llm, context_builder=WikiContextBuilder())
+        cfg = WikiConfig(repository="demo", mode="full")
+        await composer.compose_page(pd, PageType.CLASS_DETAIL, cfg)
+        prompt = llm.generate.call_args[0][0]
+        assert "- FQN: pkg.Thing" in prompt
+        assert "Methods listed: 1" in prompt
+
+    async def test_tier3_zh_module_template(self) -> None:
+        mod = _module_node("mod:zh", "svc/", "svc")
+        fn = _fn("fn1", "helper", 2, "svc/h.py")
+        pd = PageData(
+            node=mod,
+            edges=[],
+            children=[fn],
+            source_location=_loc("svc/__init__.py", 1, 1, "svc"),
+            method_locations=[],
+            business_summary=None,
+            methods=[],
+        )
+        composer = WikiComposer(llm=None, context_builder=WikiContextBuilder())
+        cfg = WikiConfig(repository="demo", mode="structure", language="zh")
+        page = await composer.compose_page(pd, PageType.MODULE_OVERVIEW, cfg)
+        assert "模块" in page.content
+
+    async def test_tier3_zh_class_multiple_parents_and_many_methods(self) -> None:
+        cls = _class_node("class:A.java:A:1", "A", "src/A.java", 1, 50, "p.A")
+        base1 = _class_node("class:B1.java:B1:1", "B1", "src/B1.java", 1, 4, "p.B1")
+        base2 = _class_node("class:B2.java:B2:1", "B2", "src/B2.java", 1, 4, "p.B2")
+        edges = [
+            _edge(EdgeType.INHERITS, cls.uid, base1.uid),
+            _edge(EdgeType.INHERITS, cls.uid, base2.uid),
+        ]
+        methods = [_fn(f"fn{i}", f"m{i}", 10 + i, "src/A.java") for i in range(6)]
+        pd = PageData(
+            node=cls,
+            edges=edges,
+            children=[],
+            source_location=_loc("src/A.java", 1, 50, "p.A"),
+            method_locations=[],
+            business_summary=None,
+            methods=methods,
+        )
+        composer = WikiComposer(llm=None, context_builder=WikiContextBuilder())
+        cfg = WikiConfig(repository="demo", mode="structure", language="zh")
+        page = await composer.compose_page(pd, PageType.CLASS_DETAIL, cfg)
+        body = page.content
+        assert "继承" in body or "父类型" in body
+        assert "另有" in body or "方法" in body
+
+    async def test_tier3_en_module_truncates_many_classes(self) -> None:
+        mod = _module_node("mod:many", "bulk/", "bulk")
+        classes = [
+            _class_node(f"class:C{i}.java:C{i}:1", f"C{i}", f"f{i}.java", 1, 2, f"p.C{i}") for i in range(10)
+        ]
+        pd = PageData(
+            node=mod,
+            edges=[],
+            children=classes,
+            source_location=_loc("bulk/__init__.py", 1, 1, "bulk"),
+            method_locations=[],
+            business_summary=None,
+            methods=[],
+        )
+        composer = WikiComposer(llm=None, context_builder=WikiContextBuilder())
+        cfg = WikiConfig(repository="demo", mode="structure")
+        page = await composer.compose_page(pd, PageType.MODULE_OVERVIEW, cfg)
+        assert "+2 more" in page.content or "+1 more" in page.content
+

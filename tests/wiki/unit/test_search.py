@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wiki.search import WikiSearchService
+from wiki.search import WikiSearchService, _vector_hit_to_page
 
 
 class TestRRFFusion:
@@ -322,3 +322,85 @@ async def test_modes_single_path_only() -> None:
     fts.execute_query.assert_awaited()
     graph.execute_query.assert_not_called()
     vector.search_all.assert_not_called()
+
+
+class TestSearchErrorPathsAndScope:
+    """Graph/vector/FTS failures, scope filter, and vector hit normalization."""
+
+    @pytest.mark.asyncio
+    async def test_expand_query_graph_failure_falls_back_to_original(self) -> None:
+        graph = AsyncMock()
+        graph.execute_query = AsyncMock(side_effect=RuntimeError("graph down"))
+        svc = WikiSearchService(graph, AsyncMock(), AsyncMock())
+
+        out = await svc.expand_query_with_graph("How does UserService work?")
+        assert out == ["How does UserService work?"]
+
+    @pytest.mark.asyncio
+    async def test_hybrid_graph_path_error_still_fuses_other_paths(self) -> None:
+        graph = AsyncMock()
+        graph.execute_query = AsyncMock(side_effect=RuntimeError("neo4j"))
+        vector = AsyncMock()
+        vector.search_all = AsyncMock(
+            return_value=[{"page_path": "classes/Only.md", "title": "Only", "score": 0.9}]
+        )
+        fts = AsyncMock()
+        fts.execute_query = AsyncMock(return_value=MagicMock(data=[]))
+
+        svc = WikiSearchService(graph, vector, fts)
+        resp = await svc.search("repo", "UserService", mode="hybrid", limit=5)
+        assert any(r.page_path == "classes/Only.md" for r in resp.results)
+
+    @pytest.mark.asyncio
+    async def test_semantic_vector_path_error_returns_empty(self) -> None:
+        graph = AsyncMock()
+        vector = AsyncMock()
+        vector.search_all = AsyncMock(side_effect=RuntimeError("vector"))
+        fts = AsyncMock()
+
+        svc = WikiSearchService(graph, vector, fts)
+        resp = await svc.search("repo", "query", mode="semantic", limit=10)
+        assert resp.results == []
+
+    @pytest.mark.asyncio
+    async def test_keyword_fts_path_error_returns_empty(self) -> None:
+        graph = AsyncMock()
+        vector = AsyncMock()
+        fts = AsyncMock()
+        fts.execute_query = AsyncMock(side_effect=RuntimeError("fts"))
+
+        svc = WikiSearchService(graph, vector, fts)
+        resp = await svc.search("repo", "anything", mode="keyword", limit=10)
+        assert resp.results == []
+
+    @pytest.mark.asyncio
+    async def test_scope_filters_page_paths(self) -> None:
+        graph = AsyncMock()
+        graph.execute_query = AsyncMock(return_value=MagicMock(data=[]))
+        vector = AsyncMock()
+        vector.search_all = AsyncMock(
+            return_value=[
+                {"page_path": "modules/a/page.md", "title": "In", "score": 0.9},
+                {"page_path": "other/x.md", "title": "Out", "score": 0.95},
+            ]
+        )
+        fts = AsyncMock()
+        fts.execute_query = AsyncMock(return_value=MagicMock(data=[]))
+
+        svc = WikiSearchService(graph, vector, fts)
+        resp = await svc.search(
+            "repo",
+            "UserService",
+            mode="hybrid",
+            limit=10,
+            scope="modules/a",
+        )
+        paths = {r.page_path for r in resp.results}
+        assert "modules/a/page.md" in paths
+        assert "other/x.md" not in paths
+
+
+def test_vector_hit_to_page_fqn_and_name_fallbacks() -> None:
+    assert _vector_hit_to_page({"fqn": "com.example.api.UserService#method"}) == "classes/UserService.md"
+    assert _vector_hit_to_page({"name": "Blob"}) == "entities/Blob.md"
+    assert _vector_hit_to_page({}) is None

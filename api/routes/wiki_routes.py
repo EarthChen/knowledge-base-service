@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from collections.abc import Callable
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -12,7 +13,20 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from auth import Role, require_role
-from wiki.models import parse_scope
+from git_manager import normalize_repo_name
+from wiki.cache import WikiCache
+from wiki.exporter import WikiExporter
+from wiki.models import (
+    DiagramType,
+    PageType,
+    SourceLocation,
+    WikiDiagram,
+    WikiPage,
+    WikiPageMetadata,
+    WikiStructure,
+    WikiStructureNode,
+    parse_scope,
+)
 from wiki.service import WikiRepoNotFoundError, WikiService
 from wiki.structure_planner import WikiScopeError
 
@@ -29,6 +43,17 @@ class WikiGenerateBody(BaseModel):
     scope: str = Field(..., min_length=1)
     mode: str = Field(default="structure", pattern="^(full|structure)$")
     format: str = Field(default="json", pattern="^(markdown|json)$")
+
+
+class WikiQuickBody(BaseModel):
+    git_url: str = Field(..., min_length=1)
+    branch: str | None = None
+    token: str | None = None
+    mode: str = Field(default="structure", pattern="^(full|structure)$")
+
+
+_QUICK_SCOPE = "repo"
+_QUICK_FORMAT = "json"
 
 
 wiki_router = APIRouter(
@@ -72,6 +97,106 @@ def get_wiki_generation_sem(request: Request) -> asyncio.Semaphore:
     return sem
 
 
+def get_wiki_cache_dep(request: Request) -> WikiCache:
+    cache = getattr(request.app.state, "wiki_cache", None)
+    if cache is None:
+        cache = WikiCache()
+        request.app.state.wiki_cache = cache
+    return cache
+
+
+def _looks_like_git_url(value: str) -> bool:
+    if value.startswith(("http://", "https://", "git@", "ssh://")):
+        return True
+    return value.endswith(".git")
+
+
+async def _maybe_call(fn: Callable[..., Any], *args: Any) -> Any:
+    out = fn(*args)
+    if asyncio.iscoroutine(out):
+        return await out
+    return out
+
+
+def _wiki_page_from_export_dict(data: dict[str, Any], repository: str) -> WikiPage:
+    diagrams: list[WikiDiagram] = []
+    for d in data.get("diagrams") or []:
+        dtype = d.get("type") or d.get("diagram_type")
+        diagrams.append(
+            WikiDiagram(
+                diagram_type=DiagramType(dtype),
+                content=str(d.get("content", "")),
+                title=str(d.get("title", "")),
+            )
+        )
+    src: list[SourceLocation] = []
+    for loc in data.get("source_locations") or []:
+        src.append(
+            SourceLocation(
+                file_path=str(loc["file_path"]),
+                start_line=int(loc["start_line"]),
+                end_line=int(loc["end_line"]),
+                fqn=str(loc["fqn"]),
+                repository=repository,
+            )
+        )
+    methods: list[SourceLocation] = []
+    for loc in data.get("method_locations") or []:
+        methods.append(
+            SourceLocation(
+                file_path=str(loc["file_path"]),
+                start_line=int(loc["start_line"]),
+                end_line=int(loc["end_line"]),
+                fqn=str(loc["fqn"]),
+                repository=repository,
+            )
+        )
+    meta_raw = data.get("metadata") or {}
+    metadata = WikiPageMetadata(
+        node_count=int(meta_raw.get("node_count", 0)),
+        edge_count=int(meta_raw.get("edge_count", 0)),
+        generation_mode=str(meta_raw.get("generation_mode", "structure")),
+        fallback_tier=meta_raw.get("fallback_tier"),
+    )
+    return WikiPage(
+        path=str(data["path"]),
+        title=str(data["title"]),
+        page_type=PageType(data["page_type"]),
+        content=str(data.get("content", "")),
+        diagrams=diagrams,
+        source_locations=src,
+        metadata=metadata,
+        method_locations=methods,
+    )
+
+
+def _wiki_structure_from_pages(repository: str, pages: list[WikiPage]) -> WikiStructure:
+    overview = [p for p in pages if p.page_type == PageType.REPO_OVERVIEW]
+    root_src = overview[0] if overview else None
+    others = [p for p in pages if p.page_type != PageType.REPO_OVERVIEW]
+    if root_src is not None:
+        root = WikiStructureNode(
+            path=root_src.path,
+            title=root_src.title,
+            page_type=root_src.page_type,
+            children=[
+                WikiStructureNode(path=p.path, title=p.title, page_type=p.page_type, children=[])
+                for p in others
+            ],
+        )
+    else:
+        root = WikiStructureNode(
+            path="README.md",
+            title=repository,
+            page_type=PageType.REPO_OVERVIEW,
+            children=[
+                WikiStructureNode(path=p.path, title=p.title, page_type=p.page_type, children=[])
+                for p in pages
+            ],
+        )
+    return WikiStructure(repository=repository, root=root, total_pages=len(pages))
+
+
 def _invalid_scope_detail(exc: ValueError) -> str:
     msg = str(exc)
     if "Invalid scope" in msg:
@@ -106,6 +231,41 @@ async def _run_wiki_task(
         rec["status"] = "failed"
         rec["error"] = {"error": "scope_not_found", "detail": str(exc)}
     except Exception as exc:  # noqa: BLE001 — surface as failed task
+        rec["status"] = "failed"
+        rec["error"] = {"error": "generation_failed", "detail": str(exc)}
+
+
+async def _run_wiki_quick_task(
+    task_id: str,
+    git_url: str,
+    branch: str | None,
+    token: str | None,
+    mode: str,
+    registry: WikiTaskRegistry,
+    sem: asyncio.Semaphore,
+    background_fn: Callable[..., Any] | None,
+) -> None:
+    rec = registry.tasks[task_id]
+    try:
+        rec["status"] = "queued"
+        async with sem:
+            rec["status"] = "running"
+            if background_fn is None:
+                raise RuntimeError("wiki_quick_background is not configured")
+            bg_out = background_fn(git_url=git_url, branch=branch, token=token, mode=mode)
+            if asyncio.iscoroutine(bg_out):
+                result = await bg_out
+            else:
+                result = bg_out
+            rec["result"] = result
+            rec["status"] = "completed"
+    except WikiRepoNotFoundError as exc:
+        rec["status"] = "failed"
+        rec["error"] = {"error": "repo_not_found", "detail": str(exc)}
+    except WikiScopeError as exc:
+        rec["status"] = "failed"
+        rec["error"] = {"error": "scope_not_found", "detail": str(exc)}
+    except Exception as exc:  # noqa: BLE001
         rec["status"] = "failed"
         rec["error"] = {"error": "generation_failed", "detail": str(exc)}
 
@@ -204,6 +364,100 @@ async def wiki_generate(
             detail={"error": "scope_not_found", "detail": str(exc)},
         ) from exc
 
+    return result
+
+
+@wiki_router.post("/quick", response_model=None)
+async def wiki_quick(
+    body: WikiQuickBody,
+    request: Request,
+    svc: WikiService = Depends(get_wiki_service_dep),
+    registry: WikiTaskRegistry = Depends(get_task_registry_dep),
+    sem: asyncio.Semaphore = Depends(get_wiki_generation_sem),
+    cache: WikiCache = Depends(get_wiki_cache_dep),
+) -> JSONResponse | dict[str, Any]:
+    git_url = body.git_url.strip()
+    if not _looks_like_git_url(git_url):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_git_url",
+                "detail": "git_url must look like an https, ssh, git@, or .git remote URL",
+            },
+        )
+
+    status_fn = getattr(request.app.state, "wiki_quick_repo_status", None)
+    if callable(status_fn):
+        repo, indexed, gv = await _maybe_call(status_fn, git_url, body.branch, body.token)
+    else:
+        repo = normalize_repo_name(git_url)
+        indexed = False
+        gv = 0
+
+    gv_fn = getattr(request.app.state, "wiki_graph_version", None)
+    if indexed and callable(gv_fn):
+        gv_out = gv_fn(repo)
+        if asyncio.iscoroutine(gv_out):
+            gv = await gv_out
+        else:
+            gv = int(gv_out)
+
+    if not indexed:
+        task_id = f"wiki-quick-{uuid.uuid4().hex}"
+        registry.tasks[task_id] = {
+            "task_id": task_id,
+            "status": "pending",
+            "git_url": git_url,
+            "branch": body.branch,
+            "mode": body.mode,
+        }
+        bg_fn = getattr(request.app.state, "wiki_quick_background", None)
+        asyncio.create_task(
+            _run_wiki_quick_task(
+                task_id,
+                git_url,
+                body.branch,
+                body.token,
+                body.mode,
+                registry,
+                sem,
+                bg_fn,
+            )
+        )
+        return JSONResponse(
+            status_code=202,
+            content={"task_id": task_id, "status": "pending"},
+        )
+
+    cached_pages = cache.get(repo, _QUICK_SCOPE, body.mode, gv)
+    if cached_pages is not None:
+        structure = _wiki_structure_from_pages(repo, cached_pages)
+        bundle = WikiExporter().export_json(cached_pages, structure)
+        bundle["degraded"] = False
+        return bundle
+
+    try:
+        async with sem:
+            result = await svc.generate(repo, _QUICK_SCOPE, body.mode, _QUICK_FORMAT)
+    except WikiRepoNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "repo_not_found",
+                "detail": (
+                    f"Repository '{exc.repository}' not indexed. "
+                    "Use indexing API or wait for quick background indexing."
+                ),
+            },
+        ) from exc
+    except WikiScopeError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "scope_not_found", "detail": str(exc)},
+        ) from exc
+
+    pages_models = [_wiki_page_from_export_dict(p, repo) for p in result["pages"]]
+    cache.put(repo, _QUICK_SCOPE, body.mode, gv, pages_models)
     return result
 
 

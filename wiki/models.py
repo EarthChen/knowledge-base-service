@@ -94,6 +94,7 @@ class SourceLocation:
             "start_line": self.start_line,
             "end_line": self.end_line,
             "fqn": self.fqn,
+            "repository": self.repository,
         }
 
 
@@ -158,6 +159,50 @@ class WikiPage:
                 "fallback_tier": self.metadata.fallback_tier,
             },
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> WikiPage:
+        repo_fallback = data.get("repository", "")
+        return WikiPage(
+            path=data["path"],
+            title=data["title"],
+            page_type=PageType(data["page_type"]),
+            content=data["content"],
+            diagrams=[
+                WikiDiagram(
+                    diagram_type=DiagramType(d["type"]),
+                    content=d["content"],
+                    title=d.get("title", ""),
+                )
+                for d in data.get("diagrams", [])
+            ],
+            source_locations=[
+                SourceLocation(
+                    file_path=s["file_path"],
+                    start_line=s["start_line"],
+                    end_line=s["end_line"],
+                    fqn=s["fqn"],
+                    repository=s.get("repository", repo_fallback),
+                )
+                for s in data.get("source_locations", [])
+            ],
+            metadata=WikiPageMetadata(
+                node_count=data["metadata"]["node_count"],
+                edge_count=data["metadata"]["edge_count"],
+                generation_mode=data["metadata"].get("generation_mode", "structure"),
+                fallback_tier=data["metadata"].get("fallback_tier"),
+            ),
+            method_locations=[
+                SourceLocation(
+                    file_path=s["file_path"],
+                    start_line=s["start_line"],
+                    end_line=s["end_line"],
+                    fqn=s["fqn"],
+                    repository=s.get("repository", repo_fallback),
+                )
+                for s in data.get("method_locations", [])
+            ],
+        )
 
     def to_markdown(self) -> str:
         parts = [self.content]

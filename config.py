@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -89,6 +90,9 @@ class LLMConfig(BaseModel):
     """Configuration for LLM provider (OpenAI-compatible protocol)."""
 
     enabled: bool = False
+    default_provider: str = "gateway"
+    fallback_provider: str = ""
+    providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
     base_url: str = "https://api.openai.com/v1"
     api_key: str = ""
     model: str = "gpt-4o-mini"

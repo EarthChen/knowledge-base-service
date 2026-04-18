@@ -189,6 +189,7 @@ class TestServiceLanguagePropagation:
             repository: str,
             struct: WikiStructure,
             config: WikiConfig,
+            _composer: object,
         ) -> tuple[list, bool]:
             captured["config"] = config
             return [], False

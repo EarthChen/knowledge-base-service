@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
+from llm.base_provider import LLMPortBridge
+from llm.provider_factory import LLMProviderFactory
 from store.schema import GraphNode
 from wiki.composer import WikiComposer
 from wiki.context import WikiContextBuilder
@@ -38,13 +40,25 @@ class WikiService:
         graph: DataCollectorPort,
         llm: Any | None,
         repository_exists: Callable[[str], Awaitable[bool]],
+        llm_factory: LLMProviderFactory | None = None,
     ) -> None:
         self._graph = graph
         self._planner = WikiStructurePlanner(graph)
         self._collector = WikiDataCollector(graph)
-        self._composer = WikiComposer(llm, WikiContextBuilder(llm))
+        self._llm = llm
+        self._llm_factory = llm_factory
         self._exporter = WikiExporter()
         self._repository_exists = repository_exists
+
+    def _composer_for(self, llm_provider: str | None) -> WikiComposer:
+        llm_port = self._resolve_llm_port(llm_provider)
+        return WikiComposer(llm_port, WikiContextBuilder(llm_port))
+
+    def _resolve_llm_port(self, llm_provider: str | None) -> Any | None:
+        if self._llm_factory is not None:
+            provider = self._llm_factory.get_provider(llm_provider)
+            return LLMPortBridge(provider)
+        return self._llm
 
     async def _ensure_repo(self, repository: str) -> None:
         if not await self._repository_exists(repository):
@@ -66,12 +80,14 @@ class WikiService:
         mode: str,
         format: str,
         language: str = "en",
+        llm_provider: str | None = None,
     ) -> dict[str, Any]:
         scope = parse_scope(scope_raw)
         config = self._config_for(mode, format, repository, language)
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
-        pages, degraded = await self._compose_all_pages(repository, structure, config)
+        composer = self._composer_for(llm_provider)
+        pages, degraded = await self._compose_all_pages(repository, structure, config, composer)
 
         if format == "markdown" and len(pages) == 1:
             return {
@@ -91,12 +107,14 @@ class WikiService:
         mode: str,
         format: str,
         language: str = "en",
+        llm_provider: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield ``{"page": page_dict}`` per page, then ``{"complete": export_bundle}``."""
         scope = parse_scope(scope_raw)
         config = self._config_for(mode, format, repository, language)
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
+        composer = self._composer_for(llm_provider)
 
         pages: list[WikiPage] = []
 
@@ -110,7 +128,7 @@ class WikiService:
                 return
             graph_node = await self._resolve_structure_node(repository, node)
             page_data = await self._collector.collect(repository, graph_node)
-            page = await self._composer.compose_page(
+            page = await composer.compose_page(
                 page_data,
                 node.page_type,
                 config,
@@ -137,6 +155,7 @@ class WikiService:
         repository: str,
         structure: WikiStructure,
         config: WikiConfig,
+        composer: WikiComposer,
     ) -> tuple[list[WikiPage], bool]:
         pages: list[WikiPage] = []
         degraded = False
@@ -148,7 +167,7 @@ class WikiService:
             else:
                 graph_node = await self._resolve_structure_node(repository, node)
                 page_data = await self._collector.collect(repository, graph_node)
-                page = await self._composer.compose_page(
+                page = await composer.compose_page(
                     page_data,
                     node.page_type,
                     config,

@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
+from api.routes.provider_routes import provider_router
 from api.routes.wiki_routes import wiki_router
 
 from auth import Role, TokenInfo, get_current_role, require_role, resolve_business_id, resolve_token
@@ -1918,6 +1919,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(public_router)
+    app.include_router(provider_router)
     app.include_router(wiki_router)
     app.include_router(viewer_router)
     app.include_router(editor_router)

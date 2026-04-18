@@ -48,6 +48,7 @@ class WikiGenerateBody(BaseModel):
     mode: str = Field(default="structure", pattern="^(full|structure)$")
     format: str = Field(default="json", pattern="^(markdown|json)$")
     language: str = Field(default="en", pattern="^(en|zh)$")
+    llm_provider: str | None = None
 
 
 class WikiQuickBody(BaseModel):
@@ -56,6 +57,7 @@ class WikiQuickBody(BaseModel):
     token: str | None = None
     mode: str = Field(default="structure", pattern="^(full|structure)$")
     language: str = Field(default="en", pattern="^(en|zh)$")
+    llm_provider: str | None = None
 
 
 class WikiSearchBody(BaseModel):
@@ -317,6 +319,7 @@ async def _run_wiki_task(
                 body.mode,
                 body.format,
                 body.language,
+                llm_provider=body.llm_provider,
             )
             rec["result"] = result
             rec["status"] = "completed"
@@ -341,6 +344,7 @@ async def _run_wiki_quick_task(
     registry: WikiTaskRegistry,
     sem: asyncio.Semaphore,
     background_fn: Callable[..., Any] | None,
+    llm_provider: str | None,
 ) -> None:
     rec = registry.tasks[task_id]
     try:
@@ -355,6 +359,7 @@ async def _run_wiki_quick_task(
                 token=token,
                 mode=mode,
                 language=language,
+                llm_provider=llm_provider,
             )
             if asyncio.iscoroutine(bg_out):
                 result = await bg_out
@@ -405,6 +410,7 @@ async def wiki_generate(
                     body.mode,
                     body.format,
                     body.language,
+                    llm_provider=body.llm_provider,
                 ):
                     if "page" in ev:
                         payload = json.dumps(ev["page"])
@@ -452,6 +458,7 @@ async def wiki_generate(
                 body.mode,
                 body.format,
                 body.language,
+                llm_provider=body.llm_provider,
             )
     except WikiRepoNotFoundError as exc:
         raise HTTPException(
@@ -528,6 +535,7 @@ async def wiki_quick(
                 registry,
                 sem,
                 bg_fn,
+                body.llm_provider,
             )
         )
         return JSONResponse(
@@ -544,7 +552,14 @@ async def wiki_quick(
 
     try:
         async with sem:
-            result = await svc.generate(repo, _QUICK_SCOPE, body.mode, _QUICK_FORMAT, body.language)
+            result = await svc.generate(
+                repo,
+                _QUICK_SCOPE,
+                body.mode,
+                _QUICK_FORMAT,
+                body.language,
+                llm_provider=body.llm_provider,
+            )
     except WikiRepoNotFoundError as exc:
         raise HTTPException(
             status_code=404,

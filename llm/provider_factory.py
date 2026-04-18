@@ -23,6 +23,22 @@ class ProviderConfig:
     providers: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
+def provider_config_from_llm(llm: Any) -> ProviderConfig:
+    """Build factory config from application ``LLMConfig``."""
+    from config import LLMConfig as LLMConfigType
+
+    if not isinstance(llm, LLMConfigType):
+        msg = f"expected LLMConfig, got {type(llm)!r}"
+        raise TypeError(msg)
+
+    fb = llm.fallback_provider.strip()
+    return ProviderConfig(
+        default_provider=llm.default_provider,
+        fallback_provider=fb if fb else None,
+        providers=dict(llm.providers),
+    )
+
+
 class LLMProviderFactory:
     """Factory for creating LLM providers with fallback chain."""
 

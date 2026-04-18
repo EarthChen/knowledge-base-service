@@ -146,12 +146,22 @@ class TestWikiGenerateSync:
         )
         structure = WikiStructure(repository="r1", root=root, total_pages=1)
 
-        async def gen(repo: str, scope: str, mode: str, fmt: str, language: str = "en") -> dict:
+        async def gen(
+            repo: str,
+            scope: str,
+            mode: str,
+            fmt: str,
+            language: str = "en",
+            *,
+            llm_provider: str | None = None,
+        ) -> dict:
             await svc._ensure_repo(repo)
+            composer = svc._composer_for(llm_provider)
             pages, deg = await svc._compose_all_pages(
                 repo,
                 structure,
-                svc._config_for(mode, fmt, repo),
+                svc._config_for(mode, fmt, repo, language),
+                composer,
             )
             b = WikiExporter().export_json(pages, structure)
             b["degraded"] = deg

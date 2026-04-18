@@ -586,13 +586,13 @@ MCP 侧：`rag_graph` 增加业务流程相关 `query_type`；新增 **`rag_busi
 
 ---
 
-## Wiki Generation
+## Wiki 生成
 
-English naming follows the REST paths below. Wiki turns the indexed **code graph** (Tree-sitter → FalkorDB) into Markdown with **deterministic Mermaid** diagrams, optional **LLM** narration (3-tier fallback: pre-computed summaries → LLM → structural templates), **hybrid search** (graph + vector + FTS with RRF), and **SSE Ask** over the same retrieval stack.
+Wiki 将**已索引的代码图谱**（Tree-sitter → FalkorDB）转化为 Markdown 文档，包含**确定性 Mermaid** 图表、可选的 **LLM 叙述**（三层降级：预计算摘要 → LLM → 结构化模板）、**混合搜索**（图 + 向量 + 全文 + RRF 融合）以及基于相同检索栈的 **SSE Ask** 功能。
 
-**Implementation phases:** **P1** core composer pipeline; **P1.5** search + Ask + 5 MCP tools; **P2** full-repo composition, multi-provider LLM, disk export, persistent cache, incremental updates, Dashboard `WikiPage`.
+**实现阶段：** **P1** 核心组合流水线；**P1.5** 搜索 + Ask + 5 个 MCP 工具；**P2** 全仓库生成、多 LLM 后端、磁盘导出、持久化缓存、增量更新、Dashboard `WikiPage`。
 
-Architecture (high level):
+架构概览：
 
 ```mermaid
 flowchart LR
@@ -621,19 +621,19 @@ flowchart LR
 
 ### Wiki HTTP API
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/wiki/generate` | Generate wiki (sync for module/class scope; **202 + task_id** for `scope: repo`) |
-| POST | `/api/v1/wiki/generate` | Same URL with header `Accept: text/event-stream` — **SSE** stream (`wiki-page`, `wiki-complete` events) |
-| POST | `/api/v1/wiki/quick` | Quick wiki: clone/index path or fast path when repo already indexed |
-| GET | `/api/v1/wiki/tasks/{task_id}` | Poll async wiki / quick tasks |
-| GET | `/api/v1/wiki/{repository}/pages` | List generated pages (`scope` query optional) |
-| GET | `/api/v1/wiki/{repository}/pages/{path}` | Fetch one page by wiki path (URL-encoded) |
-| POST | `/api/v1/wiki/search` | Hybrid wiki search (`mode`: hybrid, graph, semantic, keyword) |
-| POST | `/api/v1/wiki/ask` | Ask about code (**SSE**; conversation id optional) |
-| GET | `/api/v1/llm/providers` | List configured LLM provider names |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/wiki/generate` | 生成 Wiki（module/class scope 同步返回；`scope: repo` 返回 **202 + task_id**） |
+| POST | `/api/v1/wiki/generate` | 同一 URL，Header `Accept: text/event-stream` — **SSE** 流式输出（`wiki-page`、`wiki-complete` 事件） |
+| POST | `/api/v1/wiki/quick` | 快速 Wiki：克隆/索引路径，或仓库已索引时走快速路径 |
+| GET | `/api/v1/wiki/tasks/{task_id}` | 轮询异步 wiki / quick 任务 |
+| GET | `/api/v1/wiki/{repository}/pages` | 列出已生成的页面（`scope` 查询参数可选） |
+| GET | `/api/v1/wiki/{repository}/pages/{path}` | 按 wiki 路径获取单个页面（URL 编码） |
+| POST | `/api/v1/wiki/search` | 混合 wiki 搜索（`mode`: hybrid, graph, semantic, keyword） |
+| POST | `/api/v1/wiki/ask` | 代码问答（**SSE** 流式；conversation_id 可选） |
+| GET | `/api/v1/llm/providers` | 列出已配置的 LLM 提供商名称 |
 
-Example — generate a module wiki (requires indexed `repository`):
+示例 — 生成模块 Wiki（需要已索引的 `repository`）：
 
 ```bash
 curl -s -X POST http://localhost:8100/api/v1/wiki/generate \
@@ -648,7 +648,7 @@ curl -s -X POST http://localhost:8100/api/v1/wiki/generate \
   }'
 ```
 
-Example — SSE generation:
+示例 — SSE 流式生成：
 
 ```bash
 curl -N -X POST http://localhost:8100/api/v1/wiki/generate \
@@ -658,32 +658,32 @@ curl -N -X POST http://localhost:8100/api/v1/wiki/generate \
   -d '{"repository":"my-repo","scope":"repo","mode":"structure","format":"json","language":"en"}'
 ```
 
-### Wiki MCP tools (5)
+### Wiki MCP 工具（5 个）
 
-Registered alongside existing RAG tools; call via `GET/POST /api/v1/mcp/*` as usual.
+与现有 RAG 工具一并注册；通过 `GET/POST /api/v1/mcp/*` 正常调用。
 
-| Tool | Purpose |
-|------|---------|
-| `generate_wiki` | Generate wiki for a scope |
-| `get_wiki_page` | Get one page |
-| `list_wiki_pages` | List pages / tree |
-| `search_wiki` | Hybrid search over wiki |
-| `ask_about_code` | Streaming Q&A |
+| 工具 | 用途 |
+|------|------|
+| `generate_wiki` | 按 scope 生成 Wiki |
+| `get_wiki_page` | 获取单个页面 |
+| `list_wiki_pages` | 列出页面 / 目录树 |
+| `search_wiki` | 混合搜索 Wiki 内容 |
+| `ask_about_code` | 流式代码问答 |
 
-### LLM providers (Wiki + enrichment)
+### LLM 提供商（Wiki + 增强）
 
-Wiki generation uses `LLMProviderFactory` (`llm/provider_factory.py`): **gateway** (ACP / existing bridge), **openai**, **azure**, **custom** OpenAI-compatible endpoints. Defaults and credentials come from **`LLMConfig`** (`config.py`).
+Wiki 生成使用 `LLMProviderFactory`（`llm/provider_factory.py`）：**gateway**（ACP / 现有网关）、**openai**、**azure**、**custom** OpenAI 兼容端点。默认值和凭据来自 **`LLMConfig`**（`config.py`）。
 
-| Variable | Meaning |
-|----------|---------|
-| `LLM__ENABLED` | Enable LLM features (`full` wiki mode, Ask, etc.) |
+| 变量 | 含义 |
+|------|------|
+| `LLM__ENABLED` | 启用 LLM 功能（`full` 模式 wiki、Ask 等） |
 | `LLM__DEFAULT_PROVIDER` | `gateway` \| `openai` \| `azure` \| `custom` |
-| `LLM__FALLBACK_PROVIDER` | Optional secondary provider on transport failure |
-| `LLM__PROVIDERS` | Provider-specific keys (nested settings; configure per `config.py` / `.env` conventions) |
+| `LLM__FALLBACK_PROVIDER` | 传输失败时的可选备用提供商 |
+| `LLM__PROVIDERS` | 提供商专属配置（嵌套设置；按 `config.py` / `.env` 约定配置） |
 
-Use **`GET /api/v1/llm/providers`** to see which providers are available at runtime. Optional request field **`llm_provider`** on wiki generate/quick overrides the default when allowed by RBAC.
+使用 **`GET /api/v1/llm/providers`** 查看运行时可用的提供商。Wiki generate/quick 请求体中的可选字段 **`llm_provider`** 在 RBAC 允许时可覆盖默认值。
 
-Design detail: [docs/superpowers/specs/2026-04-17-wiki-generation-design.md](docs/superpowers/specs/2026-04-17-wiki-generation-design.md) · Architecture summary: [docs/wiki-generation-architecture.md](docs/wiki-generation-architecture.md).
+设计详情：[docs/superpowers/specs/2026-04-17-wiki-generation-design.md](docs/superpowers/specs/2026-04-17-wiki-generation-design.md) · 架构概述：[docs/wiki-generation-architecture.md](docs/wiki-generation-architecture.md)。
 
 ### 11. 查看图统计信息
 

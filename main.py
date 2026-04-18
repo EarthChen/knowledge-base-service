@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.routes.provider_routes import provider_router
+from api.routes.webhook_routes import init_webhook_state, webhook_router
 from api.routes.wiki_routes import wiki_router
 
 from auth import Role, TokenInfo, get_current_role, require_role, resolve_business_id, resolve_token
@@ -67,6 +68,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.registry = _registry
     app.state.scheduler = _scheduler
+    init_webhook_state(app)
     log.info("kb_service_started")
     yield
 
@@ -1993,6 +1995,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(public_router)
+    app.include_router(webhook_router)
     app.include_router(provider_router)
     app.include_router(wiki_router)
     app.include_router(viewer_router)

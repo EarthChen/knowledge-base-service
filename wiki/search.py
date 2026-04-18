@@ -173,6 +173,7 @@ class WikiSearchService:
         min_score: float = 0.0,
         *,
         expand_mode: str = "graph",
+        scope: str | None = None,
     ) -> SearchResponse:
         _ = expand_mode  # LLM expansion reserved for future opt-in
 
@@ -316,6 +317,15 @@ class WikiSearchService:
             )
             if len(results) >= limit:
                 break
+
+        if scope:
+            sn = scope.strip().rstrip("/")
+            filtered: list[SearchResult] = []
+            for r in results:
+                pp = r.page_path.strip()
+                if pp == sn or pp.startswith(sn + "/") or pp.startswith(sn):
+                    filtered.append(r)
+            results = filtered
 
         return SearchResponse(
             results=results,

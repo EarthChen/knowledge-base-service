@@ -364,6 +364,8 @@ curl -s -X POST "http://localhost:8100/api/v1/sync/schedules/group%2Fproject/tri
 
 ### 5. 语义搜索
 
+> **P3 / Track C：** **`POST /api/v1/search` 已废弃**，新集成请使用 **`POST /api/v1/hybrid`**（可选 `entity_type` 限定函数/类/模块/文档或业务实体）。下列 curl 仍可用，但会收到弃用响应头与 `_deprecated` 字段。
+
 使用自然语言搜索代码（可选按仓库过滤）：
 
 ```bash
@@ -492,9 +494,9 @@ curl -X POST http://localhost:8100/api/v1/graph \
   }'
 ```
 
-### 7. 混合搜索
+### 7. 混合搜索（推荐通用检索入口）
 
-结合语义搜索和图遍历，获取更丰富的上下文：
+结合语义搜索和图遍历，获取更丰富的上下文。**Track C 后此为统一检索入口**，替代已废弃的 `/search` 与 `/business/search`。
 
 ```bash
 curl -X POST http://localhost:8100/api/v1/hybrid \
@@ -505,6 +507,8 @@ curl -X POST http://localhost:8100/api/v1/hybrid \
     "expand_depth": 2
   }'
 ```
+
+可选 **`entity_type`**：`function`、`class`、`module`、`document`、`flow`、`concept`（后两者对应原业务语义搜索场景）。
 
 混合搜索会：
 1. 先进行语义搜索，找到最相关的 k 个代码实体
@@ -580,9 +584,9 @@ curl http://localhost:8100/api/v1/code/<node_uid>
 | **重排序** | 可选启用 `BAAI/bge-reranker-v2-m3`，在混合检索融合后对候选结果精排 |
 | **Dashboard 深度搜索** | `POST /api/v1/deep-search` 在服务端用 LLM 拆解查询、多轮调用混合搜索与图查询并汇总（需配置 LLM；未配置时返回 501）。启用 **`LLM__GATEWAY__ENABLED`** 且请求带 `business_id` 时，规划/汇总可走 Gateway 上每租户复用的 ACP 任务（`search:{tenant_id}`），否则走直连 LLM |
 
-面向 HTTP / Agent 的业务语义查询还可使用 **`POST /api/v1/business/search`**：按 `search_type`（`flow` / `concept` / `all`）检索业务流程与业务概念，行为与 MCP 工具 `rag_business_search` 一致。
+面向 HTTP / Agent 的业务语义查询请优先使用 **`POST /api/v1/hybrid`**，设置 **`entity_type`** 为 `flow`（`BusinessFlow`）或 `concept`（`BusinessConcept`）。**`POST /api/v1/business/search` 已废弃**（响应中含弃用说明），保留仅为兼容旧客户端。
 
-MCP 侧：`rag_graph` 增加业务流程相关 `query_type`；新增 **`rag_business_search`** 专查流程与概念。详见 [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md)。
+MCP 侧：`rag_graph` 仍支持业务流程相关 `query_type`。**`rag_business_search` 已废弃**，请使用 **`rag_query`** + `entity_type`。详见 [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md)。
 
 ---
 
@@ -590,7 +594,13 @@ MCP 侧：`rag_graph` 增加业务流程相关 `query_type`；新增 **`rag_busi
 
 Wiki 将**已索引的代码图谱**（Tree-sitter → FalkorDB）转化为 Markdown 文档，包含**确定性 Mermaid** 图表、可选的 **LLM 叙述**（三层降级：预计算摘要 → LLM → 结构化模板）、**混合搜索**（图 + 向量 + 全文 + RRF 融合）以及基于相同检索栈的 **SSE Ask** 功能。
 
-**实现阶段：** **P1** 核心组合流水线；**P1.5** 搜索 + Ask + 5 个 MCP 工具；**P2** 全仓库生成、多 LLM 后端、磁盘导出、持久化缓存、增量更新、Dashboard `WikiPage`。
+**实现阶段：** **P1** 核心组合流水线；**P1.5** 搜索 + Ask + 5 个 MCP 工具；**P2** 全仓库生成、多 LLM 后端、磁盘导出、持久化缓存、增量更新、Dashboard `WikiPage`；**P3** 见下文「P3 能力」。
+
+**P3 能力（概要）：**
+
+- **Track A — 自动化触发：** Git 托管平台 **push Webhook**（GitHub / GitLab / Gitea：请求体验签、负载解析、`PushDebouncer` 去重合并后触发增量更新）；**Webhook HTTP** `POST /api/v1/hooks/{provider}`、`GET/PUT /api/v1/hooks/config`。**定时 Wiki 再生**实现于 `wiki/scheduler/`：`WikiScheduler`（interval 模式，`asyncio` 循环）与 `TaskLock`（与 Webhook 触发的再生任务互斥，避免并发重入）。
+- **Track B — 智能增强：** **Ask v2**：`wiki/ask.py` 中间 `detect_question_type` 做问题类型分类；`GraphEnhancedContextCollector` 按类型拉取 **N 跳**图上下文（调用链、影响反向、关系路径等）并与 Wiki 检索结果拼装，最后经 **token 预算**裁剪后送入 LLM。**图遍历 MCP**：`traverse_call_chain`、`find_impact_scope`、`analyze_pr_impact`（无 LLM，返回结构化数据）。**PR 影响纯数据 API**：`POST /api/v1/wiki/{repository}/analyze-impact`（HTTP，与 MCP `analyze_pr_impact` 同源逻辑）。
+- **Track C — 搜索统一：** `POST /api/v1/search` 与 `POST /api/v1/business/search` **已标记废弃**，请统一使用 **`POST /api/v1/hybrid`**（可选 `entity_type` 过滤，覆盖原语义搜索与业务实体检索场景）。MCP **`rag_business_search` 已废弃**，请使用 **`rag_query`** 并传 `entity_type`（如 `flow` / `concept`）。索引侧 **`ConceptExtractor`** 与 **`BusinessFlowInferencer`** 默认关闭，由 `LLM__CONCEPT_EXTRACTION_ENABLED`、`LLM__BUSINESS_FLOW_ENABLED` 控制（默认 `false`）。
 
 架构概览：
 
@@ -600,6 +610,7 @@ flowchart LR
         G[POST /wiki/generate]
         S[POST /wiki/search]
         A[POST /wiki/ask SSE]
+        H[POST /hooks/{provider}]
     end
     subgraph wiki [wiki module]
         SP[StructurePlanner]
@@ -607,6 +618,7 @@ flowchart LR
         CP[WikiComposer]
         DG[DiagramGen]
         EX[Exporter / DiskExporter]
+        SK[WikiScheduler + TaskLock]
     end
     subgraph store [KBS]
         FK[(FalkorDB)]
@@ -617,6 +629,8 @@ flowchart LR
     S --> EM
     A --> S
     CP --> LLM[LLM providers]
+    H -.->|push 验签去重| SK
+    SK -.->|interval 再生| EX
 ```
 
 ### Wiki HTTP API
@@ -630,8 +644,17 @@ flowchart LR
 | GET | `/api/v1/wiki/{repository}/pages` | 列出已生成的页面（`scope` 查询参数可选） |
 | GET | `/api/v1/wiki/{repository}/pages/{path}` | 按 wiki 路径获取单个页面（URL 编码） |
 | POST | `/api/v1/wiki/search` | 混合 wiki 搜索（`mode`: hybrid, graph, semantic, keyword） |
-| POST | `/api/v1/wiki/ask` | 代码问答（**SSE** 流式；conversation_id 可选） |
+| POST | `/api/v1/wiki/ask` | 代码问答（**SSE** 流式；conversation_id 可选；**Ask v2** 图增强上下文） |
+| POST | `/api/v1/wiki/{repository}/analyze-impact` | PR / 变更文件影响分析（纯数据 JSON；路径中仓库名含 `/` 须 URL 编码） |
 | GET | `/api/v1/llm/providers` | 列出已配置的 LLM 提供商名称 |
+
+**Webhook（P3，需先在 `PUT /api/v1/hooks/config` 中启用并配置密钥）：**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/hooks/{provider}` | 接收 push 事件，`provider` 为 `github` \| `gitlab` \| `gitea`；验签通过后去重并入队，常返回 **202**（`queued`） |
+| GET | `/api/v1/hooks/config` | 读取 Webhook 全局配置（启用开关、debounce 窗口、分支白名单、各 provider secret 等） |
+| PUT | `/api/v1/hooks/config` | 更新配置并重建内部 `PushDebouncer` / `EventDispatcher` |
 
 示例 — 生成模块 Wiki（需要已索引的 `repository`）：
 
@@ -658,9 +681,9 @@ curl -N -X POST http://localhost:8100/api/v1/wiki/generate \
   -d '{"repository":"my-repo","scope":"repo","mode":"structure","format":"json","language":"en"}'
 ```
 
-### Wiki MCP 工具（5 个）
+### Wiki MCP 工具（8 个）
 
-与现有 RAG 工具一并注册；通过 `GET/POST /api/v1/mcp/*` 正常调用。
+与现有 RAG 工具一并注册；通过 `GET/POST /api/v1/mcp/*` 正常调用。（完整 MCP 清单以 **`GET /api/v1/mcp/tools`** 为准，另含 `rag_query`、`rag_graph`、`rag_index` 等。）
 
 | 工具 | 用途 |
 |------|------|
@@ -668,7 +691,10 @@ curl -N -X POST http://localhost:8100/api/v1/wiki/generate \
 | `get_wiki_page` | 获取单个页面 |
 | `list_wiki_pages` | 列出页面 / 目录树 |
 | `search_wiki` | 混合搜索 Wiki 内容 |
-| `ask_about_code` | 流式代码问答 |
+| `ask_about_code` | 流式代码问答（Ask v2：图增强上下文） |
+| `traverse_call_chain` | 沿 `CALLS` 遍历调用链（callees / callers），返回结构化路径信息 |
+| `find_impact_scope` | 沿 `CALLS` / `IMPORTS` / `INHERITS` 反向聚合影响范围（按 hop 分组） |
+| `analyze_pr_impact` | 根据变更文件列表映射实体并评估对 Wiki 页的影响级别（供 Agent / CI 使用） |
 
 ### LLM 提供商（Wiki + 增强）
 
@@ -769,7 +795,7 @@ EMBEDDING__BATCH_SIZE=64                         # 根据 GPU 显存调整
 
 #### `rag_query` — 自然语言搜索
 
-Agent 使用自然语言查询代码库：
+Agent 使用自然语言查询代码库（混合检索 + 图扩展）。**可选 `entity_type`**：`function`、`class`、`module`、`document`、`flow`、`concept`，用于替代已废弃的 `rag_business_search`。
 
 ```json
 {
@@ -777,7 +803,8 @@ Agent 使用自然语言查询代码库：
   "arguments": {
     "query": "WebSocket 连接的认证流程",
     "k": 5,
-    "expand_depth": 2
+    "expand_depth": 2,
+    "entity_type": "function"
   }
 }
 ```
@@ -810,9 +837,9 @@ Agent 查询代码结构关系：
 - `raw_cypher` — 自定义 Cypher
 - `business_flow`、`flows_for_function`、`related_concepts`、`explore_domain`、`flow_dependencies` — 业务流程 / 概念图查询（见 [MCP 文档](docs/MCP-INTEGRATION.md)）
 
-#### `rag_business_search` — 业务流程与概念搜索
+#### `rag_business_search` — 业务流程与概念搜索（已废弃）
 
-语义检索 `BusinessFlow` / `BusinessConcept`，可选返回关联代码位置。
+**已废弃：** 请改用 **`rag_query`**，并设置参数 **`entity_type`** 为 `flow` 或 `concept`。调用仍可能返回 `_deprecated` 提示字段。
 
 #### `rag_index` — 触发索引
 
@@ -873,9 +900,10 @@ graph TD
 
 | 场景 | 推荐方式 | 端点 |
 |------|----------|------|
-| 知道完整类名/方法名 | FQN 搜索 | `POST /search` with FQN |
-| 知道函数/类名 | 关键词搜索 | `POST /search` with name |
-| 用自然语言描述需求 | 语义搜索 | `POST /search` |
+| 知道完整类名/方法名 | FQN 搜索 | `POST /hybrid`（查询串传 FQN） |
+| 知道函数/类名 | 关键词搜索 | `POST /hybrid` |
+| 用自然语言描述需求 | 混合检索 | `POST /hybrid` |
+| 业务流程 / 业务概念 | 混合检索 + 实体过滤 | `POST /hybrid`，`entity_type`: `flow` / `concept` |
 | 需要调用链/依赖分析 | 图查询 | `POST /graph` |
 | 需要完整上下文 | 混合搜索 | `POST /hybrid` |
 
@@ -999,6 +1027,8 @@ Agent 可通过 MCP 协议直接调用工具：
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `LLM__ENABLED` | 是否启用 LLM 能力 | `false` |
+| `LLM__CONCEPT_EXTRACTION_ENABLED` | 索引时启用 `ConceptExtractor`（文档概念节点） | `false`（P3 默认关闭） |
+| `LLM__BUSINESS_FLOW_ENABLED` | 索引时启用 `BusinessFlowInferencer`（业务流程推断） | `false`（P3 默认关闭） |
 | `LLM__BASE_URL` | API 根路径（如 `https://api.openai.com/v1`） | `https://api.openai.com/v1` |
 | `LLM__API_KEY` | API Key（Gateway 模式下一并用于 WebSocket/反馈 HTTP） | （空） |
 | `LLM__MODEL` | 索引 enrichment 等使用的模型 | `gpt-4o-mini` |
@@ -1180,11 +1210,19 @@ Function / Class 可含 **`business_summary`**（LLM 生成的业务描述）；
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/v1/search` | 语义搜索 |
+| POST | `/api/v1/search` | 语义搜索（**已废弃**，请用 `/hybrid`） |
 | POST | `/api/v1/graph` | 图查询 |
-| POST | `/api/v1/hybrid` | 混合搜索（可选 rerank；图扩展中可含业务流程关联） |
-| POST | `/api/v1/business/search` | 业务流程 / 业务概念语义搜索（`search_type`: flow / concept / all） |
+| POST | `/api/v1/hybrid` | **推荐**：混合搜索（可选 rerank；可选 **`entity_type`** 过滤；替代原 `/search` 与 `/business/search`） |
+| POST | `/api/v1/business/search` | 业务流程 / 业务概念检索（**已废弃**，请用 `/hybrid` + `entity_type`） |
 | POST | `/api/v1/deep-search` | Dashboard 用 LLM 增强深度搜索（需 `LLM__ENABLED`；否则 501） |
+
+### Webhook（P3）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/hooks/{provider}` | GitHub / GitLab / Gitea push Webhook（验签 + 去重；未启用或验签失败时返回错误或忽略） |
+| GET | `/api/v1/hooks/config` | 读取 Webhook 配置 |
+| PUT | `/api/v1/hooks/config` | 更新 Webhook 配置 |
 
 #### POST /api/v1/search — 语义搜索
 
@@ -1286,7 +1324,8 @@ Function / Class 可含 **`business_summary`**（LLM 生成的业务描述）；
 {
   "query": "API 层的错误处理",
   "k": 5,
-  "expand_depth": 2
+  "expand_depth": 2,
+  "entity_type": null
 }
 ```
 
@@ -1295,6 +1334,7 @@ Function / Class 可含 **`business_summary`**（LLM 生成的业务描述）；
 | `query` | string | 是 | 自然语言查询 |
 | `k` | int | 否 | 语义搜索结果数（默认 5） |
 | `expand_depth` | int | 否 | 图扩展深度（默认 2） |
+| `entity_type` | string | 否 | 限定返回实体类型：`function`、`class`、`module`、`document`、`flow`、`concept`；省略表示不按类型过滤 |
 
 ### 代码获取
 
@@ -1334,7 +1374,8 @@ Function / Class 可含 **`business_summary`**（LLM 生成的业务描述）；
 | GET | `/api/v1/wiki/{repository}/pages` | 列出 Wiki 页面 |
 | GET | `/api/v1/wiki/{repository}/pages/{path}` | 获取单页内容（路径含 `/` 需编码） |
 | POST | `/api/v1/wiki/search` | Wiki 混合检索 |
-| POST | `/api/v1/wiki/ask` | 代码问答（SSE） |
+| POST | `/api/v1/wiki/ask` | 代码问答（SSE；Ask v2） |
+| POST | `/api/v1/wiki/{repository}/analyze-impact` | PR 变更对 Wiki 页影响（纯数据） |
 | GET | `/api/v1/llm/providers` | 列出 LLM 提供方名称 |
 
 #### GET /api/v1/health
@@ -1391,11 +1432,14 @@ knowledge-base-service/
 │   ├── hybrid_query.py         # 语义 + 图扩展
 │   ├── reranker.py             # Cross-encoder 重排序
 │   └── deep_search.py          # Dashboard LLM 深度搜索编排
-├── wiki/                       # Wiki 生成：编排、检索、导出、缓存、P2 全仓/增量
+├── wiki/                       # Wiki 生成：编排、检索、导出、缓存、P2 全仓/增量；P3 ask / webhook / scheduler
+│   ├── webhook/                # Webhook 验签、解析、去重调度（P3）
+│   └── scheduler/              # Wiki 定时再生：WikiScheduler、TaskLock（P3）
 ├── api/
-│   ├── mcp_server.py           # MCP 工具定义 & 处理器（含 Wiki 工具）
+│   ├── mcp_server.py           # MCP 工具定义 & 处理器（含 Wiki 与图遍历工具）
 │   └── routes/
-│       ├── wiki_routes.py      # Wiki REST + SSE
+│       ├── wiki_routes.py      # Wiki REST + SSE + analyze-impact
+│       ├── webhook_routes.py   # GET/PUT hooks/config、POST hooks/{provider}（P3）
 │       └── provider_routes.py  # GET /llm/providers
 ├── dashboard/                  # React Dashboard 源码
 │   ├── src/
@@ -1493,11 +1537,11 @@ cp -r docs/templates/kb-doc-auditor ~/.cursor/skills/
 适用于 ACP Gateway Agent、CI/CD 脚本等无法直接使用 MCP 的场景：
 
 ```bash
-# 语义搜索
-curl -s -X POST 'http://localhost:8100/api/v1/search' \
+# 混合检索（推荐；替代已废弃的 /search）
+curl -s -X POST 'http://localhost:8100/api/v1/hybrid' \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer <token>' \
-  -d '{"query": "用户认证流程", "k": 5, "entity_type": "all"}'
+  -d '{"query": "用户认证流程", "k": 5, "expand_depth": 2}'
 
 # 图查询（调用链）
 curl -s -X POST 'http://localhost:8100/api/v1/graph' \

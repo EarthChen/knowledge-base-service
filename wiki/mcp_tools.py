@@ -98,27 +98,31 @@ class WikiMCPHandler:
     def __init__(self, pipeline: WikiPipeline | None = None) -> None:
         self._pipeline = pipeline
 
+    @staticmethod
+    def _mcp_error(code: str, message: str) -> dict[str, Any]:
+        return {"error": {"code": code, "message": message}}
+
     def _not_configured(self) -> dict[str, Any]:
-        return {"error": "Wiki pipeline not configured"}
+        return self._mcp_error("service_unavailable", "Wiki pipeline not configured")
 
     async def handle_generate_wiki(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._pipeline is None:
             return self._not_configured()
         repository = str(arguments.get("repository", "")).strip()
         if not repository:
-            return {"error": "repository parameter is required"}
+            return self._mcp_error("invalid_params", "repository parameter is required")
         scope_raw = arguments.get("scope", "")
         if scope_raw is None or not str(scope_raw).strip():
-            return {"error": "scope parameter is required"}
+            return self._mcp_error("invalid_params", "scope parameter is required")
         scope_str = str(scope_raw).strip()
         try:
             parse_scope(scope_str)
         except ValueError as exc:
-            return {"error": str(exc)}
+            return self._mcp_error("invalid_scope", str(exc))
         mode = arguments.get("mode", "structure")
         mode_str = str(mode) if mode is not None else "structure"
         if mode_str not in ("full", "structure"):
-            return {"error": f"Invalid mode '{mode_str}': must be 'full' or 'structure'"}
+            return self._mcp_error("invalid_params", f"Invalid mode '{mode_str}': must be 'full' or 'structure'")
 
         pages = await self._pipeline.generate_wiki(repository, scope_str, mode_str)
         return {
@@ -132,19 +136,19 @@ class WikiMCPHandler:
             return self._not_configured()
         repository = str(arguments.get("repository", "")).strip()
         if not repository:
-            return {"error": "repository parameter is required"}
+            return self._mcp_error("invalid_params", "repository parameter is required")
         scope_raw = arguments.get("scope", "")
         if scope_raw is None or not str(scope_raw).strip():
-            return {"error": "scope parameter is required"}
+            return self._mcp_error("invalid_params", "scope parameter is required")
         scope_str = str(scope_raw).strip()
         try:
             parse_scope(scope_str)
         except ValueError as exc:
-            return {"error": str(exc)}
+            return self._mcp_error("invalid_scope", str(exc))
 
         page = await self._pipeline.get_wiki_page(repository, scope_str)
         if page is None:
-            return {"error": f"Wiki page not found for scope '{scope_str}'"}
+            return self._mcp_error("not_found", f"Wiki page not found for scope '{scope_str}'")
         pd = page.to_dict()
         return {
             "repository": repository,
@@ -160,7 +164,7 @@ class WikiMCPHandler:
             return self._not_configured()
         repository = str(arguments.get("repository", "")).strip()
         if not repository:
-            return {"error": "repository parameter is required"}
+            return self._mcp_error("invalid_params", "repository parameter is required")
         raw_scope = arguments.get("scope")
         scope_filter: str | None
         if raw_scope is None:
@@ -173,7 +177,7 @@ class WikiMCPHandler:
                 try:
                     parse_scope(s)
                 except ValueError as exc:
-                    return {"error": str(exc)}
+                    return self._mcp_error("invalid_scope", str(exc))
                 scope_filter = s
 
         return await self._pipeline.list_wiki_pages(repository, scope_filter)

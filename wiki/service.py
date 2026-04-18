@@ -59,6 +59,14 @@ class WikiService:
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
         pages, degraded = await self._compose_all_pages(repository, structure, config)
+
+        if format == "markdown" and len(pages) == 1:
+            return {
+                "content": self._exporter.export_markdown_single(pages[0]),
+                "format": "markdown",
+                "degraded": degraded,
+            }
+
         bundle = self._exporter.export_json(pages, structure)
         bundle["degraded"] = degraded
         return bundle
@@ -176,6 +184,6 @@ class WikiService:
                 node_count=0,
                 edge_count=0,
                 generation_mode=config.mode,
-                fallback_tier=3,
+                fallback_tier=None,
             ),
         )

@@ -115,7 +115,8 @@ class TestGenerateWiki:
             {"repository": "demo-repo", "scope": "not-a-valid-scope", "mode": "structure"},
         )
         assert "error" in result
-        assert "scope" in result["error"].lower() or "Invalid" in result["error"]
+        err = result["error"]
+        assert err["code"] == "invalid_scope"
 
 
 class TestGetWikiPage:
@@ -146,7 +147,9 @@ class TestGetWikiPage:
             {"repository": "demo-repo", "scope": "class:missing.Class"},
         )
         assert "error" in result
-        assert "not found" in result["error"].lower()
+        err = result["error"]
+        assert err["code"] == "not_found"
+        assert "not found" in err["message"].lower()
 
 
 class TestListWikiPages:

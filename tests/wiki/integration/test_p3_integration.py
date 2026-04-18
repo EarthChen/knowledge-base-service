@@ -7,7 +7,7 @@ import hashlib
 import hmac
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -15,10 +15,9 @@ from fastapi import FastAPI
 from httpx import ASGITransport
 from starlette.testclient import TestClient
 
-import auth as auth_module
 from api.routes.webhook_routes import init_webhook_state, webhook_router
 from config import LLMConfig
-from main import _get_service, viewer_router
+from main import viewer_router
 from wiki.mcp_tools import WikiMCPHandler
 from wiki.scheduler.task_lock import TaskLock
 from wiki.scheduler.wiki_scheduler import ScheduleConfig, WikiScheduler
@@ -226,47 +225,17 @@ async def test_p3_pr_impact_pages_drive_search_wiki_queries() -> None:
     )
 
 
-@pytest.fixture
-def _open_viewer_routes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(auth_module, "_token_registry", {})
-
-
-def test_p3_deprecated_search_endpoints_backward_compatible(_open_viewer_routes: None) -> None:
-    """POST /search and /business/search still return payloads with _deprecated markers."""
-    mock_svc = MagicMock()
-    mock_svc.semantic_query.search_all = AsyncMock(return_value=MagicMock(matches=[], query_text="hello", total=0))
-    mock_svc.store.keyword_search = AsyncMock(return_value=[])
-
+def test_p3_removed_search_endpoints_return_404() -> None:
+    """POST /search and /business/search were fully removed in P3 Track C."""
     app = FastAPI()
     app.include_router(viewer_router)
-
-    async def override_get_service() -> MagicMock:
-        return mock_svc
-
-    app.dependency_overrides[_get_service] = override_get_service
     client = TestClient(app)
 
-    with pytest.warns(DeprecationWarning, match="Deprecated: use /hybrid"):
-        r = client.post("/api/v1/search", json={"query": "hello", "k": 5})
-    assert r.status_code == 200
-    assert r.headers.get("Deprecation") == "true"
-    body = r.json()
-    assert body["_deprecated"] == "Use POST /api/v1/hybrid instead"
+    r1 = client.post("/api/v1/search", json={"query": "hello", "k": 5})
+    assert r1.status_code in (404, 405)
 
-    mock_svc.semantic_query.search_business_flows = AsyncMock(
-        return_value=MagicMock(matches=[], query_text="q", total=0),
-    )
-    mock_svc.semantic_query.search_business_concepts = AsyncMock(
-        return_value=MagicMock(matches=[], query_text="q", total=0),
-    )
-    with pytest.warns(DeprecationWarning, match="Deprecated: use /hybrid"):
-        r2 = client.post(
-            "/api/v1/business/search",
-            json={"query": "checkout", "search_type": "all", "k": 5},
-        )
-    assert r2.status_code == 200
-    assert r2.headers.get("Deprecation") == "true"
-    assert r2.json()["_deprecated"] == "Use POST /api/v1/hybrid with entity_type filter instead"
+    r2 = client.post("/api/v1/business/search", json={"query": "checkout"})
+    assert r2.status_code in (404, 405)
 
 
 def test_p3_llm_config_defaults_track_c(monkeypatch: pytest.MonkeyPatch) -> None:

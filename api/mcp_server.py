@@ -230,41 +230,8 @@ MCP_TOOLS_MANIFEST = [
             "required": ["directory"],
         },
     },
-    {
-        "name": "rag_business_search",
-        "description": (
-            "[DEPRECATED] "
-            "搜索业务流程和业务概念，支持自然语言查询。可以搜索业务流程（如'用户下单'）、"
-            "业务概念（如'私信'），并返回关联的代码位置。"
-        ),
-        "inputSchema": {
-            "type": "object",
-            "_deprecated": "Use rag_query with entity_type parameter instead",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "业务语义查询（自然语言）",
-                },
-                "search_type": {
-                    "type": "string",
-                    "enum": ["flow", "concept", "all"],
-                    "default": "all",
-                    "description": "搜索类型：flow=业务流程, concept=业务概念, all=全部",
-                },
-                "k": {
-                    "type": "integer",
-                    "default": 5,
-                    "description": "返回结果数量",
-                },
-                "include_code": {
-                    "type": "boolean",
-                    "default": True,
-                    "description": "是否包含关联的代码位置",
-                },
-            },
-            "required": ["query"],
-        },
-    },
+    # rag_business_search removed in P3 (Track C).
+    # Use rag_query with entity_type='flow' or entity_type='concept' instead.
     {
         "name": "analyze_impact",
         "description": (
@@ -509,7 +476,6 @@ class KnowledgeBaseMCPHandler:
             "rag_query": self.handle_rag_query,
             "rag_graph": self.handle_rag_graph,
             "rag_index": self.handle_rag_index,
-            "rag_business_search": self.handle_rag_business_search,
             "analyze_impact": self.handle_analyze_impact,
             "list_endpoints": self.handle_list_endpoints,
             "check_consistency": self.handle_check_consistency,
@@ -674,20 +640,7 @@ class KnowledgeBaseMCPHandler:
 
         return results
 
-    async def handle_rag_business_search(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        query = arguments.get("query", "")
-        if not query:
-            return {"error": "query parameter is required"}
-        search_type = arguments.get("search_type", "all")
-        k = arguments.get("k", 5)
-        include_code = arguments.get("include_code", True)
-
-        results = await self._collect_business_search_results(query, search_type, k, include_code)
-        return {
-            "status": "success",
-            "results": results,
-            "_deprecated": "Use rag_query with entity_type parameter instead",
-        }
+    # handle_rag_business_search removed in P3 (Track C).
 
     async def handle_analyze_impact(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from query.analysis_service import AnalysisService

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-import warnings
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -141,23 +140,12 @@ def _filter_hybrid_semantic_matches(
     return [m for m in matches if m.get("type") == label]
 
 
-def _deprecated_search_json(
-    payload: dict[str, Any],
-    deprecated_message: str,
-    warn_message: str,
-) -> JSONResponse:
-    warnings.warn(warn_message, DeprecationWarning)
-    return JSONResponse(
-        content={**payload, "_deprecated": deprecated_message},
-        headers={"Deprecation": "true"},
-    )
+
+# _deprecated_search_json removed in P3 (Track C) — deprecated endpoints fully removed.
 
 
-class SemanticSearchRequest(BaseModel):
-    query: str
-    k: int = Field(default=10, ge=1, le=50)
-    entity_type: str = Field(default="all", pattern="^(all|function|class|document)$")
-    repository: str | None = None
+
+# SemanticSearchRequest removed in P3 (Track C) — endpoint deleted.
 
 
 class GraphQueryRequest(BaseModel):
@@ -204,11 +192,8 @@ class DeepSearchRequest(BaseModel):
     include_code: bool = True
 
 
-class BusinessSearchRequest(BaseModel):
-    query: str
-    search_type: str = Field(default="all", pattern="^(flow|concept|all)$")
-    k: int = Field(default=5, ge=1, le=20)
-    include_code: bool = True
+
+# BusinessSearchRequest removed in P3 (Track C) — endpoint deleted.
 
 
 class IndexRequest(BaseModel):
@@ -362,79 +347,10 @@ async def _resolve_canonical_repository_for_git(
     return candidate, None
 
 
-@viewer_router.post("/search")
-async def semantic_search(
-    req: SemanticSearchRequest,
-    svc: KnowledgeBaseService = Depends(_get_service),
-) -> JSONResponse:
-    from query.hybrid_query import _extract_identifiers
 
-    if req.entity_type == "function":
-        sem_coro = svc.semantic_query.search_functions(req.query, k=req.k)
-    elif req.entity_type == "class":
-        sem_coro = svc.semantic_query.search_classes(req.query, k=req.k)
-    elif req.entity_type == "document":
-        sem_coro = svc.semantic_query.search_documents(req.query, k=req.k)
-    else:
-        sem_coro = svc.semantic_query.search_all(req.query, k=req.k)
-
-    fqn_matches = _FQN_RE.findall(req.query)
-    if fqn_matches:
-        identifiers = []
-        for fqn in fqn_matches:
-            clean = fqn.split("(")[0].strip()
-            identifiers.append(clean)
-    else:
-        identifiers = _extract_identifiers(req.query)
-        if not identifiers:
-            identifiers = [req.query.strip()]
-
-    async def _kw_search() -> list[dict[str, Any]]:
-        all_hits: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for ident in identifiers[:3]:
-            hits = await svc.store.keyword_search(ident, k=req.k)
-            for hit in hits:
-                uid = hit.get("uid", "")
-                if uid and uid not in seen:
-                    seen.add(uid)
-                    all_hits.append(hit)
-        return all_hits
-
-    sem_result, kw_hits = await asyncio.gather(sem_coro, _kw_search())
-
-    merged: list[dict[str, Any]] = []
-    seen_keys: set[str] = set()
-
-    for hit in kw_hits:
-        key = f"{hit.get('name', '')}:{hit.get('file', '')}:{hit.get('line', '')}"
-        if key not in seen_keys:
-            seen_keys.add(key)
-            merged.append({
-                "type": hit.get("type", ""),
-                "name": hit.get("name", ""),
-                "file": hit.get("file", ""),
-                "line": hit.get("line", 0),
-                "score": hit.get("score", 1.0),
-                "signature": hit.get("signature", ""),
-                "docstring": hit.get("docstring", ""),
-                "uid": hit.get("uid", ""),
-                "fqn": hit.get("fqn", ""),
-            })
-
-    for m in sem_result.matches:
-        key = f"{m.get('name', '')}:{m.get('file', '')}:{m.get('line', '')}"
-        if key not in seen_keys:
-            seen_keys.add(key)
-            merged.append(m)
-
-    merged.sort(key=lambda x: x.get("score", 0), reverse=True)
-    top = merged[:req.k]
-    return _deprecated_search_json(
-        {"matches": top, "total": len(top), "query": req.query},
-        deprecated_message="Use POST /api/v1/hybrid instead",
-        warn_message="Deprecated: use /hybrid",
-    )
+# NOTE: POST /search was removed in P3 (Track C).
+# Use POST /hybrid instead — it supports all previous search capabilities
+# plus entity_type filtering.
 
 
 @viewer_router.get("/search/architecture")
@@ -557,37 +473,9 @@ async def deep_search(
     )
 
 
-@viewer_router.post("/business/search")
-async def business_search(
-    req: BusinessSearchRequest,
-    svc: KnowledgeBaseService = Depends(_get_service),
-) -> JSONResponse:
-    results: dict[str, Any] = {}
-    if req.search_type in ("flow", "all"):
-        flow_result = await svc.semantic_query.search_business_flows(
-            req.query, req.k
-        )
-        results["flows"] = flow_result.matches
-    if req.search_type in ("concept", "all"):
-        concept_result = await svc.semantic_query.search_business_concepts(
-            req.query, req.k
-        )
-        results["concepts"] = concept_result.matches
 
-    if req.include_code:
-        for flow in results.get("flows", []):
-            flow_name = flow.get("name", "")
-            if flow_name:
-                code_result = await svc.graph_query.find_business_flow(flow_name, k=5)
-                flow["code_locations"] = code_result.data
-
-    return _deprecated_search_json(
-        {"status": "success", "results": results},
-        deprecated_message=(
-            "Use POST /api/v1/hybrid with entity_type filter instead"
-        ),
-        warn_message="Deprecated: use /hybrid with entity_type filter",
-    )
+# NOTE: POST /business/search was removed in P3 (Track C).
+# Use POST /hybrid with entity_type='flow' or entity_type='concept' instead.
 
 
 @viewer_router.get("/index/tasks")

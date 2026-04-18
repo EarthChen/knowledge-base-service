@@ -1,0 +1,305 @@
+"""Compose wiki pages from graph-backed page data with LLM / structural fallback tiers."""
+
+from __future__ import annotations
+
+import re
+
+from store.schema import EdgeType, GraphNode, NodeLabel
+from wiki.context import LLMPort, WikiContextBuilder
+from wiki.data_collector import PageData
+from wiki.diagram_gen import generate_call_flowchart, generate_class_diagram, generate_dependency_graph
+from wiki.models import PageType, WikiConfig, WikiDiagram, WikiPage, WikiPageMetadata
+
+
+def _display_name(uid: str) -> str:
+    parts = uid.rsplit(":", 2)
+    if len(parts) >= 3:
+        return str(parts[-2])
+    return uid
+
+
+def _primary_name(node: GraphNode) -> str:
+    raw = node.properties.get("name")
+    if isinstance(raw, str) and raw:
+        return raw
+    raw_path = node.properties.get("path")
+    if isinstance(raw_path, str) and raw_path:
+        return raw_path.strip("/").split("/")[-1] or raw_path
+    return _display_name(node.uid)
+
+
+def _wiki_path(node: GraphNode, page_type: PageType) -> str:
+    if page_type == PageType.MODULE_OVERVIEW or node.label == NodeLabel.MODULE:
+        path = str(node.properties.get("path") or node.properties.get("name") or "module")
+        slug = re.sub(r"[^a-zA-Z0-9_.-]+", "_", path.strip("/"))
+        return f"modules/{slug}.md"
+    name = str(node.properties.get("name") or _display_name(node.uid))
+    safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", name)
+    return f"classes/{safe}.md"
+
+
+def _sorted_method_names(methods: list[GraphNode]) -> list[str]:
+    names: list[str] = []
+    for m in methods:
+        n = m.properties.get("name")
+        names.append(str(n) if isinstance(n, str) else _display_name(m.uid))
+    return sorted(names)
+
+
+class WikiComposer:
+    """Turns ``PageData`` into a ``WikiPage`` using tiered description fallback."""
+
+    def __init__(self, llm: LLMPort | None, context_builder: WikiContextBuilder) -> None:
+        self._llm = llm
+        self._ctx = context_builder
+
+    async def compose_page(
+        self,
+        page_data: PageData,
+        page_type: PageType,
+        config: WikiConfig,
+        parent_context: str = "",
+        glossary: dict[str, str] | None = None,
+    ) -> WikiPage:
+        glossary = glossary or {}
+        node = page_data.node
+        title = _primary_name(node)
+        path = _wiki_path(node, page_type)
+
+        tier: int
+        if page_data.business_summary and page_data.business_summary.strip():
+            tier = 1
+            description = page_data.business_summary.strip()
+        elif config.mode == "structure":
+            tier = 3
+            description = self._tier3_structural(page_data, page_type)
+        elif self._llm is not None:
+            tier = 2
+            description = await self._tier2_llm(page_data, page_type, parent_context, glossary)
+        else:
+            tier = 3
+            description = self._tier3_structural(page_data, page_type)
+
+        content = self._markdown_body(title, page_data, page_type, description)
+        diagrams = self._build_diagrams(page_data, page_type)
+        meta = WikiPageMetadata(
+            node_count=self._estimate_node_count(page_data),
+            edge_count=len(page_data.edges),
+            generation_mode=config.mode,
+            fallback_tier=tier,
+        )
+        return WikiPage(
+            path=path,
+            title=title,
+            page_type=page_type,
+            content=content,
+            diagrams=diagrams,
+            source_locations=[page_data.source_location],
+            metadata=meta,
+            method_locations=list(page_data.method_locations),
+        )
+
+    def _estimate_node_count(self, page_data: PageData) -> int:
+        return 1 + len(page_data.children) + len(page_data.methods)
+
+    async def _tier2_llm(
+        self,
+        page_data: PageData,
+        page_type: PageType,
+        parent_context: str,
+        glossary: dict[str, str],
+    ) -> str:
+        assert self._llm is not None
+        style = self._ctx.build_style_sheet()
+        ctx_block = self._ctx.build_page_context(parent_context, glossary, style)
+        entity = self._entity_digest(page_data, page_type)
+        prompt = (
+            f"{ctx_block}\n\n"
+            "## Task\n"
+            f"Write a concise Overview for this {page_type.value.replace('_', ' ')} page.\n\n"
+            f"{entity}\n"
+        )
+        system = "You are a senior engineer writing internal documentation. Output plain prose only."
+        return (await self._llm.generate(prompt, system=system)).strip()
+
+    def _entity_digest(self, page_data: PageData, page_type: PageType) -> str:
+        n = page_data.node
+        lines = [
+            f"- Label: {n.label.value}",
+            f"- UID: {n.uid}",
+        ]
+        name = n.properties.get("name")
+        if isinstance(name, str):
+            lines.append(f"- Name: {name}")
+        path = n.properties.get("path")
+        if isinstance(path, str):
+            lines.append(f"- Path: {path}")
+        fqn = n.properties.get("fqn")
+        if isinstance(fqn, str):
+            lines.append(f"- FQN: {fqn}")
+        lines.append(f"- Related edges: {len(page_data.edges)}")
+        if page_type == PageType.MODULE_OVERVIEW:
+            lines.append(f"- Child classes/modules listed: {len(page_data.children)}")
+        else:
+            lines.append(f"- Methods listed: {len(page_data.methods)}")
+        return "\n".join(lines)
+
+    def _tier3_structural(self, page_data: PageData, page_type: PageType) -> str:
+        node = page_data.node
+        if node.label == NodeLabel.MODULE or page_type == PageType.MODULE_OVERVIEW:
+            return self._tier3_module_paragraph(node, page_data)
+        return self._tier3_class_paragraph(node, page_data)
+
+    def _tier3_module_paragraph(self, node: GraphNode, page_data: PageData) -> str:
+        mod_name = _primary_name(node)
+        path = str(node.properties.get("path") or "")
+        children = page_data.children
+        class_labels = [_primary_name(c) for c in children if c.label == NodeLabel.CLASS]
+        others = len(children) - len(class_labels)
+
+        pieces: list[str] = [
+            f"The `{mod_name}` module{f' (`{path}`)' if path else ''} organizes part of the codebase.",
+        ]
+        if class_labels:
+            preview = ", ".join(class_labels[:8])
+            extra = ""
+            if len(class_labels) > 8:
+                extra = f" (+{len(class_labels) - 8} more)"
+            pieces.append(f"It contains {len(class_labels)} classes including {preview}{extra}.")
+        elif others > 0:
+            pieces.append(f"It contains {others} nested units.")
+        imp_targets = [
+            _display_name(e.target_uid)
+            for e in page_data.edges
+            if e.edge_type == EdgeType.IMPORTS and e.source_uid == node.uid
+        ]
+        if imp_targets:
+            uniq = list(dict.fromkeys(imp_targets))[:6]
+            pieces.append(f"It imports {', '.join(uniq)} among other dependencies.")
+        return " ".join(pieces)
+
+    def _tier3_class_paragraph(self, node: GraphNode, page_data: PageData) -> str:
+        cls_name = _primary_name(node)
+        methods = _sorted_method_names(page_data.methods)
+        inherit_parents = [
+            _display_name(e.target_uid)
+            for e in page_data.edges
+            if e.edge_type == EdgeType.INHERITS and e.source_uid == node.uid
+        ]
+        impl_targets = [
+            _display_name(e.target_uid)
+            for e in page_data.edges
+            if e.edge_type == EdgeType.IMPLEMENTS and e.source_uid == node.uid
+        ]
+        callers = [
+            _display_name(e.source_uid)
+            for e in page_data.edges
+            if e.edge_type == EdgeType.CALLS and e.target_uid == node.uid
+        ]
+        callees = [
+            _display_name(e.target_uid)
+            for e in page_data.edges
+            if e.edge_type == EdgeType.CALLS and e.source_uid == node.uid
+        ]
+
+        parts: list[str] = [f"{cls_name} is a focal class in the codebase."]
+
+        if inherit_parents:
+            extra = ""
+            if len(inherit_parents) > 1:
+                extra = f" (and {len(inherit_parents) - 1} other type(s))"
+            parts.append(f"It inherits from `{inherit_parents[0]}`{extra}.")
+        elif impl_targets:
+            impl_txt = ", ".join(f"`{t}`" for t in impl_targets[:3])
+            extra = f" (+{len(impl_targets) - 3} more)" if len(impl_targets) > 3 else ""
+            parts.append(f"It implements {impl_txt}{extra}.")
+
+        if methods:
+            shown = ", ".join(f"`{m}()`" for m in methods[:5])
+            tail = f" (+{len(methods) - 5} more)" if len(methods) > 5 else ""
+            parts.append(f"It exposes {len(methods)} public methods including {shown}{tail}.")
+
+        if callers:
+            uniq_callers = list(dict.fromkeys(callers))[:4]
+            parts.append("It is called by " + ", ".join(f"`{c}`" for c in uniq_callers) + ".")
+        if callees:
+            uniq_callees = list(dict.fromkeys(callees))[:4]
+            parts.append("It calls " + ", ".join(f"`{c}`" for c in uniq_callees) + ".")
+
+        return " ".join(parts)
+
+    def _markdown_body(self, title: str, page_data: PageData, page_type: PageType, overview: str) -> str:
+        lines: list[str] = [
+            f"# {title}",
+            "",
+            "## Overview",
+            "",
+            overview,
+            "",
+            "## Key components and methods",
+            "",
+        ]
+        node = page_data.node
+        if node.label == NodeLabel.MODULE or page_type == PageType.MODULE_OVERVIEW:
+            if page_data.children:
+                lines.append("Notable nested types:")
+                for ch in sorted(page_data.children, key=lambda c: _primary_name(c)):
+                    lines.append(f"- `{_primary_name(ch)}` ({ch.label.value})")
+            else:
+                lines.append("_No nested graph children were collected for this module._")
+        else:
+            if page_data.methods:
+                lines.append("Methods:")
+                for m in page_data.methods:
+                    mn = m.properties.get("name")
+                    label = str(mn) if isinstance(mn, str) else _display_name(m.uid)
+                    lines.append(f"- `{label}()`")
+            else:
+                lines.append("_No methods were attached to this class in the graph._")
+
+        lines.extend(["", "## Relationships", ""])
+        lines.append(self._relationships_section(page_data))
+        return "\n".join(lines)
+
+    def _relationships_section(self, page_data: PageData) -> str:
+        uid = page_data.node.uid
+        bullets: list[str] = []
+
+        for e in page_data.edges:
+            if e.edge_type == EdgeType.INHERITS and e.source_uid == uid:
+                bullets.append(f"- Inherits from `{_display_name(e.target_uid)}`.")
+            elif e.edge_type == EdgeType.IMPLEMENTS and e.source_uid == uid:
+                bullets.append(f"- Implements `{_display_name(e.target_uid)}`.")
+            elif e.edge_type == EdgeType.CALLS and e.source_uid == uid:
+                bullets.append(f"- Calls `{_display_name(e.target_uid)}`.")
+            elif e.edge_type == EdgeType.CALLS and e.target_uid == uid:
+                bullets.append(f"- Called by `{_display_name(e.source_uid)}`.")
+            elif e.edge_type == EdgeType.IMPORTS and e.source_uid == uid:
+                bullets.append(f"- Imports `{_display_name(e.target_uid)}`.")
+
+        if not bullets:
+            return "_No graph relationships were summarized for this page._"
+        return "\n".join(sorted(set(bullets)))
+
+    def _build_diagrams(self, page_data: PageData, page_type: PageType) -> list[WikiDiagram]:
+        node = page_data.node
+        edges = page_data.edges
+        out: list[WikiDiagram] = []
+
+        if page_type == PageType.MODULE_OVERVIEW or node.label == NodeLabel.MODULE:
+            dg = generate_dependency_graph(node, edges)
+            dg = WikiDiagram(diagram_type=dg.diagram_type, content=dg.content, title="Dependency graph")
+            out.append(dg)
+            return out
+
+        cd = generate_class_diagram(node, edges)
+        cd = WikiDiagram(diagram_type=cd.diagram_type, content=cd.content, title="Class diagram")
+        out.append(cd)
+
+        calls = [e for e in edges if e.edge_type == EdgeType.CALLS]
+        if calls:
+            fc = generate_call_flowchart(node, edges)
+            out.append(
+                WikiDiagram(diagram_type=fc.diagram_type, content=fc.content, title="Call flow"),
+            )
+        return out

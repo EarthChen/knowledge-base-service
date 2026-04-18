@@ -1,0 +1,111 @@
+"""Global and per-page context building for wiki generation (Layer 1 + Layer 2)."""
+
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass
+from typing import Protocol
+
+
+@dataclass
+class WikiContext:
+    repository_context: str
+    module_contexts: dict[str, str]
+    page_contexts: dict[str, str]
+    glossary: dict[str, str]
+
+
+class LLMPort(Protocol):
+    async def generate(self, prompt: str, system: str = "") -> str: ...
+
+
+class WikiContextBuilder:
+    """Builds glossary, repository narrative, style rules, and per-page prompt context."""
+
+    def __init__(self, llm: LLMPort | None = None) -> None:
+        self._llm = llm
+
+    async def build_glossary(self, module_names: list[str], entry_points: list[str]) -> dict[str, str]:
+        if self._llm is not None:
+            prompt = (
+                "Create a short glossary for this codebase wiki.\n\n"
+                f"Modules:\n{json.dumps(module_names, indent=2)}\n\n"
+                f"Entry points:\n{json.dumps(entry_points, indent=2)}\n\n"
+                "Return ONLY valid JSON: an object whose keys are terms and values are one-line definitions."
+            )
+            raw = (await self._llm.generate(prompt, system="Reply with JSON only. No markdown fences.")).strip()
+            parsed = self._parse_json_object(raw)
+            if parsed:
+                return parsed
+        return {name: f"Module `{name}` — code area in this repository." for name in module_names}
+
+    def _parse_json_object(self, raw: str) -> dict[str, str]:
+        text = raw.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        out: dict[str, str] = {}
+        for k, v in data.items():
+            if isinstance(k, str) and isinstance(v, str):
+                out[k] = v
+        return out
+
+    async def build_repository_context(self, modules: list[str], arch_summary: str = "") -> str:
+        if self._llm is not None:
+            prompt = (
+                "Summarize the repository for wiki readers in 2-4 sentences.\n\n"
+                f"Modules (paths or names): {', '.join(modules) if modules else '(none)'}\n"
+                f"Architecture notes: {arch_summary or '(none)'}\n"
+            )
+            return (await self._llm.generate(prompt, system="Be factual and concise.")).strip()
+
+        parts: list[str] = []
+        if modules:
+            parts.append(f"Modules in this repository: {', '.join(modules)}.")
+        if arch_summary:
+            parts.append(arch_summary.strip())
+        return " ".join(parts) if parts else "Repository context is not yet specified."
+
+    def build_style_sheet(self) -> str:
+        return (
+            "## Tone\n"
+            "- Prefer precise, neutral technical language.\n"
+            "- Avoid marketing language; describe behavior and responsibilities.\n\n"
+            "## Structure\n"
+            "- Start with what the unit is for, then how it fits neighbors.\n"
+            "- Prefer short paragraphs and bullet lists for enumerations.\n\n"
+            "## Formatting\n"
+            "- Use Markdown headings exactly as requested by the caller.\n"
+            "- Reference types and packages with backticks when helpful.\n"
+        )
+
+    def estimate_tokens(self, text: str) -> int:
+        return len(text) // 4
+
+    def truncate_to_budget(self, text: str, budget: int) -> str:
+        """Truncate ``text`` to fit a token *budget* (chars ≈ 4 × tokens)."""
+        max_chars = max(0, budget * 4)
+        if len(text) <= max_chars:
+            return text
+        suffix = "... and more"
+        room = max_chars - len(suffix)
+        if room <= 0:
+            return suffix[:max_chars]
+        return text[:room].rstrip() + suffix
+
+    def build_page_context(self, parent_summary: str, glossary: dict[str, str], style_sheet: str) -> str:
+        blocks: list[str] = []
+        if parent_summary.strip():
+            blocks.append("## Parent context\n" + parent_summary.strip())
+        if glossary:
+            lines = [f"- **{term}**: {definition}" for term, definition in sorted(glossary.items())]
+            blocks.append("## Glossary\n" + "\n".join(lines))
+        blocks.append("## Authoring rules\n" + style_sheet)
+        return "\n\n".join(blocks)

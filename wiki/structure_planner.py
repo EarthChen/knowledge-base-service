@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from store.schema import GraphNode, NodeLabel
+from store.schema import GraphEdge, GraphNode, NodeLabel
 from wiki.models import PageType, ScopeParam, WikiStructure, WikiStructureNode
 
 
@@ -22,6 +22,12 @@ class GraphQueryPort(Protocol):
     async def find_children(self, repository: str, parent_uid: str) -> list[GraphNode]: ...
 
     async def find_top_level_modules(self, repository: str) -> list[GraphNode]: ...
+
+    async def list_repository_modules(self, repository: str) -> list[GraphNode]: ...
+
+    async def find_module_import_edges(self, repository: str) -> list[GraphEdge]: ...
+
+    async def find_repository_calls_edges(self, repository: str) -> list[GraphEdge]: ...
 
 
 class WikiStructurePlanner:

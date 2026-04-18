@@ -189,3 +189,93 @@ def generate_call_flowchart(entry_node: GraphNode, edges: list[GraphEdge]) -> Wi
     call_edges = [e for e in edges if e.edge_type == EdgeType.CALLS]
     return _flowchart_td(entry_node.uid, call_edges, DiagramType.FLOWCHART)
 
+
+def generate_layered_architecture_diagram(
+    layers: dict[str, list[str]],
+) -> WikiDiagram:
+    """Generate a top-down layered architecture Mermaid diagram.
+
+    Output format uses ``graph TD`` with one ``subgraph`` per layer and optional links between layers.
+    """
+    lines: list[str] = ["graph TD"]
+    gid = 0
+    subgraph_ids: list[str] = []
+    for layer_title, modules in layers.items():
+        if not modules:
+            continue
+        sid = f"L{gid}"
+        subgraph_ids.append(sid)
+        safe_title = _escape_label(layer_title)
+        lines.append(f'    subgraph {sid}["{safe_title}"]')
+        for i, mod in enumerate(sorted(modules)):
+            nid = f"{sid}_m{i}"
+            lines.append(f'        {nid}["{_escape_label(mod)}"]')
+        lines.append("    end")
+        gid += 1
+
+    for i in range(len(subgraph_ids) - 1):
+        lines.append(f"    {subgraph_ids[i]} --> {subgraph_ids[i + 1]}")
+
+    content = "\n".join(lines) + "\n"
+    return WikiDiagram(diagram_type=DiagramType.FLOWCHART, content=content, title="")
+
+
+def generate_module_dependency_flowchart(
+    modules: list[str],
+    edges: list[tuple[str, str]],
+) -> WikiDiagram:
+    """Generate inter-module dependency ``flowchart LR``."""
+    names = sorted(set(modules))
+    idmap: dict[str, str] = {}
+    used: set[str] = set()
+    for name in names:
+        base = _sanitize_class_id(name)
+        cand = base
+        n = 0
+        while cand in used:
+            n += 1
+            cand = f"{base}_{n}"
+        used.add(cand)
+        idmap[name] = cand
+
+    lines: list[str] = ["flowchart LR"]
+    for name in sorted(set(modules)):
+        nid = idmap[name]
+        lines.append(f'    {nid}["{_escape_label(name)}"]')
+
+    for src, tgt in edges:
+        si, ti = idmap.get(src), idmap.get(tgt)
+        if si and ti:
+            lines.append(f"    {si} --> {ti}")
+
+    content = "\n".join(lines) + "\n"
+    return WikiDiagram(diagram_type=DiagramType.FLOWCHART, content=content, title="")
+
+
+def generate_data_flow_diagram(
+    stages: list[str],
+    edges: list[tuple[str, str]],
+) -> WikiDiagram:
+    """Generate an ordered data-flow ``flowchart LR`` from stage names and edges."""
+    lines: list[str] = ["flowchart LR"]
+    uid_map: dict[str, str] = {}
+    used_ids: set[str] = set()
+    for raw in stages:
+        base = _sanitize_class_id(raw)
+        nid = base
+        k = 0
+        while nid in used_ids:
+            k += 1
+            nid = f"{base}_{k}"
+        used_ids.add(nid)
+        uid_map[raw] = nid
+        lines.append(f'    {nid}["{_escape_label(raw)}"]')
+
+    for src, tgt in edges:
+        s_id, t_id = uid_map.get(src), uid_map.get(tgt)
+        if s_id and t_id:
+            lines.append(f"    {s_id} --> {t_id}")
+
+    content = "\n".join(lines) + "\n"
+    return WikiDiagram(diagram_type=DiagramType.FLOWCHART, content=content, title="")
+

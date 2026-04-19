@@ -112,4 +112,7 @@ class Reranker:
             parts.append(candidate["docstring"][:200])
         if candidate.get("description"):
             parts.append(candidate["description"][:200])
+        body = candidate.get("content") or candidate.get("code_snippet") or ""
+        if isinstance(body, str) and body.strip():
+            parts.append(body[:500])
         return " ".join(parts) if parts else candidate.get("name", "")

@@ -139,6 +139,9 @@ const zh: Translations = {
     graphSectionOther: "其他关系",
     graphContextCopyHint: "点击复制 file:line",
     graphRelatedFn: "检索种子",
+    repo: "仓库",
+    lang: "语言",
+    exportJson: "导出 JSON",
   },
   graph: {
     title: "图查询",
@@ -282,6 +285,8 @@ const zh: Translations = {
     panelDocstring: "文档摘要",
     openInWiki: "在 Wiki 中打开",
     searchRelated: "搜索相关",
+    graphTruncated:
+      "为保持性能，图谱已截断至 {limit} 个节点。请缩小检索范围或降低深度/上限。",
   },
   architecture: {
     title: "架构浏览器",

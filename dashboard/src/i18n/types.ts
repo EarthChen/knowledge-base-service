@@ -137,6 +137,11 @@ export interface Translations {
     graphSectionOther: string;
     graphContextCopyHint: string;
     graphRelatedFn: string;
+    /** Short label for repository filter */
+    repo: string;
+    /** Short label for language filter */
+    lang: string;
+    exportJson: string;
   };
   graph: {
     title: string;
@@ -280,6 +285,8 @@ export interface Translations {
     panelDocstring: string;
     openInWiki: string;
     searchRelated: string;
+    /** Shown when graph layout caps nodes for performance; use {limit} placeholder */
+    graphTruncated: string;
   };
   architecture: {
     title: string;

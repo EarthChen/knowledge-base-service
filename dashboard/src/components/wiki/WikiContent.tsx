@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BookOpen,
@@ -249,6 +249,11 @@ export default function WikiContent({
 
   const tocItems = detail?.content ? parseMarkdownHeadings(detail.content) : [];
   const showToc = tocItems.length >= 3;
+  const [mobileTocOpen, setMobileTocOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileTocOpen(false);
+  }, [pagePath, repository]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
@@ -276,6 +281,34 @@ export default function WikiContent({
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:items-start">
+        {showToc && detail?.content && (
+          <div className="shrink-0 border-b border-gray-100 px-5 py-3 dark:border-gray-700 lg:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileTocOpen((o) => !o)}
+              aria-expanded={mobileTocOpen}
+              className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50/90 px-3 py-2 text-left text-sm font-medium text-gray-800 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800/70 dark:text-gray-100 dark:hover:bg-gray-800"
+            >
+              {t.wiki.tocHeading}
+              {mobileTocOpen ? (
+                <ChevronUp size={18} className="shrink-0 text-gray-500 dark:text-gray-400" aria-hidden />
+              ) : (
+                <ChevronDown size={18} className="shrink-0 text-gray-500 dark:text-gray-400" aria-hidden />
+              )}
+            </button>
+            <div
+              className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+                mobileTocOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+              }`}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div className="border-t border-gray-100 pt-3 dark:border-gray-700">
+                  <TableOfContents content={detail.content} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
         {isLoading && (
           <div className="animate-pulse space-y-3">

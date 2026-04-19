@@ -64,6 +64,7 @@ export default function Layout() {
       title: isZh ? "Wiki 空间" : "Wiki",
       items: [
         { to: "/wiki", icon: BookOpen, label: t.nav.wiki },
+        { to: "/businesses", icon: Building2, label: t.nav.businesses },
         { to: "/pr-impact", icon: GitPullRequest, label: isZh ? "PR 影响分析" : "PR Impact" },
       ],
     },

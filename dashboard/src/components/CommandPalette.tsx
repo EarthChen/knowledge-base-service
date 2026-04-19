@@ -13,6 +13,7 @@ import {
 import type { SearchMatch } from "../api/types";
 import { useHybridQuickSearch } from "../api/hooks";
 import { useI18n } from "../i18n/context";
+import FocusTrap from "./FocusTrap";
 
 const TYPE_ICON: Record<string, ReactNode> = {
   function: <Braces className="size-4 text-emerald-600" aria-hidden />,
@@ -129,14 +130,15 @@ export default function CommandPalette() {
         aria-label="Close"
         onClick={onBackdropClick}
       />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={t.app.commandPaletteShortcutOpen}
-        className="relative w-full max-w-xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-600 dark:bg-gray-900"
-        tabIndex={-1}
-        onKeyDownCapture={handleDialogKeyDownCapture}
-      >
+      <FocusTrap onEscape={() => setOpen(false)}>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t.app.commandPaletteShortcutOpen}
+          className="relative w-full max-w-xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-600 dark:bg-gray-900"
+          tabIndex={-1}
+          onKeyDownCapture={handleDialogKeyDownCapture}
+        >
         <div className="flex items-center gap-2 border-b border-gray-100 px-3 dark:border-gray-700">
           <Search className="size-4 shrink-0 text-gray-400 dark:text-gray-500" aria-hidden />
           <input
@@ -205,7 +207,8 @@ export default function CommandPalette() {
             {t.app.commandPaletteFooterHint}
           </p>
         </div>
-      </div>
+        </div>
+      </FocusTrap>
     </div>
   );
 

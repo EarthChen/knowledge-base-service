@@ -315,6 +315,35 @@ MCP_TOOLS_MANIFEST = [
                         "'python', 'java', 'go', 'javascript', 'typescript'."
                     ),
                 },
+                "use_child_chunks": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, use chunk-level vector search with parent context "
+                        "instead of whole-entity embeddings."
+                    ),
+                    "default": False,
+                },
+                "use_query_router": {
+                    "type": "boolean",
+                    "description": (
+                        "When true (default), apply intent-aware routing for keyword vs semantic weights."
+                    ),
+                    "default": True,
+                },
+                "use_query_expansion": {
+                    "type": "boolean",
+                    "description": (
+                        "When true (default), expand the query using graph neighbors before retrieval."
+                    ),
+                    "default": True,
+                },
+                "per_file_cap": {
+                    "type": "integer",
+                    "description": (
+                        "Max semantic matches retained per source file after fusion (0 disables capping)."
+                    ),
+                    "default": 3,
+                },
             },
             "required": ["query"],
         },
@@ -859,11 +888,31 @@ class KnowledgeBaseMCPHandler:
 
     async def handle_rag_query(self, args: dict[str, Any]) -> dict[str, Any]:
         query_text = args.get("query", "")
-        k = args.get("k", 5)
-        expand_depth = args.get("expand_depth", 2)
+        try:
+            k = max(1, min(50, int(args.get("k", 5))))
+        except (TypeError, ValueError):
+            return _mcp_error("invalid_params", "k must be an integer between 1 and 50")
+        try:
+            expand_depth = max(0, min(5, int(args.get("expand_depth", 2))))
+        except (TypeError, ValueError):
+            return _mcp_error("invalid_params", "expand_depth must be an integer between 0 and 5")
         entity_type = _normalize_entity_type_arg(args.get("entity_type"))
         repository = (args.get("repository") or "").strip() or None
         language = (args.get("language") or "").strip() or None
+
+        hybrid_kwargs: dict[str, Any] = {}
+        if "use_child_chunks" in args:
+            hybrid_kwargs["use_child_chunks"] = bool(args["use_child_chunks"])
+        if "use_query_router" in args:
+            hybrid_kwargs["use_query_router"] = bool(args["use_query_router"])
+        if "use_query_expansion" in args:
+            hybrid_kwargs["use_query_expansion"] = bool(args["use_query_expansion"])
+        if "per_file_cap" in args:
+            try:
+                pfc = int(args["per_file_cap"])
+                hybrid_kwargs["per_file_cap"] = max(1, min(20, pfc))
+            except (TypeError, ValueError):
+                return _mcp_error("invalid_params", "per_file_cap must be an integer between 1 and 20")
 
         if entity_type in ("flow", "concept"):
             if not str(query_text).strip():
@@ -888,8 +937,12 @@ class KnowledgeBaseMCPHandler:
             }
 
         result = await self._hybrid.search_with_context(
-            query_text, k=k, expand_depth=expand_depth,
-            repository=repository, language=language,
+            query_text,
+            k=k,
+            expand_depth=expand_depth,
+            repository=repository,
+            language=language,
+            **hybrid_kwargs,
         )
         matches = _filter_semantic_matches_by_entity_type(result.semantic_matches, entity_type)
         graph_ctx = _filter_graph_context_by_entity_type(result.graph_context, entity_type)

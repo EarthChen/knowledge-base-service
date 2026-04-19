@@ -126,6 +126,7 @@ class HybridQueryService:
         use_child_chunks: bool | None = None,
         repository: str | None = None,
         language: str | None = None,
+        per_file_cap: int = 3,
     ) -> HybridResult:
         """Layered hybrid search with optional graph-based query expansion.
 
@@ -142,7 +143,7 @@ class HybridQueryService:
         if use_child_chunks:
             return await self._search_with_child_chunks(
                 query_text, k, expand_depth, include_callers, include_callees,
-                repository=repository, language=language,
+                repository=repository, language=language, per_file_cap=per_file_cap,
             )
         router_strategy = route_query(query_text) if use_query_router else None
 
@@ -197,7 +198,14 @@ class HybridQueryService:
                     doc_map[key] = {**m, "match_source": "semantic"}
 
         merged = await self._fuse_expansion_results(
-            query_text, kw_ranked_lists, sem_ranked_lists, kw_weights, sem_weights, doc_map, k,
+            query_text,
+            kw_ranked_lists,
+            sem_ranked_lists,
+            kw_weights,
+            sem_weights,
+            doc_map,
+            k,
+            per_file_cap=per_file_cap,
         )
 
         if router_strategy is not None and not router_strategy.expand_graph:
@@ -235,6 +243,7 @@ class HybridQueryService:
         *,
         repository: str | None = None,
         language: str | None = None,
+        per_file_cap: int = 3,
     ) -> HybridResult:
         """Chunk-aware hybrid search: keyword + chunk-vector + parent context."""
         identifiers = _extract_identifiers(query_text)
@@ -270,7 +279,14 @@ class HybridQueryService:
             sem_ranked.append((key, float(i)))
 
         merged = await self._fuse_expansion_results(
-            query_text, [kw_ranked], [sem_ranked], [1.5], [1.0], doc_map, k,
+            query_text,
+            [kw_ranked],
+            [sem_ranked],
+            [1.5],
+            [1.0],
+            doc_map,
+            k,
+            per_file_cap=per_file_cap,
         )
 
         graph_context = await self._expand_graph(

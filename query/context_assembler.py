@@ -53,6 +53,7 @@ class ContextAssembler:
         self,
         entity_name: str,
         repository: str | None = None,
+        language: str | None = None,
         max_tokens: int = 8000,
     ) -> dict[str, Any]:
         name_key = (entity_name or "").strip()
@@ -66,6 +67,8 @@ class ContextAssembler:
             include_callers=True,
             include_callees=True,
             use_query_expansion=False,
+            repository=repository,
+            language=language,
         )
         confidence = float(hybrid_result.confidence)
         match = self._pick_match(hybrid_result.semantic_matches, name_key, repository)

@@ -107,10 +107,82 @@ def compute_java_fqn(file_path: str, entity_name: str, is_method: bool = False, 
     return ""
 
 
+def _python_module_from_file(file_path: str) -> str:
+    p = Path(file_path.replace("\\", "/"))
+    stem = p.stem
+    dir_parts = [x for x in p.parent.parts if x not in ("/", "\\", ".", "")]
+    cleaned: list[str] = []
+    for x in dir_parts:
+        if len(x) == 2 and x[1] == ":":
+            continue
+        cleaned.append(x)
+    return ".".join(cleaned + [stem])
+
+
+def _go_package_from_file(file_path: str) -> str:
+    """Heuristic: use parent directory as Go package name.
+
+    Limitation: real Go packages come from the `package` declaration, not
+    the directory.  For a more precise FQN, parse the `package` line from
+    the source file during the AST pass.
+    """
+    name = Path(file_path.replace("\\", "/")).parent.name
+    return name if name else "main"
+
+
+_JS_TS_EXTS_LONGEST_FIRST = (
+    ".tsx", ".jsx", ".mjs", ".cjs", ".d.ts", ".ts", ".js",
+)
+
+
+def _js_ts_suffix(lower_name: str) -> str | None:
+    for ext in _JS_TS_EXTS_LONGEST_FIRST:
+        if lower_name.endswith(ext):
+            return ext
+    return None
+
+
+def _js_ts_module_prefix(file_path: str) -> str:
+    fp = file_path.replace("\\", "/")
+    lower = fp.lower()
+    ext = _js_ts_suffix(lower)
+    if ext:
+        return fp[: -len(ext)].lstrip("./")
+    return Path(fp).with_suffix("").as_posix().lstrip("./")
+
+
 def compute_fqn(file_path: str, entity_name: str, label: str, parent_class: str = "") -> str:
-    """Compute FQN for any supported language. Currently Java only."""
+    """Compute a stable fully-qualified–style name from file path and entity hierarchy."""
     if file_path.endswith(".java"):
         return compute_java_fqn(file_path, entity_name, is_method=(label == "Function"), parent_class=parent_class)
+
+    fp = file_path.replace("\\", "/")
+    lower = fp.lower()
+
+    if lower.endswith(".py"):
+        mod = _python_module_from_file(fp)
+        if label == "Class":
+            return f"{mod}.{entity_name}"
+        if parent_class:
+            return f"{mod}.{parent_class}.{entity_name}"
+        return f"{mod}.{entity_name}"
+
+    if lower.endswith(".go"):
+        pkg = _go_package_from_file(fp)
+        if label == "Class":
+            return f"{pkg}.{entity_name}"
+        if parent_class:
+            return f"{pkg}.{parent_class}.{entity_name}"
+        return f"{pkg}.{entity_name}"
+
+    if _js_ts_suffix(lower):
+        mod = _js_ts_module_prefix(fp)
+        if label == "Class":
+            return f"{mod}.{entity_name}"
+        if parent_class:
+            return f"{mod}.{parent_class}.{entity_name}"
+        return f"{mod}.{entity_name}"
+
     return ""
 
 

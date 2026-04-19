@@ -142,6 +142,9 @@ const en: Translations = {
     graphSectionOther: "Other relationships",
     graphContextCopyHint: "Click to copy file:line",
     graphRelatedFn: "Seed",
+    repo: "Repo",
+    lang: "Lang",
+    exportJson: "Export JSON",
   },
   graph: {
     title: "Graph Query",
@@ -286,6 +289,8 @@ const en: Translations = {
     panelDocstring: "Docstring",
     openInWiki: "Open in Wiki",
     searchRelated: "Search related",
+    graphTruncated:
+      "Graph truncated to {limit} nodes for performance. Narrow your search or reduce depth/limit.",
   },
   architecture: {
     title: "Architecture Explorer",

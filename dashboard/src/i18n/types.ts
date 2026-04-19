@@ -67,6 +67,13 @@ export interface Translations {
     hoursShort: string;
     daysShort: string;
     neverIndexed: string;
+    quickStartTitle: string;
+    quickStartSubtitle: string;
+    quickStartStepIndex: string;
+    quickStartStepSearch: string;
+    quickStartStepWiki: string;
+    quickStartStepAsk: string;
+    quickStartDismiss: string;
   };
   search: {
     title: string;
@@ -244,6 +251,20 @@ export interface Translations {
     edgeTypes: string;
     doubleClickHint: string;
     emptyHint: string;
+    filterHint: string;
+    typeFunction: string;
+    typeClass: string;
+    typeModule: string;
+    typeDocument: string;
+    edgeLabelToggle: string;
+    edgeLabelsOn: string;
+    edgeLabelsOff: string;
+    panelTitle: string;
+    panelLineRange: string;
+    panelSignature: string;
+    panelDocstring: string;
+    openInWiki: string;
+    searchRelated: string;
   };
   architecture: {
     title: string;
@@ -384,6 +405,15 @@ export interface Translations {
     lintEmptyHint: string;
     lintPageLabel: string;
     lintEntityLabel: string;
+    conversationHistory: string;
+    conversationHistoryEmpty: string;
+    conversationHistoryClearAll: string;
+    conversationHistoryNew: string;
+    conversationHistoryMessages: string;
+    conversationHistoryTimeJustNow: string;
+    conversationHistoryTimeMinutes: string;
+    conversationHistoryTimeHours: string;
+    conversationHistoryTimeDays: string;
   };
   sync: {
     title: string;

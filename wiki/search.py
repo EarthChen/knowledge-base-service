@@ -20,6 +20,12 @@ _WEIGHT_FTS = 1.5
 _PASCAL = re.compile(r"\b(?:[A-Z][a-z0-9]+){2,}\b")
 _DOTTED = re.compile(r"\b[a-z][a-z0-9]*(?:\.[A-Za-z_][\w]*)+\b")
 
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+
+
+def _contains_cjk(text: str) -> bool:
+    return _CJK_RE.search(text) is not None
+
 
 @dataclass
 class SearchResult:
@@ -62,6 +68,17 @@ def _extract_entity_names(text: str) -> list[str]:
             if val not in seen:
                 seen.add(val)
                 out.append(val)
+
+    if _contains_cjk(text):
+        import jieba
+
+        for w in jieba.lcut_for_search(text):
+            val = w.strip()
+            if not val or val in seen:
+                continue
+            seen.add(val)
+            out.append(val)
+
     return out
 
 

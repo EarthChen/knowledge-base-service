@@ -201,6 +201,8 @@ export function useWikiAsk(repository: string | undefined) {
     ask,
     cancel,
     reset,
+    setAnswer,
+    setSources,
     setConversationId,
   };
 }

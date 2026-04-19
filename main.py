@@ -1428,9 +1428,18 @@ async def graph_explore(
     if not req.name:
         result = await queries.explore_overview(req.limit)
         nodes = [
-            {"id": r["uid"], "name": r["name"], "type": r["type"],
-             "file": r["file"], "line": r["line"]}
-            for r in result.data if r.get("uid")
+            {
+                "id": r["uid"],
+                "name": r["name"],
+                "type": r["type"],
+                "file": r["file"],
+                "line": r["line"],
+                "end_line": r.get("end_line"),
+                "signature": r.get("signature") or "",
+                "docstring": r.get("docstring") or "",
+            }
+            for r in result.data
+            if r.get("uid")
         ]
         return {"nodes": nodes, "edges": []}
 
@@ -1452,6 +1461,9 @@ async def graph_explore(
             "type": r.get("type", ""),
             "file": r.get("file", ""),
             "line": r.get("line", 0),
+            "end_line": r.get("end_line"),
+            "signature": r.get("signature") or "",
+            "docstring": r.get("docstring") or "",
         })
 
     if nodes_list:

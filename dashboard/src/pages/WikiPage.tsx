@@ -62,6 +62,34 @@ export default function WikiPage() {
     setToolTabState(parseWikiToolTab(searchParams.get("tool")));
   }, [searchParams]);
 
+  const focusAsk = searchParams.get("focus");
+  useEffect(() => {
+    if (focusAsk !== "ask") return;
+    if (!repository) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("focus");
+          return next;
+        },
+        { replace: true },
+      );
+      return;
+    }
+    const id = window.setTimeout(() => {
+      document.getElementById("wiki-ask-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("focus");
+          return next;
+        },
+        { replace: true },
+      );
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [repository, focusAsk, setSearchParams]);
+
   const reposQuery = useRepositories();
   const pagesQuery = useWikiPages(repository);
   const pageQuery = useWikiPage(repository, pagePath || undefined);

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Chart as ChartJS,
   ArcElement,
@@ -29,6 +30,7 @@ import { useHealthStats, useP2Stats, useStats } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import StatCard from "../components/StatCard";
 import { SkeletonCard } from "../components/Skeleton";
+import QuickStartBanner from "../components/QuickStartBanner";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
@@ -52,6 +54,17 @@ function orphanTextClass(ratio: number): string {
 }
 
 export default function Overview() {
+  const [showQuickStart, setShowQuickStart] = useState(true);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("kb_onboarding");
+      const s = raw ? (JSON.parse(raw) as { dismissed?: boolean }) : {};
+      setShowQuickStart(!s?.dismissed);
+    } catch {
+      setShowQuickStart(true);
+    }
+  }, []);
+
   const { data: stats, isLoading, error } = useStats();
   const { data: p2, isLoading: p2Loading, error: p2Error } = useP2Stats();
   const {
@@ -156,6 +169,10 @@ export default function Overview() {
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold text-gray-900">{t.overview.title}</h2>
+
+      {showQuickStart ? (
+        <QuickStartBanner onDismiss={() => setShowQuickStart(false)} />
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {isLoading ? (

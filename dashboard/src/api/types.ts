@@ -179,6 +179,9 @@ export interface GraphNode {
   type: string;
   file: string;
   line: number;
+  end_line?: number | null;
+  signature?: string;
+  docstring?: string;
   is_center?: boolean;
 }
 

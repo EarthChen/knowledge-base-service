@@ -408,7 +408,10 @@ class GraphQueryRepository:
             "WHERE n:Function OR n:Class OR n:Module "
             "WITH n, rand() AS r ORDER BY r LIMIT $limit "
             "RETURN n.uid AS uid, n.name AS name, labels(n)[0] AS type, "
-            "n.file AS file, n.start_line AS line"
+            "coalesce(n.file, '') AS file, coalesce(n.start_line, 0) AS line, "
+            "coalesce(n.end_line, n.start_line, 0) AS end_line, "
+            "coalesce(n.signature, '') AS signature, "
+            "coalesce(n.docstring, '') AS docstring"
         )
         return await self._store.execute_query(overview_q, {"limit": limit})
 
@@ -423,7 +426,10 @@ class GraphQueryRepository:
             "UNWIND ([center] + nbrs) AS n "
             "WITH DISTINCT n LIMIT $limit "
             "RETURN n.uid AS uid, n.name AS name, labels(n)[0] AS type, "
-            "n.file AS file, n.start_line AS line"
+            "coalesce(n.file, '') AS file, coalesce(n.start_line, 0) AS line, "
+            "coalesce(n.end_line, n.start_line, 0) AS end_line, "
+            "coalesce(n.signature, '') AS signature, "
+            "coalesce(n.docstring, '') AS docstring"
         )
         return await self._store.execute_query(nodes_q, {"name": name, "limit": limit})
 

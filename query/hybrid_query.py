@@ -42,6 +42,12 @@ _IDENT_RE = re.compile(
     r"\b"
 )
 
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+
+
+def _contains_cjk(text: str) -> bool:
+    return _CJK_RE.search(text) is not None
+
 
 def _extract_identifiers(query: str) -> list[str]:
     """Extract probable code identifiers from a natural-language query."""
@@ -51,8 +57,24 @@ def _extract_identifiers(query: str) -> list[str]:
         "search", "show", "get", "set", "for", "from", "with", "and",
         "not", "are", "was", "has", "have", "all",
     }
-    tokens = _IDENT_RE.findall(query)
-    return [t for t in tokens if t.lower() not in stop_words]
+    regex_tokens = _IDENT_RE.findall(query)
+    regex_filtered = [t for t in regex_tokens if t.lower() not in stop_words]
+
+    if not _contains_cjk(query):
+        return regex_filtered
+
+    import jieba
+
+    chinese_tokens = [w.strip() for w in jieba.lcut_for_search(query) if w.strip()]
+    merged: list[str] = []
+    seen: set[str] = set()
+    for t in regex_filtered + chinese_tokens:
+        if t.lower() in stop_words:
+            continue
+        if t not in seen:
+            seen.add(t)
+            merged.append(t)
+    return merged
 
 
 async def _empty_list() -> list[dict[str, Any]]:

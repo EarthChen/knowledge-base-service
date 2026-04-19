@@ -1,14 +1,17 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Brain,
   ChevronDown,
   ChevronUp,
+  History,
   Loader2,
   MessageCircle,
   Send,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useWikiAsk } from "../../hooks/useWikiAsk";
+import { useConversationHistory } from "../../hooks/useConversationHistory";
+import type { WikiConversationMessage } from "../../hooks/useConversationHistory";
 import type { WikiAskSource } from "../../hooks/wikiTypes";
 import { useI18n } from "../../i18n/context";
 import { buildIdeHref, type EditorId } from "./editorLinks";
@@ -27,6 +30,14 @@ function readEditorPref(): EditorId {
   return "cursor";
 }
 
+function assistantTextFromMessages(messages: WikiConversationMessage[]): string {
+  const parts = messages
+    .filter((m) => m.role === "assistant")
+    .map((m) => m.content.trim())
+    .filter(Boolean);
+  return parts.join("\n\n---\n\n");
+}
+
 function wikiHref(repository: string, path: string): string {
   const er = encodeURIComponent(repository);
   const ep = path
@@ -35,6 +46,30 @@ function wikiHref(repository: string, path: string): string {
     .map((s) => encodeURIComponent(s))
     .join("/");
   return `/wiki/${er}/${ep}`;
+}
+
+function formatAskHistoryTime(
+  ts: number,
+  now: number,
+  wiki: {
+    conversationHistoryTimeJustNow: string;
+    conversationHistoryTimeMinutes: string;
+    conversationHistoryTimeHours: string;
+    conversationHistoryTimeDays: string;
+  },
+): string {
+  const sec = Math.floor((now - ts) / 1000);
+  if (sec < 60) return wiki.conversationHistoryTimeJustNow;
+  const min = Math.floor(sec / 60);
+  if (min < 60) {
+    return wiki.conversationHistoryTimeMinutes.replace("{n}", String(min));
+  }
+  const h = Math.floor(min / 60);
+  if (h < 24) {
+    return wiki.conversationHistoryTimeHours.replace("{n}", String(h));
+  }
+  const d = Math.floor(h / 24);
+  return wiki.conversationHistoryTimeDays.replace("{n}", String(d));
 }
 
 function conclusionMarkdownText(c: Record<string, unknown> | null): string {
@@ -88,23 +123,99 @@ type Props = {
   repository: string | undefined;
 };
 
+/** Relative “time ago” clock that avoids impure Date calls during parent render. */
+function ConversationRelativeWhen({
+  createdAt,
+  wiki,
+}: {
+  createdAt: number;
+  wiki: {
+    conversationHistoryTimeJustNow: string;
+    conversationHistoryTimeMinutes: string;
+    conversationHistoryTimeHours: string;
+    conversationHistoryTimeDays: string;
+  };
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+  return <>{formatAskHistoryTime(createdAt, now, wiki)}</>;
+}
+
 export default function AskPanel({ repository }: Props) {
   const { locale, t } = useI18n();
   const isZh = locale === "zh";
   const [open, setOpen] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [mode, setMode] = useState<"ask" | "deep">("ask");
   const [input, setInput] = useState("");
   const [deepInput, setDeepInput] = useState("");
-  const { answer, sources, isStreaming, error, ask, cancel, reset, conversationId } =
-    useWikiAsk(repository);
+  const {
+    answer,
+    sources,
+    isStreaming,
+    error,
+    ask,
+    cancel,
+    reset,
+    setAnswer,
+    setSources,
+    conversationId,
+  } = useWikiAsk(repository);
+  const convHistory = useConversationHistory();
+  const prevStreamingRef = useRef(false);
+  const questionForSaveRef = useRef("");
+  const localThreadStorageIdRef = useRef<string | null>(null);
+  const threadTitleRef = useRef("");
   const deepStream = useDeepSearchStream();
+
+  const historyItems = repository ? convHistory.list(repository) : [];
+
+  useEffect(() => {
+    localThreadStorageIdRef.current = null;
+    threadTitleRef.current = "";
+    questionForSaveRef.current = "";
+    prevStreamingRef.current = false;
+  }, [repository]);
+
+  useEffect(() => {
+    const wasStreaming = prevStreamingRef.current;
+    prevStreamingRef.current = isStreaming;
+    if (
+      !repository?.trim() ||
+      !wasStreaming ||
+      isStreaming ||
+      error ||
+      !answer.trim()
+    ) {
+      return;
+    }
+    const id = localThreadStorageIdRef.current ?? crypto.randomUUID();
+    localThreadStorageIdRef.current = id;
+    const existing = convHistory.get(repository, id);
+    const q = questionForSaveRef.current;
+    const userMsg: WikiConversationMessage = { role: "user", content: q };
+    const asstMsg: WikiConversationMessage = { role: "assistant", content: answer };
+    const messages = existing
+      ? [...existing.messages, userMsg, asstMsg]
+      : [userMsg, asstMsg];
+    convHistory.save(repository, {
+      id,
+      title: threadTitleRef.current.trim() || q,
+      messages,
+      created_at: existing?.created_at ?? Date.now(),
+      sources: [...sources],
+    });
+  }, [isStreaming, answer, error, repository, sources, convHistory]);
 
   if (!repository?.trim()) return null;
 
   const deepMarkdown = conclusionMarkdownText(deepStream.conclusion);
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-gradient-to-b from-white to-gray-50/80 shadow-sm">
+    <section id="wiki-ask-panel" className="rounded-xl border border-gray-200 bg-gradient-to-b from-white to-gray-50/80 shadow-sm">
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -169,6 +280,10 @@ export default function AskPanel({ repository }: Props) {
                   e.preventDefault();
                   const q = input.trim();
                   if (!q || isStreaming) return;
+                  if (!localThreadStorageIdRef.current) {
+                    threadTitleRef.current = q;
+                  }
+                  questionForSaveRef.current = q;
                   void ask({ question: q });
                   setInput("");
                 }}
@@ -205,6 +320,9 @@ export default function AskPanel({ repository }: Props) {
                     onClick={() => {
                       reset();
                       setInput("");
+                      localThreadStorageIdRef.current = null;
+                      threadTitleRef.current = "";
+                      questionForSaveRef.current = "";
                     }}
                     className="text-xs text-gray-600 hover:text-gray-900"
                   >
@@ -212,6 +330,94 @@ export default function AskPanel({ repository }: Props) {
                   </button>
                 </div>
               </form>
+
+              <div className="rounded-lg border border-gray-100 bg-gray-50/80">
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(!historyOpen)}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-gray-700"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <History size={14} className="text-gray-500" aria-hidden />
+                    {t.wiki.conversationHistory}
+                    {historyItems.length > 0 && (
+                      <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-normal text-gray-600">
+                        {historyItems.length}
+                      </span>
+                    )}
+                  </span>
+                  {historyOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </button>
+                {historyOpen && (
+                  <div className="space-y-2 border-t border-gray-100 px-3 pb-3 pt-1">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          reset();
+                          setInput("");
+                          localThreadStorageIdRef.current = null;
+                          threadTitleRef.current = "";
+                          questionForSaveRef.current = "";
+                        }}
+                        className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-700 hover:bg-gray-50"
+                      >
+                        {t.wiki.conversationHistoryNew}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={historyItems.length === 0}
+                        onClick={() => {
+                          if (!repository?.trim()) return;
+                          convHistory.clear(repository);
+                          localThreadStorageIdRef.current = null;
+                          threadTitleRef.current = "";
+                          questionForSaveRef.current = "";
+                        }}
+                        className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                      >
+                        {t.wiki.conversationHistoryClearAll}
+                      </button>
+                    </div>
+                    {historyItems.length === 0 ? (
+                      <p className="text-xs text-gray-500">{t.wiki.conversationHistoryEmpty}</p>
+                    ) : (
+                      <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+                        {historyItems.map((c) => (
+                          <li key={c.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                reset();
+                                setAnswer(assistantTextFromMessages(c.messages));
+                                setSources(c.sources ?? []);
+                                setInput("");
+                                localThreadStorageIdRef.current = null;
+                                threadTitleRef.current = "";
+                                questionForSaveRef.current = "";
+                              }}
+                              className="w-full rounded-md border border-transparent px-2 py-1.5 text-left text-xs hover:border-gray-200 hover:bg-white"
+                            >
+                              <div className="line-clamp-2 font-medium text-gray-900">{c.title}</div>
+                              <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-gray-500">
+                                <span>
+                                  <ConversationRelativeWhen createdAt={c.created_at} wiki={t.wiki} />
+                                </span>
+                                <span>
+                                  {t.wiki.conversationHistoryMessages.replace(
+                                    "{count}",
+                                    String(c.messages.length),
+                                  )}
+                                </span>
+                              </div>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {error && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">

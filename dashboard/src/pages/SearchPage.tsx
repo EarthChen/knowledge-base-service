@@ -194,19 +194,19 @@ export default function SearchPage() {
   if (mode === "deep") {
     return (
       <div className="space-y-6">
-        <h2 className="text-lg font-semibold text-gray-900">{t.search.title}</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.search.title}</h2>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setMode("hybrid")}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
           >
             <Zap size={14} /> {t.search.hybrid}
           </button>
           <button
             type="button"
             onClick={() => setMode("deep")}
-            className="flex items-center gap-1.5 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-700"
+            className="flex items-center gap-1.5 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
           >
             <Brain size={14} /> {t.search.deep}
           </button>
@@ -218,21 +218,21 @@ export default function SearchPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-gray-900">{t.search.title}</h2>
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.search.title}</h2>
 
-      <form onSubmit={handleSearch} className="rounded-xl border border-gray-200 bg-white p-5">
+      <form onSubmit={handleSearch} className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setMode("hybrid")}
-            className="flex items-center gap-1.5 rounded-lg bg-purple-100 px-3 py-1.5 text-xs font-medium text-purple-600"
+            className="flex items-center gap-1.5 rounded-lg bg-purple-100 px-3 py-1.5 text-xs font-medium text-purple-600 dark:bg-purple-950/60 dark:text-purple-300"
           >
             <Zap size={14} /> {t.search.hybrid}
           </button>
           <button
             type="button"
             onClick={() => setMode("deep")}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
           >
             <Brain size={14} /> {t.search.deep}
           </button>
@@ -256,14 +256,14 @@ export default function SearchPage() {
                   ? `${historyListId}-opt-${highlightedHistoryIndex}`
                   : undefined
               }
-              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-300"
+              className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-purple-500 dark:focus:ring-purple-600"
             />
             {showHistory && history.length > 0 && (
               <div
                 id={historyListId}
                 role="listbox"
                 aria-label={t.search.title}
-                className="absolute left-0 right-0 top-full z-20 mt-1 max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg"
+                className="absolute left-0 right-0 top-full z-20 mt-1 max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800 dark:shadow-gray-900/50"
               >
                 {history.slice(0, 10).map((h, i) => (
                   <div
@@ -271,8 +271,8 @@ export default function SearchPage() {
                     id={`${historyListId}-opt-${i}`}
                     role="option"
                     aria-selected={highlightedHistoryIndex === i}
-                    className={`flex cursor-pointer items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50 ${
-                      highlightedHistoryIndex === i ? "bg-purple-50" : ""
+                    className={`flex cursor-pointer items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700/80 ${
+                      highlightedHistoryIndex === i ? "bg-purple-50 dark:bg-purple-950/50" : ""
                     }`}
                     onMouseDown={(e) => {
                       e.preventDefault();
@@ -280,11 +280,11 @@ export default function SearchPage() {
                     }}
                     onMouseEnter={() => setHighlightedHistoryIndex(i)}
                   >
-                    <Clock size={12} className="shrink-0 text-gray-400" />
-                    <span className="flex-1 truncate text-gray-700">{h}</span>
+                    <Clock size={12} className="shrink-0 text-gray-400 dark:text-gray-500" />
+                    <span className="flex-1 truncate text-gray-700 dark:text-gray-300">{h}</span>
                     <button
                       type="button"
-                      className="shrink-0 rounded p-0.5 text-gray-300 hover:text-gray-500"
+                      className="shrink-0 rounded p-0.5 text-gray-300 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-300"
                       onMouseDown={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -308,12 +308,12 @@ export default function SearchPage() {
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-4">
-          <label className="flex items-center gap-2 text-xs text-gray-500">
+          <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
             {t.search.type}
             <select
               value={entityType}
               onChange={(e) => setEntityType(e.target.value)}
-              className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             >
               {ENTITY_TYPES.map((et) => (
                 <option key={et} value={et}>
@@ -332,7 +332,7 @@ export default function SearchPage() {
               ))}
             </select>
           </label>
-          <label className="flex max-w-full flex-col gap-1 text-xs text-gray-500 sm:flex-row sm:items-center">
+          <label className="flex max-w-full flex-col gap-1 text-xs text-gray-500 dark:text-gray-400 sm:flex-row sm:items-center">
             <span className="shrink-0">{t.search.repo}</span>
             <select
               multiple
@@ -342,7 +342,7 @@ export default function SearchPage() {
                 setSelectedRepos(next);
               }}
               size={Math.min(8, Math.max(3, 1 + (reposData?.repositories?.length ?? 0)))}
-              className="min-h-[2.75rem] min-w-[10rem] max-w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
+              className="min-h-[2.75rem] min-w-[10rem] max-w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               aria-label={t.search.repo}
             >
               {reposData?.repositories?.map((r) => (
@@ -351,16 +351,16 @@ export default function SearchPage() {
                 </option>
               ))}
             </select>
-            <span className="text-[10px] text-gray-400">
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">
               {selectedRepos.length === 0 ? t.search.all : `${selectedRepos.length} selected`}
             </span>
           </label>
-          <label className="flex items-center gap-2 text-xs text-gray-500">
+          <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
             {t.search.lang}
             <select
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
-              className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             >
               {LANGUAGES.map((l) => (
                 <option key={l} value={l}>
@@ -369,7 +369,7 @@ export default function SearchPage() {
               ))}
             </select>
           </label>
-          <label className="flex items-center gap-2 text-xs text-gray-500">
+          <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
             {t.search.topK}
             <input
               type="number"
@@ -377,7 +377,7 @@ export default function SearchPage() {
               max={20}
               value={k}
               onChange={(e) => setK(Math.min(20, Number(e.target.value) || 10))}
-              className="w-16 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
+              className="w-16 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             />
           </label>
           <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
@@ -415,7 +415,7 @@ export default function SearchPage() {
       {isLoading && !hybridResult && <SearchResultSkeleton count={4} />}
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
           {(error as Error).message}
         </div>
       )}
@@ -475,7 +475,7 @@ export default function SearchPage() {
 
           {hybridResult.semantic_matches?.length > 0 && (
             <div className="space-y-3">
-              <h3 className="text-sm font-medium text-gray-700">{t.search.semanticMatches}</h3>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">{t.search.semanticMatches}</h3>
               {hybridResult.semantic_matches.map((m, i) => (
                 <SearchResultCard
                   key={`s-${i}`}
@@ -488,7 +488,7 @@ export default function SearchPage() {
 
           {hybridResult.graph_context?.length > 0 && (
             <div>
-              <h3 className="mb-2 text-sm font-medium text-gray-700">{t.search.graphContext}</h3>
+              <h3 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">{t.search.graphContext}</h3>
               <GraphContextCards items={hybridResult.graph_context} />
             </div>
           )}

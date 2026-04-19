@@ -9,7 +9,7 @@ export type StageEvent = {
 function StatusIcon({ status }: { status: StageEvent["status"] }) {
   if (status === "done") return <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-green-500" />;
   if (status === "active") return <Loader2 size={16} className="mt-0.5 shrink-0 animate-spin text-amber-500" />;
-  return <Circle size={16} className="mt-0.5 shrink-0 text-gray-300" />;
+  return <Circle size={16} className="mt-0.5 shrink-0 text-gray-300 dark:text-gray-600" />;
 }
 
 function stageLabel(s: StageEvent, isZh: boolean): string {
@@ -60,12 +60,12 @@ export default function DeepResearchTimeline({ stages, isZh = false }: Props) {
           key={`${s.type}-${i}`}
           className={`flex items-start gap-3 rounded-lg border px-4 py-2.5 text-sm transition-colors ${
             s.type === "error"
-              ? "border-red-200 bg-red-50/60"
+              ? "border-red-200 bg-red-50/60 dark:border-red-900/50 dark:bg-red-950/40"
               : s.status === "done"
-                ? "border-green-100 bg-green-50/40"
+                ? "border-green-100 bg-green-50/40 dark:border-emerald-900/40 dark:bg-emerald-950/30"
                 : s.status === "active"
-                  ? "border-amber-200 bg-amber-50/40"
-                  : "border-gray-100 bg-gray-50/40 opacity-50"
+                  ? "border-amber-200 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/30"
+                  : "border-gray-100 bg-gray-50/40 opacity-50 dark:border-gray-700 dark:bg-gray-800/40"
           }`}
         >
           {s.type === "error" ? (
@@ -73,7 +73,13 @@ export default function DeepResearchTimeline({ stages, isZh = false }: Props) {
           ) : (
             <StatusIcon status={s.status} />
           )}
-          <span className={s.status === "active" ? "font-medium text-amber-800" : "text-gray-700"}>
+          <span
+            className={
+              s.status === "active"
+                ? "font-medium text-amber-800 dark:text-amber-200"
+                : "text-gray-700 dark:text-gray-300"
+            }
+          >
             {stageLabel(s, isZh)}
           </span>
         </li>

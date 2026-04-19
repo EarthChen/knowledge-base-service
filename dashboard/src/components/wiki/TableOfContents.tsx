@@ -47,17 +47,17 @@ export default function TableOfContents({ content }: Props) {
 
   return (
     <nav aria-label={t.wiki.tocHeading} className="sticky top-6">
-      <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+      <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
         {t.wiki.tocHeading}
       </p>
-      <ul className="max-h-[min(70vh,calc(100vh-10rem))] space-y-0.5 overflow-y-auto border-l border-gray-200 pl-3 text-xs text-gray-600">
+      <ul className="max-h-[min(70vh,calc(100vh-10rem))] space-y-0.5 overflow-y-auto border-l border-gray-200 pl-3 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-400">
         {items.map((item) => (
           <li key={item.id} style={{ paddingLeft: `${(item.level - 1) * 10}px` }}>
             <button
               type="button"
               onClick={() => scrollToId(item.id)}
-              className={`block w-full rounded-md px-2 py-1 text-left transition-colors hover:bg-gray-100 hover:text-gray-900 ${
-                highlightId === item.id ? "bg-gray-100 font-medium text-gray-900" : "text-gray-600"
+              className={`block w-full rounded-md px-2 py-1 text-left transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-gray-100 ${
+                highlightId === item.id ? "bg-gray-100 font-medium text-gray-900 dark:bg-gray-800 dark:text-gray-100" : "text-gray-600 dark:text-gray-400"
               }`}
             >
               {item.text}

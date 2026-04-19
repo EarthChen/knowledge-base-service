@@ -107,7 +107,7 @@ export default function SearchResultCard({
       </h3>
 
       {match.fqn && (
-        <p className="mt-0.5 truncate font-mono text-xs text-sky-600/60">{match.fqn}</p>
+        <p className="mt-0.5 truncate font-mono text-xs text-sky-600/60 dark:text-sky-400/70">{match.fqn}</p>
       )}
 
       <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -120,7 +120,7 @@ export default function SearchResultCard({
             title={t.search.copyFilePath}
           >
             {filePathCopied ? (
-              <span className="inline-flex items-center gap-1 text-green-600">
+              <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
                 <Check size={12} aria-hidden />
                 {match.file}
               </span>

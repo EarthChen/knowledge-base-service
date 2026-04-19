@@ -71,7 +71,7 @@ export default function CodeBlock({
             const lineProps = getLineProps({ line });
             return (
               <div key={i} {...lineProps} className="table-row">
-                <span className="table-cell select-none pr-4 text-right text-gray-400/60">
+                <span className="table-cell select-none pr-4 text-right text-gray-400/60 dark:text-gray-500/70">
                   {i + 1 + lineOffset}
                 </span>
                 <span className="table-cell">

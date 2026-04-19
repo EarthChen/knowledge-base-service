@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useHealthStats, useP2Stats, useStats } from "../api/hooks";
+import { useIsDarkMode } from "../hooks/useIsDarkMode";
 import { useI18n } from "../i18n/context";
 import StatCard from "../components/StatCard";
 import { SkeletonCard } from "../components/Skeleton";
@@ -41,16 +42,16 @@ function coverageBarColor(ratio: number): string {
 }
 
 function stalenessBadgeClass(hours: number | null): string {
-  if (hours === null) return "bg-gray-100 text-gray-600";
-  if (hours < 24) return "bg-emerald-100 text-emerald-800";
-  if (hours < 72) return "bg-amber-100 text-amber-900";
-  return "bg-red-100 text-red-800";
+  if (hours === null) return "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400";
+  if (hours < 24) return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300";
+  if (hours < 72) return "bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200";
+  return "bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-300";
 }
 
 function orphanTextClass(ratio: number): string {
-  if (ratio < 0.05) return "text-emerald-700";
-  if (ratio < 0.2) return "text-amber-700";
-  return "text-red-700";
+  if (ratio < 0.05) return "text-emerald-700 dark:text-emerald-400";
+  if (ratio < 0.2) return "text-amber-700 dark:text-amber-400";
+  return "text-red-700 dark:text-red-400";
 }
 
 export default function Overview() {
@@ -74,10 +75,14 @@ export default function Overview() {
   } = useHealthStats();
   const { t } = useI18n();
   const navigate = useNavigate();
+  const isDark = useIsDarkMode();
+  const chartTick = isDark ? "#94a3b8" : "#64748b";
+  const chartGrid = isDark ? "rgba(148,163,184,0.2)" : "rgba(203,213,225,0.5)";
+  const doughnutBorder = isDark ? "#1e293b" : "#f1f5f9";
 
   if (error) {
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-600">
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
         {t.overview.failedToLoadStats}: {(error as Error).message}
       </div>
     );
@@ -100,7 +105,7 @@ export default function Overview() {
               "rgba(168, 85, 247, 0.85)",
               "rgba(251, 191, 36, 0.85)",
             ],
-            borderColor: "#f1f5f9",
+            borderColor: doughnutBorder,
             borderWidth: 2,
           },
         ],
@@ -168,7 +173,7 @@ export default function Overview() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold text-gray-900">{t.overview.title}</h2>
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.overview.title}</h2>
 
       {showQuickStart ? (
         <QuickStartBanner onDismiss={() => setShowQuickStart(false)} />
@@ -183,41 +188,41 @@ export default function Overview() {
               label={t.overview.functions}
               value={stats?.function_count ?? 0}
               icon={Code}
-              color="bg-emerald-50 text-emerald-700"
+              color="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
             />
             <StatCard
               label={t.overview.classes}
               value={stats?.class_count ?? 0}
               icon={Blocks}
-              color="bg-sky-50 text-sky-700"
+              color="bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300"
             />
             <StatCard
               label={t.overview.modules}
               value={stats?.module_count ?? 0}
               icon={Package}
-              color="bg-purple-50 text-purple-700"
+              color="bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300"
             />
             <StatCard
               label={t.overview.documents}
               value={stats?.document_count ?? 0}
               icon={FileText}
-              color="bg-amber-50 text-amber-700"
+              color="bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
             />
           </>
         )}
       </div>
 
-      <div className="rounded-xl border border-teal-200/80 bg-gradient-to-br from-teal-50/90 to-sky-50/50 p-5">
+      <div className="rounded-xl border border-teal-200/80 bg-gradient-to-br from-teal-50/90 to-sky-50/50 p-5 dark:border-teal-900/40 dark:from-teal-950/50 dark:to-sky-950/30">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-teal-950">
-              <Activity size={18} className="text-teal-600" />
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-teal-950 dark:text-teal-100">
+              <Activity size={18} className="text-teal-600 dark:text-teal-400" />
               {t.overview.knowledgeHealthTitle}
             </h3>
-            <p className="mt-1 max-w-xl text-xs text-teal-900/70">{t.overview.knowledgeHealthSubtitle}</p>
+            <p className="mt-1 max-w-xl text-xs text-teal-900/70 dark:text-teal-200/80">{t.overview.knowledgeHealthSubtitle}</p>
           </div>
           {health && !healthLoading ? (
-            <p className="text-xs text-teal-800/80">
+            <p className="text-xs text-teal-800/80 dark:text-teal-300/90">
               {t.overview.nodesEdgesSummary
                 .replace("{nodes}", String(health.total_nodes))
                 .replace("{edges}", String(health.total_edges))}
@@ -226,25 +231,25 @@ export default function Overview() {
         </div>
 
         {healthError && (
-          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-900">
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
             {(healthError as Error).message}
           </div>
         )}
 
         {healthLoading && !health ? (
           <div className="mt-4 space-y-3">
-            <div className="h-9 animate-pulse rounded-lg bg-teal-100/80" />
-            <div className="h-9 animate-pulse rounded-lg bg-teal-100/80" />
-            <div className="h-9 animate-pulse rounded-lg bg-teal-100/80" />
+            <div className="h-9 animate-pulse rounded-lg bg-teal-100/80 dark:bg-teal-900/40" />
+            <div className="h-9 animate-pulse rounded-lg bg-teal-100/80 dark:bg-teal-900/40" />
+            <div className="h-9 animate-pulse rounded-lg bg-teal-100/80 dark:bg-teal-900/40" />
           </div>
         ) : null}
 
         {health ? (
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-lg border border-white/80 bg-white/70 p-3 shadow-sm">
-              <p className="text-xs font-medium text-gray-500">{t.overview.indexCoverageLabel}</p>
+            <div className="rounded-lg border border-white/80 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/70 dark:shadow-gray-950/40">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{t.overview.indexCoverageLabel}</p>
               <div className="mt-2 flex items-center gap-2">
-                <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-200">
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
                   <div
                     className={`h-full rounded-full transition-all ${coverageBarColor(health.index_coverage)}`}
                     style={{
@@ -252,14 +257,14 @@ export default function Overview() {
                     }}
                   />
                 </div>
-                <span className="text-sm font-semibold tabular-nums text-gray-900">
+                <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
                   {(health.index_coverage * 100).toFixed(1)}%
                 </span>
               </div>
             </div>
 
-            <div className="rounded-lg border border-white/80 bg-white/70 p-3 shadow-sm">
-              <p className="text-xs font-medium text-gray-500">{t.overview.stalenessLabel}</p>
+            <div className="rounded-lg border border-white/80 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/70 dark:shadow-gray-950/40">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{t.overview.stalenessLabel}</p>
               <div className="mt-2">
                 <span
                   className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${stalenessBadgeClass(
@@ -273,7 +278,7 @@ export default function Overview() {
                       : `${(health.staleness_hours / 24).toFixed(1)} ${t.overview.daysShort}`}
                 </span>
               </div>
-              <p className="mt-2 text-[11px] text-gray-500">
+              <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
                 {t.overview.lastIndexedLabel}:{" "}
                 {health.last_indexed_at
                   ? new Date(health.last_indexed_at).toLocaleString()
@@ -281,8 +286,8 @@ export default function Overview() {
               </p>
             </div>
 
-            <div className="rounded-lg border border-white/80 bg-white/70 p-3 shadow-sm sm:col-span-2 lg:col-span-1">
-              <p className="text-xs font-medium text-gray-500">{t.overview.orphanRatioLabel}</p>
+            <div className="rounded-lg border border-white/80 bg-white/70 p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900/70 dark:shadow-gray-950/40 sm:col-span-2 lg:col-span-1">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{t.overview.orphanRatioLabel}</p>
               <p className={`mt-2 text-lg font-semibold tabular-nums ${orphanTextClass(health.orphan_ratio)}`}>
                 {(health.orphan_ratio * 100).toFixed(1)}%
               </p>
@@ -292,16 +297,16 @@ export default function Overview() {
       </div>
 
       {stats && (
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <div className="flex items-center gap-2 text-sm font-medium text-gray-500">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-500 dark:text-gray-400">
             <ArrowRightLeft size={16} />
             {t.overview.edgeCounts}
           </div>
           <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-5">
             {edgePairs.map(([label, count]) => (
               <div key={label as string} className="text-center">
-                <p className="text-xs text-gray-400">{label as string}</p>
-                <p className="mt-0.5 text-lg font-semibold text-gray-900">
+                <p className="text-xs text-gray-400 dark:text-gray-500">{label as string}</p>
+                <p className="mt-0.5 text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {count as number}
                 </p>
               </div>
@@ -312,8 +317,8 @@ export default function Overview() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {nodeData && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5">
-            <h3 className="mb-4 text-sm font-medium text-gray-500">
+          <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+            <h3 className="mb-4 text-sm font-medium text-gray-500 dark:text-gray-400">
               {t.overview.nodeDistribution}
             </h3>
             <div className="relative mx-auto h-64 max-w-xs">
@@ -325,7 +330,7 @@ export default function Overview() {
                   plugins: {
                     legend: {
                       position: "bottom",
-                      labels: { color: "#64748b", padding: 12, font: { size: 11 } },
+                      labels: { color: chartTick, padding: 12, font: { size: 11 } },
                     },
                   },
                 }}
@@ -335,8 +340,8 @@ export default function Overview() {
         )}
 
         {edgeData && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5">
-            <h3 className="mb-4 text-sm font-medium text-gray-500">
+          <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+            <h3 className="mb-4 text-sm font-medium text-gray-500 dark:text-gray-400">
               {t.overview.edgeDistribution}
             </h3>
             <div className="relative h-64">
@@ -347,13 +352,13 @@ export default function Overview() {
                   maintainAspectRatio: false,
                   scales: {
                     x: {
-                      ticks: { color: "#64748b", font: { size: 10 } },
-                      grid: { color: "rgba(203,213,225,0.5)" },
+                      ticks: { color: chartTick, font: { size: 10 } },
+                      grid: { color: chartGrid },
                     },
                     y: {
                       beginAtZero: true,
-                      ticks: { color: "#64748b" },
-                      grid: { color: "rgba(203,213,225,0.5)" },
+                      ticks: { color: chartTick },
+                      grid: { color: chartGrid },
                     },
                   },
                   plugins: { legend: { display: false } },
@@ -364,19 +369,19 @@ export default function Overview() {
         )}
       </div>
 
-      <div className="space-y-4 border-t border-orange-100 pt-6">
-        <h3 className="text-base font-semibold text-orange-950">{t.overview.p2Title}</h3>
+      <div className="space-y-4 border-t border-orange-100 pt-6 dark:border-orange-900/40">
+        <h3 className="text-base font-semibold text-orange-950 dark:text-orange-100">{t.overview.p2Title}</h3>
 
         {p2Error && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
             {t.overview.failedToLoadStats}: {(p2Error as Error).message}
           </div>
         )}
 
         {!p2Error && archBarData && (
-          <div className="rounded-xl border border-orange-200/80 bg-gradient-to-br from-orange-50/80 to-rose-50/40 p-5">
-            <h4 className="mb-4 flex items-center gap-2 text-sm font-medium text-orange-900/80">
-              <Layers size={16} className="text-orange-600" />
+          <div className="rounded-xl border border-orange-200/80 bg-gradient-to-br from-orange-50/80 to-rose-50/40 p-5 dark:border-orange-900/40 dark:from-orange-950/40 dark:to-rose-950/30">
+            <h4 className="mb-4 flex items-center gap-2 text-sm font-medium text-orange-900/80 dark:text-orange-200/90">
+              <Layers size={16} className="text-orange-600 dark:text-orange-400" />
               {t.overview.architectureLayers}
             </h4>
             <div className="relative h-72 min-h-[12rem]">
@@ -403,12 +408,12 @@ export default function Overview() {
                   scales: {
                     x: {
                       beginAtZero: true,
-                      ticks: { color: "#64748b" },
-                      grid: { color: "rgba(203,213,225,0.5)" },
+                      ticks: { color: chartTick },
+                      grid: { color: chartGrid },
                     },
                     y: {
-                      ticks: { color: "#64748b", font: { size: 10 } },
-                      grid: { color: "rgba(203,213,225,0.5)" },
+                      ticks: { color: chartTick, font: { size: 10 } },
+                      grid: { color: chartGrid },
                     },
                   },
                   plugins: { legend: { display: false } },
@@ -419,14 +424,14 @@ export default function Overview() {
         )}
 
         {!p2Error && p2Loading && !p2 && (
-          <div className="rounded-xl border border-orange-200/80 bg-white p-5">
-            <div className="mb-4 h-4 w-40 animate-pulse rounded bg-orange-100" />
-            <div className="relative h-72 animate-pulse rounded-lg bg-orange-50/80" />
+          <div className="rounded-xl border border-orange-200/80 bg-white p-5 dark:border-orange-900/40 dark:bg-gray-900">
+            <div className="mb-4 h-4 w-40 animate-pulse rounded bg-orange-100 dark:bg-orange-900/40" />
+            <div className="relative h-72 animate-pulse rounded-lg bg-orange-50/80 dark:bg-orange-950/30" />
           </div>
         )}
 
         {!p2Error && !p2Loading && p2 && archSorted.length === 0 && (
-          <div className="rounded-xl border border-dashed border-orange-200 bg-orange-50/30 p-6 text-center text-sm text-orange-900/70">
+          <div className="rounded-xl border border-dashed border-orange-200 bg-orange-50/30 p-6 text-center text-sm text-orange-900/70 dark:border-orange-900/50 dark:bg-orange-950/20 dark:text-orange-200/80">
             {t.overview.architectureLayers}: —
           </div>
         )}
@@ -434,7 +439,7 @@ export default function Overview() {
         {!p2Error && (
           <div className="space-y-5">
             <div>
-              <p className="mb-3 text-sm font-medium text-indigo-900/80">{t.overview.crossRepo}</p>
+              <p className="mb-3 text-sm font-medium text-indigo-900/80 dark:text-indigo-200/90">{t.overview.crossRepo}</p>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {p2Loading && !p2 ? (
                   <>
@@ -449,19 +454,19 @@ export default function Overview() {
                         label={t.overview.diDependencies}
                         value={p2.cross_repo.di_dependency_edges}
                         icon={Network}
-                        color="bg-indigo-50 text-indigo-700"
+                        color="bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"
                       />
                       <StatCard
                         label={t.overview.crossRepoRpc}
                         value={p2.cross_repo.cross_repo_call_edges}
                         icon={GitBranch}
-                        color="bg-rose-50 text-rose-700"
+                        color="bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300"
                       />
                       <StatCard
                         label={t.overview.entityTables}
                         value={p2.cross_repo.entity_table_edges}
                         icon={Database}
-                        color="bg-orange-50 text-orange-700"
+                        color="bg-orange-50 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300"
                       />
                     </>
                   )
@@ -470,7 +475,7 @@ export default function Overview() {
             </div>
 
             <div>
-              <p className="mb-3 text-sm font-medium text-rose-900/80">{t.overview.eventTracking}</p>
+              <p className="mb-3 text-sm font-medium text-rose-900/80 dark:text-rose-200/90">{t.overview.eventTracking}</p>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {p2Loading && !p2 ? (
                   <>
@@ -485,19 +490,19 @@ export default function Overview() {
                         label={t.overview.kafkaTopics}
                         value={p2.event_tracking.kafka_topics}
                         icon={Layers}
-                        color="bg-amber-50 text-amber-800"
+                        color="bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
                       />
                       <StatCard
                         label={t.overview.eventProducers}
                         value={p2.event_tracking.producers}
                         icon={Zap}
-                        color="bg-orange-50 text-orange-800"
+                        color="bg-orange-50 text-orange-800 dark:bg-orange-950/50 dark:text-orange-300"
                       />
                       <StatCard
                         label={t.overview.eventConsumers}
                         value={p2.event_tracking.consumers}
                         icon={Server}
-                        color="bg-rose-50 text-rose-800"
+                        color="bg-rose-50 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300"
                       />
                     </>
                   )
@@ -506,7 +511,7 @@ export default function Overview() {
             </div>
 
             <div>
-              <p className="mb-3 text-sm font-medium text-violet-900/80">{t.overview.rpcContracts}</p>
+              <p className="mb-3 text-sm font-medium text-violet-900/80 dark:text-violet-200/90">{t.overview.rpcContracts}</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 {p2Loading && !p2 ? (
                   <>
@@ -521,13 +526,13 @@ export default function Overview() {
                         label={t.overview.totalContracts}
                         value={p2.rpc_contracts.total_contracts}
                         icon={FileStack}
-                        color="bg-violet-50 text-violet-700"
+                        color="bg-violet-50 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300"
                       />
                       <StatCard
                         label={t.overview.contractMethods}
                         value={p2.rpc_contracts.contract_methods}
                         icon={ListTree}
-                        color="bg-fuchsia-50 text-fuchsia-700"
+                        color="bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-950/50 dark:text-fuchsia-300"
                       />
                     </>
                   )

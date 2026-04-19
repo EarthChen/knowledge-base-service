@@ -57,7 +57,7 @@ function SourceLocRow({ loc, repository }: { loc: WikiSourceLocation; repository
       </code>
       <a
         href={href}
-        className="text-sky-700 underline decoration-sky-200 underline-offset-2 hover:text-sky-900"
+        className="text-sky-700 underline decoration-sky-200 underline-offset-2 hover:text-sky-900 dark:text-sky-400 dark:decoration-sky-800 dark:hover:text-sky-300"
       >
         {loc.file_path}:{loc.start_line}–{loc.end_line}
       </a>
@@ -67,10 +67,16 @@ function SourceLocRow({ loc, repository }: { loc: WikiSourceLocation; repository
 
 function chainCardClass(level: string): string {
   const l = level.toLowerCase();
-  if (l.includes("high")) return "border-red-200 bg-red-50/90";
-  if (l.includes("medium")) return "border-amber-200 bg-amber-50/90";
-  if (l.includes("low")) return "border-emerald-200 bg-emerald-50/90";
-  return "border-gray-200 bg-gray-50";
+  if (l.includes("high")) {
+    return "border-red-200 bg-red-50/90 dark:border-red-900/50 dark:bg-red-950/40";
+  }
+  if (l.includes("medium")) {
+    return "border-amber-200 bg-amber-50/90 dark:border-amber-900/50 dark:bg-amber-950/40";
+  }
+  if (l.includes("low")) {
+    return "border-emerald-200 bg-emerald-50/90 dark:border-emerald-900/50 dark:bg-emerald-950/40";
+  }
+  return "border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/80";
 }
 
 function CallChainSection({
@@ -123,29 +129,33 @@ function CallChainSection({
   };
 
   return (
-    <section className="mt-10 border-t border-gray-100 pt-8">
+    <section className="mt-10 border-t border-gray-100 pt-8 dark:border-gray-800">
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between gap-3 rounded-lg px-1 py-2 text-left hover:bg-gray-50/80"
+        className="flex w-full items-center justify-between gap-3 rounded-lg px-1 py-2 text-left hover:bg-gray-50/80 dark:hover:bg-gray-800/60"
       >
-        <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-          <GitMerge size={18} className="text-violet-600" aria-hidden />
+        <span className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+          <GitMerge size={18} className="text-violet-600 dark:text-violet-400" aria-hidden />
           {labels.title}
         </span>
-        {expanded ? <ChevronUp size={18} className="text-gray-500" /> : <ChevronDown size={18} className="text-gray-500" />}
+        {expanded ? (
+          <ChevronUp size={18} className="text-gray-500 dark:text-gray-400" />
+        ) : (
+          <ChevronDown size={18} className="text-gray-500 dark:text-gray-400" />
+        )}
       </button>
 
       {expanded && (
-        <div className="mt-3 space-y-4 rounded-xl border border-gray-100 bg-gray-50/60 p-4 shadow-inner">
+        <div className="mt-3 space-y-4 rounded-xl border border-gray-100 bg-gray-50/60 p-4 shadow-inner dark:border-gray-700 dark:bg-gray-800/40">
           <div>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
               {labels.fqns}
             </h4>
             <ul className="flex flex-wrap gap-2">
               {fqns.map((fqn, i) => (
                 <li key={`${fqn}-${i}`}>
-                  <code className="rounded-md bg-white px-2 py-1 font-mono text-[11px] text-gray-800 ring-1 ring-gray-200/80">
+                  <code className="rounded-md bg-white px-2 py-1 font-mono text-[11px] text-gray-800 ring-1 ring-gray-200/80 dark:bg-gray-900 dark:text-gray-200 dark:ring-gray-600">
                     {fqn}
                   </code>
                 </li>
@@ -170,14 +180,14 @@ function CallChainSection({
           </div>
 
           {analyzeMutation.isError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
               {(analyzeMutation.error as Error)?.message ?? String(analyzeMutation.error)}
             </div>
           )}
 
           {impactResult && (
             <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                 {labels.affected}
               </h4>
               {impactResult.affected_pages?.length ? (
@@ -191,30 +201,35 @@ function CallChainSection({
                         <div className="min-w-0">
                           <Link
                             to={wikiHref(repository, p.wiki_page_path)}
-                            className="inline-block truncate font-mono text-sm font-medium text-sky-700 underline decoration-sky-200"
+                            className="inline-block truncate font-mono text-sm font-medium text-sky-700 underline decoration-sky-200 dark:text-sky-400 dark:decoration-sky-800"
                           >
                             {p.wiki_page_path}
                           </Link>
                           {p.affected_entities.length > 0 && (
                             <div className="mt-1 flex flex-wrap gap-1">
                               {p.affected_entities.map((e) => (
-                                <code key={e} className="rounded bg-white/80 px-1 py-0.5 text-xs text-gray-700">{e}</code>
+                                <code
+                                  key={e}
+                                  className="rounded bg-white/80 px-1 py-0.5 text-xs text-gray-700 dark:bg-gray-800/90 dark:text-gray-300"
+                                >
+                                  {e}
+                                </code>
                               ))}
                             </div>
                           )}
                         </div>
-                        <span className="shrink-0 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-700 ring-1 ring-gray-200">
+                        <span className="shrink-0 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-700 ring-1 ring-gray-200 dark:bg-gray-900/90 dark:text-gray-200 dark:ring-gray-600">
                           {labels.impact}: {p.impact_level}
                         </span>
                       </div>
                       {p.reason && (
-                        <p className="mt-2 text-xs leading-relaxed text-gray-700">{p.reason}</p>
+                        <p className="mt-2 text-xs leading-relaxed text-gray-700 dark:text-gray-300">{p.reason}</p>
                       )}
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-gray-600">{labels.empty}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">{labels.empty}</p>
               )}
             </div>
           )}

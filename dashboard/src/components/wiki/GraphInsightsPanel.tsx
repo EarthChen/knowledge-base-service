@@ -34,9 +34,13 @@ function categoryLabel(cat: GraphInsightCategory, t: Translations): string {
 }
 
 function insightSeverityClass(sev: GraphInsightItem["severity"]): string {
-  if (sev === "critical") return "bg-red-100 text-red-800 ring-red-200";
-  if (sev === "warning") return "bg-amber-100 text-amber-900 ring-amber-200";
-  return "bg-sky-100 text-sky-800 ring-sky-200";
+  if (sev === "critical") {
+    return "bg-red-100 text-red-800 ring-red-200 dark:bg-red-950/50 dark:text-red-300 dark:ring-red-900";
+  }
+  if (sev === "warning") {
+    return "bg-amber-100 text-amber-900 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-900";
+  }
+  return "bg-sky-100 text-sky-800 ring-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:ring-sky-800";
 }
 
 function groupByCategory(items: GraphInsightItem[]): Map<GraphInsightCategory, GraphInsightItem[]> {
@@ -83,14 +87,14 @@ export default function GraphInsightsPanel({ repository }: Props) {
   };
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
-        <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-          <Network size={18} className="text-violet-600" aria-hidden />
+    <section className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:shadow-gray-950/40">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 dark:border-gray-700">
+        <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+          <Network size={18} className="text-violet-600 dark:text-violet-400" aria-hidden />
           {t.wiki.graphInsightsTitle}
         </div>
         {query.isFetching && (
-          <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+          <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
             <Loader2 className="size-3.5 animate-spin" aria-hidden />
             {t.wiki.graphInsightsLoading}
           </span>
@@ -98,14 +102,14 @@ export default function GraphInsightsPanel({ repository }: Props) {
       </div>
 
       <div className="space-y-4 px-4 py-4">
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           {t.wiki.graphInsightsIntroBefore}{" "}
-          <code className="rounded bg-gray-100 px-1">GET /api/v1/graph/insights/…</code>
+          <code className="rounded bg-gray-100 px-1 dark:bg-gray-800 dark:text-gray-300">GET /api/v1/graph/insights/…</code>
           {t.wiki.graphInsightsIntroAfter}
         </p>
 
         {query.isError && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
             {query.error instanceof ApiError ? query.error.message : String(query.error)}
           </div>
         )}
@@ -115,13 +119,13 @@ export default function GraphInsightsPanel({ repository }: Props) {
             {Object.entries(query.data.graph_stats).map(([k, v]) => (
               <span
                 key={k}
-                className="rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-700 ring-1 ring-gray-200"
+                className="rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-700 ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-600"
               >
                 {k.replace(/_/g, " ")}: {v}
               </span>
             ))}
             {query.data.analyzed_at && (
-              <span className="self-center text-gray-400">
+              <span className="self-center text-gray-400 dark:text-gray-500">
                 {t.wiki.graphInsightsAnalyzedPrefix}{" "}
                 {new Date(query.data.analyzed_at).toLocaleString(
                   locale === "zh" ? "zh-CN" : undefined,
@@ -132,14 +136,14 @@ export default function GraphInsightsPanel({ repository }: Props) {
         )}
 
         {query.isLoading && (
-          <div className="flex items-center gap-2 text-sm text-gray-500">
+          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
             <Loader2 className="size-4 animate-spin" aria-hidden />
             {t.wiki.graphInsightsFetching}
           </div>
         )}
 
         {query.data && categories.length === 0 && (
-          <p className="text-sm text-gray-600">{t.wiki.graphInsightsNoItems}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">{t.wiki.graphInsightsNoItems}</p>
         )}
 
         {query.data &&
@@ -147,30 +151,30 @@ export default function GraphInsightsPanel({ repository }: Props) {
             const items: GraphInsightItem[] = grouped.get(cat) ?? [];
             const isOpen = open[cat] !== false;
             return (
-              <div key={cat} className="rounded-lg border border-gray-100 bg-gray-50/60 shadow-inner">
+              <div key={cat} className="rounded-lg border border-gray-100 bg-gray-50/60 shadow-inner dark:border-gray-700 dark:bg-gray-800/40">
                 <button
                   type="button"
                   onClick={() => toggle(cat)}
                   className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
                 >
-                  <span className="text-sm font-semibold text-gray-900">
+                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                     {categoryLabel(cat, t)}
-                    <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs font-normal text-gray-600 ring-1 ring-gray-200">
+                    <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs font-normal text-gray-600 ring-1 ring-gray-200 dark:bg-gray-900 dark:text-gray-400 dark:ring-gray-600">
                       {items.length}
                     </span>
                   </span>
                   {isOpen ? (
-                    <ChevronUp size={18} className="shrink-0 text-gray-500" />
+                    <ChevronUp size={18} className="shrink-0 text-gray-500 dark:text-gray-400" />
                   ) : (
-                    <ChevronDown size={18} className="shrink-0 text-gray-500" />
+                    <ChevronDown size={18} className="shrink-0 text-gray-500 dark:text-gray-400" />
                   )}
                 </button>
                 {isOpen && (
-                  <ul className="space-y-2 border-t border-gray-100 px-3 py-3">
+                  <ul className="space-y-2 border-t border-gray-100 px-3 py-3 dark:border-gray-700">
                     {items.map((it, idx) => (
                       <li
                         key={`${it.title}-${idx}`}
-                        className="rounded-md border border-white bg-white px-3 py-2 shadow-sm"
+                        className="rounded-md border border-white bg-white px-3 py-2 shadow-sm dark:border-gray-600 dark:bg-gray-900"
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           <span
@@ -178,15 +182,15 @@ export default function GraphInsightsPanel({ repository }: Props) {
                           >
                             {it.severity}
                           </span>
-                          <span className="text-sm font-medium text-gray-900">{it.title}</span>
+                          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{it.title}</span>
                         </div>
-                        <p className="mt-1 text-xs leading-relaxed text-gray-600">{it.description}</p>
+                        <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-400">{it.description}</p>
                         {it.entities.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1">
                             {it.entities.map((e) => (
                               <code
                                 key={e}
-                                className="max-w-full truncate rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-800"
+                                className="max-w-full truncate rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-800 dark:bg-gray-800 dark:text-gray-200"
                               >
                                 {e}
                               </code>
@@ -194,7 +198,7 @@ export default function GraphInsightsPanel({ repository }: Props) {
                           </div>
                         )}
                         {it.suggestion && (
-                          <p className="mt-2 text-xs text-gray-500">{it.suggestion}</p>
+                          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{it.suggestion}</p>
                         )}
                       </li>
                     ))}

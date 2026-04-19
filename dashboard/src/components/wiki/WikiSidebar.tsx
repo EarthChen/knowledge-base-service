@@ -100,7 +100,13 @@ function TreeSection({
   activePath: string;
 }) {
   return (
-    <ul className={depth === 0 ? "space-y-0.5" : "mt-0.5 space-y-0.5 border-l border-gray-100 pl-2"}>
+    <ul
+      className={
+        depth === 0
+          ? "space-y-0.5"
+          : "mt-0.5 space-y-0.5 border-l border-gray-100 pl-2 dark:border-gray-700"
+      }
+    >
       {nodes.map((node) => {
         const hasKids = node.children.length > 0;
         const isLeaf = !hasKids;
@@ -116,7 +122,7 @@ function TreeSection({
                   type="button"
                   aria-expanded={isOpen}
                   onClick={() => toggle(key)}
-                  className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                  className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200"
                 >
                   {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </button>
@@ -128,16 +134,16 @@ function TreeSection({
                   to={wikiHref(repository, node.fullPath)}
                   className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ${
                     isActive
-                      ? "bg-sky-50 font-medium text-sky-900"
-                      : "text-gray-700 hover:bg-gray-50"
+                      ? "bg-sky-50 font-medium text-sky-900 dark:bg-sky-950/60 dark:text-sky-100"
+                      : "text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800/80"
                   }`}
                 >
                   <FileText size={14} className="shrink-0 opacity-70" />
                   <span className="truncate">{node.title ?? node.segment}</span>
                 </Link>
               ) : (
-                <span className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-sm text-gray-600">
-                  <Folder size={14} className="shrink-0 text-amber-600/90" />
+                <span className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-sm text-gray-600 dark:text-gray-400">
+                  <Folder size={14} className="shrink-0 text-amber-600/90 dark:text-amber-400/90" />
                   <span className="truncate">{node.segment}</span>
                 </span>
               )}
@@ -233,21 +239,21 @@ export default function WikiSidebar({
   });
 
   return (
-    <aside className="flex w-full shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm lg:w-80">
-      <div className="border-b border-gray-100 px-4 py-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+    <aside className="flex w-full shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:shadow-gray-950/40 lg:w-80">
+      <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-700">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
           {t.wiki.pagesHeading}
         </h3>
         <button
           type="button"
           onClick={expandAll}
-          className="mt-2 text-xs font-medium text-sky-700 hover:underline"
+          className="mt-2 text-xs font-medium text-sky-700 hover:underline dark:text-sky-400"
         >
           {t.wiki.expandAllFolders}
         </button>
       </div>
 
-      <div className="border-b border-gray-100 px-4 py-3">
+      <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-700">
         <form
           className="space-y-2"
           onSubmit={(e) => {
@@ -266,12 +272,12 @@ export default function WikiSidebar({
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder={t.wiki.searchPlaceholder}
-              className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none ring-sky-500/30 focus:border-sky-400 focus:ring-2"
+              className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none ring-sky-500/30 placeholder:text-gray-400 focus:border-sky-400 focus:ring-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-sky-500 dark:focus:ring-sky-700"
             />
             <button
               type="submit"
               disabled={search.isPending}
-              className="inline-flex items-center justify-center rounded-lg bg-sky-600 px-3 py-2 text-white hover:bg-sky-500 disabled:opacity-50"
+              className="inline-flex items-center justify-center rounded-lg bg-sky-600 px-3 py-2 text-white hover:bg-sky-500 disabled:opacity-50 dark:bg-sky-500 dark:hover:bg-sky-400"
             >
               {search.isPending ? (
                 <Loader2 className="size-4 animate-spin" />
@@ -282,15 +288,15 @@ export default function WikiSidebar({
           </div>
         </form>
         {search.data && search.data.results.length > 0 && (
-          <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50 p-2 text-sm">
+          <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50 p-2 text-sm dark:border-gray-700 dark:bg-gray-800/80">
             {search.data.results.map((r) => (
               <li key={r.page_path}>
                 <Link
                   to={wikiHref(repository, r.page_path)}
-                  className="block rounded-md px-2 py-1.5 hover:bg-white"
+                  className="block rounded-md px-2 py-1.5 hover:bg-white dark:hover:bg-gray-900"
                 >
-                  <span className="font-medium text-gray-900">{r.title}</span>
-                  <span className="mt-0.5 block truncate font-mono text-[11px] text-gray-500">
+                  <span className="font-medium text-gray-900 dark:text-gray-100">{r.title}</span>
+                  <span className="mt-0.5 block truncate font-mono text-[11px] text-gray-500 dark:text-gray-400">
                     {r.page_path}
                   </span>
                 </Link>
@@ -299,7 +305,7 @@ export default function WikiSidebar({
           </ul>
         )}
         {search.isError && (
-          <p className="mt-2 text-xs text-red-600">
+          <p className="mt-2 text-xs text-red-600 dark:text-red-400">
             {(search.error as Error).message}
           </p>
         )}
@@ -307,16 +313,16 @@ export default function WikiSidebar({
 
       <div className="flex-1 overflow-y-auto px-2 py-3">
         {pagesLoading && (
-          <div className="flex items-center gap-2 px-2 text-sm text-gray-500">
+          <div className="flex items-center gap-2 px-2 text-sm text-gray-500 dark:text-gray-400">
             <Loader2 className="size-4 animate-spin" />
             {t.wiki.loadingPages}
           </div>
         )}
         {pagesError && (
-          <p className="px-2 text-sm text-red-600">{pagesError.message}</p>
+          <p className="px-2 text-sm text-red-600 dark:text-red-400">{pagesError.message}</p>
         )}
         {!pagesLoading && !pagesError && tree.length === 0 && (
-          <p className="px-2 text-sm text-gray-500">{t.wiki.noPagesFound}</p>
+          <p className="px-2 text-sm text-gray-500 dark:text-gray-400">{t.wiki.noPagesFound}</p>
         )}
         {!pagesLoading && !pagesError && tree.length > 0 && (
           <TreeSection
@@ -330,12 +336,12 @@ export default function WikiSidebar({
         )}
       </div>
 
-      <div className="border-t border-gray-100 px-4 py-3 text-xs text-gray-600">
-        <p className="font-semibold uppercase tracking-wide text-gray-500">
+      <div className="border-t border-gray-100 px-4 py-3 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-400">
+        <p className="font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
           {t.wiki.ideLinksHeading}
         </p>
         <label className="mt-2 block">
-          <span className="text-[11px] text-gray-500">{t.wiki.localRepoRoot}</span>
+          <span className="text-[11px] text-gray-500 dark:text-gray-400">{t.wiki.localRepoRoot}</span>
           <input
             value={localRoot}
             onChange={(e) => setLocalRoot(e.target.value)}
@@ -350,11 +356,11 @@ export default function WikiSidebar({
               }
             }}
             placeholder={t.wiki.localClonePlaceholder}
-            className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 font-mono text-[11px] outline-none focus:border-sky-400"
+            className="mt-1 w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 font-mono text-[11px] text-gray-900 outline-none focus:border-sky-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:border-sky-500"
           />
         </label>
         <label className="mt-2 block">
-          <span className="text-[11px] text-gray-500">{t.wiki.preferredEditor}</span>
+          <span className="text-[11px] text-gray-500 dark:text-gray-400">{t.wiki.preferredEditor}</span>
           <select
             value={editor}
             onChange={(e) => {
@@ -366,7 +372,7 @@ export default function WikiSidebar({
                 /* ignore */
               }
             }}
-            className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-xs outline-none focus:border-sky-400"
+            className="mt-1 w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-900 outline-none focus:border-sky-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:border-sky-500"
           >
             <option value="cursor">Cursor</option>
             <option value="vscode">VS Code</option>

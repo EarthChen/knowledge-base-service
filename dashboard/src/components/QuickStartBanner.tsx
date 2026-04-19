@@ -85,23 +85,23 @@ export default function QuickStartBanner({ onDismiss }: { onDismiss: () => void 
   }, [onDismiss]);
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-sky-200/90 bg-gradient-to-br from-sky-50 via-white to-indigo-50/80 px-4 py-4 shadow-sm">
+    <div className="relative overflow-hidden rounded-xl border border-sky-200/90 bg-gradient-to-br from-sky-50 via-white to-indigo-50/80 px-4 py-4 shadow-sm dark:border-sky-800/50 dark:from-sky-950/40 dark:via-gray-900 dark:to-indigo-950/50 dark:shadow-gray-950/30">
       <button
         type="button"
         onClick={handleDismiss}
-        className="absolute right-3 top-3 rounded-lg p-1 text-gray-400 transition-colors hover:bg-white/80 hover:text-gray-700"
+        className="absolute right-3 top-3 rounded-lg p-1 text-gray-400 transition-colors hover:bg-white/80 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
         aria-label={t.overview.quickStartDismiss}
       >
         <X size={18} />
       </button>
 
       <div className="flex flex-wrap items-start gap-3 pr-10">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
           <Sparkles size={20} aria-hidden />
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold text-gray-900">{t.overview.quickStartTitle}</h3>
-          <p className="mt-1 text-xs text-gray-600">{t.overview.quickStartSubtitle}</p>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t.overview.quickStartTitle}</h3>
+          <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{t.overview.quickStartSubtitle}</p>
 
           <ul className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-x-4 sm:gap-y-2">
             {steps.map((step) => {
@@ -111,12 +111,12 @@ export default function QuickStartBanner({ onDismiss }: { onDismiss: () => void 
                   <Link
                     to={step.to}
                     onClick={() => markDone(step.id)}
-                    className="group inline-flex items-center gap-2 rounded-lg border border-transparent px-2 py-1.5 text-xs font-medium text-sky-800 transition-colors hover:border-sky-200 hover:bg-white/70"
+                    className="group inline-flex items-center gap-2 rounded-lg border border-transparent px-2 py-1.5 text-xs font-medium text-sky-800 transition-colors hover:border-sky-200 hover:bg-white/70 dark:text-sky-300 dark:hover:border-sky-700 dark:hover:bg-gray-800/80"
                   >
                     {done ? (
-                      <CheckCircle2 size={16} className="shrink-0 text-emerald-600" aria-hidden />
+                      <CheckCircle2 size={16} className="shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden />
                     ) : (
-                      <Circle size={16} className="shrink-0 text-sky-400" aria-hidden />
+                      <Circle size={16} className="shrink-0 text-sky-400 dark:text-sky-500" aria-hidden />
                     )}
                     <span className="underline-offset-2 group-hover:underline">{step.label}</span>
                   </Link>
@@ -128,7 +128,7 @@ export default function QuickStartBanner({ onDismiss }: { onDismiss: () => void 
           <button
             type="button"
             onClick={handleDismiss}
-            className="mt-3 text-xs font-medium text-gray-500 underline-offset-2 hover:text-gray-800 hover:underline"
+            className="mt-3 text-xs font-medium text-gray-500 underline-offset-2 hover:text-gray-800 hover:underline dark:text-gray-400 dark:hover:text-gray-200"
           >
             {t.overview.quickStartDismiss}
           </button>

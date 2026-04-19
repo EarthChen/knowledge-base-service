@@ -127,7 +127,7 @@ function TreeView({
                   if (readme) onSelect(readme.uid);
                 }
               }}
-              className="flex w-full items-center gap-1.5 rounded-lg py-1.5 pr-2 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+              className="flex w-full items-center gap-1.5 rounded-lg py-1.5 pr-2 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-300"
               style={{ paddingLeft: pad }}
             >
               <ChevronRight
@@ -163,12 +163,12 @@ function TreeView({
           onClick={() => onSelect(doc.uid)}
           className={`flex w-full items-center gap-2 rounded-lg py-1.5 pr-2 text-left text-sm transition-colors ${
             selectedUid === doc.uid
-              ? "bg-sky-50 text-sky-600"
-              : "text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+              ? "bg-sky-50 text-sky-600 dark:bg-sky-950/50 dark:text-sky-400"
+              : "text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-800 dark:hover:text-gray-200"
           }`}
           style={{ paddingLeft: pad + 18 }}
         >
-          <FileText size={16} className="shrink-0 text-gray-500" />
+          <FileText size={16} className="shrink-0 text-gray-500 dark:text-gray-400" />
           <span className="truncate">{doc.title}</span>
         </button>
       ))}
@@ -223,8 +223,8 @@ function SectionNav({
   };
 
   return (
-    <nav className="w-full shrink-0 border-t border-gray-200 p-3 lg:w-56 lg:border-l lg:border-t-0">
-      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+    <nav className="w-full shrink-0 border-t border-gray-200 p-3 dark:border-gray-700 lg:w-56 lg:border-l lg:border-t-0">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
         {label}
       </p>
       <ul className="max-h-48 space-y-0.5 overflow-y-auto lg:max-h-none">
@@ -241,7 +241,7 @@ function SectionNav({
                   <button
                     type="button"
                     onClick={() => toggleCollapse(s.uid)}
-                    className="mr-0.5 shrink-0 rounded p-0.5 text-gray-400 hover:text-gray-600"
+                    className="mr-0.5 shrink-0 rounded p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                   >
                     <ChevronRight
                       size={12}
@@ -254,8 +254,8 @@ function SectionNav({
                 <button
                   type="button"
                   onClick={() => onScrollTo(s.uid)}
-                  className={`w-full rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-gray-100 hover:text-sky-600 ${
-                    lvl === 0 ? "font-medium text-gray-800" : "text-gray-500"
+                  className={`w-full rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-gray-100 hover:text-sky-600 dark:hover:bg-gray-800 dark:hover:text-sky-400 ${
+                    lvl === 0 ? "font-medium text-gray-800 dark:text-gray-200" : "text-gray-500 dark:text-gray-400"
                   }`}
                 >
                   {s.title}
@@ -354,15 +354,15 @@ export default function Documents() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
           <FileText size={20} /> {t.documents.title}
         </h2>
       </div>
 
       <div className="flex min-h-[calc(100vh-10rem)] flex-col gap-4 lg:flex-row">
-        <aside className="flex min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white lg:w-72">
-        <div className="border-b border-gray-200 p-3">
-          <label className="mb-1 block text-xs font-medium text-gray-500">
+        <aside className="flex min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900 lg:w-72">
+        <div className="border-b border-gray-200 p-3 dark:border-gray-700">
+          <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
             {t.repos.repository}
           </label>
           <select
@@ -372,7 +372,7 @@ export default function Documents() {
               setSelectedUid(null);
               setExpandedInit(false);
             }}
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 outline-none ring-sky-300 focus:ring-2"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 outline-none ring-sky-300 focus:ring-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:ring-sky-700 dark:focus:ring-sky-600"
           >
             <option value="">{t.documents.allRepos}</option>
             {repos.map((r) => (
@@ -382,21 +382,21 @@ export default function Documents() {
             ))}
           </select>
         </div>
-        <div className="border-b border-gray-200 px-3 py-2">
+        <div className="border-b border-gray-200 px-3 py-2 dark:border-gray-700">
           <div className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t.search.placeholder}
-              className="w-full rounded-lg border border-gray-300 bg-white py-1.5 pl-8 pr-8 text-sm text-gray-700 outline-none ring-sky-300 placeholder:text-gray-400 focus:ring-2"
+              className="w-full rounded-lg border border-gray-300 bg-white py-1.5 pl-8 pr-8 text-sm text-gray-700 outline-none ring-sky-300 placeholder:text-gray-400 focus:ring-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500 dark:ring-sky-700 dark:focus:ring-sky-600"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
               >
                 <X size={14} />
               </button>
@@ -406,14 +406,14 @@ export default function Documents() {
             <button
               type="button"
               onClick={handleExpandAll}
-              className="rounded px-2 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+              className="rounded px-2 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
             >
               {t.documents.expandAll ?? "Expand All"}
             </button>
             <button
               type="button"
               onClick={handleCollapseAll}
-              className="rounded px-2 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+              className="rounded px-2 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
             >
               {t.documents.collapseAll ?? "Collapse All"}
             </button>
@@ -427,11 +427,11 @@ export default function Documents() {
               ))}
             </div>
           ) : listError ? (
-            <div className="p-3 text-sm text-red-600">
+            <div className="p-3 text-sm text-red-600 dark:text-red-400">
               {(listError as Error).message}
             </div>
           ) : (listData?.documents.length ?? 0) === 0 ? (
-            <div className="p-3 text-sm text-gray-500">{t.search.noResults}</div>
+            <div className="p-3 text-sm text-gray-500 dark:text-gray-400">{t.search.noResults}</div>
           ) : (
             <TreeView
               node={tree}
@@ -447,29 +447,29 @@ export default function Documents() {
         </div>
         </aside>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
         {!selectedUid ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-gray-500">
-            <FileText size={40} className="text-gray-400" />
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-gray-500 dark:text-gray-400">
+            <FileText size={40} className="text-gray-400 dark:text-gray-500" />
             <p className="text-sm">{t.documents.selectDoc}</p>
           </div>
         ) : detailLoading ? (
-          <div className="flex flex-1 items-center justify-center gap-2 text-gray-500">
+          <div className="flex flex-1 items-center justify-center gap-2 text-gray-500 dark:text-gray-400">
             <Loader2 size={20} className="animate-spin" />
             <span className="text-sm">{t.search.searching}</span>
           </div>
         ) : detailError ? (
-          <div className="p-6 text-sm text-red-600">
+          <div className="p-6 text-sm text-red-600 dark:text-red-400">
             {(detailError as Error).message}
           </div>
         ) : detail ? (
           <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-b border-gray-200 lg:border-b-0 lg:border-r">
-              <div className="shrink-0 border-b border-gray-200 p-4">
-                <h2 className="text-lg font-semibold text-gray-900">{detail.title}</h2>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                  <span className="font-mono text-gray-500">{detail.file}</span>
-                  <span className="rounded-md border border-gray-300 bg-sky-50 px-2 py-0.5 text-sky-600">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-b border-gray-200 dark:border-gray-700 lg:border-b-0 lg:border-r">
+              <div className="shrink-0 border-b border-gray-200 p-4 dark:border-gray-700">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{detail.title}</h2>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                  <span className="font-mono text-gray-500 dark:text-gray-400">{detail.file}</span>
+                  <span className="rounded-md border border-gray-300 bg-sky-50 px-2 py-0.5 text-sky-600 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-400">
                     {detail.repository}
                   </span>
                 </div>
@@ -479,9 +479,9 @@ export default function Documents() {
                   <div
                     key={section.uid}
                     id={`doc-section-${section.uid}`}
-                    className="scroll-mt-4 border-b border-gray-200 pb-6 last:border-0 last:pb-0"
+                    className="scroll-mt-4 border-b border-gray-200 pb-6 last:border-0 last:pb-0 dark:border-gray-700"
                   >
-                    <h3 className="mb-3 text-sm font-semibold text-gray-700">
+                    <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
                       {section.title}
                     </h3>
                     <MarkdownRenderer content={section.content} onDocLink={handleDocLink} />

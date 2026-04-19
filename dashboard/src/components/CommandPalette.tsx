@@ -16,15 +16,15 @@ import { useI18n } from "../i18n/context";
 import FocusTrap from "./FocusTrap";
 
 const TYPE_ICON: Record<string, ReactNode> = {
-  function: <Braces className="size-4 text-emerald-600" aria-hidden />,
-  class: <Box className="size-4 text-sky-600" aria-hidden />,
-  module: <FolderTree className="size-4 text-purple-600" aria-hidden />,
-  document: <FileText className="size-4 text-amber-600" aria-hidden />,
+  function: <Braces className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />,
+  class: <Box className="size-4 text-sky-600 dark:text-sky-400" aria-hidden />,
+  module: <FolderTree className="size-4 text-purple-600 dark:text-purple-400" aria-hidden />,
+  document: <FileText className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />,
 };
 
 function iconForType(t: string | undefined) {
   const key = t?.toLowerCase() ?? "";
-  return TYPE_ICON[key] ?? <Search className="size-4 text-gray-400" aria-hidden />;
+  return TYPE_ICON[key] ?? <Search className="size-4 text-gray-400 dark:text-gray-500" aria-hidden />;
 }
 
 function isWikiMatch(match: SearchMatch): boolean {
@@ -192,9 +192,9 @@ export default function CommandPalette() {
                     </span>
                   </span>
                   {isWikiMatch(m) ? (
-                    <BookOpen className="mt-1 size-3.5 shrink-0 text-amber-500" aria-hidden />
+                    <BookOpen className="mt-1 size-3.5 shrink-0 text-amber-500 dark:text-amber-400" aria-hidden />
                   ) : (
-                    <Braces className="mt-1 size-3.5 shrink-0 text-emerald-500 opacity-60" aria-hidden />
+                    <Braces className="mt-1 size-3.5 shrink-0 text-emerald-500 opacity-60 dark:text-emerald-400" aria-hidden />
                   )}
                 </button>
               </li>

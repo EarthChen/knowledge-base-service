@@ -264,21 +264,21 @@ export default function SettingsPage() {
   }
 
   const inputClass =
-    "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300";
+    "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-sky-500 dark:focus:ring-sky-600";
 
   const schedules = schedulesData?.schedules ?? [];
   const indexedRepos = reposData?.repositories ?? [];
 
   return (
     <div className="space-y-6">
-      <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
+      <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
         <Settings size={20} /> {t.settings.title}
       </h2>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
+      <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <div className="flex items-center gap-2">
-          <Globe size={16} className="text-gray-500" />
-          <h3 className="text-sm font-medium text-gray-700">{t.settings.language}</h3>
+          <Globe size={16} className="text-gray-500 dark:text-gray-400" />
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">{t.settings.language}</h3>
         </div>
         <div className="mt-3 flex gap-2">
           {LOCALE_OPTIONS.map((opt) => (
@@ -287,8 +287,8 @@ export default function SettingsPage() {
               onClick={() => setLocale(opt.value)}
               className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                 locale === opt.value
-                  ? "bg-sky-100 text-sky-600"
-                  : "border border-gray-300 text-gray-500 hover:text-gray-700"
+                  ? "bg-sky-100 text-sky-600 dark:bg-sky-950/60 dark:text-sky-400"
+                  : "border border-gray-300 text-gray-500 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:text-gray-200"
               }`}
             >
               {opt.label}
@@ -297,9 +297,9 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
-        <h3 className="text-sm font-medium text-gray-700">{t.settings.apiToken}</h3>
-        <p className="mt-1 text-xs text-gray-400">
+      <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">{t.settings.apiToken}</h3>
+        <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
           {t.settings.apiTokenDesc}
         </p>
         <div className="mt-3 flex gap-2">
@@ -314,7 +314,7 @@ export default function SettingsPage() {
             <button
               type="button"
               onClick={() => setShowToken(!showToken)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             >
               {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
@@ -328,52 +328,52 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
-        <h3 className="text-sm font-medium text-gray-700">{t.settings.serviceInfo}</h3>
+      <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">{t.settings.serviceInfo}</h3>
         <div className="mt-3 space-y-2 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-gray-400">{t.settings.health}</span>
-            <span className={health?.status === "ok" ? "text-emerald-600" : "text-amber-600"}>
+            <span className="text-gray-400 dark:text-gray-500">{t.settings.health}</span>
+            <span className={health?.status === "ok" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
               {health?.status === "ok" ? t.sidebar.healthy : t.sidebar.unreachable}
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-400">{t.settings.apiBase}</span>
-            <span className="font-mono text-xs text-gray-700">/api/v1</span>
+            <span className="text-gray-400 dark:text-gray-500">{t.settings.apiBase}</span>
+            <span className="font-mono text-xs text-gray-700 dark:text-gray-300">/api/v1</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-400">{t.settings.deployment}</span>
-            <span className="text-gray-700">{t.settings.deploymentValue}</span>
+            <span className="text-gray-400 dark:text-gray-500">{t.settings.deployment}</span>
+            <span className="text-gray-700 dark:text-gray-300">{t.settings.deploymentValue}</span>
           </div>
         </div>
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
+      <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <div className="flex items-center gap-2">
-          <BookOpen size={16} className="text-gray-500" />
-          <h3 className="text-sm font-medium text-gray-700">
+          <BookOpen size={16} className="text-gray-500 dark:text-gray-400" />
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">
             {isZh ? "Wiki 配置（只读）" : "Wiki configuration (read-only)"}
           </h3>
         </div>
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           {isZh
             ? "链式思考（CoT）与模型名称来自服务端环境变量，由 /health 返回。"
             : "Chain-of-thought (CoT) flags and model names come from server environment variables via /health."}
         </p>
         <div className="mt-4 space-y-4 text-sm">
           {!health?.wiki ? (
-            <p className="text-gray-500">
+            <p className="text-gray-500 dark:text-gray-400">
               {isZh
                 ? "当前服务未在健康检查中返回 wiki 字段（可能为旧版本）。"
                 : "Health response has no wiki section (server may be an older build)."}
             </p>
           ) : (
             <>
-              <label className="flex cursor-not-allowed items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 opacity-90">
-                <span className="text-gray-600">{isZh ? "启用 CoT" : "CoT enabled"}</span>
+              <label className="flex cursor-not-allowed items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 opacity-90 dark:border-gray-700 dark:bg-gray-800/60">
+                <span className="text-gray-600 dark:text-gray-300">{isZh ? "启用 CoT" : "CoT enabled"}</span>
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300 text-sky-600"
+                  className="h-4 w-4 rounded border-gray-300 text-sky-600 dark:border-gray-600"
                   checked={health.wiki.cot_enabled}
                   readOnly
                   disabled
@@ -381,10 +381,10 @@ export default function SettingsPage() {
                 />
               </label>
               <div className="space-y-1">
-                <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                <div className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                   {isZh ? "CoT 分析模型" : "CoT analysis model"}
                 </div>
-                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-800">
+                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200">
                   {health.wiki.cot_analysis_model?.trim()
                     ? health.wiki.cot_analysis_model
                     : isZh
@@ -393,10 +393,10 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="space-y-1">
-                <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                <div className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                   {isZh ? "CoT 生成模型" : "CoT generation model"}
                 </div>
-                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-800">
+                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200">
                   {health.wiki.cot_generation_model?.trim()
                     ? health.wiki.cot_generation_model
                     : isZh
@@ -410,11 +410,11 @@ export default function SettingsPage() {
       </div>
 
       {isAdmin && (
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <Webhook size={18} className="text-gray-500" />
-              <h3 className="text-sm font-medium text-gray-800">
+              <Webhook size={18} className="text-gray-500 dark:text-gray-400" />
+              <h3 className="text-sm font-medium text-gray-800 dark:text-gray-100">
                 {isZh ? "Webhook 配置" : "Webhook Configuration"}
               </h3>
             </div>
@@ -422,14 +422,14 @@ export default function SettingsPage() {
               type="button"
               onClick={openWebhookModal}
               disabled={webhookLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
             >
               <Pencil size={14} /> {isZh ? "编辑配置" : "Edit configuration"}
             </button>
           </div>
 
           {webhookError && (
-            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
               {(webhookError as Error).message ||
                 (isZh ? "加载 Webhook 配置失败" : "Failed to load webhook configuration")}
             </div>
@@ -443,11 +443,13 @@ export default function SettingsPage() {
             </div>
           ) : webhookConfig ? (
             <div className="mt-4 space-y-4 text-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
-                <span className="text-gray-500">{isZh ? "总开关" : "Master switch"}</span>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3 dark:border-gray-700">
+                <span className="text-gray-500 dark:text-gray-400">{isZh ? "总开关" : "Master switch"}</span>
                 <span
                   className={
-                    webhookConfig.enabled ? "font-medium text-emerald-600" : "font-medium text-gray-500"
+                    webhookConfig.enabled
+                      ? "font-medium text-emerald-600 dark:text-emerald-400"
+                      : "font-medium text-gray-500 dark:text-gray-400"
                   }
                 >
                   {webhookConfig.enabled
@@ -460,11 +462,11 @@ export default function SettingsPage() {
                 </span>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-gray-500">{isZh ? "防抖（秒）" : "Debounce (seconds)"}</span>
-                <span className="text-gray-800">{webhookConfig.debounce_seconds}</span>
+                <span className="text-gray-500 dark:text-gray-400">{isZh ? "防抖（秒）" : "Debounce (seconds)"}</span>
+                <span className="text-gray-800 dark:text-gray-100">{webhookConfig.debounce_seconds}</span>
               </div>
               <div>
-                <div className="text-gray-500">{isZh ? "自动更新分支" : "Auto-update branches"}</div>
+                <div className="text-gray-500 dark:text-gray-400">{isZh ? "自动更新分支" : "Auto-update branches"}</div>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   {(webhookConfig.auto_update_branches?.length ?? 0) === 0 ? (
                     <span className="text-gray-400">—</span>
@@ -472,7 +474,7 @@ export default function SettingsPage() {
                     webhookConfig.auto_update_branches.map((b) => (
                       <span
                         key={b}
-                        className="rounded-md bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-700"
+                        className="rounded-md bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300"
                       >
                         {b}
                       </span>
@@ -482,15 +484,15 @@ export default function SettingsPage() {
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[480px] text-left text-sm">
-                  <thead className="border-b border-gray-200 bg-gray-50">
+                  <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/80">
                     <tr>
-                      <th className="px-3 py-2 font-medium text-gray-500">
+                      <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">
                         {isZh ? "提供商" : "Provider"}
                       </th>
-                      <th className="px-3 py-2 font-medium text-gray-500">
+                      <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">
                         {isZh ? "密钥" : "Secret"}
                       </th>
-                      <th className="px-3 py-2 font-medium text-gray-500">
+                      <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">
                         {isZh ? "开关" : "Switch"}
                       </th>
                     </tr>
@@ -502,9 +504,9 @@ export default function SettingsPage() {
                       const label =
                         key === "github" ? "GitHub" : key === "gitlab" ? "GitLab" : "Gitea";
                       return (
-                        <tr key={key} className="border-b border-gray-100">
-                          <td className="px-3 py-2 font-medium text-gray-800">{label}</td>
-                          <td className="px-3 py-2 text-gray-700">
+                        <tr key={key} className="border-b border-gray-100 dark:border-gray-800">
+                          <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-100">{label}</td>
+                          <td className="px-3 py-2 text-gray-700 dark:text-gray-300">
                             {configured
                               ? "***configured***"
                               : isZh
@@ -514,7 +516,7 @@ export default function SettingsPage() {
                           <td className="px-3 py-2">
                             <input
                               type="checkbox"
-                              className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+                              className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 dark:border-gray-600"
                               checked={webhookConfig.enabled}
                               readOnly
                               disabled
@@ -533,44 +535,44 @@ export default function SettingsPage() {
               </div>
             </div>
           ) : !webhookError ? (
-            <p className="mt-4 text-sm text-gray-400">
+            <p className="mt-4 text-sm text-gray-400 dark:text-gray-500">
               {isZh ? "暂无配置数据" : "No configuration loaded"}
             </p>
           ) : null}
         </div>
       )}
 
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
+      <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <div className="flex items-center gap-2">
-          <CalendarClock size={18} className="text-gray-500" />
-          <h3 className="text-sm font-medium text-gray-800">
+          <CalendarClock size={18} className="text-gray-500 dark:text-gray-400" />
+          <h3 className="text-sm font-medium text-gray-800 dark:text-gray-100">
             {isZh ? "Wiki 定时再生成" : "Wiki Scheduled Regeneration"}
           </h3>
         </div>
-        <p className="mt-2 text-xs text-gray-500">
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
           {isZh
             ? "由 P3 Webhook 与调度器（Scheduler）功能协同驱动 Wiki 内容的定时与事件触发更新。"
             : "Driven by P3 Webhook and Scheduler features for timed and event-triggered wiki updates."}
         </p>
-        <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+        <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-300">
           {isZh
             ? "由 Webhook 事件触发或按计划自动执行"
             : "Triggered by webhook events or runs on schedule"}
         </div>
-        <p className="mt-3 text-xs text-amber-800">
+        <p className="mt-3 text-xs text-amber-800 dark:text-amber-200">
           {isZh
             ? "提示：当 Webhook 启用时，代码推送会自动触发增量更新。"
             : "Tip: When webhooks are enabled, code pushes trigger incremental updates automatically."}
         </p>
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-5">
+      <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Clock size={18} className="text-gray-500" />
+            <Clock size={18} className="text-gray-500 dark:text-gray-400" />
             <div>
-              <h3 className="text-sm font-medium text-gray-800">{t.sync.title}</h3>
-              <p className="text-xs text-gray-500">{t.sync.description}</p>
+              <h3 className="text-sm font-medium text-gray-800 dark:text-gray-100">{t.sync.title}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t.sync.description}</p>
             </div>
           </div>
           {isAdmin && (
@@ -585,11 +587,11 @@ export default function SettingsPage() {
         </div>
 
         {!authLoading && !isAdmin && (
-          <p className="mt-4 text-sm text-amber-700">{t.sync.adminOnly}</p>
+          <p className="mt-4 text-sm text-amber-700 dark:text-amber-300">{t.sync.adminOnly}</p>
         )}
 
         {isAdmin && schedulesError && (
-          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
             {(schedulesError as Error).message || t.sync.loadFailed}
           </div>
         )}
@@ -597,23 +599,23 @@ export default function SettingsPage() {
         {isAdmin && (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[880px] text-left text-sm">
-              <thead className="border-b border-gray-200 bg-gray-50">
+              <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/80">
                 <tr>
-                  <th className="px-3 py-2 font-medium text-gray-500">{t.sync.repoName}</th>
-                  <th className="px-3 py-2 font-medium text-gray-500">{t.sync.gitUrl}</th>
-                  <th className="px-3 py-2 font-medium text-gray-500">{t.sync.branch}</th>
-                  <th className="px-3 py-2 font-medium text-gray-500">{t.sync.intervalMinutes}</th>
-                  <th className="px-3 py-2 font-medium text-gray-500">{t.sync.enabled}</th>
-                  <th className="px-3 py-2 font-medium text-gray-500">{t.sync.lastSync}</th>
-                  <th className="px-3 py-2 font-medium text-gray-500">{t.sync.status}</th>
-                  <th className="px-3 py-2 font-medium text-gray-500">{t.sync.detail}</th>
-                  <th className="px-3 py-2 font-medium text-gray-500">{t.sync.actions}</th>
+                  <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">{t.sync.repoName}</th>
+                  <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">{t.sync.gitUrl}</th>
+                  <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">{t.sync.branch}</th>
+                  <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">{t.sync.intervalMinutes}</th>
+                  <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">{t.sync.enabled}</th>
+                  <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">{t.sync.lastSync}</th>
+                  <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">{t.sync.status}</th>
+                  <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">{t.sync.detail}</th>
+                  <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">{t.sync.actions}</th>
                 </tr>
               </thead>
               <tbody>
                 {schedulesLoading ? (
                   Array.from({ length: 2 }).map((_, i) => (
-                    <tr key={i} className="border-b border-gray-100">
+                    <tr key={i} className="border-b border-gray-100 dark:border-gray-800">
                       <td className="px-3 py-2">
                         <SkeletonLine className="h-4 w-28" />
                       </td>
@@ -645,46 +647,46 @@ export default function SettingsPage() {
                   ))
                 ) : schedules.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-8 text-center text-gray-400">
+                    <td colSpan={9} className="px-3 py-8 text-center text-gray-400 dark:text-gray-500">
                       {t.sync.noSchedules}
                     </td>
                   </tr>
                 ) : (
                   schedules.map((row) => (
-                    <tr key={schedulePath(row.repo_name)} className="border-b border-gray-100 hover:bg-gray-50/80">
-                      <td className="px-3 py-2 font-medium text-gray-800">{row.repo_name}</td>
-                      <td className="max-w-[200px] truncate px-3 py-2 text-gray-600" title={row.git_url}>
+                    <tr key={schedulePath(row.repo_name)} className="border-b border-gray-100 hover:bg-gray-50/80 dark:border-gray-800 dark:hover:bg-gray-800/50">
+                      <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-100">{row.repo_name}</td>
+                      <td className="max-w-[200px] truncate px-3 py-2 text-gray-600 dark:text-gray-400" title={row.git_url}>
                         {row.git_url}
                       </td>
-                      <td className="px-3 py-2 text-gray-600">{row.branch ?? "—"}</td>
-                      <td className="px-3 py-2 text-gray-600">{row.interval_minutes}</td>
+                      <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{row.branch ?? "—"}</td>
+                      <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{row.interval_minutes}</td>
                       <td className="px-3 py-2">
                         <input
                           type="checkbox"
-                          className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+                          className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500 dark:border-gray-600"
                           checked={row.enabled}
                           disabled={upsert.isPending}
                           onChange={(e) => handleToggleEnabled(row, e.target.checked)}
                         />
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600">
+                      <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
                         {formatWhen(row.last_sync_at)}
                       </td>
                       <td className="px-3 py-2">
                         <span
                           className={
                             row.last_sync_status === "success"
-                              ? "text-emerald-600"
+                              ? "text-emerald-600 dark:text-emerald-400"
                               : row.last_sync_status === "failed"
-                                ? "text-red-600"
-                                : "text-amber-600"
+                                ? "text-red-600 dark:text-red-400"
+                                : "text-amber-600 dark:text-amber-400"
                           }
                         >
                           {statusLabel(row.last_sync_status)}
                         </span>
                       </td>
                       <td
-                        className="max-w-[180px] truncate px-3 py-2 text-xs text-gray-500"
+                        className="max-w-[180px] truncate px-3 py-2 text-xs text-gray-500 dark:text-gray-400"
                         title={row.last_sync_detail || undefined}
                       >
                         {row.last_sync_detail || "—"}
@@ -694,7 +696,7 @@ export default function SettingsPage() {
                           <button
                             type="button"
                             onClick={() => openEdit(row)}
-                            className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-100"
+                            className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                           >
                             <Pencil size={12} /> {t.sync.edit}
                           </button>
@@ -702,7 +704,7 @@ export default function SettingsPage() {
                             type="button"
                             onClick={() => handleTrigger(row.repo_name)}
                             disabled={trigger.isPending}
-                            className="inline-flex items-center gap-1 rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                            className="inline-flex items-center gap-1 rounded border border-sky-200 bg-sky-50 px-2 py-1 text-xs text-sky-700 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300 dark:hover:bg-sky-950"
                           >
                             {trigger.isPending ? (
                               <Loader2 size={12} className="animate-spin" />
@@ -715,7 +717,7 @@ export default function SettingsPage() {
                             type="button"
                             onClick={() => handleDelete(row.repo_name)}
                             disabled={del.isPending}
-                            className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50"
+                            className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/60"
                           >
                             <Trash2 size={12} /> {t.sync.delete}
                           </button>
@@ -731,15 +733,15 @@ export default function SettingsPage() {
       </div>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="schedule-modal-title">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 dark:bg-black/60" role="dialog" aria-modal="true" aria-labelledby="schedule-modal-title">
           <FocusTrap onEscape={closeModal}>
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 shadow-xl">
-            <h4 id="schedule-modal-title" className="text-base font-semibold text-gray-900">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 shadow-xl dark:border-gray-600 dark:bg-gray-900 dark:shadow-gray-950/50">
+            <h4 id="schedule-modal-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
               {editing ? t.sync.editSchedule : t.sync.addSchedule}
             </h4>
             <form onSubmit={submitModal} className="mt-4 space-y-3">
               <div>
-                <label className="text-xs font-medium text-gray-600">{t.sync.selectRepo}</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">{t.sync.selectRepo}</label>
                 <select
                   className={`${inputClass} mt-1`}
                   value=""
@@ -757,7 +759,7 @@ export default function SettingsPage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">{t.sync.repoName}</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">{t.sync.repoName}</label>
                 <input
                   className={`${inputClass} mt-1`}
                   value={formRepo}
@@ -766,7 +768,7 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">{t.sync.gitUrl}</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">{t.sync.gitUrl}</label>
                 <input
                   className={`${inputClass} mt-1`}
                   value={formGitUrl}
@@ -775,7 +777,7 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">{t.sync.branch}</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">{t.sync.branch}</label>
                 <input
                   className={`${inputClass} mt-1`}
                   placeholder={t.sync.branchPlaceholder}
@@ -784,7 +786,7 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">{t.sync.intervalMinutes}</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">{t.sync.intervalMinutes}</label>
                 <input
                   type="number"
                   min={5}
@@ -794,10 +796,10 @@ export default function SettingsPage() {
                   onChange={(e) => setFormInterval(Number(e.target.value))}
                 />
               </div>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300 text-sky-600"
+                  className="h-4 w-4 rounded border-gray-300 text-sky-600 dark:border-gray-600"
                   checked={formEnabled}
                   onChange={(e) => setFormEnabled(e.target.checked)}
                 />
@@ -807,14 +809,14 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
                   {t.sync.cancel}
                 </button>
                 <button
                   type="submit"
                   disabled={upsert.isPending}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
                 >
                   {upsert.isPending ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                   {t.sync.save}
@@ -827,24 +829,24 @@ export default function SettingsPage() {
       )}
 
       {webhookModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="webhook-modal-title">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 dark:bg-black/60" role="dialog" aria-modal="true" aria-labelledby="webhook-modal-title">
           <FocusTrap onEscape={closeWebhookModal}>
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 shadow-xl">
-            <h4 id="webhook-modal-title" className="text-base font-semibold text-gray-900">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 shadow-xl dark:border-gray-600 dark:bg-gray-900 dark:shadow-gray-950/50">
+            <h4 id="webhook-modal-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
               {isZh ? "编辑 Webhook 配置" : "Edit webhook configuration"}
             </h4>
             <form onSubmit={submitWebhookModal} className="mt-4 space-y-3">
-              <label className="flex items-center gap-2 text-sm text-gray-700">
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300 text-sky-600"
+                  className="h-4 w-4 rounded border-gray-300 text-sky-600 dark:border-gray-600"
                   checked={whEnabled}
                   onChange={(e) => setWhEnabled(e.target.checked)}
                 />
                 {isZh ? "启用 Webhook（总开关）" : "Enable webhooks (master switch)"}
               </label>
               <div>
-                <label className="text-xs font-medium text-gray-600">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
                   {isZh ? "防抖间隔（秒，1–86400）" : "Debounce seconds (1–86400)"}
                 </label>
                 <input
@@ -858,7 +860,7 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
                   {isZh ? "自动更新分支（逗号分隔）" : "Auto-update branches (comma-separated)"}
                 </label>
                 <input
@@ -869,7 +871,7 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">GitHub secret</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">GitHub secret</label>
                 <input
                   type="password"
                   className={`${inputClass} mt-1`}
@@ -879,7 +881,7 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">GitLab secret</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">GitLab secret</label>
                 <input
                   type="password"
                   className={`${inputClass} mt-1`}
@@ -889,7 +891,7 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">Gitea secret</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Gitea secret</label>
                 <input
                   type="password"
                   className={`${inputClass} mt-1`}
@@ -902,14 +904,14 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={closeWebhookModal}
-                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
                   {t.sync.cancel}
                 </button>
                 <button
                   type="submit"
                   disabled={updateWebhook.isPending}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
                 >
                   {updateWebhook.isPending ? (
                     <Loader2 size={14} className="animate-spin" />

@@ -52,28 +52,30 @@ function CollapsibleSection({
   const [open, setOpen] = useState(defaultOpen);
   if (itemCount === 0) return null;
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 bg-gray-50/80 px-3 py-2 text-left text-sm font-medium text-gray-800"
+        className="flex w-full items-center justify-between gap-2 bg-gray-50/80 px-3 py-2 text-left text-sm font-medium text-gray-800 dark:bg-gray-800/80 dark:text-gray-100"
       >
         <span>
           {title}
-          <span className="ml-2 text-xs font-normal text-gray-500">({itemCount})</span>
+          <span className="ml-2 text-xs font-normal text-gray-500 dark:text-gray-400">({itemCount})</span>
         </span>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-gray-500 transition-transform dark:text-gray-400 ${open ? "rotate-180" : ""}`}
         />
       </button>
-      {open && <div className="space-y-2 border-t border-gray-100 p-3">{children}</div>}
+      {open && (
+        <div className="space-y-2 border-t border-gray-100 p-3 dark:border-gray-700">{children}</div>
+      )}
     </div>
   );
 }
 
 function TypeBadge({ rel }: { rel: string }) {
   return (
-    <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase text-gray-600">
+    <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase text-gray-600 dark:bg-gray-800 dark:text-gray-400">
       {rel}
     </span>
   );
@@ -89,7 +91,7 @@ function FileLineButton({ file, line }: { file: string; line: number }) {
       onClick={() => {
         if (ref && ref !== "—") void navigator.clipboard.writeText(ref);
       }}
-      className="max-w-[min(100%,18rem)] truncate text-left text-xs text-sky-600 underline decoration-sky-300/60 underline-offset-2 hover:text-sky-800"
+      className="max-w-[min(100%,18rem)] truncate text-left text-xs text-sky-600 underline decoration-sky-300/60 underline-offset-2 hover:text-sky-800 dark:text-sky-400 dark:decoration-sky-600/60 dark:hover:text-sky-300"
     >
       {ref}
     </button>
@@ -147,13 +149,13 @@ export default function GraphContextCards({ items }: { items: unknown }) {
           return (
             <div
               key={`cc-${i}`}
-              className="flex flex-wrap items-center gap-2 rounded-md border border-gray-100 bg-gray-50/50 px-3 py-2 text-sm"
+              className="flex flex-wrap items-center gap-2 rounded-md border border-gray-100 bg-gray-50/50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800/50"
             >
-              <span className="font-medium text-gray-900">{left || "?"}</span>
-              <span className="text-gray-400" aria-hidden>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{left || "?"}</span>
+              <span className="text-gray-400 dark:text-gray-500" aria-hidden>
                 →
               </span>
-              <span className="font-medium text-gray-900">{right || "?"}</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{right || "?"}</span>
               <TypeBadge rel={rel} />
               <FileLineButton file={file} line={line} />
             </div>
@@ -170,9 +172,11 @@ export default function GraphContextCards({ items }: { items: unknown }) {
           return (
             <div
               key={`m-${i}`}
-              className="flex flex-wrap items-center gap-2 rounded-md border border-gray-100 bg-gray-50/50 px-3 py-2 text-sm"
+              className="flex flex-wrap items-center gap-2 rounded-md border border-gray-100 bg-gray-50/50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800/50"
             >
-              <code className="rounded bg-white px-1.5 py-0.5 text-xs text-gray-900">{display}</code>
+              <code className="rounded bg-white px-1.5 py-0.5 text-xs text-gray-900 dark:bg-gray-900 dark:text-gray-100">
+                {display}
+              </code>
               <TypeBadge rel="method_of" />
               <FileLineButton file={file} line={line} />
             </div>
@@ -188,11 +192,11 @@ export default function GraphContextCards({ items }: { items: unknown }) {
           return (
             <div
               key={`in-${i}`}
-              className="flex flex-wrap items-center gap-2 rounded-md border border-gray-100 bg-gray-50/50 px-3 py-2 text-sm"
+              className="flex flex-wrap items-center gap-2 rounded-md border border-gray-100 bg-gray-50/50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800/50"
             >
-              <span className="font-medium text-gray-900">{child || "?"}</span>
-              <span className="text-gray-400">→</span>
-              <span className="text-gray-700">{parent || "?"}</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{child || "?"}</span>
+              <span className="text-gray-400 dark:text-gray-500">→</span>
+              <span className="text-gray-700 dark:text-gray-300">{parent || "?"}</span>
               <TypeBadge rel="subclass_of" />
               <FileLineButton file={file} line={line} />
             </div>
@@ -211,18 +215,18 @@ export default function GraphContextCards({ items }: { items: unknown }) {
           return (
             <div
               key={`bf-${i}`}
-              className="flex flex-wrap items-center gap-2 rounded-md border border-gray-100 bg-gray-50/50 px-3 py-2 text-sm"
+              className="flex flex-wrap items-center gap-2 rounded-md border border-gray-100 bg-gray-50/50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800/50"
             >
-              <Link2 className="h-3.5 w-3.5 shrink-0 text-purple-500" />
-              <span className="font-medium text-gray-900">{flowName}</span>
+              <Link2 className="h-3.5 w-3.5 shrink-0 text-purple-500 dark:text-purple-400" />
+              <span className="font-medium text-gray-900 dark:text-gray-100">{flowName}</span>
               {fnName ? (
                 <>
-                  <span className="text-gray-400">→</span>
-                  <span className="text-gray-800">{fnName}</span>
+                  <span className="text-gray-400 dark:text-gray-500">→</span>
+                  <span className="text-gray-800 dark:text-gray-200">{fnName}</span>
                 </>
               ) : null}
               {related ? (
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
                   ({t.search.graphRelatedFn}: {related})
                 </span>
               ) : null}
@@ -234,7 +238,7 @@ export default function GraphContextCards({ items }: { items: unknown }) {
 
       {grouped.unknown.length > 0 ? (
         <div>
-          <p className="mb-1 text-xs font-medium text-gray-500">{t.search.graphSectionOther}</p>
+          <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">{t.search.graphSectionOther}</p>
           <JsonView data={grouped.unknown} />
         </div>
       ) : null}

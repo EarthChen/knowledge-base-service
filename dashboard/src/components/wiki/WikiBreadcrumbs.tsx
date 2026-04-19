@@ -19,11 +19,11 @@ export default function WikiBreadcrumbs({ repository, path }: Props) {
   return (
     <nav
       aria-label="Breadcrumb"
-      className="flex flex-wrap items-center gap-1 text-sm text-gray-600"
+      className="flex flex-wrap items-center gap-1 text-sm text-gray-600 dark:text-gray-400"
     >
       <Link
         to={`/wiki/${encodeURIComponent(repository)}`}
-        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-100"
       >
         <Home size={14} aria-hidden />
         {repository}
@@ -37,13 +37,13 @@ export default function WikiBreadcrumbs({ repository, path }: Props) {
         const last = i === segments.length - 1;
         return (
           <span key={to} className="inline-flex items-center gap-1">
-            <ChevronRight size={14} className="text-gray-400" aria-hidden />
+            <ChevronRight size={14} className="text-gray-400 dark:text-gray-500" aria-hidden />
             {last ? (
-              <span className="font-semibold text-gray-900">{label}</span>
+              <span className="font-semibold text-gray-900 dark:text-gray-100">{label}</span>
             ) : (
               <Link
                 to={to}
-                className="rounded-md px-1.5 py-0.5 hover:bg-gray-100 hover:text-gray-900"
+                className="rounded-md px-1.5 py-0.5 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-gray-100"
               >
                 {label}
               </Link>

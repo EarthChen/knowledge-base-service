@@ -193,7 +193,7 @@ export default function Layout() {
                   : "bg-amber-500"
               }`}
             />
-            <span className={isHealthy ? "text-emerald-600" : "text-amber-600"}>
+            <span className={isHealthy ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
               {isHealthy ? t.sidebar.healthy : t.sidebar.unreachable}
             </span>
           </div>
@@ -228,7 +228,7 @@ export default function Layout() {
           <Suspense
             fallback={
               <div className="flex items-center justify-center py-20">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-purple-600" />
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-purple-600 dark:border-gray-600 dark:border-t-purple-400" />
               </div>
             }
           >

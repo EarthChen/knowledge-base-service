@@ -12,9 +12,13 @@ type Props = {
 type Step = "preview" | "execute";
 
 function actionBadge(action: WikiExportDiff["action"]): string {
-  if (action === "create") return "bg-emerald-100 text-emerald-900 ring-emerald-200";
-  if (action === "update") return "bg-sky-100 text-sky-900 ring-sky-200";
-  return "bg-gray-100 text-gray-700 ring-gray-200";
+  if (action === "create") {
+    return "bg-emerald-100 text-emerald-900 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-800";
+  }
+  if (action === "update") {
+    return "bg-sky-100 text-sky-900 ring-sky-200 dark:bg-sky-950/50 dark:text-sky-200 dark:ring-sky-800";
+  }
+  return "bg-gray-100 text-gray-700 ring-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-600";
 }
 
 export default function WikiExportPanel({ repository }: Props) {
@@ -91,17 +95,17 @@ export default function WikiExportPanel({ repository }: Props) {
   };
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
-        <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-          <FileOutput size={18} className="text-sky-600" aria-hidden />
+    <section className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:shadow-gray-950/40">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 dark:border-gray-700">
+        <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+          <FileOutput size={18} className="text-sky-600 dark:text-sky-400" aria-hidden />
           {t.wiki.exportTitle}
         </div>
         {step === "execute" && (
           <button
             type="button"
             onClick={backToPreviewInput}
-            className="inline-flex items-center gap-1 text-xs font-medium text-sky-700 hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-medium text-sky-700 hover:underline dark:text-sky-400"
           >
             <ArrowLeft className="size-3.5" aria-hidden />
             {t.wiki.exportNewPreview}
@@ -110,10 +114,10 @@ export default function WikiExportPanel({ repository }: Props) {
       </div>
 
       <div className="space-y-4 px-4 py-4">
-        <p className="text-xs text-gray-500">{t.wiki.exportHelp}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">{t.wiki.exportHelp}</p>
 
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
             {t.wiki.exportTargetDirectory}
           </label>
           <input
@@ -121,7 +125,7 @@ export default function WikiExportPanel({ repository }: Props) {
             onChange={(e) => setTargetDir(e.target.value)}
             disabled={step === "execute" && Boolean(previewResult)}
             placeholder={t.wiki.exportTargetPlaceholder}
-            className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm outline-none ring-sky-500/30 focus:border-sky-400 focus:ring-2 disabled:bg-gray-50"
+            className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-sm text-gray-900 outline-none ring-sky-500/30 focus:border-sky-400 focus:ring-2 disabled:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:border-sky-500 dark:focus:ring-sky-700 dark:disabled:bg-gray-900/80"
           />
         </div>
 
@@ -140,7 +144,7 @@ export default function WikiExportPanel({ repository }: Props) {
         )}
 
         {previewMutation.isError && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
             {previewMutation.error instanceof ApiError && previewMutation.error.status === 403
               ? t.wiki.exportForbiddenRbac
               : previewMutation.error instanceof ApiError
@@ -152,16 +156,16 @@ export default function WikiExportPanel({ repository }: Props) {
         {step === "execute" && previewResult && (
           <>
             <div className="flex flex-wrap gap-2 text-xs">
-              <span className="rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-700 ring-1 ring-gray-200">
+              <span className="rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-700 ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-600">
                 {t.wiki.exportLabelFiles} {previewResult.total_files}
               </span>
-              <span className="rounded-full bg-emerald-100 px-2.5 py-1 font-medium text-emerald-900 ring-1 ring-emerald-200">
+              <span className="rounded-full bg-emerald-100 px-2.5 py-1 font-medium text-emerald-900 ring-1 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-200 dark:ring-emerald-800">
                 {t.wiki.exportLabelCreate} {previewResult.created}
               </span>
-              <span className="rounded-full bg-sky-100 px-2.5 py-1 font-medium text-sky-900 ring-1 ring-sky-200">
+              <span className="rounded-full bg-sky-100 px-2.5 py-1 font-medium text-sky-900 ring-1 ring-sky-200 dark:bg-sky-950/50 dark:text-sky-200 dark:ring-sky-800">
                 {t.wiki.exportLabelUpdate} {previewResult.updated}
               </span>
-              <span className="rounded-full bg-gray-200/80 px-2.5 py-1 font-medium text-gray-700 ring-1 ring-gray-300">
+              <span className="rounded-full bg-gray-200/80 px-2.5 py-1 font-medium text-gray-700 ring-1 ring-gray-300 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-600">
                 {t.wiki.exportLabelSkip} {previewResult.skipped}
               </span>
             </div>
@@ -170,22 +174,22 @@ export default function WikiExportPanel({ repository }: Props) {
               <button
                 type="button"
                 onClick={() => toggleAllExportable(true)}
-                className="font-medium text-sky-700 hover:underline"
+                className="font-medium text-sky-700 hover:underline dark:text-sky-400"
               >
                 {t.wiki.exportSelectAllWritable}
               </button>
               <button
                 type="button"
                 onClick={() => toggleAllExportable(false)}
-                className="font-medium text-gray-600 hover:underline"
+                className="font-medium text-gray-600 hover:underline dark:text-gray-400"
               >
                 {t.wiki.exportClearSelection}
               </button>
             </div>
 
-            <div className="max-h-[min(50vh,420px)] overflow-y-auto rounded-lg border border-gray-100">
+            <div className="max-h-[min(50vh,420px)] overflow-y-auto rounded-lg border border-gray-100 dark:border-gray-700">
               <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                <thead className="sticky top-0 bg-gray-50 text-xs uppercase tracking-wide text-gray-500 dark:bg-gray-800/90 dark:text-gray-400">
                   <tr>
                     <th className="w-10 px-2 py-2"> </th>
                     <th className="px-2 py-2">{t.wiki.exportTableFile}</th>
@@ -193,23 +197,23 @@ export default function WikiExportPanel({ repository }: Props) {
                     <th className="px-2 py-2">{t.wiki.exportTableSummary}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                   {previewResult.diffs.map((d) => {
                     const canSelect = d.action === "create" || d.action === "update";
                     const checked = selected.has(d.file_path);
                     return (
-                      <tr key={d.file_path} className="bg-white/90">
+                      <tr key={d.file_path} className="bg-white/90 dark:bg-gray-900/90">
                         <td className="px-2 py-2 align-top">
                           <input
                             type="checkbox"
-                            className="rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+                            className="rounded border-gray-300 text-sky-600 focus:ring-sky-500 dark:border-gray-600 dark:bg-gray-900"
                             checked={checked}
                             disabled={!canSelect}
                             onChange={() => togglePath(d.file_path, d.action)}
                             aria-label={t.wiki.exportSelectFileAria.replace("{path}", d.file_path)}
                           />
                         </td>
-                        <td className="px-2 py-2 align-top font-mono text-xs text-gray-900">
+                        <td className="px-2 py-2 align-top font-mono text-xs text-gray-900 dark:text-gray-100">
                           {d.file_path}
                         </td>
                         <td className="px-2 py-2 align-top">
@@ -219,7 +223,7 @@ export default function WikiExportPanel({ repository }: Props) {
                             {d.action}
                           </span>
                         </td>
-                        <td className="px-2 py-2 align-top text-xs text-gray-600">{d.diff_summary}</td>
+                        <td className="px-2 py-2 align-top text-xs text-gray-600 dark:text-gray-400">{d.diff_summary}</td>
                       </tr>
                     );
                   })}
@@ -228,7 +232,7 @@ export default function WikiExportPanel({ repository }: Props) {
             </div>
 
             {executeMutation.isError && (
-              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
                 {executeMutation.error instanceof ApiError && executeMutation.error.status === 403
                   ? t.wiki.exportForbiddenRbac
                   : executeMutation.error instanceof ApiError
@@ -252,11 +256,11 @@ export default function WikiExportPanel({ repository }: Props) {
             </button>
 
             {selected.size === 0 && (
-              <p className="text-xs text-amber-700">{t.wiki.exportSelectAtLeastOne}</p>
+              <p className="text-xs text-amber-700 dark:text-amber-300">{t.wiki.exportSelectAtLeastOne}</p>
             )}
 
             {executeResult && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-3 text-sm text-emerald-950">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-3 text-sm text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100">
                 <p className="font-semibold">{t.wiki.exportFinished}</p>
                 <p className="mt-1 text-xs">
                   {t.wiki.exportFinishedSummary

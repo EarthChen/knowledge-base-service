@@ -95,23 +95,26 @@ function SourceRef({
       ? buildIdeHref(editor, repository, s.file_path, s.start_line)
       : null;
   return (
-    <li className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm">
-      <div className="font-medium text-gray-900">{s.entity}</div>
-      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600">
+    <li className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800/60">
+      <div className="font-medium text-gray-900 dark:text-gray-100">{s.entity}</div>
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
         {s.wiki_page && (
           <Link
             to={wikiHref(repository, s.wiki_page)}
-            className="text-sky-700 underline decoration-sky-200"
+            className="text-sky-700 underline decoration-sky-200 dark:text-sky-400 dark:decoration-sky-800"
           >
             {s.wiki_page}
           </Link>
         )}
         {ide && s.file_path && (
-          <a href={ide} className="font-mono text-sky-700 underline decoration-sky-200">
+          <a
+            href={ide}
+            className="font-mono text-sky-700 underline decoration-sky-200 dark:text-sky-400 dark:decoration-sky-800"
+          >
             {s.file_path}:{s.start_line}
           </a>
         )}
-        <span className="text-gray-400">
+        <span className="text-gray-400 dark:text-gray-500">
           {t.wiki.askScorePrefix} {s.relevance_score.toFixed(3)}
         </span>
       </div>
@@ -215,26 +218,33 @@ export default function AskPanel({ repository }: Props) {
   const deepMarkdown = conclusionMarkdownText(deepStream.conclusion);
 
   return (
-    <section id="wiki-ask-panel" className="rounded-xl border border-gray-200 bg-gradient-to-b from-white to-gray-50/80 shadow-sm">
+    <section
+      id="wiki-ask-panel"
+      className="rounded-xl border border-gray-200 bg-gradient-to-b from-white to-gray-50/80 shadow-sm dark:border-gray-700 dark:from-gray-900 dark:to-gray-950/80 dark:shadow-gray-950/40"
+    >
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-gray-900"
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-gray-900 dark:text-gray-100"
       >
         <span className="inline-flex items-center gap-2">
-          <MessageCircle size={18} className="text-sky-600" aria-hidden />
+          <MessageCircle size={18} className="text-sky-600 dark:text-sky-400" aria-hidden />
           {t.wiki.askWiki}
           {conversationId && (
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-normal text-gray-500">
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-normal text-gray-500 dark:bg-gray-800 dark:text-gray-400">
               {t.wiki.askThread}
             </span>
           )}
         </span>
-        {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        {open ? (
+          <ChevronUp size={18} className="text-gray-500 dark:text-gray-400" />
+        ) : (
+          <ChevronDown size={18} className="text-gray-500 dark:text-gray-400" />
+        )}
       </button>
 
       {open && (
-        <div className="space-y-4 border-t border-gray-100 px-4 pb-4 pt-2">
+        <div className="space-y-4 border-t border-gray-100 px-4 pb-4 pt-2 dark:border-gray-700">
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -244,8 +254,8 @@ export default function AskPanel({ repository }: Props) {
               }}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                 mode === "ask"
-                  ? "bg-sky-100 text-sky-700"
-                  : "text-gray-400 hover:text-gray-700"
+                  ? "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300"
+                  : "text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
               }`}
             >
               <MessageCircle size={14} /> {t.wiki.askWiki}
@@ -258,8 +268,8 @@ export default function AskPanel({ repository }: Props) {
               }}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                 mode === "deep"
-                  ? "bg-amber-100 text-amber-700"
-                  : "text-gray-400 hover:text-gray-700"
+                  ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
+                  : "text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
               }`}
             >
               <Brain size={14} /> {t.search.deepResearch}
@@ -268,9 +278,9 @@ export default function AskPanel({ repository }: Props) {
 
           {mode === "ask" ? (
             <>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {t.wiki.askEndpointHelpBefore}
-                <code className="rounded bg-gray-100 px-1">POST /api/v1/wiki/ask</code>
+                <code className="rounded bg-gray-100 px-1 dark:bg-gray-800 dark:text-gray-300">POST /api/v1/wiki/ask</code>
                 {t.wiki.askEndpointHelpAfter}
               </p>
 
@@ -293,13 +303,13 @@ export default function AskPanel({ repository }: Props) {
                   onChange={(e) => setInput(e.target.value)}
                   rows={2}
                   placeholder={t.wiki.askQuestionPlaceholder}
-                  className="min-h-[44px] flex-1 resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none ring-sky-500/30 focus:border-sky-400 focus:ring-2"
+                  className="min-h-[44px] flex-1 resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none ring-sky-500/30 placeholder:text-gray-400 focus:border-sky-400 focus:ring-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-sky-500 dark:focus:ring-sky-700"
                 />
                 <div className="flex shrink-0 flex-col gap-2">
                   <button
                     type="submit"
                     disabled={isStreaming || !input.trim()}
-                    className="inline-flex items-center justify-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                    className="inline-flex items-center justify-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
                   >
                     {isStreaming ? (
                       <Loader2 className="size-4 animate-spin" />
@@ -311,7 +321,7 @@ export default function AskPanel({ repository }: Props) {
                     type="button"
                     onClick={() => cancel()}
                     disabled={!isStreaming}
-                    className="text-xs text-gray-600 hover:text-gray-900 disabled:opacity-40"
+                    className="text-xs text-gray-600 hover:text-gray-900 disabled:opacity-40 dark:text-gray-400 dark:hover:text-gray-100"
                   >
                     {t.wiki.stop}
                   </button>
@@ -324,32 +334,36 @@ export default function AskPanel({ repository }: Props) {
                       threadTitleRef.current = "";
                       questionForSaveRef.current = "";
                     }}
-                    className="text-xs text-gray-600 hover:text-gray-900"
+                    className="text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
                   >
                     {t.wiki.clear}
                   </button>
                 </div>
               </form>
 
-              <div className="rounded-lg border border-gray-100 bg-gray-50/80">
+              <div className="rounded-lg border border-gray-100 bg-gray-50/80 dark:border-gray-700 dark:bg-gray-800/50">
                 <button
                   type="button"
                   onClick={() => setHistoryOpen(!historyOpen)}
-                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-gray-700"
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300"
                 >
                   <span className="inline-flex items-center gap-1.5">
-                    <History size={14} className="text-gray-500" aria-hidden />
+                    <History size={14} className="text-gray-500 dark:text-gray-400" aria-hidden />
                     {t.wiki.conversationHistory}
                     {historyItems.length > 0 && (
-                      <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-normal text-gray-600">
+                      <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-normal text-gray-600 dark:bg-gray-700 dark:text-gray-400">
                         {historyItems.length}
                       </span>
                     )}
                   </span>
-                  {historyOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  {historyOpen ? (
+                    <ChevronUp size={16} className="text-gray-500 dark:text-gray-400" />
+                  ) : (
+                    <ChevronDown size={16} className="text-gray-500 dark:text-gray-400" />
+                  )}
                 </button>
                 {historyOpen && (
-                  <div className="space-y-2 border-t border-gray-100 px-3 pb-3 pt-1">
+                  <div className="space-y-2 border-t border-gray-100 px-3 pb-3 pt-1 dark:border-gray-700">
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -360,7 +374,7 @@ export default function AskPanel({ repository }: Props) {
                           threadTitleRef.current = "";
                           questionForSaveRef.current = "";
                         }}
-                        className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-700 hover:bg-gray-50"
+                        className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
                       >
                         {t.wiki.conversationHistoryNew}
                       </button>
@@ -374,13 +388,13 @@ export default function AskPanel({ repository }: Props) {
                           threadTitleRef.current = "";
                           questionForSaveRef.current = "";
                         }}
-                        className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                        className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-700 hover:bg-gray-50 disabled:opacity-40 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
                       >
                         {t.wiki.conversationHistoryClearAll}
                       </button>
                     </div>
                     {historyItems.length === 0 ? (
-                      <p className="text-xs text-gray-500">{t.wiki.conversationHistoryEmpty}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{t.wiki.conversationHistoryEmpty}</p>
                     ) : (
                       <ul className="max-h-48 space-y-1.5 overflow-y-auto">
                         {historyItems.map((c) => (
@@ -396,10 +410,10 @@ export default function AskPanel({ repository }: Props) {
                                 threadTitleRef.current = "";
                                 questionForSaveRef.current = "";
                               }}
-                              className="w-full rounded-md border border-transparent px-2 py-1.5 text-left text-xs hover:border-gray-200 hover:bg-white"
+                              className="w-full rounded-md border border-transparent px-2 py-1.5 text-left text-xs hover:border-gray-200 hover:bg-white dark:hover:border-gray-600 dark:hover:bg-gray-800/80"
                             >
-                              <div className="line-clamp-2 font-medium text-gray-900">{c.title}</div>
-                              <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-gray-500">
+                              <div className="line-clamp-2 font-medium text-gray-900 dark:text-gray-100">{c.title}</div>
+                              <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-gray-500 dark:text-gray-400">
                                 <span>
                                   <ConversationRelativeWhen createdAt={c.created_at} wiki={t.wiki} />
                                 </span>
@@ -420,14 +434,14 @@ export default function AskPanel({ repository }: Props) {
               </div>
 
               {error && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
                   {error}
                 </div>
               )}
 
               {(answer || isStreaming) && (
-                <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner">
-                  <div className="prose prose-sm prose-slate max-w-none whitespace-pre-wrap">
+                <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner dark:border-gray-700 dark:bg-gray-900">
+                  <div className="prose prose-sm prose-slate max-w-none whitespace-pre-wrap dark:prose-invert">
                     {answer}
                     {isStreaming && (
                       <span className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-sky-500 align-middle" />
@@ -438,7 +452,7 @@ export default function AskPanel({ repository }: Props) {
 
               {sources.length > 0 && (
                 <div>
-                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     {t.wiki.sources}
                   </h4>
                   <ul className="space-y-2">
@@ -446,14 +460,14 @@ export default function AskPanel({ repository }: Props) {
                       <SourceRef key={`${s.wiki_page}-${s.entity}-${i}`} repository={repository} s={s} />
                     ))}
                   </ul>
-                  <p className="mt-2 text-xs text-gray-400">{t.wiki.askV2Footnote}</p>
+                  <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{t.wiki.askV2Footnote}</p>
                 </div>
               )}
             </>
           ) : (
             <>
-              <p className="text-xs text-gray-500">{t.search.deepResearchDesc}</p>
-              <p className="text-xs text-amber-800/90">{t.wiki.deepResearchScopeNote}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t.search.deepResearchDesc}</p>
+              <p className="text-xs text-amber-800/90 dark:text-amber-300/90">{t.wiki.deepResearchScopeNote}</p>
               <form
                 className="flex flex-col gap-2 sm:flex-row"
                 onSubmit={(e) => {
@@ -468,13 +482,13 @@ export default function AskPanel({ repository }: Props) {
                   onChange={(e) => setDeepInput(e.target.value)}
                   rows={3}
                   placeholder={t.search.deepPlaceholder}
-                  className="min-h-[72px] flex-1 resize-y rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm outline-none ring-amber-500/30 focus:border-amber-400 focus:ring-2"
+                  className="min-h-[72px] flex-1 resize-y rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none ring-amber-500/30 placeholder:text-gray-400 focus:border-amber-400 focus:ring-2 dark:border-amber-900 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-amber-500 dark:focus:ring-amber-800"
                 />
                 <div className="flex shrink-0 flex-col gap-2 sm:w-auto">
                   <button
                     type="submit"
                     disabled={deepStream.isStreaming || !deepInput.trim()}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50 dark:bg-amber-600 dark:hover:bg-amber-500"
                   >
                     {deepStream.isStreaming && <Loader2 className="size-4 animate-spin" />}
                     {deepStream.isStreaming ? t.search.deepSearching : t.search.searchBtn}
@@ -483,7 +497,7 @@ export default function AskPanel({ repository }: Props) {
                     type="button"
                     onClick={() => deepStream.cancel()}
                     disabled={!deepStream.isStreaming}
-                    className="text-xs text-gray-600 hover:text-gray-900 disabled:opacity-40"
+                    className="text-xs text-gray-600 hover:text-gray-900 disabled:opacity-40 dark:text-gray-400 dark:hover:text-gray-100"
                   >
                     {t.wiki.stop}
                   </button>
@@ -493,7 +507,7 @@ export default function AskPanel({ repository }: Props) {
                       deepStream.cancel();
                       setDeepInput("");
                     }}
-                    className="text-xs text-gray-600 hover:text-gray-900"
+                    className="text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
                   >
                     {t.wiki.clear}
                   </button>
@@ -501,7 +515,7 @@ export default function AskPanel({ repository }: Props) {
               </form>
 
               {deepStream.error && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
                   {deepStream.error}
                 </div>
               )}
@@ -510,20 +524,20 @@ export default function AskPanel({ repository }: Props) {
                 <div className="space-y-3">
                   <DeepResearchTimeline stages={deepStream.stages} isZh={isZh} />
                   {deepMarkdown ? (
-                    <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner">
-                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner dark:border-gray-700 dark:bg-gray-900">
+                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                         {t.search.analysis}
                       </h4>
-                      <div className="prose prose-sm prose-slate max-w-none">
+                      <div className="prose prose-sm prose-slate max-w-none dark:prose-invert">
                         <MarkdownRenderer content={deepMarkdown} />
                       </div>
                     </div>
                   ) : deepStream.conclusion ? (
-                    <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner">
-                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner dark:border-gray-700 dark:bg-gray-900">
+                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                         {t.search.analysis}
                       </h4>
-                      <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-gray-700">
+                      <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-gray-700 dark:text-gray-300">
                         {JSON.stringify(deepStream.conclusion, null, 2)}
                       </pre>
                     </div>

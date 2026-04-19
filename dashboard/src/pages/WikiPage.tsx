@@ -147,7 +147,7 @@ export default function WikiPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400">{t.wiki.loadingRepositories}</p>
         )}
         {reposQuery.isError && (
-          <p className="text-sm text-red-600">
+          <p className="text-sm text-red-600 dark:text-red-400">
             {(reposQuery.error as Error).message}
           </p>
         )}
@@ -235,10 +235,10 @@ export default function WikiPage() {
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-gray-700 dark:bg-gray-900">
           <div className="flex flex-wrap gap-2">
-            {tabBtn("page", t.wiki.tabPage, <LayoutGrid size={14} className="text-sky-600" aria-hidden />)}
-            {tabBtn("health", t.wiki.tabHealth, <Activity size={14} className="text-emerald-600" aria-hidden />)}
-            {tabBtn("insights", t.wiki.tabInsights, <Network size={14} className="text-violet-600" aria-hidden />)}
-            {tabBtn("export", t.wiki.tabExport, <FileOutput size={14} className="text-sky-600" aria-hidden />)}
+            {tabBtn("page", t.wiki.tabPage, <LayoutGrid size={14} className="text-sky-600 dark:text-sky-400" aria-hidden />)}
+            {tabBtn("health", t.wiki.tabHealth, <Activity size={14} className="text-emerald-600 dark:text-emerald-400" aria-hidden />)}
+            {tabBtn("insights", t.wiki.tabInsights, <Network size={14} className="text-violet-600 dark:text-violet-400" aria-hidden />)}
+            {tabBtn("export", t.wiki.tabExport, <FileOutput size={14} className="text-sky-600 dark:text-sky-400" aria-hidden />)}
           </div>
           <button
             type="button"

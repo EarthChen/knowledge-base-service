@@ -52,9 +52,11 @@ const ICON_MAP = {
 };
 
 const STYLE_MAP = {
-  success: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  error: "border-red-200 bg-red-50 text-red-700",
-  info: "border-sky-200 bg-sky-50 text-sky-700",
+  success:
+    "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300",
+  error:
+    "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/80 dark:text-red-300",
+  info: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/80 dark:text-sky-300",
 };
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
@@ -71,7 +73,10 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
     >
       <Icon size={16} />
       <span className="max-w-xs">{toast.message}</span>
-      <button onClick={onDismiss} className="ml-2 opacity-60 hover:opacity-100">
+      <button
+        onClick={onDismiss}
+        className="ml-2 rounded p-0.5 opacity-60 hover:opacity-100 dark:text-gray-200"
+      >
         <X size={14} />
       </button>
     </div>

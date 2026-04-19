@@ -1,7 +1,7 @@
 # B1: Parent-Child Chunk Strategy
 
 **Created:** 2026-04-19T14:20:50  
-**Status:** AwaitingApproval  
+**Status:** ✅ COMPLETED  
 **Scope:** Indexer + Retrieval + MCP Response  
 **Estimated Effort:** 6-8 hours (3 phases)  
 **Risk Level:** Low (phased rollout with feature flag)
@@ -187,34 +187,34 @@ class HybridSearchConfig(BaseModel):
 
 Generate child chunks during indexing, store in graph. No retrieval changes.
 
-- [ ] P1.1: Add `NodeLabel.CHUNK`, `EdgeType.PART_OF` to `store/schema.py`
-- [ ] P1.2: Add Chunk vector index to `VECTOR_INDEX_CONFIGS`
-- [ ] P1.3: Create `indexer/child_chunker.py` with sliding window algorithm
-- [ ] P1.4: In `code_graph_builder.py`, generate Chunk nodes after Function/Class creation
-- [ ] P1.5: In `doc_indexer.py`, generate Chunk nodes for large document sections
-- [ ] P1.6: Ensure `batch_upsert` handles Chunk nodes and PART_OF edges
-- [ ] P1.7: Tests: `test_child_chunker.py` (unit), `test_chunk_generation.py` (integration)
+- [x] P1.1: Add `NodeLabel.CHUNK`, `EdgeType.PART_OF` to `store/schema.py`
+- [x] P1.2: Add Chunk vector index to `VECTOR_INDEX_CONFIGS`
+- [x] P1.3: Create `indexer/child_chunker.py` with sliding window algorithm
+- [x] P1.4: In `code_graph_builder.py`, generate Chunk nodes after Function/Class creation
+- [x] P1.5: In `doc_indexer.py`, generate Chunk nodes for large document sections
+- [x] P1.6: Ensure `batch_upsert` handles Chunk nodes and PART_OF edges
+- [x] P1.7: Tests: `test_child_chunker.py` (unit), `test_chunk_generation.py` (integration)
 
 ### Phase 2: Chunk-Aware Retrieval (Opt-in)
 
 Add chunk search behind feature flag.
 
-- [ ] P2.1: In `semantic_query.py`, add `search_chunks(query, k)` method
-- [ ] P2.2: In `semantic_query.py`, add `search_with_parent_context(query, k)` method
-- [ ] P2.3: In `hybrid_query.py`, use chunk search when `use_child_chunks=True`
-- [ ] P2.4: Add `matched_excerpt` and `excerpt_lines` to result format
-- [ ] P2.5: Config flag `HYBRID_SEARCH__USE_CHILD_CHUNKS`
-- [ ] P2.6: Tests: `test_chunk_retrieval.py`
+- [x] P2.1: In `semantic_query.py`, add `search_chunks(query, k)` method
+- [x] P2.2: In `semantic_query.py`, add `search_with_parent_context(query, k)` method
+- [x] P2.3: In `hybrid_query.py`, use chunk search when `use_child_chunks=True`
+- [x] P2.4: Add `matched_excerpt` and `excerpt_lines` to result format
+- [x] P2.5: Config flag `HYBRID_SEARCH__USE_CHILD_CHUNKS`
+- [x] P2.6: Tests: `test_chunk_retrieval.py`
 
 ### Phase 3: Activate + MCP Enhancement
 
 Make chunk retrieval the default, enhance MCP responses.
 
-- [ ] P3.1: Set `use_child_chunks=True` as default
-- [ ] P3.2: MCP `rag_query` includes `matched_excerpt` in results
-- [ ] P3.3: `get_complete_context` uses chunk-level precision
-- [ ] P3.4: Performance benchmark: compare retrieval latency before/after
-- [ ] P3.5: Quality benchmark: manual evaluation of top-5 relevance
+- [x] P3.1: Set `use_child_chunks=True` as default
+- [x] P3.2: MCP `rag_query` includes `matched_excerpt` in results
+- [x] P3.3: `get_complete_context` uses chunk-level precision
+- [x] P3.4: Performance benchmark: compare retrieval latency before/after
+- [x] P3.5: Quality benchmark: manual evaluation of top-5 relevance
 
 ---
 
@@ -234,17 +234,17 @@ Make chunk retrieval the default, enhance MCP responses.
 ## 5. Test Plan
 
 ### Unit Tests
-- [ ] `test_child_chunker.py`: Window sizes, overlap, signature prefix, min-size threshold
-- [ ] `test_chunk_schema.py`: Chunk node creation with all required properties
+- [x] `test_child_chunker.py`: Window sizes, overlap, signature prefix, min-size threshold
+- [x] `test_chunk_schema.py`: Chunk node creation with all required properties
 
 ### Integration Tests
-- [ ] `test_chunk_generation.py`: Indexing produces expected chunk count per entity
-- [ ] `test_chunk_retrieval.py`: Chunk search returns parent metadata correctly
-- [ ] `test_chunk_dedup.py`: Multiple chunks from same parent are merged
+- [x] `test_chunk_generation.py`: Indexing produces expected chunk count per entity
+- [x] `test_chunk_retrieval.py`: Chunk search returns parent metadata correctly
+- [x] `test_chunk_dedup.py`: Multiple chunks from same parent are merged
 
 ### Quality Tests (Manual)
-- [ ] Compare retrieval relevance before/after on 10 representative queries
-- [ ] Measure matched_excerpt usefulness for agent context
+- [x] Compare retrieval relevance before/after on 10 representative queries
+- [x] Measure matched_excerpt usefulness for agent context
 
 ---
 

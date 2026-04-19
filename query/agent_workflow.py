@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from log import get_logger
+from store.analysis_store import AnalysisStore
 
 if TYPE_CHECKING:
     from store.falkordb_store import FalkorDBStore
@@ -156,8 +157,13 @@ def parse_diff_changed_lines(diff_text: str) -> dict[str, list[tuple[int, int]]]
 class AgentWorkflowService:
     """Composite queries for AI agent workflows."""
 
-    def __init__(self, store: FalkorDBStore) -> None:
+    def __init__(
+        self,
+        store: FalkorDBStore,
+        analysis_store: AnalysisStore | None = None,
+    ) -> None:
         self._store = store
+        self._analysis = analysis_store or AnalysisStore(store)
 
     _GIT_DIFF_TIMEOUT_SECONDS = 30
     _SAFE_REF_PATTERN = re.compile(r"^[\w./-]+$")
@@ -319,24 +325,8 @@ class AgentWorkflowService:
         seen_uids: set[str] = set()
 
         for file_path in changed_files[:50]:
-            repo_filter = "AND n.repository = $repo " if repository else ""
-            params: dict[str, Any] = {"file_suffix": file_path}
-            if repository:
-                params["repo"] = repository
-
             try:
-                res = await self._store.execute_query(
-                    "MATCH (n) "
-                    "WHERE (n:Function OR n:Class) AND n.file ENDS WITH $file_suffix "
-                    + repo_filter +
-                    "RETURN n.uid AS uid, n.name AS name, n.file AS file, "
-                    "n.start_line AS start_line, n.end_line AS end_line, "
-                    "labels(n)[0] AS entity_type, "
-                    "n.semantic_roles AS semantic_roles, "
-                    "n.architecture_layer AS architecture_layer, "
-                    "n.signature AS signature",
-                    params,
-                )
+                res = await self._analysis.agent_find_changed_entities(file_path, repository)
             except Exception as exc:
                 log.warning("find_changed_entities_query_failed", file=file_path, error=str(exc))
                 continue
@@ -389,23 +379,7 @@ class AgentWorkflowService:
         depth_cap = max(1, min(max_depth, 20))
 
         try:
-            cypher = (
-                f"MATCH p=(target:Function)<-[:CALLS*1..{depth_cap}]-(caller:Function) "
-                "WHERE target.name IN $names "
-                "OPTIONAL MATCH (pc:Class)-[:CONTAINS]->(caller) "
-                "RETURN "
-                "target.name AS target_name, "
-                "caller.uid AS caller_uid, "
-                "caller.name AS caller_name, "
-                "caller.file AS caller_file, "
-                "caller.semantic_roles AS caller_semantic_roles, "
-                "caller.architecture_layer AS caller_architecture_layer, "
-                "pc.name AS parent_class_name, "
-                "pc.semantic_roles AS parent_class_semantic_roles, "
-                "length(p) AS depth "
-                "ORDER BY depth LIMIT 1000"
-            )
-            res = await self._store.execute_query(cypher, {"names": func_names})
+            res = await self._analysis.agent_batch_impact_analysis(func_names, depth_cap)
         except Exception as exc:
             log.error("batch_impact_analysis_failed", error=str(exc))
             return results
@@ -451,14 +425,7 @@ class AgentWorkflowService:
             })
 
         try:
-            cross_repo_res = await self._store.execute_query(
-                "MATCH (f:Function)-[r:CROSS_REPO_CALLS]->(c:Class) "
-                "WHERE f.name IN $names "
-                "RETURN f.name AS consumer_name, f.repository AS source_repo, "
-                "c.name AS provider_name, c.repository AS target_repo, "
-                "r.interface AS interface",
-                {"names": func_names},
-            )
+            cross_repo_res = await self._analysis.agent_cross_repo_impact_by_names(func_names)
             cross_repo_by_name: dict[str, list[dict[str, Any]]] = {}
             for row in cross_repo_res.data:
                 name = row.get("consumer_name") or ""
@@ -534,26 +501,9 @@ class AgentWorkflowService:
         self, name: str, entity_type: str, repository: str | None
     ) -> dict[str, Any] | None:
         label = "Function" if entity_type == "function" else "Class"
-        repo_filter = "AND n.repository = $repo " if repository else ""
-        params: dict[str, Any] = {"name": name}
-        if repository:
-            params["repo"] = repository
 
         try:
-            res = await self._store.execute_query(
-                f"MATCH (n:{label}) "
-                f"WHERE (n.name = $name OR n.fqn ENDS WITH $name) {repo_filter}"
-                "RETURN n.uid AS uid, n.name AS name, n.file AS file, "
-                "n.start_line AS start_line, n.end_line AS end_line, "
-                "n.signature AS signature, n.code_snippet AS code_snippet, "
-                "n.docstring AS docstring, n.fqn AS fqn, "
-                "n.semantic_roles AS semantic_roles, "
-                "n.architecture_layer AS architecture_layer, "
-                "n.repository AS repository, "
-                "n.annotations AS annotations "
-                "LIMIT 1",
-                params,
-            )
+            res = await self._analysis.agent_find_target_entity(label, name, repository)
             if res.data:
                 row = res.data[0]
                 row["entity_type"] = label
@@ -564,15 +514,7 @@ class AgentWorkflowService:
 
     async def _get_callers(self, uid: str, label: str) -> list[dict[str, Any]]:
         try:
-            res = await self._store.execute_query(
-                f"MATCH (caller:Function)-[:CALLS]->(target:{label} {{uid: $uid}}) "
-                "OPTIONAL MATCH (pc:Class)-[:CONTAINS]->(caller) "
-                "RETURN caller.uid AS uid, caller.name AS name, caller.file AS file, "
-                "caller.signature AS signature, caller.architecture_layer AS layer, "
-                "pc.name AS parent_class "
-                f"LIMIT {_MAX_CONTEXT_ITEMS}",
-                {"uid": uid},
-            )
+            res = await self._analysis.agent_get_callers(label, uid, _MAX_CONTEXT_ITEMS)
             return res.data
         except Exception as exc:
             log.warning("get_callers_failed", uid=uid, error=str(exc))
@@ -581,25 +523,9 @@ class AgentWorkflowService:
     async def _get_callees(self, uid: str, label: str) -> list[dict[str, Any]]:
         try:
             if label == "Function":
-                res = await self._store.execute_query(
-                    "MATCH (source:Function {uid: $uid})-[:CALLS]->(callee:Function) "
-                    "OPTIONAL MATCH (pc:Class)-[:CONTAINS]->(callee) "
-                    "RETURN callee.uid AS uid, callee.name AS name, callee.file AS file, "
-                    "callee.signature AS signature, callee.architecture_layer AS layer, "
-                    "pc.name AS parent_class "
-                    f"LIMIT {_MAX_CONTEXT_ITEMS}",
-                    {"uid": uid},
-                )
+                res = await self._analysis.agent_get_callees_function(uid, _MAX_CONTEXT_ITEMS)
             else:
-                res = await self._store.execute_query(
-                    "MATCH (cls:Class {uid: $uid})-[:CONTAINS]->(m:Function)-[:CALLS]->(callee:Function) "
-                    "OPTIONAL MATCH (pc:Class)-[:CONTAINS]->(callee) "
-                    "RETURN DISTINCT callee.uid AS uid, callee.name AS name, callee.file AS file, "
-                    "callee.signature AS signature, callee.architecture_layer AS layer, "
-                    "pc.name AS parent_class "
-                    f"LIMIT {_MAX_CONTEXT_ITEMS}",
-                    {"uid": uid},
-                )
+                res = await self._analysis.agent_get_callees_class(uid, _MAX_CONTEXT_ITEMS)
             return res.data
         except Exception as exc:
             log.warning("get_callees_failed", uid=uid, error=str(exc))
@@ -610,42 +536,22 @@ class AgentWorkflowService:
     ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
         if label == "Class":
             try:
-                methods = await self._store.execute_query(
-                    "MATCH (c:Class {uid: $uid})-[:CONTAINS]->(m:Function) "
-                    "RETURN m.uid AS uid, m.name AS name, m.signature AS signature, "
-                    "m.architecture_layer AS layer "
-                    f"LIMIT {_MAX_CONTEXT_ITEMS}",
-                    {"uid": uid},
-                )
+                methods = await self._analysis.agent_class_methods_only(uid, _MAX_CONTEXT_ITEMS)
                 return None, methods.data
             except Exception as exc:
                 log.warning("get_class_methods_failed", uid=uid, error=str(exc))
                 return None, []
 
         try:
-            parent_res = await self._store.execute_query(
-                "MATCH (c:Class)-[:CONTAINS]->(f:Function {uid: $uid}) "
-                "RETURN c.uid AS uid, c.name AS name, c.file AS file, "
-                "c.fqn AS fqn, c.signature AS signature, "
-                "c.semantic_roles AS semantic_roles, "
-                "c.architecture_layer AS architecture_layer, "
-                "c.base_classes AS base_classes "
-                "LIMIT 1",
-                {"uid": uid},
-            )
+            parent_res = await self._analysis.agent_parent_of_function(uid)
             if not parent_res.data:
                 return None, []
 
             parent = parent_res.data[0]
             parent_uid = parent.get("uid") or ""
 
-            siblings = await self._store.execute_query(
-                "MATCH (c:Class {uid: $cls_uid})-[:CONTAINS]->(m:Function) "
-                "WHERE m.uid <> $func_uid "
-                "RETURN m.uid AS uid, m.name AS name, m.signature AS signature, "
-                "m.architecture_layer AS layer "
-                f"LIMIT {_MAX_CONTEXT_ITEMS}",
-                {"cls_uid": parent_uid, "func_uid": uid},
+            siblings = await self._analysis.agent_sibling_methods(
+                parent_uid, uid, _MAX_CONTEXT_ITEMS,
             )
             return parent, siblings.data
 
@@ -675,21 +581,9 @@ class AgentWorkflowService:
         rpc_contracts: list[dict[str, Any]] = []
         try:
             if label == "Function":
-                res = await self._store.execute_query(
-                    "MATCH (f:Function {uid: $uid})-[r:CROSS_REPO_CALLS]->(c:Class) "
-                    "RETURN c.uid AS uid, c.name AS name, c.repository AS repository, "
-                    "c.fqn AS fqn, r.interface AS interface, r.target_repo AS target_repo "
-                    f"LIMIT {_MAX_CONTEXT_ITEMS}",
-                    {"uid": uid},
-                )
+                res = await self._analysis.agent_cross_repo_from_function(uid, _MAX_CONTEXT_ITEMS)
             else:
-                res = await self._store.execute_query(
-                    "MATCH (f:Function)-[r:CROSS_REPO_CALLS]->(c:Class {uid: $uid}) "
-                    "RETURN f.uid AS uid, f.name AS name, f.repository AS repository, "
-                    "f.fqn AS fqn, r.interface AS interface, r.source_repo AS source_repo "
-                    f"LIMIT {_MAX_CONTEXT_ITEMS}",
-                    {"uid": uid},
-                )
+                res = await self._analysis.agent_cross_repo_to_class(uid, _MAX_CONTEXT_ITEMS)
             deps = res.data
         except Exception as exc:
             log.warning("get_cross_repo_context_failed", uid=uid, error=str(exc))
@@ -699,13 +593,8 @@ class AgentWorkflowService:
             class_uid = uid if label == "Class" else (parent_class or {}).get("uid")
             if class_uid:
                 try:
-                    cres = await self._store.execute_query(
-                        "MATCH (c:Class {uid: $uid})-[:IMPLEMENTS]->(iface:Class) "
-                        "WHERE coalesce(iface.is_rpc_contract, false) = true "
-                        "RETURN iface.uid AS uid, iface.name AS name, iface.fqn AS fqn, "
-                        "iface.contract_methods AS contract_methods "
-                        f"LIMIT {_MAX_CONTEXT_ITEMS}",
-                        {"uid": class_uid},
+                    cres = await self._analysis.agent_rpc_interface_contracts(
+                        str(class_uid), _MAX_CONTEXT_ITEMS,
                     )
                     rpc_contracts = cres.data
                 except Exception as exc:
@@ -728,11 +617,7 @@ class AgentWorkflowService:
             func_uids = [uid]
         else:
             try:
-                res = await self._store.execute_query(
-                    "MATCH (c:Class {uid: $uid})-[:CONTAINS]->(f:Function) "
-                    "RETURN f.uid AS uid LIMIT 200",
-                    {"uid": uid},
-                )
+                res = await self._analysis.agent_class_function_uids(uid)
                 func_uids = [r["uid"] for r in res.data if r.get("uid")]
             except Exception as exc:
                 log.warning("get_event_context_class_methods_failed", uid=uid, error=str(exc))
@@ -742,18 +627,8 @@ class AgentWorkflowService:
             return {"consumes": [], "produces": []}
 
         try:
-            c_res = await self._store.execute_query(
-                "MATCH (f:Function)-[:EVENT_CONSUMES]->(m:Module) "
-                "WHERE f.uid IN $uids "
-                "RETURN DISTINCT coalesce(m.kafka_topic, m.name) AS topic",
-                {"uids": func_uids},
-            )
-            p_res = await self._store.execute_query(
-                "MATCH (f:Function)-[:EVENT_PRODUCES]->(m:Module) "
-                "WHERE f.uid IN $uids "
-                "RETURN DISTINCT coalesce(m.kafka_topic, m.name) AS topic",
-                {"uids": func_uids},
-            )
+            c_res = await self._analysis.agent_event_consumes(func_uids)
+            p_res = await self._analysis.agent_event_produces(func_uids)
             consumes = sorted({r["topic"] for r in c_res.data if r.get("topic")})
             produces = sorted({r["topic"] for r in p_res.data if r.get("topic")})
             return {"consumes": consumes, "produces": produces}
@@ -768,13 +643,7 @@ class AgentWorkflowService:
         if not class_uid:
             return []
         try:
-            res = await self._store.execute_query(
-                "MATCH (dao:Class {uid: $uid})-[r:ACCESSES_TABLE]->(entity:Class) "
-                "RETURN entity.uid AS uid, entity.name AS name, entity.fqn AS fqn, "
-                "entity.table_name AS table_name, r.table_name AS rel_table_name "
-                f"LIMIT {_MAX_CONTEXT_ITEMS}",
-                {"uid": class_uid},
-            )
+            res = await self._analysis.agent_entity_tables(str(class_uid), _MAX_CONTEXT_ITEMS)
             return res.data
         except Exception as exc:
             log.warning("get_entity_table_context_failed", uid=class_uid, error=str(exc))
@@ -787,14 +656,7 @@ class AgentWorkflowService:
         if not class_uid:
             return []
         try:
-            res = await self._store.execute_query(
-                "MATCH (source:Class {uid: $uid})-[r:DEPENDS_ON]->(target:Class) "
-                "RETURN target.uid AS uid, target.name AS name, target.fqn AS fqn, "
-                "target.architecture_layer AS layer, r.injection_type AS injection_type, "
-                "r.field_name AS field_name "
-                f"LIMIT {_MAX_CONTEXT_ITEMS}",
-                {"uid": class_uid},
-            )
+            res = await self._analysis.agent_di_dependencies(str(class_uid), _MAX_CONTEXT_ITEMS)
             return res.data
         except Exception as exc:
             log.warning("get_di_dependencies_failed", uid=class_uid, error=str(exc))
@@ -807,12 +669,7 @@ class AgentWorkflowService:
         if not class_uid:
             return []
         try:
-            res = await self._store.execute_query(
-                "MATCH (c:Class {uid: $uid})-[:IMPLEMENTS]->(iface:Class) "
-                "RETURN iface.uid AS uid, iface.name AS name, iface.fqn AS fqn "
-                f"LIMIT {_MAX_CONTEXT_ITEMS}",
-                {"uid": class_uid},
-            )
+            res = await self._analysis.agent_related_interfaces(str(class_uid), _MAX_CONTEXT_ITEMS)
             return res.data
         except Exception as exc:
             log.warning("get_interface_context_failed", uid=class_uid, error=str(exc))
@@ -863,14 +720,7 @@ class AgentWorkflowService:
         if len(needle) < 2:
             return False
         try:
-            res = await self._store.execute_query(
-                "MATCH (t:Function) "
-                "WHERE toLower(t.file) CONTAINS 'test' "
-                "AND t.code_snippet IS NOT NULL AND t.code_snippet <> '' "
-                "AND t.code_snippet CONTAINS $needle "
-                "RETURN t.uid AS uid LIMIT 1",
-                {"needle": needle},
-            )
+            res = await self._analysis.agent_has_test_reference(needle)
             return bool(res.data)
         except Exception as exc:
             log.warning("has_test_reference_query_failed", error=str(exc))
@@ -890,15 +740,7 @@ class AgentWorkflowService:
             type_clause = "n:Function OR n:Class"
 
         try:
-            res = await self._store.execute_query(
-                f"MATCH (n {{uid: $uid}}) WHERE {type_clause} "
-                "RETURN labels(n)[0] AS label, n.name AS name, "
-                "coalesce(n.signature, '') AS signature, "
-                "coalesce(n.code_snippet, '') AS code_snippet, "
-                "coalesce(n.docstring, '') AS docstring, "
-                "n.semantic_roles AS semantic_roles",
-                {"uid": uid},
-            )
+            res = await self._analysis.agent_quality_score_lookup(uid, type_clause)
         except Exception as exc:
             log.warning("compute_quality_score_lookup_failed", uid=uid, error=str(exc))
             return {

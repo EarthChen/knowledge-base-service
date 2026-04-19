@@ -8,19 +8,10 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from log import get_logger
+from store.analysis_store import AnalysisStore
 from store.falkordb_store import FalkorDBStore, QueryResultWrapper
 
 log = get_logger(__name__)
-
-_REPO_PARAM = "repo"
-
-# Distinctive markers for tests and debugging (stable routing under concurrent queries).
-_Q_STATS = "__GRAPH_INSIGHTS_Q_STATS__"
-_Q_ISOLATED = "__GRAPH_INSIGHTS_Q_ISOLATED__"
-_Q_CYCLES = "__GRAPH_INSIGHTS_Q_CYCLES__"
-_Q_CROSS_LAYER = "__GRAPH_INSIGHTS_Q_CROSS_LAYER__"
-_Q_COHESION = "__GRAPH_INSIGHTS_Q_COHESION__"
-_Q_BRIDGE = "__GRAPH_INSIGHTS_Q_BRIDGE__"
 
 _CYCLE_QUERY_TIMEOUT_SEC = 8.0
 
@@ -55,8 +46,12 @@ class InsightsReport:
 class GraphInsightsService:
     """Detects architecture anomalies for one repository using the FalkorDB graph."""
 
-    def __init__(self, store: FalkorDBStore) -> None:
-        self._store = store
+    def __init__(
+        self,
+        store: FalkorDBStore,
+        analysis_store: AnalysisStore | None = None,
+    ) -> None:
+        self._analysis = analysis_store or AnalysisStore(store)
 
     async def analyze(self, repository: str) -> InsightsReport:
         analyzed_at = datetime.now(timezone.utc).isoformat()
@@ -90,22 +85,7 @@ class GraphInsightsService:
         )
 
     async def _collect_graph_stats(self, repository: str) -> dict[str, int]:
-        cypher = f"""
-// {_Q_STATS}
-MATCH (c:Class) WHERE c.repository = ${_REPO_PARAM}
-WITH count(c) AS class_count
-MATCH (m:Module) WHERE m.repository = ${_REPO_PARAM}
-WITH class_count, count(m) AS module_count
-OPTIONAL MATCH (a)-[r:CALLS]->(b)
-WHERE (a:Class OR a:Function) AND (b:Class OR b:Function)
-  AND a.repository = ${_REPO_PARAM} AND b.repository = ${_REPO_PARAM}
-WITH class_count, module_count, count(r) AS calls_same_repo
-OPTIONAL MATCH (x:Module)-[i:IMPORTS]->(y:Module)
-WHERE x.repository = ${_REPO_PARAM} AND y.repository = ${_REPO_PARAM}
-RETURN class_count, module_count, calls_same_repo, count(i) AS imports_same_repo
-""".strip()
-        params = {_REPO_PARAM: repository}
-        rows = await self._store.execute_query(cypher, params)
+        rows = await self._analysis.collect_graph_stats(repository)
         if not rows.data:
             return {
                 "class_count": 0,
@@ -122,14 +102,7 @@ RETURN class_count, module_count, calls_same_repo, count(i) AS imports_same_repo
         }
 
     async def _find_isolated_entities(self, repository: str) -> list[InsightItem]:
-        cypher = f"""
-// {_Q_ISOLATED}
-MATCH (n:Class)
-WHERE n.repository = ${_REPO_PARAM}
-  AND NOT (n)-[:CALLS|INHERITS|IMPORTS|CONTAINS]-()
-RETURN n.name AS name, coalesce(n.fqn, '') AS fqn
-""".strip()
-        rows = await self._store.execute_query(cypher, {_REPO_PARAM: repository})
+        rows = await self._analysis.find_isolated_entities(repository)
         out: list[InsightItem] = []
         for row in rows.data:
             name = str(row.get("name") or "")
@@ -154,18 +127,9 @@ RETURN n.name AS name, coalesce(n.fqn, '') AS fqn
         return out
 
     async def _find_circular_dependencies(self, repository: str) -> list[InsightItem]:
-        cypher = f"""
-// {_Q_CYCLES}
-MATCH p = (a:Module)-[:IMPORTS*2..5]->(a)
-WHERE a.repository = ${_REPO_PARAM}
-WITH nodes(p) AS ns
-RETURN [x IN ns | coalesce(x.name, x.path, '')] AS module_path
-LIMIT 50
-""".strip()
-        params = {_REPO_PARAM: repository}
         try:
             rows: QueryResultWrapper = await asyncio.wait_for(
-                self._store.execute_query(cypher, params),
+                self._analysis.find_circular_dependencies(repository),
                 timeout=_CYCLE_QUERY_TIMEOUT_SEC,
             )
         except TimeoutError:
@@ -226,16 +190,7 @@ LIMIT 50
         return out
 
     async def _find_cross_layer_violations(self, repository: str) -> list[InsightItem]:
-        cypher = f"""
-// {_Q_CROSS_LAYER}
-MATCH (ctrl:Class)-[:CALLS]->(repo:Class)
-WHERE ctrl.repository = ${_REPO_PARAM}
-  AND 'http_controller' IN coalesce(ctrl.semantic_roles, [])
-  AND 'repository' IN coalesce(repo.semantic_roles, [])
-RETURN ctrl.name AS ctrl_name, repo.name AS repo_name,
-       coalesce(ctrl.fqn, '') AS ctrl_fqn, coalesce(repo.fqn, '') AS repo_fqn
-""".strip()
-        rows = await self._store.execute_query(cypher, {_REPO_PARAM: repository})
+        rows = await self._analysis.find_cross_layer_violations(repository)
         out: list[InsightItem] = []
         for row in rows.data:
             cn = str(row.get("ctrl_name") or "")
@@ -261,23 +216,7 @@ RETURN ctrl.name AS ctrl_name, repo.name AS repo_name,
         return out
 
     async def _compute_module_cohesion(self, repository: str) -> list[InsightItem]:
-        cypher = f"""
-// {_Q_COHESION}
-MATCH (m:Module) WHERE m.repository = ${_REPO_PARAM}
-MATCH (m)-[:CONTAINS]->(c1:Class)
-MATCH (m)-[:CONTAINS]->(c2:Class)
-WHERE id(c1) <> id(c2) AND (c1)-[:CALLS]->(c2)
-WITH m, count(*) AS internal_calls
-MATCH (m)-[:CONTAINS]->(all:Class)
-WITH m, internal_calls, count(DISTINCT all) AS class_count
-WHERE class_count > 1
-WITH m, internal_calls, class_count,
-  toFloat(internal_calls) / toFloat(class_count * (class_count - 1)) AS cohesion
-WHERE cohesion < 0.15
-RETURN coalesce(m.name, '') AS module_name, coalesce(m.path, '') AS module_path,
-       internal_calls, class_count, cohesion
-""".strip()
-        rows = await self._store.execute_query(cypher, {_REPO_PARAM: repository})
+        rows = await self._analysis.compute_module_cohesion_insights(repository)
         out: list[InsightItem] = []
         for row in rows.data:
             mn = str(row.get("module_name") or "")
@@ -305,17 +244,7 @@ RETURN coalesce(m.name, '') AS module_name, coalesce(m.path, '') AS module_path,
         return out
 
     async def _find_bridge_nodes(self, repository: str) -> list[InsightItem]:
-        cypher = f"""
-// {_Q_BRIDGE}
-MATCH (c:Class)
-WHERE c.repository = ${_REPO_PARAM}
-MATCH (c)-[:CALLS|INHERITS]-(other:Class)
-WHERE other.repository = ${_REPO_PARAM} AND other.architecture_layer IS NOT NULL
-WITH c, collect(DISTINCT other.architecture_layer) AS layers
-WHERE size(layers) >= 3
-RETURN c.name AS name, coalesce(c.fqn, '') AS fqn, layers
-""".strip()
-        rows = await self._store.execute_query(cypher, {_REPO_PARAM: repository})
+        rows = await self._analysis.find_bridge_nodes(repository)
         out: list[InsightItem] = []
         for row in rows.data:
             name = str(row.get("name") or "")
@@ -340,3 +269,4 @@ RETURN c.name AS name, coalesce(c.fqn, '') AS fqn, layers
                 ),
             )
         return out
+

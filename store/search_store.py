@@ -6,7 +6,7 @@ import asyncio
 from typing import Any
 
 from log import get_logger
-from store.falkordb_store import FalkorDBStore
+from store.falkordb_store import FalkorDBStore, QueryResultWrapper
 from store.schema import NodeLabel
 
 log = get_logger(__name__)
@@ -165,3 +165,16 @@ class SearchStore:
             repository=repository,
             language=language,
         )
+
+    async def fetch_parent_metadata_batch(self, parent_uids: list[str]) -> QueryResultWrapper:
+        """Batch-fetch signature/docstring/line-range of parent entities by UID."""
+        q = (
+            "UNWIND $uids AS uid "
+            "MATCH (n {uid: uid}) "
+            "RETURN n.uid AS uid, "
+            "coalesce(n.signature, '') AS signature, "
+            "coalesce(n.docstring, '') AS docstring, "
+            "coalesce(n.file, '') AS file, "
+            "n.start_line AS start_line, n.end_line AS end_line"
+        )
+        return await self._store.execute_query(q, {"uids": parent_uids})

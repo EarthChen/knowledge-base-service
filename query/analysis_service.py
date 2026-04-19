@@ -10,6 +10,7 @@ from typing import Any
 
 from config import get_settings
 from log import get_logger
+from store.analysis_store import AnalysisStore
 from store.falkordb_store import FalkorDBStore
 
 log = get_logger(__name__)
@@ -141,8 +142,13 @@ def _collect_repo_files_sync(
 
 
 class AnalysisService:
-    def __init__(self, store: FalkorDBStore) -> None:
+    def __init__(
+        self,
+        store: FalkorDBStore,
+        analysis_store: AnalysisStore | None = None,
+    ) -> None:
         self._store = store
+        self._analysis = analysis_store or AnalysisStore(store)
 
     async def analyze_impact(
         self,
@@ -164,30 +170,9 @@ class AnalysisService:
             depth_cap = max(1, min(int(max_depth), 50))
         except (TypeError, ValueError):
             depth_cap = 5
-        cypher = (
-            f"MATCH p=(target:Function)<-[:CALLS*1..{depth_cap}]-(caller:Function) "
-            "WHERE target.name IN $names "
-            "OPTIONAL MATCH (pc:Class)-[:CONTAINS]->(caller) "
-            "RETURN "
-            "caller.uid AS caller_uid, "
-            "caller.name AS caller_name, "
-            "caller.file AS caller_file, "
-            "caller.fqn AS caller_fqn, "
-            "caller.semantic_roles AS caller_semantic_roles, "
-            "caller.architecture_layer AS caller_architecture_layer, "
-            "pc.name AS parent_class_name, "
-            "pc.semantic_roles AS parent_class_semantic_roles, "
-            "length(p) AS depth, "
-            "target.name AS target_name "
-            "ORDER BY depth "
-            "LIMIT 2000"
-        )
 
         try:
-            result = await self._store.execute_query(
-                cypher,
-                params={"names": changed_functions},
-            )
+            result = await self._analysis.analyze_impact_callers(depth_cap, changed_functions)
         except Exception as exc:
             log.error("analyze_impact_query_failed", error=str(exc))
             raise
@@ -288,19 +273,8 @@ class AnalysisService:
         ext = set(supported_extensions) if supported_extensions else set(_DEFAULT_EXTENSIONS)
         exclude_dirs = set(get_settings().exclude_dirs)
 
-        if repository:
-            cypher = (
-                "MATCH (n) WHERE n.file IS NOT NULL AND n.repository = $repo "
-                "RETURN DISTINCT n.file AS file_path"
-            )
-        else:
-            cypher = (
-                "MATCH (n) WHERE n.file IS NOT NULL "
-                "RETURN DISTINCT n.file AS file_path"
-            )
-        params: dict[str, Any] = {"repo": repository} if repository else {}
         try:
-            gres = await self._store.execute_query(cypher, params)
+            gres = await self._analysis.verify_consistency_file_paths(repository)
         except Exception as exc:
             log.error("verify_consistency_graph_query_failed", error=str(exc))
             raise
@@ -343,18 +317,7 @@ class AnalysisService:
         # Stale detection when nodes expose last_indexed_at (optional property).
         stale_row_data: list[dict[str, Any]] = []
         try:
-            if repository:
-                stale_cypher = (
-                    "MATCH (n) WHERE n.file IS NOT NULL AND n.last_indexed_at IS NOT NULL "
-                    "AND n.repository = $repo "
-                    "RETURN DISTINCT n.file AS file_path, n.last_indexed_at AS last_indexed_at"
-                )
-            else:
-                stale_cypher = (
-                    "MATCH (n) WHERE n.file IS NOT NULL AND n.last_indexed_at IS NOT NULL "
-                    "RETURN DISTINCT n.file AS file_path, n.last_indexed_at AS last_indexed_at"
-                )
-            stale_rows = await self._store.execute_query(stale_cypher, params)
+            stale_rows = await self._analysis.verify_consistency_stale_paths(repository)
             stale_row_data = stale_rows.data
         except Exception as exc:
             log.warning("verify_consistency_stale_query_skipped", error=str(exc))

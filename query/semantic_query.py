@@ -13,6 +13,7 @@ from typing import Any
 from indexer.embedding_generator import EmbeddingGenerator
 from log import get_logger
 from store.falkordb_store import FalkorDBStore
+from store.search_store import SearchStore
 from store.schema import NodeLabel
 
 log = get_logger(__name__)
@@ -34,9 +35,11 @@ class SemanticQueryService:
         embedding_gen: EmbeddingGenerator,
         *,
         include_raw_docs_in_results: bool | None = None,
+        search_store: SearchStore | None = None,
     ) -> None:
         self._store = store
         self._embedding = embedding_gen
+        self._search = search_store or SearchStore(store)
         if include_raw_docs_in_results is None:
             try:
                 from config import get_settings
@@ -173,16 +176,7 @@ class SemanticQueryService:
         if not parent_uids:
             return {}
         try:
-            result = await self._store.execute_query(
-                "UNWIND $uids AS uid "
-                "MATCH (n {uid: uid}) "
-                "RETURN n.uid AS uid, "
-                "coalesce(n.signature, '') AS signature, "
-                "coalesce(n.docstring, '') AS docstring, "
-                "coalesce(n.file, '') AS file, "
-                "n.start_line AS start_line, n.end_line AS end_line",
-                {"uids": parent_uids},
-            )
+            result = await self._search.fetch_parent_metadata_batch(parent_uids)
             return {row["uid"]: row for row in result.data if row.get("uid")}
         except Exception:
             log.debug("parent_metadata_batch_fetch_failed", count=len(parent_uids), exc_info=True)

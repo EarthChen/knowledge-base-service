@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
+from store.analysis_store import AnalysisStore
 from store.falkordb_store import FalkorDBStore
 
 
@@ -20,8 +21,12 @@ def _majority_label(neighbor_labels: list[int]) -> int:
 class CommunityDetector:
     """Detect code communities using label propagation on the code graph."""
 
-    def __init__(self, store: FalkorDBStore) -> None:
-        self._store = store
+    def __init__(
+        self,
+        store: FalkorDBStore,
+        analysis_store: AnalysisStore | None = None,
+    ) -> None:
+        self._analysis = analysis_store or AnalysisStore(store)
 
     async def detect(
         self,
@@ -32,25 +37,8 @@ class CommunityDetector:
         """Detect communities in the code graph."""
         min_sz = max(2, min(int(min_community_size), 500))
 
-        nodes_q = """
-            MATCH (n)
-            WHERE (n:Function OR n:Class)
-            AND ($repository IS NULL OR n.repository = $repository)
-            /* community_nodes */
-            RETURN n.uid AS uid, n.name AS name, labels(n)[0] AS typ,
-            coalesce(n.file, '') AS file
-        """
-        edges_q = """
-            MATCH (a)-[r:CALLS|INHERITS|IMPORTS]->(b)
-            WHERE (a:Function OR a:Class) AND (b:Function OR b:Class)
-            AND ($repository IS NULL OR (a.repository = $repository AND b.repository = $repository))
-            /* community_edges */
-            RETURN a.uid AS src, b.uid AS tgt
-        """
-
-        params = {"repository": repository}
-        nrows = (await self._store.execute_query(nodes_q, params)).data
-        erows = (await self._store.execute_query(edges_q, params)).data
+        nrows = (await self._analysis.fetch_community_nodes(repository)).data
+        erows = (await self._analysis.fetch_community_edges(repository)).data
 
         if not nrows:
             return {

@@ -32,8 +32,10 @@ from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
 from query.reranker import Reranker
 from query.semantic_query import SemanticQueryService
+from store.analysis_store import AnalysisStore
 from store.falkordb_store import FalkorDBStore
 from store.search_store import SearchStore
+from store.traversal_store import TraversalStore
 
 log = get_logger(__name__)
 
@@ -149,15 +151,17 @@ class KnowledgeBaseService:
             repo_task_manager=self._repo_task_mgr,
         )
 
-        self._graph_query = GraphQueryService(store=self._store)
+        self._traversal_store = TraversalStore(self._store)
+        self._search_store = SearchStore(self._store)
+        self._analysis_store = AnalysisStore(self._store)
+        self._graph_query = GraphQueryService(store=self._store, traversal=self._traversal_store)
         self._semantic_query = SemanticQueryService(
             store=self._store,
             embedding_gen=self._embedding,
             include_raw_docs_in_results=settings.hybrid_search.include_raw_docs_in_results,
+            search_store=self._search_store,
         )
         self._reranker = Reranker(settings.rerank) if settings.rerank.enabled else None
-
-        self._search_store = SearchStore(self._store)
 
         self._hybrid_query = HybridQueryService(
             store=self._store,

@@ -6,7 +6,7 @@ from collections import Counter
 from collections import deque
 from typing import Any
 
-from query.graph_query import _make_params
+from store.analysis_store import AnalysisStore
 from store.falkordb_store import FalkorDBStore
 
 
@@ -21,8 +21,12 @@ def _confidence_for_depth(depth: int) -> float:
 class BlastRadiusAnalyzer:
     """Analyze the impact radius of code changes."""
 
-    def __init__(self, store: FalkorDBStore) -> None:
-        self._store = store
+    def __init__(
+        self,
+        store: FalkorDBStore,
+        analysis_store: AnalysisStore | None = None,
+    ) -> None:
+        self._analysis = analysis_store or AnalysisStore(store)
 
     async def analyze(
         self,
@@ -145,15 +149,7 @@ class BlastRadiusAnalyzer:
         }
 
     async def _resolve_entity(self, raw_name: str, repository: str | None) -> list[dict[str, Any]]:
-        params = {**_make_params(raw_name), "repository": repository}
-        query = (
-            "MATCH (n) WHERE (n:Function OR n:Class OR n:Module) "
-            "AND (n.fqn = $fqn OR n.name = $simple_name) "
-            "AND ($repository IS NULL OR n.repository = $repository) "
-            "RETURN n.uid AS uid, n.name AS name, labels(n)[0] AS typ, "
-            "coalesce(n.file, '') AS file, coalesce(n.start_line, 0) AS line"
-        )
-        result = await self._store.execute_query(query, params)
+        result = await self._analysis.resolve_entity(raw_name, repository)
         return result.data
 
     async def _incoming_neighbors(
@@ -163,31 +159,13 @@ class BlastRadiusAnalyzer:
     ) -> list[dict[str, Any]]:
         if not uids:
             return []
-        query = (
-            "UNWIND $uids AS uid "
-            "MATCH (entity {uid: uid}) "
-            "MATCH (nbr)-[r:CALLS|IMPORTS|INHERITS]->(entity) "
-            "WHERE ($repository IS NULL OR (entity.repository = $repository AND nbr.repository = $repository)) "
-            "RETURN DISTINCT nbr.uid AS uid, nbr.name AS name, labels(nbr)[0] AS typ, "
-            "coalesce(nbr.file, '') AS file, coalesce(nbr.start_line, 0) AS line, type(r) AS relation"
-        )
-        result = await self._store.execute_query(
-            query,
-            {"uids": uids, "repository": repository},
-        )
+        result = await self._analysis.find_incoming_neighbors(uids, repository)
         return result.data
 
     async def _hydrate_nodes(self, uids: list[str], repository: str | None) -> dict[str, dict[str, Any]]:
         if not uids:
             return {}
-        query = (
-            "UNWIND $uids AS uid "
-            "MATCH (n {uid: uid}) "
-            "WHERE $repository IS NULL OR n.repository = $repository "
-            "RETURN n.uid AS uid, n.name AS name, labels(n)[0] AS typ, "
-            "coalesce(n.file, '') AS file, coalesce(n.start_line, 0) AS line"
-        )
-        result = await self._store.execute_query(query, {"uids": uids, "repository": repository})
+        result = await self._analysis.hydrate_nodes(uids, repository)
         out: dict[str, dict[str, Any]] = {}
         for row in result.data:
             uid = str(row.get("uid") or "")

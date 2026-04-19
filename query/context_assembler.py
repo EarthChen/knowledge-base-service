@@ -10,6 +10,7 @@ from log import get_logger
 from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
 from store.falkordb_store import FalkorDBStore
+from store.traversal_store import TraversalStore
 
 log = get_logger(__name__)
 
@@ -44,10 +45,12 @@ class ContextAssembler:
         store: FalkorDBStore,
         hybrid_svc: HybridQueryService,
         graph_svc: GraphQueryService,
+        traversal_store: TraversalStore | None = None,
     ) -> None:
         self._store = store
         self._hybrid = hybrid_svc
         self._graph = graph_svc
+        self._traversal = traversal_store or TraversalStore(store)
 
     async def assemble(
         self,
@@ -166,28 +169,11 @@ class ContextAssembler:
         uid: Any,
         fallback: dict[str, Any],
     ) -> dict[str, Any]:
-        ret = (
-            "RETURN n.uid AS uid, n.name AS name, labels(n)[0] AS type, n.file AS file, "
-            "n.start_line AS start_line, n.end_line AS end_line, "
-            "coalesce(n.code_snippet, '') AS code_snippet, coalesce(n.docstring, '') AS docstring, "
-            "coalesce(n.signature, '') AS signature, coalesce(n.repository, '') AS repository "
-            "LIMIT 1"
-        )
-        if uid:
-            q = f"MATCH (n) WHERE n.uid = $uid {ret}"
-            params: dict[str, Any] = {"uid": str(uid)}
-        else:
-            params = {"name": name}
-            repo_clause = ""
-            if repository:
-                params["repo"] = repository.strip()
-                repo_clause = "AND n.repository = $repo "
-            q = (
-                f"MATCH (n) WHERE (n:Function OR n:Class) AND (n.name = $name OR n.fqn ENDS WITH $name) "
-                f"{repo_clause} {ret}"
-            )
         try:
-            res = await self._store.execute_query(q, params)
+            if uid:
+                res = await self._traversal.load_entity_details_by_uid(str(uid))
+            else:
+                res = await self._traversal.load_entity_details_by_name(name, repository)
             if res.data:
                 row = res.data[0]
                 return {
@@ -252,23 +238,9 @@ class ContextAssembler:
             return ""
         try:
             if repository:
-                q = (
-                    "MATCH (wp:WikiPage {repository: $repository}) "
-                    "WHERE wp.title CONTAINS $needle OR wp.path CONTAINS $needle "
-                    "RETURN wp.title AS title, wp.path AS path, coalesce(wp.content, '') AS content "
-                    "LIMIT 5"
-                )
-                rows = await self._store.execute_query(
-                    q, {"repository": repository.strip(), "needle": needle},
-                )
+                rows = await self._traversal.wiki_bundle_scoped(repository.strip(), needle)
             else:
-                q = (
-                    "MATCH (wp:WikiPage) "
-                    "WHERE wp.title CONTAINS $needle OR wp.path CONTAINS $needle "
-                    "RETURN wp.title AS title, wp.path AS path, coalesce(wp.content, '') AS content "
-                    "LIMIT 5"
-                )
-                rows = await self._store.execute_query(q, {"needle": needle})
+                rows = await self._traversal.wiki_bundle_global(needle)
             parts: list[str] = []
             for row in rows.data or []:
                 title = str(row.get("title") or "")

@@ -34,6 +34,7 @@ async def test_wire_wiki_app_state_sets_factory_and_services() -> None:
     assert app.state.wiki_search_service is not None
     assert app.state.wiki_ask_service is not None
     assert app.state.graph_query_service is mock_graph_query
+    assert app.state.wiki_store is mock_store
 
     wiki_svc = await app.state.wiki_service_factory()
     assert isinstance(wiki_svc, WikiService)

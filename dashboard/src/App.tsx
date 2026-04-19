@@ -27,7 +27,10 @@ export default function App() {
           <Route path="repositories" element={<Repositories />} />
           <Route path="documents" element={<Documents />} />
           <Route path="indexing" element={<Indexing />} />
-          <Route path="wiki/*" element={<WikiPage />} />
+          <Route path="wiki">
+            <Route index element={<WikiPage />} />
+            <Route path=":repository/*" element={<WikiPage />} />
+          </Route>
           <Route path="pr-impact" element={<PrImpactPage />} />
           <Route path="settings" element={<SettingsPage />} />
           {/* Legacy routes — redirect or lazy-load for backward compat */}

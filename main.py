@@ -61,6 +61,7 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
     from wiki.service import WikiService
 
     kb = await registry.get_service("default")
+    app.state.wiki_store = kb.store
 
     async def repository_exists(repo: str) -> bool:
         kb_inner = await registry.get_service("default")

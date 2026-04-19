@@ -5,7 +5,7 @@ from api.mcp_server import MCP_TOOLS_MANIFEST
 
 class TestMCPToolsManifest:
     def test_tool_count(self):
-        assert len(MCP_TOOLS_MANIFEST) == 24
+        assert len(MCP_TOOLS_MANIFEST) == 25
 
     def test_tool_names(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}
@@ -16,6 +16,7 @@ class TestMCPToolsManifest:
             "task_status",
             "list_documents",
             "get_document",
+            "get_code_snippet",
             "analyze_impact",
             "list_endpoints",
             "check_consistency",
@@ -79,6 +80,12 @@ class TestMCPToolsManifest:
     def test_get_document_schema(self):
         tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "get_document")
         assert "doc_uid" in tool["inputSchema"]["required"]
+
+    def test_get_code_snippet_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "get_code_snippet")
+        schema = tool["inputSchema"]
+        assert "node_uid" in schema["properties"]
+        assert schema["required"] == ["node_uid"]
 
     def test_analyze_impact_schema(self):
         tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "analyze_impact")

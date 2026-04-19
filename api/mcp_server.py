@@ -8,7 +8,7 @@ Tools exposed:
   - rag_graph: Execute structured graph queries (call chains, inheritance, etc.)
   - rag_index: Trigger indexing for a repository/directory or remote git_url
   - task_status: Poll background indexing task status by task_id (from rag_index async flows)
-  - list_documents, get_document: Browse indexed documentation graph
+  - list_documents, get_document, get_code_snippet: Browse indexed documentation graph; fetch source by code node uid
   - analyze_impact: Blast-radius analysis for changed functions
   - list_endpoints: HTTP, RPC, and Kafka endpoints from the graph
   - check_consistency: Compare graph file paths to on-disk repository files
@@ -416,6 +416,23 @@ MCP_TOOLS_MANIFEST = [
             "required": ["doc_uid"],
         },
     },
+    {
+        "name": "get_code_snippet",
+        "description": (
+            "Retrieve the source code snippet for a code entity (Function or Class) by its graph node uid. "
+            "Use after rag_query or build_context to get the full source code."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "node_uid": {
+                    "type": "string",
+                    "description": "Graph node uid from search results (semantic_matches or graph_context).",
+                },
+            },
+            "required": ["node_uid"],
+        },
+    },
     # rag_business_search removed in P3 (Track C).
     # Use rag_query with entity_type='flow' or entity_type='concept' instead.
     {
@@ -686,6 +703,7 @@ class KnowledgeBaseMCPHandler:
             "rag_index": self.handle_rag_index,
             "list_documents": self.handle_list_documents,
             "get_document": self.handle_get_document,
+            "get_code_snippet": self.handle_get_code_snippet,
             "analyze_impact": self.handle_analyze_impact,
             "list_endpoints": self.handle_list_endpoints,
             "check_consistency": self.handle_check_consistency,
@@ -1147,6 +1165,44 @@ class KnowledgeBaseMCPHandler:
         if not result.data:
             return _mcp_error("not_found", "Document not found")
         return _format_get_document_mcp(result.data)
+
+    async def handle_get_code_snippet(self, args: dict[str, Any]) -> dict[str, Any]:
+        node_uid = str(args.get("node_uid") or "").strip()
+        if not node_uid:
+            return _mcp_error("invalid_params", "node_uid is required")
+        if not self._store:
+            return _mcp_error("service_unavailable", "Graph store not available")
+
+        cypher = (
+            "MATCH (n) WHERE n.uid = $uid AND (n:Function OR n:Class) "
+            "RETURN n.uid AS uid, n.name AS name, n.file AS file, "
+            "n.start_line AS start_line, n.end_line AS end_line, "
+            "labels(n)[0] AS type, "
+            "coalesce(n.code_snippet, '') AS code_snippet, "
+            "coalesce(n.signature, '') AS signature, "
+            "coalesce(n.docstring, '') AS docstring, "
+            "coalesce(n.language, '') AS language, "
+            "coalesce(n.fqn, '') AS fqn, "
+            "coalesce(n.repository, '') AS repository"
+        )
+        result = await self._store.execute_query(cypher, {"uid": node_uid})
+        if not result.data:
+            return _mcp_error("not_found", f"No code entity with uid '{node_uid}'")
+        row = result.data[0]
+        return {
+            "uid": row.get("uid", ""),
+            "name": row.get("name", ""),
+            "file": row.get("file", ""),
+            "repository": row.get("repository", ""),
+            "start_line": row.get("start_line"),
+            "end_line": row.get("end_line"),
+            "type": row.get("type", ""),
+            "code_snippet": row.get("code_snippet", ""),
+            "signature": row.get("signature", ""),
+            "docstring": row.get("docstring", ""),
+            "language": row.get("language", ""),
+            "fqn": row.get("fqn", ""),
+        }
 
     async def handle_rag_index(
         self, args: dict[str, Any], progress_callback: Callable[..., None] | None = None,

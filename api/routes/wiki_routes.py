@@ -136,6 +136,17 @@ async def get_wiki_service_dep(request: Request) -> WikiService:
     )
 
 
+def get_wiki_store_dep(request: Request) -> Any:
+    """Get FalkorDB store for reading persisted WikiPage nodes."""
+    store = getattr(request.app.state, "wiki_store", None)
+    if store is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
+        )
+    return store
+
+
 async def get_wiki_search_dep(request: Request) -> WikiSearchService:
     svc = getattr(request.app.state, "wiki_search_service", None)
     if svc is None:
@@ -297,41 +308,15 @@ def _search_response_to_json(resp: SearchResponse) -> dict[str, Any]:
     }
 
 
-def _scopes_flat_from_structure_root(root: dict[str, Any]) -> list[str]:
-    """Mirror ``WikiService._compose_all_pages`` walk order for scope labels."""
-    out: list[str] = []
-
-    def walk(node: dict[str, Any]) -> None:
-        pt = node.get("page_type")
-        path = str(node.get("path", ""))
-        children = node.get("children") or []
-        if pt == "repo_overview":
-            out.append("repo")
-            for ch in children:
-                walk(ch)
-        elif pt == "module_overview":
-            out.append(f"module:{path}")
-            for ch in children:
-                walk(ch)
-        else:
-            out.append(f"class:{path}")
-
-    walk(root)
-    return out
-
-
-def _wiki_page_detail_context(repository: str, page: dict[str, Any]) -> dict[str, str]:
-    ctx: dict[str, str] = {
-        "repository": repository,
-        "module": "",
-        "page": str(page.get("path", "")),
-    }
-    srcs = page.get("source_locations") or []
-    if srcs:
-        fp = str(srcs[0].get("file_path", "") or "")
-        if fp:
-            ctx["module"] = fp.rsplit("/", 1)[0] if "/" in fp else fp
-    return ctx
+def _page_type_to_scope(page_type: str | None, path: str) -> str:
+    pt = page_type or ""
+    if pt == "repo_overview":
+        return "repo"
+    if pt == "module_overview":
+        slug = path.replace("modules/", "").replace(".md", "")
+        return f"module:{slug}"
+    name = path.replace("classes/", "").replace(".md", "")
+    return f"class:{name}"
 
 
 def _wiki_structure_from_pages(repository: str, pages: list[WikiPage]) -> WikiStructure:
@@ -842,93 +827,55 @@ async def analyze_pr_impact(
 async def wiki_list_pages(
     repository: str,
     scope: str | None = None,
-    svc: WikiService = Depends(get_wiki_service_dep),
+    store: Any = Depends(get_wiki_store_dep),
 ) -> dict[str, Any]:
-    scope_raw = scope.strip() if scope else "repo"
-    try:
-        parse_scope(scope_raw)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "invalid_scope", "detail": _invalid_scope_detail(exc)},
-        ) from exc
-    try:
-        bundle = await svc.generate(repository, scope_raw, "structure", "json")
-    except WikiRepoNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "repo_not_found",
-                "detail": (
-                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
-                ),
-            },
-        ) from exc
-    except WikiScopeError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": "scope_not_found", "detail": str(exc)},
-        ) from exc
-
-    structure = bundle.get("structure") or {}
-    root = structure.get("root") or {}
-    scopes = _scopes_flat_from_structure_root(root)
-    pages_raw: list[dict[str, Any]] = list(bundle.get("pages") or [])
-    out: list[dict[str, str]] = []
-    for i, p in enumerate(pages_raw):
-        sc = scopes[i] if i < len(scopes) else "repo"
-        out.append(
-            {
-                "path": str(p.get("path", "")),
-                "title": str(p.get("title", "")),
-                "scope": sc,
-            }
-        )
-    return {"pages": out, "total": len(out)}
+    # ``scope`` is kept for OpenAPI/backward compatibility; listing reads all persisted pages.
+    _ = scope
+    cypher = (
+        "MATCH (wp:WikiPage {repository: $repo}) "
+        "RETURN wp.path AS path, wp.title AS title, wp.page_type AS page_type "
+        "ORDER BY wp.path"
+    )
+    result = await store.execute_query(cypher, {"repo": repository})
+    pages = [
+        {
+            "path": r["path"],
+            "title": r["title"],
+            "scope": _page_type_to_scope(r.get("page_type"), str(r.get("path") or "")),
+        }
+        for r in result.data
+    ]
+    return {"pages": pages, "total": len(pages)}
 
 
 @wiki_router.get("/{repository}/pages/{wiki_page_path:path}", response_model=None)
 async def wiki_get_page_detail(
     repository: str,
     wiki_page_path: str,
-    svc: WikiService = Depends(get_wiki_service_dep),
+    store: Any = Depends(get_wiki_store_dep),
 ) -> dict[str, Any]:
     decoded_path = unquote(wiki_page_path).lstrip("/")
-    try:
-        bundle = await svc.generate(repository, "repo", "structure", "json")
-    except WikiRepoNotFoundError as exc:
+    cypher = "MATCH (wp:WikiPage {repository: $repo, path: $path}) RETURN wp LIMIT 1"
+    result = await store.execute_query(cypher, {"repo": repository, "path": decoded_path})
+    if not result.data:
         raise HTTPException(
             status_code=404,
             detail={
-                "error": "repo_not_found",
-                "detail": (
-                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
-                ),
+                "error": "page_not_found",
+                "detail": f"No wiki page at path {decoded_path!r}",
             },
-        ) from exc
-    except WikiScopeError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": "scope_not_found", "detail": str(exc)},
-        ) from exc
-
-    for p in bundle.get("pages") or []:
-        if str(p.get("path", "")) != decoded_path:
-            continue
-        ctx = _wiki_page_detail_context(repository, p)
-        meta = p.get("metadata") or {}
-        return {
-            "path": str(p.get("path", "")),
-            "title": str(p.get("title", "")),
-            "content": str(p.get("content", "")),
-            "diagrams": p.get("diagrams") or [],
-            "source_locations": p.get("source_locations") or [],
-            "method_locations": p.get("method_locations") or [],
-            "context": ctx,
-            "generated_at": meta.get("generated_at"),
-        }
-
-    raise HTTPException(
-        status_code=404,
-        detail={"error": "page_not_found", "detail": f"No wiki page at path {decoded_path!r}"},
-    )
+        )
+    row = result.data[0]
+    wp = row.get("wp")
+    props = dict(wp.properties) if hasattr(wp, "properties") else (wp if isinstance(wp, dict) else {})
+    ctx = {"repository": repository, "module": "", "page": decoded_path}
+    return {
+        "path": props.get("path", ""),
+        "title": props.get("title", ""),
+        "content": props.get("content", ""),
+        "diagrams": [],
+        "source_locations": [],
+        "method_locations": [],
+        "context": ctx,
+        "generated_at": props.get("generated_at"),
+    }

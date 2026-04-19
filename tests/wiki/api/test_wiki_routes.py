@@ -14,6 +14,7 @@ from starlette.testclient import TestClient
 
 import auth as auth_module
 from api.routes.wiki_routes import WikiTaskRegistry, get_task_registry_dep, get_wiki_service_dep, wiki_router
+from store.falkordb_store import QueryResultWrapper
 from store.schema import GraphNode, NodeLabel
 from wiki.exporter import WikiExporter
 from wiki.models import PageType, WikiStructure, WikiStructureNode
@@ -36,7 +37,11 @@ def _detail_error(resp) -> str:
     return ""
 
 
-def _make_app(mock_wiki: Any | None = None) -> tuple[FastAPI, TestClient, Any]:
+def _make_app(
+    mock_wiki: Any | None = None,
+    *,
+    wiki_store: Any | None = ...,
+) -> tuple[FastAPI, TestClient, Any]:
     app = FastAPI()
     app.state.wiki_tasks = WikiTaskRegistry()
 
@@ -52,6 +57,9 @@ def _make_app(mock_wiki: Any | None = None) -> tuple[FastAPI, TestClient, Any]:
         return app.state.wiki_tasks
 
     app.dependency_overrides[get_task_registry_dep] = override_registry
+
+    if wiki_store is not ...:
+        app.state.wiki_store = wiki_store
 
     return app, TestClient(app), svc
 
@@ -292,3 +300,113 @@ class TestWikiConcurrency:
         registry = app.state.wiki_tasks
         statuses_fn = [registry.tasks[tid]["status"] for tid in task_ids]
         assert "queued" in statuses_fn
+
+
+class TestWikiPagesGraphBacked:
+    def test_list_pages_returns_persisted_rows(self) -> None:
+        store = MagicMock()
+        store.execute_query = AsyncMock(
+            return_value=QueryResultWrapper(
+                data=[
+                    {
+                        "path": "README.md",
+                        "title": "Repo",
+                        "page_type": "repo_overview",
+                    },
+                    {
+                        "path": "modules/src_foo.md",
+                        "title": "Mod",
+                        "page_type": "module_overview",
+                    },
+                    {
+                        "path": "classes/Bar.md",
+                        "title": "Bar",
+                        "page_type": "class_detail",
+                    },
+                ],
+                raw=[],
+            )
+        )
+        _, client, mock_svc = _make_app(wiki_store=store)
+        r = client.get("/api/v1/wiki/my-repo/pages")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["total"] == 3
+        assert body["pages"][0]["scope"] == "repo"
+        assert body["pages"][1]["scope"] == "module:src_foo"
+        assert body["pages"][2]["scope"] == "class:Bar"
+        mock_svc.generate.assert_not_called()
+        store.execute_query.assert_awaited_once()
+        cypher, params = store.execute_query.await_args.args
+        assert "WikiPage" in cypher
+        assert params == {"repo": "my-repo"}
+
+    def test_list_pages_503_when_store_missing(self) -> None:
+        _, client, _ = _make_app(wiki_store=None)
+        r = client.get("/api/v1/wiki/r1/pages")
+        assert r.status_code == 503
+        assert r.json()["detail"]["error"] == "service_unavailable"
+
+    def test_get_page_detail_reads_graph(self) -> None:
+        node = MagicMock()
+        node.properties = {
+            "path": "README.md",
+            "title": "Overview",
+            "content": "# Hello",
+            "generated_at": "2024-01-01T00:00:00Z",
+        }
+        store = MagicMock()
+        store.execute_query = AsyncMock(
+            return_value=QueryResultWrapper(data=[{"wp": node}], raw=[]),
+        )
+        _, client, mock_svc = _make_app(wiki_store=store)
+        r = client.get("/api/v1/wiki/r1/pages/README.md")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["path"] == "README.md"
+        assert data["title"] == "Overview"
+        assert data["content"] == "# Hello"
+        assert data["diagrams"] == []
+        assert data["source_locations"] == []
+        assert data["method_locations"] == []
+        assert data["context"] == {"repository": "r1", "module": "", "page": "README.md"}
+        assert data["generated_at"] == "2024-01-01T00:00:00Z"
+        mock_svc.generate.assert_not_called()
+        store.execute_query.assert_awaited_once()
+        _cypher, params = store.execute_query.await_args.args
+        assert params == {"repo": "r1", "path": "README.md"}
+
+    def test_get_page_detail_dict_node_properties(self) -> None:
+        store = MagicMock()
+        store.execute_query = AsyncMock(
+            return_value=QueryResultWrapper(
+                data=[
+                    {
+                        "wp": {
+                            "path": "classes/X.md",
+                            "title": "X",
+                            "content": "body",
+                            "generated_at": None,
+                        }
+                    }
+                ],
+                raw=[],
+            ),
+        )
+        _, client, _ = _make_app(wiki_store=store)
+        r = client.get("/api/v1/wiki/r1/pages/classes%2FX.md")
+        assert r.status_code == 200
+        assert r.json()["path"] == "classes/X.md"
+
+    def test_get_page_detail_404(self) -> None:
+        store = MagicMock()
+        store.execute_query = AsyncMock(return_value=QueryResultWrapper(data=[], raw=[]))
+        _, client, _ = _make_app(wiki_store=store)
+        r = client.get("/api/v1/wiki/r1/pages/missing.md")
+        assert r.status_code == 404
+        assert r.json()["detail"]["error"] == "page_not_found"
+
+    def test_get_page_detail_503_when_store_missing(self) -> None:
+        _, client, _ = _make_app(wiki_store=None)
+        r = client.get("/api/v1/wiki/r1/pages/README.md")
+        assert r.status_code == 503

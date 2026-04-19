@@ -244,14 +244,13 @@ class TestBackwardCompatibility:
     @pytest.mark.asyncio
     async def test_existing_wiki_tools_still_work(self, wiki_pipeline: AsyncMock, graph_port: AsyncMock):
         wiki = WikiMCPHandler(pipeline=wiki_pipeline, graph=graph_port)
-        kb = KnowledgeBaseMCPHandler(
+        KnowledgeBaseMCPHandler(
             hybrid_svc=MagicMock(),
             graph_svc=MagicMock(),
             indexer=MagicMock(),
             wiki_handler=wiki,
         )
-        await kb.handle_tool_call(
-            "generate_wiki",
+        await wiki.handle_generate_wiki(
             {"repository": "demo-repo", "scope": "repo", "mode": "structure"},
         )
         wiki_pipeline.generate_wiki.assert_awaited()
@@ -264,7 +263,7 @@ class TestMCPRegistration:
         assert "find_impact_scope" in names
         assert "analyze_pr_impact" in names
         assert "wiki_lint" in names
-        assert len(WIKI_MCP_TOOLS_MANIFEST) == 11
+        assert len(WIKI_MCP_TOOLS_MANIFEST) == 9
 
     def test_graph_tools_in_main_mcp_manifest(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}

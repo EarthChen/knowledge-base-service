@@ -14,10 +14,7 @@ from wiki.wiki_docs_exporter import WikiDocsExporter, export_result_to_dict
 
 @runtime_checkable
 class WikiPipeline(Protocol):
-    """Minimal async interface for wiki generation used by MCP (mockable in tests)."""
-
-    async def generate_wiki(self, repository: str, scope: str, mode: str) -> list[WikiPage]:
-        ...
+    """Minimal async interface for wiki data/query operations (MCP-exposed; mockable in tests)."""
 
     async def get_wiki_page(self, repository: str, scope: str) -> WikiPage | None:
         ...
@@ -33,15 +30,6 @@ class WikiPipeline(Protocol):
         limit: int = 10,
         min_score: float = 0.0,
         scope: str | None = None,
-    ) -> dict[str, Any]:
-        ...
-
-    async def ask_about_code(
-        self,
-        repository: str,
-        question: str,
-        scope: str | None = None,
-        conversation_id: str | None = None,
     ) -> dict[str, Any]:
         ...
 
@@ -76,33 +64,6 @@ class GraphQueryPort(Protocol):
 
 
 WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
-    {
-        "name": "generate_wiki",
-        "description": (
-            "Generate structured wiki documentation for indexed code in a repository. "
-            "Returns WikiPage entries with titles, content, diagrams, and source_locations."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "repository": {
-                    "type": "string",
-                    "description": "Repository name or identifier in the knowledge base.",
-                },
-                "scope": {
-                    "type": "string",
-                    "description": "Generation scope: 'repo', 'module:<path>', or 'class:<fqn>'.",
-                },
-                "mode": {
-                    "type": "string",
-                    "enum": ["full", "structure"],
-                    "description": "full = rich content; structure = layout and skeleton.",
-                    "default": "structure",
-                },
-            },
-            "required": ["repository", "scope"],
-        },
-    },
     {
         "name": "get_wiki_page",
         "description": (
@@ -177,23 +138,6 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
                 },
             },
             "required": ["repository", "query"],
-        },
-    },
-    {
-        "name": "ask_about_code",
-        "description": (
-            "Interactive Q&A about code using Wiki context + hybrid search. "
-            "Returns answer with source code references."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "repository": {"type": "string", "description": "Repository name"},
-                "question": {"type": "string", "description": "Natural language question about the code"},
-                "scope": {"type": "string", "description": "Optional scope to focus the search"},
-                "conversation_id": {"type": "string", "description": "Optional ID for multi-turn conversation"},
-            },
-            "required": ["repository", "question"],
         },
     },
     {
@@ -337,7 +281,7 @@ class WikiMCPHandler:
 
     def __init__(
         self,
-        pipeline: WikiPipeline | None = None,
+        pipeline: Any | None = None,
         graph: GraphQueryPort | None = None,
         store: Any | None = None,
         wiki_cache: Any | None = None,

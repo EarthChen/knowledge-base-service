@@ -161,6 +161,7 @@ class KnowledgeBaseService:
             graph=self._store,
             llm=self._llm_provider,
             repository_exists=_repository_exists,
+            store=self._store,
         )
         self._wiki_search = WikiSearchService(
             graph=self._store,
@@ -178,6 +179,7 @@ class KnowledgeBaseService:
             wiki_service=self._wiki_service,
             search=self._wiki_search,
             ask=self._wiki_ask,
+            store=self._store,
         )
 
         self._deep_search = None

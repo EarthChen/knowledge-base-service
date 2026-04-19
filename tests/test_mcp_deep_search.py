@@ -1,4 +1,4 @@
-"""MCP handlers: deep_search, list_documents, get_document, rag_index git_url."""
+"""MCP handlers: list_documents, get_document, rag_index git_url (deep_search is HTTP-only)."""
 
 from __future__ import annotations
 
@@ -23,48 +23,8 @@ def minimal_kb_handler() -> KnowledgeBaseMCPHandler:
 @pytest.mark.asyncio
 async def test_manifest_includes_new_tools() -> None:
     names = {t["name"] for t in MCP_TOOLS_MANIFEST}
-    assert "deep_search" in names
     assert "list_documents" in names
     assert "get_document" in names
-
-
-@pytest.mark.asyncio
-async def test_deep_search_unavailable_without_engine(minimal_kb_handler: KnowledgeBaseMCPHandler) -> None:
-    r = await minimal_kb_handler.handle_tool_call("deep_search", {"query": "how does auth work"})
-    assert r["error"]["code"] == "service_unavailable"
-
-
-@pytest.mark.asyncio
-async def test_deep_search_success_shape() -> None:
-    engine = MagicMock()
-    engine.search = AsyncMock(
-        return_value={
-            "analysis": "done",
-            "business_flows": [],
-            "code_locations": [{"file": "a.py", "function": "f", "relevance": "high"}],
-            "search_trace": [{"step": "plan"}],
-        },
-    )
-    h = KnowledgeBaseMCPHandler(
-        hybrid_svc=MagicMock(),
-        graph_svc=MagicMock(),
-        indexer=MagicMock(),
-        deep_search_engine=engine,
-        wiki_handler=MagicMock(),
-    )
-    r = await h.handle_tool_call(
-        "deep_search",
-        {"query": "x", "max_iterations": 2, "include_code": True},
-    )
-    assert "error" not in r
-    assert r["conclusion"] == "done"
-    assert r["analysis"] == "done"
-    assert len(r["sources"]) == 1
-    assert r["search_trace"][0]["step"] == "plan"
-    engine.search.assert_awaited_once()
-    call_kw = engine.search.await_args.kwargs
-    assert call_kw["max_iterations"] == 2
-    assert call_kw["include_code"] is True
 
 
 @pytest.mark.asyncio

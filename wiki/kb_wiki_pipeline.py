@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from wiki.ask import WikiAskService
-from wiki.models import PageType, WikiPage, WikiStructure, WikiStructureNode, parse_scope
+from wiki.models import PageType, WikiPage, WikiPageMetadata, parse_scope
 from wiki.search import SearchResponse, WikiSearchService
 from wiki.service import WikiService
+
+if TYPE_CHECKING:
+    from store.falkordb_store import FalkorDBStore
 
 
 def _search_response_to_dict(resp: SearchResponse) -> dict[str, Any]:
@@ -19,58 +23,95 @@ def _search_response_to_dict(resp: SearchResponse) -> dict[str, Any]:
     }
 
 
-def _structure_node_to_tree(node: WikiStructureNode) -> dict[str, Any]:
+def _class_scope_simple_name(fqn: str) -> str:
+    base = fqn.split("#", 1)[0]
+    return base.rsplit(".", 1)[-1] if base else ""
+
+
+def _slugify_module_path(path: str) -> str:
+    """Apply the same slugification as ``wiki/composer.py::_wiki_path``."""
+    return re.sub(r"[^a-zA-Z0-9_.-]+", "_", path.strip("/"))
+
+
+def _wiki_page_props_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    wp = row.get("wp")
+    if wp is None:
+        return None
+    if hasattr(wp, "properties"):
+        return dict(wp.properties)
+    if isinstance(wp, dict):
+        return wp
+    return None
+
+
+def _wiki_page_from_graph(props: dict[str, Any]) -> WikiPage:
+    return WikiPage(
+        path=str(props["path"]),
+        title=str(props["title"]),
+        page_type=PageType(str(props["page_type"])),
+        content=str(props.get("content", "")),
+        diagrams=[],
+        source_locations=[],
+        metadata=WikiPageMetadata(
+            node_count=0,
+            edge_count=0,
+            generation_mode="structure",
+            fallback_tier=None,
+            generated_at=str(props["generated_at"]) if props.get("generated_at") is not None else None,
+        ),
+    )
+
+
+def _tree_pages_count(children: list[dict[str, Any]]) -> int:
+    return 1 + sum(c["metadata"]["pages"] for c in children)
+
+
+def _row_to_leaf_tree_node(row: dict[str, Any]) -> dict[str, Any]:
     return {
-        "path": node.path or "/",
-        "title": node.title,
-        "page_type": node.page_type.value,
-        "children": [_structure_node_to_tree(c) for c in node.children],
-        "metadata": {"pages": 1 + sum(_count_tree_pages(c) for c in node.children)},
+        "path": row.get("path") or "/",
+        "title": row.get("title") or "",
+        "page_type": str(row.get("page_type") or ""),
+        "children": [],
+        "metadata": {"pages": 1},
     }
 
 
-def _count_tree_pages(node: WikiStructureNode) -> int:
-    return 1 + sum(_count_tree_pages(c) for c in node.children)
-
-
-def _bundle_to_structure(bundle: dict[str, Any]) -> WikiStructure:
-    raw = bundle.get("structure") or {}
-    repo = str(raw.get("repository") or "")
-    root_raw = raw.get("root") or {}
-    return WikiStructure(
-        repository=repo,
-        root=_dict_to_structure_node(root_raw),
-        total_pages=int(raw.get("total_pages") or len(bundle.get("pages") or [])),
+def _flat_wiki_rows_to_tree(repository: str, rows: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
+    total = len(rows)
+    if total == 0:
+        return (
+            {
+                "path": "/",
+                "title": repository,
+                "page_type": PageType.REPO_OVERVIEW.value,
+                "children": [],
+                "metadata": {"pages": 0},
+            },
+            0,
+        )
+    root_idx: int | None = None
+    for i, r in enumerate(rows):
+        if str(r.get("page_type")) == PageType.REPO_OVERVIEW.value:
+            root_idx = i
+            break
+    if root_idx is not None:
+        root_row = rows[root_idx]
+        rest = [r for j, r in enumerate(rows) if j != root_idx]
+    else:
+        root_row = rows[0]
+        rest = list(rows[1:])
+    rest_sorted = sorted(rest, key=lambda r: str(r.get("path") or ""))
+    children = [_row_to_leaf_tree_node(r) for r in rest_sorted]
+    return (
+        {
+            "path": root_row.get("path") or "/",
+            "title": root_row.get("title") or "",
+            "page_type": str(root_row.get("page_type") or ""),
+            "children": children,
+            "metadata": {"pages": _tree_pages_count(children)},
+        },
+        total,
     )
-
-
-def _dict_to_structure_node(data: dict[str, Any]) -> WikiStructureNode:
-    children_raw = data.get("children") or []
-    return WikiStructureNode(
-        path=str(data.get("path", "")),
-        title=str(data.get("title", "")),
-        page_type=PageType(data.get("page_type", PageType.REPO_OVERVIEW.value)),
-        children=[_dict_to_structure_node(c) for c in children_raw if isinstance(c, dict)],
-    )
-
-
-def _select_page_for_scope(bundle: dict[str, Any], scope: str) -> WikiPage | None:
-    pages_raw = list(bundle.get("pages") or [])
-    if not pages_raw:
-        return None
-    pages = [WikiPage.from_dict(p) for p in pages_raw]
-    sp = parse_scope(scope)
-    if sp.scope_type == "repo":
-        for p in pages:
-            if p.page_type == PageType.REPO_OVERVIEW:
-                return p
-        return pages[0]
-    non_overview = [p for p in pages if p.page_type != PageType.REPO_OVERVIEW]
-    if len(non_overview) == 1:
-        return non_overview[0]
-    if non_overview:
-        return non_overview[0]
-    return pages[0]
 
 
 class WikiPipelineAdapter:
@@ -81,10 +122,12 @@ class WikiPipelineAdapter:
         wiki_service: WikiService,
         search: WikiSearchService,
         ask: WikiAskService | None,
+        store: FalkorDBStore | None = None,
     ) -> None:
         self._wiki = wiki_service
         self._search = search
         self._ask = ask
+        self._store = store
 
     async def generate_wiki(self, repository: str, scope: str, mode: str) -> list[WikiPage]:
         bundle = await self._wiki.generate(repository, scope, mode, "json")
@@ -92,17 +135,70 @@ class WikiPipelineAdapter:
         return [WikiPage.from_dict(p) for p in raw_pages]
 
     async def get_wiki_page(self, repository: str, scope: str) -> WikiPage | None:
-        bundle = await self._wiki.generate(repository, scope, "structure", "json")
-        return _select_page_for_scope(bundle, scope)
+        if self._store is None:
+            return None
+        sp = parse_scope(scope)
+        params: dict[str, Any] = {"repo": repository}
+        if sp.scope_type == "repo":
+            cypher = (
+                "MATCH (wp:WikiPage {repository: $repo, page_type: 'repo_overview'}) "
+                "RETURN wp LIMIT 1"
+            )
+        elif sp.scope_type == "module":
+            slug = _slugify_module_path(sp.value or "")
+            params["slug"] = slug
+            cypher = (
+                "MATCH (wp:WikiPage {repository: $repo}) "
+                "WHERE wp.page_type = 'module_overview' AND wp.path CONTAINS $slug "
+                "RETURN wp LIMIT 1"
+            )
+        else:
+            name = _class_scope_simple_name(sp.value or "")
+            params["name"] = name
+            cypher = (
+                "MATCH (wp:WikiPage {repository: $repo}) "
+                "WHERE wp.page_type = 'class_detail' AND (wp.title = $name OR wp.path CONTAINS $name) "
+                "RETURN wp LIMIT 1"
+            )
+        result = await self._store.execute_query(cypher, params)
+        if not result.data:
+            return None
+        props = _wiki_page_props_from_row(result.data[0])
+        if not props:
+            return None
+        return _wiki_page_from_graph(props)
 
     async def list_wiki_pages(self, repository: str, scope: str | None) -> dict[str, Any]:
-        scope_raw = (scope or "").strip() or "repo"
-        bundle = await self._wiki.generate(repository, scope_raw, "structure", "json")
-        structure = _bundle_to_structure(bundle)
+        if self._store is None:
+            tree, n = _flat_wiki_rows_to_tree(repository, [])
+            return {"repository": repository, "tree": tree, "total_pages": n}
+
+        params: dict[str, Any] = {"repo": repository}
+        scope_filter = ""
+        if scope and scope.strip() and scope.strip() != "repo":
+            sp = parse_scope(scope.strip())
+            if sp.scope_type == "module":
+                slug = _slugify_module_path(sp.value or "")
+                params["prefix"] = f"modules/{slug}"
+                scope_filter = " AND wp.path STARTS WITH $prefix"
+            elif sp.scope_type == "class":
+                name = _class_scope_simple_name(sp.value or "")
+                params["name"] = name
+                scope_filter = " AND wp.path CONTAINS $name"
+
+        cypher = (
+            f"MATCH (wp:WikiPage {{repository: $repo}})"
+            f"{scope_filter} "
+            "RETURN wp.path AS path, wp.title AS title, wp.page_type AS page_type "
+            "ORDER BY wp.path"
+        )
+        result = await self._store.execute_query(cypher, params)
+        rows = list(result.data)
+        tree, total = _flat_wiki_rows_to_tree(repository, rows)
         return {
             "repository": repository,
-            "tree": _structure_node_to_tree(structure.root),
-            "total_pages": structure.total_pages,
+            "tree": tree,
+            "total_pages": total,
         }
 
     async def search_wiki(

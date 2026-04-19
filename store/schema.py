@@ -40,6 +40,7 @@ class NodeLabel(StrEnum):
     DOCUMENT = "Document"
     BUSINESS_FLOW = "BusinessFlow"
     BUSINESS_CONCEPT = "BusinessConcept"
+    WIKI_PAGE = "WikiPage"
 
 
 class EdgeType(StrEnum):

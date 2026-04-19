@@ -6,7 +6,6 @@ Cursor Agent sessions, enabling the agent to query the code knowledge graph.
 Tools exposed:
   - rag_query: Natural language search over code and docs (semantic + graph expansion)
   - rag_graph: Execute structured graph queries (call chains, inheritance, etc.)
-  - deep_search: Multi-iteration LLM-driven deep codebase research
   - rag_index: Trigger indexing for a repository/directory or remote git_url
   - task_status: Poll background indexing task status by task_id (from rag_index async flows)
   - list_documents, get_document: Browse indexed documentation graph
@@ -16,7 +15,7 @@ Tools exposed:
   - search_architecture: List classes (with methods) filtered by architecture layer
   - code_quality: Heuristic 0–100 quality score for a Function or Class node
   - dashboard_stats: P2 enrichment aggregates (architecture layers, Kafka events, RPC, cross-repo)
-  - generate_wiki, get_wiki_page, list_wiki_pages, search_wiki, ask_about_code, wiki_lint, wiki_export_preview, wiki_export_execute: Wiki generation, Q&A, lint, and repo markdown export
+  - get_wiki_page, list_wiki_pages, search_wiki, wiki_lint, wiki_export_preview, wiki_export_execute: Wiki browsing, search, lint, and repo markdown export
   - traverse_call_chain, find_impact_scope, analyze_pr_impact: Wiki-scoped graph traversal (no LLM)
   - graph_insights: Architecture anomaly scan (isolation, import cycles, cross-layer calls, cohesion, bridges)
 """
@@ -329,34 +328,6 @@ MCP_TOOLS_MANIFEST = [
                 },
             },
             "required": ["query_type"],
-        },
-    },
-    {
-        "name": "deep_search",
-        "description": (
-            "Multi-iteration deep search with LLM-driven sub-query expansion for comprehensive codebase research."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Research question to investigate deeply.",
-                },
-                "max_iterations": {
-                    "type": "integer",
-                    "default": 3,
-                    "minimum": 1,
-                    "maximum": 5,
-                    "description": "Search iterations (more = deeper).",
-                },
-                "include_code": {
-                    "type": "boolean",
-                    "default": True,
-                    "description": "Include code context in results.",
-                },
-            },
-            "required": ["query"],
         },
     },
     {
@@ -712,7 +683,6 @@ class KnowledgeBaseMCPHandler:
         handlers = {
             "rag_query": self.handle_rag_query,
             "rag_graph": self.handle_rag_graph,
-            "deep_search": self.handle_deep_search,
             "rag_index": self.handle_rag_index,
             "list_documents": self.handle_list_documents,
             "get_document": self.handle_get_document,
@@ -726,11 +696,9 @@ class KnowledgeBaseMCPHandler:
             "dashboard_stats": self.handle_dashboard_stats,
             "graph_insights": self.handle_graph_insights,
             "task_status": self.handle_task_status,
-            "generate_wiki": self._wiki.handle_generate_wiki,
             "get_wiki_page": self._wiki.handle_get_wiki_page,
             "list_wiki_pages": self._wiki.handle_list_wiki_pages,
             "search_wiki": self._wiki.handle_search_wiki,
-            "ask_about_code": self._wiki.handle_ask_about_code,
             "traverse_call_chain": self._wiki.handle_traverse_call_chain,
             "find_impact_scope": self._wiki.handle_find_impact_scope,
             "analyze_pr_impact": self._wiki.handle_analyze_pr_impact,

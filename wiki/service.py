@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import datetime, timezone
 from typing import Any
 
 from llm.base_provider import LLMPortBridge
@@ -23,6 +24,10 @@ from wiki.models import (
 )
 from wiki.structure_planner import WikiScopeError, WikiStructurePlanner
 
+from log import get_logger
+
+log = get_logger(__name__)
+
 
 class WikiRepoNotFoundError(Exception):
     """Raised when the repository is not present in the index."""
@@ -41,6 +46,7 @@ class WikiService:
         llm: Any | None,
         repository_exists: Callable[[str], Awaitable[bool]],
         llm_factory: LLMProviderFactory | None = None,
+        store: Any | None = None,
     ) -> None:
         self._graph = graph
         self._planner = WikiStructurePlanner(graph)
@@ -49,6 +55,7 @@ class WikiService:
         self._llm_factory = llm_factory
         self._exporter = WikiExporter()
         self._repository_exists = repository_exists
+        self._store = store
 
     def _composer_for(self, llm_provider: str | None) -> WikiComposer:
         llm_port = self._resolve_llm_port(llm_provider)
@@ -92,6 +99,7 @@ class WikiService:
         structure = await self._planner.plan(repository, scope)
         composer = self._composer_for(llm_provider)
         pages, degraded = await self._compose_all_pages(repository, structure, config, composer)
+        await self._persist_pages_to_graph(repository, pages)
 
         if format == "markdown" and len(pages) == 1:
             return {
@@ -224,3 +232,22 @@ class WikiService:
                 fallback_tier=None,
             ),
         )
+
+    async def _persist_pages_to_graph(self, repository: str, pages: list[WikiPage]) -> None:
+        if self._store is None or not hasattr(self._store, "persist_wiki_pages"):
+            return
+        ts = datetime.now(timezone.utc).isoformat()
+        page_dicts = [
+            {
+                "path": p.path,
+                "title": p.title,
+                "content": p.content,
+                "page_type": p.page_type.value,
+                "generated_at": ts,
+            }
+            for p in pages
+        ]
+        try:
+            await self._store.persist_wiki_pages(repository, page_dicts)
+        except Exception as exc:
+            log.warning("wiki_page_persist_failed", repository=repository, error=str(exc))

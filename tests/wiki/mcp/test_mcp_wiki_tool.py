@@ -101,15 +101,6 @@ def kb_handler(wiki_pipeline: AsyncMock) -> KnowledgeBaseMCPHandler:
 
 
 class TestWikiToolsRegistered:
-    def test_generate_wiki_tool_registered(self):
-        names = {t["name"] for t in MCP_TOOLS_MANIFEST}
-        assert "generate_wiki" in names
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "generate_wiki")
-        assert "inputSchema" in tool
-        req = tool["inputSchema"].get("required", [])
-        assert "repository" in req
-        assert "scope" in req
-
     def test_get_wiki_page_tool_registered(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}
         assert "get_wiki_page" in names
@@ -122,11 +113,9 @@ class TestWikiToolsRegistered:
         """Wiki entries are appended to the main manifest (same definitions as WIKI slice)."""
         wiki_names = {t["name"] for t in WIKI_MCP_TOOLS_MANIFEST}
         assert wiki_names == {
-            "generate_wiki",
             "get_wiki_page",
             "list_wiki_pages",
             "search_wiki",
-            "ask_about_code",
             "traverse_call_chain",
             "find_impact_scope",
             "analyze_pr_impact",
@@ -144,17 +133,8 @@ class TestWikiToolsRegistered:
         assert "repository" in req
         assert "query" in req
 
-    def test_ask_about_code_tool_registered(self):
-        names = {t["name"] for t in MCP_TOOLS_MANIFEST}
-        assert "ask_about_code" in names
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "ask_about_code")
-        assert "inputSchema" in tool
-        req = tool["inputSchema"].get("required", [])
-        assert "repository" in req
-        assert "question" in req
-
-    def test_wiki_manifest_has_11_tools(self):
-        assert len(WIKI_MCP_TOOLS_MANIFEST) == 11
+    def test_wiki_manifest_has_9_tools(self):
+        assert len(WIKI_MCP_TOOLS_MANIFEST) == 9
 
     @pytest.mark.asyncio
     async def test_wiki_export_preview_without_cache_returns_error(self) -> None:
@@ -240,8 +220,7 @@ class TestWikiToolsRegistered:
 class TestGenerateWiki:
     @pytest.mark.asyncio
     async def test_generate_wiki_valid(self, kb_handler: KnowledgeBaseMCPHandler, wiki_pipeline: AsyncMock):
-        result = await kb_handler.handle_tool_call(
-            "generate_wiki",
+        result = await kb_handler._wiki.handle_generate_wiki(
             {"repository": "demo-repo", "scope": "module:src/App.java", "mode": "structure"},
         )
         assert "error" not in result
@@ -257,8 +236,7 @@ class TestGenerateWiki:
 
     @pytest.mark.asyncio
     async def test_generate_wiki_invalid_scope(self, kb_handler: KnowledgeBaseMCPHandler):
-        result = await kb_handler.handle_tool_call(
-            "generate_wiki",
+        result = await kb_handler._wiki.handle_generate_wiki(
             {"repository": "demo-repo", "scope": "not-a-valid-scope", "mode": "structure"},
         )
         assert "error" in result
@@ -323,8 +301,7 @@ class TestErrorPropagation:
             indexer=MagicMock(),
             wiki_handler=wiki,
         )
-        result = await kb.handle_tool_call(
-            "generate_wiki",
+        result = await kb._wiki.handle_generate_wiki(
             {"repository": "r", "scope": "repo", "mode": "full"},
         )
         assert "error" in result
@@ -377,8 +354,7 @@ class TestSearchWiki:
 class TestAskAboutCode:
     @pytest.mark.asyncio
     async def test_ask_about_code_valid(self, kb_handler: KnowledgeBaseMCPHandler, wiki_pipeline: AsyncMock):
-        result = await kb_handler.handle_tool_call(
-            "ask_about_code",
+        result = await kb_handler._wiki.handle_ask_about_code(
             {
                 "repository": "demo-repo",
                 "question": "What does App do?",
@@ -396,8 +372,7 @@ class TestAskAboutCode:
 
     @pytest.mark.asyncio
     async def test_ask_about_code_empty_question(self, kb_handler: KnowledgeBaseMCPHandler):
-        result = await kb_handler.handle_tool_call(
-            "ask_about_code",
+        result = await kb_handler._wiki.handle_ask_about_code(
             {"repository": "demo-repo", "question": ""},
         )
         assert "error" in result
@@ -411,8 +386,7 @@ class TestAskAboutCode:
             indexer=MagicMock(),
             wiki_handler=WikiMCPHandler(None),
         )
-        result = await kb.handle_tool_call(
-            "ask_about_code",
+        result = await kb._wiki.handle_ask_about_code(
             {"repository": "demo-repo", "question": "Why?"},
         )
         assert "error" in result

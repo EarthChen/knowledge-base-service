@@ -5,14 +5,13 @@ from api.mcp_server import MCP_TOOLS_MANIFEST
 
 class TestMCPToolsManifest:
     def test_tool_count(self):
-        assert len(MCP_TOOLS_MANIFEST) == 27
+        assert len(MCP_TOOLS_MANIFEST) == 24
 
     def test_tool_names(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}
         assert names == {
             "rag_query",
             "rag_graph",
-            "deep_search",
             "rag_index",
             "task_status",
             "list_documents",
@@ -26,11 +25,9 @@ class TestMCPToolsManifest:
             "code_quality",
             "dashboard_stats",
             "graph_insights",
-            "generate_wiki",
             "get_wiki_page",
             "list_wiki_pages",
             "search_wiki",
-            "ask_about_code",
             "traverse_call_chain",
             "find_impact_scope",
             "analyze_pr_impact",
@@ -74,12 +71,6 @@ class TestMCPToolsManifest:
         schema = tool["inputSchema"]
         assert "task_id" in schema["properties"]
         assert schema["required"] == ["task_id"]
-
-    def test_deep_search_schema(self):
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "deep_search")
-        schema = tool["inputSchema"]
-        assert "query" in schema["required"]
-        assert "max_iterations" in schema["properties"]
 
     def test_list_documents_schema(self):
         tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "list_documents")

@@ -74,6 +74,7 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
             graph=kb_svc.store,
             llm=kb_svc.llm_provider,
             repository_exists=repository_exists,
+            store=kb_svc.store,
         )
 
     app.state.wiki_service_factory = wiki_service_factory

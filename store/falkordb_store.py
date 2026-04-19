@@ -285,6 +285,43 @@ class FalkorDBStore:
         data = [dict(zip(header, row)) for row in (result.result_set or [])]
         return QueryResultWrapper(data=data, raw=result.result_set)
 
+    async def persist_wiki_pages(self, repository: str, pages: list[dict[str, Any]]) -> int:
+        """MERGE WikiPage nodes from generated wiki output. Returns count of upserted nodes."""
+        if not pages:
+            return 0
+        batch: list[dict[str, Any]] = []
+        for page in pages:
+            path = page["path"]
+            batch.append(
+                {
+                    "uid": f"WikiPage:{repository}:{path}",
+                    "repository": repository,
+                    "path": path,
+                    "title": page["title"],
+                    "content": page["content"],
+                    "page_type": page["page_type"],
+                    "generated_at": page["generated_at"],
+                }
+            )
+        cypher = (
+            "UNWIND $batch AS page "
+            "MERGE (w:WikiPage {uid: page.uid}) "
+            "SET w.repository = page.repository, "
+            "w.path = page.path, "
+            "w.title = page.title, "
+            "w.content = page.content, "
+            "w.page_type = page.page_type, "
+            "w.generated_at = page.generated_at "
+            "RETURN count(*) AS cnt"
+        )
+        result = await self.execute_query(cypher, {"batch": batch})
+        if not result.data:
+            return len(batch)
+        cnt = result.data[0].get("cnt")
+        if cnt is None:
+            return len(batch)
+        return int(cnt)
+
     async def vector_search(
         self,
         label: NodeLabel,

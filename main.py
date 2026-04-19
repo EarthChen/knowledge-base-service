@@ -26,6 +26,7 @@ from api.routes.wiki_routes import wiki_router
 
 from auth import Role, TokenInfo, get_current_role, require_role, resolve_business_id, resolve_token
 from config import get_settings
+from indexer.embedding_generator import doc_dict_for_embedding
 from indexer.incremental_indexer import _stamp_repository_on_nodes
 from indexer.task_manager import IndexTaskManager
 from log import get_logger, setup_logging
@@ -69,6 +70,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.registry = _registry
     app.state.scheduler = _scheduler
     init_webhook_state(app)
+
+    from wiki.cache import WikiCache
+    from wiki.lint import WikiLintService
+
+    if getattr(app.state, "wiki_cache", None) is None:
+        app.state.wiki_cache = WikiCache()
+
+    async def wiki_lint_service_factory() -> WikiLintService:
+        kb = await _registry.get_service("default")
+        return WikiLintService(
+            kb.store,
+            wiki_cache=getattr(app.state, "wiki_cache", None),
+            repo_registry=_repo_registry,
+        )
+
+    app.state.wiki_lint_service_factory = wiki_lint_service_factory
     log.info("kb_service_started")
     yield
 
@@ -916,12 +933,8 @@ async def index_files(
 
             embeddable = [n for n in doc_nodes if n.properties.get("content")]
             if embeddable:
-                items = [
-                    {"name": n.properties.get("title", ""), "signature": "",
-                     "docstring": "", "code_snippet": n.properties.get("content", "")}
-                    for n in embeddable
-                ]
-                embeddings = await svc._embedding.generate_for_code(items)
+                items = [doc_dict_for_embedding(n.properties) for n in embeddable]
+                embeddings = await svc._embedding.generate_for_docs(items)
                 for node, emb in zip(embeddable, embeddings):
                     await svc.store.set_node_embedding(node.uid, node.label, emb)
                 total_embeds += len(embeddings)
@@ -964,6 +977,21 @@ async def get_p2_stats(
 ) -> dict[str, Any]:
     """Return P2 enrichment stats for dashboard."""
     return await svc.graph_query.get_p2_stats()
+
+
+@viewer_router.get("/graph/insights/{repository:path}")
+async def get_graph_insights(
+    repository: str,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Return automated graph insights (isolation, cycles, layering, cohesion, bridges)."""
+    if svc.store.graph is None:
+        raise HTTPException(status_code=503, detail="Graph store is not connected")
+    from query.graph_insights import GraphInsightsService
+
+    insights_svc = GraphInsightsService(svc.store)
+    report = await insights_svc.analyze(repository)
+    return report.to_dict()
 
 
 @viewer_router.get("/repositories")

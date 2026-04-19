@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from store.schema import EdgeType, GraphNode, NodeLabel
 from wiki.context import LLMPort, WikiContextBuilder
+from wiki.doc_wiki_fusion import find_related_docs, format_related_docs_for_prompt
 from wiki.data_collector import PageData
 from wiki.diagram_gen import generate_call_flowchart, generate_class_diagram, generate_dependency_graph
-from wiki.models import PageType, WikiConfig, WikiDiagram, WikiPage, WikiPageMetadata
+from wiki.models import PageType, SourceLocation, WikiConfig, WikiDiagram, WikiPage, WikiPageMetadata
 
 
 def _effective_wiki_language(language: str) -> str:
@@ -21,6 +23,17 @@ def _display_name(uid: str) -> str:
     if len(parts) >= 3:
         return str(parts[-2])
     return uid
+
+
+def _entity_names_for_doc_lookup(node: GraphNode) -> list[str]:
+    names: list[str] = []
+    raw = node.properties.get("name")
+    if isinstance(raw, str) and raw.strip():
+        names.append(raw.strip())
+    fqn = node.properties.get("fqn")
+    if isinstance(fqn, str) and fqn.strip():
+        names.append(fqn.strip())
+    return names
 
 
 def _primary_name(node: GraphNode) -> str:
@@ -54,9 +67,15 @@ def _sorted_method_names(methods: list[GraphNode]) -> list[str]:
 class WikiComposer:
     """Turns ``PageData`` into a ``WikiPage`` using tiered description fallback."""
 
-    def __init__(self, llm: LLMPort | None, context_builder: WikiContextBuilder) -> None:
+    def __init__(
+        self,
+        llm: LLMPort | None,
+        context_builder: WikiContextBuilder,
+        store: Any | None = None,
+    ) -> None:
         self._llm = llm
         self._ctx = context_builder
+        self._store = store
 
     async def compose_page(
         self,
@@ -73,6 +92,12 @@ class WikiComposer:
 
         tier: int
         eff_lang = _effective_wiki_language(config.language)
+        related_docs_block = ""
+        if self._store is not None:
+            doc_entities = _entity_names_for_doc_lookup(page_data.node)
+            if doc_entities:
+                doc_rows = await find_related_docs(self._store, doc_entities, limit=5)
+                related_docs_block = format_related_docs_for_prompt(doc_rows, max_chars_per_doc=3000)
         if page_data.business_summary and page_data.business_summary.strip():
             tier = 1
             description = page_data.business_summary.strip()
@@ -81,7 +106,14 @@ class WikiComposer:
             description = self._tier3_structural(page_data, page_type, eff_lang)
         elif self._llm is not None:
             tier = 2
-            description = await self._tier2_llm(page_data, page_type, parent_context, glossary, config)
+            description = await self._tier2_llm(
+                page_data,
+                page_type,
+                parent_context,
+                glossary,
+                config,
+                related_docs_block=related_docs_block,
+            )
         else:
             tier = 3
             description = self._tier3_structural(page_data, page_type, eff_lang)
@@ -105,6 +137,76 @@ class WikiComposer:
             method_locations=list(page_data.method_locations),
         )
 
+    async def compose_incremental_navigation_pages(
+        self,
+        repository: str,
+        affected_pages: list[str],
+        neighbor_pages: list[str],
+        graph_version: int,
+        config: WikiConfig,
+    ) -> tuple[WikiPage, WikiPage]:
+        """Build ``index.md`` and ``overview.md`` for incremental wiki refresh (P3)."""
+        index_lines = [
+            f"# {repository} wiki",
+            "",
+            "## Regenerated pages",
+            "",
+        ]
+        affected_set = set(affected_pages)
+        for p in affected_pages:
+            index_lines.append(f"- [{p}]({p})")
+        deduped_neighbors = [p for p in neighbor_pages if p not in affected_set]
+        if deduped_neighbors:
+            index_lines.extend(["", "## Context-only neighbors", ""])
+            for p in deduped_neighbors:
+                index_lines.append(f"- [{p}]({p})")
+        index_body = "\n".join(index_lines).rstrip() + "\n"
+
+        repo_ctx = await self._ctx.build_repository_context([])
+        overview_lines = [
+            f"# {repository} overview",
+            "",
+            f"_Graph version **{graph_version}** after the latest incremental wiki update._",
+            "",
+            repo_ctx.strip(),
+        ]
+        overview_body = "\n".join(overview_lines).strip() + "\n"
+
+        meta_idx = WikiPageMetadata(
+            node_count=len(affected_pages),
+            edge_count=0,
+            generation_mode=config.mode,
+            fallback_tier=3,
+        )
+        meta_ov = WikiPageMetadata(
+            node_count=0,
+            edge_count=0,
+            generation_mode=config.mode,
+            fallback_tier=3,
+        )
+        loc_idx = SourceLocation(".", 0, 0, f"{repository}.wiki.index", repository)
+        loc_ov = SourceLocation(".", 0, 0, f"{repository}.wiki.overview", repository)
+
+        index_page = WikiPage(
+            path="index.md",
+            title=f"{repository} index",
+            page_type=PageType.REPO_OVERVIEW,
+            content=index_body,
+            diagrams=[],
+            source_locations=[loc_idx],
+            metadata=meta_idx,
+        )
+        overview_page = WikiPage(
+            path="overview.md",
+            title=f"{repository} overview",
+            page_type=PageType.REPO_OVERVIEW,
+            content=overview_body,
+            diagrams=[],
+            source_locations=[loc_ov],
+            metadata=meta_ov,
+        )
+        return index_page, overview_page
+
     def _estimate_node_count(self, page_data: PageData) -> int:
         return 1 + len(page_data.children) + len(page_data.methods)
 
@@ -115,6 +217,8 @@ class WikiComposer:
         parent_context: str,
         glossary: dict[str, str],
         config: WikiConfig,
+        *,
+        related_docs_block: str = "",
     ) -> str:
         assert self._llm is not None
         lang = _effective_wiki_language(config.language)
@@ -131,12 +235,14 @@ class WikiComposer:
             if lang == "en"
             else "请用中文生成文档。"
         )
+        doc_section = f"\n\n{related_docs_block}\n" if related_docs_block.strip() else ""
         prompt = (
             f"{ctx_block}\n\n"
             "## Task\n"
             f"{lang_directive}\n\n"
             f"Write a concise Overview for this {page_type.value.replace('_', ' ')} page.\n\n"
             f"{entity}\n"
+            f"{doc_section}"
         )
         system = "You are a senior engineer writing internal documentation. Output plain prose only."
         return (await self._llm.generate(prompt, system=system)).strip()

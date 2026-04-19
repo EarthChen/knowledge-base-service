@@ -28,9 +28,26 @@ class SemanticResult:
 class SemanticQueryService:
     """Provides semantic (vector similarity) search over the knowledge graph."""
 
-    def __init__(self, store: FalkorDBStore, embedding_gen: EmbeddingGenerator) -> None:
+    def __init__(
+        self,
+        store: FalkorDBStore,
+        embedding_gen: EmbeddingGenerator,
+        *,
+        include_raw_docs_in_results: bool | None = None,
+    ) -> None:
         self._store = store
         self._embedding = embedding_gen
+        if include_raw_docs_in_results is None:
+            try:
+                from config import get_settings
+
+                self._include_raw_docs_in_results = bool(
+                    get_settings().hybrid_search.include_raw_docs_in_results,
+                )
+            except (ImportError, AttributeError):
+                self._include_raw_docs_in_results = False
+        else:
+            self._include_raw_docs_in_results = bool(include_raw_docs_in_results)
 
     async def search_functions(self, query_text: str, k: int = 10) -> SemanticResult:
         """Find functions semantically similar to the query."""
@@ -71,10 +88,11 @@ class SemanticQueryService:
             self._search_by_label(query_text, NodeLabel.MODULE, k),
         )
 
+        doc_hits = doc_results.matches if self._include_raw_docs_in_results else []
         all_matches = (
             func_results.matches
             + class_results.matches
-            + doc_results.matches
+            + doc_hits
             + flow_results.matches
             + concept_results.matches
             + module_results.matches

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
+from wiki.lint import WikiLintService
 from wiki.models import WikiPage, parse_scope
+from wiki.wiki_docs_exporter import WikiDocsExporter, export_result_to_dict
 
 
 @runtime_checkable
@@ -261,15 +263,88 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
             "required": ["repository", "changed_files"],
         },
     },
+    {
+        "name": "wiki_lint",
+        "description": (
+            "Run wiki health checks against the graph (and optional in-memory wiki cache): "
+            "staleness of entity references, orphan pages, broken markdown/wikilinks, "
+            "coverage gaps for service/controller/repository classes, and outdated pages vs last index time."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {
+                    "type": "string",
+                    "description": "Repository name in the knowledge base.",
+                },
+                "scope": {
+                    "type": "string",
+                    "description": "Issue filter: 'all' or a wiki scope string (repo, module:path, class:fqn).",
+                    "default": "all",
+                },
+            },
+            "required": ["repository"],
+        },
+    },
+    {
+        "name": "wiki_export_preview",
+        "description": (
+            "Preview exporting cached wiki pages as markdown files under a target directory. "
+            "Does not write files; shows create/update/skip with AUTO-GENERATED marker handling."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {"type": "string", "description": "Repository name in the knowledge base."},
+                "target_dir": {"type": "string", "description": "Absolute or relative directory for markdown output."},
+                "include_auto_generated_marker": {
+                    "type": "boolean",
+                    "description": "When true, prepend KBS auto-generated marker to wiki markdown.",
+                    "default": True,
+                },
+            },
+            "required": ["repository", "target_dir"],
+        },
+    },
+    {
+        "name": "wiki_export_execute",
+        "description": (
+            "Write wiki markdown files under target_dir for paths in selected_files (or all pending create/update when omitted). "
+            "Skips human-written files lacking the AUTO-GENERATED marker."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {"type": "string", "description": "Repository name in the knowledge base."},
+                "target_dir": {"type": "string", "description": "Directory under which markdown files are written."},
+                "selected_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Wiki page paths to write; omit to write all create/update from preview.",
+                },
+            },
+            "required": ["repository", "target_dir"],
+        },
+    },
 ]
 
 
 class WikiMCPHandler:
     """Holds wiki pipeline components and serves MCP tool calls."""
 
-    def __init__(self, pipeline: WikiPipeline | None = None, graph: GraphQueryPort | None = None) -> None:
+    def __init__(
+        self,
+        pipeline: WikiPipeline | None = None,
+        graph: GraphQueryPort | None = None,
+        store: Any | None = None,
+        wiki_cache: Any | None = None,
+        repo_registry: Any | None = None,
+    ) -> None:
         self._pipeline = pipeline
         self._graph = graph
+        self._store = store
+        self._wiki_cache = wiki_cache
+        self._repo_registry = repo_registry
 
     @staticmethod
     def _mcp_error(code: str, message: str) -> dict[str, Any]:
@@ -470,6 +545,76 @@ class WikiMCPHandler:
             )
         except Exception as exc:
             return self._mcp_error("internal_error", str(exc))
+
+    async def handle_wiki_lint(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self._store is None:
+            return self._mcp_error("service_unavailable", "Graph store not configured for wiki_lint")
+        repository = str(arguments.get("repository", "")).strip()
+        if not repository:
+            return self._mcp_error("invalid_params", "repository parameter is required")
+        scope = str(arguments.get("scope", "all") or "all")
+        try:
+            from wiki.models import parse_scope
+            parse_scope(scope) if scope != "all" else None
+        except ValueError:
+            return self._mcp_error("invalid_params", f"Invalid scope: must be 'all', 'repo', 'module:<path>', or 'class:<fqn>'")
+        try:
+            svc = WikiLintService(
+                self._store,
+                wiki_cache=self._wiki_cache,
+                repo_registry=self._repo_registry,
+            )
+            report = await svc.lint(repository, scope=scope)
+        except Exception:
+            import structlog
+            structlog.get_logger().exception("wiki_lint failed", repository=repository)
+            return self._mcp_error("internal_error", "Wiki lint failed unexpectedly")
+        return {"status": "success", **report.to_dict()}
+
+    async def handle_wiki_export_preview(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self._wiki_cache is None:
+            return self._mcp_error("service_unavailable", "Wiki cache not configured for wiki_export_preview")
+        repository = str(arguments.get("repository", "")).strip()
+        if not repository:
+            return self._mcp_error("invalid_params", "repository parameter is required")
+        target_dir = str(arguments.get("target_dir", "")).strip()
+        if not target_dir:
+            return self._mcp_error("invalid_params", "target_dir parameter is required")
+        include_marker = bool(arguments.get("include_auto_generated_marker", True))
+        exporter = WikiDocsExporter(wiki_cache=self._wiki_cache)
+        try:
+            result = await exporter.preview_export(
+                repository,
+                target_dir,
+                include_auto_generated_marker=include_marker,
+            )
+        except ValueError as exc:
+            return self._mcp_error("invalid_params", str(exc))
+        return {"status": "success", **export_result_to_dict(result)}
+
+    async def handle_wiki_export_execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self._wiki_cache is None:
+            return self._mcp_error("service_unavailable", "Wiki cache not configured for wiki_export_execute")
+        repository = str(arguments.get("repository", "")).strip()
+        if not repository:
+            return self._mcp_error("invalid_params", "repository parameter is required")
+        target_dir = str(arguments.get("target_dir", "")).strip()
+        if not target_dir:
+            return self._mcp_error("invalid_params", "target_dir parameter is required")
+        raw_sel = arguments.get("selected_files")
+        selected: list[str] | None
+        if raw_sel is None:
+            selected = None
+        elif isinstance(raw_sel, list):
+            selected = [str(x) for x in raw_sel]
+        else:
+            return self._mcp_error("invalid_params", "selected_files must be an array of strings or omitted")
+        exporter = WikiDocsExporter(wiki_cache=self._wiki_cache)
+        try:
+            result = await exporter.execute_export(repository, target_dir, selected_files=selected)
+        except ValueError as exc:
+            return self._mcp_error("invalid_params", str(exc))
+        return {"status": "success", **export_result_to_dict(result)}
 
     async def handle_analyze_pr_impact(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if (err := self._require_graph()) is not None:

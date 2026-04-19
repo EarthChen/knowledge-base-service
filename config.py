@@ -133,6 +133,7 @@ class HybridSearchConfig(BaseModel):
     """Hybrid keyword + semantic + graph search defaults."""
 
     query_expansion_enabled: bool = True
+    include_raw_docs_in_results: bool = False
 
 
 class RerankConfig(BaseModel):
@@ -143,6 +144,15 @@ class RerankConfig(BaseModel):
     device: str = "auto"
     batch_size: int = 32
     top_n: int = 30
+
+
+class WikiConfig(BaseModel):
+    """Application-level wiki feature flags (separate from ``wiki.models.WikiConfig``)."""
+
+    cot_enabled: bool = False
+    cot_analysis_model: str = ""
+    cot_generation_model: str = ""
+    auto_update_on_index: bool = False
 
 
 class GitConfig(BaseModel):
@@ -179,6 +189,7 @@ class Settings(BaseSettings):
     falkordb: FalkorDBConfig = Field(default_factory=FalkorDBConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    wiki: WikiConfig = Field(default_factory=WikiConfig)
     hybrid_search: HybridSearchConfig = Field(default_factory=HybridSearchConfig)
     rerank: RerankConfig = Field(default_factory=RerankConfig)
     git: GitConfig = Field(default_factory=GitConfig)

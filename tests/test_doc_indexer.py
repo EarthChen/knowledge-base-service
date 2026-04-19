@@ -133,6 +133,7 @@ More text with `anotherRef`.
         content = "Call `module.function_name` for setup."
         doc = indexer.parse_document("doc.md", content)
 
+        assert "module.function_name" in doc.code_references
         assert "function_name" in doc.code_references
 
 

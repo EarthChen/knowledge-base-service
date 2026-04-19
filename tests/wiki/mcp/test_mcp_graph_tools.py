@@ -263,7 +263,8 @@ class TestMCPRegistration:
         assert "traverse_call_chain" in names
         assert "find_impact_scope" in names
         assert "analyze_pr_impact" in names
-        assert len(WIKI_MCP_TOOLS_MANIFEST) == 8
+        assert "wiki_lint" in names
+        assert len(WIKI_MCP_TOOLS_MANIFEST) == 11
 
     def test_graph_tools_in_main_mcp_manifest(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}

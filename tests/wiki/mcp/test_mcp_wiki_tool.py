@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from api.mcp_server import KnowledgeBaseMCPHandler, MCP_TOOLS_MANIFEST
+from store.falkordb_store import QueryResultWrapper
+from wiki.cache import WikiCache
 from wiki.mcp_tools import WIKI_MCP_TOOLS_MANIFEST, WikiMCPHandler
 from wiki.models import (
     DiagramType,
@@ -128,6 +130,9 @@ class TestWikiToolsRegistered:
             "traverse_call_chain",
             "find_impact_scope",
             "analyze_pr_impact",
+            "wiki_lint",
+            "wiki_export_preview",
+            "wiki_export_execute",
         }
 
     def test_search_wiki_tool_registered(self):
@@ -148,8 +153,88 @@ class TestWikiToolsRegistered:
         assert "repository" in req
         assert "question" in req
 
-    def test_wiki_manifest_has_8_tools(self):
-        assert len(WIKI_MCP_TOOLS_MANIFEST) == 8
+    def test_wiki_manifest_has_11_tools(self):
+        assert len(WIKI_MCP_TOOLS_MANIFEST) == 11
+
+    @pytest.mark.asyncio
+    async def test_wiki_export_preview_without_cache_returns_error(self) -> None:
+        h = KnowledgeBaseMCPHandler(
+            hybrid_svc=MagicMock(),
+            graph_svc=MagicMock(),
+            indexer=MagicMock(),
+            wiki_handler=WikiMCPHandler(pipeline=None, wiki_cache=None),
+        )
+        r = await h.handle_tool_call("wiki_export_preview", {"repository": "r1", "target_dir": "/tmp"})
+        assert r.get("error", {}).get("code") == "service_unavailable"
+
+    @pytest.mark.asyncio
+    async def test_wiki_export_preview_and_execute_dispatch(self, tmp_path) -> None:
+        cache = WikiCache()
+        cache.put(
+            "r1",
+            "repo",
+            "structure",
+            1,
+            [
+                WikiPage(
+                    path="mcp.md",
+                    title="M",
+                    page_type=PageType.MODULE_OVERVIEW,
+                    content="Hi",
+                    diagrams=[],
+                    source_locations=[],
+                    metadata=WikiPageMetadata(node_count=1, edge_count=0),
+                )
+            ],
+        )
+        wiki = WikiMCPHandler(pipeline=None, wiki_cache=cache)
+        h = KnowledgeBaseMCPHandler(
+            hybrid_svc=MagicMock(),
+            graph_svc=MagicMock(),
+            indexer=MagicMock(),
+            wiki_handler=wiki,
+        )
+        out = tmp_path / "wiki_md"
+        out.mkdir()
+        prev = await h.handle_tool_call(
+            "wiki_export_preview",
+            {"repository": "r1", "target_dir": str(out)},
+        )
+        assert prev.get("status") == "success"
+        assert prev["total_files"] == 1
+        assert prev["diffs"][0]["action"] == "create"
+
+        ex = await h.handle_tool_call(
+            "wiki_export_execute",
+            {"repository": "r1", "target_dir": str(out), "selected_files": ["mcp.md"]},
+        )
+        assert ex.get("status") == "success"
+        assert (out / "mcp.md").exists()
+
+    @pytest.mark.asyncio
+    async def test_wiki_lint_without_store_returns_service_error(self, kb_handler: KnowledgeBaseMCPHandler) -> None:
+        result = await kb_handler.handle_tool_call("wiki_lint", {"repository": "demo-repo"})
+        assert result.get("error", {}).get("code") == "service_unavailable"
+
+    @pytest.mark.asyncio
+    async def test_wiki_lint_with_store_returns_success(self, wiki_pipeline: AsyncMock) -> None:
+        store = MagicMock()
+
+        async def _eq(_cypher: str, _params: dict | None = None) -> QueryResultWrapper:
+            return QueryResultWrapper(data=[], raw=[])
+
+        store.execute_query = _eq
+        wiki = WikiMCPHandler(pipeline=wiki_pipeline, store=store)
+        h = KnowledgeBaseMCPHandler(
+            hybrid_svc=MagicMock(),
+            graph_svc=MagicMock(),
+            indexer=MagicMock(),
+            store=store,
+            wiki_handler=wiki,
+        )
+        result = await h.handle_tool_call("wiki_lint", {"repository": "demo-repo", "scope": "all"})
+        assert result.get("status") == "success"
+        assert "issues" in result
 
 
 class TestGenerateWiki:

@@ -16,6 +16,7 @@ Edge types:
   - CONTAINS(parent → child)  e.g. class → method, module → function
   - USES_TYPE(function → type)
   - REFERENCES(doc → code_entity)
+  - SOURCE_DOC(wiki page → document used as wiki context)
   - IMPLEMENTS, RELATES_TO, PART_OF, CONCEPT_IN (business semantics)
   - PROVIDES_RPC(provider class → module)
   - CONSUMES_RPC(consumer function → module)
@@ -59,6 +60,7 @@ class EdgeType(StrEnum):
     ACCESSES_TABLE = "ACCESSES_TABLE"
     EVENT_PRODUCES = "EVENT_PRODUCES"
     EVENT_CONSUMES = "EVENT_CONSUMES"
+    SOURCE_DOC = "SOURCE_DOC"
 
 
 @dataclass

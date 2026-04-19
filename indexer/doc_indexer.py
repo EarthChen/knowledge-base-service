@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from log import get_logger
+from indexer.smart_chunker import Chunk, smart_chunk_markdown
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 
 log = get_logger(__name__)
@@ -103,27 +104,40 @@ class DocumentIndexer:
         nodes.append(doc_node)
 
         for section in doc.sections:
-            section_content = section.content[:2000]
-            section_node = GraphNode(
-                label=NodeLabel.DOCUMENT,
-                properties={
-                    "name": section.title,
-                    "file": doc.path,
-                    "start_line": section.start_line,
-                    "content_hash": doc.content_hash,
-                    "section": section.title,
-                    "content": section_content,
-                    "title": f"{doc.title} > {section.title}",
-                    "level": section.level,
-                },
-            )
-            nodes.append(section_node)
+            chunks = smart_chunk_markdown(section.content, target_chars=2000)
+            if not chunks:
+                chunks = [
+                    Chunk(
+                        text=section.content or "",
+                        start_line=0,
+                        end_line=0,
+                        heading_context="",
+                    )
+                ]
+            for chunk in chunks:
+                chunk_start_line = section.start_line + 1 + chunk.start_line
+                section_node = GraphNode(
+                    label=NodeLabel.DOCUMENT,
+                    properties={
+                        "name": section.title,
+                        "file": doc.path,
+                        "start_line": chunk_start_line,
+                        "content_hash": doc.content_hash,
+                        "section": section.title,
+                        "content": chunk.text,
+                        "title": f"{doc.title} > {section.title}",
+                        "level": section.level,
+                        "heading_context": chunk.heading_context,
+                        "document_title": doc.title,
+                    },
+                )
+                nodes.append(section_node)
 
-            edges.append(GraphEdge(
-                edge_type=EdgeType.CONTAINS,
-                source_uid=doc_node.uid,
-                target_uid=section_node.uid,
-            ))
+                edges.append(GraphEdge(
+                    edge_type=EdgeType.CONTAINS,
+                    source_uid=doc_node.uid,
+                    target_uid=section_node.uid,
+                ))
 
         # Inline code references are stored on the document node only. We do not
         # materialize Class/Function nodes from markdown backticks — those lack FQN
@@ -223,5 +237,14 @@ class DocumentIndexer:
             match = match.strip()
             if identifier_re.match(match) and len(match) > 2:
                 parts = match.split(".")
-                refs.append(parts[-1])
-        return list(set(refs))
+                simple = parts[-1]
+                if len(parts) > 1:
+                    refs.append(match)
+                refs.append(simple)
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for r in refs:
+            if r not in seen:
+                seen.add(r)
+                ordered.append(r)
+        return ordered

@@ -7,11 +7,12 @@ the knowledge base (store, indexer, query services, MCP handler).
 from __future__ import annotations
 
 from api.mcp_server import KnowledgeBaseMCPHandler
+from wiki.cache import WikiCache
 from wiki.mcp_tools import WikiMCPHandler
 from config import Settings
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.doc_indexer import DocumentIndexer
-from indexer.embedding_generator import EmbeddingGenerator
+from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from indexer.incremental_indexer import IncrementalIndexer, _stamp_repository_on_nodes
 from indexer.tree_sitter_parser import TreeSitterParser
 from log import get_logger
@@ -120,6 +121,7 @@ class KnowledgeBaseService:
         self._semantic_query = SemanticQueryService(
             store=self._store,
             embedding_gen=self._embedding,
+            include_raw_docs_in_results=settings.hybrid_search.include_raw_docs_in_results,
         )
         self._reranker = Reranker(settings.rerank) if settings.rerank.enabled else None
 
@@ -131,6 +133,8 @@ class KnowledgeBaseService:
             query_expansion_enabled=settings.hybrid_search.query_expansion_enabled,
         )
 
+        self._wiki_cache = WikiCache()
+
         self._mcp_handler = KnowledgeBaseMCPHandler(
             hybrid_svc=self._hybrid_query,
             graph_svc=self._graph_query,
@@ -138,7 +142,12 @@ class KnowledgeBaseService:
             doc_indexer=self._doc_indexer,
             store=self._store,
             embedding_gen=self._embedding,
-            wiki_handler=WikiMCPHandler(pipeline=None, graph=self._graph_query),
+            wiki_handler=WikiMCPHandler(
+                pipeline=None,
+                graph=self._graph_query,
+                store=self._store,
+                wiki_cache=self._wiki_cache,
+            ),
         )
 
         self._deep_search = None
@@ -236,16 +245,8 @@ class KnowledgeBaseService:
 
                     embeddable = [n for n in nodes if n.properties.get("content")]
                     if embeddable:
-                        items = [
-                            {
-                                "name": n.properties.get("title", ""),
-                                "signature": "",
-                                "docstring": "",
-                                "code_snippet": n.properties.get("content", ""),
-                            }
-                            for n in embeddable
-                        ]
-                        embeddings = await self._embedding.generate_for_code(items)
+                        items = [doc_dict_for_embedding(n.properties) for n in embeddable]
+                        embeddings = await self._embedding.generate_for_docs(items)
                         for node, emb in zip(embeddable, embeddings):
                             await self._store.set_node_embedding(node.uid, node.label, emb)
                         doc_embeds_total += len(embeddings)

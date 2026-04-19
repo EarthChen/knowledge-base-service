@@ -13,8 +13,9 @@ Tools exposed:
   - search_architecture: List classes (with methods) filtered by architecture layer
   - code_quality: Heuristic 0–100 quality score for a Function or Class node
   - dashboard_stats: P2 enrichment aggregates (architecture layers, Kafka events, RPC, cross-repo)
-  - generate_wiki, get_wiki_page, list_wiki_pages, search_wiki, ask_about_code: Wiki generation and Q&A
+  - generate_wiki, get_wiki_page, list_wiki_pages, search_wiki, ask_about_code, wiki_lint, wiki_export_preview, wiki_export_execute: Wiki generation, Q&A, lint, and repo markdown export
   - traverse_call_chain, find_impact_scope, analyze_pr_impact: Wiki-scoped graph traversal (no LLM)
+  - graph_insights: Architecture anomaly scan (isolation, import cycles, cross-layer calls, cohesion, bridges)
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from collections.abc import Callable
 from typing import Any
 
 from indexer.doc_indexer import DocumentIndexer
-from indexer.embedding_generator import EmbeddingGenerator
+from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from indexer.incremental_indexer import IncrementalIndexer
 from log import get_logger
 from query.graph_query import GraphQueryService
@@ -443,6 +444,24 @@ MCP_TOOLS_MANIFEST = [
             "properties": {},
         },
     },
+    {
+        "name": "graph_insights",
+        "description": (
+            "Analyze the code graph for one repository and return architecture insights: "
+            "isolated classes, module import cycles (with query timeout), controller→repository "
+            "layer violations, low module cohesion, and multi-layer bridge classes."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {
+                    "type": "string",
+                    "description": "Repository name as stored on Class/Module nodes",
+                },
+            },
+            "required": ["repository"],
+        },
+    },
 ] + WIKI_MCP_TOOLS_MANIFEST
 
 
@@ -484,6 +503,7 @@ class KnowledgeBaseMCPHandler:
             "review_pr": self.handle_review_pr,
             "build_context": self.handle_build_context,
             "dashboard_stats": self.handle_dashboard_stats,
+            "graph_insights": self.handle_graph_insights,
             "generate_wiki": self._wiki.handle_generate_wiki,
             "get_wiki_page": self._wiki.handle_get_wiki_page,
             "list_wiki_pages": self._wiki.handle_list_wiki_pages,
@@ -492,6 +512,9 @@ class KnowledgeBaseMCPHandler:
             "traverse_call_chain": self._wiki.handle_traverse_call_chain,
             "find_impact_scope": self._wiki.handle_find_impact_scope,
             "analyze_pr_impact": self._wiki.handle_analyze_pr_impact,
+            "wiki_lint": self._wiki.handle_wiki_lint,
+            "wiki_export_preview": self._wiki.handle_wiki_export_preview,
+            "wiki_export_execute": self._wiki.handle_wiki_export_execute,
         }
 
         handler = handlers.get(tool_name)
@@ -832,6 +855,18 @@ class KnowledgeBaseMCPHandler:
         stats = await self._graph.get_p2_stats()
         return {"status": "success", "stats": stats}
 
+    async def handle_graph_insights(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if not self._store or self._store.graph is None:
+            return {"error": "Graph store not available"}
+        repository = str(arguments.get("repository", "") or "").strip()
+        if not repository:
+            return {"error": "repository parameter is required"}
+        from query.graph_insights import GraphInsightsService
+
+        svc = GraphInsightsService(self._store)
+        report = await svc.analyze(repository)
+        return {"status": "success", **report.to_dict()}
+
     async def handle_rag_index(
         self, args: dict[str, Any], progress_callback: Callable[..., None] | None = None,
     ) -> dict[str, Any]:
@@ -909,16 +944,8 @@ class KnowledgeBaseMCPHandler:
                 if self._embedding:
                     embeddable = [n for n in nodes if n.properties.get("content")]
                     if embeddable:
-                        items = [
-                            {
-                                "name": n.properties.get("title", ""),
-                                "signature": "",
-                                "docstring": "",
-                                "code_snippet": n.properties.get("content", ""),
-                            }
-                            for n in embeddable
-                        ]
-                        embeddings = await self._embedding.generate_for_code(items)
+                        items = [doc_dict_for_embedding(n.properties) for n in embeddable]
+                        embeddings = await self._embedding.generate_for_docs(items)
                         for node, emb in zip(embeddable, embeddings):
                             await self._store.set_node_embedding(node.uid, node.label, emb)
                         total_embeds += len(embeddings)
@@ -1002,16 +1029,8 @@ class KnowledgeBaseMCPHandler:
                         if self._embedding:
                             embeddable = [n for n in nodes if n.properties.get("content")]
                             if embeddable:
-                                items = [
-                                    {
-                                        "name": n.properties.get("title", ""),
-                                        "signature": "",
-                                        "docstring": "",
-                                        "code_snippet": n.properties.get("content", ""),
-                                    }
-                                    for n in embeddable
-                                ]
-                                embeddings = await self._embedding.generate_for_code(items)
+                                items = [doc_dict_for_embedding(n.properties) for n in embeddable]
+                                embeddings = await self._embedding.generate_for_docs(items)
                                 for node, emb in zip(embeddable, embeddings):
                                     await self._store.set_node_embedding(node.uid, node.label, emb)
                                 total_embeds += len(embeddings)

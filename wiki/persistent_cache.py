@@ -112,6 +112,24 @@ class WikiPersistentCache:
                     path.unlink(missing_ok=True)
             return removed_mem
 
+    def get_glossary(self, repository: str) -> dict[str, str] | None:
+        return self._memory.get_glossary(repository)
+
+    def set_glossary(self, repository: str, glossary: dict[str, str]) -> None:
+        self._memory.set_glossary(repository, glossary)
+
+    def set_auxiliary_pages(self, repository: str, pages: list[WikiPage]) -> None:
+        self._memory.set_auxiliary_pages(repository, pages)
+
+    def get_auxiliary_pages(self, repository: str) -> list[WikiPage]:
+        return self._memory.get_auxiliary_pages(repository)
+
+    def append_wiki_update_log(self, repository: str, line: str) -> None:
+        self._memory.append_wiki_update_log(repository, line)
+
+    def get_wiki_update_log(self, repository: str) -> str:
+        return self._memory.get_wiki_update_log(repository)
+
     def _disk_bytes(self) -> int:
         return sum(p.stat().st_size for p in self._dir.glob("*.json") if p.is_file())
 

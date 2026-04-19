@@ -85,6 +85,67 @@ class WikiIncrementalUpdater:
         self._cache = cache
         self._version_lock = asyncio.Lock()
 
+    async def update_from_index_event(
+        self,
+        repository: str,
+        changed_files: list[tuple[str, str | None, str | None]],
+        config: WikiConfig,
+    ) -> IncrementalUpdateResult:
+        """Hook for IncrementalIndexer: auto-trigger Wiki update after indexing.
+
+        Reuses :meth:`update_from_diff` core logic, adding:
+
+        1. Auto-fetch ``previous_glossary`` from cache (when supported)
+        2. Refresh ``index.md`` and ``overview.md`` via composed wiki pages
+        3. Append a line to the in-cache incremental update log
+        """
+        previous_glossary = (
+            self._cache.get_glossary(repository) if hasattr(self._cache, "get_glossary") else None
+        )
+        result = await self.update_from_diff(
+            repository,
+            changed_files,
+            config,
+            previous_glossary=previous_glossary,
+        )
+        if result.affected_pages:
+            await self._update_index_and_overview(repository, config, result)
+            await self._append_update_log(repository, result)
+        return result
+
+    async def _update_index_and_overview(
+        self,
+        repository: str,
+        config: WikiConfig,
+        result: IncrementalUpdateResult,
+    ) -> None:
+        """Regenerate ``index.md`` and ``overview.md`` after an incremental body update."""
+        if not hasattr(self._cache, "set_auxiliary_pages"):
+            return
+
+        index_page, overview_page = await self._composer.compose_incremental_navigation_pages(
+            repository,
+            sorted(result.affected_pages),
+            sorted(result.neighbor_pages),
+            result.graph_version,
+            config,
+        )
+        self._cache.set_auxiliary_pages(repository, [index_page, overview_page])
+
+    async def _append_update_log(self, repository: str, result: IncrementalUpdateResult) -> None:
+        """Append incremental update summary to the in-cache wiki update log."""
+        if not hasattr(self._cache, "append_wiki_update_log"):
+            return
+        pages_preview = ",".join(sorted(result.affected_pages)[:12])
+        if len(result.affected_pages) > 12:
+            pages_preview += ",..."
+        line = (
+            f"affected={len(result.affected_pages)} neighbors={len(result.neighbor_pages)} "
+            f"glossary_refreshed={result.glossary_refreshed} broken_refs_fixed={result.broken_refs_fixed} "
+            f"graph_version={result.graph_version} pages=[{pages_preview}]"
+        )
+        self._cache.append_wiki_update_log(repository, line)
+
     async def update_from_diff(
         self,
         repository: str,
@@ -192,7 +253,13 @@ class WikiIncrementalUpdater:
 
         self._cache.invalidate(repository)
 
+        if pages_out and hasattr(self._cache, "set_auxiliary_pages"):
+            self._cache.set_auxiliary_pages(repository, pages_out)
+
         new_version = await self._increment_version(repository)
+
+        if hasattr(self._cache, "set_glossary"):
+            self._cache.set_glossary(repository, new_glossary)
 
         return IncrementalUpdateResult(
             affected_pages=sorted(set(affected_paths)),

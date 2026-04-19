@@ -67,6 +67,7 @@ class TestGraphEdge:
         assert EdgeType.RELATES_TO == "RELATES_TO"
         assert EdgeType.PART_OF == "PART_OF"
         assert EdgeType.CONCEPT_IN == "CONCEPT_IN"
+        assert EdgeType.SOURCE_DOC == "SOURCE_DOC"
 
 
 class TestVectorIndexConfigs:

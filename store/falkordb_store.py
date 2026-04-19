@@ -19,6 +19,40 @@ from .schema import VECTOR_INDEX_CONFIGS, GraphEdge, GraphNode, NodeLabel
 
 log = get_logger(__name__)
 
+# Cross-file REFERENCES rebuild: FQN match, then same-name + doc directory prefix, then name-only.
+REFERENCES_CROSS_FILE_CYPHER = """
+MATCH (d:Document)
+WHERE d.code_references IS NOT NULL AND size(d.code_references) > 0
+UNWIND d.code_references AS ref
+WITH d, ref, split(d.file, '/') AS segs
+WITH d, ref,
+  CASE WHEN size(segs) < 2 THEN NULL
+       ELSE reduce(s = segs[0], i IN range(1, size(segs)-1) | s + '/' + segs[i]) + '/' END AS doc_dir
+OPTIONAL MATCH (f1:Function)
+WHERE f1.fqn = ref
+OPTIONAL MATCH (c1:Class)
+WHERE c1.fqn = ref
+WITH d, ref, doc_dir, collect(DISTINCT f1) + collect(DISTINCT c1) AS fqn_hits
+OPTIONAL MATCH (f2:Function)
+WHERE size(fqn_hits) = 0 AND f2.name = ref AND doc_dir IS NOT NULL AND f2.file STARTS WITH doc_dir
+OPTIONAL MATCH (c2:Class)
+WHERE size(fqn_hits) = 0 AND c2.name = ref AND doc_dir IS NOT NULL AND c2.file STARTS WITH doc_dir
+WITH d, ref, fqn_hits, collect(DISTINCT f2) + collect(DISTINCT c2) AS dir_hits
+OPTIONAL MATCH (f3:Function)
+WHERE size(fqn_hits) = 0 AND size(dir_hits) = 0 AND f3.name = ref
+OPTIONAL MATCH (c3:Class)
+WHERE size(fqn_hits) = 0 AND size(dir_hits) = 0 AND c3.name = ref
+WITH d, ref,
+  CASE WHEN size(fqn_hits) > 0 THEN fqn_hits
+       WHEN size(dir_hits) > 0 THEN dir_hits
+       ELSE collect(DISTINCT f3) + collect(DISTINCT c3) END AS targets
+UNWIND targets AS t
+WITH d, t
+WHERE t IS NOT NULL
+MERGE (d)-[:REFERENCES]->(t)
+RETURN count(*) AS cnt
+""".strip()
+
 
 class QueryResultWrapper:
     """Lightweight wrapper around FalkorDB query results.
@@ -470,21 +504,10 @@ class FalkorDBStore:
             log.warning("resolve_imports_error", error=str(exc))
             stats["imports"] = 0
 
-        refs_q = (
-            "MATCH (d:Document) "
-            "WHERE d.code_references IS NOT NULL AND size(d.code_references) > 0 "
-            "UNWIND d.code_references AS ref "
-            "OPTIONAL MATCH (f:Function {name: ref}) "
-            "OPTIONAL MATCH (c:Class {name: ref}) "
-            "WITH d, ref, collect(DISTINCT f) + collect(DISTINCT c) AS targets "
-            "UNWIND targets AS t "
-            "WITH d, t WHERE t IS NOT NULL "
-            "MERGE (d)-[:REFERENCES]->(t) "
-            "RETURN count(*) AS cnt"
-        )
         try:
             result = await loop.run_in_executor(
-                None, lambda: self._graph.query(refs_q)  # type: ignore[union-attr]
+                None,
+                lambda: self._graph.query(REFERENCES_CROSS_FILE_CYPHER),  # type: ignore[union-attr]
             )
             stats["references"] = result.result_set[0][0] if result.result_set else 0
         except Exception as exc:

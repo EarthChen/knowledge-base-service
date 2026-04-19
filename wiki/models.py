@@ -127,6 +127,7 @@ class WikiPageMetadata:
     edge_count: int
     generation_mode: str = "structure"
     fallback_tier: int | None = None
+    generated_at: str | None = None
 
 
 @dataclass
@@ -157,6 +158,7 @@ class WikiPage:
                 "edge_count": self.metadata.edge_count,
                 "generation_mode": self.metadata.generation_mode,
                 "fallback_tier": self.metadata.fallback_tier,
+                "generated_at": self.metadata.generated_at,
             },
         }
 
@@ -191,6 +193,7 @@ class WikiPage:
                 edge_count=data["metadata"]["edge_count"],
                 generation_mode=data["metadata"].get("generation_mode", "structure"),
                 fallback_tier=data["metadata"].get("fallback_tier"),
+                generated_at=data["metadata"].get("generated_at"),
             ),
             method_locations=[
                 SourceLocation(

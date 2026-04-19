@@ -65,6 +65,39 @@ def _format_code_text(
     return "\n".join(parts)
 
 
+def _format_doc_text(title: str, section: str, content: str, heading_context: str = "") -> str:
+    """Format document content for embedding generation."""
+    parts = [f"Document: {title}"]
+    if section:
+        parts.append(f"Section: {section}")
+    if heading_context and heading_context != section:
+        parts.append(f"Context: {heading_context}")
+    parts.append(content)
+    return "\n".join(parts)
+
+
+def doc_dict_for_embedding(
+    properties: dict[str, str | int | float | list[str]],
+) -> dict[str, str]:
+    """Build ``generate_for_docs`` item dict from a Document node's properties."""
+    raw_dt = properties.get("document_title", "")
+    if raw_dt:
+        title = str(raw_dt)
+    else:
+        t = properties.get("title", "")
+        ts = t if isinstance(t, str) else str(t)
+        title = ts.split(" > ", 1)[0] if " > " in ts else ts
+    sec = properties.get("section", "")
+    body = properties.get("content", "")
+    hc = properties.get("heading_context", "")
+    return {
+        "title": title,
+        "section": sec if isinstance(sec, str) else str(sec),
+        "content": body if isinstance(body, str) else str(body),
+        "heading_context": hc if isinstance(hc, str) else str(hc),
+    }
+
+
 def _iter_chunks(items: list, size: int) -> Iterator[list]:
     for i in range(0, len(items), size):
         yield items[i : i + size]
@@ -423,6 +456,22 @@ class EmbeddingGenerator:
                 item.get("docstring", ""),
                 item.get("code_snippet", ""),
                 item.get("business_summary", ""),
+            )
+            for item in items
+        ]
+        return await self.generate(texts, is_query=False)
+
+    async def generate_for_docs(
+        self,
+        items: list[dict[str, str]],
+    ) -> list[list[float]]:
+        """Generate embeddings for documentation chunks (markdown sections)."""
+        texts = [
+            _format_doc_text(
+                item.get("title", ""),
+                item.get("section", ""),
+                item.get("content", ""),
+                item.get("heading_context", ""),
             )
             for item in items
         ]

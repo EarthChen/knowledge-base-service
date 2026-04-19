@@ -21,6 +21,7 @@ from git_manager import normalize_repo_name
 from wiki.ask import WikiAskService
 from wiki.cache import WikiCache
 from wiki.exporter import WikiExporter
+from wiki.wiki_docs_exporter import WikiDocsExporter, export_result_to_dict
 from wiki.models import (
     DiagramType,
     PageType,
@@ -32,6 +33,7 @@ from wiki.models import (
     WikiStructureNode,
     parse_scope,
 )
+from wiki.lint import WikiLintService
 from wiki.search import SearchResponse, WikiSearchService
 from wiki.service import WikiRepoNotFoundError, WikiService
 from wiki.structure_planner import WikiScopeError
@@ -79,6 +81,23 @@ class WikiAskBody(BaseModel):
     scope: str | None = None
     conversation_id: str | None = None
     mode: str = Field(default="hybrid", pattern="^(hybrid|graph|semantic|keyword)$")
+
+
+class WikiLintBody(BaseModel):
+    scope: str = Field(default="all", description="Lint filter: 'all' or wiki scope (repo, module:..., class:...).")
+
+
+class WikiExportPreviewBody(BaseModel):
+    target_dir: str = Field(..., min_length=1, description="Directory under which wiki markdown files are written.")
+    include_auto_generated_marker: bool = True
+
+
+class WikiExportExecuteBody(BaseModel):
+    target_dir: str = Field(..., min_length=1)
+    selected_files: list[str] | None = Field(
+        default=None,
+        description="If set, only these wiki paths are written (create/update). If null, all pending create/update from preview.",
+    )
 
 
 class AnalyzeImpactFile(BaseModel):
@@ -183,6 +202,26 @@ def get_wiki_cache_dep(request: Request) -> WikiCache:
     return cache
 
 
+def get_wiki_docs_exporter_dep(cache: WikiCache = Depends(get_wiki_cache_dep)) -> WikiDocsExporter:
+    return WikiDocsExporter(wiki_cache=cache)
+
+
+async def get_wiki_lint_service_dep(request: Request) -> WikiLintService:
+    factory = getattr(request.app.state, "wiki_lint_service_factory", None)
+    if not callable(factory):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "service_unavailable",
+                "detail": "Wiki lint is not configured",
+            },
+        )
+    out = factory()
+    if asyncio.iscoroutine(out):
+        return await out
+    return out  # type: ignore[no-any-return]
+
+
 def _looks_like_git_url(value: str) -> bool:
     if value.startswith(("http://", "https://", "git@", "ssh://")):
         return True
@@ -235,6 +274,7 @@ def _wiki_page_from_export_dict(data: dict[str, Any], repository: str) -> WikiPa
         edge_count=int(meta_raw.get("edge_count", 0)),
         generation_mode=str(meta_raw.get("generation_mode", "structure")),
         fallback_tier=meta_raw.get("fallback_tier"),
+        generated_at=meta_raw.get("generated_at"),
     )
     return WikiPage(
         path=str(data["path"]),
@@ -634,6 +674,91 @@ async def wiki_search(
         scope=body.scope,
     )
     return _search_response_to_json(result)
+
+
+@wiki_router.post("/{repository}/lint", response_model=None)
+async def wiki_lint(
+    repository: str,
+    body: WikiLintBody | None = None,
+    wiki_svc: WikiService = Depends(get_wiki_service_dep),
+    lint_svc: WikiLintService = Depends(get_wiki_lint_service_dep),
+) -> dict[str, Any]:
+    """Run wiki health checks (staleness, orphans, broken links, coverage, outdated)."""
+    try:
+        await wiki_svc.ensure_repository(repository)
+    except WikiRepoNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "repo_not_found",
+                "detail": (
+                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
+                ),
+            },
+        ) from exc
+    scope = body.scope if body else "all"
+    report = await lint_svc.lint(repository, scope=scope)
+    return report.to_dict()
+
+
+@wiki_router.post(
+    "/{repository}/export/preview",
+    response_model=None,
+    dependencies=[Depends(require_role(Role.EDITOR))],
+)
+async def wiki_export_preview(
+    repository: str,
+    body: WikiExportPreviewBody,
+    wiki_svc: WikiService = Depends(get_wiki_service_dep),
+    exporter: WikiDocsExporter = Depends(get_wiki_docs_exporter_dep),
+) -> dict[str, Any]:
+    """Preview wiki → markdown export for ``target_dir`` without writing files."""
+    try:
+        await wiki_svc.ensure_repository(repository)
+    except WikiRepoNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "repo_not_found",
+                "detail": (
+                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
+                ),
+            },
+        ) from exc
+    result = await exporter.preview_export(
+        repository,
+        body.target_dir,
+        include_auto_generated_marker=body.include_auto_generated_marker,
+    )
+    return export_result_to_dict(result)
+
+
+@wiki_router.post(
+    "/{repository}/export/execute",
+    response_model=None,
+    dependencies=[Depends(require_role(Role.EDITOR))],
+)
+async def wiki_export_execute(
+    repository: str,
+    body: WikiExportExecuteBody,
+    wiki_svc: WikiService = Depends(get_wiki_service_dep),
+    exporter: WikiDocsExporter = Depends(get_wiki_docs_exporter_dep),
+) -> dict[str, Any]:
+    """Write selected wiki pages as markdown under ``target_dir``."""
+    try:
+        await wiki_svc.ensure_repository(repository)
+    except WikiRepoNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "repo_not_found",
+                "detail": (
+                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
+                ),
+            },
+        ) from exc
+    result = await exporter.execute_export(repository, body.target_dir, selected_files=body.selected_files)
+    return export_result_to_dict(result)
 
 
 @wiki_router.post("/ask", response_model=None)

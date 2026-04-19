@@ -18,11 +18,14 @@ from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.graph_enricher import GraphEnricher
 from indexer.index_report import IndexReport
 from indexer.doc_indexer import DocumentIndexer
-from indexer.embedding_generator import EmbeddingGenerator
+from config import get_settings
+from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from indexer.enrichment import is_trivial_enrichment_entity, truncate_enrichment_item
 from log import get_logger
 from store.falkordb_store import FalkorDBStore
 from store.schema import GraphNode, NodeLabel
+from wiki.incremental import WikiIncrementalUpdater
+from wiki.models import WikiConfig
 
 if TYPE_CHECKING:
     from indexer.enrichment import CodeSummaryEnricher
@@ -34,6 +37,22 @@ _DOC_EXTENSIONS = {".md", ".markdown", ".rst", ".txt"}
 _ENRICH_BATCH_SIZE = 50
 
 
+def _git_changed_pairs_to_diff_triples(
+    git_pairs: list[tuple[str, str]],
+) -> list[tuple[str, str | None, str | None]]:
+    """Map ``(path, status)`` from git name-status to wiki incremental ``(status, old, new)`` tuples."""
+    out: list[tuple[str, str | None, str | None]] = []
+    for fpath, raw_status in git_pairs:
+        st = raw_status.upper()
+        if st == "D":
+            out.append(("D", fpath, None))
+        elif st == "A":
+            out.append(("A", None, fpath))
+        else:
+            out.append(("M", fpath, fpath))
+    return out
+
+
 def _stamp_repository_on_nodes(nodes: list[GraphNode], repository: str | None) -> None:
     """Set ``repository`` on node properties before upsert (avoids cross-repo tagging races)."""
     if not repository:
@@ -43,7 +62,6 @@ def _stamp_repository_on_nodes(nodes: list[GraphNode], repository: str | None) -
 
 
 def _get_exclude_dirs() -> set[str]:
-    from config import get_settings
     return set(get_settings().exclude_dirs)
 
 
@@ -58,6 +76,7 @@ class IncrementalIndexer:
         doc_indexer: DocumentIndexer | None = None,
         enricher: CodeSummaryEnricher | None = None,
         repo_task_manager: RepoTaskManager | None = None,
+        wiki_incremental_updater: WikiIncrementalUpdater | None = None,
     ) -> None:
         self._store = store
         self._builder = graph_builder
@@ -65,6 +84,7 @@ class IncrementalIndexer:
         self._doc_indexer = doc_indexer or DocumentIndexer()
         self._enricher = enricher
         self._repo_task_mgr = repo_task_manager
+        self._wiki_incremental_updater = wiki_incremental_updater
         self._last_report: IndexReport | None = None
 
     def get_last_report(self) -> IndexReport | None:
@@ -75,6 +95,25 @@ class IncrementalIndexer:
     def enrichment_available(self) -> bool:
         """Whether LLM 摘要（直连或网关）可用于补全 business_summary。"""
         return self._enricher is not None or self._repo_task_mgr is not None
+
+    async def _maybe_auto_update_wiki(
+        self,
+        changed_files: list[tuple[str, str | None, str | None]],
+        repository: str | None,
+        wiki_config: WikiConfig,
+    ) -> None:
+        """When ``wiki.auto_update_on_index`` is enabled, run incremental wiki refresh."""
+        if repository is None:
+            return
+        if self._wiki_incremental_updater is None:
+            return
+        if not get_settings().wiki.auto_update_on_index:
+            return
+        await self._wiki_incremental_updater.update_from_index_event(
+            repository,
+            changed_files,
+            wiki_config,
+        )
 
     def _enrichment_backend_label(self) -> str:
         """Return API progress label for LLM enrichment mode (empty if disabled)."""
@@ -458,6 +497,20 @@ class IncrementalIndexer:
             "index_report": report.to_dict(),
         }
         log.info("incremental_index_complete", **{k: v for k, v in stats.items() if k != "index_report"})
+
+        if repository:
+            wiki_cfg = WikiConfig(
+                repository=repository,
+                mode="structure",
+                format="markdown",
+                language="en",
+            )
+            await self._maybe_auto_update_wiki(
+                _git_changed_pairs_to_diff_triples(changed_files),
+                repository,
+                wiki_cfg,
+            )
+
         return stats
 
     async def enrich_only(
@@ -639,23 +692,36 @@ class IncrementalIndexer:
                             node.label, node.uid, "business_summary", summary
                         )
 
-        items = [
-            {
-                "name": n.properties.get("name", ""),
-                "signature": n.properties.get("signature", ""),
-                "docstring": n.properties.get("docstring", ""),
-                "code_snippet": n.properties.get("code_snippet", n.properties.get("content", "")),
-                "business_summary": n.properties.get("business_summary", ""),
-            }
-            for n in embeddable
-        ]
+        doc_indices = [i for i, n in enumerate(embeddable) if n.label == NodeLabel.DOCUMENT]
+        code_indices = [i for i, n in enumerate(embeddable) if n.label != NodeLabel.DOCUMENT]
 
-        embeddings = await self._embedding.generate_for_code(items)
+        by_index: dict[int, list[float]] = {}
+        if doc_indices:
+            doc_items = [doc_dict_for_embedding(embeddable[i].properties) for i in doc_indices]
+            doc_embs = await self._embedding.generate_for_docs(doc_items)
+            for i, emb in zip(doc_indices, doc_embs):
+                by_index[i] = emb
+        if code_indices:
+            code_items = [
+                {
+                    "name": embeddable[i].properties.get("name", ""),
+                    "signature": embeddable[i].properties.get("signature", ""),
+                    "docstring": embeddable[i].properties.get("docstring", ""),
+                    "code_snippet": embeddable[i].properties.get(
+                        "code_snippet", embeddable[i].properties.get("content", ""),
+                    ),
+                    "business_summary": embeddable[i].properties.get("business_summary", ""),
+                }
+                for i in code_indices
+            ]
+            code_embs = await self._embedding.generate_for_code(code_items)
+            for i, emb in zip(code_indices, code_embs):
+                by_index[i] = emb
 
-        for node, emb in zip(embeddable, embeddings):
-            await self._store.set_node_embedding(node.uid, node.label, emb)
+        for idx, node in enumerate(embeddable):
+            await self._store.set_node_embedding(node.uid, node.label, by_index[idx])
 
-        return len(embeddings)
+        return len(embeddable)
 
     def _is_indexable_file(self, file_path: str) -> bool:
         """Check if a file is indexable (code or document)."""

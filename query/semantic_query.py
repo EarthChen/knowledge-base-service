@@ -229,7 +229,11 @@ class SemanticQueryService:
                 props = node.properties
                 match["name"] = props.get("name", "")
                 match["file"] = props.get("file", "")
-                match["line"] = props.get("start_line", 0)
+                _sl = props.get("start_line") or 0
+                _el = props.get("end_line") or _sl
+                match["line"] = _sl
+                match["start_line"] = _sl
+                match["end_line"] = _el
                 match["uid"] = props.get("uid", "")
                 if label == NodeLabel.CHUNK:
                     match["text"] = props.get("text", "")
@@ -237,8 +241,6 @@ class SemanticQueryService:
                     match["parent_name"] = props.get("parent_name", "")
                     match["parent_label"] = props.get("parent_label", "")
                     match["chunk_index"] = props.get("chunk_index", 0)
-                    match["start_line"] = props.get("start_line", 0)
-                    match["end_line"] = props.get("end_line", 0)
                 else:
                     match["docstring"] = props.get("docstring", "")[:200]
                     match["fqn"] = props.get("fqn", "")

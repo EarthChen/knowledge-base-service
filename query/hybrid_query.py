@@ -122,7 +122,7 @@ class HybridQueryService:
         include_callers: bool = True,
         include_callees: bool = True,
         use_query_expansion: bool = True,
-        use_query_router: bool = False,
+        use_query_router: bool = True,
         use_child_chunks: bool | None = None,
     ) -> HybridResult:
         """Layered hybrid search with optional graph-based query expansion.
@@ -481,6 +481,7 @@ class HybridQueryService:
         sem_weights: list[float],
         doc_map: dict[str, dict[str, Any]],
         k: int,
+        per_file_cap: int = 3,
     ) -> list[dict[str, Any]]:
         """Fuse multi-query results with per-query weighted RRF; optional reranker blend.
 
@@ -530,6 +531,9 @@ class HybridQueryService:
                 merged = self._attach_fusion_scores(rrf_ordered[:k], doc_map)
         else:
             merged = self._attach_fusion_scores(rrf_ordered[:k], doc_map)
+
+        if per_file_cap > 0:
+            merged = self._apply_per_file_cap(merged, per_file_cap)
 
         return merged
 
@@ -666,6 +670,28 @@ class HybridQueryService:
             query_text=f"file:{file_path}",
             total=len(entities.data) + len(graph_context),
         )
+
+    @staticmethod
+    def _apply_per_file_cap(
+        items: list[dict[str, Any]], cap: int = 3,
+    ) -> list[dict[str, Any]]:
+        """Limit results per file to ensure diversity across the codebase.
+
+        When *cap* <= 0 the filter is disabled and all items pass through.
+        Note: this may return fewer than the requested ``k`` when a single
+        file dominates the fused result set — that is by design.
+        """
+        if cap <= 0:
+            return items
+        file_counts: dict[str, int] = {}
+        result: list[dict[str, Any]] = []
+        for item in items:
+            fpath = item.get("file") or ""
+            count = file_counts.get(fpath, 0)
+            if count < cap:
+                file_counts[fpath] = count + 1
+                result.append(item)
+        return result
 
     @staticmethod
     def _deduplicate(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

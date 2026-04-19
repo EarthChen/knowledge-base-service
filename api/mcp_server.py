@@ -276,7 +276,9 @@ MCP_TOOLS_MANIFEST = [
         "description": (
             "Search the code knowledge base using natural language. "
             "Finds semantically similar functions, classes, and documentation, "
-            "then expands results through call graphs and inheritance trees."
+            "then expands results through call graphs and inheritance trees. "
+            "Uses intent-aware query routing to balance keyword vs semantic weights. "
+            "Reranking (BAAI/bge-reranker-v2-m3) can be enabled via RERANK__ENABLED=true in .env for improved precision."
         ),
         "inputSchema": {
             "type": "object",

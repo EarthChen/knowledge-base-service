@@ -1,7 +1,7 @@
 # Post-B1 Quality Gaps Fix Proposal
 
 **Created:** 2026-04-19T14:49:09  
-**Status:** AwaitingApproval  
+**Status:** ✅ APPROVED  
 **Scope:** Backend retrieval quality + Dashboard UX  
 **Context:** B1 Parent-Child Chunk 已完成，本提案解决剩余与主流 RAG 系统的差距
 
@@ -70,18 +70,21 @@
 
 ## Sprint 2: 搜索体验增强 (Dashboard, ~3h)
 
-### U1. 搜索结果过滤器
+### U1. 搜索结果过滤器 (Cypher 层过滤)
 
 **现状**: 仅有 entity_type、k、expand_depth 参数  
 **修复**: 添加 repository、language 过滤器到搜索界面  
-**实现方案**: 后过滤（在返回结果上过滤），简单可靠，后续可优化为 Cypher 层过滤  
-**文件**: `dashboard/src/pages/SearchPage.tsx`, `main.py`, `api/mcp_server.py`  
-**风险**: Low
+**实现方案**: **Cypher 层过滤** — 在 vector_search 和 keyword_search 的 Cypher 查询中注入 WHERE 条件，使 FalkorDB 在返回结果前就过滤，减少无效数据传输。  
+**文件**: `store/falkordb_store.py`, `query/semantic_query.py`, `query/hybrid_query.py`, `main.py`, `api/mcp_server.py`, `dashboard/src/pages/SearchPage.tsx`  
+**风险**: Medium — 修改核心查询方法签名
 
-- [ ] U1.1: 后端 `/hybrid` API 添加 `repository` 过滤参数 (后过滤)
-- [ ] U1.2: SearchPage 添加 repository 下拉选择器
-- [ ] U1.3: SearchPage 添加 language 过滤器 (Python/Java/Go/JS/TS)
-- [ ] U1.4: MCP `rag_query` 支持 `repository` 参数
+- [ ] U1.1: `FalkorDBStore.vector_search` 添加可选 `filters: dict` 参数，在 Cypher 中注入 `WHERE n.repository = $repo AND n.language = $lang` 条件
+- [ ] U1.2: `FalkorDBStore.keyword_search` 添加可选 `repository`/`language` 过滤参数到 Cypher WHERE
+- [ ] U1.3: `SemanticQueryService._search_by_label` 透传 filters 到 vector_search
+- [ ] U1.4: `HybridQueryService.search_with_context` 接受 `repository`/`language` 参数并透传
+- [ ] U1.5: 后端 `/hybrid` API 和 MCP `rag_query` 添加 `repository`/`language` 参数
+- [ ] U1.6: SearchPage 添加 repository 下拉选择器 + language 过滤器
+- [ ] U1.7: 测试: Cypher 过滤正确过滤结果
 
 ### U2. 搜索历史
 

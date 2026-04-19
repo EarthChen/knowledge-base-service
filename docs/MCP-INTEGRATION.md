@@ -27,7 +27,7 @@
 |--|--|
 | **描述** | 自然语言混合搜索：语义 + 关键词，可选子块、RRF、图扩展。 |
 | **最低角色** | Viewer |
-| **参数** | `query`（string，**必填**）。`k`（int，默认 5）、`expand_depth`（int，默认 2）、`entity_type`（function / class / module / document / flow / concept）、`repository`、`language`、`use_child_chunks`（可选 bool；清单默认 false — 若**省略**该键，服务端使用 `HYBRID_SEARCH__USE_CHILD_CHUNKS` 默认 **true**）、`use_query_router`（bool，默认 true）、`use_query_expansion`（bool，默认 true）、`per_file_cap`（int，默认 3；MCP 层限制 1–20）。 |
+| **参数** | `query`（string，**必填**）。`k`（int，默认 5）、`expand_depth`（int，默认 2）、`entity_type`（function / class / module / document / flow / concept）、`repository`、`language`、`use_child_chunks`（可选 bool；清单默认 false — 若**省略**该键，服务端使用 `HYBRID_SEARCH__USE_CHILD_CHUNKS` 默认 **true**）、`use_query_router`（bool，默认 true）、`use_query_expansion`（bool，默认 true）、`per_file_cap`（int，默认 3；MCP 层限制 1–20）、`offset`（int，默认 0，分页偏移）。 |
 
 **示例**
 
@@ -50,7 +50,7 @@
 |--|--|
 | **描述** | 基于 Cypher 的结构化图操作。 |
 | **最低角色** | Viewer |
-| **参数** | `query_type`（**必填**）：`call_chain`、`inheritance_tree`、`class_methods`、`module_dependencies`、`reverse_dependencies`、`find_entity`、`file_entities`、`graph_stats`、`raw_cypher`、`business_flow`、`flows_for_function`、`related_concepts`、`explore_domain`、`flow_dependencies`。可选：`name`、`file`、`depth`（默认 3）、`direction`（默认 `downstream`）、`cypher`（用于 `raw_cypher`）、`entity_type`（用于 `find_entity`）。 |
+| **参数** | `query_type`（**必填**）：`call_chain`、`inheritance_tree`、`class_methods`、`module_dependencies`、`reverse_dependencies`、`find_entity`、`file_entities`、`graph_stats`、`raw_cypher`、`business_flow`、`flows_for_function`、`related_concepts`、`explore_domain`、`flow_dependencies`、**`blast_radius`**。可选：`name`、`file`、`depth`（默认 3）、`direction`（默认 `downstream`）、`cypher`（用于 `raw_cypher`）、`entity_type`（用于 `find_entity`）。`blast_radius` 模式：`names`（实体名数组或逗号分隔字符串）、`depth`（1-5，默认 3）、`repository`。 |
 
 **示例**
 

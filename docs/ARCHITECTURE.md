@@ -55,9 +55,10 @@ flowchart TB
 
 1. **解析** — 遍历源文件（遵守 `exclude_dirs` / `file_extensions`）；Tree-sitter 生成函数、类、导入、调用等 AST 节点。
 2. **AST → 图** — `CodeGraphBuilder` 生成 `GraphNode` / `GraphEdge`，包含 `NodeLabel` 和 `EdgeType`（如 `CALLS`、`IMPORTS`、`CONTAINS`）。
-3. **父子块** — 大型函数/类/文档段落可被拆分为 `Chunk` 节点（`child_chunker.py`），通过 `PART_OF` 边关联；嵌入可针对子块生成。
-4. **持久化** — `batch_upsert` 写入 FalkorDB；按标签更新向量索引。
-5. **丰富化**（可选） — LLM 生成 `business_summary`、跨仓库丰富化、架构/RPC 推断等（需显式启用）。
+3. **跨文件 Import 解析** — `ImportResolver` 在索引开始时构建文件索引，将 import 语句解析到实际文件路径（Python/JS/TS/Java/Go），生成精确的 `IMPORTS` 边；解析失败时回退到虚拟 Module 节点。
+4. **父子块** — 大型函数/类/文档段落可被拆分为 `Chunk` 节点（`child_chunker.py`），通过 `PART_OF` 边关联；嵌入可针对子块生成。
+5. **持久化** — `batch_upsert` 写入 FalkorDB；按标签更新向量索引。
+6. **丰富化**（可选） — LLM 生成 `business_summary`、跨仓库丰富化、架构/RPC 推断等（需显式启用）。
 
 ## 检索管道
 
@@ -68,6 +69,15 @@ flowchart TB
 5. **重排序** — 若 `RERANK__ENABLED`，交叉编码器对融合候选进行重排序（`position_aware_blend` 结合 RRF 分数）。
 6. **多样性** — `_apply_per_file_cap` 限制每个文件的命中数（默认 `per_file_cap=3`）。
 7. **图扩展** — 从融合种子出发，沿关系遍历至 `expand_depth` 深度，获取上下文相关邻居。
+8. **分页与排序** — 最终结果支持 `offset`/`limit` 分页和按分数/名称/路径排序。
+
+## Blast Radius 分析
+
+`BlastRadiusAnalyzer`（`query/blast_radius.py`）从变更实体出发，沿 incoming `CALLS`/`INHERITS`/`IMPORTS` 边做 BFS，按深度分层返回受影响实体。每个受影响实体附带置信度分数（随深度衰减）和关系类型。支持按仓库过滤。
+
+## 社区发现
+
+`CommunityDetector`（`query/community_detection.py`）使用 Label Propagation 算法在代码图上自动发现模块社区。每个社区包含自动标签（前 3 个高连接度节点名）和内聚度评分（内部边数 / 可能边数）。
 
 ## 父子块策略
 

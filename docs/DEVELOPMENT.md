@@ -13,9 +13,9 @@ knowledge-base-service/
 │   ├── mcp_server.py       # MCP 清单 + KnowledgeBaseMCPHandler
 │   ├── rate_limiter.py     # 令牌桶中间件
 │   └── routes/             # Wiki、Webhook、Provider 辅助路由
-├── indexer/                # Tree-sitter → 图、增量索引、嵌入
+├── indexer/                # Tree-sitter → 图、增量索引、嵌入、Import 解析
 ├── store/                  # FalkorDB 适配器、Schema、graph_queries
-├── query/                  # 混合、语义、图查询、洞察等
+├── query/                  # 混合、语义、图查询、blast radius、社区发现、洞察等
 ├── search/                 # RRF 融合辅助
 ├── wiki/                   # Wiki 管道、MCP Wiki 工具、Webhook、调度器
 ├── llm/                    # OpenAI 兼容提供者

@@ -6,17 +6,18 @@
 
 - **多语言代码索引** — Python、Java、Go、JavaScript、TypeScript（通过 Tree-sitter 可扩展）
 - **图 + 向量** — 函数、类、模块、文档和业务实体统一存储在 FalkorDB，支持余弦向量索引
-- **混合搜索** — 关键词 + 语义 + **BM25 全文搜索**三路 **RRF 融合**、可选**交叉编码器重排序**、**每文件多样性上限**及**图扩展**（调用者/被调用者等），支持**分页和排序**
+- **混合搜索** — 关键词 + 语义 + **BM25 全文搜索**三路 **RRF 融合**、可选**交叉编码器重排序**、**每文件多样性上限**及**图扩展**（调用者/被调用者等），支持**分页和排序**、**跨仓聚合搜索**（`repositories: ["a", "b"]`）
 - **跨文件 Import 解析** — 自动将 import 语句解析到实际文件路径（Python / JS / TS / Java / Go），提升调用图和继承图的跨文件精度
 - **Blast Radius 分析** — 变更影响范围分析：从变更实体出发沿调用链/继承链/导入链做 BFS，按深度分层展示受影响实体及置信度
 - **社区发现** — 基于 Label Propagation 算法自动发现代码模块社区，含内聚度评分和自动标签生成
+- **配置文件索引** — 自动索引 `.yml`、`.yaml`、`.xml`、`.properties`、`.env`、`.toml`、`.conf` 为文档图节点，支持 RAG 搜索
 - **仓库工作流** — 本地路径、`git_url` 克隆/拉取（支持 GitLab 配置）、基于 git diff 的增量索引
 - **Wiki 生成与浏览** — 生成 Markdown Wiki 页面，混合 Wiki 搜索，MCP Wiki 工具
 - **完整源码获取** — 新增 `get_file_content` MCP 工具，Agent 可直接读取索引仓库的完整源文件，解决代码片段截断导致的幻觉问题
 - **文件树浏览器** — Dashboard 新增文件资源管理器页面，支持按目录结构浏览代码、查看实体（函数/类）、快速跳转到图谱/搜索/Wiki
 - **NL→Cypher 智能查询** — 自然语言图谱查询：通过 LLM 自动生成 Cypher，降低 Agent 和用户的图谱查询门槛
 - **基于角色的认证** — Viewer / Editor / Admin，通过 `tokens.yaml` 或环境变量配置；支持 `REQUIRE_AUTH` 强制认证
-- **仪表盘** — React + Vite SPA（搜索、深度搜索、图探索、文件浏览器、Blast Radius、社区发现、仓库管理、索引、Wiki、同步、设置）
+- **仪表盘** — React + Vite SPA（搜索、深度搜索、图探索、文件浏览器、Blast Radius、社区发现、仓库管理、索引、Wiki、同步、设置）；支持**暗色模式**和**中英文国际化**
 
 ## 系统架构
 
@@ -108,7 +109,7 @@ pnpm build
 |------|------|
 | [docs/README-DOCS.md](docs/README-DOCS.md) | 文档索引与技术栈 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 管道、Schema、仪表盘架构 |
-| [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md) | 全部 17 个 MCP 工具、角色、示例 |
+| [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md) | 全部 15 个 MCP 工具、角色、示例 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 生产部署、环境变量、安全 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 项目结构、测试、扩展指南 |
 | [docs/ONBOARDING.md](docs/ONBOARDING.md) | 用户上手指南 |

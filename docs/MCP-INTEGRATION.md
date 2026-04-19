@@ -27,9 +27,9 @@
 |--|--|
 | **描述** | 自然语言混合搜索：语义 + 关键词 + BM25 全文，RRF 三路融合，可选子块、图扩展。 |
 | **最低角色** | Viewer |
-| **参数** | `query`（string，**必填**）。`k`（int，默认 5）、`expand_depth`（int，默认 2）、`entity_type`（function / class / module / document / flow / concept）、`repository`、`language`、`use_child_chunks`（可选 bool；清单默认 false — 若**省略**该键，服务端使用 `HYBRID_SEARCH__USE_CHILD_CHUNKS` 默认 **true**）、`use_query_router`（bool，默认 true）、`use_query_expansion`（bool，默认 true）、`per_file_cap`（int，默认 3；MCP 层限制 1–20）、`offset`（int，默认 0，分页偏移）、`enable_bm25`（bool，默认 true，是否启用 BM25 全文搜索路径）。 |
+| **参数** | `query`（string，**必填**）。`k`（int，默认 5）、`expand_depth`（int，默认 2）、`entity_type`（function / class / module / document / flow / concept）、`repository`（单仓过滤）、**`repositories`**（string[]，跨仓聚合搜索，最多 10 个；与 `repository` 互斥，优先级更高）、`language`、`use_child_chunks`（可选 bool；清单默认 false — 若**省略**该键，服务端使用 `HYBRID_SEARCH__USE_CHILD_CHUNKS` 默认 **true**）、`use_query_router`（bool，默认 true）、`use_query_expansion`（bool，默认 true）、`per_file_cap`（int，默认 3；MCP 层限制 1–20）、`offset`（int，默认 0，分页偏移）、`enable_bm25`（bool，默认 true，是否启用 BM25 全文搜索路径）。 |
 
-**示例**
+**示例（单仓搜索）**
 
 ```json
 {
@@ -44,14 +44,26 @@
 }
 ```
 
+**示例（跨仓聚合搜索）**
+
+```json
+{
+  "tool_name": "rag_query",
+  "arguments": {
+    "query": "用户认证流程",
+    "k": 10,
+    "repositories": ["auth-service", "gateway-service", "user-service"]
+  }
+}
+```
+
 ### 2. `rag_graph`
 
 | | |
 |--|--|
-| **描述** | 基于 Cypher 的结构化图操作；可用 **`nl_query`** 做自然语言→只读 Cypher（需 LLM）。 |
+| **描述** | 基于 Cypher 的结构化图操作。 |
 | **最低角色** | Viewer |
-| **参数** | `query_type`（**必填**）：`call_chain`、`inheritance_tree`、`class_methods`、`module_dependencies`、`reverse_dependencies`、`find_entity`、`file_entities`、`graph_stats`、`raw_cypher`、**`nl_query`**、`business_flow`、`flows_for_function`、`related_concepts`、`explore_domain`、`flow_dependencies`、**`blast_radius`**。可选：`name`、`file`、`depth`（默认 3）、`direction`（默认 `downstream`）、`cypher`（用于 `raw_cypher`）、`entity_type`（用于 `find_entity`）、`repository`。`blast_radius`：`names`、`depth`（1–5，默认 3）、`repository`。 |
-| **nl_query** | **`name`**：自然语言问题（**必填**）；可选 **`repository`**。沿用现有 **`LLMProvider`**，无额外外部依赖；生成只读 Cypher（正则拒绝 `CREATE`/`DELETE`/`SET`/`MERGE`/`DROP` 等）；Prompt 内含图 Schema；语法错误自动重试。未启用 LLM 时不可用。 |
+| **参数** | `query_type`（**必填**）：`call_chain`、`inheritance_tree`、`class_methods`、`module_dependencies`、`reverse_dependencies`、`find_entity`、`file_entities`、`graph_stats`、`raw_cypher`、`business_flow`、`flows_for_function`、`related_concepts`、`explore_domain`、`flow_dependencies`、**`blast_radius`**。可选：`name`、`file`、`depth`（默认 3）、`direction`（默认 `downstream`）、`cypher`（用于 `raw_cypher`）、`entity_type`（用于 `find_entity`）、`repository`。`blast_radius`：`names`、`depth`（1–5，默认 3）、`repository`。 |
 
 **示例（调用链）**
 
@@ -67,14 +79,15 @@
 }
 ```
 
-**示例（NL→Cypher）**
+**示例（Blast Radius）**
 
 ```json
 {
   "tool_name": "rag_graph",
   "arguments": {
-    "query_type": "nl_query",
-    "name": "列出调用了 UserService.login 的所有函数",
+    "query_type": "blast_radius",
+    "names": ["handleRequest", "UserService"],
+    "depth": 3,
     "repository": "my-service"
   }
 }
@@ -198,7 +211,7 @@
 ## Agent 集成模式
 
 1. **发现** — 认证后调用 `GET /api/v1/mcp/tools` 缓存工具清单（名称和 Schema）。
-2. **搜索后深入** — `rag_query` → 选取 `uid` → `get_code_snippet`，需要全文时用 **`get_file_content`**（路径 + 可选行范围）；图谱复杂问题可用 **`rag_graph`**（`find_entity` / `call_chain` / **`nl_query`**，后者需 LLM）。
+2. **搜索后深入** — `rag_query` → 选取 `uid` → `get_code_snippet`，需要全文时用 **`get_file_content`**（路径 + 可选行范围）；图谱关系探索可用 **`rag_graph`**（`find_entity` / `call_chain` / `raw_cypher` / `blast_radius`）。
 3. **Wiki** — `list_wiki_pages` → `get_wiki_page` 或 `search_wiki`；使用 Editor Token 通过 `wiki_export` 导出。
 
 > **注意**：索引操作（全量 / 增量）通过 Dashboard 或 HTTP API 端点触发，不暴露为 MCP 工具。

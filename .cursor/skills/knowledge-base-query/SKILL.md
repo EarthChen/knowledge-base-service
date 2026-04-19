@@ -41,7 +41,7 @@ python scripts/kb_query.py <tool_name> --json-args '{"query": "login", "k": 5}'
 
 | Tool | Purpose | Key Args |
 |------|---------|----------|
-| `rag_query` | Hybrid search (semantic + keyword + BM25) | `query` (required), `k`, `repository`, `language`, `entity_type` |
+| `rag_query` | Hybrid search (semantic + keyword + BM25) | `query` (required), `k`, `repository`, `repositories` (cross-repo array, max 10), `language`, `entity_type` |
 | `rag_graph` | Graph traversal and structured queries | `query_type` (required), `name`, `depth`, `direction` |
 | `get_file_content` | Read raw source files | `repository` + `file_path` (required), `start_line`, `end_line` |
 | `get_code_snippet` | Get entity source by graph UID | `node_uid` (required) |

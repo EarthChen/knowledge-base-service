@@ -13,7 +13,7 @@ knowledge-base-service/
 │   ├── mcp_server.py       # MCP 清单 + KnowledgeBaseMCPHandler
 │   ├── rate_limiter.py     # 令牌桶中间件
 │   └── routes/             # Wiki、Webhook、Provider 辅助路由
-├── indexer/                # Tree-sitter → 图、增量索引、嵌入、Import 解析
+├── indexer/                # Tree-sitter → 图、增量索引、嵌入、Import 解析、配置文件解析（config_indexer.py）
 ├── store/                  # FalkorDB 存储层（所有 Cypher 查询集中在此）
 │   ├── falkordb_store.py   #   基础 CRUD、连接管理、Schema
 │   ├── search_store.py     #   向量/关键词/BM25 全文搜索

@@ -7,7 +7,7 @@ flowchart TB
   subgraph ingest [索引]
     TS[Tree-sitter 解析]
     CGB[CodeGraphBuilder AST → 节点/边]
-    DOC[文档索引器 .md/.rst/.txt]
+    DOC[文档索引器 .md/.rst/.txt/.yml/.yaml/.xml/.properties/.env/.toml]
     EMB[嵌入生成器]
     ENR[可选 LLM 丰富化 business_summary]
   end
@@ -53,7 +53,7 @@ flowchart TB
 | **Tree-sitter** | 按文件 AST 捕获；每种语言的查询规则驱动 `CodeGraphBuilder` |
 | **嵌入**（Embeddings） | `EmbeddingConfig`：默认 `BAAI/bge-m3`，在多种节点标签上建立向量索引（参见 `store/schema.py` 中的 `VECTOR_INDEX_CONFIGS`） |
 | **LLM**（可选） | OpenAI 兼容 API，用于深度搜索、可选索引丰富化（`LLMConfig`） |
-| **MCP 处理器**（`api/mcp_server.py`） | 混合/图/索引/Wiki；**`get_file_content`** 读检出源文件；**`nl_query`** → `query/nl_cypher.py`（NL→Cypher，只读） |
+| **MCP 处理器**（`api/mcp_server.py`） | 混合/图/索引/Wiki；**`get_file_content`** 读检出源文件；NL→Cypher 仅供 Dashboard UI 使用（`query/nl_cypher.py`，不暴露为 MCP 工具） |
 
 ## 索引管道
 
@@ -74,7 +74,8 @@ flowchart TB
 6. **多样性** — `_apply_per_file_cap` 限制每个文件的命中数（默认 `per_file_cap=3`）。
 7. **图扩展** — 从融合种子出发，沿关系遍历至 `expand_depth` 深度，获取上下文相关邻居。
 8. **分页与排序** — 最终结果支持 `offset`/`limit` 分页和按分数/名称/路径排序。
-9. **NL→Cypher** — **MCP `rag_graph`** 的 **`nl_query`**：LLM 生成只读 Cypher 后直接查图（不走上述 RRF 管道；详见 `query/nl_cypher.py`）。
+9. **跨仓聚合** — `repositories: ["a", "b"]` 参数触发多仓并行搜索（`asyncio.gather`），各仓结果按分数排序合并，`uid` 级去重后再统一分页。支持部分失败容错（`return_exceptions=True`）。
+10. **NL→Cypher**（Dashboard UI 专用）— 通过 LLM 生成只读 Cypher 后直接查图（不走上述 RRF 管道；详见 `query/nl_cypher.py`）。此能力供 Dashboard 的图谱查询面板使用，不暴露为 MCP 工具，Agent 可通过组合 `rag_query` + `rag_graph` 自主实现类似效果。
 
 ## 文件内容访问
 

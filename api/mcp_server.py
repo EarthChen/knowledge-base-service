@@ -6,7 +6,7 @@ Cursor Agent sessions, enabling the agent to query the code knowledge graph.
 Tools exposed (consolidated):
   - rag_query, rag_graph, rag_index, task_status: Search, graph queries, indexing
   - documents: List indexed docs or fetch one by uid
-  - get_code_snippet, get_complete_context: Source and assembled entity context
+  - get_file_content, get_code_snippet, get_complete_context: On-disk file source and entity context
   - analyze_code: Quality score or index vs disk consistency (mode)
   - analyze_changes: PR review, blast-radius impact, wiki impact scope, wiki file-level PR impact (mode)
   - search_architecture: Classes by layer or discovered HTTP/RPC/Kafka endpoints (mode)
@@ -36,6 +36,8 @@ from store.traversal_store import TraversalStore
 from wiki.mcp_tools import WIKI_MCP_TOOLS_MANIFEST, WikiMCPHandler
 
 log = get_logger(__name__)
+
+_MAX_FILE_READ_BYTES = 512 * 1024
 
 _ENTITY_FILTER_LABELS: dict[str, frozenset[str]] = {
     "function": frozenset({str(NodeLabel.FUNCTION)}),
@@ -90,6 +92,26 @@ def _filter_graph_context_by_entity_type(
 
 def _mcp_error(code: str, message: str) -> dict[str, Any]:
     return {"error": {"code": code, "message": message}}
+
+
+def _resolve_repo_base_path(repository: str) -> Path | None:
+    """Resolve repository name to its local clone directory.
+
+    Security: rejects any repository value that resolves outside clone_base_path.
+    """
+    from config import get_settings
+
+    if ".." in Path(repository).parts or repository.startswith("/"):
+        return None
+
+    settings = get_settings()
+    base = Path(settings.git.clone_base_path).resolve()
+
+    candidate = (base / repository).resolve()
+    if candidate.is_relative_to(base) and candidate.is_dir():
+        return candidate
+
+    return None
 
 
 # Minimum role per MCP tool name. Omitted tools default to ``Role.VIEWER``.
@@ -702,6 +724,39 @@ MCP_TOOLS_MANIFEST = [
             "required": ["repository"],
         },
     },
+    {
+        "name": "get_file_content",
+        "description": (
+            "Read the raw source content of a file from an indexed repository. "
+            "Returns the full file content or a specific line range. "
+            "Use this when code snippets from search results are truncated and you need the complete source."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {
+                    "type": "string",
+                    "description": "Repository name as indexed.",
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": (
+                        "Relative file path within the repository (e.g. "
+                        "'src/main/java/com/example/Service.java')."
+                    ),
+                },
+                "start_line": {
+                    "type": "integer",
+                    "description": "Start line number (1-based, inclusive). Omit to read from beginning.",
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "End line number (1-based, inclusive). Omit to read to end.",
+                },
+            },
+            "required": ["repository", "file_path"],
+        },
+    },
 ] + WIKI_MCP_TOOLS_MANIFEST
 
 
@@ -755,6 +810,7 @@ class KnowledgeBaseMCPHandler:
             "rag_graph": self.handle_rag_graph,
             "rag_index": self.handle_rag_index,
             "documents": self.handle_documents,
+            "get_file_content": self.handle_get_file_content,
             "get_code_snippet": self.handle_get_code_snippet,
             "analyze_code": self.handle_analyze_code,
             "search_architecture": self.handle_search_architecture,
@@ -1355,6 +1411,101 @@ class KnowledgeBaseMCPHandler:
         if not result.data:
             return _mcp_error("not_found", "Document not found")
         return _format_get_document_mcp(result.data)
+
+    async def handle_get_file_content(self, args: dict[str, Any]) -> dict[str, Any]:
+        repository = str(args.get("repository") or "").strip()
+        file_path = str(args.get("file_path") or "").strip()
+        if not repository or not file_path:
+            return _mcp_error("invalid_params", "repository and file_path are required")
+
+        if file_path.startswith("/") or ".." in Path(file_path).parts:
+            return _mcp_error("invalid_params", "file_path must be relative and cannot contain '..'")
+
+        repo_base = _resolve_repo_base_path(repository)
+        if repo_base is None:
+            return _mcp_error("not_found", f"Repository '{repository}' not found on disk")
+
+        full_path = (repo_base / file_path).resolve()
+        if not full_path.is_relative_to(repo_base.resolve()):
+            return _mcp_error("invalid_params", "file_path resolves outside repository")
+
+        if not full_path.is_file():
+            return _mcp_error("not_found", f"File not found: {file_path}")
+
+        file_size = full_path.stat().st_size
+        start_line_raw = args.get("start_line")
+        end_line_raw = args.get("end_line")
+        has_range = start_line_raw is not None or end_line_raw is not None
+
+        if has_range:
+            try:
+                sl = int(start_line_raw) if start_line_raw is not None else 1
+                el = int(end_line_raw) if end_line_raw is not None else None
+            except (TypeError, ValueError):
+                return _mcp_error("invalid_params", "start_line and end_line must be positive integers")
+            if sl < 1:
+                return _mcp_error("invalid_params", "start_line must be >= 1")
+            if el is not None and el < 1:
+                return _mcp_error("invalid_params", "end_line must be >= 1")
+            if el is not None and sl > el:
+                return _mcp_error("invalid_params", "start_line cannot be greater than end_line")
+
+            selected: list[str] = []
+            total_lines = 0
+            try:
+                with open(full_path, encoding="utf-8", errors="replace") as fh:
+                    for i, line in enumerate(fh, 1):
+                        total_lines = i
+                        if el is not None and i > el:
+                            for _ in fh:
+                                total_lines += 1
+                            break
+                        if i >= sl:
+                            selected.append(line.rstrip("\n"))
+            except OSError as exc:
+                return _mcp_error("read_error", str(exc))
+
+            actual_el = el if el is not None else total_lines
+            actual_el = min(actual_el, total_lines)
+            content = "\n".join(selected) + ("\n" if selected else "")
+            return {
+                "repository": repository,
+                "file_path": file_path,
+                "content": content,
+                "start_line": sl,
+                "end_line": actual_el,
+                "total_lines": total_lines,
+                "truncated": False,
+            }
+
+        truncated = False
+        try:
+            raw = full_path.read_bytes()
+        except OSError as exc:
+            return _mcp_error("read_error", str(exc))
+
+        if len(raw) > _MAX_FILE_READ_BYTES:
+            raw = raw[:_MAX_FILE_READ_BYTES]
+            truncated = True
+
+        probe = raw[:8192]
+        if b"\x00" in probe:
+            return _mcp_error("read_error", "File appears to be binary")
+
+        text = raw.decode("utf-8", errors="replace")
+
+        all_lines = text.split("\n")
+        if text.endswith("\n") and all_lines and all_lines[-1] == "":
+            all_lines = all_lines[:-1]
+        total_lines = len(all_lines) if all_lines != [""] else 0
+
+        return {
+            "repository": repository,
+            "file_path": file_path,
+            "content": text,
+            "total_lines": total_lines,
+            "truncated": truncated,
+        }
 
     async def handle_get_code_snippet(self, args: dict[str, Any]) -> dict[str, Any]:
         node_uid = str(args.get("node_uid") or "").strip()

@@ -4,6 +4,8 @@ export interface Translations {
   app: {
     title: string;
     headerTitle: string;
+    /** Short brand in sidebar */
+    brandName: string;
     commandPalettePlaceholder: string;
     commandPaletteShortcutOpen: string;
     commandPaletteFooterHint: string;
@@ -26,6 +28,27 @@ export interface Translations {
     businesses: string;
     wiki: string;
     settings: string;
+    prImpact: string;
+    /** Sidebar group headings */
+    groupExplore: string;
+    groupWiki: string;
+    groupManage: string;
+  };
+  common: {
+    loading: string;
+    close: string;
+    breadcrumb: string;
+    copy: string;
+    copied: string;
+    loadingCode: string;
+    unknownType: string;
+    noCodeStored: string;
+    diagramReset: string;
+    diagramZoomHint: string;
+    /** Use {editor}, {file}, {line} */
+    sourceLinkOpenIn: string;
+    setLocalRoot: string;
+    setLocalRootHint: string;
   };
   sidebar: {
     service: string;
@@ -150,6 +173,20 @@ export interface Translations {
     /** Short label for language filter */
     lang: string;
     exportJson: string;
+    includeCodeStreamHint: string;
+    deepResearchStagePlan: string;
+    /** Use {n} for round number (1-based display) */
+    deepResearchRound: string;
+    /** Use {round}, {count} */
+    deepResearchRoundDone: string;
+    /** Use {round}; append sufficient or continuing */
+    deepResearchRoundAnalysisPrefix: string;
+    deepResearchSufficient: string;
+    deepResearchContinuing: string;
+    deepResearchConclusion: string;
+    /** Use {message} */
+    deepResearchError: string;
+    deepResearchUnknown: string;
   };
   graph: {
     title: string;
@@ -356,6 +393,8 @@ export interface Translations {
     of: string;
     prev: string;
     next: string;
+    graphInsightsLink: string;
+    graphInsightsBlurb: string;
   };
   businesses: {
     title: string;
@@ -367,6 +406,8 @@ export interface Translations {
     nameLabel: string;
     descLabel: string;
     descPlaceholder: string;
+    idPlaceholder: string;
+    namePlaceholder: string;
     deleteBtn: string;
     deleteConfirm: string;
     deleted: string;
@@ -389,6 +430,76 @@ export interface Translations {
     deployment: string;
     deploymentValue: string;
     language: string;
+    localeEnglish: string;
+    localeChinese: string;
+    wikiReadonlyTitle: string;
+    wikiReadonlyDesc: string;
+    wikiNoWikiInHealth: string;
+    cotEnabled: string;
+    cotAnalysisModel: string;
+    cotGenerationModel: string;
+    valueNotSet: string;
+    scheduledRegenTitle: string;
+    scheduledRegenDesc: string;
+    scheduledRegenStatus: string;
+    scheduledRegenTip: string;
+  };
+  webhook: {
+    title: string;
+    editConfig: string;
+    loadFailed: string;
+    masterSwitch: string;
+    labelEnabled: string;
+    labelDisabled: string;
+    debounceSeconds: string;
+    autoUpdateBranches: string;
+    colProvider: string;
+    colSecret: string;
+    colSwitch: string;
+    secretConfigured: string;
+    secretNotConfigured: string;
+    noConfigData: string;
+    modalTitle: string;
+    enableWebhooks: string;
+    debounceLabel: string;
+    branchesLabel: string;
+    branchesPlaceholder: string;
+    secretGithub: string;
+    secretGitlab: string;
+    secretGitea: string;
+    globalToggleTitle: string;
+    configSaved: string;
+    providerGithub: string;
+    providerGitlab: string;
+    providerGitea: string;
+  };
+  prImpact: {
+    title: string;
+    subtitle: string;
+    repository: string;
+    changedFiles: string;
+    addFile: string;
+    bulkHint: string;
+    bulkPlaceholder: string;
+    applyBulk: string;
+    analyze: string;
+    analyzing: string;
+    riskSummary: string;
+    highImpact: string;
+    mediumImpact: string;
+    affectedPagesCount: string;
+    affectedWikiPages: string;
+    empty: string;
+    reason: string;
+    noRepositories: string;
+    filePathPlaceholder: string;
+    removeRow: string;
+    /** Use {count} */
+    fileCount: string;
+    statusAdded: string;
+    statusModified: string;
+    statusRemoved: string;
+    statusRenamed: string;
   };
   wiki: {
     title: string;
@@ -403,6 +514,8 @@ export interface Translations {
     tabInsights: string;
     tabExport: string;
     regenerate: string;
+    regenerateStarted: string;
+    regenerateStartedWithTask: string;
     pagesHeading: string;
     expandAllFolders: string;
     searchWikiLabel: string;
@@ -486,6 +599,16 @@ export interface Translations {
     conversationHistoryTimeMinutes: string;
     conversationHistoryTimeHours: string;
     conversationHistoryTimeDays: string;
+    callChainTitle: string;
+    callChainFqns: string;
+    callChainViewImpact: string;
+    callChainAnalyzing: string;
+    callChainAffectedPages: string;
+    callChainEmpty: string;
+    callChainImpactLabel: string;
+    editorCursor: string;
+    editorVscode: string;
+    editorIdea: string;
   };
   sync: {
     title: string;

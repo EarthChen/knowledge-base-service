@@ -148,8 +148,7 @@ function ConversationRelativeWhen({
 }
 
 export default function AskPanel({ repository }: Props) {
-  const { locale, t } = useI18n();
-  const isZh = locale === "zh";
+  const { t } = useI18n();
   const [open, setOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [mode, setMode] = useState<"ask" | "deep">("ask");
@@ -522,7 +521,7 @@ export default function AskPanel({ repository }: Props) {
 
               {(deepStream.stages.length > 0 || deepStream.isStreaming) && (
                 <div className="space-y-3">
-                  <DeepResearchTimeline stages={deepStream.stages} isZh={isZh} />
+                  <DeepResearchTimeline stages={deepStream.stages} />
                   {deepMarkdown ? (
                     <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner dark:border-gray-700 dark:bg-gray-900">
                       <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">

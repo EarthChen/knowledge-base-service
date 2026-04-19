@@ -57,7 +57,7 @@ export default function SearchResultCard({
     <article className="rounded-xl border border-gray-200 bg-white p-4 transition-all hover:border-gray-300 hover:shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${typeStyle}`}>
-          {match.type || "unknown"}
+          {match.type || t.common.unknownType}
         </span>
         <div className="flex flex-wrap items-center gap-2">
           {match.uid && (
@@ -67,7 +67,7 @@ export default function SearchResultCard({
               className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
             >
               <Code size={12} />
-              {showCode ? t.search.hideCode ?? "Hide" : t.search.viewCode ?? "Code"}
+              {showCode ? t.search.hideCode : t.search.viewCode}
             </button>
           )}
           <Link
@@ -158,7 +158,7 @@ export default function SearchResultCard({
       {showCode && (
         <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-600 dark:bg-gray-800/80">
           {snippetQuery.isLoading && (
-            <p className="text-xs text-gray-400 dark:text-gray-500">Loading code…</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t.common.loadingCode}</p>
           )}
           {snippetQuery.error && (
             <p className="text-xs text-red-600 dark:text-red-400">{snippetQuery.error.message}</p>
@@ -178,11 +178,11 @@ export default function SearchResultCard({
                   className="flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
                   {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
-                  {copied ? "Copied" : "Copy"}
+                  {copied ? t.common.copied : t.common.copy}
                 </button>
               </div>
               <CodeBlock
-                code={snippetQuery.data.code_snippet || "(no code stored)"}
+                code={snippetQuery.data.code_snippet || t.common.noCodeStored}
                 filePath={snippetQuery.data.file ?? match.file}
                 startLine={snippetQuery.data.start_line}
               />

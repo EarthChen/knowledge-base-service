@@ -86,8 +86,7 @@ function CallChainSection({
   repository: string;
   detail: WikiPageDetail;
 }) {
-  const { locale } = useI18n();
-  const isZh = locale === "zh";
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const analyzeMutation = useAnalyzeImpact();
   const [impactResult, setImpactResult] = useState<AnalyzeImpactResponse | null>(null);
@@ -108,16 +107,6 @@ function CallChainSection({
 
   if (!detail.source_locations?.length) return null;
 
-  const labels = {
-    title: isZh ? "调用链 & 影响范围" : "Call chain & impact",
-    fqns: isZh ? "符号（FQN）" : "Symbols (FQN)",
-    viewImpact: isZh ? "查看调用链 / 分析影响" : "View impact",
-    analyzing: isZh ? "分析中…" : "Analyzing…",
-    affected: isZh ? "受影响页面" : "Affected pages",
-    empty: isZh ? "暂无受影响页面。" : "No affected pages.",
-    impact: isZh ? "影响" : "Impact",
-  };
-
   const handleAnalyze = () => {
     setImpactResult(null);
     analyzeMutation.mutate(
@@ -137,7 +126,7 @@ function CallChainSection({
       >
         <span className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
           <GitMerge size={18} className="text-violet-600 dark:text-violet-400" aria-hidden />
-          {labels.title}
+          {t.wiki.callChainTitle}
         </span>
         {expanded ? (
           <ChevronUp size={18} className="text-gray-500 dark:text-gray-400" />
@@ -150,7 +139,7 @@ function CallChainSection({
         <div className="mt-3 space-y-4 rounded-xl border border-gray-100 bg-gray-50/60 p-4 shadow-inner dark:border-gray-700 dark:bg-gray-800/40">
           <div>
             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              {labels.fqns}
+              {t.wiki.callChainFqns}
             </h4>
             <ul className="flex flex-wrap gap-2">
               {fqns.map((fqn, i) => (
@@ -175,7 +164,7 @@ function CallChainSection({
               ) : (
                 <GitMerge className="size-4" aria-hidden />
               )}
-              {analyzeMutation.isPending ? labels.analyzing : labels.viewImpact}
+              {analyzeMutation.isPending ? t.wiki.callChainAnalyzing : t.wiki.callChainViewImpact}
             </button>
           </div>
 
@@ -188,7 +177,7 @@ function CallChainSection({
           {impactResult && (
             <div>
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                {labels.affected}
+                {t.wiki.callChainAffectedPages}
               </h4>
               {impactResult.affected_pages?.length ? (
                 <ul className="space-y-2">
@@ -219,7 +208,7 @@ function CallChainSection({
                           )}
                         </div>
                         <span className="shrink-0 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-700 ring-1 ring-gray-200 dark:bg-gray-900/90 dark:text-gray-200 dark:ring-gray-600">
-                          {labels.impact}: {p.impact_level}
+                          {t.wiki.callChainImpactLabel}: {p.impact_level}
                         </span>
                       </div>
                       {p.reason && (
@@ -229,7 +218,7 @@ function CallChainSection({
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-gray-600 dark:text-gray-400">{labels.empty}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">{t.wiki.callChainEmpty}</p>
               )}
             </div>
           )}

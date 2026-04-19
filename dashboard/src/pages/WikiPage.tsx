@@ -96,7 +96,6 @@ export default function WikiPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { locale, t } = useI18n();
-  const isZh = locale === "zh";
   const [regeneratePending, setRegeneratePending] = useState(false);
 
   async function handleRegenerateWiki() {
@@ -106,12 +105,8 @@ export default function WikiPage() {
       const res = await wikiGenerate(repository, "repo", "structure", locale === "zh" ? "zh" : "en");
       const tid = res.task_id ? String(res.task_id) : "";
       const msg = tid
-        ? isZh
-          ? `已触发 Wiki 重新生成，任务 ID：${tid}`
-          : `Wiki regeneration started. Task ID: ${tid}`
-        : isZh
-          ? "已触发 Wiki 重新生成"
-          : "Wiki regeneration started";
+        ? t.wiki.regenerateStartedWithTask.replace("{taskId}", tid)
+        : t.wiki.regenerateStarted;
       toast("success", msg);
       await queryClient.invalidateQueries({ queryKey: ["wiki"] });
     } catch (e) {

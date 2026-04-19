@@ -97,7 +97,7 @@ export default function Businesses() {
             <input
               value={formId}
               onChange={(e) => setFormId(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
-              placeholder="team-alpha"
+              placeholder={t.businesses.idPlaceholder}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-sky-500 dark:focus:ring-sky-600"
             />
           </div>
@@ -108,7 +108,7 @@ export default function Businesses() {
             <input
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
-              placeholder="Team Alpha"
+              placeholder={t.businesses.namePlaceholder}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-sky-500 dark:focus:ring-sky-600"
             />
           </div>
@@ -142,7 +142,7 @@ export default function Businesses() {
       )}
 
       {isLoading ? (
-        <div className="text-sm text-gray-400 dark:text-gray-500">Loading...</div>
+        <div className="text-sm text-gray-400 dark:text-gray-500">{t.common.loading}</div>
       ) : !data?.businesses?.length ? (
         <div className="rounded-xl border border-gray-200 p-8 text-center text-sm text-gray-400 dark:border-gray-700 dark:text-gray-500">
           {t.businesses.empty}

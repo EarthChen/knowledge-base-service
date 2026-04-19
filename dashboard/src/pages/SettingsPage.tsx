@@ -34,10 +34,7 @@ import type { SyncSchedule, SyncScheduleRequest, WebhookConfig } from "../api/ty
 import { useAuth } from "../contexts/AuthContext";
 import { SkeletonLine } from "../components/Skeleton";
 
-const LOCALE_OPTIONS: { value: Locale; label: string }[] = [
-  { value: "en", label: "English" },
-  { value: "zh", label: "简体中文" },
-];
+const LOCALE_OPTIONS: { value: Locale }[] = [{ value: "en" }, { value: "zh" }];
 
 function schedulePath(repo: string) {
   return repo.split("/").map(encodeURIComponent).join("/");
@@ -52,7 +49,6 @@ export default function SettingsPage() {
   const { t, locale, setLocale } = useI18n();
   const { toast } = useToast();
   const { isAdmin, isLoading: authLoading } = useAuth();
-  const isZh = locale === "zh";
 
   const {
     data: webhookConfig,
@@ -142,7 +138,7 @@ export default function SettingsPage() {
     };
     try {
       await updateWebhook.mutateAsync(body);
-      toast("success", isZh ? "Webhook 配置已保存" : "Webhook configuration saved");
+      toast("success", t.webhook.configSaved);
       closeWebhookModal();
       refetchWebhook();
     } catch (err) {
@@ -291,7 +287,7 @@ export default function SettingsPage() {
                   : "border border-gray-300 text-gray-500 hover:text-gray-700 dark:border-gray-600 dark:text-gray-400 dark:hover:text-gray-200"
               }`}
             >
-              {opt.label}
+              {opt.value === "en" ? t.settings.localeEnglish : t.settings.localeChinese}
             </button>
           ))}
         </div>
@@ -352,25 +348,21 @@ export default function SettingsPage() {
         <div className="flex items-center gap-2">
           <BookOpen size={16} className="text-gray-500 dark:text-gray-400" />
           <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">
-            {isZh ? "Wiki 配置（只读）" : "Wiki configuration (read-only)"}
+            {t.settings.wikiReadonlyTitle}
           </h3>
         </div>
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          {isZh
-            ? "链式思考（CoT）与模型名称来自服务端环境变量，由 /health 返回。"
-            : "Chain-of-thought (CoT) flags and model names come from server environment variables via /health."}
+          {t.settings.wikiReadonlyDesc}
         </p>
         <div className="mt-4 space-y-4 text-sm">
           {!health?.wiki ? (
             <p className="text-gray-500 dark:text-gray-400">
-              {isZh
-                ? "当前服务未在健康检查中返回 wiki 字段（可能为旧版本）。"
-                : "Health response has no wiki section (server may be an older build)."}
+              {t.settings.wikiNoWikiInHealth}
             </p>
           ) : (
             <>
               <label className="flex cursor-not-allowed items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 opacity-90 dark:border-gray-700 dark:bg-gray-800/60">
-                <span className="text-gray-600 dark:text-gray-300">{isZh ? "启用 CoT" : "CoT enabled"}</span>
+                <span className="text-gray-600 dark:text-gray-300">{t.settings.cotEnabled}</span>
                 <input
                   type="checkbox"
                   className="h-4 w-4 rounded border-gray-300 text-sky-600 dark:border-gray-600"
@@ -382,26 +374,22 @@ export default function SettingsPage() {
               </label>
               <div className="space-y-1">
                 <div className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                  {isZh ? "CoT 分析模型" : "CoT analysis model"}
+                  {t.settings.cotAnalysisModel}
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200">
                   {health.wiki.cot_analysis_model?.trim()
                     ? health.wiki.cot_analysis_model
-                    : isZh
-                      ? "（未设置）"
-                      : "(not set)"}
+                    : t.settings.valueNotSet}
                 </div>
               </div>
               <div className="space-y-1">
                 <div className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                  {isZh ? "CoT 生成模型" : "CoT generation model"}
+                  {t.settings.cotGenerationModel}
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200">
                   {health.wiki.cot_generation_model?.trim()
                     ? health.wiki.cot_generation_model
-                    : isZh
-                      ? "（未设置）"
-                      : "(not set)"}
+                    : t.settings.valueNotSet}
                 </div>
               </div>
             </>
@@ -415,7 +403,7 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2">
               <Webhook size={18} className="text-gray-500 dark:text-gray-400" />
               <h3 className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                {isZh ? "Webhook 配置" : "Webhook Configuration"}
+                {t.webhook.title}
               </h3>
             </div>
             <button
@@ -424,14 +412,13 @@ export default function SettingsPage() {
               disabled={webhookLoading}
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
             >
-              <Pencil size={14} /> {isZh ? "编辑配置" : "Edit configuration"}
+              <Pencil size={14} /> {t.webhook.editConfig}
             </button>
           </div>
 
           {webhookError && (
             <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
-              {(webhookError as Error).message ||
-                (isZh ? "加载 Webhook 配置失败" : "Failed to load webhook configuration")}
+              {(webhookError as Error).message || t.webhook.loadFailed}
             </div>
           )}
 
@@ -444,7 +431,7 @@ export default function SettingsPage() {
           ) : webhookConfig ? (
             <div className="mt-4 space-y-4 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3 dark:border-gray-700">
-                <span className="text-gray-500 dark:text-gray-400">{isZh ? "总开关" : "Master switch"}</span>
+                <span className="text-gray-500 dark:text-gray-400">{t.webhook.masterSwitch}</span>
                 <span
                   className={
                     webhookConfig.enabled
@@ -452,21 +439,15 @@ export default function SettingsPage() {
                       : "font-medium text-gray-500 dark:text-gray-400"
                   }
                 >
-                  {webhookConfig.enabled
-                    ? isZh
-                      ? "已启用"
-                      : "Enabled"
-                    : isZh
-                      ? "已禁用"
-                      : "Disabled"}
+                  {webhookConfig.enabled ? t.webhook.labelEnabled : t.webhook.labelDisabled}
                 </span>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-gray-500 dark:text-gray-400">{isZh ? "防抖（秒）" : "Debounce (seconds)"}</span>
+                <span className="text-gray-500 dark:text-gray-400">{t.webhook.debounceSeconds}</span>
                 <span className="text-gray-800 dark:text-gray-100">{webhookConfig.debounce_seconds}</span>
               </div>
               <div>
-                <div className="text-gray-500 dark:text-gray-400">{isZh ? "自动更新分支" : "Auto-update branches"}</div>
+                <div className="text-gray-500 dark:text-gray-400">{t.webhook.autoUpdateBranches}</div>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   {(webhookConfig.auto_update_branches?.length ?? 0) === 0 ? (
                     <span className="text-gray-400">—</span>
@@ -487,13 +468,13 @@ export default function SettingsPage() {
                   <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/80">
                     <tr>
                       <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">
-                        {isZh ? "提供商" : "Provider"}
+                        {t.webhook.colProvider}
                       </th>
                       <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">
-                        {isZh ? "密钥" : "Secret"}
+                        {t.webhook.colSecret}
                       </th>
                       <th className="px-3 py-2 font-medium text-gray-500 dark:text-gray-400">
-                        {isZh ? "开关" : "Switch"}
+                        {t.webhook.colSwitch}
                       </th>
                     </tr>
                   </thead>
@@ -502,16 +483,16 @@ export default function SettingsPage() {
                       const secret = webhookConfig.providers?.[key]?.secret;
                       const configured = !!(secret && String(secret).trim());
                       const label =
-                        key === "github" ? "GitHub" : key === "gitlab" ? "GitLab" : "Gitea";
+                        key === "github"
+                          ? t.webhook.providerGithub
+                          : key === "gitlab"
+                            ? t.webhook.providerGitlab
+                            : t.webhook.providerGitea;
                       return (
                         <tr key={key} className="border-b border-gray-100 dark:border-gray-800">
                           <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-100">{label}</td>
                           <td className="px-3 py-2 text-gray-700 dark:text-gray-300">
-                            {configured
-                              ? "***configured***"
-                              : isZh
-                                ? "未配置"
-                                : "Not configured"}
+                            {configured ? t.webhook.secretConfigured : t.webhook.secretNotConfigured}
                           </td>
                           <td className="px-3 py-2">
                             <input
@@ -520,11 +501,7 @@ export default function SettingsPage() {
                               checked={webhookConfig.enabled}
                               readOnly
                               disabled
-                              title={
-                                isZh
-                                  ? "Webhook 总开关状态（在编辑中修改）"
-                                  : "Global webhook toggle (edit in modal)"
-                              }
+                              title={t.webhook.globalToggleTitle}
                             />
                           </td>
                         </tr>
@@ -536,7 +513,7 @@ export default function SettingsPage() {
             </div>
           ) : !webhookError ? (
             <p className="mt-4 text-sm text-gray-400 dark:text-gray-500">
-              {isZh ? "暂无配置数据" : "No configuration loaded"}
+              {t.webhook.noConfigData}
             </p>
           ) : null}
         </div>
@@ -546,23 +523,17 @@ export default function SettingsPage() {
         <div className="flex items-center gap-2">
           <CalendarClock size={18} className="text-gray-500 dark:text-gray-400" />
           <h3 className="text-sm font-medium text-gray-800 dark:text-gray-100">
-            {isZh ? "Wiki 定时再生成" : "Wiki Scheduled Regeneration"}
+            {t.settings.scheduledRegenTitle}
           </h3>
         </div>
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          {isZh
-            ? "由 P3 Webhook 与调度器（Scheduler）功能协同驱动 Wiki 内容的定时与事件触发更新。"
-            : "Driven by P3 Webhook and Scheduler features for timed and event-triggered wiki updates."}
+          {t.settings.scheduledRegenDesc}
         </p>
         <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-300">
-          {isZh
-            ? "由 Webhook 事件触发或按计划自动执行"
-            : "Triggered by webhook events or runs on schedule"}
+          {t.settings.scheduledRegenStatus}
         </div>
         <p className="mt-3 text-xs text-amber-800 dark:text-amber-200">
-          {isZh
-            ? "提示：当 Webhook 启用时，代码推送会自动触发增量更新。"
-            : "Tip: When webhooks are enabled, code pushes trigger incremental updates automatically."}
+          {t.settings.scheduledRegenTip}
         </p>
       </div>
 
@@ -833,7 +804,7 @@ export default function SettingsPage() {
           <FocusTrap onEscape={closeWebhookModal}>
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 shadow-xl dark:border-gray-600 dark:bg-gray-900 dark:shadow-gray-950/50">
             <h4 id="webhook-modal-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
-              {isZh ? "编辑 Webhook 配置" : "Edit webhook configuration"}
+              {t.webhook.modalTitle}
             </h4>
             <form onSubmit={submitWebhookModal} className="mt-4 space-y-3">
               <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
@@ -843,11 +814,11 @@ export default function SettingsPage() {
                   checked={whEnabled}
                   onChange={(e) => setWhEnabled(e.target.checked)}
                 />
-                {isZh ? "启用 Webhook（总开关）" : "Enable webhooks (master switch)"}
+                {t.webhook.enableWebhooks}
               </label>
               <div>
                 <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                  {isZh ? "防抖间隔（秒，1–86400）" : "Debounce seconds (1–86400)"}
+                  {t.webhook.debounceLabel}
                 </label>
                 <input
                   type="number"
@@ -861,17 +832,17 @@ export default function SettingsPage() {
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                  {isZh ? "自动更新分支（逗号分隔）" : "Auto-update branches (comma-separated)"}
+                  {t.webhook.branchesLabel}
                 </label>
                 <input
                   className={`${inputClass} mt-1`}
                   value={whBranches}
                   onChange={(e) => setWhBranches(e.target.value)}
-                  placeholder={isZh ? "例如 main, develop" : "e.g. main, develop"}
+                  placeholder={t.webhook.branchesPlaceholder}
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">GitHub secret</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">{t.webhook.secretGithub}</label>
                 <input
                   type="password"
                   className={`${inputClass} mt-1`}
@@ -881,7 +852,7 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">GitLab secret</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">{t.webhook.secretGitlab}</label>
                 <input
                   type="password"
                   className={`${inputClass} mt-1`}
@@ -891,7 +862,7 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Gitea secret</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">{t.webhook.secretGitea}</label>
                 <input
                   type="password"
                   className={`${inputClass} mt-1`}

@@ -374,9 +374,9 @@ export default function WikiSidebar({
             }}
             className="mt-1 w-full rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-900 outline-none focus:border-sky-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:border-sky-500"
           >
-            <option value="cursor">Cursor</option>
-            <option value="vscode">VS Code</option>
-            <option value="idea">IntelliJ IDEA</option>
+            <option value="cursor">{t.wiki.editorCursor}</option>
+            <option value="vscode">{t.wiki.editorVscode}</option>
+            <option value="idea">{t.wiki.editorIdea}</option>
           </select>
         </label>
       </div>

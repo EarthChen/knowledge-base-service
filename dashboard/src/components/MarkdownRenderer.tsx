@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef } from "react";
+import { useI18n } from "../i18n/context";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import mermaid from "mermaid";
@@ -24,6 +25,7 @@ mermaid.initialize({
 let mermaidCounter = 0;
 
 function DiagramModal({ svg, onClose }: { svg: string; onClose: () => void }) {
+  const { t } = useI18n();
   const [scale, setScale] = useState(1);
 
   useEffect(() => {
@@ -80,11 +82,11 @@ function DiagramModal({ svg, onClose }: { svg: string; onClose: () => void }) {
               onClick={() => setScale(1)}
               className="rounded px-2 py-1 text-xs text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-200"
             >
-              Reset
+              {t.common.diagramReset}
             </button>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-400 dark:text-gray-500">Esc to close · Scroll to zoom</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">{t.common.diagramZoomHint}</span>
             <button
               type="button"
               onClick={onClose}

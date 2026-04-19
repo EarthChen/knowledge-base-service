@@ -1,5 +1,6 @@
 import { ChevronRight, Home } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useI18n } from "../../i18n/context";
 
 function wikiPageLink(repository: string, pathTo: string): string {
   const encRepo = encodeURIComponent(repository);
@@ -14,11 +15,12 @@ type Props = {
 };
 
 export default function WikiBreadcrumbs({ repository, path }: Props) {
+  const { t } = useI18n();
   const segments = path.split("/").filter(Boolean);
 
   return (
     <nav
-      aria-label="Breadcrumb"
+      aria-label={t.common.breadcrumb}
       className="flex flex-wrap items-center gap-1 text-sm text-gray-600 dark:text-gray-400"
     >
       <Link

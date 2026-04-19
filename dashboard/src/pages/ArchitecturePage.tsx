@@ -131,9 +131,9 @@ export default function ArchitecturePage() {
             className="inline-flex items-center gap-1.5 font-medium text-sky-700 underline decoration-sky-200 hover:text-sky-900 dark:text-sky-400 dark:decoration-sky-800 dark:hover:text-sky-300"
           >
             <Network size={16} className="shrink-0 text-violet-600 dark:text-violet-400" aria-hidden />
-            Graph insights (Wiki tab)
+            {t.architecture.graphInsightsLink}
           </Link>
-          <span className="text-gray-400 dark:text-gray-500"> — automated cycles, isolation, layering, cohesion.</span>
+          <span className="text-gray-400 dark:text-gray-500">{t.architecture.graphInsightsBlurb}</span>
         </p>
       )}
 

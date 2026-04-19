@@ -1,4 +1,5 @@
 import { ExternalLink } from "lucide-react";
+import { useI18n } from "../../i18n/context";
 import {
   buildIdeHref,
   getWikiLocalRoot,
@@ -25,6 +26,7 @@ type Props = {
 };
 
 export default function SourceLink({ href, children, className }: Props) {
+  const { t } = useI18n();
   const parsed = parseSourceProtocol(href);
   if (!parsed) {
     return (
@@ -36,23 +38,29 @@ export default function SourceLink({ href, children, className }: Props) {
 
   const editor = readEditorPref();
   const ideHref = buildIdeHref(editor, parsed.repository, parsed.filePath, parsed.line);
+  const editorLabel =
+    editor === "cursor"
+      ? t.wiki.editorCursor
+      : editor === "vscode"
+        ? t.wiki.editorVscode
+        : t.wiki.editorIdea;
 
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       <a
         href={ideHref}
         className={`font-medium text-sky-700 underline decoration-sky-300 underline-offset-2 hover:text-sky-900 ${className ?? ""}`}
-        title={`Open in ${editor} (${parsed.filePath}:${parsed.line})`}
+        title={t.common.sourceLinkOpenIn
+          .replace("{editor}", editorLabel)
+          .replace("{file}", parsed.filePath)
+          .replace("{line}", String(parsed.line))}
       >
         {children}
         <ExternalLink className="ml-0.5 inline size-3 opacity-70" aria-hidden />
       </a>
       {!getWikiLocalRoot(parsed.repository) && (
-        <span
-          className="text-[10px] text-amber-700"
-          title="Set a local clone path in the wiki toolbar so IDE links resolve to absolute files."
-        >
-          set root
+        <span className="text-[10px] text-amber-700" title={t.common.setLocalRootHint}>
+          {t.common.setLocalRoot}
         </span>
       )}
     </span>

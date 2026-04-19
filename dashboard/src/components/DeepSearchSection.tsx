@@ -28,8 +28,7 @@ export default function DeepSearchSection({ showTitle = true }: Props) {
   const [traceOpen, setTraceOpen] = useState(true);
   const [streamMode, setStreamMode] = useState(true);
 
-  const { t, locale } = useI18n();
-  const isZh = locale === "zh";
+  const { t } = useI18n();
   const deepSearch = useDeepSearch();
   const stream = useDeepSearchStream();
 
@@ -121,7 +120,7 @@ export default function DeepSearchSection({ showTitle = true }: Props) {
             className={`flex cursor-pointer items-center gap-2 text-xs text-gray-500 dark:text-gray-400 ${
               streamMode ? "opacity-50" : ""
             }`}
-            title={streamMode ? (isZh ? "JSON 模式下可用" : "Available in JSON mode") : undefined}
+            title={streamMode ? t.search.includeCodeStreamHint : undefined}
           >
             <input
               type="checkbox"
@@ -149,7 +148,7 @@ export default function DeepSearchSection({ showTitle = true }: Props) {
 
       {streamMode && (stream.stages.length > 0 || stream.isStreaming) && (
         <div className="space-y-4">
-          <DeepResearchTimeline stages={stream.stages} isZh={isZh} />
+          <DeepResearchTimeline stages={stream.stages} />
           {streamMarkdown ? (
             <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
               <h3 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">{t.search.analysis}</h3>

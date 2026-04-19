@@ -30,8 +30,7 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [bizDropdownOpen, setBizDropdownOpen] = useState(false);
   const { data: health } = useHealth();
-  const { t, locale } = useI18n();
-  const isZh = locale === "zh";
+  const { t } = useI18n();
   const { currentBusiness, setCurrentBusiness, businesses, isBound } = useBusiness();
   const isHealthy = health?.status === "ok";
 
@@ -54,7 +53,7 @@ export default function Layout() {
 
   const NAV_GROUPS: NavGroup[] = [
     {
-      title: isZh ? "知识探索" : "Explore",
+      title: t.nav.groupExplore,
       items: [
         { to: "/", icon: LayoutDashboard, label: t.nav.overview },
         { to: "/search", icon: Search, label: t.nav.search },
@@ -63,15 +62,15 @@ export default function Layout() {
       ],
     },
     {
-      title: isZh ? "Wiki 空间" : "Wiki",
+      title: t.nav.groupWiki,
       items: [
         { to: "/wiki", icon: BookOpen, label: t.nav.wiki },
         { to: "/businesses", icon: Building2, label: t.nav.businesses },
-        { to: "/pr-impact", icon: GitPullRequest, label: isZh ? "PR 影响分析" : "PR Impact" },
+        { to: "/pr-impact", icon: GitPullRequest, label: t.nav.prImpact },
       ],
     },
     {
-      title: isZh ? "管理" : "Manage",
+      title: t.nav.groupManage,
       items: [
         { to: "/repositories", icon: FolderGit2, label: t.nav.repositories },
         { to: "/indexing", icon: Database, label: t.nav.indexing },
@@ -101,7 +100,7 @@ export default function Layout() {
             <Database size={18} />
           </div>
           <span className="text-sm font-semibold tracking-tight text-gray-900 dark:text-gray-100">
-            Knowledge Base
+            {t.app.brandName}
           </span>
         </div>
 

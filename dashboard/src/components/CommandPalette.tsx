@@ -127,7 +127,7 @@ export default function CommandPalette() {
       <button
         type="button"
         className="absolute inset-0 bg-black/50 backdrop-blur-[1px] dark:bg-black/70"
-        aria-label="Close"
+        aria-label={t.common.close}
         onClick={onBackdropClick}
       />
       <FocusTrap onEscape={() => setOpen(false)}>

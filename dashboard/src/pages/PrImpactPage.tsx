@@ -11,10 +11,26 @@ import { useRepositories, useAnalyzeImpact } from "../api/hooks";
 import type { AnalyzeImpactFile, AnalyzeImpactResponse, ImpactPage } from "../api/types";
 import { Link } from "react-router-dom";
 import { useI18n } from "../i18n/context";
+import type { Translations } from "../i18n/types";
 
 type FileRow = { id: string; path: string; status: AnalyzeImpactFile["status"] };
 
 const STATUSES: AnalyzeImpactFile["status"][] = ["added", "modified", "removed", "renamed"];
+
+function statusLabel(t: Translations["prImpact"], s: AnalyzeImpactFile["status"]): string {
+  switch (s) {
+    case "added":
+      return t.statusAdded;
+    case "modified":
+      return t.statusModified;
+    case "removed":
+      return t.statusRemoved;
+    case "renamed":
+      return t.statusRenamed;
+    default:
+      return s;
+  }
+}
 
 function newRow(): FileRow {
   return { id: crypto.randomUUID(), path: "", status: "modified" };
@@ -65,10 +81,10 @@ function wikiEntitySearchHref(repository: string, entity: string): string {
 }
 
 export default function PrImpactPage() {
-  const { locale } = useI18n();
-  const isZh = locale === "zh";
+  const { t } = useI18n();
   const bulkId = useId();
   const repoSelectId = useId();
+  const p = t.prImpact;
 
   const { data: reposData, isLoading: reposLoading } = useRepositories();
   const analyzeMutation = useAnalyzeImpact();
@@ -85,34 +101,6 @@ export default function PrImpactPage() {
       setRepository(repositories[0].repository);
     }
   }, [repositories, repository]);
-
-  const labels = useMemo(
-    () => ({
-      title: isZh ? "PR 影响分析" : "PR impact analysis",
-      subtitle: isZh
-        ? "选择仓库并列出变更文件，评估对 Wiki 页面的影响范围"
-        : "Select a repository and list changed files to assess wiki page impact.",
-      repo: isZh ? "仓库" : "Repository",
-      files: isZh ? "变更文件" : "Changed files",
-      addFile: isZh ? "添加文件" : "Add file",
-      bulkHint: isZh
-        ? "批量输入（每行 status:path，例如 modified:src/app.ts）"
-        : "Bulk paste (one per line: status:path, e.g. modified:src/app.ts)",
-      applyBulk: isZh ? "应用批量输入" : "Apply bulk",
-      analyze: isZh ? "分析影响" : "Analyze impact",
-      analyzing: isZh ? "分析中…" : "Analyzing…",
-      summary: isZh ? "风险摘要" : "Risk summary",
-      high: isZh ? "高影响" : "High impact",
-      medium: isZh ? "中影响" : "Medium impact",
-      totalPages: isZh ? "受影响页面" : "Affected pages",
-      affectedTitle: isZh ? "受影响页面" : "Affected wiki pages",
-      empty: isZh ? "暂无结果，提交变更文件后开始分析。" : "No results yet. Add files and run analysis.",
-      pagePath: isZh ? "页面路径" : "Page path",
-      reason: isZh ? "原因" : "Reason",
-      noRepo: isZh ? "暂无可用仓库。" : "No repositories available.",
-    }),
-    [isZh],
-  );
 
   const changedFiles: AnalyzeImpactFile[] = useMemo(
     () =>
@@ -151,8 +139,8 @@ export default function PrImpactPage() {
           <GitPullRequest size={24} aria-hidden />
         </div>
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">{labels.title}</h1>
-          <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">{labels.subtitle}</p>
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">{p.title}</h1>
+          <p className="mt-1 max-w-2xl text-sm text-gray-600 dark:text-gray-400">{p.subtitle}</p>
         </div>
       </div>
 
@@ -160,7 +148,7 @@ export default function PrImpactPage() {
         <div className="space-y-4">
           <div>
             <label htmlFor={repoSelectId} className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              {labels.repo}
+              {p.repository}
             </label>
             <select
               id={repoSelectId}
@@ -176,20 +164,20 @@ export default function PrImpactPage() {
               ))}
             </select>
             {!reposLoading && repositories.length === 0 && (
-              <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{labels.noRepo}</p>
+              <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{p.noRepositories}</p>
             )}
           </div>
 
           <div>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{labels.files}</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{p.changedFiles}</span>
               <button
                 type="button"
                 onClick={() => setRows((prev) => [...prev, newRow()])}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 <Plus className="size-3.5" />
-                {labels.addFile}
+                {p.addFile}
               </button>
             </div>
             <ul className="space-y-2">
@@ -206,7 +194,7 @@ export default function PrImpactPage() {
                         prev.map((r) => (r.id === row.id ? { ...r, path: e.target.value } : r)),
                       )
                     }
-                    placeholder={isZh ? "文件路径" : "File path"}
+                    placeholder={p.filePathPlaceholder}
                     className="min-w-[200px] flex-1 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 font-mono text-sm text-gray-900 outline-none ring-sky-500/30 focus:border-sky-400 focus:ring-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:focus:border-sky-500 dark:focus:ring-sky-700"
                   />
                   <select
@@ -224,7 +212,7 @@ export default function PrImpactPage() {
                   >
                     {STATUSES.map((s) => (
                       <option key={s} value={s}>
-                        {s}
+                        {statusLabel(t.prImpact, s)}
                       </option>
                     ))}
                   </select>
@@ -232,7 +220,7 @@ export default function PrImpactPage() {
                     type="button"
                     onClick={() => setRows((prev) => prev.filter((r) => r.id !== row.id))}
                     className="inline-flex items-center rounded-md p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600 dark:text-gray-400 dark:hover:bg-red-950/50 dark:hover:text-red-400"
-                    aria-label={isZh ? "删除" : "Remove"}
+                    aria-label={p.removeRow}
                   >
                     <Trash2 className="size-4" />
                   </button>
@@ -243,7 +231,7 @@ export default function PrImpactPage() {
 
           <div className="rounded-lg border border-dashed border-gray-200 bg-white p-4 dark:border-gray-600 dark:bg-gray-800/60">
             <label htmlFor={bulkId} className="mb-2 block text-xs font-medium text-gray-600 dark:text-gray-400">
-              {labels.bulkHint}
+              {p.bulkHint}
             </label>
             <textarea
               id={bulkId}
@@ -251,14 +239,14 @@ export default function PrImpactPage() {
               onChange={(e) => setBulkText(e.target.value)}
               rows={4}
               className="w-full resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-xs text-gray-900 outline-none ring-sky-500/30 focus:border-sky-400 focus:ring-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-sky-500 dark:focus:ring-sky-700"
-              placeholder={"modified:src/foo.ts\nadded:src/bar.ts"}
+              placeholder={p.bulkPlaceholder}
             />
             <button
               type="button"
               onClick={applyBulk}
               className="mt-2 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
             >
-              {labels.applyBulk}
+              {p.applyBulk}
             </button>
           </div>
 
@@ -279,11 +267,11 @@ export default function PrImpactPage() {
               ) : (
                 <AlertTriangle className="size-4" />
               )}
-              {analyzeMutation.isPending ? labels.analyzing : labels.analyze}
+              {analyzeMutation.isPending ? p.analyzing : p.analyze}
             </button>
             {changedFiles.length > 0 && (
               <span className="text-xs text-gray-500 dark:text-gray-400">
-                {changedFiles.length} {isZh ? "个文件" : "file(s)"}
+                {p.fileCount.replace("{count}", String(changedFiles.length))}
               </span>
             )}
           </div>
@@ -300,24 +288,24 @@ export default function PrImpactPage() {
         <section className="space-y-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
             <FileText className="size-4 text-gray-400 dark:text-gray-500" aria-hidden />
-            {labels.summary}
+            {p.riskSummary}
           </h2>
           {summary && (
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-xl border border-red-100 bg-red-50/80 p-4 shadow-sm dark:border-red-900/40 dark:bg-red-950/40">
-                <div className="text-xs font-medium text-red-800 dark:text-red-300">{labels.high}</div>
+                <div className="text-xs font-medium text-red-800 dark:text-red-300">{p.highImpact}</div>
                 <div className="mt-1 text-2xl font-semibold tabular-nums text-red-900 dark:text-red-200">
                   {summary.high_impact}
                 </div>
               </div>
               <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-4 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/40">
-                <div className="text-xs font-medium text-amber-800 dark:text-amber-300">{labels.medium}</div>
+                <div className="text-xs font-medium text-amber-800 dark:text-amber-300">{p.mediumImpact}</div>
                 <div className="mt-1 text-2xl font-semibold tabular-nums text-amber-900 dark:text-amber-200">
                   {summary.medium_impact}
                 </div>
               </div>
               <div className="rounded-xl border border-sky-100 bg-sky-50/80 p-4 shadow-sm dark:border-sky-900/40 dark:bg-sky-950/40">
-                <div className="text-xs font-medium text-sky-800 dark:text-sky-300">{labels.totalPages}</div>
+                <div className="text-xs font-medium text-sky-800 dark:text-sky-300">{p.affectedPagesCount}</div>
                 <div className="mt-1 text-2xl font-semibold tabular-nums text-sky-900 dark:text-sky-200">
                   {summary.total_affected_pages}
                 </div>
@@ -326,7 +314,7 @@ export default function PrImpactPage() {
           )}
 
           <div>
-            <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">{labels.affectedTitle}</h3>
+            <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">{p.affectedWikiPages}</h3>
             {result?.affected_pages?.length ? (
               <ul className="space-y-3">
                 {result.affected_pages.map((p: ImpactPage, i: number) => (
@@ -351,7 +339,7 @@ export default function PrImpactPage() {
                           </span>
                         </div>
                         <p className="mt-2 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
-                          <span className="font-medium text-gray-800 dark:text-gray-200">{labels.reason}: </span>
+                          <span className="font-medium text-gray-800 dark:text-gray-200">{p.reason}: </span>
                           {p.reason}
                         </p>
                         {p.affected_entities.length > 0 && (
@@ -373,7 +361,7 @@ export default function PrImpactPage() {
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400">{labels.empty}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{p.empty}</p>
             )}
           </div>
         </section>

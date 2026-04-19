@@ -52,7 +52,7 @@ function SourceLocRow({ loc, repository }: { loc: WikiSourceLocation; repository
   const href = buildIdeHref(editor, repository, loc.file_path, loc.start_line);
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
-      <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-800">
+      <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-800 dark:bg-gray-800 dark:text-gray-200">
         {loc.fqn}
       </code>
       <a
@@ -251,23 +251,24 @@ export default function WikiContent({
   const showToc = tocItems.length >= 3;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-gray-200 bg-white shadow-sm">
-      <header className="border-b border-gray-100 px-5 py-4">
+    <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
+      <header className="border-b border-gray-100 px-5 py-4 dark:border-gray-700">
         <WikiBreadcrumbs repository={repository} path={pagePath} />
         <div className="mt-3 flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-400">
             <BookOpen size={20} aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-lg font-semibold tracking-tight text-gray-900">
+            <h2 className="truncate text-lg font-semibold tracking-tight text-gray-900 dark:text-gray-100">
               {title}
             </h2>
-            <p className="mt-0.5 truncate font-mono text-xs text-gray-500">
+            <p className="mt-0.5 truncate font-mono text-xs text-gray-500 dark:text-gray-400">
               {pagePath || t.wiki.selectPage}
             </p>
             {generatedAt && (
-              <p className="mt-1 text-xs text-gray-400">
-                {generatedLabel}: <span className="font-mono text-gray-600">{generatedAt}</span>
+              <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                {generatedLabel}:{" "}
+                <span className="font-mono text-gray-600 dark:text-gray-400">{generatedAt}</span>
               </p>
             )}
           </div>
@@ -278,14 +279,14 @@ export default function WikiContent({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
         {isLoading && (
           <div className="animate-pulse space-y-3">
-            <div className="h-4 w-2/3 rounded bg-gray-100" />
-            <div className="h-4 w-full rounded bg-gray-100" />
-            <div className="h-4 w-5/6 rounded bg-gray-100" />
+            <div className="h-4 w-2/3 rounded bg-gray-100 dark:bg-gray-800" />
+            <div className="h-4 w-full rounded bg-gray-100 dark:bg-gray-800" />
+            <div className="h-4 w-5/6 rounded bg-gray-100 dark:bg-gray-800" />
           </div>
         )}
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/60 dark:text-red-200">
             {error.message}
           </div>
         )}
@@ -296,11 +297,11 @@ export default function WikiContent({
 
             {(detail.source_locations?.length ?? 0) > 0 && (
               <section className="mt-10 border-t border-gray-100 pt-8">
-                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
                   <FolderOpen size={16} aria-hidden />
                   {t.wiki.sourceLocations}
                 </h3>
-                <ul className="space-y-2 rounded-lg border border-gray-100 bg-gray-50/80 p-4">
+                <ul className="space-y-2 rounded-lg border border-gray-100 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-gray-800/80">
                   {detail.source_locations.map((loc, i) => (
                     <SourceLocRow key={`${loc.file_path}-${loc.start_line}-${i}`} loc={loc} repository={repository} />
                   ))}
@@ -313,16 +314,16 @@ export default function WikiContent({
         )}
 
         {!isLoading && !error && !pagePath && (
-          <p className="text-sm text-gray-600">{t.wiki.choosePageHint}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">{t.wiki.choosePageHint}</p>
         )}
 
         {!isLoading && !error && !detail && pagePath && (
-          <p className="text-sm text-gray-500">{t.wiki.selectPageFromSidebar}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t.wiki.selectPageFromSidebar}</p>
         )}
         </div>
 
         {showToc && detail?.content && (
-          <aside className="hidden shrink-0 border-t border-gray-100 px-5 py-6 lg:block lg:w-56 lg:border-l lg:border-t-0 xl:w-60">
+          <aside className="hidden shrink-0 border-t border-gray-100 px-5 py-6 dark:border-gray-700 lg:block lg:w-56 lg:border-l lg:border-t-0 xl:w-60">
             <TableOfContents content={detail.content} />
           </aside>
         )}

@@ -126,16 +126,16 @@ export default function WikiPage() {
     const pendingQuery = searchParams.get("q") ?? "";
     return (
       <div className="mx-auto max-w-3xl space-y-6">
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-900">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-400">
               <BookOpen size={24} aria-hidden />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">{t.wiki.title}</h2>
-              <p className="mt-1 text-sm text-gray-600">{t.wiki.browseDescription}</p>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.wiki.title}</h2>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{t.wiki.browseDescription}</p>
               {pendingQuery && (
-                <p className="mt-2 rounded-md bg-sky-50 px-3 py-2 text-sm text-sky-700">
+                <p className="mt-2 rounded-md bg-sky-50 px-3 py-2 text-sm text-sky-700 dark:bg-sky-950 dark:text-sky-300">
                   {t.wiki.pendingSearchNotice.replace("{query}", pendingQuery)}
                 </p>
               )}
@@ -144,7 +144,7 @@ export default function WikiPage() {
         </div>
 
         {reposQuery.isLoading && (
-          <p className="text-sm text-gray-500">{t.wiki.loadingRepositories}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t.wiki.loadingRepositories}</p>
         )}
         {reposQuery.isError && (
           <p className="text-sm text-red-600">
@@ -152,9 +152,9 @@ export default function WikiPage() {
           </p>
         )}
         {!reposQuery.isLoading && repos.length === 0 && (
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             {t.wiki.noRepositoriesFound}{" "}
-            <Link to="/repositories" className="text-sky-700 underline">
+            <Link to="/repositories" className="text-sky-700 underline dark:text-sky-400">
               {t.wiki.addOrIndexRepository}
             </Link>{" "}
             {t.wiki.addOrIndexRepositorySuffix}
@@ -166,10 +166,10 @@ export default function WikiPage() {
               <li key={r.repository}>
                 <Link
                   to={`/wiki/${encodeURIComponent(r.repository)}${pendingQuery ? `?q=${encodeURIComponent(pendingQuery)}` : ""}`}
-                  className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-sky-200 hover:bg-sky-50/40"
+                  className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-sky-200 hover:bg-sky-50/40 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-sky-800 dark:hover:bg-sky-950/30"
                 >
-                  <span className="font-medium text-gray-900">{r.repository}</span>
-                  <ChevronRight size={18} className="text-gray-400" aria-hidden />
+                  <span className="font-medium text-gray-900 dark:text-gray-100">{r.repository}</span>
+                  <ChevronRight size={18} className="text-gray-400 dark:text-gray-500" aria-hidden />
                 </Link>
               </li>
             ))}
@@ -207,8 +207,8 @@ export default function WikiPage() {
       onClick={() => setToolTab(id)}
       className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
         toolTab === id
-          ? "bg-sky-100 text-sky-800 ring-1 ring-sky-200"
-          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+          ? "bg-sky-100 text-sky-800 ring-1 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800"
+          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
       }`}
     >
       {icon}
@@ -233,7 +233,7 @@ export default function WikiPage() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-gray-700 dark:bg-gray-900">
           <div className="flex flex-wrap gap-2">
             {tabBtn("page", t.wiki.tabPage, <LayoutGrid size={14} className="text-sky-600" aria-hidden />)}
             {tabBtn("health", t.wiki.tabHealth, <Activity size={14} className="text-emerald-600" aria-hidden />)}
@@ -244,7 +244,7 @@ export default function WikiPage() {
             type="button"
             onClick={handleRegenerateWiki}
             disabled={regeneratePending}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-200 dark:hover:bg-amber-950"
           >
             {regeneratePending ? (
               <Loader2 size={14} className="animate-spin" aria-hidden />

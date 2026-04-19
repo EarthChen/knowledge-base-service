@@ -125,7 +125,7 @@ export default function CommandPalette() {
     <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[12vh] px-4">
       <button
         type="button"
-        className="absolute inset-0 bg-black/50 backdrop-blur-[1px]"
+        className="absolute inset-0 bg-black/50 backdrop-blur-[1px] dark:bg-black/70"
         aria-label="Close"
         onClick={onBackdropClick}
       />
@@ -133,31 +133,31 @@ export default function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label={t.app.commandPaletteShortcutOpen}
-        className="relative w-full max-w-xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl"
+        className="relative w-full max-w-xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-600 dark:bg-gray-900"
         tabIndex={-1}
         onKeyDownCapture={handleDialogKeyDownCapture}
       >
-        <div className="flex items-center gap-2 border-b border-gray-100 px-3">
-          <Search className="size-4 shrink-0 text-gray-400" aria-hidden />
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 dark:border-gray-700">
+          <Search className="size-4 shrink-0 text-gray-400 dark:text-gray-500" aria-hidden />
           <input
             ref={inputRef}
             type="search"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={t.app.commandPalettePlaceholder}
-            className="h-12 w-full border-0 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400"
+            className="h-12 w-full border-0 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100 dark:placeholder:text-gray-500"
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
           />
           {hybridPending && (
-            <Loader2 className="size-4 shrink-0 animate-spin text-gray-400" aria-hidden />
+            <Loader2 className="size-4 shrink-0 animate-spin text-gray-400 dark:text-gray-500" aria-hidden />
           )}
         </div>
 
         <div className="max-h-[min(50vh,420px)] overflow-y-auto px-2 py-2">
           {debounced.length >= 2 && !hybridPending && matches.length === 0 && (
-            <p className="px-3 py-8 text-center text-sm text-gray-500">
+            <p className="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
               {t.app.commandPaletteNoMatches}
             </p>
           )}
@@ -169,21 +169,23 @@ export default function CommandPalette() {
                   onClick={() => go(m)}
                   onMouseEnter={() => setSelected(i)}
                   className={`flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
-                    i === safeSelected ? "bg-gray-100" : "hover:bg-gray-50"
+                    i === safeSelected
+                      ? "bg-gray-100 dark:bg-gray-800"
+                      : "hover:bg-gray-50 dark:hover:bg-gray-800/80"
                   }`}
                 >
                   <span className="mt-0.5 shrink-0">{iconForType(m.type)}</span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium text-gray-900">
+                    <span className="block truncate font-medium text-gray-900 dark:text-gray-100">
                       {m.name || "—"}
                     </span>
                     {m.file && (
-                      <span className="mt-0.5 block truncate font-mono text-[11px] text-gray-500">
+                      <span className="mt-0.5 block truncate font-mono text-[11px] text-gray-500 dark:text-gray-400">
                         {m.file}
                         {m.line != null ? `:${m.line}` : ""}
                       </span>
                     )}
-                    <span className="mt-1 block text-[10px] uppercase tracking-wide text-gray-400">
+                    <span className="mt-1 block text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
                       {m.type ?? "unknown"}
                     </span>
                   </span>
@@ -198,8 +200,10 @@ export default function CommandPalette() {
           </ul>
         </div>
 
-        <div className="border-t border-gray-100 bg-gray-50 px-3 py-2">
-          <p className="text-[11px] leading-relaxed text-gray-500">{t.app.commandPaletteFooterHint}</p>
+        <div className="border-t border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/80">
+          <p className="text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+            {t.app.commandPaletteFooterHint}
+          </p>
         </div>
       </div>
     </div>
@@ -210,11 +214,11 @@ export default function CommandPalette() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="ml-auto inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-500 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50"
+        className="ml-auto inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-500 shadow-sm transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500 dark:hover:bg-gray-700"
         title={`${t.app.commandPaletteShortcutOpen} (${shortcutLabel})`}
       >
         <Search className="size-3.5" aria-hidden />
-        <kbd className="hidden rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-600 sm:inline-block">
+        <kbd className="hidden rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 font-mono text-[10px] text-gray-600 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 sm:inline-block">
           {shortcutLabel}
         </kbd>
       </button>

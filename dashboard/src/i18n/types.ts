@@ -9,6 +9,8 @@ export interface Translations {
     commandPaletteFooterHint: string;
     commandPaletteSearching: string;
     commandPaletteNoMatches: string;
+    themeToggleDark: string;
+    themeToggleLight: string;
   };
   nav: {
     overview: string;
@@ -237,6 +239,19 @@ export interface Translations {
     enrichRepositoryRequired: string;
     enrichManualHint: string;
     enrichComplete: string;
+    uploadSectionTitle: string;
+    uploadDropHint: string;
+    uploadBrowse: string;
+    uploadAcceptedHint: string;
+    uploadRemoveFile: string;
+    uploadAndIndex: string;
+    uploadReading: string;
+    uploadSending: string;
+    uploadSuccess: string;
+    uploadError: string;
+    uploadNoFiles: string;
+    uploadInvalidType: string;
+    uploadTaskStarted: string;
   };
   explorer: {
     title: string;

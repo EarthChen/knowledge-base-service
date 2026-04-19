@@ -147,6 +147,28 @@ export function useIndex() {
   });
 }
 
+export interface IndexFilesPayload {
+  files: { path: string; content: string }[];
+  repository?: string;
+}
+
+export function useIndexFiles() {
+  const qc = useQueryClient();
+  return useMutation<IndexResponse, Error, IndexFilesPayload>({
+    mutationFn: (body) =>
+      api("/index/files", {
+        method: "POST",
+        body: JSON.stringify({
+          files: body.files,
+          repository: body.repository ?? "uploaded",
+        }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["index-tasks"] });
+    },
+  });
+}
+
 export function useEnrich() {
   const qc = useQueryClient();
   return useMutation<TaskInfo, Error, EnrichRequest>({

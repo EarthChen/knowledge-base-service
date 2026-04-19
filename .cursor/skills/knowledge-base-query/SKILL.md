@@ -59,7 +59,6 @@ python scripts/kb_query.py <tool_name> --json-args '{"query": "login", "k": 5}'
 | `find_entity` | Find entity by name | `name`, `entity_type` |
 | `file_entities` | List entities in a file | `file` |
 | `blast_radius` | Change impact analysis | `names` or `name`, `depth` |
-| `nl_query` | Natural language → Cypher (needs LLM) | `name` (the question), `repository` |
 | `raw_cypher` | Direct Cypher query | `cypher` |
 
 ### Analysis & Wiki Tools
@@ -101,21 +100,14 @@ python scripts/kb_query.py rag_graph --arg query_type=call_chain --arg name=hand
 python scripts/kb_query.py rag_graph --arg query_type=call_chain --arg name=handleRequest --arg direction=downstream
 ```
 
-### 3. Natural Language Graph Query
-
-```bash
-# Ask a question in natural language (requires LLM enabled)
-python scripts/kb_query.py rag_graph --arg query_type=nl_query --arg name="列出所有调用了 UserService.login 的函数" --arg repository=my-service
-```
-
-### 4. Change Impact Analysis
+### 3. Change Impact Analysis
 
 ```bash
 # Analyze blast radius of a change
 python scripts/kb_query.py rag_graph --arg query_type=blast_radius --arg name=processPayment --arg depth=3 --arg repository=my-service
 ```
 
-### 5. Architecture Discovery
+### 4. Architecture Discovery
 
 ```bash
 # List all HTTP endpoints
@@ -138,5 +130,5 @@ python scripts/kb_query.py rag_query --arg query="database connection" --arg rep
 - All scripts use Python standard library only (no pip dependencies needed)
 - Results are JSON; pipe to `jq` for formatting: `python scripts/kb_query.py ... | jq .`
 - `get_file_content` has a 512KB limit; use `start_line`/`end_line` for large files
-- `nl_query` requires the KB service to have LLM enabled (`LLM__ENABLED=true`)
 - Indexing is triggered via Dashboard UI or HTTP API, not through these query tools
+- For complex graph queries, agents can compose `raw_cypher` directly instead of relying on NL translation

@@ -1,0 +1,57 @@
+"""Tests for wiki-related ``app.state`` wiring (HTTP wiki routes)."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from fastapi import FastAPI
+
+from main import wire_wiki_app_state
+from wiki.service import WikiService
+
+
+@pytest.mark.asyncio
+async def test_wire_wiki_app_state_sets_factory_and_services() -> None:
+    app = FastAPI()
+    mock_store = MagicMock()
+    mock_semantic = MagicMock()
+    mock_llm = MagicMock()
+    mock_graph_query = MagicMock()
+
+    kb = MagicMock()
+    kb.store = mock_store
+    kb.semantic_query = mock_semantic
+    kb.llm_provider = mock_llm
+    kb.graph_query = mock_graph_query
+
+    registry = MagicMock()
+    registry.get_service = AsyncMock(return_value=kb)
+
+    await wire_wiki_app_state(app, registry)
+
+    assert callable(app.state.wiki_service_factory)
+    assert app.state.wiki_search_service is not None
+    assert app.state.wiki_ask_service is not None
+    assert app.state.graph_query_service is mock_graph_query
+
+    wiki_svc = await app.state.wiki_service_factory()
+    assert isinstance(wiki_svc, WikiService)
+
+
+@pytest.mark.asyncio
+async def test_wire_wiki_app_state_no_llm_skips_ask_service() -> None:
+    app = FastAPI()
+    kb = MagicMock()
+    kb.store = MagicMock()
+    kb.semantic_query = MagicMock()
+    kb.llm_provider = None
+    kb.graph_query = MagicMock()
+
+    registry = MagicMock()
+    registry.get_service = AsyncMock(return_value=kb)
+
+    await wire_wiki_app_state(app, registry)
+
+    assert app.state.wiki_ask_service is None
+    assert app.state.wiki_search_service is not None

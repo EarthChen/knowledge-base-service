@@ -46,6 +46,49 @@ _reindex_sem = asyncio.Semaphore(_MAX_CONCURRENT_REINDEX)
 _scheduler: SyncScheduler | None = None
 
 
+async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
+    """Expose wiki HTTP route dependencies on ``app.state`` (default business graph)."""
+    from wiki.ask import WikiAskService
+    from wiki.search import WikiSearchService
+    from wiki.service import WikiService
+
+    kb = await registry.get_service("default")
+
+    async def repository_exists(repo: str) -> bool:
+        kb_inner = await registry.get_service("default")
+        queries = GraphQueryRepository(kb_inner.store)
+        sample = await queries.get_repository_sample_file(repo)
+        return sample is not None
+
+    async def wiki_service_factory() -> WikiService:
+        kb_svc = await registry.get_service("default")
+        return WikiService(
+            graph=kb_svc.store,
+            llm=kb_svc.llm_provider,
+            repository_exists=repository_exists,
+        )
+
+    app.state.wiki_service_factory = wiki_service_factory
+
+    wiki_search = WikiSearchService(
+        graph=kb.store,
+        vector=kb.semantic_query,
+        fts=kb.store,
+    )
+    app.state.wiki_search_service = wiki_search
+
+    if kb.llm_provider is not None:
+        app.state.wiki_ask_service = WikiAskService(
+            search=wiki_search,
+            llm=kb.llm_provider,
+            graph=kb.store,
+        )
+    else:
+        app.state.wiki_ask_service = None
+
+    app.state.graph_query_service = kb.graph_query
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _registry, _task_manager, _repo_registry, _scheduler
@@ -86,6 +129,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
 
     app.state.wiki_lint_service_factory = wiki_lint_service_factory
+
+    await wire_wiki_app_state(app, _registry)
+
     log.info("kb_service_started")
     yield
 

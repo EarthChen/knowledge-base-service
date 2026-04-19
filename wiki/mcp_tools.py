@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
+from log import get_logger
 from wiki.lint import WikiLintService
+
+log = get_logger(__name__)
 from wiki.models import WikiPage, parse_scope
 from wiki.wiki_docs_exporter import WikiDocsExporter, export_result_to_dict
 
@@ -375,7 +378,11 @@ class WikiMCPHandler:
         if mode_str not in ("full", "structure"):
             return self._mcp_error("invalid_params", f"Invalid mode '{mode_str}': must be 'full' or 'structure'")
 
-        pages = await self._pipeline.generate_wiki(repository, scope_str, mode_str)
+        try:
+            pages = await self._pipeline.generate_wiki(repository, scope_str, mode_str)
+        except Exception:
+            log.exception("mcp_generate_wiki_failed", repository=repository, scope=scope_str)
+            return self._mcp_error("internal_error", "Wiki generation failed unexpectedly")
         return {
             "status": "success",
             "repository": repository,
@@ -397,7 +404,11 @@ class WikiMCPHandler:
         except ValueError as exc:
             return self._mcp_error("invalid_scope", str(exc))
 
-        page = await self._pipeline.get_wiki_page(repository, scope_str)
+        try:
+            page = await self._pipeline.get_wiki_page(repository, scope_str)
+        except Exception:
+            log.exception("mcp_get_wiki_page_failed", repository=repository, scope=scope_str)
+            return self._mcp_error("internal_error", "Failed to retrieve wiki page")
         if page is None:
             return self._mcp_error("not_found", f"Wiki page not found for scope '{scope_str}'")
         pd = page.to_dict()
@@ -431,7 +442,11 @@ class WikiMCPHandler:
                     return self._mcp_error("invalid_scope", str(exc))
                 scope_filter = s
 
-        return await self._pipeline.list_wiki_pages(repository, scope_filter)
+        try:
+            return await self._pipeline.list_wiki_pages(repository, scope_filter)
+        except Exception:
+            log.exception("mcp_list_wiki_pages_failed", repository=repository)
+            return self._mcp_error("internal_error", "Failed to list wiki pages")
 
     async def handle_search_wiki(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._pipeline is None:

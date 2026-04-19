@@ -7,8 +7,13 @@ the knowledge base (store, indexer, query services, MCP handler).
 from __future__ import annotations
 
 from api.mcp_server import KnowledgeBaseMCPHandler
+from store.graph_queries import GraphQueryRepository
+from wiki.ask import WikiAskService
 from wiki.cache import WikiCache
+from wiki.kb_wiki_pipeline import WikiPipelineAdapter
 from wiki.mcp_tools import WikiMCPHandler
+from wiki.search import WikiSearchService
+from wiki.service import WikiService
 from config import Settings
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.doc_indexer import DocumentIndexer
@@ -135,6 +140,34 @@ class KnowledgeBaseService:
 
         self._wiki_cache = WikiCache()
 
+        async def _repository_exists(repo: str) -> bool:
+            queries = GraphQueryRepository(self._store)
+            sample = await queries.get_repository_sample_file(repo)
+            return sample is not None
+
+        self._wiki_service = WikiService(
+            graph=self._store,
+            llm=self._llm_provider,
+            repository_exists=_repository_exists,
+        )
+        self._wiki_search = WikiSearchService(
+            graph=self._store,
+            vector=self._semantic_query,
+            fts=self._store,
+        )
+        self._wiki_ask: WikiAskService | None = None
+        if self._llm_provider is not None:
+            self._wiki_ask = WikiAskService(
+                search=self._wiki_search,
+                llm=self._llm_provider,
+                graph=self._store,
+            )
+        self._wiki_pipeline = WikiPipelineAdapter(
+            wiki_service=self._wiki_service,
+            search=self._wiki_search,
+            ask=self._wiki_ask,
+        )
+
         self._mcp_handler = KnowledgeBaseMCPHandler(
             hybrid_svc=self._hybrid_query,
             graph_svc=self._graph_query,
@@ -143,7 +176,7 @@ class KnowledgeBaseService:
             store=self._store,
             embedding_gen=self._embedding,
             wiki_handler=WikiMCPHandler(
-                pipeline=None,
+                pipeline=self._wiki_pipeline,
                 graph=self._graph_query,
                 store=self._store,
                 wiki_cache=self._wiki_cache,

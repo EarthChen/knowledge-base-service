@@ -327,7 +327,10 @@ class TestErrorPropagation:
             "generate_wiki",
             {"repository": "r", "scope": "repo", "mode": "full"},
         )
-        assert result == {"error": "graph offline"}
+        assert "error" in result
+        err = result["error"]
+        assert err["code"] == "internal_error"
+        assert "failed" in err["message"].lower()
 
 
 class TestSearchWiki:

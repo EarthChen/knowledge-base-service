@@ -101,12 +101,14 @@ class HybridQueryService:
         graph_svc: GraphQueryService,
         reranker=None,
         query_expansion_enabled: bool = True,
+        use_child_chunks: bool = False,
     ) -> None:
         self._store = store
         self._semantic = semantic_svc
         self._graph = graph_svc
         self._reranker = reranker
         self._query_expansion_enabled = query_expansion_enabled
+        self._use_child_chunks = use_child_chunks
 
     @property
     def semantic(self) -> SemanticQueryService:
@@ -121,13 +123,24 @@ class HybridQueryService:
         include_callees: bool = True,
         use_query_expansion: bool = True,
         use_query_router: bool = False,
+        use_child_chunks: bool | None = None,
     ) -> HybridResult:
         """Layered hybrid search with optional graph-based query expansion.
 
         Layer 1: exact & fuzzy name match (via FalkorDB keyword_search)
         Layer 2: vector similarity search (via embedding model)
         Layer 3: fusion (keyword hits scored higher), dedup, graph expansion
+
+        When *use_child_chunks* is True, Layer 2 is replaced with chunk-level
+        vector search that returns precise code excerpts grouped by parent entity.
         """
+        if use_child_chunks is None:
+            use_child_chunks = self._use_child_chunks
+
+        if use_child_chunks:
+            return await self._search_with_child_chunks(
+                query_text, k, expand_depth, include_callers, include_callees,
+            )
         router_strategy = route_query(query_text) if use_query_router else None
 
         should_expand = use_query_expansion and self._query_expansion_enabled
@@ -192,6 +205,61 @@ class HybridQueryService:
             graph_context = await self._expand_graph(
                 graph_seed_matches, expand_depth, include_callers, include_callees,
             )
+
+        confidence, no_results_reason = self._confidence_and_reason(merged)
+
+        return HybridResult(
+            semantic_matches=merged,
+            graph_context=graph_context,
+            query_text=query_text,
+            total=len(merged) + len(graph_context),
+            confidence=confidence,
+            no_results_reason=no_results_reason,
+        )
+
+    async def _search_with_child_chunks(
+        self,
+        query_text: str,
+        k: int,
+        expand_depth: int,
+        include_callers: bool,
+        include_callees: bool,
+    ) -> HybridResult:
+        """Chunk-aware hybrid search: keyword + chunk-vector + parent context."""
+        identifiers = _extract_identifiers(query_text)
+        kw_coro = self._keyword_search_multi(identifiers, k) if identifiers else _empty_list()
+        chunk_coro = self._semantic.search_with_parent_context(query_text, k=k)
+
+        kw_hits, chunk_result = await asyncio.gather(kw_coro, chunk_coro)
+
+        doc_map: dict[str, dict[str, Any]] = {}
+        kw_ranked: list[tuple[str, float]] = []
+        sem_ranked: list[tuple[str, float]] = []
+
+        for i, h in enumerate(kw_hits):
+            key = self._doc_key(h)
+            if key not in doc_map:
+                doc_map[key] = {**h, "match_source": "keyword"}
+            kw_ranked.append((key, float(i)))
+
+        for i, m in enumerate(chunk_result.matches):
+            key = self._doc_key(m)
+            if key in doc_map:
+                existing = doc_map[key]
+                if "matched_excerpt" not in existing and "matched_excerpt" in m:
+                    existing["matched_excerpt"] = m["matched_excerpt"]
+                    existing["excerpt_lines"] = m.get("excerpt_lines")
+            else:
+                doc_map[key] = {**m, "match_source": "chunk_semantic"}
+            sem_ranked.append((key, float(i)))
+
+        merged = await self._fuse_expansion_results(
+            query_text, [kw_ranked], [sem_ranked], [1.5], [1.0], doc_map, k,
+        )
+
+        graph_context = await self._expand_graph(
+            merged, expand_depth, include_callers, include_callees,
+        )
 
         confidence, no_results_reason = self._confidence_and_reason(merged)
 

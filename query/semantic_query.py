@@ -70,6 +70,106 @@ class SemanticQueryService:
     async def search_modules(self, query_text: str, k: int = 10) -> SemanticResult:
         return await self._search_by_label(query_text, NodeLabel.MODULE, k)
 
+    async def search_chunks(self, query_text: str, k: int = 15) -> SemanticResult:
+        """Search Chunk vector index for fine-grained matches."""
+        return await self._search_by_label(query_text, NodeLabel.CHUNK, k)
+
+    async def search_with_parent_context(self, query_text: str, k: int = 10) -> SemanticResult:
+        """Search chunks first, group by parent, fetch parent metadata.
+
+        Falls back to standard Function/Class search when no chunk hits are found.
+        Returns results enriched with ``matched_excerpt`` and ``excerpt_lines``.
+        """
+        chunk_result = await self.search_chunks(query_text, k=k * 3)
+
+        if not chunk_result.matches:
+            func_r, cls_r = await asyncio.gather(
+                self._search_by_label(query_text, NodeLabel.FUNCTION, k),
+                self._search_by_label(query_text, NodeLabel.CLASS, k),
+            )
+            all_matches = func_r.matches + cls_r.matches
+            all_matches.sort(key=lambda x: x.get("score", 0), reverse=True)
+            for m in all_matches:
+                m.setdefault("matched_excerpt", "")
+                m.setdefault("excerpt_lines", [])
+            return SemanticResult(
+                matches=all_matches[:k],
+                query_text=query_text,
+                total=min(len(all_matches), k),
+            )
+
+        grouped = self._group_chunks_by_parent(chunk_result.matches)
+        valid_groups = {uid: chunks for uid, chunks in grouped.items() if uid}
+
+        parent_meta_map = await self._fetch_parent_metadata_batch(list(valid_groups.keys()))
+
+        enriched: list[dict[str, Any]] = []
+        for parent_uid, chunks in valid_groups.items():
+            best_chunk = chunks[0]
+            parent_meta = parent_meta_map.get(parent_uid)
+
+            excerpt_texts = [c["text"] for c in chunks[:3]]
+            merged_excerpt = "\n---\n".join(excerpt_texts)
+
+            line_pairs = [(c.get("start_line", 0), c.get("end_line", 0)) for c in chunks[:3]]
+            excerpt_start = min(p[0] for p in line_pairs)
+            excerpt_end = max(p[1] for p in line_pairs)
+
+            entry: dict[str, Any] = {
+                "type": best_chunk.get("parent_label", "Function"),
+                "name": best_chunk.get("parent_name", ""),
+                "file": best_chunk.get("file", ""),
+                "line": excerpt_start,
+                "score": best_chunk.get("score", 0.0),
+                "matched_excerpt": merged_excerpt,
+                "excerpt_lines": [excerpt_start, excerpt_end],
+                "uid": parent_uid,
+            }
+            if parent_meta:
+                entry["signature"] = parent_meta.get("signature", "")
+                entry["docstring"] = parent_meta.get("docstring", "")[:200]
+                entry["start_line"] = parent_meta.get("start_line", excerpt_start)
+                entry["end_line"] = parent_meta.get("end_line", excerpt_end)
+            enriched.append(entry)
+
+        enriched.sort(key=lambda x: x.get("score", 0), reverse=True)
+        return SemanticResult(
+            matches=enriched[:k],
+            query_text=query_text,
+            total=min(len(enriched), k),
+        )
+
+    @staticmethod
+    def _group_chunks_by_parent(matches: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+        """Group chunk matches by parent_uid, preserving score order within each group."""
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for m in matches:
+            parent_uid = m.get("parent_uid", "")
+            if parent_uid not in groups:
+                groups[parent_uid] = []
+            groups[parent_uid].append(m)
+        return groups
+
+    async def _fetch_parent_metadata_batch(self, parent_uids: list[str]) -> dict[str, dict[str, Any]]:
+        """Batch-fetch signature/docstring/line-range of parent entities by UID."""
+        if not parent_uids:
+            return {}
+        try:
+            result = await self._store.execute_query(
+                "UNWIND $uids AS uid "
+                "MATCH (n {uid: uid}) "
+                "RETURN n.uid AS uid, "
+                "coalesce(n.signature, '') AS signature, "
+                "coalesce(n.docstring, '') AS docstring, "
+                "coalesce(n.file, '') AS file, "
+                "n.start_line AS start_line, n.end_line AS end_line",
+                {"uids": parent_uids},
+            )
+            return {row["uid"]: row for row in result.data if row.get("uid")}
+        except Exception:
+            log.debug("parent_metadata_batch_fetch_failed", count=len(parent_uids), exc_info=True)
+            return {}
+
     async def search_all(self, query_text: str, k: int = 10) -> SemanticResult:
         """Search across all entity types and merge results by score."""
         (
@@ -130,13 +230,22 @@ class SemanticQueryService:
                 match["name"] = props.get("name", "")
                 match["file"] = props.get("file", "")
                 match["line"] = props.get("start_line", 0)
-                match["docstring"] = props.get("docstring", "")[:200]
                 match["uid"] = props.get("uid", "")
-                match["fqn"] = props.get("fqn", "")
-                if label == NodeLabel.FUNCTION:
-                    match["signature"] = props.get("signature", "")
-                elif label == NodeLabel.DOCUMENT:
-                    match["content"] = props.get("content", "")[:500]
+                if label == NodeLabel.CHUNK:
+                    match["text"] = props.get("text", "")
+                    match["parent_uid"] = props.get("parent_uid", "")
+                    match["parent_name"] = props.get("parent_name", "")
+                    match["parent_label"] = props.get("parent_label", "")
+                    match["chunk_index"] = props.get("chunk_index", 0)
+                    match["start_line"] = props.get("start_line", 0)
+                    match["end_line"] = props.get("end_line", 0)
+                else:
+                    match["docstring"] = props.get("docstring", "")[:200]
+                    match["fqn"] = props.get("fqn", "")
+                    if label == NodeLabel.FUNCTION:
+                        match["signature"] = props.get("signature", "")
+                    elif label == NodeLabel.DOCUMENT:
+                        match["content"] = props.get("content", "")[:500]
             matches.append(match)
 
         return SemanticResult(matches=matches, query_text=query_text, total=len(matches))

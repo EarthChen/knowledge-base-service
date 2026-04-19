@@ -1,11 +1,22 @@
-import { Link, useParams } from "react-router-dom";
-import { BookOpen, ChevronRight } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Activity, BookOpen, ChevronRight, FileOutput, LayoutGrid, Network } from "lucide-react";
 import { useRepositories } from "../api/hooks";
 import AskPanel from "../components/wiki/AskPanel";
+import GraphInsightsPanel from "../components/wiki/GraphInsightsPanel";
 import WikiContent from "../components/wiki/WikiContent";
+import WikiExportPanel from "../components/wiki/WikiExportPanel";
+import WikiLintPanel from "../components/wiki/WikiLintPanel";
 import WikiSidebar from "../components/wiki/WikiSidebar";
 import { useWikiPages } from "../hooks/useWikiPages";
 import { useWikiPage } from "../hooks/useWikiPage";
+
+type WikiToolTab = "page" | "health" | "insights" | "export";
+
+function parseWikiToolTab(raw: string | null): WikiToolTab {
+  if (raw === "health" || raw === "insights" || raw === "export") return raw;
+  return "page";
+}
 
 function decodeWikiPathSegment(segment: string): string {
   try {
@@ -17,6 +28,7 @@ function decodeWikiPathSegment(segment: string): string {
 
 export default function WikiPage() {
   const params = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const repositoryRaw = params.repository;
   const repository = repositoryRaw
     ? decodeWikiPathSegment(repositoryRaw)
@@ -28,6 +40,14 @@ export default function WikiPage() {
     .filter(Boolean)
     .map(decodeWikiPathSegment)
     .join("/");
+
+  const [toolTab, setToolTabState] = useState<WikiToolTab>(() =>
+    parseWikiToolTab(searchParams.get("tool")),
+  );
+
+  useEffect(() => {
+    setToolTabState(parseWikiToolTab(searchParams.get("tool")));
+  }, [searchParams]);
 
   const reposQuery = useRepositories();
   const pagesQuery = useWikiPages(repository);
@@ -96,6 +116,35 @@ export default function WikiPage() {
         : new Error(String(pageQuery.error))
       : null;
 
+  const setToolTab = (t: WikiToolTab) => {
+    setToolTabState(t);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (t === "page") next.delete("tool");
+        else next.set("tool", t);
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  const tabBtn = (id: WikiToolTab, label: string, icon: ReactNode) => (
+    <button
+      key={id}
+      type="button"
+      onClick={() => setToolTab(id)}
+      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+        toolTab === id
+          ? "bg-sky-100 text-sky-800 ring-1 ring-sky-200"
+          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+
   return (
     <div className="flex min-h-[min(70vh,860px)] flex-col gap-4 lg:flex-row lg:items-stretch">
       <WikiSidebar
@@ -113,15 +162,31 @@ export default function WikiPage() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col gap-4">
-        <WikiContent
-          repository={repository}
-          pagePath={pagePath}
-          detail={pageQuery.data}
-          isLoading={Boolean(pagePath) && pageQuery.isLoading}
-          error={contentError}
-        />
+        <div className="flex flex-wrap gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+          {tabBtn("page", "Page", <LayoutGrid size={14} className="text-sky-600" aria-hidden />)}
+          {tabBtn("health", "Health", <Activity size={14} className="text-emerald-600" aria-hidden />)}
+          {tabBtn("insights", "Insights", <Network size={14} className="text-violet-600" aria-hidden />)}
+          {tabBtn("export", "Export", <FileOutput size={14} className="text-sky-600" aria-hidden />)}
+        </div>
 
-        <AskPanel repository={repository} />
+        {toolTab === "page" && (
+          <>
+            <WikiContent
+              repository={repository}
+              pagePath={pagePath}
+              detail={pageQuery.data}
+              isLoading={Boolean(pagePath) && pageQuery.isLoading}
+              error={contentError}
+            />
+            <AskPanel repository={repository} />
+          </>
+        )}
+
+        {toolTab === "health" && <WikiLintPanel repository={repository} />}
+
+        {toolTab === "insights" && <GraphInsightsPanel repository={repository} />}
+
+        {toolTab === "export" && <WikiExportPanel key={repository} repository={repository} />}
       </div>
     </div>
   );

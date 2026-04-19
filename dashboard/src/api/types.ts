@@ -304,3 +304,67 @@ export interface ArchitectureSearchResponse {
   total: number;
   total_count: number;
 }
+
+/** POST /wiki/{repository}/lint */
+export interface WikiLintIssue {
+  severity: "error" | "warning" | "info";
+  category: string;
+  message: string;
+  page_path?: string | null;
+  entity_name?: string | null;
+  suggestion?: string | null;
+}
+
+export interface WikiLintReport {
+  issues: WikiLintIssue[];
+  stats: {
+    total: number;
+    errors: number;
+    warnings: number;
+    info: number;
+  };
+  checked_at: string;
+  scope: string;
+}
+
+/** GET /graph/insights/{repository} */
+export type GraphInsightCategory =
+  | "isolated"
+  | "circular_dep"
+  | "cross_layer"
+  | "low_cohesion"
+  | "bridge";
+
+export interface GraphInsightItem {
+  category: GraphInsightCategory;
+  severity: "critical" | "warning" | "info";
+  title: string;
+  description: string;
+  entities: string[];
+  suggestion: string;
+}
+
+export interface GraphInsightsReport {
+  insights: GraphInsightItem[];
+  graph_stats: Record<string, number>;
+  analyzed_at: string;
+}
+
+/** Wiki export preview / execute */
+export type WikiExportAction = "create" | "update" | "skip";
+
+export interface WikiExportDiff {
+  file_path: string;
+  action: WikiExportAction;
+  wiki_content: string;
+  repo_content: string | null;
+  diff_summary: string;
+}
+
+export interface WikiExportResult {
+  diffs: WikiExportDiff[];
+  total_files: number;
+  created: number;
+  updated: number;
+  skipped: number;
+}

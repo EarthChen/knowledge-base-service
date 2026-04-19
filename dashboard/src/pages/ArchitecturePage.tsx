@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { ChevronDown, ChevronUp, Layers } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { ChevronDown, ChevronUp, Layers, Network } from "lucide-react";
 import {
   useArchitectureSearch,
   useP2Stats,
@@ -95,6 +95,13 @@ export default function ArchitecturePage() {
 
   const repos = reposData?.repositories ?? [];
 
+  const graphInsightsWikiHref = useMemo(() => {
+    const list = reposData?.repositories ?? [];
+    const r = repositoryFilter.trim() || list[0]?.repository;
+    if (!r) return null;
+    return `/wiki/${encodeURIComponent(r)}?tool=insights`;
+  }, [repositoryFilter, reposData?.repositories]);
+
   const pageLabel =
     locale === "zh"
       ? `${t.architecture.page} ${page} ${t.architecture.of} ${totalPages} 页`
@@ -106,6 +113,19 @@ export default function ArchitecturePage() {
         <Layers size={20} className="text-sky-600" />
         {t.architecture.title}
       </h2>
+
+      {graphInsightsWikiHref && (
+        <p className="text-sm text-gray-600">
+          <Link
+            to={graphInsightsWikiHref}
+            className="inline-flex items-center gap-1.5 font-medium text-sky-700 underline decoration-sky-200 hover:text-sky-900"
+          >
+            <Network size={16} className="shrink-0 text-violet-600" aria-hidden />
+            Graph insights (Wiki tab)
+          </Link>
+          <span className="text-gray-400"> — automated cycles, isolation, layering, cohesion.</span>
+        </p>
+      )}
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         <aside className="w-full shrink-0 rounded-xl border border-gray-200 bg-white p-4 lg:w-56">

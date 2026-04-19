@@ -1,4 +1,10 @@
-import type { EnrichRequest, TaskInfo } from "./types";
+import type {
+  EnrichRequest,
+  GraphInsightsReport,
+  TaskInfo,
+  WikiExportResult,
+  WikiLintReport,
+} from "./types";
 
 export const API_BASE = "/api/v1";
 const STORAGE_KEY = "kb_api_token";
@@ -72,5 +78,37 @@ export async function triggerEnrich(
     method: "POST",
     body: JSON.stringify(request),
     headers: { "X-Business-Id": businessId },
+  });
+}
+
+export async function wikiLint(repository: string, scope = "all"): Promise<WikiLintReport> {
+  return api<WikiLintReport>(`/wiki/${encodeURIComponent(repository)}/lint`, {
+    method: "POST",
+    body: JSON.stringify({ scope }),
+  });
+}
+
+export async function getGraphInsights(repository: string): Promise<GraphInsightsReport> {
+  return api<GraphInsightsReport>(`/graph/insights/${encodeURIComponent(repository)}`);
+}
+
+export async function wikiExportPreview(
+  repository: string,
+  targetDir: string,
+): Promise<WikiExportResult> {
+  return api<WikiExportResult>(`/wiki/${encodeURIComponent(repository)}/export/preview`, {
+    method: "POST",
+    body: JSON.stringify({ target_dir: targetDir }),
+  });
+}
+
+export async function wikiExportExecute(
+  repository: string,
+  targetDir: string,
+  selectedFiles?: string[],
+): Promise<WikiExportResult> {
+  return api<WikiExportResult>(`/wiki/${encodeURIComponent(repository)}/export/execute`, {
+    method: "POST",
+    body: JSON.stringify({ target_dir: targetDir, selected_files: selectedFiles }),
   });
 }

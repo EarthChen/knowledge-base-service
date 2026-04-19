@@ -168,6 +168,17 @@ class KnowledgeBaseService:
             ask=self._wiki_ask,
         )
 
+        self._deep_search = None
+        if settings.llm.enabled and self._llm_provider is not None:
+            from query.deep_search import DeepSearchEngine
+
+            self._deep_search = DeepSearchEngine(
+                llm=self._llm_provider,
+                hybrid_svc=self._hybrid_query,
+                graph_svc=self._graph_query,
+                task_manager=self._repo_task_mgr,
+            )
+
         self._mcp_handler = KnowledgeBaseMCPHandler(
             hybrid_svc=self._hybrid_query,
             graph_svc=self._graph_query,
@@ -181,18 +192,8 @@ class KnowledgeBaseService:
                 store=self._store,
                 wiki_cache=self._wiki_cache,
             ),
+            deep_search_engine=self._deep_search,
         )
-
-        self._deep_search = None
-        if settings.llm.enabled and self._llm_provider is not None:
-            from query.deep_search import DeepSearchEngine
-
-            self._deep_search = DeepSearchEngine(
-                llm=self._llm_provider,
-                hybrid_svc=self._hybrid_query,
-                graph_svc=self._graph_query,
-                task_manager=self._repo_task_mgr,
-            )
 
     async def start(self) -> None:
         log.info("knowledge_base_starting")

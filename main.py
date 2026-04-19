@@ -903,7 +903,9 @@ async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> 
         result = await svc.mcp_handler.handle_rag_index(args, progress_callback=progress_cb)
 
         if result.get("error"):
-            _task_manager.mark_failed(task_id, result["error"])
+            err = result["error"]
+            err_msg = err["message"] if isinstance(err, dict) else str(err)
+            _task_manager.mark_failed(task_id, err_msg)
             return
 
         if repository:

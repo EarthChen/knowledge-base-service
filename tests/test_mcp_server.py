@@ -5,14 +5,17 @@ from api.mcp_server import MCP_TOOLS_MANIFEST
 
 class TestMCPToolsManifest:
     def test_tool_count(self):
-        assert len(MCP_TOOLS_MANIFEST) == 23
+        assert len(MCP_TOOLS_MANIFEST) == 26
 
     def test_tool_names(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}
         assert names == {
             "rag_query",
             "rag_graph",
+            "deep_search",
             "rag_index",
+            "list_documents",
+            "get_document",
             "analyze_impact",
             "list_endpoints",
             "check_consistency",
@@ -59,9 +62,25 @@ class TestMCPToolsManifest:
         tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "rag_index")
         schema = tool["inputSchema"]
         assert "directory" in schema["properties"]
-        assert "directory" in schema["required"]
+        assert "git_url" in schema["properties"]
+        assert "branch" in schema["properties"]
+        assert "required" not in schema or schema.get("required") in (None, [])
         assert "mode" in schema["properties"]
         assert schema["properties"]["mode"]["enum"] == ["full", "incremental"]
+
+    def test_deep_search_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "deep_search")
+        schema = tool["inputSchema"]
+        assert "query" in schema["required"]
+        assert "max_iterations" in schema["properties"]
+
+    def test_list_documents_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "list_documents")
+        assert "repository" in tool["inputSchema"]["properties"]
+
+    def test_get_document_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "get_document")
+        assert "doc_uid" in tool["inputSchema"]["required"]
 
     def test_analyze_impact_schema(self):
         tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "analyze_impact")

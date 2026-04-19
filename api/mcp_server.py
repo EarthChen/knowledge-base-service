@@ -6,7 +6,9 @@ Cursor Agent sessions, enabling the agent to query the code knowledge graph.
 Tools exposed:
   - rag_query: Natural language search over code and docs (semantic + graph expansion)
   - rag_graph: Execute structured graph queries (call chains, inheritance, etc.)
-  - rag_index: Trigger indexing for a repository/directory
+  - deep_search: Multi-iteration LLM-driven deep codebase research
+  - rag_index: Trigger indexing for a repository/directory or remote git_url
+  - list_documents, get_document: Browse indexed documentation graph
   - analyze_impact: Blast-radius analysis for changed functions
   - list_endpoints: HTTP, RPC, and Kafka endpoints from the graph
   - check_consistency: Compare graph file paths to on-disk repository files
@@ -21,7 +23,9 @@ Tools exposed:
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from indexer.doc_indexer import DocumentIndexer
@@ -85,6 +89,134 @@ def _filter_graph_context_by_entity_type(
         elif t == "business_flow" and fn_label in allowed:
             out.append(item)
     return out
+
+
+def _mcp_error(code: str, message: str) -> dict[str, Any]:
+    return {"error": {"code": code, "message": message}}
+
+
+_DOC_NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)[\.\s]")
+
+
+def _mcp_relative_document_path(file_path: str, repository: str | None) -> str:
+    """Strip clone/base prefix from absolute paths (same logic as main list/get documents)."""
+    if not file_path:
+        return file_path
+    normalized = file_path.replace("\\", "/")
+    if repository:
+        marker = f"/{repository}/"
+        idx = normalized.find(marker)
+        if idx != -1:
+            return normalized[idx + len(marker) :]
+    return normalized
+
+
+def _mcp_infer_section_levels(sections: list[dict[str, Any]], file_path: str | None = None) -> None:
+    heading_levels: dict[str, int] = {}
+
+    if file_path:
+        try:
+            fpath = Path(file_path).resolve()
+            if fpath.is_file() and ".." not in Path(file_path).parts:
+                raw = fpath.read_text(encoding="utf-8")
+                for line in raw.split("\n"):
+                    stripped = line.lstrip()
+                    if stripped.startswith("#"):
+                        hashes = len(stripped) - len(stripped.lstrip("#"))
+                        title = stripped[hashes:].strip()
+                        heading_levels[title] = hashes
+        except OSError:
+            pass
+
+    if heading_levels:
+        for s in sections:
+            title = s.get("title", "")
+            clean_title = title.rsplit(" > ", 1)[-1] if " > " in title else title
+            if clean_title in heading_levels:
+                s["level"] = heading_levels[clean_title]
+        return
+
+    prev_level = 2
+    for i, s in enumerate(sections):
+        title = s.get("title", "")
+        m = _DOC_NUMBERED_HEADING_RE.match(title)
+        if m:
+            dots = m.group(1).count(".")
+            s["level"] = 2 + dots
+        elif i == 0:
+            s["level"] = 1
+        else:
+            s["level"] = prev_level
+        prev_level = s["level"]
+
+
+def _format_list_documents_mcp(result_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    by_uid: dict[str, dict[str, Any]] = {}
+    for r in result_rows:
+        uid = r.get("uid")
+        if not uid:
+            continue
+        if uid not in by_uid:
+            repo = r.get("repository")
+            raw_file = r.get("file") or ""
+            by_uid[uid] = {
+                "file": _mcp_relative_document_path(raw_file, repo),
+                "title": r.get("title") or r.get("name") or "",
+                "repository": repo,
+                "uid": uid,
+                "content_hash": r.get("content_hash"),
+                "sections": [],
+            }
+        sec_uid = r.get("sec_uid")
+        if sec_uid:
+            by_uid[uid]["sections"].append({
+                "title": r.get("sec_name") or r.get("sec_title") or "",
+                "uid": sec_uid,
+                "start_line": r.get("sec_start_line"),
+            })
+
+    documents = sorted(
+        by_uid.values(),
+        key=lambda d: (d.get("repository") or "", d.get("file") or ""),
+    )
+    for d in documents:
+        d["sections"].sort(key=lambda s: (s.get("start_line") is None, s.get("start_line") or 0))
+
+    return {"documents": documents, "total": len(documents)}
+
+
+def _format_get_document_mcp(result_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    first = result_rows[0]
+    repo = first.get("repository")
+    raw_file = first.get("file") or ""
+
+    sections: list[dict[str, Any]] = []
+    for r in result_rows:
+        suid = r.get("section_uid")
+        if not suid:
+            continue
+        sections.append({
+            "title": r.get("section_name") or r.get("section_title") or "",
+            "content": r.get("content") or "",
+            "start_line": r.get("start_line"),
+            "uid": suid,
+            "level": r.get("level"),
+        })
+
+    has_stored_levels = any(s.get("level") is not None for s in sections)
+    if not has_stored_levels:
+        _mcp_infer_section_levels(sections, file_path=first.get("file"))
+
+    for s in sections:
+        if s.get("level") is None:
+            s["level"] = 2
+
+    return {
+        "title": first.get("title") or "",
+        "file": _mcp_relative_document_path(raw_file, repo),
+        "repository": repo,
+        "sections": sections,
+    }
 
 
 def _looks_like_git_url(value: str) -> bool:
@@ -199,17 +331,58 @@ MCP_TOOLS_MANIFEST = [
         },
     },
     {
+        "name": "deep_search",
+        "description": (
+            "Multi-iteration deep search with LLM-driven sub-query expansion for comprehensive codebase research."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Research question to investigate deeply.",
+                },
+                "max_iterations": {
+                    "type": "integer",
+                    "default": 3,
+                    "minimum": 1,
+                    "maximum": 5,
+                    "description": "Search iterations (more = deeper).",
+                },
+                "include_code": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Include code context in results.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "rag_index",
         "description": (
             "Trigger indexing of a repository or directory. "
-            "Supports full reindex or incremental updates based on git diff."
+            "Supports full reindex or incremental updates based on git diff. "
+            "Alternatively pass git_url to clone a remote repository and index the checkout."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "directory": {
                     "type": "string",
-                    "description": "Directory path to index.",
+                    "description": "Directory path to index (local path on the KB server).",
+                },
+                "git_url": {
+                    "type": "string",
+                    "description": "Git clone URL for remote repository indexing.",
+                },
+                "branch": {
+                    "type": "string",
+                    "description": "Branch to checkout (optional).",
+                },
+                "repository": {
+                    "type": "string",
+                    "description": "Optional repository name to stamp on indexed nodes.",
                 },
                 "mode": {
                     "type": "string",
@@ -228,7 +401,36 @@ MCP_TOOLS_MANIFEST = [
                     "default": "HEAD",
                 },
             },
-            "required": ["directory"],
+        },
+    },
+    {
+        "name": "list_documents",
+        "description": (
+            "List indexed document nodes with section metadata for navigation. "
+            "Optionally filter by repository name."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {
+                    "type": "string",
+                    "description": "Optional repository name to scope results.",
+                },
+            },
+        },
+    },
+    {
+        "name": "get_document",
+        "description": "Return full document content (root + sections) by document node uid.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "doc_uid": {
+                    "type": "string",
+                    "description": "Document node uid from list_documents or graph results.",
+                },
+            },
+            "required": ["doc_uid"],
         },
     },
     # rag_business_search removed in P3 (Track C).
@@ -477,6 +679,7 @@ class KnowledgeBaseMCPHandler:
         store: FalkorDBStore | None = None,
         embedding_gen: EmbeddingGenerator | None = None,
         wiki_handler: WikiMCPHandler | None = None,
+        deep_search_engine: Any | None = None,
     ) -> None:
         self._hybrid = hybrid_svc
         self._graph = graph_svc
@@ -485,6 +688,7 @@ class KnowledgeBaseMCPHandler:
         self._store = store
         self._embedding = embedding_gen
         self._wiki = wiki_handler if wiki_handler is not None else WikiMCPHandler(None)
+        self._deep_search_engine = deep_search_engine
 
     def get_tools_manifest(self) -> list[dict[str, Any]]:
         return MCP_TOOLS_MANIFEST
@@ -494,7 +698,10 @@ class KnowledgeBaseMCPHandler:
         handlers = {
             "rag_query": self.handle_rag_query,
             "rag_graph": self.handle_rag_graph,
+            "deep_search": self.handle_deep_search,
             "rag_index": self.handle_rag_index,
+            "list_documents": self.handle_list_documents,
+            "get_document": self.handle_get_document,
             "analyze_impact": self.handle_analyze_impact,
             "list_endpoints": self.handle_list_endpoints,
             "check_consistency": self.handle_check_consistency,
@@ -519,13 +726,13 @@ class KnowledgeBaseMCPHandler:
 
         handler = handlers.get(tool_name)
         if not handler:
-            return {"error": f"Unknown tool: {tool_name}"}
+            return {"error": {"code": "unknown_tool", "message": f"Unknown tool: {tool_name}"}}
 
         try:
             return await handler(arguments)
         except Exception as exc:
             log.error("mcp_tool_error", tool=tool_name, error=str(exc))
-            return {"error": str(exc)}
+            return {"error": {"code": "internal_error", "message": "Tool execution failed unexpectedly"}}
 
     async def handle_rag_query(self, args: dict[str, Any]) -> dict[str, Any]:
         query_text = args.get("query", "")
@@ -867,17 +1074,140 @@ class KnowledgeBaseMCPHandler:
         report = await svc.analyze(repository)
         return {"status": "success", **report.to_dict()}
 
+    async def handle_deep_search(self, args: dict[str, Any]) -> dict[str, Any]:
+        if self._deep_search_engine is None:
+            return _mcp_error(
+                "service_unavailable",
+                "Deep search requires LLM to be enabled and initialized.",
+            )
+        query = str(args.get("query") or "").strip()
+        if not query:
+            return _mcp_error("invalid_params", "query parameter is required")
+        raw_max = args.get("max_iterations", 3)
+        try:
+            max_iterations = int(raw_max) if raw_max is not None else 3
+        except (TypeError, ValueError):
+            return _mcp_error("invalid_params", "max_iterations must be an integer")
+        max_iterations = max(1, min(max_iterations, 5))
+        include_code = args.get("include_code", True)
+        if not isinstance(include_code, bool):
+            include_code = bool(include_code)
+        try:
+            result = await self._deep_search_engine.search(
+                query,
+                max_iterations=max_iterations,
+                include_code=include_code,
+            )
+        except Exception as exc:
+            log.error("mcp_deep_search_failed", error=str(exc))
+            return _mcp_error("deep_search_failed", str(exc))
+        conclusion = result.get("analysis", "")
+        sources: list[dict[str, Any]] = []
+        for loc in result.get("code_locations", []) or []:
+            if isinstance(loc, dict):
+                sources.append(loc)
+        return {
+            "conclusion": conclusion,
+            "analysis": result.get("analysis", ""),
+            "sources": sources,
+            "business_flows": result.get("business_flows", []),
+            "code_locations": result.get("code_locations", []),
+            "search_trace": result.get("search_trace", []),
+        }
+
+    async def handle_list_documents(self, args: dict[str, Any]) -> dict[str, Any]:
+        if not self._store:
+            return _mcp_error("service_unavailable", "Graph store not available")
+        from store.graph_queries import GraphQueryRepository
+
+        repository = args.get("repository")
+        if repository is not None:
+            repository = str(repository).strip() or None
+        queries = GraphQueryRepository(self._store)
+        try:
+            result = await queries.list_documents(repository)
+        except Exception as exc:
+            log.error("mcp_list_documents_failed", error=str(exc))
+            return _mcp_error("query_failed", str(exc))
+        return _format_list_documents_mcp(result.data)
+
+    async def handle_get_document(self, args: dict[str, Any]) -> dict[str, Any]:
+        if not self._store:
+            return _mcp_error("service_unavailable", "Graph store not available")
+        from store.graph_queries import GraphQueryRepository
+
+        doc_uid = str(args.get("doc_uid") or "").strip()
+        if not doc_uid:
+            return _mcp_error("invalid_params", "doc_uid parameter is required")
+        queries = GraphQueryRepository(self._store)
+        try:
+            result = await queries.get_document(doc_uid)
+        except Exception as exc:
+            log.error("mcp_get_document_failed", error=str(exc))
+            return _mcp_error("query_failed", str(exc))
+        if not result.data:
+            return _mcp_error("not_found", "Document not found")
+        return _format_get_document_mcp(result.data)
+
     async def handle_rag_index(
         self, args: dict[str, Any], progress_callback: Callable[..., None] | None = None,
     ) -> dict[str, Any]:
-        directory = args.get("directory", "")
-        mode = args.get("mode", "full")
-
-        if not directory:
-            return {"error": "directory parameter is required"}
-
+        git_url = str(args.get("git_url") or "").strip()
+        directory = str(args.get("directory") or "").strip()
+        mode_raw = args.get("mode", "full")
+        mode = str(mode_raw) if mode_raw is not None else "full"
         repository = args.get("repository")
-        if mode == "incremental":
+
+        if git_url:
+            if not _looks_like_git_url(git_url):
+                return _mcp_error("invalid_params", "git_url must be an https, ssh, git@, or .git remote URL")
+
+            from config import get_settings
+            from git_manager import GitManager
+            from pathlib import Path as _Path
+
+            branch_arg = args.get("branch")
+            branch = str(branch_arg).strip() if branch_arg not in (None, "") else None
+
+            settings = get_settings()
+            mgr = GitManager(settings.git)
+            clone_result = await mgr.ensure_repo(git_url, branch=branch)
+            if clone_result["status"] in ("clone_failed", "pull_failed"):
+                detail = clone_result.get("detail", "") or "git operation failed"
+                return _mcp_error("git_operation_failed", detail)
+
+            directory = str(clone_result.get("directory") or "").strip()
+            if not directory:
+                return _mcp_error("git_operation_failed", "No directory resolved after clone/pull")
+
+            base_path = _Path(settings.git.clone_base_path).resolve()
+            resolved_dir = _Path(directory).resolve()
+            if not resolved_dir.is_relative_to(base_path):
+                return _mcp_error("invalid_params", "Clone directory escapes allowed base path")
+
+            if repository is None or (isinstance(repository, str) and not repository.strip()):
+                repository = clone_result.get("repository")
+
+            if clone_result["status"] == "cloned" and mode == "incremental":
+                mode = "full"
+
+        elif not directory:
+            return _mcp_error(
+                "invalid_params",
+                "Provide directory (local path) or git_url for remote indexing.",
+            )
+
+        effective_mode = mode
+        if effective_mode == "incremental" and repository and self._store:
+            from store.graph_queries import GraphQueryRepository
+
+            queries = GraphQueryRepository(self._store)
+            repo_key = str(repository).strip()
+            sample = await queries.get_repository_sample_file(repo_key)
+            if sample is None:
+                effective_mode = "full"
+
+        if effective_mode == "incremental":
             base_ref = args.get("base_ref", "HEAD~1")
             head_ref = args.get("head_ref", "HEAD")
             stats = await self._indexer.index_incremental(
@@ -897,7 +1227,7 @@ class KnowledgeBaseMCPHandler:
             )
 
         stats.update(doc_stats)
-        return {"mode": mode, "directory": directory, "stats": stats}
+        return {"mode": effective_mode, "directory": directory, "stats": stats}
 
     async def _index_docs_full(
         self,

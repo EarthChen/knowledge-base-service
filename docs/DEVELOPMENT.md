@@ -22,11 +22,11 @@ knowledge-base-service/
 │   ├── wiki_store.py       #   Wiki 图查询
 │   ├── indexer_store.py    #   索引器图查询（enrichment、跨仓库）
 │   └── graph_queries.py    #   仓库管理、文档、架构层次
-├── query/                  # 服务编排层（不含 Cypher，调用 store 层）
+├── query/                  # 服务编排层（不含 Cypher，调用 store 层）；含 nl_cypher.py（NL→Cypher）
 ├── search/                 # RRF 融合辅助
 ├── wiki/                   # Wiki 管道、MCP Wiki 工具、Webhook、调度器
 ├── llm/                    # OpenAI 兼容提供者
-├── dashboard/              # React + Vite SPA（构建 → ../static）
+├── dashboard/              # React + Vite SPA（构建 → ../static）；含 pages/FileExplorer.tsx（文件树 + 源码查看）
 ├── tests/
 ├── docs/
 ├── pyproject.toml

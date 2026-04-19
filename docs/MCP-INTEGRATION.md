@@ -2,7 +2,7 @@
 
 服务通过 HTTP 暴露 **MCP 风格**的工具契约：
 
-- **列出工具**：`GET /api/v1/mcp/tools` — 返回与 `api/mcp_server.py` 中 `MCP_TOOLS_MANIFEST` 相同的清单（12 个基础工具 + 4 个 Wiki 工具 = **16 个**）。
+- **列出工具**：`GET /api/v1/mcp/tools` — 返回与 `api/mcp_server.py` 中 `MCP_TOOLS_MANIFEST` 相同的清单（13 个基础工具 + 4 个 Wiki 工具 = **17 个**）。
 - **调用工具**：`POST /api/v1/mcp/tool`，请求体为 JSON `{"tool_name": "...", "arguments": { ... }}`（参见 `main.py` 中的 `MCPToolCallRequest`）。
 
 认证使用 `Authorization: Bearer <token>` 请求头（需配置 Token）。工具级角色检查在 `KnowledgeBaseMCPHandler.handle_tool_call` 中通过 `MCP_TOOL_MIN_ROLE` 实施。
@@ -17,7 +17,7 @@
 
 **需要 Editor（或更高角色）的 MCP 工具：** `rag_index`、`wiki_export`。其余所有工具仅需 **Viewer**。
 
-## 工具参考（16 个工具）
+## 工具参考（17 个工具）
 
 以下 **inputSchema** 与 `api/mcp_server.py` 和 `wiki/mcp_tools.py` 中 `MCP_TOOLS_MANIFEST` / `WIKI_MCP_TOOLS_MANIFEST` 嵌入的 JSON Schema 一致。
 
@@ -48,11 +48,12 @@
 
 | | |
 |--|--|
-| **描述** | 基于 Cypher 的结构化图操作。 |
+| **描述** | 基于 Cypher 的结构化图操作；可用 **`nl_query`** 做自然语言→只读 Cypher（需 LLM）。 |
 | **最低角色** | Viewer |
-| **参数** | `query_type`（**必填**）：`call_chain`、`inheritance_tree`、`class_methods`、`module_dependencies`、`reverse_dependencies`、`find_entity`、`file_entities`、`graph_stats`、`raw_cypher`、`business_flow`、`flows_for_function`、`related_concepts`、`explore_domain`、`flow_dependencies`、**`blast_radius`**。可选：`name`、`file`、`depth`（默认 3）、`direction`（默认 `downstream`）、`cypher`（用于 `raw_cypher`）、`entity_type`（用于 `find_entity`）。`blast_radius` 模式：`names`（实体名数组或逗号分隔字符串）、`depth`（1-5，默认 3）、`repository`。 |
+| **参数** | `query_type`（**必填**）：`call_chain`、`inheritance_tree`、`class_methods`、`module_dependencies`、`reverse_dependencies`、`find_entity`、`file_entities`、`graph_stats`、`raw_cypher`、**`nl_query`**、`business_flow`、`flows_for_function`、`related_concepts`、`explore_domain`、`flow_dependencies`、**`blast_radius`**。可选：`name`、`file`、`depth`（默认 3）、`direction`（默认 `downstream`）、`cypher`（用于 `raw_cypher`）、`entity_type`（用于 `find_entity`）、`repository`。`blast_radius`：`names`、`depth`（1–5，默认 3）、`repository`。 |
+| **nl_query** | **`name`**：自然语言问题（**必填**）；可选 **`repository`**。沿用现有 **`LLMProvider`**，无额外外部依赖；生成只读 Cypher（正则拒绝 `CREATE`/`DELETE`/`SET`/`MERGE`/`DROP` 等）；Prompt 内含图 Schema；语法错误自动重试。未启用 LLM 时不可用。 |
 
-**示例**
+**示例（调用链）**
 
 ```json
 {
@@ -62,6 +63,19 @@
     "name": "handleRequest",
     "depth": 3,
     "direction": "downstream"
+  }
+}
+```
+
+**示例（NL→Cypher）**
+
+```json
+{
+  "tool_name": "rag_graph",
+  "arguments": {
+    "query_type": "nl_query",
+    "name": "列出调用了 UserService.login 的所有函数",
+    "repository": "my-service"
   }
 }
 ```
@@ -98,7 +112,24 @@
 | **最低角色** | Viewer |
 | **参数** | `node_uid`（**必填**）。 |
 
-### 7. `analyze_code`
+### 7. `get_file_content`
+
+| | |
+|--|--|
+| **描述** | 从已索引仓库的磁盘检出读取**原始源文件**全文或行范围；用于规避 `get_code_snippet` 等路径上约 **5000 字符**截断导致的上下文缺失。 |
+| **最低角色** | Viewer |
+| **参数** | 见下表。 |
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `repository` | string | 是 | 索引时登记的仓库名 |
+| `file_path` | string | 是 | 仓库内相对路径（禁止绝对路径与 `..` 路径穿越） |
+| `start_line` | int | 否 | 起始行号（**1-based**，含）；省略则从文件开头 |
+| `end_line` | int | 否 | 结束行号（**1-based**，含）；省略则读到末尾 |
+
+路径经规范化后须落在仓库根内；检出路径异常时拒绝。二进制文件（内容探测含 `\x00`）拒绝读取。单次读取上限 **512KB**，超出截断并在响应中带 `truncated: true` 警告。
+
+### 8. `analyze_code`
 
 | | |
 |--|--|
@@ -106,7 +137,7 @@
 | **最低角色** | Viewer |
 | **参数** | `mode`：`quality` \| `consistency`（默认 `quality`）。quality 模式：`entity_uid`，可选 `entity_type`。consistency 模式：`repository`。 |
 
-### 8. `search_architecture`
+### 9. `search_architecture`
 
 | | |
 |--|--|
@@ -114,7 +145,7 @@
 | **最低角色** | Viewer |
 | **参数** | `mode`：`layers` \| `endpoints`。`layers` 模式：`layer`（**必填**，枚举：presentation、business、data_access、rpc、messaging、infrastructure、model、unknown），可选 `repository`、`limit`、`offset`、`search`。`endpoints` 模式：可选 `repository`。 |
 
-### 9. `analyze_changes`
+### 10. `analyze_changes`
 
 | | |
 |--|--|
@@ -122,7 +153,7 @@
 | **最低角色** | Viewer |
 | **参数** | `mode`（**必填**）。各模式特定参数：参见清单（diff/branch/repo_path、`changed_functions`、`node_name`、`changed_files` 等）。 |
 
-### 10. `get_complete_context`
+### 11. `get_complete_context`
 
 | | |
 |--|--|
@@ -130,7 +161,7 @@
 | **最低角色** | Viewer |
 | **参数** | `entity_name`（**必填**），可选 `repository`、`max_tokens`（默认 8000）。 |
 
-### 11. `get_insights`
+### 12. `get_insights`
 
 | | |
 |--|--|
@@ -138,7 +169,7 @@
 | **最低角色** | Viewer |
 | **参数** | `type`：`dashboard` \| `graph` \| `all`（默认 `dashboard`），`repository`（`graph` / `all` 必填）。 |
 
-### 12. `index_freshness`
+### 13. `index_freshness`
 
 | | |
 |--|--|
@@ -146,7 +177,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）。 |
 
-### 13. `get_wiki_page`
+### 14. `get_wiki_page`
 
 | | |
 |--|--|
@@ -154,7 +185,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）、`scope`（**必填**，如 `module:path` 或 `class:fqn`）。 |
 
-### 14. `list_wiki_pages`
+### 15. `list_wiki_pages`
 
 | | |
 |--|--|
@@ -162,7 +193,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**），可选 `scope` 子树过滤。 |
 
-### 15. `search_wiki`
+### 16. `search_wiki`
 
 | | |
 |--|--|
@@ -170,7 +201,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）、`query`（**必填**）、`mode`（`hybrid` 默认 / `graph` / `semantic` / `keyword`）、`limit`、`min_score`，可选 `scope`。 |
 
-### 16. `wiki_export`
+### 17. `wiki_export`
 
 | | |
 |--|--|
@@ -183,7 +214,7 @@
 ## Agent 集成模式
 
 1. **发现** — 认证后调用 `GET /api/v1/mcp/tools` 缓存工具清单（名称和 Schema）。
-2. **搜索后深入** — `rag_query` → 选取 `uid` → `get_code_snippet` 或 `rag_graph`（`find_entity` / `call_chain`）。
+2. **搜索后深入** — `rag_query` → 选取 `uid` → `get_code_snippet`，需要全文时用 **`get_file_content`**（路径 + 可选行范围）；图谱复杂问题可用 **`rag_graph`**（`find_entity` / `call_chain` / **`nl_query`**，后者需 LLM）。
 3. **长时间索引** — `rag_index` → 轮询 `task_status` 直到 completed 或 failed。
 4. **Wiki** — `list_wiki_pages` → `get_wiki_page` 或 `search_wiki`；使用 Editor Token 通过 `wiki_export` 导出。
 

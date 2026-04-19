@@ -12,8 +12,11 @@
 - **社区发现** — 基于 Label Propagation 算法自动发现代码模块社区，含内聚度评分和自动标签生成
 - **仓库工作流** — 本地路径、`git_url` 克隆/拉取（支持 GitLab 配置）、基于 git diff 的增量索引
 - **Wiki 生成与浏览** — 生成 Markdown Wiki 页面，混合 Wiki 搜索，MCP Wiki 工具
+- **完整源码获取** — 新增 `get_file_content` MCP 工具，Agent 可直接读取索引仓库的完整源文件，解决代码片段截断导致的幻觉问题
+- **文件树浏览器** — Dashboard 新增文件资源管理器页面，支持按目录结构浏览代码、查看实体（函数/类）、快速跳转到图谱/搜索/Wiki
+- **NL→Cypher 智能查询** — 自然语言图谱查询：通过 LLM 自动生成 Cypher，降低 Agent 和用户的图谱查询门槛
 - **基于角色的认证** — Viewer / Editor / Admin，通过 `tokens.yaml` 或环境变量配置；支持 `REQUIRE_AUTH` 强制认证
-- **仪表盘** — React + Vite SPA（搜索、深度搜索、图探索、Blast Radius、社区发现、仓库管理、索引、Wiki、同步、设置）
+- **仪表盘** — React + Vite SPA（搜索、深度搜索、图探索、文件浏览器、Blast Radius、社区发现、仓库管理、索引、Wiki、同步、设置）
 
 ## 系统架构
 
@@ -97,7 +100,7 @@ pnpm build
 
 ## 仪表盘
 
-仪表盘是一个**单页应用**，包含多个路由视图：**搜索**（混合自然语言查询，支持分页排序）、**深度搜索**（LLM 多步推理，需配置 LLM）、**图探索**（渐进式实体邻域探索 + Blast Radius 面板 + 社区发现面板）、**仓库**（已索引仓库及统计）、**索引**（触发任务）、**文档**、**Wiki**、**同步**（定时计划）、**业务**及**设置**。图表和图布局按路由**按需加载**，减小初始包体积。
+仪表盘是一个**单页应用**，包含多个路由视图：**搜索**（混合自然语言查询，支持分页排序）、**深度搜索**（LLM 多步推理，需配置 LLM）、**图探索**（渐进式实体邻域探索 + Blast Radius 面板 + 社区发现面板）、**文件浏览器**（目录树 + 源码查看 + 实体泳道）、**仓库**（已索引仓库及统计）、**索引**（触发任务）、**文档**、**Wiki**、**同步**（定时计划）、**业务**及**设置**。图表和图布局按路由**按需加载**，减小初始包体积。
 
 ## 文档
 
@@ -105,7 +108,7 @@ pnpm build
 |------|------|
 | [docs/README-DOCS.md](docs/README-DOCS.md) | 文档索引与技术栈 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 管道、Schema、仪表盘架构 |
-| [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md) | 全部 16 个 MCP 工具、角色、示例 |
+| [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md) | 全部 17 个 MCP 工具、角色、示例 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 生产部署、环境变量、安全 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 项目结构、测试、扩展指南 |
 | [docs/ONBOARDING.md](docs/ONBOARDING.md) | 用户上手指南 |

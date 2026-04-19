@@ -7,7 +7,7 @@
 | 文档 | 内容 |
 |------|------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 端到端架构、索引与检索管道、图 Schema、仪表盘 |
-| [MCP-INTEGRATION.md](MCP-INTEGRATION.md) | 完整 MCP 工具参考（16 个工具）、角色、HTTP 绑定 |
+| [MCP-INTEGRATION.md](MCP-INTEGRATION.md) | 完整 MCP 工具参考（17 个工具）、角色、HTTP 绑定 |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 前置条件、完整环境变量表、认证、限流、Docker、安全 |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 目录结构、`uv` / `pnpm`、测试、新增语言与 MCP 工具 |
 | [ONBOARDING.md](ONBOARDING.md) | 产品导览、首次索引、搜索技巧、MCP 设置 |

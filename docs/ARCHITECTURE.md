@@ -53,7 +53,7 @@ flowchart TB
 | **Tree-sitter** | 按文件 AST 捕获；每种语言的查询规则驱动 `CodeGraphBuilder` |
 | **嵌入**（Embeddings） | `EmbeddingConfig`：默认 `BAAI/bge-m3`，在多种节点标签上建立向量索引（参见 `store/schema.py` 中的 `VECTOR_INDEX_CONFIGS`） |
 | **LLM**（可选） | OpenAI 兼容 API，用于深度搜索、可选索引丰富化（`LLMConfig`） |
-| **MCP 处理器**（`api/mcp_server.py`） | 将工具调用映射到混合/图/索引/Wiki 服务 |
+| **MCP 处理器**（`api/mcp_server.py`） | 混合/图/索引/Wiki；**`get_file_content`** 读检出源文件；**`nl_query`** → `query/nl_cypher.py`（NL→Cypher，只读） |
 
 ## 索引管道
 
@@ -74,6 +74,11 @@ flowchart TB
 6. **多样性** — `_apply_per_file_cap` 限制每个文件的命中数（默认 `per_file_cap=3`）。
 7. **图扩展** — 从融合种子出发，沿关系遍历至 `expand_depth` 深度，获取上下文相关邻居。
 8. **分页与排序** — 最终结果支持 `offset`/`limit` 分页和按分数/名称/路径排序。
+9. **NL→Cypher** — **MCP `rag_graph`** 的 **`nl_query`**：LLM 生成只读 Cypher 后直接查图（不走上述 RRF 管道；详见 `query/nl_cypher.py`）。
+
+## 文件内容访问
+
+**HTTP**：`GET /api/v1/files/tree`、`/api/v1/files/content`、`/api/v1/files/entities` — 仪表盘文件浏览器与 **`get_file_content`** MCP 工具共用路径校验与仓库解析逻辑：从本地检出读取文件，防止目录穿越与越出仓库根；二进制拒绝；单次读取上限与 MCP 一致。**文件树 API 需指定 `repository`。**
 
 ## Blast Radius 分析
 
@@ -115,5 +120,5 @@ flowchart TB
 ## 仪表盘架构
 
 - **技术栈**：React + **Vite**（`dashboard/`）、TypeScript、Tailwind、React Router。
-- **交付方式**：生产构建输出至 `static/`；FastAPI 挂载 `/assets` 并对 SPA 路由回退至 `index.html`（`search`、`deep-search`、`graph`、`explorer`、`repositories`、`indexing`、`settings`、`businesses`、`documents`、`sync`）。
+- **交付方式**：生产构建输出至 `static/`；FastAPI 挂载 `/assets` 并对 SPA 路由回退至 `index.html`（`search`、`deep-search`、`graph`、`explorer`、`files`（文件浏览器）、`repositories`、`indexing`、`settings`、`businesses`、`documents`、`sync`）。
 - **懒加载**：基于路由的代码分割减小初始 JS 体积；重型可视化组件（图表、图形）仅在导航到对应页面时加载。

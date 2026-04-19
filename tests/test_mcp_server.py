@@ -5,15 +5,13 @@ from api.mcp_server import MCP_TOOLS_MANIFEST
 
 class TestMCPToolsManifest:
     def test_tool_count(self):
-        assert len(MCP_TOOLS_MANIFEST) == 17
+        assert len(MCP_TOOLS_MANIFEST) == 15
 
     def test_tool_names(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}
         assert names == {
             "rag_query",
             "rag_graph",
-            "rag_index",
-            "task_status",
             "documents",
             "get_file_content",
             "get_code_snippet",
@@ -49,22 +47,6 @@ class TestMCPToolsManifest:
         assert "explore_domain" in query_type_enum
         assert "flow_dependencies" in query_type_enum
         assert "blast_radius" in query_type_enum
-
-    def test_rag_index_schema(self):
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "rag_index")
-        schema = tool["inputSchema"]
-        assert "directory" in schema["properties"]
-        assert "git_url" in schema["properties"]
-        assert "branch" in schema["properties"]
-        assert "required" not in schema or schema.get("required") in (None, [])
-        assert "mode" in schema["properties"]
-        assert schema["properties"]["mode"]["enum"] == ["full", "incremental"]
-
-    def test_task_status_schema(self):
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "task_status")
-        schema = tool["inputSchema"]
-        assert "task_id" in schema["properties"]
-        assert schema["required"] == ["task_id"]
 
     def test_documents_schema(self):
         tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "documents")

@@ -1,10 +1,11 @@
-"""MCP Server interface for the RAG knowledge base.
+"""MCP Server interface for the RAG knowledge base (query-only).
 
 Exposes the knowledge base as MCP tools that can be injected into
 Cursor Agent sessions, enabling the agent to query the code knowledge graph.
+Indexing is handled through HTTP API endpoints, not through MCP tools.
 
-Tools exposed (consolidated):
-  - rag_query, rag_graph, rag_index, task_status: Search, graph queries, indexing
+Tools exposed (15 total):
+  - rag_query, rag_graph: Hybrid search and graph queries
   - documents: List indexed docs or fetch one by uid
   - get_file_content, get_code_snippet, get_complete_context: On-disk file source and entity context
   - analyze_code: Quality score or index vs disk consistency (mode)
@@ -117,7 +118,6 @@ def _resolve_repo_base_path(repository: str) -> Path | None:
 
 # Minimum role per MCP tool name. Omitted tools default to ``Role.VIEWER``.
 MCP_TOOL_MIN_ROLE: dict[str, Role] = {
-    "rag_index": Role.EDITOR,
     "wiki_export": Role.EDITOR,
 }
 TOOL_ROLES: dict[str, Role] = MCP_TOOL_MIN_ROLE
@@ -425,62 +425,6 @@ MCP_TOOLS_MANIFEST = [
                 },
             },
             "required": ["query_type"],
-        },
-    },
-    {
-        "name": "rag_index",
-        "description": (
-            "Trigger indexing of a repository or directory. "
-            "Supports full reindex or incremental updates based on git diff. "
-            "Alternatively pass git_url to clone a remote repository and index the checkout."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "directory": {
-                    "type": "string",
-                    "description": "Directory path to index (local path on the KB server).",
-                },
-                "git_url": {
-                    "type": "string",
-                    "description": "Git clone URL for remote repository indexing.",
-                },
-                "branch": {
-                    "type": "string",
-                    "description": "Branch to checkout (optional).",
-                },
-                "repository": {
-                    "type": "string",
-                    "description": "Optional repository name to stamp on indexed nodes.",
-                },
-                "mode": {
-                    "type": "string",
-                    "enum": ["full", "incremental"],
-                    "description": "Indexing mode: full reindex or incremental (git diff).",
-                    "default": "full",
-                },
-                "base_ref": {
-                    "type": "string",
-                    "description": "Base git ref for incremental mode.",
-                    "default": "HEAD~1",
-                },
-                "head_ref": {
-                    "type": "string",
-                    "description": "Head git ref for incremental mode.",
-                    "default": "HEAD",
-                },
-            },
-        },
-    },
-    {
-        "name": "task_status",
-        "description": "Check status of a background indexing or enrichment task by task_id.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "Task ID returned by rag_index."},
-            },
-            "required": ["task_id"],
         },
     },
     {
@@ -812,7 +756,6 @@ class KnowledgeBaseMCPHandler:
         handlers = {
             "rag_query": self.handle_rag_query,
             "rag_graph": self.handle_rag_graph,
-            "rag_index": self.handle_rag_index,
             "documents": self.handle_documents,
             "get_file_content": self.handle_get_file_content,
             "get_code_snippet": self.handle_get_code_snippet,
@@ -822,7 +765,6 @@ class KnowledgeBaseMCPHandler:
             "get_complete_context": self.handle_get_complete_context,
             "get_insights": self.handle_get_insights,
             "index_freshness": self.handle_index_freshness,
-            "task_status": self.handle_task_status,
             "get_wiki_page": self._wiki.handle_get_wiki_page,
             "list_wiki_pages": self._wiki.handle_list_wiki_pages,
             "search_wiki": self._wiki.handle_search_wiki,

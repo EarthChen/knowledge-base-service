@@ -23,34 +23,10 @@ async def test_handle_tool_call_forbids_viewer_on_editor_tool() -> None:
     )
 
     viewer = TokenInfo(role=Role.VIEWER)
-    out = await h.handle_tool_call("rag_index", {"directory": "/tmp"}, token_info=viewer)
+    out = await h.handle_tool_call("wiki_export", {"repository": "r", "target_dir": "/tmp"}, token_info=viewer)
 
     assert "error" in out
     assert out["error"]["code"] == "forbidden"
-
-
-@pytest.mark.asyncio
-async def test_handle_tool_call_allows_editor_on_rag_index() -> None:
-    h = KnowledgeBaseMCPHandler(
-        AsyncMock(),
-        AsyncMock(),
-        AsyncMock(),
-        doc_indexer=None,
-        store=MagicMock(),
-        embedding_gen=None,
-        wiki_handler=None,
-    )
-
-    async def fake_rag_index(args, progress_callback=None):
-        return {"mode": "full", "directory": "/x", "stats": {}}
-
-    h.handle_rag_index = fake_rag_index  # type: ignore[method-assign]
-
-    editor = TokenInfo(role=Role.EDITOR)
-    out = await h.handle_tool_call("rag_index", {"directory": "/tmp"}, token_info=editor)
-
-    assert "error" not in out
-    assert out["mode"] == "full"
 
 
 @pytest.mark.asyncio
@@ -85,6 +61,6 @@ async def test_handle_tool_call_skips_role_check_when_no_token_info() -> None:
 
 
 def test_editor_tools_minimum_role_map() -> None:
-    assert MCP_TOOL_MIN_ROLE["rag_index"] == Role.EDITOR
     assert MCP_TOOL_MIN_ROLE["wiki_export"] == Role.EDITOR
+    assert "rag_index" not in MCP_TOOL_MIN_ROLE
     assert TOOL_ROLES is MCP_TOOL_MIN_ROLE

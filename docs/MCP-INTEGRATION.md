@@ -2,7 +2,7 @@
 
 服务通过 HTTP 暴露 **MCP 风格**的工具契约：
 
-- **列出工具**：`GET /api/v1/mcp/tools` — 返回与 `api/mcp_server.py` 中 `MCP_TOOLS_MANIFEST` 相同的清单（13 个基础工具 + 4 个 Wiki 工具 = **17 个**）。
+- **列出工具**：`GET /api/v1/mcp/tools` — 返回与 `api/mcp_server.py` 中 `MCP_TOOLS_MANIFEST` 相同的清单（11 个基础工具 + 4 个 Wiki 工具 = **15 个**）。
 - **调用工具**：`POST /api/v1/mcp/tool`，请求体为 JSON `{"tool_name": "...", "arguments": { ... }}`（参见 `main.py` 中的 `MCPToolCallRequest`）。
 
 认证使用 `Authorization: Bearer <token>` 请求头（需配置 Token）。工具级角色检查在 `KnowledgeBaseMCPHandler.handle_tool_call` 中通过 `MCP_TOOL_MIN_ROLE` 实施。
@@ -12,12 +12,12 @@
 | 角色 | HTTP / 含义 | MCP |
 |------|-------------|-----|
 | **VIEWER** | 只读 API 路由 | 除需要 Editor 的工具外，可调用所有工具 |
-| **EDITOR** | 索引、写操作 | `rag_index`、`wiki_export`（最低要求） |
+| **EDITOR** | 索引、写操作 | `wiki_export`（最低要求）；索引通过 HTTP API 触发，不暴露为 MCP 工具 |
 | **ADMIN** | 业务管理、同步计划、破坏性操作 | MCP 无额外工具；用于 HTTP 管理路由 |
 
-**需要 Editor（或更高角色）的 MCP 工具：** `rag_index`、`wiki_export`。其余所有工具仅需 **Viewer**。
+**需要 Editor（或更高角色）的 MCP 工具：** `wiki_export`。其余所有工具仅需 **Viewer**。
 
-## 工具参考（17 个工具）
+## 工具参考（15 个工具）
 
 以下 **inputSchema** 与 `api/mcp_server.py` 和 `wiki/mcp_tools.py` 中 `MCP_TOOLS_MANIFEST` / `WIKI_MCP_TOOLS_MANIFEST` 嵌入的 JSON Schema 一致。
 
@@ -80,23 +80,7 @@
 }
 ```
 
-### 3. `rag_index`
-
-| | |
-|--|--|
-| **描述** | 对目录或 `git_url` 检出执行全量或增量索引。 |
-| **最低角色** | **Editor** |
-| **参数** | `directory`、`git_url`、`branch`、`repository`、`mode`（`full` \| `incremental`）、`base_ref`、`head_ref`。 |
-
-### 4. `task_status`
-
-| | |
-|--|--|
-| **描述** | 轮询异步索引/丰富化创建的后台任务状态。 |
-| **最低角色** | Viewer |
-| **参数** | `task_id`（**必填**）。 |
-
-### 5. `documents`
+### 3. `documents`
 
 | | |
 |--|--|
@@ -104,7 +88,7 @@
 | **最低角色** | Viewer |
 | **参数** | `uid`（可选）、`repository`（列表时可选过滤）。 |
 
-### 6. `get_code_snippet`
+### 4. `get_code_snippet`
 
 | | |
 |--|--|
@@ -112,7 +96,7 @@
 | **最低角色** | Viewer |
 | **参数** | `node_uid`（**必填**）。 |
 
-### 7. `get_file_content`
+### 5. `get_file_content`
 
 | | |
 |--|--|
@@ -129,7 +113,7 @@
 
 路径经规范化后须落在仓库根内；检出路径异常时拒绝。二进制文件（内容探测含 `\x00`）拒绝读取。单次读取上限 **512KB**，超出截断并在响应中带 `truncated: true` 警告。
 
-### 8. `analyze_code`
+### 6. `analyze_code`
 
 | | |
 |--|--|
@@ -137,7 +121,7 @@
 | **最低角色** | Viewer |
 | **参数** | `mode`：`quality` \| `consistency`（默认 `quality`）。quality 模式：`entity_uid`，可选 `entity_type`。consistency 模式：`repository`。 |
 
-### 9. `search_architecture`
+### 7. `search_architecture`
 
 | | |
 |--|--|
@@ -145,7 +129,7 @@
 | **最低角色** | Viewer |
 | **参数** | `mode`：`layers` \| `endpoints`。`layers` 模式：`layer`（**必填**，枚举：presentation、business、data_access、rpc、messaging、infrastructure、model、unknown），可选 `repository`、`limit`、`offset`、`search`。`endpoints` 模式：可选 `repository`。 |
 
-### 10. `analyze_changes`
+### 8. `analyze_changes`
 
 | | |
 |--|--|
@@ -153,7 +137,7 @@
 | **最低角色** | Viewer |
 | **参数** | `mode`（**必填**）。各模式特定参数：参见清单（diff/branch/repo_path、`changed_functions`、`node_name`、`changed_files` 等）。 |
 
-### 11. `get_complete_context`
+### 9. `get_complete_context`
 
 | | |
 |--|--|
@@ -161,7 +145,7 @@
 | **最低角色** | Viewer |
 | **参数** | `entity_name`（**必填**），可选 `repository`、`max_tokens`（默认 8000）。 |
 
-### 12. `get_insights`
+### 10. `get_insights`
 
 | | |
 |--|--|
@@ -169,7 +153,7 @@
 | **最低角色** | Viewer |
 | **参数** | `type`：`dashboard` \| `graph` \| `all`（默认 `dashboard`），`repository`（`graph` / `all` 必填）。 |
 
-### 13. `index_freshness`
+### 11. `index_freshness`
 
 | | |
 |--|--|
@@ -177,7 +161,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）。 |
 
-### 14. `get_wiki_page`
+### 12. `get_wiki_page`
 
 | | |
 |--|--|
@@ -185,7 +169,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）、`scope`（**必填**，如 `module:path` 或 `class:fqn`）。 |
 
-### 15. `list_wiki_pages`
+### 13. `list_wiki_pages`
 
 | | |
 |--|--|
@@ -193,7 +177,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**），可选 `scope` 子树过滤。 |
 
-### 16. `search_wiki`
+### 14. `search_wiki`
 
 | | |
 |--|--|
@@ -201,7 +185,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）、`query`（**必填**）、`mode`（`hybrid` 默认 / `graph` / `semantic` / `keyword`）、`limit`、`min_score`，可选 `scope`。 |
 
-### 17. `wiki_export`
+### 15. `wiki_export`
 
 | | |
 |--|--|
@@ -215,7 +199,8 @@
 
 1. **发现** — 认证后调用 `GET /api/v1/mcp/tools` 缓存工具清单（名称和 Schema）。
 2. **搜索后深入** — `rag_query` → 选取 `uid` → `get_code_snippet`，需要全文时用 **`get_file_content`**（路径 + 可选行范围）；图谱复杂问题可用 **`rag_graph`**（`find_entity` / `call_chain` / **`nl_query`**，后者需 LLM）。
-3. **长时间索引** — `rag_index` → 轮询 `task_status` 直到 completed 或 failed。
-4. **Wiki** — `list_wiki_pages` → `get_wiki_page` 或 `search_wiki`；使用 Editor Token 通过 `wiki_export` 导出。
+3. **Wiki** — `list_wiki_pages` → `get_wiki_page` 或 `search_wiki`；使用 Editor Token 通过 `wiki_export` 导出。
+
+> **注意**：索引操作（全量 / 增量）通过 Dashboard 或 HTTP API 端点触发，不暴露为 MCP 工具。
 
 使用请求头 **`X-Business-Id`**（默认 `default`）在多租户图隔离场景下选择目标图（`auth.resolve_business_id`）。

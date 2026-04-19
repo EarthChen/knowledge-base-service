@@ -21,6 +21,7 @@ export interface Translations {
     architecture: string;
     repositories: string;
     documents: string;
+    files: string;
     indexing: string;
     businesses: string;
     wiki: string;
@@ -199,6 +200,21 @@ export interface Translations {
     sections: string;
     expandAll: string;
     collapseAll: string;
+  };
+  fileExplorer: {
+    title: string;
+    searchPlaceholder: string;
+    noRepository: string;
+    selectFile: string;
+    loadingTree: string;
+    loadingContent: string;
+    entities: string;
+    viewInGraph: string;
+    searchRelated: string;
+    viewWiki: string;
+    linesCount: string;
+    truncatedWarning: string;
+    noEntities: string;
   };
   indexing: {
     title: string;

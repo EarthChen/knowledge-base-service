@@ -200,7 +200,8 @@ class TraversalStore:
             "MATCH (n {file: $file}) "
             "WHERE n:Function OR n:Class "
             "RETURN n.name AS name, labels(n)[0] AS type, n.start_line AS line, "
-            "coalesce(n.signature, '') AS signature "
+            "n.end_line AS end_line, coalesce(n.signature, '') AS signature, "
+            "n.uid AS uid, coalesce(n.docstring, '') AS docstring "
             "ORDER BY n.start_line"
         )
         params: dict[str, Any] = {"file": file_path}

@@ -456,3 +456,36 @@ export interface WikiExportResult {
   updated: number;
   skipped: number;
 }
+
+export interface FileTreeNode {
+  name: string;
+  type: "file" | "directory";
+  path: string;
+  repository?: string;
+  children?: FileTreeNode[];
+}
+
+export interface FileContentResponse {
+  repository: string;
+  file_path: string;
+  content: string;
+  total_lines: number;
+  truncated: boolean;
+  start_line?: number;
+  end_line?: number;
+}
+
+export interface FileEntityItem {
+  uid: string | null;
+  name: string;
+  type: string;
+  start_line: number;
+  end_line: number | null;
+  signature?: string;
+  docstring?: string;
+}
+
+export interface FileEntitiesResponse {
+  entities: FileEntityItem[];
+  file: string;
+}

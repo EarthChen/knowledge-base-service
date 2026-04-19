@@ -28,6 +28,9 @@ import type {
   WebhookConfig,
   AnalyzeImpactResponse,
   AnalyzeImpactFile,
+  FileTreeNode,
+  FileContentResponse,
+  FileEntitiesResponse,
 } from "./types";
 
 export function useHealth() {
@@ -382,5 +385,36 @@ export function useArchitectureSearch(
     queryKey: ["architecture-search", layer, options],
     queryFn: () => api(`/search/architecture?${params.toString()}`, { method: "GET" }),
     enabled: !!layer,
+  });
+}
+
+export function useFileTree(repository: string) {
+  return useQuery<FileTreeNode>({
+    queryKey: ["file-tree", repository],
+    queryFn: () =>
+      api(`/files/tree?repository=${encodeURIComponent(repository.trim())}`, { method: "GET" }),
+    enabled: !!repository.trim(),
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useFileContent(repository: string, filePath: string, enabled = true) {
+  const params = new URLSearchParams();
+  params.set("repository", repository);
+  params.set("file_path", filePath);
+  return useQuery<FileContentResponse>({
+    queryKey: ["file-content", repository, filePath],
+    queryFn: () => api(`/files/content?${params.toString()}`, { method: "GET" }),
+    enabled: enabled && !!repository && !!filePath,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useFileEntities(filePath: string, enabled = true) {
+  return useQuery<FileEntitiesResponse>({
+    queryKey: ["file-entities", filePath],
+    queryFn: () =>
+      api(`/files/entities?file_path=${encodeURIComponent(filePath)}`, { method: "GET" }),
+    enabled: enabled && !!filePath,
   });
 }

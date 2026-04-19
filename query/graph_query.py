@@ -171,7 +171,18 @@ class GraphQueryService:
         rows = run.rows
         query = run.query
         params = run.params
-        data = [{"name": r[0], "type": r[1], "line": r[2], "signature": r[3]} for r in rows]
+        data = [
+            {
+                "name": r[0],
+                "type": r[1],
+                "line": r[2],
+                "end_line": r[3],
+                "signature": r[4],
+                "uid": r[5],
+                "docstring": r[6],
+            }
+            for r in rows
+        ]
         return QueryResult(data=data, query=query, params=params)
 
     async def execute_raw(self, cypher: str, params: dict[str, Any] | None = None) -> QueryResult:

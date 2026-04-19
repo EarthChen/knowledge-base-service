@@ -1155,6 +1155,117 @@ def _relative_file_path(file_path: str, repository: str | None) -> str:
     return normalized
 
 
+def _build_file_tree(rows: list[dict[str, Any]], repository: str) -> dict[str, Any]:
+    """Convert flat Module ``file`` paths into a nested directory/file tree."""
+    root: dict[str, Any] = {"name": "/", "type": "directory", "children": [], "path": ""}
+    for row in rows:
+        raw_file = row.get("file") or ""
+        file_path = raw_file.replace("\\", "/")
+        if not file_path:
+            continue
+        parts = [p for p in file_path.split("/") if p]
+        current = root
+        for i, part in enumerate(parts):
+            is_file = i == len(parts) - 1
+            existing = next((c for c in current["children"] if c["name"] == part), None)
+            if existing is None:
+                if is_file:
+                    node: dict[str, Any] = {
+                        "name": part,
+                        "type": "file",
+                        "path": file_path,
+                    }
+                    repo_val = row.get("repository") or repository
+                    if repo_val:
+                        node["repository"] = repo_val
+                else:
+                    node = {
+                        "name": part,
+                        "type": "directory",
+                        "path": "/".join(parts[: i + 1]),
+                        "children": [],
+                    }
+                current["children"].append(node)
+                current = node if not is_file else current
+            else:
+                current = existing if not is_file else current
+
+    def sort_tree(node: dict[str, Any]) -> None:
+        ch = node.get("children")
+        if isinstance(ch, list) and ch:
+            ch.sort(key=lambda x: (x["type"] == "file", x["name"].lower()))
+            for child in ch:
+                sort_tree(child)
+
+    sort_tree(root)
+    return root
+
+
+@viewer_router.get("/files/tree")
+async def get_file_tree(
+    repository: str = Query(..., min_length=1),
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Return a nested directory tree built from Module nodes for a specific repository."""
+    store = svc.store
+    cypher = (
+        "MATCH (m:Module) WHERE m.repository = $repo "
+        "RETURN coalesce(m.file, m.path) AS file, m.name AS name, m.repository AS repository "
+        "ORDER BY file"
+    )
+    params: dict[str, Any] = {"repo": repository}
+
+    result = await store.execute_query(cypher, params)
+    tree = _build_file_tree(result.data, repository)
+    return tree
+
+
+@viewer_router.get("/files/content")
+async def get_file_content(
+    repository: str = Query(...),
+    file_path: str = Query(...),
+    start_line: int | None = Query(default=None, ge=1),
+    end_line: int | None = Query(default=None, ge=1),
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Read file content from indexed repository on disk (via MCP handler)."""
+    rel = _relative_file_path(file_path.replace("\\", "/").strip(), repository).lstrip("/")
+    payload: dict[str, Any] = {
+        "repository": repository,
+        "file_path": rel,
+        "start_line": start_line,
+        "end_line": end_line,
+    }
+    result = await svc.mcp_handler.handle_get_file_content(payload)
+    if "error" in result:
+        code = result["error"]["code"]
+        status = 404 if code == "not_found" else 400
+        raise HTTPException(status_code=status, detail=result["error"]["message"])
+    return result
+
+
+@viewer_router.get("/files/entities")
+async def get_file_entities(
+    file_path: str = Query(...),
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Return functions and classes defined in a file (graph ``file`` path)."""
+    result = await svc.graph_query.find_file_entities(file_path)
+    entities: list[dict[str, Any]] = []
+    for row in result.data:
+        line = row.get("line")
+        entities.append({
+            "uid": row.get("uid"),
+            "name": row.get("name"),
+            "type": row.get("type"),
+            "start_line": line,
+            "end_line": row.get("end_line"),
+            "signature": row.get("signature") or "",
+            "docstring": row.get("docstring") or "",
+        })
+    return {"entities": entities, "file": file_path}
+
+
 @viewer_router.get("/documents")
 async def list_documents(
     repository: str | None = None,

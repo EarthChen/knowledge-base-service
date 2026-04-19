@@ -14,6 +14,7 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const WikiPage = lazy(() => import("./pages/WikiPage"));
 const PrImpactPage = lazy(() => import("./pages/PrImpactPage"));
 const Businesses = lazy(() => import("./pages/Businesses"));
+const FileExplorer = lazy(() => import("./pages/FileExplorer"));
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
           <Route index element={<Overview />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="explorer" element={<GraphExplorer />} />
+          <Route path="files" element={<FileExplorer />} />
           <Route path="architecture" element={<ArchitecturePage />} />
           <Route path="repositories" element={<Repositories />} />
           <Route path="documents" element={<Documents />} />

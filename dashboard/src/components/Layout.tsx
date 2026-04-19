@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Layers,
   BookOpen,
+  FolderTree,
   GitPullRequest,
   Moon,
   Sun,
@@ -58,6 +59,7 @@ export default function Layout() {
         { to: "/", icon: LayoutDashboard, label: t.nav.overview },
         { to: "/search", icon: Search, label: t.nav.search },
         { to: "/explorer", icon: Network, label: t.nav.explorer },
+        { to: "/files", icon: FolderTree, label: t.nav.files },
       ],
     },
     {

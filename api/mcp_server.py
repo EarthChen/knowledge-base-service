@@ -345,12 +345,16 @@ MCP_TOOLS_MANIFEST = [
                         "related_concepts",
                         "explore_domain",
                         "flow_dependencies",
+                        "blast_radius",
                     ],
                     "description": "Type of graph query to execute.",
                 },
                 "name": {
                     "type": "string",
-                    "description": "Entity name for the query (function, class, or module name).",
+                    "description": (
+                        "Entity name for the query (function, class, or module name). "
+                        "For blast_radius, comma-separated names are accepted when 'names' is omitted."
+                    ),
                 },
                 "file": {
                     "type": "string",
@@ -376,6 +380,18 @@ MCP_TOOLS_MANIFEST = [
                     "enum": ["function", "class", "any"],
                     "description": "Entity type filter for find_entity.",
                     "default": "any",
+                },
+                "names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "For blast_radius: entity names to analyze (Function/Class/Module). "
+                        "Alternatively pass comma-separated names via 'name'."
+                    ),
+                },
+                "repository": {
+                    "type": "string",
+                    "description": "Optional repository scope (blast_radius and other filtered traversals).",
                 },
             },
             "required": ["query_type"],
@@ -904,6 +920,40 @@ class KnowledgeBaseMCPHandler:
         elif query_type == "flow_dependencies":
             result = await self._graph.find_flow_dependencies(name)
             return {"type": "flow_dependencies", "flow": name, "results": result.data}
+
+        elif query_type == "blast_radius":
+            from query.blast_radius import BlastRadiusAnalyzer
+
+            raw_names = args.get("names")
+            name_field = str(args.get("name", "") or "").strip()
+            names_list: list[str] = []
+            if isinstance(raw_names, list):
+                names_list = [str(x).strip() for x in raw_names if str(x).strip()]
+            elif raw_names not in (None, ""):
+                names_list = [str(raw_names).strip()]
+            if not names_list and name_field:
+                sep = "," if "," in name_field else None
+                if sep:
+                    names_list = [p.strip() for p in name_field.split(",") if p.strip()]
+                else:
+                    names_list = [p.strip() for p in name_field.replace(",", " ").split() if p.strip()]
+            if not names_list:
+                return _mcp_error(
+                    "invalid_params",
+                    "names or comma-separated name is required for blast_radius",
+                )
+            repo = args.get("repository")
+            repository = str(repo).strip() if repo not in (None, "") else None
+            try:
+                depth_val = int(args.get("depth", 3))
+            except (TypeError, ValueError):
+                depth_val = 3
+            depth_val = max(1, min(depth_val, 5))
+            if self._store is None:
+                return _mcp_error("internal_error", "Graph store unavailable")
+            analyzer = BlastRadiusAnalyzer(self._store)
+            result = await analyzer.analyze(names_list, max_depth=depth_val, repository=repository)
+            return {"type": "blast_radius", **result}
 
         return _mcp_error("invalid_params", f"Unknown query_type: {query_type}")
 

@@ -11,7 +11,8 @@ from pathlib import Path
 
 from indexer.annotation_semantics import classify_annotations, lookup_annotation
 from indexer.child_chunker import chunk_code_entity
-from indexer.tree_sitter_parser import ParseResult, ParsedField, TreeSitterParser
+from indexer.import_resolver import ImportResolver
+from indexer.tree_sitter_parser import ParsedField, ParseResult, TreeSitterParser
 from log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
 
@@ -213,8 +214,43 @@ class CodeGraphBuilder:
         suffix = Path(file_path).suffix
         return self._ext_to_lang.get(suffix)
 
+    def collect_relative_source_paths(
+        self,
+        directory: str,
+        exclude_patterns: list[str] | None = None,
+    ) -> list[str]:
+        """List supported code files (relative to *directory*) for import resolution."""
+        if exclude_patterns is not None:
+            exclude = set(exclude_patterns)
+        else:
+            from config import get_settings
+            exclude = set(get_settings().exclude_dirs)
+
+        base = Path(directory)
+        out: list[str] = []
+        for ext in self._ext_to_lang:
+            for fpath in base.rglob(f"*{ext}"):
+                if any(part in exclude for part in fpath.parts):
+                    continue
+                out.append(str(fpath.relative_to(base)))
+        return out
+
+    @staticmethod
+    def _module_uid_for_store_path(store_path: str) -> str:
+        """UID of the Module node for a file, matching :class:`GraphNode` without ``file``."""
+        stem = Path(store_path).stem
+        return GraphNode(
+            label=NodeLabel.MODULE,
+            properties={"name": stem},
+        ).uid
+
     def build_from_file(
-        self, file_path: str, content: str | None = None, *, store_path: str | None = None,
+        self,
+        file_path: str,
+        content: str | None = None,
+        *,
+        store_path: str | None = None,
+        import_resolver: ImportResolver | None = None,
     ) -> tuple[list[GraphNode], list[GraphEdge]]:
         """Parse a single file and return graph nodes + edges.
 
@@ -226,7 +262,12 @@ class CodeGraphBuilder:
             return [], []
 
         parse_result = self._parser.parse_file(file_path, language, content)
-        return self._build_graph(parse_result, store_path or file_path, language)
+        return self._build_graph(
+            parse_result,
+            store_path or file_path,
+            language,
+            import_resolver=import_resolver,
+        )
 
     def iter_directory(
         self,
@@ -241,16 +282,28 @@ class CodeGraphBuilder:
             exclude = set(get_settings().exclude_dirs)
 
         base = Path(directory)
+        tasks: list[tuple[str, Path]] = []
         for ext in self._ext_to_lang:
             for fpath in base.rglob(f"*{ext}"):
                 if any(part in exclude for part in fpath.parts):
                     continue
-                try:
-                    rel = str(fpath.relative_to(base))
-                    nodes, edges = self.build_from_file(str(fpath), store_path=rel)
-                    yield rel, nodes, edges
-                except Exception as exc:
-                    log.warning("file_parse_error", file=str(fpath), error=str(exc))
+                rel = str(fpath.relative_to(base))
+                tasks.append((rel, fpath))
+
+        resolver: ImportResolver | None = None
+        if tasks:
+            resolver = ImportResolver(ImportResolver.build_file_index([t[0] for t in tasks]))
+
+        for rel, fpath in tasks:
+            try:
+                nodes, edges = self.build_from_file(
+                    str(fpath),
+                    store_path=rel,
+                    import_resolver=resolver,
+                )
+                yield rel, nodes, edges
+            except Exception as exc:
+                log.warning("file_parse_error", file=str(fpath), error=str(exc))
 
     def build_from_directory(
         self,
@@ -287,7 +340,12 @@ class CodeGraphBuilder:
         return uids[0]
 
     def _build_graph(
-        self, result: ParseResult, file_path: str, language: str,
+        self,
+        result: ParseResult,
+        file_path: str,
+        language: str,
+        *,
+        import_resolver: ImportResolver | None = None,
     ) -> tuple[list[GraphNode], list[GraphEdge]]:
         nodes: list[GraphNode] = []
         edges: list[GraphEdge] = []
@@ -310,31 +368,71 @@ class CodeGraphBuilder:
 
         import_target_by_name: dict[str, GraphNode] = {}
         import_edge_keys: set[tuple[str, str]] = set()
+        resolved_imports = 0
+        unresolved_imports = 0
+        resolved_target_uids: set[str] = set()
+
         for imp in result.imports:
-            mod_name = imp.module.split(".")[-1] if imp.module else ""
-            if not mod_name:
+            raw_mod = imp.module.strip() if imp.module else ""
+            mod_name = raw_mod.split(".")[-1] if raw_mod else ""
+            if not raw_mod:
                 continue
-            if mod_name not in import_target_by_name:
-                ext_path = f"<import:{mod_name}>"
-                import_target_by_name[mod_name] = GraphNode(
+            # ``from ..x`` yields empty last segment; keep a stable short name for stubs
+            if not mod_name:
+                mod_name = raw_mod.strip(".")
+
+            resolved_path: str | None = None
+            if import_resolver and raw_mod:
+                resolved_path = import_resolver.resolve(raw_mod, file_path, language)
+
+            if resolved_path:
+                resolved_imports += 1
+                tgt_uid = self._module_uid_for_store_path(resolved_path)
+                resolved_target_uids.add(tgt_uid)
+            else:
+                unresolved_imports += 1
+                stub_uid = GraphNode(
                     label=NodeLabel.MODULE,
-                    properties={
-                        "name": mod_name,
-                        "path": ext_path,
-                        "language": language,
-                        "indexed_at": indexed_at,
-                    },
-                )
-                nodes.append(import_target_by_name[mod_name])
-            tgt = import_target_by_name[mod_name]
-            pair = (module_node.uid, tgt.uid)
+                    properties={"name": mod_name},
+                ).uid
+                if stub_uid in resolved_target_uids:
+                    tgt_uid = stub_uid
+                elif mod_name not in import_target_by_name:
+                    ext_path = f"<import:{mod_name}>"
+                    import_target_by_name[mod_name] = GraphNode(
+                        label=NodeLabel.MODULE,
+                        properties={
+                            "name": mod_name,
+                            "path": ext_path,
+                            "language": language,
+                            "indexed_at": indexed_at,
+                        },
+                    )
+                    nodes.append(import_target_by_name[mod_name])
+                    tgt_uid = import_target_by_name[mod_name].uid
+                else:
+                    tgt_uid = import_target_by_name[mod_name].uid
+
+            pair = (module_node.uid, tgt_uid)
             if pair not in import_edge_keys:
                 import_edge_keys.add(pair)
                 edges.append(GraphEdge(
                     edge_type=EdgeType.IMPORTS,
                     source_uid=module_node.uid,
-                    target_uid=tgt.uid,
+                    target_uid=tgt_uid,
                 ))
+
+        if import_resolver and result.imports:
+            total = resolved_imports + unresolved_imports
+            rate = (resolved_imports / total) if total else 0.0
+            log.debug(
+                "import_resolve_stats",
+                file=file_path,
+                resolved=resolved_imports,
+                unresolved=unresolved_imports,
+                total_imports=len(result.imports),
+                resolution_rate=round(rate, 4),
+            )
 
         func_uid_by_name: dict[str, list[str]] = {}
         class_uid_by_name: dict[str, str] = {}
@@ -428,7 +526,10 @@ class CodeGraphBuilder:
             if semantic_roles:
                 func_props["semantic_roles"] = semantic_roles
             if func.parameters:
-                func_props["parameters"] = [f"{p['name']}:{p['type']}" if p.get("type") else p["name"] for p in func.parameters]
+                func_props["parameters"] = [
+                    f"{p['name']}:{p['type']}" if p.get("type") else p["name"]
+                    for p in func.parameters
+                ]
             if func.return_type:
                 func_props["return_type"] = func.return_type
             func_props["indexed_at"] = indexed_at

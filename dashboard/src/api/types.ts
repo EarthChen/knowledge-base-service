@@ -214,6 +214,53 @@ export interface GraphExpandResponse {
   center_uid: string;
 }
 
+export interface BlastRadiusNode {
+  uid: string;
+  name: string;
+  type: string;
+  file: string;
+  relation: string;
+  confidence: number;
+}
+
+export interface BlastRadiusResponse {
+  center_entities: Array<{
+    uid: string;
+    name: string;
+    type: string;
+    file: string;
+    line?: number | null;
+  }>;
+  affected: Array<{ depth: number; nodes: BlastRadiusNode[] }>;
+  total_affected: number;
+  summary: {
+    by_type: Record<string, number>;
+    by_relation: Record<string, number>;
+    max_depth_reached: number;
+  };
+}
+
+export interface CommunityMember {
+  uid: string;
+  name: string;
+  type: string;
+  file: string;
+}
+
+export interface CommunityInfo {
+  id: number;
+  label: string;
+  size: number;
+  members: CommunityMember[];
+  cohesion: number;
+}
+
+export interface CommunitiesResponse {
+  communities: CommunityInfo[];
+  total_communities: number;
+  unclustered_count: number;
+}
+
 export interface DocumentSection {
   title: string;
   content: string;

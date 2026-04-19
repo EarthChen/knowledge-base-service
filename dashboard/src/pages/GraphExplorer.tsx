@@ -16,9 +16,19 @@ import {
 import "@xyflow/react/dist/style.css";
 import dagre from "@dagrejs/dagre";
 import { Network, Search, ZoomIn, Loader2, Eye, EyeOff, AlertTriangle, Undo2 } from "lucide-react";
-import { useGraphExplore, useGraphExpand } from "../api/hooks";
+import {
+  useGraphExplore,
+  useGraphExpand,
+  useBlastRadius,
+  useGraphCommunities,
+  useRepositories,
+} from "../api/hooks";
 import { useI18n } from "../i18n/context";
-import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "../api/types";
+import type {
+  GraphNode as ApiNode,
+  GraphEdge as ApiEdge,
+  CommunityInfo,
+} from "../api/types";
 
 type NodeTypeKey = "Function" | "Class" | "Module" | "Document";
 
@@ -98,10 +108,21 @@ function hasInheritsEdges(apiEdges: ApiEdge[]): boolean {
   return apiEdges.some((e) => e.type === "INHERITS");
 }
 
+function depthRowClass(depth: number, maxDepth: number): string {
+  if (maxDepth <= 1) {
+    return "bg-amber-500/25 dark:bg-amber-400/30";
+  }
+  const step = (depth - 1) / Math.max(maxDepth - 1, 1);
+  if (step <= 0.34) return "bg-amber-500/30 dark:bg-amber-400/35";
+  if (step <= 0.67) return "bg-amber-500/18 dark:bg-amber-400/22";
+  return "bg-amber-500/10 dark:bg-amber-400/14";
+}
+
 function buildFlowNodesWithDagre(
   apiNodes: ApiNode[],
   apiEdges: ApiEdge[],
   isDark: boolean,
+  highlightUids?: Set<string>,
 ): Node[] {
   const PALETTE = paletteForTheme(isDark);
   const nodeIdSet = new Set(apiNodes.map((n) => n.id));
@@ -125,6 +146,14 @@ function buildFlowNodesWithDagre(
     const nt = normalizeGraphType(n.type);
     const colors = PALETTE[nt];
     const pos = g.node(n.id);
+    const hl = highlightUids?.has(n.id);
+    const ring = hl
+      ? isDark
+        ? "0 0 0 3px #fbbf24, 0 2px 8px rgba(0,0,0,0.35)"
+        : "0 0 0 3px #d97706, 0 2px 8px rgba(0,0,0,0.12)"
+      : n.is_center
+        ? `0 0 20px ${colors.border}60`
+        : `0 2px 8px rgba(0,0,0,0.12)`;
     return {
       id: n.id,
       position: {
@@ -144,14 +173,12 @@ function buildFlowNodesWithDagre(
       style: {
         background: n.is_center ? colors.border : colors.bg,
         color: colors.text,
-        border: `2px solid ${colors.border}`,
+        border: `2px solid ${hl ? (isDark ? "#fbbf24" : "#d97706") : colors.border}`,
         borderRadius: "8px",
         padding: "8px 14px",
         fontSize: "12px",
         fontWeight: n.is_center ? 700 : 500,
-        boxShadow: n.is_center
-          ? `0 0 20px ${colors.border}60`
-          : `0 2px 8px rgba(0,0,0,0.12)`,
+        boxShadow: ring,
         minWidth: "80px",
         textAlign: "center" as const,
       },
@@ -204,6 +231,13 @@ export default function GraphExplorer() {
   /** True when last explore returned more nodes than INITIAL_NODE_LIMIT (only first N painted). */
   const [initialSliceHint, setInitialSliceHint] = useState(false);
   const [expandHistory, setExpandHistory] = useState<string[][]>([]);
+  const [blastNamesInput, setBlastNamesInput] = useState("");
+  const [blastDepth, setBlastDepth] = useState(3);
+  const [blastRepo, setBlastRepo] = useState("");
+  const [communityRepo, setCommunityRepo] = useState("");
+  const [communityMinSize, setCommunityMinSize] = useState(3);
+  const [communityHighlight, setCommunityHighlight] = useState<Set<string>>(new Set());
+  const [selectedCommunityKey, setSelectedCommunityKey] = useState<number | null>(null);
 
   const apiNodesRef = useRef<Map<string, ApiNode>>(new Map());
   const edgesRef = useRef<ApiEdge[]>([]);
@@ -223,13 +257,21 @@ export default function GraphExplorer() {
   const isDark = useHtmlClassDark();
   const mutation = useGraphExplore();
   const expandMutation = useGraphExpand();
+  const blastMutation = useBlastRadius();
+  const communitiesMutation = useGraphCommunities();
+  const reposQuery = useRepositories();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const applyGraphLayout = useCallback(() => {
     const list = [...apiNodesRef.current.values()];
-    const builtNodes = buildFlowNodesWithDagre(list, edgesRef.current, isDark);
+    const builtNodes = buildFlowNodesWithDagre(
+      list,
+      edgesRef.current,
+      isDark,
+      communityHighlight.size ? communityHighlight : undefined,
+    );
     const flowNodes = builtNodes.map((n) => {
       const nt = normalizeGraphType((n.data?.type as string) || "");
       let vis = true;
@@ -246,7 +288,7 @@ export default function GraphExplorer() {
     );
     setNodes(flowNodes);
     setEdges(flowEdges);
-  }, [isDark, setNodes, setEdges]);
+  }, [isDark, communityHighlight, setNodes, setEdges]);
 
   const handleExplore = useCallback(
     (name: string) => {
@@ -272,6 +314,36 @@ export default function GraphExplorer() {
     },
     [depth, limit, mutation, expandMutation, applyGraphLayout],
   );
+
+  useEffect(() => {
+    if (apiNodesRef.current.size === 0) return;
+    applyGraphLayout();
+  }, [communityHighlight, applyGraphLayout]);
+
+  const handleBlastRadius = useCallback(() => {
+    const names = blastNamesInput
+      .split(/[,，]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!names.length) return;
+    blastMutation.mutate({
+      entity_names: names,
+      max_depth: blastDepth,
+      repository: blastRepo.trim() || null,
+    });
+  }, [blastNamesInput, blastDepth, blastRepo, blastMutation]);
+
+  const handleLoadCommunities = useCallback(() => {
+    communitiesMutation.mutate({
+      repository: communityRepo.trim() || null,
+      min_size: communityMinSize,
+    });
+  }, [communityRepo, communityMinSize, communitiesMutation]);
+
+  const handleCommunityClick = useCallback((c: CommunityInfo) => {
+    setSelectedCommunityKey(c.id);
+    setCommunityHighlight(new Set(c.members.map((m) => m.uid)));
+  }, []);
 
   const handleExpandNeighbors = useCallback(
     (nodeLabel: string, expandLimit: number) => {
@@ -369,27 +441,34 @@ export default function GraphExplorer() {
         const PALETTE = paletteForTheme(isDark);
         const colors = PALETTE[nt];
         const isCenter = Boolean(n.data?.isCenter);
+        const hl = communityHighlight.has(n.id);
+        const borderC = hl ? (isDark ? "#fbbf24" : "#d97706") : colors.border;
+        const boxShadow = hl
+          ? isDark
+            ? "0 0 0 3px #fbbf24, 0 2px 8px rgba(0,0,0,0.35)"
+            : "0 0 0 3px #d97706, 0 2px 8px rgba(0,0,0,0.12)"
+          : isCenter
+            ? `0 0 20px ${colors.border}60`
+            : `0 2px 8px rgba(0,0,0,0.12)`;
         return {
           ...n,
           hidden: !visible,
           style: {
             background: isCenter ? colors.border : colors.bg,
             color: colors.text,
-            border: `2px solid ${colors.border}`,
+            border: `2px solid ${borderC}`,
             borderRadius: "8px",
             padding: "8px 14px",
             fontSize: "12px",
             fontWeight: isCenter ? 700 : 500,
-            boxShadow: isCenter
-              ? `0 0 20px ${colors.border}60`
-              : `0 2px 8px rgba(0,0,0,0.12)`,
+            boxShadow,
             minWidth: "80px",
             textAlign: "center" as const,
           },
         };
       }),
     );
-  }, [typeVisible, isDark, setNodes]);
+  }, [typeVisible, isDark, communityHighlight, setNodes]);
 
   const selectedApiNode = selectedNodeId ? apiNodesRef.current.get(selectedNodeId) : undefined;
 
@@ -533,6 +612,192 @@ export default function GraphExplorer() {
       )}
 
       <div ref={containerRef} className="flex min-h-[500px] flex-1 flex-col gap-3 lg:flex-row">
+        <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-80">
+          <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              {t.explorer.blastTitle}
+            </h3>
+            <label className="mt-3 block">
+              <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                {t.explorer.blastNamesLabel}
+              </span>
+              <textarea
+                value={blastNamesInput}
+                onChange={(e) => setBlastNamesInput(e.target.value)}
+                rows={2}
+                placeholder={t.explorer.blastNamesPlaceholder}
+                className={`w-full resize-y ${inputClass}`}
+              />
+            </label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <label className="flex-1 min-w-[100px]">
+                <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                  {t.explorer.blastMaxDepth}
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={blastDepth}
+                  onChange={(e) => setBlastDepth(Number(e.target.value) || 3)}
+                  className={`w-full ${inputClass}`}
+                />
+              </label>
+              <label className="min-w-[140px] flex-1">
+                <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                  {t.explorer.blastRepositoryOptional}
+                </span>
+                <input
+                  type="text"
+                  value={blastRepo}
+                  onChange={(e) => setBlastRepo(e.target.value)}
+                  className={`w-full ${inputClass}`}
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              onClick={handleBlastRadius}
+              disabled={blastMutation.isPending || !blastNamesInput.trim()}
+              className="mt-3 w-full rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:opacity-50 dark:bg-amber-500 dark:hover:bg-amber-400"
+            >
+              {blastMutation.isPending ? t.explorer.blastRunning : t.explorer.blastRun}
+            </button>
+            {blastMutation.error ? (
+              <p className="mt-2 text-xs text-red-600 dark:text-red-400">{blastMutation.error.message}</p>
+            ) : null}
+            {blastMutation.data ? (
+              <div className="mt-3 space-y-2 text-xs">
+                <p className="font-medium text-gray-700 dark:text-gray-200">{t.explorer.blastAffectedTitle}</p>
+                <p className="text-[11px] text-gray-600 dark:text-gray-400">
+                  total {blastMutation.data.total_affected} · max depth {blastMutation.data.summary.max_depth_reached}
+                </p>
+                <p className="text-[11px] text-gray-600 dark:text-gray-400">
+                  {Object.entries(blastMutation.data.summary.by_type)
+                    .map(([k, v]) => `${k}: ${v}`)
+                    .join(" · ")}
+                </p>
+                <p className="text-[11px] text-gray-600 dark:text-gray-400">
+                  {Object.entries(blastMutation.data.summary.by_relation)
+                    .map(([k, v]) => `${k}: ${v}`)
+                    .join(" · ")}
+                </p>
+                {(() => {
+                  const md = Math.max(
+                    blastMutation.data.summary.max_depth_reached,
+                    ...blastMutation.data.affected.map((l) => l.depth),
+                    1,
+                  );
+                  return blastMutation.data.affected.map((layer) => (
+                    <div key={layer.depth} className="space-y-1">
+                      <p
+                        className={`text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 ${depthRowClass(layer.depth, md)} rounded px-2 py-0.5`}
+                      >
+                        {t.explorer.depth} {layer.depth}
+                      </p>
+                      <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-gray-100 dark:border-gray-700">
+                        {layer.nodes.map((node) => (
+                          <li
+                            key={node.uid}
+                            className={`break-all border-b border-gray-100 px-2 py-1.5 last:border-0 dark:border-gray-800 ${depthRowClass(layer.depth, md)}`}
+                          >
+                            <span className="font-medium text-gray-800 dark:text-gray-100">{node.name}</span>{" "}
+                            <span className="text-gray-500 dark:text-gray-400">· {node.type}</span>
+                            <br />
+                            <span className="text-[10px] text-gray-500 dark:text-gray-500">
+                              {t.explorer.blastRelation}: {node.relation} · {t.explorer.blastConfidence}:{" "}
+                              {node.confidence}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ));
+                })()}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              {t.explorer.communityTitle}
+            </h3>
+            <label className="mt-3 block">
+              <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                {t.explorer.communityRepository}
+              </span>
+              <select
+                value={communityRepo}
+                onChange={(e) => setCommunityRepo(e.target.value)}
+                className={`w-full ${inputClass}`}
+              >
+                <option value="">{t.explorer.communityAllRepos}</option>
+                {(reposQuery.data?.repositories ?? []).map((r) => (
+                  <option key={r.repository} value={r.repository}>
+                    {r.repository}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="mt-2 block">
+              <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                {t.explorer.communityMinSize}
+              </span>
+              <input
+                type="number"
+                min={2}
+                max={50}
+                value={communityMinSize}
+                onChange={(e) => setCommunityMinSize(Number(e.target.value) || 3)}
+                className={`w-full ${inputClass}`}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={handleLoadCommunities}
+              disabled={communitiesMutation.isPending}
+              className="mt-3 w-full rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-900 transition-colors hover:bg-violet-100 disabled:opacity-50 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/60"
+            >
+              {communitiesMutation.isPending ? t.explorer.communityLoading : t.explorer.communityLoad}
+            </button>
+            {communitiesMutation.error ? (
+              <p className="mt-2 text-xs text-red-600 dark:text-red-400">{communitiesMutation.error.message}</p>
+            ) : null}
+            {communitiesMutation.data ? (
+              <div className="mt-3 space-y-2 text-xs">
+                <p className="text-gray-600 dark:text-gray-300">
+                  {t.explorer.communityUnclustered}: {communitiesMutation.data.unclustered_count}
+                </p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-500">
+                  {t.explorer.communityClickHighlight}
+                </p>
+                <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+                  {communitiesMutation.data.communities.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => handleCommunityClick(c)}
+                        className={`w-full rounded-lg border px-2 py-2 text-left text-xs transition-colors ${
+                          selectedCommunityKey === c.id
+                            ? "border-violet-500 bg-violet-50 dark:border-violet-500 dark:bg-violet-950/80"
+                            : "border-gray-200 bg-gray-50 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800 dark:hover:bg-gray-700"
+                        }`}
+                      >
+                        <span className="font-medium text-gray-900 dark:text-gray-100">{c.label}</span>
+                        <span className="ml-2 text-gray-500 dark:text-gray-400">
+                          · n={c.size} · cohesion {c.cohesion}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="mt-3 text-[11px] text-gray-500 dark:text-gray-400">{t.explorer.communityEmpty}</p>
+            )}
+          </section>
+        </aside>
+
         <div className="flex min-h-[500px] min-w-0 flex-1 flex-col gap-2">
           {nodes.length > 0 ? (
             <>

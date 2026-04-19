@@ -11,6 +11,8 @@ import type {
   GraphExploreResponse,
   GraphExpandRequest,
   GraphExpandResponse,
+  BlastRadiusResponse,
+  CommunitiesResponse,
   CodeSnippetResponse,
   DocumentsResponse,
   DocumentDetail,
@@ -232,6 +234,40 @@ export function useGraphExpand() {
   return useMutation<GraphExpandResponse, Error, GraphExpandRequest>({
     mutationFn: (body) =>
       api("/graph/expand", { method: "POST", body: JSON.stringify(body) }),
+  });
+}
+
+export function useBlastRadius() {
+  return useMutation<
+    BlastRadiusResponse,
+    Error,
+    { entity_names: string[]; max_depth: number; repository?: string | null }
+  >({
+    mutationFn: (body) =>
+      api("/graph/blast-radius", {
+        method: "POST",
+        body: JSON.stringify({
+          entity_names: body.entity_names,
+          max_depth: body.max_depth,
+          repository: body.repository ?? null,
+        }),
+      }),
+  });
+}
+
+export function useGraphCommunities() {
+  return useMutation<
+    CommunitiesResponse,
+    Error,
+    { repository?: string | null; min_size?: number }
+  >({
+    mutationFn: ({ repository, min_size }) => {
+      const params = new URLSearchParams();
+      if (repository && repository.trim()) params.set("repository", repository.trim());
+      if (min_size != null) params.set("min_size", String(min_size));
+      const q = params.toString();
+      return api(`/graph/communities${q ? `?${q}` : ""}`, { method: "GET" });
+    },
   });
 }
 

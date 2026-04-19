@@ -14,13 +14,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from indexer.code_graph_builder import CodeGraphBuilder
-from indexer.graph_enricher import GraphEnricher
-from indexer.index_report import IndexReport
-from indexer.doc_indexer import DocumentIndexer
 from config import get_settings
+from indexer.code_graph_builder import CodeGraphBuilder
+from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from indexer.enrichment import is_trivial_enrichment_entity, truncate_enrichment_item
+from indexer.graph_enricher import GraphEnricher
+from indexer.import_resolver import ImportResolver
+from indexer.index_report import IndexReport
 from log import get_logger
 from store.falkordb_store import FalkorDBStore
 from store.schema import GraphNode, NodeLabel
@@ -404,6 +405,9 @@ class IncrementalIndexer:
 
         processed_count = 0
         commit_sha = _try_git_head_sha(directory)
+        repo_paths = self._builder.collect_relative_source_paths(directory)
+        import_resolver = ImportResolver(ImportResolver.build_file_index(repo_paths))
+
         for fpath in modified_files:
             try:
                 full_path = str(Path(directory) / fpath)
@@ -429,7 +433,11 @@ class IncrementalIndexer:
                         log.warning("incremental_doc_index_error", file=full_path, error=str(exc))
                         report.record_file_failure(fpath, str(exc))
                 else:
-                    nodes, edges = self._builder.build_from_file(full_path, store_path=fpath)
+                    nodes, edges = self._builder.build_from_file(
+                        full_path,
+                        store_path=fpath,
+                        import_resolver=import_resolver,
+                    )
                     _stamp_repository_metadata(nodes, repository, commit_sha=commit_sha)
                     await self._store.batch_upsert(nodes, edges)
                     code_file_paths.append(fpath)

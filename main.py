@@ -355,6 +355,12 @@ class GraphExpandRequest(BaseModel):
     exclude_uids: list[str] = Field(default_factory=list, max_length=2000)
 
 
+class BlastRadiusRequest(BaseModel):
+    entity_names: list[str] = Field(..., min_length=1, max_length=20)
+    max_depth: int = Field(default=3, ge=1, le=5)
+    repository: str | None = None
+
+
 class ImpactAnalysisRequest(BaseModel):
     changed_functions: list[str] = Field(..., min_length=1)
     max_depth: int = Field(default=5, ge=1, le=50)
@@ -1533,6 +1539,35 @@ async def graph_expand(
         depth=req.depth,
         exclude_uids=req.exclude_uids,
     )
+
+
+@viewer_router.post("/graph/blast-radius")
+async def graph_blast_radius(
+    req: BlastRadiusRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Upstream blast-radius impact from changed entities (callers, importers, subclasses)."""
+    from query.blast_radius import BlastRadiusAnalyzer
+
+    analyzer = BlastRadiusAnalyzer(svc.store)
+    return await analyzer.analyze(
+        req.entity_names,
+        max_depth=req.max_depth,
+        repository=req.repository,
+    )
+
+
+@viewer_router.get("/graph/communities")
+async def graph_communities(
+    repository: str | None = None,
+    min_size: int = Query(default=3, ge=2, le=50),
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Community detection (label propagation) over Function/Class code graph."""
+    from query.community_detection import CommunityDetector
+
+    detector = CommunityDetector(svc.store)
+    return await detector.detect(repository=repository, min_community_size=min_size)
 
 
 @admin_router.post("/admin/backfill-fqn")

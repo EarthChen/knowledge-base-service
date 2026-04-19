@@ -302,6 +302,25 @@ export interface Translations {
     expandedCount: string;
     expandAllNeighbors: string;
     maxNodesReached: string;
+    blastTitle: string;
+    blastNamesLabel: string;
+    blastNamesPlaceholder: string;
+    blastMaxDepth: string;
+    blastRepositoryOptional: string;
+    blastRun: string;
+    blastRunning: string;
+    blastAffectedTitle: string;
+    blastConfidence: string;
+    blastRelation: string;
+    communityTitle: string;
+    communityRepository: string;
+    communityAllRepos: string;
+    communityMinSize: string;
+    communityLoad: string;
+    communityLoading: string;
+    communityEmpty: string;
+    communityUnclustered: string;
+    communityClickHighlight: string;
   };
   architecture: {
     title: string;

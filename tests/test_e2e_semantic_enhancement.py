@@ -227,6 +227,7 @@ class TestMCPToolManifest:
         assert "related_concepts" in query_types
         assert "explore_domain" in query_types
         assert "flow_dependencies" in query_types
+        assert "blast_radius" in query_types
 
     def test_rag_query_tool_supports_entity_type_for_business_entities(self):
         from api.mcp_server import MCP_TOOLS_MANIFEST

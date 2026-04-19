@@ -47,6 +47,7 @@ class TestMCPToolsManifest:
         assert "related_concepts" in query_type_enum
         assert "explore_domain" in query_type_enum
         assert "flow_dependencies" in query_type_enum
+        assert "blast_radius" in query_type_enum
 
     def test_rag_index_schema(self):
         tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "rag_index")

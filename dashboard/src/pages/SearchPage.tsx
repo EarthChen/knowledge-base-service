@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Zap, Brain, Clock, X } from "lucide-react";
+import { Zap, Brain, Clock, X, Download } from "lucide-react";
 import { useHybridSearch, useRepositories } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import { useSearchHistory } from "../hooks/useSearchHistory";
@@ -251,9 +251,30 @@ export default function SearchPage() {
 
       {hybridResult && (
         <div className="space-y-4">
-          <p className="text-xs text-gray-400">
-            {hybridResult.total ?? 0} {t.search.resultsFor} "{hybridResult.query}"
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-400">
+              {hybridResult.total ?? 0} {t.search.resultsFor} "{hybridResult.query}"
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const blob = new Blob(
+                  [JSON.stringify(hybridResult, null, 2)],
+                  { type: "application/json" },
+                );
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `search-results-${Date.now()}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-800"
+            >
+              <Download size={14} />
+              Export JSON
+            </button>
+          </div>
 
           {hybridResult.semantic_matches?.length > 0 && (
             <div className="space-y-3">

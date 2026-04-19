@@ -1,4 +1,5 @@
 import { useState } from "react";
+import FocusTrap from "../components/FocusTrap";
 import {
   Settings,
   Save,
@@ -730,9 +731,10 @@ export default function SettingsPage() {
       </div>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="schedule-modal-title">
+          <FocusTrap onEscape={closeModal}>
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 shadow-xl">
-            <h4 className="text-base font-semibold text-gray-900">
+            <h4 id="schedule-modal-title" className="text-base font-semibold text-gray-900">
               {editing ? t.sync.editSchedule : t.sync.addSchedule}
             </h4>
             <form onSubmit={submitModal} className="mt-4 space-y-3">
@@ -820,13 +822,15 @@ export default function SettingsPage() {
               </div>
             </form>
           </div>
+          </FocusTrap>
         </div>
       )}
 
       {webhookModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-labelledby="webhook-modal-title">
+          <FocusTrap onEscape={closeWebhookModal}>
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 shadow-xl">
-            <h4 className="text-base font-semibold text-gray-900">
+            <h4 id="webhook-modal-title" className="text-base font-semibold text-gray-900">
               {isZh ? "编辑 Webhook 配置" : "Edit webhook configuration"}
             </h4>
             <form onSubmit={submitWebhookModal} className="mt-4 space-y-3">
@@ -917,6 +921,7 @@ export default function SettingsPage() {
               </div>
             </form>
           </div>
+          </FocusTrap>
         </div>
       )}
     </div>

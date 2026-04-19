@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.error_handler import register_exception_handlers
+from api.rate_limiter import install_rate_limiter
 from api.routes.provider_routes import provider_router
 from api.routes.webhook_routes import init_webhook_state, webhook_router
 from api.routes.wiki_routes import wiki_router
@@ -2058,6 +2059,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     register_exception_handlers(app)
+    install_rate_limiter(app)
     app.include_router(public_router)
     app.include_router(webhook_router)
     app.include_router(provider_router)

@@ -257,8 +257,19 @@ export default function ArchitecturePage() {
                     return (
                       <Fragment key={row.uid}>
                         <tr
-                          className="cursor-pointer border-b border-gray-100 transition-colors hover:bg-gray-50"
-                          onClick={() => toggleExpanded(row.uid)}
+                          {...(methodCount > 0 ? {
+                            role: "button",
+                            tabIndex: 0,
+                            "aria-expanded": isOpen,
+                            onClick: () => toggleExpanded(row.uid),
+                            onKeyDown: (e: React.KeyboardEvent) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                toggleExpanded(row.uid);
+                              }
+                            },
+                          } : {})}
+                          className={`border-b border-gray-100 transition-colors hover:bg-gray-50 ${methodCount > 0 ? "cursor-pointer focus-visible:outline-2 focus-visible:outline-sky-500 focus-visible:outline-offset-[-2px]" : ""}`}
                         >
                           <td className="px-2 py-2.5 align-middle text-gray-400">
                             {methodCount > 0 ? (

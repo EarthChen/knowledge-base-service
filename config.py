@@ -222,6 +222,9 @@ class Settings(BaseSettings):
         ]
     )
 
+    rate_limit_rpm: int = 120
+    rate_limit_trust_proxy: bool = False
+
     api_token: str = ""
     api_tokens: str = ""
     tokens_file: str = "tokens.yaml"

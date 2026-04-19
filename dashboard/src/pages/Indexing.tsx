@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import FocusTrap from "../components/FocusTrap";
 import {
   Database,
   Loader2,
@@ -636,6 +637,7 @@ export default function Indexing() {
           aria-modal="true"
           aria-labelledby="enrich-modal-title"
         >
+          <FocusTrap onEscape={() => setEnrichModalOpen(false)}>
           <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-lg dark:border-gray-600 dark:bg-gray-900">
             <h3 id="enrich-modal-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">
               {t.indexing.enrichTitle}
@@ -700,6 +702,7 @@ export default function Indexing() {
               </div>
             </form>
           </div>
+          </FocusTrap>
         </div>
       )}
 

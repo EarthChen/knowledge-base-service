@@ -53,6 +53,7 @@ function SourceRef({
   repository: string;
   s: WikiAskSource;
 }) {
+  const { t } = useI18n();
   const editor = readEditorPref();
   const ide =
     s.file_path && s.start_line > 0
@@ -75,7 +76,9 @@ function SourceRef({
             {s.file_path}:{s.start_line}
           </a>
         )}
-        <span className="text-gray-400">score {s.relevance_score.toFixed(3)}</span>
+        <span className="text-gray-400">
+          {t.wiki.askScorePrefix} {s.relevance_score.toFixed(3)}
+        </span>
       </div>
     </li>
   );
@@ -109,10 +112,10 @@ export default function AskPanel({ repository }: Props) {
       >
         <span className="inline-flex items-center gap-2">
           <MessageCircle size={18} className="text-sky-600" aria-hidden />
-          Ask wiki
+          {t.wiki.askWiki}
           {conversationId && (
             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-normal text-gray-500">
-              thread
+              {t.wiki.askThread}
             </span>
           )}
         </span>
@@ -134,7 +137,7 @@ export default function AskPanel({ repository }: Props) {
                   : "text-gray-400 hover:text-gray-700"
               }`}
             >
-              <MessageCircle size={14} /> Ask wiki
+              <MessageCircle size={14} /> {t.wiki.askWiki}
             </button>
             <button
               type="button"
@@ -155,9 +158,9 @@ export default function AskPanel({ repository }: Props) {
           {mode === "ask" ? (
             <>
               <p className="text-xs text-gray-500">
-                Answers use hybrid search context and stream from the wiki Q&A endpoint (
+                {t.wiki.askEndpointHelpBefore}
                 <code className="rounded bg-gray-100 px-1">POST /api/v1/wiki/ask</code>
-                ).
+                {t.wiki.askEndpointHelpAfter}
               </p>
 
               <form
@@ -174,7 +177,7 @@ export default function AskPanel({ repository }: Props) {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   rows={2}
-                  placeholder="Ask a question about this repository…"
+                  placeholder={t.wiki.askQuestionPlaceholder}
                   className="min-h-[44px] flex-1 resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none ring-sky-500/30 focus:border-sky-400 focus:ring-2"
                 />
                 <div className="flex shrink-0 flex-col gap-2">
@@ -195,7 +198,7 @@ export default function AskPanel({ repository }: Props) {
                     disabled={!isStreaming}
                     className="text-xs text-gray-600 hover:text-gray-900 disabled:opacity-40"
                   >
-                    Stop
+                    {t.wiki.stop}
                   </button>
                   <button
                     type="button"
@@ -205,7 +208,7 @@ export default function AskPanel({ repository }: Props) {
                     }}
                     className="text-xs text-gray-600 hover:text-gray-900"
                   >
-                    Clear
+                    {t.wiki.clear}
                   </button>
                 </div>
               </form>
@@ -230,29 +233,21 @@ export default function AskPanel({ repository }: Props) {
               {sources.length > 0 && (
                 <div>
                   <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Sources
+                    {t.wiki.sources}
                   </h4>
                   <ul className="space-y-2">
                     {sources.map((s, i) => (
                       <SourceRef key={`${s.wiki_page}-${s.entity}-${i}`} repository={repository} s={s} />
                     ))}
                   </ul>
-                  <p className="mt-2 text-xs text-gray-400">
-                    {isZh
-                      ? "Ask v2: 上下文由图增强搜索提供，包含调用链和模块上下文"
-                      : "Ask v2: Context enhanced by graph search including call chains and module context"}
-                  </p>
+                  <p className="mt-2 text-xs text-gray-400">{t.wiki.askV2Footnote}</p>
                 </div>
               )}
             </>
           ) : (
             <>
               <p className="text-xs text-gray-500">{t.search.deepResearchDesc}</p>
-              <p className="text-xs text-amber-800/90">
-                {isZh
-                  ? "Deep Research 搜索范围为整个知识库（可能跨多个仓库）"
-                  : "Deep Research searches the entire knowledge base (may span multiple repos)"}
-              </p>
+              <p className="text-xs text-amber-800/90">{t.wiki.deepResearchScopeNote}</p>
               <form
                 className="flex flex-col gap-2 sm:flex-row"
                 onSubmit={(e) => {
@@ -284,7 +279,7 @@ export default function AskPanel({ repository }: Props) {
                     disabled={!deepStream.isStreaming}
                     className="text-xs text-gray-600 hover:text-gray-900 disabled:opacity-40"
                   >
-                    Stop
+                    {t.wiki.stop}
                   </button>
                   <button
                     type="button"
@@ -294,7 +289,7 @@ export default function AskPanel({ repository }: Props) {
                     }}
                     className="text-xs text-gray-600 hover:text-gray-900"
                   >
-                    Clear
+                    {t.wiki.clear}
                   </button>
                 </div>
               </form>

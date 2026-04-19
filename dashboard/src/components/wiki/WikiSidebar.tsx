@@ -16,6 +16,7 @@ import {
   type EditorId,
 } from "./editorLinks";
 import { EDITOR_PREF_KEY } from "./SourceLink";
+import { useI18n } from "../../i18n/context";
 
 type TreeNode = {
   segment: string;
@@ -173,6 +174,7 @@ export default function WikiSidebar({
   pagesLoading,
   pagesError,
 }: Props) {
+  const { t } = useI18n();
   const tree = useMemo(() => buildTree(pages), [pages]);
   const search = useWikiSearch();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -234,14 +236,14 @@ export default function WikiSidebar({
     <aside className="flex w-full shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm lg:w-80">
       <div className="border-b border-gray-100 px-4 py-3">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-          Wiki pages
+          {t.wiki.pagesHeading}
         </h3>
         <button
           type="button"
           onClick={expandAll}
           className="mt-2 text-xs font-medium text-sky-700 hover:underline"
         >
-          Expand all folders
+          {t.wiki.expandAllFolders}
         </button>
       </div>
 
@@ -256,14 +258,14 @@ export default function WikiSidebar({
           }}
         >
           <label className="sr-only" htmlFor="wiki-search">
-            Search wiki
+            {t.wiki.searchWikiLabel}
           </label>
           <div className="flex gap-2">
             <input
               id="wiki-search"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search wiki…"
+              placeholder={t.wiki.searchPlaceholder}
               className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none ring-sky-500/30 focus:border-sky-400 focus:ring-2"
             />
             <button
@@ -307,14 +309,14 @@ export default function WikiSidebar({
         {pagesLoading && (
           <div className="flex items-center gap-2 px-2 text-sm text-gray-500">
             <Loader2 className="size-4 animate-spin" />
-            Loading pages…
+            {t.wiki.loadingPages}
           </div>
         )}
         {pagesError && (
           <p className="px-2 text-sm text-red-600">{pagesError.message}</p>
         )}
         {!pagesLoading && !pagesError && tree.length === 0 && (
-          <p className="px-2 text-sm text-gray-500">No wiki pages found.</p>
+          <p className="px-2 text-sm text-gray-500">{t.wiki.noPagesFound}</p>
         )}
         {!pagesLoading && !pagesError && tree.length > 0 && (
           <TreeSection
@@ -330,10 +332,10 @@ export default function WikiSidebar({
 
       <div className="border-t border-gray-100 px-4 py-3 text-xs text-gray-600">
         <p className="font-semibold uppercase tracking-wide text-gray-500">
-          IDE links
+          {t.wiki.ideLinksHeading}
         </p>
         <label className="mt-2 block">
-          <span className="text-[11px] text-gray-500">Local repo root</span>
+          <span className="text-[11px] text-gray-500">{t.wiki.localRepoRoot}</span>
           <input
             value={localRoot}
             onChange={(e) => setLocalRoot(e.target.value)}
@@ -347,12 +349,12 @@ export default function WikiSidebar({
                 /* ignore */
               }
             }}
-            placeholder="/path/to/local/clone"
+            placeholder={t.wiki.localClonePlaceholder}
             className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 font-mono text-[11px] outline-none focus:border-sky-400"
           />
         </label>
         <label className="mt-2 block">
-          <span className="text-[11px] text-gray-500">Preferred editor</span>
+          <span className="text-[11px] text-gray-500">{t.wiki.preferredEditor}</span>
           <select
             value={editor}
             onChange={(e) => {

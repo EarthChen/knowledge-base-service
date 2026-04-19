@@ -238,11 +238,11 @@ export default function WikiContent({
   isLoading,
   error,
 }: Props) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const title =
     detail?.title ??
-    (pagePath ? pagePath.split("/").pop() ?? pagePath : "Wiki overview");
-  const generatedLabel = locale === "zh" ? "生成时间" : "Generated";
+    (pagePath ? pagePath.split("/").pop() ?? pagePath : t.wiki.overviewTitle);
+  const generatedLabel = t.wiki.generated;
   const generatedAt = formatGeneratedAt(detail?.generated_at, locale);
 
   return (
@@ -258,7 +258,7 @@ export default function WikiContent({
               {title}
             </h2>
             <p className="mt-0.5 truncate font-mono text-xs text-gray-500">
-              {pagePath || "Select a page"}
+              {pagePath || t.wiki.selectPage}
             </p>
             {generatedAt && (
               <p className="mt-1 text-xs text-gray-400">
@@ -292,7 +292,7 @@ export default function WikiContent({
               <section className="mt-10 border-t border-gray-100 pt-8">
                 <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900">
                   <FolderOpen size={16} aria-hidden />
-                  Source locations
+                  {t.wiki.sourceLocations}
                 </h3>
                 <ul className="space-y-2 rounded-lg border border-gray-100 bg-gray-50/80 p-4">
                   {detail.source_locations.map((loc, i) => (
@@ -307,14 +307,11 @@ export default function WikiContent({
         )}
 
         {!isLoading && !error && !pagePath && (
-          <p className="text-sm text-gray-600">
-            Choose a page from the tree, or type a query in wiki search. Expand folders with the
-            chevron control.
-          </p>
+          <p className="text-sm text-gray-600">{t.wiki.choosePageHint}</p>
         )}
 
         {!isLoading && !error && !detail && pagePath && (
-          <p className="text-sm text-gray-500">Select a page from the sidebar.</p>
+          <p className="text-sm text-gray-500">{t.wiki.selectPageFromSidebar}</p>
         )}
       </div>
     </div>

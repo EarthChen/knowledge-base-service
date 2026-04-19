@@ -3,6 +3,7 @@ import { ArrowLeft, FileOutput, Loader2, Play } from "lucide-react";
 import { useMemo, useState } from "react";
 import { wikiExportExecute, wikiExportPreview, ApiError } from "../../api/client";
 import type { WikiExportDiff, WikiExportResult } from "../../api/types";
+import { useI18n } from "../../i18n/context";
 
 type Props = {
   repository: string;
@@ -17,6 +18,7 @@ function actionBadge(action: WikiExportDiff["action"]): string {
 }
 
 export default function WikiExportPanel({ repository }: Props) {
+  const { t } = useI18n();
   const [targetDir, setTargetDir] = useState("");
   const [step, setStep] = useState<Step>("preview");
   const [previewResult, setPreviewResult] = useState<WikiExportResult | null>(null);
@@ -93,7 +95,7 @@ export default function WikiExportPanel({ repository }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
           <FileOutput size={18} className="text-sky-600" aria-hidden />
-          Wiki export
+          {t.wiki.exportTitle}
         </div>
         {step === "execute" && (
           <button
@@ -102,28 +104,23 @@ export default function WikiExportPanel({ repository }: Props) {
             className="inline-flex items-center gap-1 text-xs font-medium text-sky-700 hover:underline"
           >
             <ArrowLeft className="size-3.5" aria-hidden />
-            New preview
+            {t.wiki.exportNewPreview}
           </button>
         )}
       </div>
 
       <div className="space-y-4 px-4 py-4">
-        <p className="text-xs text-gray-500">
-          Preview and write markdown to a local directory (
-          <code className="rounded bg-gray-100 px-1">export/preview</code>,{" "}
-          <code className="rounded bg-gray-100 px-1">export/execute</code>
-          ). Requires editor role when the API enforces RBAC.
-        </p>
+        <p className="text-xs text-gray-500">{t.wiki.exportHelp}</p>
 
         <div>
           <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Target directory
+            {t.wiki.exportTargetDirectory}
           </label>
           <input
             value={targetDir}
             onChange={(e) => setTargetDir(e.target.value)}
             disabled={step === "execute" && Boolean(previewResult)}
-            placeholder="/absolute/path/to/repo/docs"
+            placeholder={t.wiki.exportTargetPlaceholder}
             className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm outline-none ring-sky-500/30 focus:border-sky-400 focus:ring-2 disabled:bg-gray-50"
           />
         </div>
@@ -138,14 +135,14 @@ export default function WikiExportPanel({ repository }: Props) {
             {previewMutation.isPending ? (
               <Loader2 className="size-4 animate-spin" aria-hidden />
             ) : null}
-            Preview export
+            {t.wiki.exportPreviewButton}
           </button>
         )}
 
         {previewMutation.isError && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {previewMutation.error instanceof ApiError && previewMutation.error.status === 403
-              ? "Forbidden: export requires an editor token when RBAC is enabled."
+              ? t.wiki.exportForbiddenRbac
               : previewMutation.error instanceof ApiError
                 ? previewMutation.error.message
                 : previewMutation.error.message}
@@ -156,16 +153,16 @@ export default function WikiExportPanel({ repository }: Props) {
           <>
             <div className="flex flex-wrap gap-2 text-xs">
               <span className="rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-700 ring-1 ring-gray-200">
-                Files {previewResult.total_files}
+                {t.wiki.exportLabelFiles} {previewResult.total_files}
               </span>
               <span className="rounded-full bg-emerald-100 px-2.5 py-1 font-medium text-emerald-900 ring-1 ring-emerald-200">
-                Create {previewResult.created}
+                {t.wiki.exportLabelCreate} {previewResult.created}
               </span>
               <span className="rounded-full bg-sky-100 px-2.5 py-1 font-medium text-sky-900 ring-1 ring-sky-200">
-                Update {previewResult.updated}
+                {t.wiki.exportLabelUpdate} {previewResult.updated}
               </span>
               <span className="rounded-full bg-gray-200/80 px-2.5 py-1 font-medium text-gray-700 ring-1 ring-gray-300">
-                Skip {previewResult.skipped}
+                {t.wiki.exportLabelSkip} {previewResult.skipped}
               </span>
             </div>
 
@@ -175,14 +172,14 @@ export default function WikiExportPanel({ repository }: Props) {
                 onClick={() => toggleAllExportable(true)}
                 className="font-medium text-sky-700 hover:underline"
               >
-                Select all writable
+                {t.wiki.exportSelectAllWritable}
               </button>
               <button
                 type="button"
                 onClick={() => toggleAllExportable(false)}
                 className="font-medium text-gray-600 hover:underline"
               >
-                Clear selection
+                {t.wiki.exportClearSelection}
               </button>
             </div>
 
@@ -191,9 +188,9 @@ export default function WikiExportPanel({ repository }: Props) {
                 <thead className="sticky top-0 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                   <tr>
                     <th className="w-10 px-2 py-2"> </th>
-                    <th className="px-2 py-2">File</th>
-                    <th className="px-2 py-2">Action</th>
-                    <th className="px-2 py-2">Summary</th>
+                    <th className="px-2 py-2">{t.wiki.exportTableFile}</th>
+                    <th className="px-2 py-2">{t.wiki.exportTableAction}</th>
+                    <th className="px-2 py-2">{t.wiki.exportTableSummary}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -209,7 +206,7 @@ export default function WikiExportPanel({ repository }: Props) {
                             checked={checked}
                             disabled={!canSelect}
                             onChange={() => togglePath(d.file_path, d.action)}
-                            aria-label={`Select ${d.file_path}`}
+                            aria-label={t.wiki.exportSelectFileAria.replace("{path}", d.file_path)}
                           />
                         </td>
                         <td className="px-2 py-2 align-top font-mono text-xs text-gray-900">
@@ -233,7 +230,7 @@ export default function WikiExportPanel({ repository }: Props) {
             {executeMutation.isError && (
               <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
                 {executeMutation.error instanceof ApiError && executeMutation.error.status === 403
-                  ? "Forbidden: export requires an editor token when RBAC is enabled."
+                  ? t.wiki.exportForbiddenRbac
                   : executeMutation.error instanceof ApiError
                     ? executeMutation.error.message
                     : executeMutation.error.message}
@@ -251,19 +248,21 @@ export default function WikiExportPanel({ repository }: Props) {
               ) : (
                 <Play className="size-4" aria-hidden />
               )}
-              Export selected
+              {t.wiki.exportSelected}
             </button>
 
             {selected.size === 0 && (
-              <p className="text-xs text-amber-700">Select at least one create/update row to export.</p>
+              <p className="text-xs text-amber-700">{t.wiki.exportSelectAtLeastOne}</p>
             )}
 
             {executeResult && (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-3 text-sm text-emerald-950">
-                <p className="font-semibold">Export finished</p>
+                <p className="font-semibold">{t.wiki.exportFinished}</p>
                 <p className="mt-1 text-xs">
-                  Created {executeResult.created}, updated {executeResult.updated}, skipped{" "}
-                  {executeResult.skipped} (post-run scan).
+                  {t.wiki.exportFinishedSummary
+                    .replace("{created}", String(executeResult.created))
+                    .replace("{updated}", String(executeResult.updated))
+                    .replace("{skipped}", String(executeResult.skipped))}
                 </p>
               </div>
             )}

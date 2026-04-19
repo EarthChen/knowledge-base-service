@@ -8,7 +8,7 @@ Tools exposed:
   - rag_graph: Execute structured graph queries (call chains, inheritance, etc.)
   - rag_index: Trigger indexing for a repository/directory or remote git_url
   - task_status: Poll background indexing task status by task_id (from rag_index async flows)
-  - list_documents, get_document, get_code_snippet: Browse indexed documentation graph; fetch source by code node uid
+  - list_documents, get_document, get_code_snippet, get_file_structure: Browse indexed documentation graph; fetch source by code node uid; file tree per repo
   - analyze_impact: Blast-radius analysis for changed functions
   - list_endpoints: HTTP, RPC, and Kafka endpoints from the graph
   - check_consistency: Compare graph file paths to on-disk repository files
@@ -217,6 +217,43 @@ def _format_get_document_mcp(result_rows: list[dict[str, Any]]) -> dict[str, Any
         "repository": repo,
         "sections": sections,
     }
+
+
+def _build_file_tree(paths: list[dict[str, Any]], max_depth: int) -> list[dict[str, Any]]:
+    root: dict[str, Any] = {}
+    for item in paths:
+        parts = item["path"].strip("/").split("/")
+        node = root
+        for i, part in enumerate(parts):
+            if i >= max_depth:
+                break
+            is_leaf = i == len(parts) - 1
+            if part not in node:
+                node[part] = {"__type": item["type"]} if is_leaf else {}
+            elif is_leaf and "__type" not in node[part]:
+                node[part]["__type"] = item["type"]
+            if not isinstance(node[part], dict):
+                break
+            node = node[part]
+
+    def to_list(d: dict[str, Any], depth: int = 0) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for name, children in sorted(d.items()):
+            if name == "__type":
+                continue
+            if not isinstance(children, dict):
+                result.append({"name": name})
+                continue
+            entry: dict[str, Any] = {"name": name}
+            if "__type" in children:
+                entry["type"] = children["__type"]
+            sub = {k: v for k, v in children.items() if k != "__type"}
+            if sub and depth < max_depth:
+                entry["children"] = to_list(sub, depth + 1)
+            result.append(entry)
+        return result
+
+    return to_list(root)
 
 
 def _looks_like_git_url(value: str) -> bool:
@@ -431,6 +468,28 @@ MCP_TOOLS_MANIFEST = [
                 },
             },
             "required": ["node_uid"],
+        },
+    },
+    {
+        "name": "get_file_structure",
+        "description": "Returns the file and directory structure of an indexed repository as a tree.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {
+                    "type": "string",
+                    "description": "Repository identifier (e.g. 'owner/repo')",
+                },
+                "path_prefix": {
+                    "type": "string",
+                    "description": "Optional path prefix to filter the tree (e.g. 'src/main/java')",
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Max depth of tree to return (default 5)",
+                },
+            },
+            "required": ["repository"],
         },
     },
     # rag_business_search removed in P3 (Track C).
@@ -704,6 +763,7 @@ class KnowledgeBaseMCPHandler:
             "list_documents": self.handle_list_documents,
             "get_document": self.handle_get_document,
             "get_code_snippet": self.handle_get_code_snippet,
+            "get_file_structure": self.handle_get_file_structure,
             "analyze_impact": self.handle_analyze_impact,
             "list_endpoints": self.handle_list_endpoints,
             "check_consistency": self.handle_check_consistency,
@@ -1203,6 +1263,37 @@ class KnowledgeBaseMCPHandler:
             "language": row.get("language", ""),
             "fqn": row.get("fqn", ""),
         }
+
+    async def handle_get_file_structure(self, args: dict[str, Any]) -> dict[str, Any]:
+        repository = str(args.get("repository") or "").strip()
+        if not repository:
+            return _mcp_error("invalid_params", "repository is required")
+        if not self._store:
+            return _mcp_error("service_unavailable", "Graph store not available")
+
+        path_prefix = str(args.get("path_prefix") or "").strip()
+        max_depth = int(args.get("max_depth") or 5)
+
+        cypher = (
+            "MATCH (n) WHERE (n:Module OR n:Document) AND n.repository = $repo "
+            "RETURN DISTINCT coalesce(n.path, n.file) AS path, labels(n)[0] AS type "
+            "ORDER BY path"
+        )
+        result = await self._store.execute_query(cypher, {"repo": repository})
+        if not result.data:
+            return {"repository": repository, "tree": [], "total_files": 0}
+
+        paths: list[dict[str, Any]] = []
+        for row in result.data:
+            p = row.get("path")
+            if not p:
+                continue
+            if path_prefix and not str(p).startswith(path_prefix):
+                continue
+            paths.append({"path": str(p), "type": row.get("type", "")})
+
+        tree = _build_file_tree(paths, max_depth)
+        return {"repository": repository, "tree": tree, "total_files": len(paths)}
 
     async def handle_rag_index(
         self, args: dict[str, Any], progress_callback: Callable[..., None] | None = None,

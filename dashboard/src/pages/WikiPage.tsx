@@ -67,7 +67,7 @@ export default function WikiPage() {
   const pageQuery = useWikiPage(repository, pagePath || undefined);
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const isZh = locale === "zh";
   const [regeneratePending, setRegeneratePending] = useState(false);
 
@@ -104,16 +104,11 @@ export default function WikiPage() {
               <BookOpen size={24} aria-hidden />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Wiki</h2>
-              <p className="mt-1 text-sm text-gray-600">
-                Browse generated wiki pages for an indexed repository. Choose a repository to
-                continue.
-              </p>
+              <h2 className="text-lg font-semibold text-gray-900">{t.wiki.title}</h2>
+              <p className="mt-1 text-sm text-gray-600">{t.wiki.browseDescription}</p>
               {pendingQuery && (
                 <p className="mt-2 rounded-md bg-sky-50 px-3 py-2 text-sm text-sky-700">
-                  {isZh
-                    ? `将在选定仓库中搜索「${pendingQuery}」`
-                    : `Will search for "${pendingQuery}" once you select a repository.`}
+                  {t.wiki.pendingSearchNotice.replace("{query}", pendingQuery)}
                 </p>
               )}
             </div>
@@ -121,7 +116,7 @@ export default function WikiPage() {
         </div>
 
         {reposQuery.isLoading && (
-          <p className="text-sm text-gray-500">Loading repositories…</p>
+          <p className="text-sm text-gray-500">{t.wiki.loadingRepositories}</p>
         )}
         {reposQuery.isError && (
           <p className="text-sm text-red-600">
@@ -130,11 +125,11 @@ export default function WikiPage() {
         )}
         {!reposQuery.isLoading && repos.length === 0 && (
           <p className="text-sm text-gray-600">
-            No repositories found.{" "}
+            {t.wiki.noRepositoriesFound}{" "}
             <Link to="/repositories" className="text-sky-700 underline">
-              Add or index a repository
+              {t.wiki.addOrIndexRepository}
             </Link>{" "}
-            first.
+            {t.wiki.addOrIndexRepositorySuffix}
           </p>
         )}
         {repos.length > 0 && (
@@ -212,10 +207,10 @@ export default function WikiPage() {
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
           <div className="flex flex-wrap gap-2">
-            {tabBtn("page", "Page", <LayoutGrid size={14} className="text-sky-600" aria-hidden />)}
-            {tabBtn("health", "Health", <Activity size={14} className="text-emerald-600" aria-hidden />)}
-            {tabBtn("insights", "Insights", <Network size={14} className="text-violet-600" aria-hidden />)}
-            {tabBtn("export", "Export", <FileOutput size={14} className="text-sky-600" aria-hidden />)}
+            {tabBtn("page", t.wiki.tabPage, <LayoutGrid size={14} className="text-sky-600" aria-hidden />)}
+            {tabBtn("health", t.wiki.tabHealth, <Activity size={14} className="text-emerald-600" aria-hidden />)}
+            {tabBtn("insights", t.wiki.tabInsights, <Network size={14} className="text-violet-600" aria-hidden />)}
+            {tabBtn("export", t.wiki.tabExport, <FileOutput size={14} className="text-sky-600" aria-hidden />)}
           </div>
           <button
             type="button"
@@ -228,7 +223,7 @@ export default function WikiPage() {
             ) : (
               <RefreshCw size={14} aria-hidden />
             )}
-            {isZh ? "重新生成" : "Regenerate"}
+            {t.wiki.regenerate}
           </button>
         </div>
 

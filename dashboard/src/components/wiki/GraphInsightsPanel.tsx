@@ -3,18 +3,35 @@ import { ChevronDown, ChevronUp, Loader2, Network } from "lucide-react";
 import { useMemo, useState } from "react";
 import { getGraphInsights, ApiError } from "../../api/client";
 import type { GraphInsightCategory, GraphInsightItem } from "../../api/types";
+import type { Translations } from "../../i18n/types";
+import { useI18n } from "../../i18n/context";
 
 type Props = {
   repository: string;
 };
 
-const CATEGORY_LABELS: Record<GraphInsightCategory, string> = {
-  isolated: "Isolated entities",
-  circular_dep: "Circular dependencies",
-  cross_layer: "Cross-layer violations",
-  low_cohesion: "Low cohesion modules",
-  bridge: "Bridge nodes",
-};
+const GRAPH_INSIGHT_CATEGORY_ORDER: GraphInsightCategory[] = [
+  "isolated",
+  "circular_dep",
+  "cross_layer",
+  "low_cohesion",
+  "bridge",
+];
+
+function categoryLabel(cat: GraphInsightCategory, t: Translations): string {
+  switch (cat) {
+    case "isolated":
+      return t.wiki.graphInsightCategoryIsolated;
+    case "circular_dep":
+      return t.wiki.graphInsightCategoryCircularDep;
+    case "cross_layer":
+      return t.wiki.graphInsightCategoryCrossLayer;
+    case "low_cohesion":
+      return t.wiki.graphInsightCategoryLowCohesion;
+    case "bridge":
+      return t.wiki.graphInsightCategoryBridge;
+  }
+}
 
 function insightSeverityClass(sev: GraphInsightItem["severity"]): string {
   if (sev === "critical") return "bg-red-100 text-red-800 ring-red-200";
@@ -34,6 +51,7 @@ function groupByCategory(items: GraphInsightItem[]): Map<GraphInsightCategory, G
 }
 
 export default function GraphInsightsPanel({ repository }: Props) {
+  const { locale, t } = useI18n();
   const query = useQuery({
     queryKey: ["graph-insights", repository],
     queryFn: () => getGraphInsights(repository),
@@ -48,16 +66,13 @@ export default function GraphInsightsPanel({ repository }: Props) {
   }, [query.data]);
 
   const categories = useMemo(
-    () =>
-      (Object.keys(CATEGORY_LABELS) as GraphInsightCategory[]).filter((c) =>
-        grouped.has(c),
-      ),
+    () => GRAPH_INSIGHT_CATEGORY_ORDER.filter((c) => grouped.has(c)),
     [grouped],
   );
 
   const [open, setOpen] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
-    for (const k of Object.keys(CATEGORY_LABELS) as GraphInsightCategory[]) {
+    for (const k of GRAPH_INSIGHT_CATEGORY_ORDER) {
       init[k] = true;
     }
     return init;
@@ -72,20 +87,21 @@ export default function GraphInsightsPanel({ repository }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
           <Network size={18} className="text-violet-600" aria-hidden />
-          Graph insights
+          {t.wiki.graphInsightsTitle}
         </div>
         {query.isFetching && (
           <span className="inline-flex items-center gap-1 text-xs text-gray-500">
             <Loader2 className="size-3.5 animate-spin" aria-hidden />
-            Loading…
+            {t.wiki.graphInsightsLoading}
           </span>
         )}
       </div>
 
       <div className="space-y-4 px-4 py-4">
         <p className="text-xs text-gray-500">
-          Architecture signals from{" "}
-          <code className="rounded bg-gray-100 px-1">GET /api/v1/graph/insights/…</code>.
+          {t.wiki.graphInsightsIntroBefore}{" "}
+          <code className="rounded bg-gray-100 px-1">GET /api/v1/graph/insights/…</code>
+          {t.wiki.graphInsightsIntroAfter}
         </p>
 
         {query.isError && (
@@ -106,7 +122,10 @@ export default function GraphInsightsPanel({ repository }: Props) {
             ))}
             {query.data.analyzed_at && (
               <span className="self-center text-gray-400">
-                Analyzed {new Date(query.data.analyzed_at).toLocaleString()}
+                {t.wiki.graphInsightsAnalyzedPrefix}{" "}
+                {new Date(query.data.analyzed_at).toLocaleString(
+                  locale === "zh" ? "zh-CN" : undefined,
+                )}
               </span>
             )}
           </div>
@@ -115,12 +134,12 @@ export default function GraphInsightsPanel({ repository }: Props) {
         {query.isLoading && (
           <div className="flex items-center gap-2 text-sm text-gray-500">
             <Loader2 className="size-4 animate-spin" aria-hidden />
-            Fetching insights…
+            {t.wiki.graphInsightsFetching}
           </div>
         )}
 
         {query.data && categories.length === 0 && (
-          <p className="text-sm text-gray-600">No insight items returned for this repository.</p>
+          <p className="text-sm text-gray-600">{t.wiki.graphInsightsNoItems}</p>
         )}
 
         {query.data &&
@@ -135,7 +154,7 @@ export default function GraphInsightsPanel({ repository }: Props) {
                   className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
                 >
                   <span className="text-sm font-semibold text-gray-900">
-                    {CATEGORY_LABELS[cat]}
+                    {categoryLabel(cat, t)}
                     <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs font-normal text-gray-600 ring-1 ring-gray-200">
                       {items.length}
                     </span>

@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Activity, Loader2, RefreshCw } from "lucide-react";
 import { wikiLint } from "../../api/client";
 import type { WikiLintIssue, WikiLintReport } from "../../api/types";
+import { useI18n } from "../../i18n/context";
 
 type Props = {
   repository: string;
@@ -18,6 +19,7 @@ function formatCategory(cat: string): string {
 }
 
 export default function WikiLintPanel({ repository }: Props) {
+  const { locale, t } = useI18n();
   const mutation = useMutation<WikiLintReport, Error, void>({
     mutationFn: () => wikiLint(repository, "all"),
   });
@@ -30,7 +32,7 @@ export default function WikiLintPanel({ repository }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
           <Activity size={18} className="text-emerald-600" aria-hidden />
-          Wiki health (lint)
+          {t.wiki.lintTitle}
         </div>
         <button
           type="button"
@@ -43,16 +45,12 @@ export default function WikiLintPanel({ repository }: Props) {
           ) : (
             <RefreshCw className="size-3.5" aria-hidden />
           )}
-          Run check
+          {t.wiki.lintRunCheck}
         </button>
       </div>
 
       <div className="space-y-4 px-4 py-4">
-        <p className="text-xs text-gray-500">
-          Runs staleness, orphan, broken link, coverage gap, and outdated checks via{" "}
-          <code className="rounded bg-gray-100 px-1">POST /api/v1/wiki/…/lint</code> with scope{" "}
-          <code className="rounded bg-gray-100 px-1">all</code>.
-        </p>
+        <p className="text-xs text-gray-500">{t.wiki.lintHelp}</p>
 
         {mutation.isError && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -63,27 +61,30 @@ export default function WikiLintPanel({ repository }: Props) {
         {stats && (
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-800 ring-1 ring-gray-200">
-              Total {stats.total}
+              {t.wiki.lintTotal} {stats.total}
             </span>
             <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-800 ring-1 ring-red-200">
-              Errors {stats.errors}
+              {t.wiki.lintErrors} {stats.errors}
             </span>
             <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900 ring-1 ring-amber-200">
-              Warnings {stats.warnings}
+              {t.wiki.lintWarnings} {stats.warnings}
             </span>
             <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-800 ring-1 ring-sky-200">
-              Info {stats.info}
+              {t.wiki.lintInfo} {stats.info}
             </span>
             {report?.checked_at && (
               <span className="text-xs text-gray-400">
-                Checked {new Date(report.checked_at).toLocaleString()}
+                {t.wiki.lintCheckedPrefix}{" "}
+                {new Date(report.checked_at).toLocaleString(
+                  locale === "zh" ? "zh-CN" : undefined,
+                )}
               </span>
             )}
           </div>
         )}
 
         {report && report.issues.length === 0 && (
-          <p className="text-sm text-gray-600">No issues reported for this repository.</p>
+          <p className="text-sm text-gray-600">{t.wiki.lintNoIssues}</p>
         )}
 
         {report && report.issues.length > 0 && (
@@ -107,13 +108,13 @@ export default function WikiLintPanel({ repository }: Props) {
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-600">
                   {issue.page_path && (
                     <span>
-                      <span className="text-gray-400">Page:</span>{" "}
+                      <span className="text-gray-400">{t.wiki.lintPageLabel}</span>{" "}
                       <code className="font-mono text-gray-800">{issue.page_path}</code>
                     </span>
                   )}
                   {issue.entity_name && (
                     <span>
-                      <span className="text-gray-400">Entity:</span>{" "}
+                      <span className="text-gray-400">{t.wiki.lintEntityLabel}</span>{" "}
                       <code className="font-mono text-gray-800">{issue.entity_name}</code>
                     </span>
                   )}
@@ -127,7 +128,7 @@ export default function WikiLintPanel({ repository }: Props) {
         )}
 
         {!report && !mutation.isPending && !mutation.isError && (
-          <p className="text-sm text-gray-500">Run a check to load the lint report.</p>
+          <p className="text-sm text-gray-500">{t.wiki.lintEmptyHint}</p>
         )}
       </div>
     </section>

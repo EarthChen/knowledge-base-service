@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useRepositories, useAnalyzeImpact } from "../api/hooks";
 import type { AnalyzeImpactFile, AnalyzeImpactResponse, ImpactPage } from "../api/types";
+import { Link } from "react-router-dom";
 import { useI18n } from "../i18n/context";
 
 type FileRow = { id: string; path: string; status: AnalyzeImpactFile["status"] };
@@ -45,6 +46,22 @@ function dotClass(level: string): string {
   if (l.includes("medium")) return "bg-amber-500";
   if (l.includes("low")) return "bg-emerald-500";
   return "bg-gray-400";
+}
+
+function wikiHref(repository: string, path: string): string {
+  const er = encodeURIComponent(repository);
+  const ep = path
+    .split("/")
+    .filter(Boolean)
+    .map((s) => encodeURIComponent(s))
+    .join("/");
+  return `/wiki/${er}/${ep}`;
+}
+
+function wikiEntitySearchHref(repository: string, entity: string): string {
+  const er = encodeURIComponent(repository);
+  const q = encodeURIComponent(entity);
+  return `/wiki/${er}?q=${q}`;
 }
 
 export default function PrImpactPage() {
@@ -322,7 +339,12 @@ export default function PrImpactPage() {
                         className={`mt-1 inline-block h-2 w-2 shrink-0 rounded-full ${dotClass(p.impact_level)}`}
                       />
                       <div className="min-w-0 flex-1">
-                        <div className="font-mono text-sm font-semibold text-gray-900">{p.wiki_page_path}</div>
+                        <Link
+                          to={wikiHref(repository.trim(), p.wiki_page_path)}
+                          className="inline-block font-mono text-sm font-semibold text-sky-700 hover:text-sky-900 hover:underline"
+                        >
+                          {p.wiki_page_path}
+                        </Link>
                         <div className="mt-2 flex flex-wrap gap-2 text-xs">
                           <span className="rounded-full bg-white/80 px-2 py-0.5 font-medium text-gray-800 ring-1 ring-gray-200/80">
                             {p.impact_level}
@@ -335,12 +357,13 @@ export default function PrImpactPage() {
                         {p.affected_entities.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1">
                             {p.affected_entities.map((entity) => (
-                              <code
+                              <Link
                                 key={entity}
-                                className="rounded bg-white/80 px-1.5 py-0.5 font-mono text-xs text-sky-700 ring-1 ring-gray-200/60"
+                                to={wikiEntitySearchHref(repository.trim(), entity)}
+                                className="rounded bg-white/80 px-1.5 py-0.5 font-mono text-xs text-sky-700 ring-1 ring-gray-200/60 hover:bg-sky-50 hover:ring-sky-200/80"
                               >
                                 {entity}
-                              </code>
+                              </Link>
                             ))}
                           </div>
                         )}

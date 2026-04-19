@@ -3,6 +3,7 @@ import { api, getCurrentBusiness, triggerEnrich } from "./client";
 import type {
   GraphStats,
   RepositoriesResponse,
+  HybridSearchParams,
   HybridSearchResponse,
   HealthResponse,
   IndexResponse,
@@ -76,20 +77,26 @@ export function useHybridSearch() {
   return useMutation<
     HybridSearchResponse,
     Error,
-    {
-      query: string;
-      k: number;
-      expand_depth: number;
-      entity_type?: string;
-      repository?: string;
-      language?: string;
-      offset?: number;
-      limit?: number;
-      sort_by?: string;
-    }
+    HybridSearchParams
   >({
-    mutationFn: (body) =>
-      api("/hybrid", { method: "POST", body: JSON.stringify(body) }),
+    mutationFn: (body) => {
+      const payload: Record<string, unknown> = {
+        query: body.query,
+        k: body.k,
+        expand_depth: body.expand_depth,
+      };
+      if (body.entity_type) payload.entity_type = body.entity_type;
+      if (body.language) payload.language = body.language;
+      if (body.offset !== undefined) payload.offset = body.offset;
+      if (body.limit !== undefined) payload.limit = body.limit;
+      if (body.sort_by) payload.sort_by = body.sort_by;
+      if (body.repositories != null && body.repositories.length > 0) {
+        payload.repositories = body.repositories;
+      } else if (body.repository) {
+        payload.repository = body.repository;
+      }
+      return api("/hybrid", { method: "POST", body: JSON.stringify(payload) });
+    },
   });
 }
 

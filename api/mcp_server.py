@@ -296,6 +296,14 @@ MCP_TOOLS_MANIFEST = [
                     "type": "string",
                     "description": "Filter results to a specific repository (Cypher-level filtering).",
                 },
+                "repositories": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Search across multiple repositories simultaneously. "
+                        "Results are fused by score. Max 10 repositories."
+                    ),
+                },
                 "language": {
                     "type": "string",
                     "description": (
@@ -789,6 +797,28 @@ class KnowledgeBaseMCPHandler:
             return _mcp_error("invalid_params", "expand_depth must be an integer between 0 and 5")
         entity_type = _normalize_entity_type_arg(args.get("entity_type"))
         repository = (args.get("repository") or "").strip() or None
+        repositories_arg = args.get("repositories")
+        use_multi_repo = False
+        repository_list: list[str] | None = None
+        if repositories_arg is not None:
+            if not isinstance(repositories_arg, list):
+                return _mcp_error("invalid_params", "repositories must be an array of strings")
+            normalized_repos: list[str] = []
+            for item in repositories_arg:
+                if not isinstance(item, str):
+                    return _mcp_error("invalid_params", "repositories must contain only strings")
+                s = item.strip()
+                if s:
+                    normalized_repos.append(s)
+            if len(normalized_repos) > 10:
+                return _mcp_error("invalid_params", "repositories supports at most 10 entries")
+            if len(normalized_repos) == 0:
+                repository = None
+            elif len(normalized_repos) == 1:
+                repository = normalized_repos[0]
+            else:
+                use_multi_repo = True
+                repository_list = normalized_repos
         language = (args.get("language") or "").strip() or None
         try:
             offset = max(0, int(args.get("offset", 0)))
@@ -834,16 +864,28 @@ class KnowledgeBaseMCPHandler:
                 "total": len(semantic_matches),
             }
 
-        result = await self._hybrid.search_with_context(
-            query_text,
-            k=k,
-            expand_depth=expand_depth,
-            repository=repository,
-            language=language,
-            offset=offset,
-            entity_type=entity_type,
-            **hybrid_kwargs,
-        )
+        if use_multi_repo:
+            result = await self._hybrid.search_multi_repo(
+                query_text,
+                repository_list or [],
+                k=k,
+                expand_depth=expand_depth,
+                language=language,
+                offset=offset,
+                entity_type=entity_type,
+                **hybrid_kwargs,
+            )
+        else:
+            result = await self._hybrid.search_with_context(
+                query_text,
+                k=k,
+                expand_depth=expand_depth,
+                repository=repository,
+                language=language,
+                offset=offset,
+                entity_type=entity_type,
+                **hybrid_kwargs,
+            )
         matches = _filter_semantic_matches_by_entity_type(result["results"], entity_type)
         graph_ctx = _filter_graph_context_by_entity_type(result["graph_context"], entity_type)
         return {

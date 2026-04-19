@@ -332,6 +332,133 @@ class HybridQueryService:
             entity_type=entity_type,
         )
 
+    async def search_multi_repo(
+        self,
+        query_text: str,
+        repositories: list[str],
+        *,
+        k: int = 5,
+        expand_depth: int = 2,
+        include_callers: bool = True,
+        include_callees: bool = True,
+        use_query_expansion: bool = True,
+        use_query_router: bool = True,
+        use_child_chunks: bool | None = None,
+        language: str | None = None,
+        per_file_cap: int = 3,
+        offset: int = 0,
+        limit: int = 20,
+        sort_by: str = "score",
+        entity_type: str | None = None,
+        enable_bm25: bool | None = None,
+    ) -> dict[str, Any]:
+        """Run ``search_with_context`` per repository in parallel and merge results."""
+        repos = [str(r).strip() for r in repositories if str(r).strip()]
+        if len(repos) <= 1:
+            single = repos[0] if repos else None
+            return await self.search_with_context(
+                query_text,
+                k=k,
+                expand_depth=expand_depth,
+                include_callers=include_callers,
+                include_callees=include_callees,
+                use_query_expansion=use_query_expansion,
+                use_query_router=use_query_router,
+                use_child_chunks=use_child_chunks,
+                repository=single,
+                language=language,
+                per_file_cap=per_file_cap,
+                offset=offset,
+                limit=limit,
+                sort_by=sort_by,
+                entity_type=entity_type,
+                enable_bm25=enable_bm25,
+            )
+
+        fetch_limit = 500
+        tasks = [
+            self.search_with_context(
+                query_text,
+                k=k,
+                expand_depth=expand_depth,
+                include_callers=include_callers,
+                include_callees=include_callees,
+                use_query_expansion=use_query_expansion,
+                use_query_router=use_query_router,
+                use_child_chunks=use_child_chunks,
+                repository=repo,
+                language=language,
+                per_file_cap=per_file_cap,
+                offset=0,
+                limit=fetch_limit,
+                sort_by="score",
+                entity_type=None,
+                enable_bm25=enable_bm25,
+            )
+            for repo in repos
+        ]
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+        per_repo: list[dict[str, Any]] = []
+        errors: list[str] = []
+        for i, r in enumerate(raw_results):
+            if isinstance(r, BaseException):
+                errors.append(f"{repos[i]}: {r}")
+                log.warning("multi_repo_search_partial_failure", repo=repos[i], error=str(r))
+            else:
+                per_repo.append(r)
+
+        if not per_repo:
+            return {
+                "results": [], "semantic_matches": [], "total": 0,
+                "offset": offset, "limit": limit, "graph_context": [],
+                "query_text": query_text, "confidence": 0.0,
+                "no_results_reason": "All repository searches failed",
+                "errors": errors,
+            }
+
+        combined: list[dict[str, Any]] = []
+        graph_all: list[dict[str, Any]] = []
+        for r in per_repo:
+            rows = r.get("semantic_matches") or r.get("results") or []
+            combined.extend(rows)
+            graph_all.extend(r.get("graph_context") or [])
+
+        def _score_val(m: dict[str, Any]) -> float:
+            raw = m.get("rrf_score", m.get("score", m.get("confidence")))
+            if raw is None:
+                return 0.0
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                return 0.0
+
+        combined.sort(key=_score_val, reverse=True)
+        deduped: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        for m in combined:
+            uid = m.get("uid", "")
+            dk = uid if uid else self._doc_key(m)
+            if dk in seen_keys:
+                continue
+            seen_keys.add(dk)
+            deduped.append(m)
+
+        confidence, no_results_reason = self._confidence_and_reason(deduped)
+        finalized = self._finalize_hybrid_response(
+            deduped,
+            self._deduplicate(graph_all),
+            query_text=query_text,
+            confidence=confidence,
+            no_results_reason=no_results_reason,
+            offset=offset,
+            limit=limit,
+            sort_by=sort_by,
+            entity_type=entity_type,
+        )
+        if errors:
+            finalized["errors"] = errors
+        return finalized
+
     def _finalize_hybrid_response(
         self,
         merged: list[dict[str, Any]],

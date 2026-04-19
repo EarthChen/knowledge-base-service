@@ -21,12 +21,28 @@ function parseSortParam(raw: string | null): "score" | "name" | "path" {
   return "score";
 }
 
+/** Comma-separated in `repo` query param; empty or "all" = no repository filter. */
+function parseRepoParam(raw: string | null): string[] {
+  if (!raw || raw === "all") return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function formatRepoParam(repos: string[]): string {
+  if (repos.length === 0) return "all";
+  return repos.join(",");
+}
+
 export default function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [mode, setMode] = useState<SearchMode>("hybrid");
   const [entityType, setEntityType] = useState("all");
-  const [repository, setRepository] = useState(() => searchParams.get("repo") ?? "all");
+  const [selectedRepos, setSelectedRepos] = useState<string[]>(() =>
+    parseRepoParam(searchParams.get("repo")),
+  );
   const [language, setLanguage] = useState(() => searchParams.get("lang") ?? "all");
   const [k, setK] = useState(10);
   const [expandDepth, setExpandDepth] = useState(2);
@@ -65,13 +81,13 @@ export default function SearchPage() {
 
   useEffect(() => {
     const raw = searchParams.get("q") ?? "";
-    const repoParam = searchParams.get("repo") ?? "all";
+    const repoList = parseRepoParam(searchParams.get("repo"));
     const langParam = searchParams.get("lang") ?? "all";
     const pageParam = Math.max(1, Number.parseInt(searchParams.get("page") || "1", 10) || 1);
     const sortParam = parseSortParam(searchParams.get("sort"));
     // eslint-disable-next-line react-hooks/set-state-in-effect -- sync URL navigation into form state
     setQuery(raw);
-    setRepository(repoParam);
+    setSelectedRepos(repoList);
     setLanguage(langParam);
     const q = raw.trim();
     if (!q) return;
@@ -80,7 +96,11 @@ export default function SearchPage() {
       k,
       expand_depth: expandDepth,
       entity_type: entityType === "all" ? undefined : entityType,
-      repository: repoParam === "all" ? undefined : repoParam,
+      ...(repoList.length > 1
+        ? { repositories: repoList }
+        : repoList.length === 1
+          ? { repository: repoList[0] }
+          : {}),
       language: langParam === "all" ? undefined : langParam,
       offset: (pageParam - 1) * PAGE_SIZE,
       limit: PAGE_SIZE,
@@ -101,7 +121,7 @@ export default function SearchPage() {
     setShowHistory(false);
     const params = new URLSearchParams();
     params.set("q", query.trim());
-    params.set("repo", repository);
+    params.set("repo", formatRepoParam(selectedRepos));
     params.set("lang", language);
     params.set("page", "1");
     params.set("sort", parseSortParam(searchParams.get("sort")));
@@ -115,12 +135,12 @@ export default function SearchPage() {
     addEntry(h);
     const params = new URLSearchParams();
     params.set("q", h);
-    params.set("repo", repository);
+    params.set("repo", formatRepoParam(selectedRepos));
     params.set("lang", language);
     params.set("page", "1");
     params.set("sort", parseSortParam(searchParams.get("sort")));
     setSearchParams(params);
-  }, [addEntry, repository, language, searchParams, setSearchParams]);
+  }, [addEntry, selectedRepos, language, searchParams, setSearchParams]);
 
   const handleHistoryKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -312,20 +332,28 @@ export default function SearchPage() {
               ))}
             </select>
           </label>
-          <label className="flex items-center gap-2 text-xs text-gray-500">
-            {t.search.repo}
+          <label className="flex max-w-full flex-col gap-1 text-xs text-gray-500 sm:flex-row sm:items-center">
+            <span className="shrink-0">{t.search.repo}</span>
             <select
-              value={repository}
-              onChange={(e) => setRepository(e.target.value)}
-              className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
+              multiple
+              value={selectedRepos}
+              onChange={(e) => {
+                const next = Array.from(e.target.selectedOptions, (o) => o.value);
+                setSelectedRepos(next);
+              }}
+              size={Math.min(8, Math.max(3, 1 + (reposData?.repositories?.length ?? 0)))}
+              className="min-h-[2.75rem] min-w-[10rem] max-w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
+              aria-label={t.search.repo}
             >
-              <option value="all">{t.search.all}</option>
               {reposData?.repositories?.map((r) => (
                 <option key={r.repository} value={r.repository}>
                   {r.repository}
                 </option>
               ))}
             </select>
+            <span className="text-[10px] text-gray-400">
+              {selectedRepos.length === 0 ? t.search.all : `${selectedRepos.length} selected`}
+            </span>
           </label>
           <label className="flex items-center gap-2 text-xs text-gray-500">
             {t.search.lang}

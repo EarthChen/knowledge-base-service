@@ -269,10 +269,31 @@ class HybridSearchRequest(BaseModel):
         default=None,
         description="Filter results to a specific repository (Cypher-level filtering).",
     )
+    repositories: list[str] | None = Field(
+        default=None,
+        max_length=10,
+        description="Search multiple repositories in parallel; fused by score. Max 10. Overrides repository when non-empty.",
+    )
     language: str | None = Field(
         default=None,
         description="Filter results by programming language (python, java, go, javascript, typescript).",
     )
+
+    @field_validator("repositories", mode="before")
+    @classmethod
+    def _normalize_hybrid_repositories(cls, value: Any) -> list[str] | None:
+        if value is None:
+            return None
+        if not isinstance(value, list):
+            raise ValueError("repositories must be an array of strings")
+        out: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError("repositories must contain only strings")
+            s = item.strip()
+            if s:
+                out.append(s)
+        return out
 
     @field_validator("entity_type", mode="before")
     @classmethod
@@ -558,17 +579,55 @@ async def hybrid_search(
     req: HybridSearchRequest,
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
-    result = await svc.hybrid_query.search_with_context(
-        req.query,
-        k=req.k,
-        expand_depth=req.expand_depth,
-        repository=req.repository,
-        language=req.language,
-        offset=req.offset,
-        limit=req.limit,
-        sort_by=req.sort_by,
-        entity_type=req.entity_type,
-    )
+    if req.repositories is not None:
+        if len(req.repositories) == 0:
+            result = await svc.hybrid_query.search_with_context(
+                req.query,
+                k=req.k,
+                expand_depth=req.expand_depth,
+                repository=None,
+                language=req.language,
+                offset=req.offset,
+                limit=req.limit,
+                sort_by=req.sort_by,
+                entity_type=req.entity_type,
+            )
+        elif len(req.repositories) == 1:
+            result = await svc.hybrid_query.search_with_context(
+                req.query,
+                k=req.k,
+                expand_depth=req.expand_depth,
+                repository=req.repositories[0],
+                language=req.language,
+                offset=req.offset,
+                limit=req.limit,
+                sort_by=req.sort_by,
+                entity_type=req.entity_type,
+            )
+        else:
+            result = await svc.hybrid_query.search_multi_repo(
+                req.query,
+                req.repositories,
+                k=req.k,
+                expand_depth=req.expand_depth,
+                language=req.language,
+                offset=req.offset,
+                limit=req.limit,
+                sort_by=req.sort_by,
+                entity_type=req.entity_type,
+            )
+    else:
+        result = await svc.hybrid_query.search_with_context(
+            req.query,
+            k=req.k,
+            expand_depth=req.expand_depth,
+            repository=req.repository,
+            language=req.language,
+            offset=req.offset,
+            limit=req.limit,
+            sort_by=req.sort_by,
+            entity_type=req.entity_type,
+        )
     return {
         "semantic_matches": result["results"],
         "graph_context": result["graph_context"],

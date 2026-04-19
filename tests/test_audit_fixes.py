@@ -131,6 +131,7 @@ def test_mcp_rag_query_schema_includes_hybrid_controls():
         "use_query_expansion",
         "per_file_cap",
         "offset",
+        "repositories",
     ):
         assert key in props, f"missing {key}"
 

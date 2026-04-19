@@ -106,6 +106,20 @@ export interface HybridSearchResponse {
   no_results_reason?: string;
 }
 
+/** POST /hybrid request body */
+export interface HybridSearchParams {
+  query: string;
+  k: number;
+  expand_depth: number;
+  entity_type?: string;
+  repository?: string;
+  repositories?: string[];
+  language?: string;
+  offset?: number;
+  limit?: number;
+  sort_by?: string;
+}
+
 export interface IndexResponse {
   task_id: string;
   status: string;

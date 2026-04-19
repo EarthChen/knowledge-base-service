@@ -124,11 +124,21 @@ class KnowledgeBaseService:
                 log.info("indexing_enrichment_disabled", gateway_enrichment_flag=False)
 
         self._parser = TreeSitterParser(supported_languages=settings.supported_languages)
+        hs = settings.hybrid_search
         self._graph_builder = CodeGraphBuilder(
             parser=self._parser,
             file_extensions=settings.file_extensions,
+            child_chunk_enabled=hs.use_child_chunks,
+            child_chunk_window_chars=hs.child_chunk_window_chars,
+            child_chunk_stride_chars=hs.child_chunk_stride_chars,
+            child_chunk_min_parent_chars=hs.child_chunk_min_parent_chars,
         )
-        self._doc_indexer = DocumentIndexer()
+        self._doc_indexer = DocumentIndexer(
+            child_chunk_enabled=hs.use_child_chunks,
+            child_chunk_window_chars=hs.child_chunk_window_chars,
+            child_chunk_stride_chars=hs.child_chunk_stride_chars,
+            child_chunk_min_parent_chars=hs.child_chunk_min_parent_chars,
+        )
         self._incremental_indexer = IncrementalIndexer(
             store=self._store,
             graph_builder=self._graph_builder,
@@ -151,7 +161,8 @@ class KnowledgeBaseService:
             semantic_svc=self._semantic_query,
             graph_svc=self._graph_query,
             reranker=self._reranker,
-            query_expansion_enabled=settings.hybrid_search.query_expansion_enabled,
+            query_expansion_enabled=hs.query_expansion_enabled,
+            use_child_chunks=hs.use_child_chunks,
         )
 
         self._wiki_cache = WikiCache()

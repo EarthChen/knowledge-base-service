@@ -135,7 +135,7 @@ class HybridSearchConfig(BaseModel):
 
     query_expansion_enabled: bool = True
     include_raw_docs_in_results: bool = False
-    use_child_chunks: bool = False
+    use_child_chunks: bool = True
     child_chunk_window_chars: int = 800
     child_chunk_stride_chars: int = 600
     child_chunk_min_parent_chars: int = 400

@@ -103,8 +103,13 @@ class ContextAssembler:
             wiki_task,
         )
 
+        matched_excerpt = match.get("matched_excerpt") or ""
+        excerpt_lines = match.get("excerpt_lines") or []
+
         payload: dict[str, Any] = {
             "entity": entity,
+            "matched_excerpt": matched_excerpt,
+            "excerpt_lines": excerpt_lines,
             "call_chain": call_chain,
             "hierarchy": hierarchy,
             "business_flows": business_flows,
@@ -117,6 +122,8 @@ class ContextAssembler:
     def _empty_payload(self, confidence: float) -> dict[str, Any]:
         return {
             "entity": {},
+            "matched_excerpt": "",
+            "excerpt_lines": [],
             "call_chain": {"upstream": [], "downstream": []},
             "hierarchy": {"parents": [], "children": []},
             "business_flows": [],
@@ -269,6 +276,7 @@ class ContextAssembler:
     def _total_tokens(self, payload: dict[str, Any]) -> int:
         return (
             _json_tokens(payload.get("entity"))
+            + _estimate_tokens(str(payload.get("matched_excerpt") or ""))
             + _json_tokens(payload.get("call_chain"))
             + _json_tokens(payload.get("hierarchy"))
             + _json_tokens(payload.get("business_flows"))
@@ -290,6 +298,12 @@ class ContextAssembler:
             if wc:
                 new_len = max(_estimate_tokens(wc) // 2, 1)
                 payload["wiki_content"] = _truncate_text(wc, new_len)
+                continue
+
+            me = str(payload.get("matched_excerpt") or "")
+            if me:
+                new_len = max(_estimate_tokens(me) // 2, 1)
+                payload["matched_excerpt"] = _truncate_text(me, new_len)
                 continue
 
             flows: list[Any] = list(payload.get("business_flows") or [])

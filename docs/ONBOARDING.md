@@ -1,123 +1,86 @@
-# 业务项目接入指南：知识库服务（KB）
+# User guide
 
-本文档面向**业务仓库开发者**，说明如何在 Cursor IDE 中快速接入 [knowledge-base-service](../README.md)（以下简称 KB），在编写代码时通过 MCP 查询跨服务接口与真实代码上下文。
+## What is this system?
 
-## 概述
+The **Knowledge Base Service** indexes your repositories into a **graph** (functions, classes, modules, calls, imports, …) plus **semantic vectors** so you can search by natural language, explore relationships, and (optionally) generate wiki-style documentation. A **web dashboard** provides search and exploration without writing code.
 
-知识库服务提供基于代码图与向量检索的 **RAG 查询能力**（如 `rag_query`、`rag_graph`、`rag_business_search`），将多仓库源码与文档索引为可检索的知识图谱。业务侧接入后，可在 Cursor Agent 中优先使用真实定义与调用关系，**减少臆造 API、降低跨服务协作中的理解偏差**。
+## Dashboard tour
 
-启用 **LLM 与业务语义索引** 后（运维在服务端配置，见下文），索引管线可为代码生成业务摘要、推断业务流程节点（`BusinessFlow`）、从文档提取业务概念（`BusinessConcept`），检索侧支持六类向量与可选 Cross-encoder 重排序；Agent 通过 **`rag_graph`** 的新增 `query_type`（如 `business_flow`、`flows_for_function`）与 **`rag_business_search`** 查询业务语义，**无需**在业务仓库侧单独部署 LLM。
+After starting the server (`uv run uvicorn main:app …`), open the root URL (default **http://localhost:8100**).
 
-## 前置条件
+| Area | What you do there |
+|------|-------------------|
+| **Search** | Run **hybrid** NL queries (`POST /hybrid` under the hood): results combine semantic hits with graph-expanded context. Filter by repository or language when needed. |
+| **Deep Search** | Multi-step **LLM** investigation (requires `LLM__ENABLED` and working provider). Streams stages when using the SSE endpoint from the UI. |
+| **Graph / Explorer** | Explore entities and neighborhoods (force-directed views, entity detail). Aligns with `rag_graph` and `/graph/explore` APIs. |
+| **Repositories** | See indexed repos, stats, and status; entry point for “what’s in the index”. |
+| **Indexing** | Trigger **full** or **incremental** jobs; for remotes, configure Git and pass `git_url` via API if not using the UI wiring. |
+| **Wiki** | Browse and search **generated** wiki pages when the wiki pipeline is enabled and pages exist. |
+| **Architecture** | View layer and endpoint-oriented breakdowns where enrichment has classified services. |
+| **Sync / Settings** | Scheduled git pull + re-index, hooks, LLM/provider settings (as exposed in UI). |
 
-| 项目 | 说明 |
-|------|------|
-| **KB 服务地址** | 默认 `http://localhost:8100`；生产/联调环境以运维或平台提供的地址为准。 |
-| **访问令牌** | 需向**管理员**申请 API Token，并确认角色为 **editor**（可触发索引等写操作）或 **viewer**（只读查询）。 |
-| **仓库已纳入索引** | 在浏览器打开 KB 的 **`/dashboard`** 查看仓库列表，或调用 `GET /api/v1/repositories` 确认你的业务仓库已在列表中且状态正常。 |
+The UI is a **React + Vite** SPA: heavy charts and graph code load when you open those routes.
 
-### 服务端可选能力（业务开发者只需了解）
+## Index your first repository
 
-| 配置 | 作用 |
-|------|------|
-| `LLM__ENABLED` / `LLM__BASE_URL` / `LLM__API_KEY` / `LLM__MODEL` | 开启后：索引阶段可写入 `business_summary`、业务流程 / 概念节点；Dashboard 可使用 `POST /api/v1/deep-search`。另设 **`LLM__GATEWAY__ENABLED=true`** 时，WS/HTTP 可从 `LLM__BASE_URL` 自动推导；可用 **`LLM__GATEWAY__ENRICHMENT_ENABLED`** 单独关闭索引内摘要以提速。网关侧**复用按仓库的 ACP 任务**（键 `enrich:{repo_name}`；全量时为解析与摘要并发流水线），深度搜索可选复用每租户任务（`search:{tenant_id}`）。对已入库数据仅补摘要时可调用 **`POST /api/v1/enrich`**（与索引任务共用任务查询接口）。详见 [README § 配置](../README.md#配置) 中的「ACP Gateway 反馈模式」小节。 |
-| `RERANK__ENABLED` / `RERANK__MODEL_NAME` | 开启后：混合检索结果经 `BAAI/bge-reranker-v2-m3` 精排（CPU/GPU 由服务端决定）。 |
+### Option A: Local directory (API)
 
-详细变量说明见 [README.md § 配置](../README.md#配置)。完整设计见 [语义搜索增强规格](./superpowers/specs/2026-04-10-semantic-search-enhancement-design.md)。
+Use an **editor** token. Call:
 
-更多架构与能力说明见 [README.md](../README.md)。
+`POST /api/v1/index` with JSON like:
 
----
-
-## Step 1：索引你的仓库
-
-1. **触发全量索引**（任选其一）  
-   - 执行仓库内脚本：`scripts/index-services.sh`（按项目约定配置仓库与参数）  
-   - 或在 **Dashboard** 中对目标仓库执行「全量/重建」类索引操作  
-
-2. **验证索引与图数据**（将 `your-repo` 换为你的仓库标识；将主机名换为实际 KB 地址）：
-
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  "http://kb-service:8100/api/v1/graph/stats?repository=your-repo"
+```json
+{
+  "directory": "/absolute/path/to/repo",
+  "repository": "my-repo",
+  "mode": "full"
+}
 ```
 
-若返回统计信息正常，说明该仓库图数据已就绪，可进入 MCP 配置。
+You receive a **`task_id`**. Poll `GET /api/v1/index/tasks/{task_id}` until `completed` or `failed`.
 
----
+### Option B: Git URL
 
-## Step 2：配置 Cursor MCP
+Set `GIT__GITLAB_URL` / `GIT__GITLAB_TOKEN` (or SSH) as needed, then:
 
-1. 将模板 [docs/templates/mcp-config.json](./templates/mcp-config.json) 复制到**业务项目**根目录下的 `.cursor/mcp.json`（若不存在 `.cursor` 目录请先创建）。  
-2. 编辑其中的 **`url`**（指向 KB 的 MCP 端点，一般为 `http(s)://<kb-host>:8100/api/v1/mcp`）和 **`Authorization: Bearer <token>`**。  
+```json
+{
+  "git_url": "https://gitlab.example.com/group/myproject.git",
+  "branch": "main",
+  "repository": "myproject",
+  "mode": "full"
+}
+```
 
-**说明：** 若 Token 已与某个业务线/租户绑定，通常**无需**再传 `X-Business-Id`；若平台另有要求，以管理员说明为准。
+The server clones under `GIT__CLONE_BASE_PATH` and indexes the checkout.
 
-完整参数、工具列表与排错见 [MCP 集成文档](./MCP-INTEGRATION.md)。
+### Option C: MCP agent
 
----
+Use tool **`rag_index`** (requires **editor** role) with the same fields as the HTTP body.
 
-## Step 3：安装 Cursor Rules
+## Search effectively
 
-将规则模板复制到**业务项目**的 `.cursor/rules/` 目录：
+- Prefer **specific** identifiers in the query when you know them (class/function names); the hybrid stack boosts **keyword** matches via RRF.
+- **Scope** with `repository` and `language` to reduce noise.
+- For **large files**, enable child-chunk behavior (see `HYBRID_SEARCH__USE_CHILD_CHUNKS` and MCP `use_child_chunks`) for finer-grained hits.
+- For **architecture questions**, use the architecture view or MCP `search_architecture` (`mode: layers` or `endpoints`).
 
-| 操作 | 说明 |
-|------|------|
-| **建议必装** | 复制 [knowledge-base-coding.mdc](./templates/knowledge-base-coding.mdc) → `.cursor/rules/knowledge-base-coding.mdc` |
-| **可选** | 复制 [knowledge-base-docs.mdc](./templates/knowledge-base-docs.mdc) → `.cursor/rules/knowledge-base-docs.mdc` |
+Deprecated global search endpoints have been removed; use **`POST /api/v1/hybrid`** with optional `entity_type` for business entities (`flow`, `concept`).
 
-**规则作用简述：**
+## Using with AI agents (MCP)
 
-- **knowledge-base-coding.mdc**：在 Java/Python/Go/TS/JS 等代码文件中，要求 Agent 在跨服务调用、不确定 API 签名等场景下**优先通过 MCP 查询知识库**（`rag_query` / `rag_graph` / 业务语义时 `rag_business_search`），并给出查询策略与降级说明。  
-- **knowledge-base-docs.mdc**：在 Markdown/RST 文档中，要求编写前检索已有文档与真实代码引用，维护文档与代码一致性，并在适当时机触发增量索引相关指引。
+1. **Token** — Create a `viewer` or `editor` token (`tokens.yaml` or `API_TOKENS`).
+2. **List tools** — `GET /api/v1/mcp/tools` with `Authorization: Bearer <token>`.
+3. **Invoke** — `POST /api/v1/mcp/tool` with `{"tool_name":"rag_query","arguments":{...}}`.
+4. **Tenant** — Pass `X-Business-Id: your-tenant` when using multi-business graphs with unbound admin tokens.
 
----
+Full tool list and schemas: [MCP-INTEGRATION.md](MCP-INTEGRATION.md).
 
-## Step 4：验证接入
+## Authentication quick reference
 
-1. 在 Cursor 中打开业务仓库中的任意代码文件。  
-2. 对 Agent 提出一个需要**跨服务/跨模块**真实信息的问题，例如：「请查询某某服务对外暴露的接口定义及调用方」。  
-3. 确认 Agent **调用了 MCP 工具链中的 `rag_query` 或 `rag_business_search`（或按 [MCP-INTEGRATION.md](./MCP-INTEGRATION.md) 的等价工具）**，且返回内容来自知识库（含类名、路径、片段等），而非纯推测。  
-
-若始终无 MCP 调用，请检查 `.cursor/mcp.json`、Cursor MCP 是否已启用，以及 Token 与网络是否可达（详见 [MCP-INTEGRATION.md](./MCP-INTEGRATION.md)）。
-
----
-
-## 常见问题（FAQ）
-
-| 问题 | 处理建议 |
+| Mode | Behavior |
 |------|----------|
-| **KB 不可用或超时** | Agent 应按规则**自动降级**（例如仅基于本地仓库推理）；恢复服务后重新查询。检查 VPN、防火墙、KB 地址与端口。 |
-| **如何更新索引** | 代码变更后使用 **增量索引**、**手动同步**（`POST /api/v1/sync/repo` 等），或由运维在 **Dashboard → 设置 → 定时同步** 配置周期性 pull + 增量重索引（详见 [README § 多仓库与同步](../README.md#4-多仓库管理)）；大版本或结构变更后可考虑**全量重建**。 |
-| **检索结果不准或过时** | 先确认**索引时间**与分支是否匹配；必要时对对应仓库**重新索引或全量重建**，再缩小查询范围（仓库、路径、FQN）。 |
-| **Token 无效、403、权限不足** | 核对 Token 是否过期、角色是否为 editor/viewer；若使用业务绑定 Token，确认环境与业务线一致；仍失败请联系**管理员**重置或授权。 |
+| No tokens configured | Open access (not for production); `REQUIRE_AUTH` forces failure at startup unless tokens exist |
+| `tokens.yaml` / env tokens | Bearer required for protected routers; roles control viewer vs editor vs admin routes |
 
----
-
-## 最佳实践
-
-### 检索策略优先级（建议）
-
-| 优先级 | 策略 | 适用场景 |
-|:------:|------|----------|
-| 1 | **FQN**（完整限定名，如 `com.example.Service#method`） | 已知类/方法名，需要精确定义与位置 |
-| 2 | **关键词** | 已知模块、配置项、错误码等短词 |
-| 3 | **语义/自然语言** | 只有功能描述，不确定符号名 |
-| 4 | **图查询（graph）** | 调用链、继承关系、上下游影响分析 |
-| 5 | **业务语义（business）** | 流程 / 领域概念：`rag_business_search` 或 `rag_graph` 的 `business_flow` 等 |
-
-### 常用 Prompt 示例
-
-1. 「请用知识库查询 `OrderService#create` 的完整方法签名及所在文件。」  
-2. 「在仓库 A 与 B 之间，支付回调接口的 HTTP 路径和请求体字段来自哪里？请用 `rag_query` 给出引用片段。」  
-3. 「列出调用 `UserFacade#getProfile` 的上游服务或类，并用图查询说明影响范围。」  
-4. 「这段改动会动到公共 RPC，请先从知识库确认现有调用链再给出修改建议。」  
-5. 「写接口文档前，请检索知识库里是否已有同名接口说明，避免重复。」  
-
----
-
-## 相关链接
-
-- [项目架构与快速开始](../README.md)  
-- [MCP 集成详解](./MCP-INTEGRATION.md)  
-- [配置与规则模板](./templates/)  
+Check your role: `GET /api/v1/auth/me`.

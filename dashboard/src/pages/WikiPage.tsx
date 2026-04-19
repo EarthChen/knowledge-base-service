@@ -95,6 +95,7 @@ export default function WikiPage() {
 
   if (!repository) {
     const repos = reposQuery.data?.repositories ?? [];
+    const pendingQuery = searchParams.get("q") ?? "";
     return (
       <div className="mx-auto max-w-3xl space-y-6">
         <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -108,6 +109,13 @@ export default function WikiPage() {
                 Browse generated wiki pages for an indexed repository. Choose a repository to
                 continue.
               </p>
+              {pendingQuery && (
+                <p className="mt-2 rounded-md bg-sky-50 px-3 py-2 text-sm text-sky-700">
+                  {isZh
+                    ? `将在选定仓库中搜索「${pendingQuery}」`
+                    : `Will search for "${pendingQuery}" once you select a repository.`}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -134,7 +142,7 @@ export default function WikiPage() {
             {repos.map((r) => (
               <li key={r.repository}>
                 <Link
-                  to={`/wiki/${encodeURIComponent(r.repository)}`}
+                  to={`/wiki/${encodeURIComponent(r.repository)}${pendingQuery ? `?q=${encodeURIComponent(pendingQuery)}` : ""}`}
                   className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-sky-200 hover:bg-sky-50/40"
                 >
                   <span className="font-medium text-gray-900">{r.repository}</span>

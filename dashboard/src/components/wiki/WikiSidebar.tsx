@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   ChevronDown,
   ChevronRight,
@@ -175,8 +175,22 @@ export default function WikiSidebar({
 }: Props) {
   const tree = useMemo(() => buildTree(pages), [pages]);
   const search = useWikiSearch();
-  const [q, setQ] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlQuery = searchParams.get("q") ?? "";
+  const [q, setQ] = useState(urlQuery);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    if (urlQuery && !search.data && !search.isPending) {
+      setQ(urlQuery);
+      search.mutate({ repository, query: urlQuery });
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("q");
+        return next;
+      }, { replace: true });
+    }
+  }, [urlQuery]);
 
   const toggle = (key: string) => {
     setExpanded((prev) => {

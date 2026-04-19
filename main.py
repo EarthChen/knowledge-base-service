@@ -84,6 +84,7 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
         graph=kb.store,
         vector=kb.semantic_query,
         fts=kb.store,
+        embedding_gen=kb._embedding,
     )
     app.state.wiki_search_service = wiki_search
 

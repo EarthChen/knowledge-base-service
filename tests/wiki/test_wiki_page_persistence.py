@@ -73,6 +73,10 @@ async def test_persist_wiki_pages_unwind_merge_returns_count() -> None:
 async def test_wiki_service_generate_calls_persist_wiki_pages(monkeypatch: pytest.MonkeyPatch) -> None:
     store = MagicMock()
     store.persist_wiki_pages = AsyncMock(return_value=1)
+    store.set_node_embedding = AsyncMock()
+    fake_gen = MagicMock()
+    fake_gen.generate_for_docs = AsyncMock(return_value=[[0.01, 0.02]])
+    monkeypatch.setattr("indexer.embedding_generator.EmbeddingGenerator.shared", lambda **_k: fake_gen)
     graph = AsyncMock()
     svc = WikiService(graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store)
 

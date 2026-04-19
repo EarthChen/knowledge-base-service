@@ -167,6 +167,7 @@ class KnowledgeBaseService:
             graph=self._store,
             vector=self._semantic_query,
             fts=self._store,
+            embedding_gen=self._embedding,
         )
         self._wiki_ask: WikiAskService | None = None
         if self._llm_provider is not None:

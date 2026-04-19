@@ -138,13 +138,14 @@ class TestSchemaExtensions:
         assert hasattr(EdgeType, "PART_OF")
         assert hasattr(EdgeType, "CONCEPT_IN")
 
-    def test_vector_index_covers_6_types(self):
+    def test_vector_index_covers_embeddable_types(self):
         from store.schema import VECTOR_INDEX_CONFIGS, NodeLabel
         labels = {c["label"] for c in VECTOR_INDEX_CONFIGS}
         assert NodeLabel.BUSINESS_FLOW in labels
         assert NodeLabel.BUSINESS_CONCEPT in labels
         assert NodeLabel.MODULE in labels
-        assert len(VECTOR_INDEX_CONFIGS) == 6
+        assert NodeLabel.WIKI_PAGE in labels
+        assert len(VECTOR_INDEX_CONFIGS) == 7
 
 
 class TestSearchEngineEnhancement:

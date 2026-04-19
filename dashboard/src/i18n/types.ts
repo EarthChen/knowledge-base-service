@@ -77,6 +77,8 @@ export interface Translations {
     line: string;
     viewCode: string;
     hideCode: string;
+    viewWiki: string;
+    copyFilePath: string;
     deep: string;
     business: string;
     deepPlaceholder: string;

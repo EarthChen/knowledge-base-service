@@ -77,6 +77,8 @@ const zh: Translations = {
     line: "行",
     viewCode: "查看代码",
     hideCode: "收起代码",
+    viewWiki: "在 Wiki 中查看",
+    copyFilePath: "复制文件路径",
     deep: "深度搜索",
     business: "业务搜索",
     deepPlaceholder: "输入复杂问题，如：支付失败影响哪些业务流程...",

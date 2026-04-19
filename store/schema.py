@@ -93,4 +93,5 @@ VECTOR_INDEX_CONFIGS = [
     {"label": NodeLabel.BUSINESS_FLOW, "attribute": "embedding", "similarity": "cosine"},
     {"label": NodeLabel.BUSINESS_CONCEPT, "attribute": "embedding", "similarity": "cosine"},
     {"label": NodeLabel.MODULE, "attribute": "embedding", "similarity": "cosine"},
+    {"label": NodeLabel.WIKI_PAGE, "attribute": "embedding", "similarity": "cosine"},
 ]

@@ -91,6 +91,7 @@ def _graph_path_cypher() -> str:
 def _fts_cypher() -> str:
     return (
         "CALL db.idx.fulltext.queryNodes('WikiPage', $text) YIELD node, score "
+        "WHERE node.repository = $repository "
         "RETURN node, score LIMIT $limit"
     )
 
@@ -98,10 +99,18 @@ def _fts_cypher() -> str:
 class WikiSearchService:
     """3-path fusion wiki search with optional graph query expansion."""
 
-    def __init__(self, graph: GraphSearchPort, vector: VectorSearchPort, fts: FTSPort) -> None:
+    def __init__(
+        self,
+        graph: GraphSearchPort,
+        vector: VectorSearchPort,
+        fts: FTSPort,
+        *,
+        embedding_gen: Any | None = None,
+    ) -> None:
         self._graph = graph
         self._vector = vector
         self._fts = fts
+        self._embedding_gen = embedding_gen
 
     async def ensure_fulltext_index(self) -> None:
         """Create FalkorDB full-text index on WikiPage content and title."""
@@ -199,6 +208,59 @@ class WikiSearchService:
         async def run_vector() -> list[tuple[str, float]]:
             if mode not in ("hybrid", "semantic"):
                 return []
+            if self._embedding_gen is not None:
+                try:
+                    embeddings = await self._embedding_gen.generate_for_query([search_query])
+                except Exception as exc:
+                    log.warning("wiki_vector_path_error", error=str(exc))
+                    return []
+                if not embeddings:
+                    return []
+                vec = embeddings[0]
+                k = max(limit * 5, limit)
+                cypher = (
+                    "CALL db.idx.vector.queryNodes('WikiPage', 'embedding', $k, vecf32($vec)) "
+                    "YIELD node, score "
+                    "WHERE node.repository = $repository "
+                    "RETURN node, score LIMIT $limit"
+                )
+                try:
+                    res = await self._graph.execute_query(
+                        cypher,
+                        {
+                            "k": k,
+                            "vec": vec,
+                            "repository": repository,
+                            "limit": k,
+                        },
+                    )
+                except Exception as exc:
+                    log.warning("wiki_vector_path_error", error=str(exc))
+                    return []
+                rows = list(getattr(res, "data", None) or [])
+                rows.sort(key=lambda r: float(r.get("score", 0.0)), reverse=True)
+                if mode == "semantic" and min_score > 0:
+                    rows = [r for r in rows if float(r.get("score", 0.0)) >= min_score]
+                ranked: list[tuple[str, float]] = []
+                for i, row in enumerate(rows):
+                    node = row.get("node")
+                    props = getattr(node, "properties", None) or {}
+                    if not isinstance(props, dict):
+                        continue
+                    pid = props.get("path") or props.get("page_path")
+                    if not pid:
+                        continue
+                    score = float(row.get("score", 0.0))
+                    title = str(props.get("title", ""))
+                    content = str(props.get("content", ""))
+                    ranked.append((str(pid), float(i)))
+                    meta.setdefault(str(pid), {}).update({
+                        "title": title,
+                        "snippet": content[:240],
+                        "source_locations": [],
+                        "inner_score": score,
+                    })
+                return ranked
             try:
                 hits = await self._vector.search_all(search_query, k=max(limit * 5, limit))
             except Exception as exc:
@@ -227,7 +289,11 @@ class WikiSearchService:
             try:
                 res = await self._fts.execute_query(
                     cy,
-                    {"text": search_query.replace("\n", " "), "limit": max(limit * 5, limit)},
+                    {
+                        "text": search_query.replace("\n", " "),
+                        "repository": repository,
+                        "limit": max(limit * 5, limit),
+                    },
                 )
             except Exception as exc:
                 log.warning("wiki_fts_path_error", error=str(exc))

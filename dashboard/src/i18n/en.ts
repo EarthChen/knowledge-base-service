@@ -77,6 +77,8 @@ const en: Translations = {
     line: "line",
     viewCode: "View Code",
     hideCode: "Hide Code",
+    viewWiki: "View Wiki",
+    copyFilePath: "Copy file path",
     deep: "Deep Search",
     business: "Business",
     deepPlaceholder:

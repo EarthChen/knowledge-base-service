@@ -6,9 +6,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
 
+from config import get_settings
+from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
-from store.schema import GraphNode
+from store.schema import GraphNode, NodeLabel
 from wiki.composer import WikiComposer
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
@@ -251,3 +253,19 @@ class WikiService:
             await self._store.persist_wiki_pages(repository, page_dicts)
         except Exception as exc:
             log.warning("wiki_page_persist_failed", repository=repository, error=str(exc))
+            return
+
+        try:
+            emb_gen = EmbeddingGenerator.shared(config=get_settings().embedding)
+            items = [
+                doc_dict_for_embedding(
+                    {"title": d["title"], "content": d["content"][:3000]},
+                )
+                for d in page_dicts
+            ]
+            embeddings = await emb_gen.generate_for_docs(items)
+            for page_dict, embedding in zip(page_dicts, embeddings, strict=True):
+                uid = f"WikiPage:{repository}:{page_dict['path']}"
+                await self._store.set_node_embedding(uid, NodeLabel.WIKI_PAGE, embedding)
+        except Exception as exc:
+            log.warning("wiki_page_embedding_failed", repository=repository, error=str(exc))

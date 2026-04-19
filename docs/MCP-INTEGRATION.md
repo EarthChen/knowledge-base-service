@@ -25,9 +25,9 @@
 
 | | |
 |--|--|
-| **描述** | 自然语言混合搜索：语义 + 关键词，可选子块、RRF、图扩展。 |
+| **描述** | 自然语言混合搜索：语义 + 关键词 + BM25 全文，RRF 三路融合，可选子块、图扩展。 |
 | **最低角色** | Viewer |
-| **参数** | `query`（string，**必填**）。`k`（int，默认 5）、`expand_depth`（int，默认 2）、`entity_type`（function / class / module / document / flow / concept）、`repository`、`language`、`use_child_chunks`（可选 bool；清单默认 false — 若**省略**该键，服务端使用 `HYBRID_SEARCH__USE_CHILD_CHUNKS` 默认 **true**）、`use_query_router`（bool，默认 true）、`use_query_expansion`（bool，默认 true）、`per_file_cap`（int，默认 3；MCP 层限制 1–20）、`offset`（int，默认 0，分页偏移）。 |
+| **参数** | `query`（string，**必填**）。`k`（int，默认 5）、`expand_depth`（int，默认 2）、`entity_type`（function / class / module / document / flow / concept）、`repository`、`language`、`use_child_chunks`（可选 bool；清单默认 false — 若**省略**该键，服务端使用 `HYBRID_SEARCH__USE_CHILD_CHUNKS` 默认 **true**）、`use_query_router`（bool，默认 true）、`use_query_expansion`（bool，默认 true）、`per_file_cap`（int，默认 3；MCP 层限制 1–20）、`offset`（int，默认 0，分页偏移）、`enable_bm25`（bool，默认 true，是否启用 BM25 全文搜索路径）。 |
 
 **示例**
 

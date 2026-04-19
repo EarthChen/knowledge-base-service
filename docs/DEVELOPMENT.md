@@ -14,8 +14,15 @@ knowledge-base-service/
 │   ├── rate_limiter.py     # 令牌桶中间件
 │   └── routes/             # Wiki、Webhook、Provider 辅助路由
 ├── indexer/                # Tree-sitter → 图、增量索引、嵌入、Import 解析
-├── store/                  # FalkorDB 适配器、Schema、graph_queries
-├── query/                  # 混合、语义、图查询、blast radius、社区发现、洞察等
+├── store/                  # FalkorDB 存储层（所有 Cypher 查询集中在此）
+│   ├── falkordb_store.py   #   基础 CRUD、连接管理、Schema
+│   ├── search_store.py     #   向量/关键词/BM25 全文搜索
+│   ├── traversal_store.py  #   调用链、继承、依赖、实体解析
+│   ├── analysis_store.py   #   Blast Radius、社区、洞察、影响分析
+│   ├── wiki_store.py       #   Wiki 图查询
+│   ├── indexer_store.py    #   索引器图查询（enrichment、跨仓库）
+│   └── graph_queries.py    #   仓库管理、文档、架构层次
+├── query/                  # 服务编排层（不含 Cypher，调用 store 层）
 ├── search/                 # RRF 融合辅助
 ├── wiki/                   # Wiki 管道、MCP Wiki 工具、Webhook、调度器
 ├── llm/                    # OpenAI 兼容提供者

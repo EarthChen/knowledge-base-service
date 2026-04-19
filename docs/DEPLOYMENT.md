@@ -91,6 +91,8 @@
 | `HYBRID_SEARCH__CHILD_CHUNK_WINDOW_CHARS` | `800` | 分块窗口 |
 | `HYBRID_SEARCH__CHILD_CHUNK_STRIDE_CHARS` | `600` | 步长 |
 | `HYBRID_SEARCH__CHILD_CHUNK_MIN_PARENT_CHARS` | `400` | 最小父块长度阈值 |
+| `HYBRID_SEARCH__ENABLE_BM25` | `true` | 启用 BM25 全文搜索路径（基于 FalkorDB RediSearch） |
+| `HYBRID_SEARCH__BM25_WEIGHT` | `1.2` | BM25 在 RRF 融合中的权重 |
 
 ### 重排序器（`RERANK__*`）
 

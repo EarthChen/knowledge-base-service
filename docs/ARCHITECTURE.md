@@ -21,7 +21,8 @@ flowchart TB
     QR[查询路由器 意图权重]
     KW[keyword_search]
     SEM[semantic_search / 子块 + 父块]
-    RRF[加权 RRF 融合]
+    BM25[BM25 全文搜索]
+    RRF[加权 RRF 三路融合]
     RR[可选交叉编码器重排序]
     CAP[per_file_cap 多样性]
     EXP[图扩展 CALLS INHERITS ...]
@@ -33,11 +34,14 @@ flowchart TB
   ENR --> G
   KW --> RRF
   SEM --> RRF
+  BM25 --> RRF
   QR --> KW
   QR --> SEM
+  QR --> BM25
   RRF --> RR --> CAP --> EXP
   G --> KW
   V --> SEM
+  G --> BM25
 ```
 
 ## 后端组件
@@ -45,7 +49,7 @@ flowchart TB
 | 组件 | 职责 |
 |------|------|
 | **FastAPI**（`main.py`） | HTTP API、静态 SPA 托管、生命周期管理（注册中心、调度器、Wiki 服务初始化） |
-| **FalkorDB** | 带标签的属性图 + 全文/向量操作，由 `FalkorDBStore` 封装 |
+| **FalkorDB** | 带标签的属性图 + 全文/向量操作，由分层 Store 封装（`FalkorDBStore` / `SearchStore` / `TraversalStore` / `AnalysisStore` / `WikiStore` / `IndexerStore`） |
 | **Tree-sitter** | 按文件 AST 捕获；每种语言的查询规则驱动 `CodeGraphBuilder` |
 | **嵌入**（Embeddings） | `EmbeddingConfig`：默认 `BAAI/bge-m3`，在多种节点标签上建立向量索引（参见 `store/schema.py` 中的 `VECTOR_INDEX_CONFIGS`） |
 | **LLM**（可选） | OpenAI 兼容 API，用于深度搜索、可选索引丰富化（`LLMConfig`） |
@@ -64,8 +68,8 @@ flowchart TB
 
 1. **查询路由** — `query_router.route_query` 根据查询形态（标识符、自然语言等）动态调整关键词与语义的权重。
 2. **查询扩展**（可选，`HYBRID_SEARCH__QUERY_EXPANSION_ENABLED`） — 以初始关键词命中为种子，从调用链/类方法中提取邻居名称构造辅助查询。
-3. **并行检索** — 关键词经 `keyword_search` 检索列表；语义经实体嵌入或**子块路径**（`search_with_parent_context`，当 `use_child_chunks` 开启时）。
-4. **RRF** — `rrf_fusion` 按查询权重合并排序列表。
+3. **并行三路检索** — 关键词经 `keyword_search`、语义经实体嵌入或子块路径、**BM25 全文搜索**（`SearchStore.fulltext_search`，基于 FalkorDB RediSearch 内置全文索引）三路并行执行。
+4. **RRF 三路融合** — `rrf_fusion` 按查询权重合并三路排序列表（关键词权重 1.5、语义权重 1.0、BM25 权重 1.2，可配置）。
 5. **重排序** — 若 `RERANK__ENABLED`，交叉编码器对融合候选进行重排序（`position_aware_blend` 结合 RRF 分数）。
 6. **多样性** — `_apply_per_file_cap` 限制每个文件的命中数（默认 `per_file_cap=3`）。
 7. **图扩展** — 从融合种子出发，沿关系遍历至 `expand_depth` 深度，获取上下文相关邻居。

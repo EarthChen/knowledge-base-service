@@ -261,6 +261,14 @@ class HybridSearchRequest(BaseModel):
             "concept (BusinessConcept); omit for all entity kinds."
         ),
     )
+    repository: str | None = Field(
+        default=None,
+        description="Filter results to a specific repository (Cypher-level filtering).",
+    )
+    language: str | None = Field(
+        default=None,
+        description="Filter results by programming language (python, java, go, javascript, typescript).",
+    )
 
     @field_validator("entity_type", mode="before")
     @classmethod
@@ -532,7 +540,10 @@ async def hybrid_search(
     req: HybridSearchRequest,
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
-    result = await svc.hybrid_query.search_with_context(req.query, k=req.k, expand_depth=req.expand_depth)
+    result = await svc.hybrid_query.search_with_context(
+        req.query, k=req.k, expand_depth=req.expand_depth,
+        repository=req.repository, language=req.language,
+    )
     semantic_matches = _filter_hybrid_semantic_matches(
         result.semantic_matches,
         req.entity_type,

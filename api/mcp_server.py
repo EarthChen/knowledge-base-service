@@ -304,6 +304,17 @@ MCP_TOOLS_MANIFEST = [
                         "When 'flow' or 'concept', searches business entities."
                     ),
                 },
+                "repository": {
+                    "type": "string",
+                    "description": "Filter results to a specific repository (Cypher-level filtering).",
+                },
+                "language": {
+                    "type": "string",
+                    "description": (
+                        "Filter results by programming language: "
+                        "'python', 'java', 'go', 'javascript', 'typescript'."
+                    ),
+                },
             },
             "required": ["query"],
         },
@@ -851,6 +862,8 @@ class KnowledgeBaseMCPHandler:
         k = args.get("k", 5)
         expand_depth = args.get("expand_depth", 2)
         entity_type = _normalize_entity_type_arg(args.get("entity_type"))
+        repository = (args.get("repository") or "").strip() or None
+        language = (args.get("language") or "").strip() or None
 
         if entity_type in ("flow", "concept"):
             if not str(query_text).strip():
@@ -874,7 +887,10 @@ class KnowledgeBaseMCPHandler:
                 "total_results": len(semantic_matches),
             }
 
-        result = await self._hybrid.search_with_context(query_text, k=k, expand_depth=expand_depth)
+        result = await self._hybrid.search_with_context(
+            query_text, k=k, expand_depth=expand_depth,
+            repository=repository, language=language,
+        )
         matches = _filter_semantic_matches_by_entity_type(result.semantic_matches, entity_type)
         graph_ctx = _filter_graph_context_by_entity_type(result.graph_context, entity_type)
         total = len(matches) + len(graph_ctx)

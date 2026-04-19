@@ -57,7 +57,7 @@ def test_source_doc_edge_type_exists_in_schema() -> None:
 
 @pytest.mark.asyncio
 async def test_search_all_respects_include_raw_docs_in_results_false() -> None:
-    async def fake_search(query_text: str, label: NodeLabel, k: int) -> SemanticResult:
+    async def fake_search(query_text: str, label: NodeLabel, k: int, **kwargs) -> SemanticResult:
         if label == NodeLabel.DOCUMENT:
             return SemanticResult(
                 matches=[{"type": "Document", "score": 0.99, "name": "readme", "file": "README.md"}],
@@ -83,7 +83,7 @@ async def test_search_all_respects_include_raw_docs_in_results_false() -> None:
 
 @pytest.mark.asyncio
 async def test_search_all_includes_document_hits_when_include_raw_docs_true() -> None:
-    async def fake_search(query_text: str, label: NodeLabel, k: int) -> SemanticResult:
+    async def fake_search(query_text: str, label: NodeLabel, k: int, **kwargs) -> SemanticResult:
         if label == NodeLabel.DOCUMENT:
             return SemanticResult(
                 matches=[{"type": "Document", "score": 0.99, "name": "readme", "file": "README.md"}],

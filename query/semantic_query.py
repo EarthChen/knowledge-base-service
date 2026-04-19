@@ -70,22 +70,40 @@ class SemanticQueryService:
     async def search_modules(self, query_text: str, k: int = 10) -> SemanticResult:
         return await self._search_by_label(query_text, NodeLabel.MODULE, k)
 
-    async def search_chunks(self, query_text: str, k: int = 15) -> SemanticResult:
+    async def search_chunks(
+        self,
+        query_text: str,
+        k: int = 15,
+        *,
+        repository: str | None = None,
+        language: str | None = None,
+    ) -> SemanticResult:
         """Search Chunk vector index for fine-grained matches."""
-        return await self._search_by_label(query_text, NodeLabel.CHUNK, k)
+        return await self._search_by_label(
+            query_text, NodeLabel.CHUNK, k, repository=repository, language=language,
+        )
 
-    async def search_with_parent_context(self, query_text: str, k: int = 10) -> SemanticResult:
+    async def search_with_parent_context(
+        self,
+        query_text: str,
+        k: int = 10,
+        *,
+        repository: str | None = None,
+        language: str | None = None,
+    ) -> SemanticResult:
         """Search chunks first, group by parent, fetch parent metadata.
 
         Falls back to standard Function/Class search when no chunk hits are found.
         Returns results enriched with ``matched_excerpt`` and ``excerpt_lines``.
         """
-        chunk_result = await self.search_chunks(query_text, k=k * 3)
+        chunk_result = await self.search_chunks(
+            query_text, k=k * 3, repository=repository, language=language,
+        )
 
         if not chunk_result.matches:
             func_r, cls_r = await asyncio.gather(
-                self._search_by_label(query_text, NodeLabel.FUNCTION, k),
-                self._search_by_label(query_text, NodeLabel.CLASS, k),
+                self._search_by_label(query_text, NodeLabel.FUNCTION, k, repository=repository, language=language),
+                self._search_by_label(query_text, NodeLabel.CLASS, k, repository=repository, language=language),
             )
             all_matches = func_r.matches + cls_r.matches
             all_matches.sort(key=lambda x: x.get("score", 0), reverse=True)
@@ -170,8 +188,16 @@ class SemanticQueryService:
             log.debug("parent_metadata_batch_fetch_failed", count=len(parent_uids), exc_info=True)
             return {}
 
-    async def search_all(self, query_text: str, k: int = 10) -> SemanticResult:
+    async def search_all(
+        self,
+        query_text: str,
+        k: int = 10,
+        *,
+        repository: str | None = None,
+        language: str | None = None,
+    ) -> SemanticResult:
         """Search across all entity types and merge results by score."""
+        fkw = {"repository": repository, "language": language}
         (
             func_results,
             class_results,
@@ -180,12 +206,12 @@ class SemanticQueryService:
             concept_results,
             module_results,
         ) = await asyncio.gather(
-            self._search_by_label(query_text, NodeLabel.FUNCTION, k),
-            self._search_by_label(query_text, NodeLabel.CLASS, k),
-            self._search_by_label(query_text, NodeLabel.DOCUMENT, k),
-            self._search_by_label(query_text, NodeLabel.BUSINESS_FLOW, k),
-            self._search_by_label(query_text, NodeLabel.BUSINESS_CONCEPT, k),
-            self._search_by_label(query_text, NodeLabel.MODULE, k),
+            self._search_by_label(query_text, NodeLabel.FUNCTION, k, **fkw),
+            self._search_by_label(query_text, NodeLabel.CLASS, k, **fkw),
+            self._search_by_label(query_text, NodeLabel.DOCUMENT, k, **fkw),
+            self._search_by_label(query_text, NodeLabel.BUSINESS_FLOW, k, **fkw),
+            self._search_by_label(query_text, NodeLabel.BUSINESS_CONCEPT, k, **fkw),
+            self._search_by_label(query_text, NodeLabel.MODULE, k, **fkw),
         )
 
         doc_hits = doc_results.matches if self._include_raw_docs_in_results else []
@@ -206,7 +232,15 @@ class SemanticQueryService:
             total=len(top_matches),
         )
 
-    async def _search_by_label(self, query_text: str, label: NodeLabel, k: int) -> SemanticResult:
+    async def _search_by_label(
+        self,
+        query_text: str,
+        label: NodeLabel,
+        k: int,
+        *,
+        repository: str | None = None,
+        language: str | None = None,
+    ) -> SemanticResult:
         embeddings = await self._embedding.generate_for_query([query_text])
         if not embeddings:
             return SemanticResult(query_text=query_text)
@@ -214,7 +248,9 @@ class SemanticQueryService:
         query_vec = embeddings[0]
 
         try:
-            results = await self._store.vector_search(label, query_vec, k)
+            results = await self._store.vector_search(
+                label, query_vec, k, repository=repository, language=language,
+            )
         except Exception as exc:
             log.warning("vector_search_error", label=label, error=str(exc))
             return SemanticResult(query_text=query_text)

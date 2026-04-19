@@ -124,6 +124,8 @@ class HybridQueryService:
         use_query_expansion: bool = True,
         use_query_router: bool = True,
         use_child_chunks: bool | None = None,
+        repository: str | None = None,
+        language: str | None = None,
     ) -> HybridResult:
         """Layered hybrid search with optional graph-based query expansion.
 
@@ -140,12 +142,15 @@ class HybridQueryService:
         if use_child_chunks:
             return await self._search_with_child_chunks(
                 query_text, k, expand_depth, include_callers, include_callees,
+                repository=repository, language=language,
             )
         router_strategy = route_query(query_text) if use_query_router else None
 
         should_expand = use_query_expansion and self._query_expansion_enabled
         if should_expand:
-            expansion_queries = await self._expand_query_with_graph(query_text)
+            expansion_queries = await self._expand_query_with_graph(
+                query_text, repository=repository, language=language,
+            )
         else:
             expansion_queries = [query_text]
 
@@ -162,8 +167,11 @@ class HybridQueryService:
             else:
                 identifiers = _extract_identifiers(eq)
 
-            kw_coro = self._keyword_search_multi(identifiers, k) if identifiers else _empty_list()
-            sem_coro = self._semantic.search_all(eq, k)
+            kw_coro = (
+                self._keyword_search_multi(identifiers, k, repository=repository, language=language)
+                if identifiers else _empty_list()
+            )
+            sem_coro = self._semantic.search_all(eq, k, repository=repository, language=language)
 
             kw_hits, sem_result = await asyncio.gather(kw_coro, sem_coro)
 
@@ -224,11 +232,19 @@ class HybridQueryService:
         expand_depth: int,
         include_callers: bool,
         include_callees: bool,
+        *,
+        repository: str | None = None,
+        language: str | None = None,
     ) -> HybridResult:
         """Chunk-aware hybrid search: keyword + chunk-vector + parent context."""
         identifiers = _extract_identifiers(query_text)
-        kw_coro = self._keyword_search_multi(identifiers, k) if identifiers else _empty_list()
-        chunk_coro = self._semantic.search_with_parent_context(query_text, k=k)
+        kw_coro = (
+            self._keyword_search_multi(identifiers, k, repository=repository, language=language)
+            if identifiers else _empty_list()
+        )
+        chunk_coro = self._semantic.search_with_parent_context(
+            query_text, k=k, repository=repository, language=language,
+        )
 
         kw_hits, chunk_result = await asyncio.gather(kw_coro, chunk_coro)
 
@@ -272,7 +288,14 @@ class HybridQueryService:
             no_results_reason=no_results_reason,
         )
 
-    async def _expand_query_with_graph(self, query_text: str, max_expansions: int = 3) -> list[str]:
+    async def _expand_query_with_graph(
+        self,
+        query_text: str,
+        max_expansions: int = 3,
+        *,
+        repository: str | None = None,
+        language: str | None = None,
+    ) -> list[str]:
         """Expand query using graph neighbor names for richer search.
 
         Given a query, find entities matching the query terms via keyword search,
@@ -286,7 +309,9 @@ class HybridQueryService:
             if not identifiers:
                 return queries
 
-            hits = await self._keyword_search_multi(identifiers[:2], k=3)
+            hits = await self._keyword_search_multi(
+                identifiers[:2], k=3, repository=repository, language=language,
+            )
             if not hits:
                 return queries
 
@@ -322,12 +347,19 @@ class HybridQueryService:
 
         return queries
 
-    async def _keyword_search_multi(self, identifiers: list[str], k: int) -> list[dict[str, Any]]:
+    async def _keyword_search_multi(
+        self,
+        identifiers: list[str],
+        k: int,
+        *,
+        repository: str | None = None,
+        language: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Run keyword search for each extracted identifier and merge results."""
         all_hits: list[dict[str, Any]] = []
         seen_uids: set[str] = set()
         for ident in identifiers[:3]:
-            hits = await self._store.keyword_search(ident, k=k)
+            hits = await self._store.keyword_search(ident, k=k, repository=repository, language=language)
             for hit in hits:
                 uid = hit.get("uid", "")
                 if uid and uid not in seen_uids:

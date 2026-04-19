@@ -69,7 +69,14 @@ export function useHybridSearch() {
   return useMutation<
     HybridSearchResponse,
     Error,
-    { query: string; k: number; expand_depth: number; entity_type?: string }
+    {
+      query: string;
+      k: number;
+      expand_depth: number;
+      entity_type?: string;
+      repository?: string;
+      language?: string;
+    }
   >({
     mutationFn: (body) =>
       api("/hybrid", { method: "POST", body: JSON.stringify(body) }),

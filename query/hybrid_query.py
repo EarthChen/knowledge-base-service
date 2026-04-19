@@ -44,6 +44,57 @@ _IDENT_RE = re.compile(
 
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
+# Optional filter for POST /hybrid (kept in sync with main._HYBRID_ENTITY_TYPE_TO_LABEL)
+_HYBRID_ENTITY_TYPE_TO_LABEL: dict[str, str] = {
+    "function": "Function",
+    "class": "Class",
+    "module": "Module",
+    "document": "Document",
+    "flow": "BusinessFlow",
+    "concept": "BusinessConcept",
+}
+
+
+def _filter_merged_by_entity_type(
+    merged: list[dict[str, Any]],
+    entity_type: str | None,
+) -> list[dict[str, Any]]:
+    if not entity_type:
+        return merged
+    key = str(entity_type).strip().lower()
+    if not key:
+        return merged
+    label = _HYBRID_ENTITY_TYPE_TO_LABEL.get(key)
+    if label is None:
+        return merged
+    return [m for m in merged if m.get("type") == label]
+
+
+def _sort_semantic_matches(merged: list[dict[str, Any]], sort_by: str) -> list[dict[str, Any]]:
+    key = (sort_by or "score").strip().lower()
+    if key == "name":
+        return sorted(merged, key=lambda m: str(m.get("name") or "").lower())
+    if key in ("path", "file"):
+        return sorted(merged, key=lambda m: str(m.get("file") or "").lower())
+    # score: RRF / fusion score (and optional rerank), descending
+    def _score(m: dict[str, Any]) -> float:
+        raw = m.get("rrf_score", m.get("score", m.get("confidence")))
+        if raw is None:
+            return 0.0
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return 0.0
+    return sorted(merged, key=_score, reverse=True)
+
+
+def _apply_offset_limit(merged: list[dict[str, Any]], offset: int, limit: int) -> tuple[list[dict[str, Any]], int, int, int]:
+    """Slice ``merged`` for pagination; returns (page, total_count, clamped_offset, clamped_limit)."""
+    total = len(merged)
+    off = max(0, int(offset))
+    lim = max(1, min(500, int(limit)))
+    return merged[off : off + lim], total, off, lim
+
 
 def _contains_cjk(text: str) -> bool:
     return _CJK_RE.search(text) is not None
@@ -127,7 +178,11 @@ class HybridQueryService:
         repository: str | None = None,
         language: str | None = None,
         per_file_cap: int = 3,
-    ) -> HybridResult:
+        offset: int = 0,
+        limit: int = 20,
+        sort_by: str = "score",
+        entity_type: str | None = None,
+    ) -> dict[str, Any]:
         """Layered hybrid search with optional graph-based query expansion.
 
         Layer 1: exact & fuzzy name match (via FalkorDB keyword_search)
@@ -148,6 +203,7 @@ class HybridQueryService:
                 repository=repository, language=language, per_file_cap=per_file_cap,
                 router_strategy=router_strategy,
                 use_query_router=use_query_router,
+                offset=offset, limit=limit, sort_by=sort_by, entity_type=entity_type,
             )
 
         should_expand = use_query_expansion and self._query_expansion_enabled
@@ -226,15 +282,46 @@ class HybridQueryService:
             )
 
         confidence, no_results_reason = self._confidence_and_reason(merged)
-
-        return HybridResult(
-            semantic_matches=merged,
-            graph_context=graph_context,
+        return self._finalize_hybrid_response(
+            merged,
+            graph_context,
             query_text=query_text,
-            total=len(merged) + len(graph_context),
             confidence=confidence,
             no_results_reason=no_results_reason,
+            offset=offset,
+            limit=limit,
+            sort_by=sort_by,
+            entity_type=entity_type,
         )
+
+    def _finalize_hybrid_response(
+        self,
+        merged: list[dict[str, Any]],
+        graph_context: list[dict[str, Any]],
+        *,
+        query_text: str,
+        confidence: float,
+        no_results_reason: str,
+        offset: int,
+        limit: int,
+        sort_by: str,
+        entity_type: str | None,
+    ) -> dict[str, Any]:
+        """Sort + paginate semantic matches after full retrieval and graph expansion."""
+        filtered = _filter_merged_by_entity_type(merged, entity_type)
+        sorted_m = _sort_semantic_matches(filtered, sort_by)
+        page_rows, total, off, lim = _apply_offset_limit(sorted_m, offset, limit)
+        return {
+            "results": page_rows,
+            "semantic_matches": page_rows,
+            "total": total,
+            "offset": off,
+            "limit": lim,
+            "graph_context": graph_context,
+            "query_text": query_text,
+            "confidence": confidence,
+            "no_results_reason": no_results_reason,
+        }
 
     async def _search_with_child_chunks(
         self,
@@ -249,7 +336,11 @@ class HybridQueryService:
         per_file_cap: int = 3,
         router_strategy: SearchStrategy | None = None,
         use_query_router: bool = True,
-    ) -> HybridResult:
+        offset: int = 0,
+        limit: int = 20,
+        sort_by: str = "score",
+        entity_type: str | None = None,
+    ) -> dict[str, Any]:
         """Chunk-aware hybrid search: keyword + chunk-vector + parent context."""
         if not use_query_router:
             router_strategy = None
@@ -319,14 +410,16 @@ class HybridQueryService:
             )
 
         confidence, no_results_reason = self._confidence_and_reason(merged)
-
-        return HybridResult(
-            semantic_matches=merged,
-            graph_context=graph_context,
+        return self._finalize_hybrid_response(
+            merged,
+            graph_context,
             query_text=query_text,
-            total=len(merged) + len(graph_context),
             confidence=confidence,
             no_results_reason=no_results_reason,
+            offset=offset,
+            limit=limit,
+            sort_by=sort_by,
+            entity_type=entity_type,
         )
 
     async def _expand_query_with_graph(

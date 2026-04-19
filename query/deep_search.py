@@ -372,12 +372,13 @@ class DeepSearchEngine:
         q_type = sub_query.get("type", "rag_query")
         if q_type == "rag_query":
             hybrid_result = await self._hybrid.search_with_context(
-                sub_query.get("query", ""), k=5
+                sub_query.get("query", ""), k=5, offset=0, limit=500, sort_by="score",
             )
+            rows = hybrid_result.get("semantic_matches") or hybrid_result["results"]
             return {
                 "type": "hybrid",
-                "matches": hybrid_result.semantic_matches,
-                "context": hybrid_result.graph_context,
+                "matches": rows,
+                "context": hybrid_result["graph_context"],
             }
         elif q_type == "rag_graph":
             query_type = sub_query.get("query_type", "business_flow")

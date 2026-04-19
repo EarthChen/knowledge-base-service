@@ -17,10 +17,17 @@ class TestDeepSearchStream:
             "sub_queries": [{"type": "rag_query", "query": "test"}],
         })
         mock_hybrid = AsyncMock()
-        mock_hybrid.search_with_context = AsyncMock(return_value=MagicMock(
-            semantic_matches=[{"name": "foo", "score": 0.9}],
-            graph_context=[],
-        ))
+        mock_hybrid.search_with_context = AsyncMock(return_value={
+            "results": [{"name": "foo", "score": 0.9}],
+            "semantic_matches": [{"name": "foo", "score": 0.9}],
+            "total": 1,
+            "offset": 0,
+            "limit": 500,
+            "graph_context": [],
+            "query_text": "",
+            "confidence": 0.0,
+            "no_results_reason": "",
+        })
         mock_graph = AsyncMock()
 
         engine = DeepSearchEngine(mock_llm, mock_hybrid, mock_graph)
@@ -50,9 +57,17 @@ class TestDeepSearchStream:
             "sub_queries": [{"type": "rag_query", "query": "test"}],
         })
         mock_hybrid = AsyncMock()
-        mock_hybrid.search_with_context = AsyncMock(return_value=MagicMock(
-            semantic_matches=[], graph_context=[],
-        ))
+        mock_hybrid.search_with_context = AsyncMock(return_value={
+            "results": [],
+            "semantic_matches": [],
+            "total": 0,
+            "offset": 0,
+            "limit": 500,
+            "graph_context": [],
+            "query_text": "",
+            "confidence": 0.0,
+            "no_results_reason": "",
+        })
         mock_graph = AsyncMock()
 
         engine = DeepSearchEngine(mock_llm, mock_hybrid, mock_graph)
@@ -80,9 +95,17 @@ class TestDeepSearchStream:
             "sub_queries": [{"type": "rag_query", "query": "test"}],
         })
         mock_hybrid = AsyncMock()
-        mock_hybrid.search_with_context = AsyncMock(return_value=MagicMock(
-            semantic_matches=[{"name": "a"}], graph_context=[],
-        ))
+        mock_hybrid.search_with_context = AsyncMock(return_value={
+            "results": [{"name": "a"}],
+            "semantic_matches": [{"name": "a"}],
+            "total": 1,
+            "offset": 0,
+            "limit": 500,
+            "graph_context": [],
+            "query_text": "",
+            "confidence": 0.0,
+            "no_results_reason": "",
+        })
         mock_graph = AsyncMock()
 
         engine = DeepSearchEngine(mock_llm, mock_hybrid, mock_graph)
@@ -135,9 +158,17 @@ class TestDeepSearchStream:
             "sub_queries": [{"type": "rag_query", "query": "test"}],
         })
         mock_hybrid = AsyncMock()
-        mock_hybrid.search_with_context = AsyncMock(return_value=MagicMock(
-            semantic_matches=[], graph_context=[],
-        ))
+        mock_hybrid.search_with_context = AsyncMock(return_value={
+            "results": [],
+            "semantic_matches": [],
+            "total": 0,
+            "offset": 0,
+            "limit": 500,
+            "graph_context": [],
+            "query_text": "",
+            "confidence": 0.0,
+            "no_results_reason": "",
+        })
         mock_graph = AsyncMock()
 
         call_count = 0
@@ -182,9 +213,17 @@ class TestDeepSearchStream:
             "sub_queries": [{"type": "rag_query", "query": "test"}],
         })
         mock_hybrid = AsyncMock()
-        mock_hybrid.search_with_context = AsyncMock(return_value=MagicMock(
-            semantic_matches=[], graph_context=[],
-        ))
+        mock_hybrid.search_with_context = AsyncMock(return_value={
+            "results": [],
+            "semantic_matches": [],
+            "total": 0,
+            "offset": 0,
+            "limit": 500,
+            "graph_context": [],
+            "query_text": "",
+            "confidence": 0.0,
+            "no_results_reason": "",
+        })
         mock_graph = AsyncMock()
 
         engine = DeepSearchEngine(mock_llm, mock_hybrid, mock_graph)

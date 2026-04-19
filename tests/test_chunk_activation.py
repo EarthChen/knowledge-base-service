@@ -44,31 +44,33 @@ class TestContextAssemblerExcerpt:
     async def test_assemble_propagates_excerpt(self):
         from unittest.mock import AsyncMock, MagicMock
         from query.context_assembler import ContextAssembler
-        from query.hybrid_query import HybridResult
-
         store = AsyncMock()
         graph = AsyncMock()
         hybrid = AsyncMock()
 
-        hybrid.search_with_context.return_value = HybridResult(
-            semantic_matches=[{
-                "name": "processOrder",
-                "type": "Function",
-                "file": "service.py",
-                "line": 10,
-                "score": 0.9,
-                "uid": "Function:service.py:processOrder:10",
-                "matched_excerpt": "// In processOrder\nretry logic here",
-                "excerpt_lines": [15, 20],
-                "signature": "def processOrder()",
-                "docstring": "Process order.",
-            }],
-            graph_context=[],
-            query_text="processOrder",
-            total=1,
-            confidence=0.9,
-            no_results_reason="",
-        )
+        sem = [{
+            "name": "processOrder",
+            "type": "Function",
+            "file": "service.py",
+            "line": 10,
+            "score": 0.9,
+            "uid": "Function:service.py:processOrder:10",
+            "matched_excerpt": "// In processOrder\nretry logic here",
+            "excerpt_lines": [15, 20],
+            "signature": "def processOrder()",
+            "docstring": "Process order.",
+        }]
+        hybrid.search_with_context.return_value = {
+            "results": sem,
+            "semantic_matches": sem,
+            "total": 1,
+            "offset": 0,
+            "limit": 500,
+            "graph_context": [],
+            "query_text": "processOrder",
+            "confidence": 0.9,
+            "no_results_reason": "",
+        }
         graph.find_call_chain.return_value = MagicMock(data=[])
         graph.find_inheritance_tree.return_value = MagicMock(data=[])
         graph.find_flows_for_function.return_value = MagicMock(data=[])

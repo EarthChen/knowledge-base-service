@@ -170,7 +170,7 @@ class TestSearchEngineEnhancement:
         from llm.provider import LLMProvider
         from query.deep_search import DeepSearchEngine
         from query.graph_query import GraphQueryService
-        from query.hybrid_query import HybridQueryService, HybridResult
+        from query.hybrid_query import HybridQueryService
 
         mock_llm = MagicMock(spec=LLMProvider)
         mock_llm.complete_json = AsyncMock(
@@ -186,12 +186,17 @@ class TestSearchEngineEnhancement:
         )
 
         mock_hybrid = MagicMock(spec=HybridQueryService)
-        mock_hybrid.search_with_context = AsyncMock(return_value=HybridResult(
-            semantic_matches=[{"name": "pay", "file": "pay.py"}],
-            graph_context=[],
-            query_text="支付",
-            total=1,
-        ))
+        mock_hybrid.search_with_context = AsyncMock(return_value={
+            "results": [{"name": "pay", "file": "pay.py"}],
+            "semantic_matches": [{"name": "pay", "file": "pay.py"}],
+            "total": 1,
+            "offset": 0,
+            "limit": 500,
+            "graph_context": [],
+            "query_text": "支付",
+            "confidence": 0.0,
+            "no_results_reason": "",
+        })
 
         mock_graph = MagicMock(spec=GraphQueryService)
 

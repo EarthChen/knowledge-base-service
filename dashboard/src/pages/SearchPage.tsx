@@ -14,6 +14,13 @@ type SearchMode = "hybrid" | "deep";
 const ENTITY_TYPES = ["all", "function", "class", "module", "document"] as const;
 const LANGUAGES = ["all", "python", "java", "go", "javascript", "typescript"] as const;
 
+const PAGE_SIZE = 20;
+
+function parseSortParam(raw: string | null): "score" | "name" | "path" {
+  if (raw === "name" || raw === "path" || raw === "score") return raw;
+  return "score";
+}
+
 export default function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
@@ -34,10 +41,34 @@ export default function SearchPage() {
   const { mutate: runHybridSearch, isPending: hybridPending, data: hybridResult, error } =
     useHybridSearch();
 
+  const sortFromUrl = parseSortParam(searchParams.get("sort"));
+  const pageFromUrl = Math.max(1, Number.parseInt(searchParams.get("page") || "1", 10) || 1);
+
+  const hybridPageLimit = hybridResult?.limit ?? PAGE_SIZE;
+  const hybridTotalPages =
+    hybridResult != null ? Math.max(1, Math.ceil((hybridResult.total || 0) / hybridPageLimit)) : 1;
+
+  useEffect(() => {
+    if (hybridResult != null && pageFromUrl > hybridTotalPages) {
+      const params = new URLSearchParams(searchParams);
+      params.set("page", String(hybridTotalPages));
+      setSearchParams(params, { replace: true });
+    }
+  }, [hybridResult, hybridTotalPages, pageFromUrl, searchParams, setSearchParams]);
+
+  const hybridPageIndicator =
+    hybridResult != null
+      ? t.search.pageIndicator
+          .replace("{page}", String(Math.min(pageFromUrl, hybridTotalPages)))
+          .replace("{totalPages}", String(hybridTotalPages))
+      : "";
+
   useEffect(() => {
     const raw = searchParams.get("q") ?? "";
     const repoParam = searchParams.get("repo") ?? "all";
     const langParam = searchParams.get("lang") ?? "all";
+    const pageParam = Math.max(1, Number.parseInt(searchParams.get("page") || "1", 10) || 1);
+    const sortParam = parseSortParam(searchParams.get("sort"));
     // eslint-disable-next-line react-hooks/set-state-in-effect -- sync URL navigation into form state
     setQuery(raw);
     setRepository(repoParam);
@@ -51,6 +82,9 @@ export default function SearchPage() {
       entity_type: entityType === "all" ? undefined : entityType,
       repository: repoParam === "all" ? undefined : repoParam,
       language: langParam === "all" ? undefined : langParam,
+      offset: (pageParam - 1) * PAGE_SIZE,
+      limit: PAGE_SIZE,
+      sort_by: sortParam,
     });
   }, [searchParams, k, expandDepth, entityType, runHybridSearch]);
 
@@ -69,6 +103,8 @@ export default function SearchPage() {
     params.set("q", query.trim());
     params.set("repo", repository);
     params.set("lang", language);
+    params.set("page", "1");
+    params.set("sort", parseSortParam(searchParams.get("sort")));
     setSearchParams(params);
   }
 
@@ -81,8 +117,10 @@ export default function SearchPage() {
     params.set("q", h);
     params.set("repo", repository);
     params.set("lang", language);
+    params.set("page", "1");
+    params.set("sort", parseSortParam(searchParams.get("sort")));
     setSearchParams(params);
-  }, [addEntry, repository, language, setSearchParams]);
+  }, [addEntry, repository, language, searchParams, setSearchParams]);
 
   const handleHistoryKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -314,7 +352,7 @@ export default function SearchPage() {
               className="w-16 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
             />
           </label>
-          <label className="flex items-center gap-2 text-xs text-gray-500">
+          <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
             {t.search.expandDepth}
             <input
               type="number"
@@ -322,8 +360,26 @@ export default function SearchPage() {
               max={5}
               value={expandDepth}
               onChange={(e) => setExpandDepth(Number(e.target.value) || 2)}
-              className="w-16 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
+              className="w-16 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            {t.search.sortBy}
+            <select
+              value={sortFromUrl}
+              onChange={(e) => {
+                const v = e.target.value as "score" | "name" | "path";
+                const params = new URLSearchParams(searchParams);
+                params.set("sort", v);
+                params.set("page", "1");
+                setSearchParams(params);
+              }}
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            >
+              <option value="score">{t.search.sortScore}</option>
+              <option value="name">{t.search.sortName}</option>
+              <option value="path">{t.search.sortPath}</option>
+            </select>
           </label>
         </div>
       </form>
@@ -338,28 +394,55 @@ export default function SearchPage() {
 
       {hybridResult && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-400">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-gray-400 dark:text-gray-500">
               {hybridResult.total ?? 0} {t.search.resultsFor} "{hybridResult.query}"
             </p>
-            <button
-              type="button"
-              onClick={() => {
-                const blob = new Blob([JSON.stringify(hybridResult, null, 2)], {
-                  type: "application/json",
-                });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `search-results-${Date.now()}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-              }}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-800"
-            >
-              <Download size={14} />
-              {t.search.exportJson}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={pageFromUrl <= 1}
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams);
+                    params.set("page", String(Math.max(1, pageFromUrl - 1)));
+                    setSearchParams(params);
+                  }}
+                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                >
+                  {t.search.pagePrev}
+                </button>
+                <span className="text-xs text-gray-500 dark:text-gray-400">{hybridPageIndicator}</span>
+                <button
+                  type="button"
+                  disabled={pageFromUrl >= hybridTotalPages}
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams);
+                    params.set("page", String(Math.min(hybridTotalPages, pageFromUrl + 1)));
+                    setSearchParams(params);
+                  }}
+                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                >
+                  {t.search.pageNext}
+                </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const blob = new Blob([JSON.stringify(hybridResult, null, 2)], {
+                    type: "application/json",
+                  });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `search-results-${Date.now()}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-800"
+              >
+                <Download size={14} />
+                {t.search.exportJson}
+              </button>
+            </div>
           </div>
 
           {hybridResult.semantic_matches?.length > 0 && (

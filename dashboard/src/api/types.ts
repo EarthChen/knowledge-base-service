@@ -98,8 +98,12 @@ export interface HybridSearchResponse {
   semantic_matches: SearchMatch[];
   graph_context: unknown[];
   total: number;
+  offset: number;
+  limit: number;
   query: string;
   entity_type?: string;
+  confidence?: number;
+  no_results_reason?: string;
 }
 
 export interface IndexResponse {

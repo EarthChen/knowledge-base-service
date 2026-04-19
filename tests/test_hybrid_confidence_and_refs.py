@@ -38,9 +38,9 @@ def mock_graph():
 async def test_empty_search_has_zero_confidence_and_reason(mock_store, mock_semantic, mock_graph):
     svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
     result = await svc.search_with_context("nothing should match this xyz123")
-    assert result.semantic_matches == []
-    assert result.confidence == 0.0
-    assert result.no_results_reason == "No matching entities found for query"
+    assert result["results"] == []
+    assert result["confidence"] == 0.0
+    assert result["no_results_reason"] == "No matching entities found for query"
 
 
 @pytest.mark.asyncio
@@ -53,10 +53,10 @@ async def test_matches_have_confidence_and_clear_reason(mock_store, mock_semanti
     mock_semantic.search_all = AsyncMock(return_value=sem_result)
     svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
     result = await svc.search_with_context("auth")
-    assert len(result.semantic_matches) >= 1
-    assert result.confidence > 0.0
-    assert result.confidence > 0.5
-    assert result.no_results_reason == ""
+    assert len(result["results"]) >= 1
+    assert result["confidence"] > 0.0
+    assert result["confidence"] > 0.5
+    assert result["no_results_reason"] == ""
 
 
 @pytest.mark.asyncio
@@ -89,8 +89,8 @@ async def test_graph_context_includes_location_keys(mock_store, mock_semantic, m
     )
     svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
     result = await svc.search_with_context("Alpha", k=5, expand_depth=1)
-    assert result.graph_context
-    for item in result.graph_context:
+    assert result["graph_context"]
+    for item in result["graph_context"]:
         if item.get("type") == "business_flow":
             continue
         assert "start_line" in item

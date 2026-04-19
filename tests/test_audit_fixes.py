@@ -6,7 +6,6 @@ import pytest
 
 from indexer.code_graph_builder import compute_fqn
 from query.context_assembler import ContextAssembler
-from query.hybrid_query import HybridResult
 from query.reranker import Reranker
 
 
@@ -16,23 +15,31 @@ async def test_context_assembler_passes_repository_and_language_to_search():
     mock_hybrid = AsyncMock()
     mock_graph = AsyncMock()
 
+    matches = [
+        {
+            "name": "foo",
+            "type": "Function",
+            "uid": "fn-1",
+            "file": "f.py",
+            "line": 1,
+            "repository": "repo-a",
+            "score": 1.0,
+            "confidence": 1.0,
+            "match_source": "keyword",
+        },
+    ]
     mock_hybrid.search_with_context = AsyncMock(
-        return_value=HybridResult(
-            semantic_matches=[
-                {
-                    "name": "foo",
-                    "type": "Function",
-                    "uid": "fn-1",
-                    "file": "f.py",
-                    "line": 1,
-                    "repository": "repo-a",
-                    "score": 1.0,
-                    "confidence": 1.0,
-                    "match_source": "keyword",
-                },
-            ],
-            confidence=0.9,
-        ),
+        return_value={
+            "results": matches,
+            "semantic_matches": matches,
+            "total": 1,
+            "offset": 0,
+            "limit": 500,
+            "graph_context": [],
+            "query_text": "",
+            "confidence": 0.9,
+            "no_results_reason": "",
+        },
     )
 
     async def dispatch(q, _params=None):
@@ -123,6 +130,7 @@ def test_mcp_rag_query_schema_includes_hybrid_controls():
         "use_query_router",
         "use_query_expansion",
         "per_file_cap",
+        "offset",
     ):
         assert key in props, f"missing {key}"
 
@@ -133,12 +141,17 @@ async def test_handle_rag_query_passes_through_hybrid_controls():
 
     hybrid = AsyncMock()
     hybrid.search_with_context = AsyncMock(
-        return_value=HybridResult(
-            semantic_matches=[],
-            graph_context=[],
-            query_text="auth",
-            confidence=0.0,
-        ),
+        return_value={
+            "results": [],
+            "semantic_matches": [],
+            "total": 0,
+            "offset": 0,
+            "limit": 20,
+            "graph_context": [],
+            "query_text": "auth",
+            "confidence": 0.0,
+            "no_results_reason": "",
+        },
     )
     graph = AsyncMock()
     indexer = MagicMock()

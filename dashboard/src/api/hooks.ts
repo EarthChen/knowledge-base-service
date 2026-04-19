@@ -76,6 +76,9 @@ export function useHybridSearch() {
       entity_type?: string;
       repository?: string;
       language?: string;
+      offset?: number;
+      limit?: number;
+      sort_by?: string;
     }
   >({
     mutationFn: (body) =>
@@ -95,6 +98,9 @@ export function useHybridQuickSearch(query: string, enabled: boolean) {
           query: trimmed,
           k: 12,
           expand_depth: 2,
+          offset: 0,
+          limit: 12,
+          sort_by: "score",
         }),
       }),
     enabled: enabled && trimmed.length >= 2,

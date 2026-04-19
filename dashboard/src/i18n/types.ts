@@ -92,6 +92,13 @@ export interface Translations {
     document: string;
     topK: string;
     expandDepth: string;
+    sortBy: string;
+    sortScore: string;
+    sortName: string;
+    sortPath: string;
+    pagePrev: string;
+    pageNext: string;
+    pageIndicator: string;
     resultsFor: string;
     noResults: string;
     semanticMatches: string;

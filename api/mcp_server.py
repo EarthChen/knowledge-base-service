@@ -309,6 +309,11 @@ MCP_TOOLS_MANIFEST = [
                     ),
                     "default": 3,
                 },
+                "offset": {
+                    "type": "integer",
+                    "description": "Pagination offset into merged semantic results (after sort).",
+                    "default": 0,
+                },
             },
             "required": ["query"],
         },
@@ -764,6 +769,10 @@ class KnowledgeBaseMCPHandler:
         entity_type = _normalize_entity_type_arg(args.get("entity_type"))
         repository = (args.get("repository") or "").strip() or None
         language = (args.get("language") or "").strip() or None
+        try:
+            offset = max(0, int(args.get("offset", 0)))
+        except (TypeError, ValueError):
+            return _mcp_error("invalid_params", "offset must be a non-negative integer")
 
         hybrid_kwargs: dict[str, Any] = {}
         if "use_child_chunks" in args:
@@ -799,6 +808,7 @@ class KnowledgeBaseMCPHandler:
                 "semantic_matches": semantic_matches,
                 "graph_context": [],
                 "total_results": len(semantic_matches),
+                "total": len(semantic_matches),
             }
 
         result = await self._hybrid.search_with_context(
@@ -807,17 +817,21 @@ class KnowledgeBaseMCPHandler:
             expand_depth=expand_depth,
             repository=repository,
             language=language,
+            offset=offset,
+            entity_type=entity_type,
             **hybrid_kwargs,
         )
-        matches = _filter_semantic_matches_by_entity_type(result.semantic_matches, entity_type)
-        graph_ctx = _filter_graph_context_by_entity_type(result.graph_context, entity_type)
-        total = len(matches) + len(graph_ctx)
+        matches = _filter_semantic_matches_by_entity_type(result["results"], entity_type)
+        graph_ctx = _filter_graph_context_by_entity_type(result["graph_context"], entity_type)
         return {
-            "query": result.query_text,
+            "query": result["query_text"],
             "semantic_matches": matches,
             "graph_context": graph_ctx,
-            "total_results": total,
-            "confidence": result.confidence,
+            "total": result["total"],
+            "total_results": result["total"] + len(graph_ctx),
+            "offset": result["offset"],
+            "limit": result["limit"],
+            "confidence": result["confidence"],
         }
 
     async def handle_rag_graph(self, args: dict[str, Any]) -> dict[str, Any]:

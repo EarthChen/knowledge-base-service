@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from query.hybrid_query import HybridQueryService, HybridResult
+from query.hybrid_query import HybridQueryService
 
 
 @pytest.fixture
@@ -110,24 +110,24 @@ class TestSearchWithExpansion:
     async def test_search_with_expansion_enabled(self, mock_store, mock_semantic, mock_graph):
         svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
         result = await svc.search_with_context("UserService", k=5, use_query_expansion=True)
-        assert isinstance(result, HybridResult)
+        assert isinstance(result, dict)
         assert mock_semantic.search_all.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_search_with_expansion_disabled(self, mock_store, mock_semantic, mock_graph):
         svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
         result = await svc.search_with_context("UserService", k=5, use_query_expansion=False)
-        assert isinstance(result, HybridResult)
+        assert isinstance(result, dict)
 
     @pytest.mark.asyncio
     async def test_expansion_weight_cleaned_from_results(self, mock_store, mock_semantic, mock_graph):
         svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
         result = await svc.search_with_context("UserService", k=5, use_query_expansion=True)
-        for m in result.semantic_matches:
+        for m in result["results"]:
             assert "_expansion_weight" not in m
 
     @pytest.mark.asyncio
     async def test_original_query_weight_higher(self, mock_store, mock_semantic, mock_graph):
         svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
         result = await svc.search_with_context("UserService", k=5, use_query_expansion=True)
-        assert isinstance(result, HybridResult)
+        assert isinstance(result, dict)

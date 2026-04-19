@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from query.context_assembler import ContextAssembler
-from query.hybrid_query import HybridResult
 
 
 @pytest.fixture
@@ -46,23 +45,31 @@ async def _store_dispatch_entity_then_empty_wiki(query: str, _params=None):
 
 @pytest.mark.asyncio
 async def test_assemble_returns_required_sections(mock_store, mock_hybrid, mock_graph):
+    matches = [
+        {
+            "name": "foo",
+            "type": "Function",
+            "uid": "fn-1",
+            "file": "f.py",
+            "line": 1,
+            "repository": "r1",
+            "score": 1.0,
+            "confidence": 1.0,
+            "match_source": "keyword",
+        },
+    ]
     mock_hybrid.search_with_context = AsyncMock(
-        return_value=HybridResult(
-            semantic_matches=[
-                {
-                    "name": "foo",
-                    "type": "Function",
-                    "uid": "fn-1",
-                    "file": "f.py",
-                    "line": 1,
-                    "repository": "r1",
-                    "score": 1.0,
-                    "confidence": 1.0,
-                    "match_source": "keyword",
-                },
-            ],
-            confidence=0.9,
-        ),
+        return_value={
+            "results": matches,
+            "semantic_matches": matches,
+            "total": 1,
+            "offset": 0,
+            "limit": 500,
+            "graph_context": [],
+            "query_text": "",
+            "confidence": 0.9,
+            "no_results_reason": "",
+        },
     )
     mock_store.execute_query = AsyncMock(side_effect=_store_dispatch_entity_then_empty_wiki)
     mock_graph.find_call_chain = AsyncMock(return_value=MagicMock(data=[{"name": "caller"}]))
@@ -112,23 +119,31 @@ async def test_max_tokens_truncates_wiki_first(mock_store, mock_hybrid, mock_gra
             ],
         )
 
+    matches = [
+        {
+            "name": "bar",
+            "type": "Class",
+            "uid": "c1",
+            "file": "c.py",
+            "line": 1,
+            "repository": "r1",
+            "score": 1.0,
+            "confidence": 1.0,
+            "match_source": "keyword",
+        },
+    ]
     mock_hybrid.search_with_context = AsyncMock(
-        return_value=HybridResult(
-            semantic_matches=[
-                {
-                    "name": "bar",
-                    "type": "Class",
-                    "uid": "c1",
-                    "file": "c.py",
-                    "line": 1,
-                    "repository": "r1",
-                    "score": 1.0,
-                    "confidence": 1.0,
-                    "match_source": "keyword",
-                },
-            ],
-            confidence=0.5,
-        ),
+        return_value={
+            "results": matches,
+            "semantic_matches": matches,
+            "total": 1,
+            "offset": 0,
+            "limit": 500,
+            "graph_context": [],
+            "query_text": "",
+            "confidence": 0.5,
+            "no_results_reason": "",
+        },
     )
     mock_store.execute_query = AsyncMock(side_effect=dispatch)
     mock_graph.find_call_chain = AsyncMock(return_value=MagicMock(data=[]))
@@ -143,7 +158,19 @@ async def test_max_tokens_truncates_wiki_first(mock_store, mock_hybrid, mock_gra
 
 @pytest.mark.asyncio
 async def test_nonexistent_entity_graceful_empty(mock_store, mock_hybrid, mock_graph):
-    mock_hybrid.search_with_context = AsyncMock(return_value=HybridResult(semantic_matches=[], confidence=0.0))
+    mock_hybrid.search_with_context = AsyncMock(
+        return_value={
+            "results": [],
+            "semantic_matches": [],
+            "total": 0,
+            "offset": 0,
+            "limit": 500,
+            "graph_context": [],
+            "query_text": "",
+            "confidence": 0.0,
+            "no_results_reason": "",
+        },
+    )
     mock_graph.find_entity = AsyncMock(return_value=MagicMock(data=[]))
 
     asm = ContextAssembler(mock_store, mock_hybrid, mock_graph)

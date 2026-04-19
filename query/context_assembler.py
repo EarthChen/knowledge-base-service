@@ -69,9 +69,13 @@ class ContextAssembler:
             use_query_expansion=False,
             repository=repository,
             language=language,
+            offset=0,
+            limit=500,
+            sort_by="score",
         )
-        confidence = float(hybrid_result.confidence)
-        match = self._pick_match(hybrid_result.semantic_matches, name_key, repository)
+        confidence = float(hybrid_result["confidence"])
+        semantic_rows = hybrid_result.get("semantic_matches") or hybrid_result["results"]
+        match = self._pick_match(semantic_rows, name_key, repository)
         if match is None:
             fe = await self._graph.find_entity(name_key, "any")
             if fe.data:

@@ -212,4 +212,4 @@ class TestHybridWithChunks:
         result = await hybrid_svc.search_with_context(
             "retry logic", k=5, use_child_chunks=True,
         )
-        assert result.total >= 0  # Basic smoke test
+        assert result["total"] >= 0  # Basic smoke test

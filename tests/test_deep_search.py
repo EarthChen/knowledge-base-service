@@ -40,18 +40,22 @@ def mock_llm():
 
 @pytest.fixture
 def mock_hybrid():
-    from query.hybrid_query import HybridQueryService, HybridResult
+    from query.hybrid_query import HybridQueryService
 
     svc = MagicMock(spec=HybridQueryService)
+    m = [{"name": "handle_callback", "file": "payment/callback.py"}]
     svc.search_with_context = AsyncMock(
-        return_value=HybridResult(
-            semantic_matches=[
-                {"name": "handle_callback", "file": "payment/callback.py"}
-            ],
-            graph_context=[],
-            query_text="支付回调",
-            total=1,
-        )
+        return_value={
+            "results": m,
+            "semantic_matches": m,
+            "total": 1,
+            "offset": 0,
+            "limit": 500,
+            "graph_context": [],
+            "query_text": "支付回调",
+            "confidence": 0.0,
+            "no_results_reason": "",
+        }
     )
     return svc
 

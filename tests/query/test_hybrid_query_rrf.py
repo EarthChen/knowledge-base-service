@@ -38,8 +38,8 @@ class TestHybridQueryRRF:
     async def test_empty_results(self, mock_store, mock_semantic, mock_graph):
         svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
         result = await svc.search_with_context("test query")
-        assert result.semantic_matches == []
-        assert result.graph_context == []
+        assert result["results"] == []
+        assert result["graph_context"] == []
 
     @pytest.mark.asyncio
     async def test_keyword_only_results(self, mock_store, mock_semantic, mock_graph):
@@ -48,11 +48,11 @@ class TestHybridQueryRRF:
         ])
         svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
         result = await svc.search_with_context("UserService", k=5)
-        assert len(result.semantic_matches) == 1
-        assert result.semantic_matches[0]["name"] == "UserService"
-        assert result.semantic_matches[0]["match_source"] == "keyword"
-        assert "confidence" in result.semantic_matches[0]
-        assert result.semantic_matches[0]["confidence"] == pytest.approx(1.0)
+        assert len(result["results"]) == 1
+        assert result["results"][0]["name"] == "UserService"
+        assert result["results"][0]["match_source"] == "keyword"
+        assert "confidence" in result["results"][0]
+        assert result["results"][0]["confidence"] == pytest.approx(1.0)
 
     @pytest.mark.asyncio
     async def test_semantic_only_results(self, mock_store, mock_semantic, mock_graph):
@@ -63,8 +63,8 @@ class TestHybridQueryRRF:
         mock_semantic.search_all = AsyncMock(return_value=sem_result)
         svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
         result = await svc.search_with_context("authentication login")
-        assert len(result.semantic_matches) == 1
-        assert result.semantic_matches[0]["match_source"] == "semantic"
+        assert len(result["results"]) == 1
+        assert result["results"][0]["match_source"] == "semantic"
 
     @pytest.mark.asyncio
     async def test_both_sources_rrf_fusion(self, mock_store, mock_semantic, mock_graph):
@@ -81,7 +81,7 @@ class TestHybridQueryRRF:
         mock_semantic.search_all = AsyncMock(return_value=sem_result)
         svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
         result = await svc.search_with_context("funcA funcB", k=5)
-        names = [m["name"] for m in result.semantic_matches]
+        names = [m["name"] for m in result["results"]]
         # funcB should appear only once (deduped)
         assert names.count("funcB") == 1
         # All three should be present
@@ -102,7 +102,7 @@ class TestHybridQueryRRF:
         svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
         result = await svc.search_with_context("exact_match", k=5)
         # exact_match should be ranked higher due to appearing in both lists + keyword weight 1.5
-        assert result.semantic_matches[0]["name"] == "exact_match"
+        assert result["results"][0]["name"] == "exact_match"
 
     def test_doc_key_method(self, mock_store, mock_semantic, mock_graph):
         svc = HybridQueryService(mock_store, mock_semantic, mock_graph)
@@ -131,4 +131,4 @@ class TestHybridQueryRRF:
         result = await svc.search_with_context("test", k=5)
         # Reranker was called
         mock_reranker.rerank_with_scores.assert_called_once()
-        assert len(result.semantic_matches) > 0
+        assert len(result["results"]) > 0

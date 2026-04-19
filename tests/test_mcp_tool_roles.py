@@ -67,13 +67,17 @@ async def test_handle_tool_call_skips_role_check_when_no_token_info() -> None:
 
     hybrid = h._hybrid
     hybrid.search_with_context = AsyncMock(
-        return_value=MagicMock(
-            semantic_matches=[],
-            graph_context=[],
-            query_text="q",
-            confidence=0.0,
-            no_results_reason="",
-        ),
+        return_value={
+            "results": [],
+            "semantic_matches": [],
+            "total": 0,
+            "offset": 0,
+            "limit": 20,
+            "graph_context": [],
+            "query_text": "q",
+            "confidence": 0.0,
+            "no_results_reason": "",
+        },
     )
 
     out = await h.handle_tool_call("rag_query", {"query": "test"}, token_info=None)

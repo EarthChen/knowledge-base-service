@@ -230,20 +230,6 @@ _HYBRID_ENTITY_TYPE_TO_LABEL: dict[str, str] = {
 _HYBRID_ENTITY_FILTER_CHOICES = frozenset(_HYBRID_ENTITY_TYPE_TO_LABEL.keys())
 
 
-def _filter_hybrid_semantic_matches(
-    matches: list[dict[str, Any]],
-    entity_type: str | None,
-) -> list[dict[str, Any]]:
-    """Keep hybrid semantic hits whose ``type`` matches the requested entity kind."""
-    if entity_type is None:
-        return matches
-    label = _HYBRID_ENTITY_TYPE_TO_LABEL.get(entity_type)
-    if label is None:
-        return matches
-    return [m for m in matches if m.get("type") == label]
-
-
-
 # _deprecated_search_json removed in P3 (Track C) — deprecated endpoints fully removed.
 
 
@@ -265,6 +251,13 @@ class HybridSearchRequest(BaseModel):
     query: str
     k: int = Field(default=5, ge=1, le=20)
     expand_depth: int = Field(default=2, ge=1, le=5)
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=20, ge=1, le=500)
+    sort_by: str = Field(
+        default="score",
+        pattern="^(score|name|path)$",
+        description="Sort merged semantic results: score (RRF, default), name, or file path.",
+    )
     entity_type: str | None = Field(
         default=None,
         description=(
@@ -552,21 +545,25 @@ async def hybrid_search(
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
     result = await svc.hybrid_query.search_with_context(
-        req.query, k=req.k, expand_depth=req.expand_depth,
-        repository=req.repository, language=req.language,
+        req.query,
+        k=req.k,
+        expand_depth=req.expand_depth,
+        repository=req.repository,
+        language=req.language,
+        offset=req.offset,
+        limit=req.limit,
+        sort_by=req.sort_by,
+        entity_type=req.entity_type,
     )
-    semantic_matches = _filter_hybrid_semantic_matches(
-        result.semantic_matches,
-        req.entity_type,
-    )
-    total = len(semantic_matches) + len(result.graph_context)
     return {
-        "semantic_matches": semantic_matches,
-        "graph_context": result.graph_context,
-        "total": total,
-        "query": result.query_text,
-        "confidence": result.confidence,
-        "no_results_reason": result.no_results_reason,
+        "semantic_matches": result["results"],
+        "graph_context": result["graph_context"],
+        "total": result["total"],
+        "offset": result["offset"],
+        "limit": result["limit"],
+        "query": result["query_text"],
+        "confidence": result["confidence"],
+        "no_results_reason": result["no_results_reason"],
     }
 
 

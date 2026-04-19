@@ -2,11 +2,11 @@
 
 Node types:
   - Function(name, file, start_line, end_line, docstring, code_snippet, language, signature,
-             annotations, semantic_roles)
+             annotations, semantic_roles; optional indexed_at, repository, commit_sha)
   - Class(name, file, start_line, end_line, docstring, language, base_classes,
-          annotations, semantic_roles)
-  - Module(name, path, language, description)
-  - Document(title, path, content_hash, section)
+          annotations, semantic_roles; optional indexed_at, repository, commit_sha)
+  - Module(name, path, language, description; optional indexed_at, repository, commit_sha)
+  - Document(title, path, content_hash, section; optional indexed_at, repository, commit_sha)
   - BusinessFlow, BusinessConcept (business semantics)
 
 Edge types:
@@ -30,7 +30,13 @@ Edge types:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import StrEnum
+
+
+def utc_indexed_at_iso() -> str:
+    """UTC ISO-8601 timestamp recorded on nodes when they are indexed."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 class NodeLabel(StrEnum):

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from log import get_logger
 from indexer.smart_chunker import Chunk, smart_chunk_markdown
-from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
+from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
 
 log = get_logger(__name__)
 
@@ -90,6 +90,7 @@ class DocumentIndexer:
         nodes: list[GraphNode] = []
         edges: list[GraphEdge] = []
 
+        indexed_at = utc_indexed_at_iso()
         doc_node = GraphNode(
             label=NodeLabel.DOCUMENT,
             properties={
@@ -99,6 +100,7 @@ class DocumentIndexer:
                 "content_hash": doc.content_hash,
                 "title": doc.title,
                 "code_references": doc.code_references,
+                "indexed_at": indexed_at,
             },
         )
         nodes.append(doc_node)
@@ -129,6 +131,7 @@ class DocumentIndexer:
                         "level": section.level,
                         "heading_context": chunk.heading_context,
                         "document_title": doc.title,
+                        "indexed_at": indexed_at,
                     },
                 )
                 nodes.append(section_node)

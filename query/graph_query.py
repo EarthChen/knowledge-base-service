@@ -82,9 +82,10 @@ class GraphQueryService:
                 f"MATCH path = (caller:Function)-[:CALLS*1..{depth}]->(f) "
                 "UNWIND relationships(path) AS rel "
                 "WITH startNode(rel) AS src, endNode(rel) AS tgt "
-                "RETURN DISTINCT src.name AS src_name, src.file AS src_file, src.start_line AS src_line, "
+                "RETURN DISTINCT src.name AS src_name, src.file AS src_file, "
+                "src.start_line AS src_line, src.end_line AS src_end_line, "
                 "coalesce(src.fqn, '') AS src_fqn, "
-                "tgt.name AS tgt_name, tgt.file AS tgt_file, tgt.start_line AS tgt_line, "
+                "tgt.name AS tgt_name, tgt.file AS tgt_file, tgt.start_line AS tgt_line, tgt.end_line AS tgt_end_line, "
                 "coalesce(tgt.fqn, '') AS tgt_fqn"
             )
         else:
@@ -94,9 +95,10 @@ class GraphQueryService:
                 f"MATCH path = (f)-[:CALLS*1..{depth}]->(callee:Function) "
                 "UNWIND relationships(path) AS rel "
                 "WITH startNode(rel) AS src, endNode(rel) AS tgt "
-                "RETURN DISTINCT src.name AS src_name, src.file AS src_file, src.start_line AS src_line, "
+                "RETURN DISTINCT src.name AS src_name, src.file AS src_file, "
+                "src.start_line AS src_line, src.end_line AS src_end_line, "
                 "coalesce(src.fqn, '') AS src_fqn, "
-                "tgt.name AS tgt_name, tgt.file AS tgt_file, tgt.start_line AS tgt_line, "
+                "tgt.name AS tgt_name, tgt.file AS tgt_file, tgt.start_line AS tgt_line, tgt.end_line AS tgt_end_line, "
                 "coalesce(tgt.fqn, '') AS tgt_fqn"
             )
         rows = await self._store.execute_query(query, params)
@@ -108,17 +110,29 @@ class GraphQueryService:
             src_key = f"{r.get('src_name', '')}:{r.get('src_line', 0)}"
             tgt_key = f"{r.get('tgt_name', '')}:{r.get('tgt_line', 0)}"
             if src_key not in nodes_map:
+                src_sl = r.get("src_line", 0)
+                src_el = r.get("src_end_line")
+                if src_el is None:
+                    src_el = src_sl
                 nodes_map[src_key] = {
                     "name": r.get("src_name", ""),
                     "file": r.get("src_file", ""),
-                    "line": r.get("src_line", 0),
+                    "line": src_sl,
+                    "start_line": src_sl,
+                    "end_line": src_el,
                     "fqn": r.get("src_fqn", ""),
                 }
             if tgt_key not in nodes_map:
+                tgt_sl = r.get("tgt_line", 0)
+                tgt_el = r.get("tgt_end_line")
+                if tgt_el is None:
+                    tgt_el = tgt_sl
                 nodes_map[tgt_key] = {
                     "name": r.get("tgt_name", ""),
                     "file": r.get("tgt_file", ""),
-                    "line": r.get("tgt_line", 0),
+                    "line": tgt_sl,
+                    "start_line": tgt_sl,
+                    "end_line": tgt_el,
                     "fqn": r.get("tgt_fqn", ""),
                 }
             edges.append({"source": src_key, "target": tgt_key})
@@ -143,17 +157,31 @@ class GraphQueryService:
                 f"MATCH (c:Class) WHERE {where} "
                 "WITH c "
                 "MATCH (c)-[:INHERITS*1..10]->(parent:Class) "
-                "RETURN parent.name AS name, parent.file AS file, parent.start_line AS line"
+                "RETURN parent.name AS name, parent.file AS file, "
+                "parent.start_line AS start_line, parent.end_line AS end_line"
             )
         else:
             query = (
                 f"MATCH (c:Class) WHERE {where} "
                 "WITH c "
                 "MATCH (child:Class)-[:INHERITS*1..10]->(c) "
-                "RETURN child.name AS name, child.file AS file, child.start_line AS line"
+                "RETURN child.name AS name, child.file AS file, "
+                "child.start_line AS start_line, child.end_line AS end_line"
             )
         rows = await self._store.execute_query(query, params)
-        data = [{"name": r[0], "file": r[1], "line": r[2]} for r in rows]
+        data: list[dict[str, Any]] = []
+        for r in rows.data:
+            sl = r.get("start_line", 0)
+            el = r.get("end_line")
+            if el is None:
+                el = sl
+            data.append({
+                "name": r.get("name", ""),
+                "file": r.get("file", ""),
+                "line": sl,
+                "start_line": sl,
+                "end_line": el,
+            })
         return QueryResult(data=data, query=query, params=params)
 
     async def find_class_methods(self, class_name: str) -> QueryResult:
@@ -165,11 +193,25 @@ class GraphQueryService:
             f"MATCH (c:Class) WHERE {where} "
             "WITH c "
             "MATCH (c)-[:CONTAINS]->(m:Function) "
-            "RETURN m.name AS name, m.signature AS signature, m.file AS file, m.start_line AS line "
-            "ORDER BY m.start_line"
+            "RETURN m.name AS name, m.signature AS signature, m.file AS file, "
+            "m.start_line AS start_line, m.end_line AS end_line "
+            "ORDER BY start_line"
         )
         rows = await self._store.execute_query(query, params)
-        data = [{"name": r[0], "signature": r[1], "file": r[2], "line": r[3]} for r in rows]
+        data = []
+        for r in rows.data:
+            sl = r.get("start_line", 0)
+            el = r.get("end_line")
+            if el is None:
+                el = sl
+            data.append({
+                "name": r.get("name", ""),
+                "signature": r.get("signature", ""),
+                "file": r.get("file", ""),
+                "line": sl,
+                "start_line": sl,
+                "end_line": el,
+            })
         return QueryResult(data=data, query=query, params=params)
 
     async def find_module_dependencies(self, module_name: str) -> QueryResult:

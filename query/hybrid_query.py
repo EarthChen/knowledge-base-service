@@ -64,6 +64,8 @@ class HybridResult:
     graph_context: list[dict[str, Any]] = field(default_factory=list)
     query_text: str = ""
     total: int = 0
+    confidence: float = 0.0
+    no_results_reason: str = ""
 
 
 class HybridQueryService:
@@ -149,11 +151,15 @@ class HybridQueryService:
 
         graph_context = await self._expand_graph(merged, expand_depth, include_callers, include_callees)
 
+        confidence, no_results_reason = self._confidence_and_reason(merged)
+
         return HybridResult(
             semantic_matches=merged,
             graph_context=graph_context,
             query_text=query_text,
             total=len(merged) + len(graph_context),
+            confidence=confidence,
+            no_results_reason=no_results_reason,
         )
 
     async def _expand_query_with_graph(self, query_text: str, max_expansions: int = 3) -> list[str]:
@@ -225,6 +231,52 @@ class HybridQueryService:
         file = match.get("file") or ""
         line = str(match.get("line") or "")
         return f"{name}:{file}:{line}"
+
+    @staticmethod
+    def _confidence_and_reason(semantic_matches: list[dict[str, Any]]) -> tuple[float, str]:
+        """Signal whether search ran successfully but found nothing vs. match quality."""
+        if not semantic_matches:
+            return 0.0, "No matching entities found for query"
+        scores: list[float] = []
+        for m in semantic_matches:
+            raw = m.get("score")
+            if raw is None:
+                continue
+            try:
+                scores.append(float(raw))
+            except (TypeError, ValueError):
+                continue
+        best = max(scores) if scores else 0.0
+        clamped = max(0.0, min(1.0, best))
+        return clamped, ""
+
+    @staticmethod
+    def _ensure_graph_location_fields(item: dict[str, Any]) -> dict[str, Any]:
+        """Normalize graph_context rows so agents always see file / line range keys."""
+        file_path = item.get("file") or ""
+        line_single = item.get("line")
+        start = item.get("start_line")
+        end = item.get("end_line")
+        if start is None and line_single is not None:
+            try:
+                start = int(line_single)
+            except (TypeError, ValueError):
+                start = 0
+        if end is None:
+            end = start if start is not None else 0
+        try:
+            start_i = int(start or 0)
+        except (TypeError, ValueError):
+            start_i = 0
+        try:
+            end_i = int(end or 0)
+        except (TypeError, ValueError):
+            end_i = start_i
+        out = dict(item)
+        out["file"] = file_path
+        out["start_line"] = start_i
+        out["end_line"] = end_i
+        return out
 
     @staticmethod
     def _fuse_results_legacy(
@@ -360,29 +412,33 @@ class HybridQueryService:
                 if include_callees:
                     callees = await self._graph.find_call_chain(name, depth=expand_depth, direction="downstream")
                     for item in callees.data:
-                        item["relationship"] = "called_by"
-                        item["source"] = name
-                        graph_context.append(item)
+                        enriched = self._ensure_graph_location_fields(item)
+                        enriched["relationship"] = "called_by"
+                        enriched["source"] = name
+                        graph_context.append(enriched)
 
                 if include_callers:
                     callers = await self._graph.find_call_chain(name, depth=expand_depth, direction="upstream")
                     for item in callers.data:
-                        item["relationship"] = "calls"
-                        item["source"] = name
-                        graph_context.append(item)
+                        enriched = self._ensure_graph_location_fields(item)
+                        enriched["relationship"] = "calls"
+                        enriched["source"] = name
+                        graph_context.append(enriched)
 
             elif entity_type == str(NodeLabel.CLASS) or entity_type == "Class":
                 methods = await self._graph.find_class_methods(name)
                 for item in methods.data:
-                    item["relationship"] = "method_of"
-                    item["source"] = name
-                    graph_context.append(item)
+                    enriched = self._ensure_graph_location_fields(item)
+                    enriched["relationship"] = "method_of"
+                    enriched["source"] = name
+                    graph_context.append(enriched)
 
                 children = await self._graph.find_inheritance_tree(name, direction="children")
                 for item in children.data:
-                    item["relationship"] = "subclass_of"
-                    item["source"] = name
-                    graph_context.append(item)
+                    enriched = self._ensure_graph_location_fields(item)
+                    enriched["relationship"] = "subclass_of"
+                    enriched["source"] = name
+                    graph_context.append(enriched)
 
         for match in matches:
             name = match.get("name", "")
@@ -422,16 +478,18 @@ class HybridQueryService:
             if entity_type == "Function":
                 callees = await self._graph.find_call_chain(name, depth=1, direction="downstream")
                 for item in callees.data:
-                    item["relationship"] = "called_by"
-                    item["source"] = name
-                    graph_context.append(item)
+                    enriched = self._ensure_graph_location_fields(item)
+                    enriched["relationship"] = "called_by"
+                    enriched["source"] = name
+                    graph_context.append(enriched)
 
             elif entity_type == "Class":
                 methods = await self._graph.find_class_methods(name)
                 for item in methods.data:
-                    item["relationship"] = "method_of"
-                    item["source"] = name
-                    graph_context.append(item)
+                    enriched = self._ensure_graph_location_fields(item)
+                    enriched["relationship"] = "method_of"
+                    enriched["source"] = name
+                    graph_context.append(enriched)
 
         return HybridResult(
             semantic_matches=[{"type": e.get("type", ""), "name": e.get("name", "")} for e in entities.data],

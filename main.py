@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from api.error_handler import register_exception_handlers
 from api.routes.provider_routes import provider_router
 from api.routes.webhook_routes import init_webhook_state, webhook_router
 from api.routes.wiki_routes import wiki_router
@@ -35,7 +36,7 @@ from auth import (
 )
 from config import get_settings
 from indexer.embedding_generator import doc_dict_for_embedding
-from indexer.incremental_indexer import _stamp_repository_on_nodes
+from indexer.incremental_indexer import _stamp_repository_metadata, _try_git_head_sha_for_file
 from indexer.task_manager import IndexTaskManager
 from log import get_logger, setup_logging
 from repo_registry import RepoRegistry
@@ -542,6 +543,8 @@ async def hybrid_search(
         "graph_context": result.graph_context,
         "total": total,
         "query": result.query_text,
+        "confidence": result.confidence,
+        "no_results_reason": result.no_results_reason,
     }
 
 
@@ -1001,7 +1004,8 @@ async def index_files(
         if ext in {"md", "markdown", "rst", "txt"}:
             doc = svc.doc_indexer.parse_document(file_req.file_path, file_req.content)
             doc_nodes, doc_edges = svc.doc_indexer.build_graph(doc)
-            _stamp_repository_on_nodes(doc_nodes, repo)
+            _sha = _try_git_head_sha_for_file(file_req.file_path) if repo else None
+            _stamp_repository_metadata(doc_nodes, repo, commit_sha=_sha)
             await svc.store.batch_upsert(doc_nodes, doc_edges)
             total_nodes += len(doc_nodes)
             total_edges += len(doc_edges)
@@ -2019,6 +2023,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+    register_exception_handlers(app)
     app.include_router(public_router)
     app.include_router(webhook_router)
     app.include_router(provider_router)

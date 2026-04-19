@@ -21,7 +21,11 @@ from config import Settings
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
-from indexer.incremental_indexer import IncrementalIndexer, _stamp_repository_on_nodes
+from indexer.incremental_indexer import (
+    IncrementalIndexer,
+    _stamp_repository_metadata,
+    _try_git_head_sha,
+)
 from indexer.tree_sitter_parser import TreeSitterParser
 from log import get_logger
 from query.graph_query import GraphQueryService
@@ -280,6 +284,7 @@ class KnowledgeBaseService:
 
         base = Path(directory)
         exclude_dirs = set(self._doc_indexer._exclude_dirs)
+        commit_sha = _try_git_head_sha(str(directory.resolve()))
         for ext in self._doc_indexer.SUPPORTED_EXTENSIONS:
             for fpath in base.rglob(f"*{ext}"):
                 if any(part in exclude_dirs for part in fpath.parts):
@@ -288,7 +293,7 @@ class KnowledgeBaseService:
                     rel = str(fpath.relative_to(base))
                     doc = self._doc_indexer.parse_document(str(fpath), store_path=rel)
                     nodes, edges = self._doc_indexer.build_graph(doc)
-                    _stamp_repository_on_nodes(nodes, repository)
+                    _stamp_repository_metadata(nodes, repository, commit_sha=commit_sha)
                     await self._store.batch_upsert(nodes, edges)
                     doc_nodes_total += len(nodes)
                     doc_edges_total += len(edges)

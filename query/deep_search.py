@@ -14,6 +14,8 @@ import re
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
+import json_repair
+
 if TYPE_CHECKING:
     from llm.gateway_client import RepoTaskManager
     from llm.provider import LLMProvider
@@ -23,10 +25,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _parse_json_object_from_llm(text: str) -> dict[str, Any] | None:
-    """Parse a JSON object from LLM text (fenced code or raw)."""
-    code_block = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
-    candidate = code_block.group(1).strip() if code_block else text.strip()
+def _extract_first_brace_json_slice(candidate: str) -> str | None:
+    """Return the first balanced `{...}` substring, or None."""
+    start = candidate.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    for i in range(start, len(candidate)):
+        ch = candidate[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return candidate[start : i + 1]
+    return None
+
+
+def _legacy_parse_json_object_brace_only(candidate: str) -> dict[str, Any] | None:
+    """Original behavior: brace-counting plus stdlib json.loads only (no repair)."""
     start = candidate.find("{")
     if start < 0:
         return None
@@ -43,6 +60,35 @@ def _parse_json_object_from_llm(text: str) -> dict[str, Any] | None:
                     return obj if isinstance(obj, dict) else None
                 except json.JSONDecodeError:
                     return None
+    return None
+
+
+def _parse_json_object_from_llm(text: str) -> dict[str, Any] | None:
+    """Parse a JSON object from LLM text (fenced code or raw)."""
+    code_block = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    candidate = code_block.group(1).strip() if code_block else text.strip()
+
+    json_slice = _extract_first_brace_json_slice(candidate)
+    if json_slice is not None:
+        try:
+            obj = json.loads(json_slice)
+            return obj if isinstance(obj, dict) else None
+        except json.JSONDecodeError:
+            pass
+
+        try:
+            obj = json_repair.loads(json_slice)
+            if isinstance(obj, dict):
+                logger.warning(
+                    "Used json_repair.loads() because LLM JSON was malformed "
+                    "(stdlib json.loads failed)"
+                )
+                return obj
+        except Exception:
+            pass
+
+        return _legacy_parse_json_object_brace_only(candidate)
+
     return None
 
 _PLAN_PROMPT = """你是一个代码知识库搜索助手。用户的查询是：

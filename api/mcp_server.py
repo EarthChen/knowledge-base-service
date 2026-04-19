@@ -18,6 +18,7 @@ Tools exposed:
   - get_wiki_page, list_wiki_pages, search_wiki, wiki_lint, wiki_export_preview, wiki_export_execute: Wiki browsing, search, lint, and repo markdown export
   - traverse_call_chain, find_impact_scope, analyze_pr_impact: Wiki-scoped graph traversal (no LLM)
   - graph_insights: Architecture anomaly scan (isolation, import cycles, cross-layer calls, cohesion, bridges)
+  - index_freshness: Last indexed time, node counts, and git HEAD for a repository stamp
 """
 
 from __future__ import annotations
@@ -723,6 +724,23 @@ MCP_TOOLS_MANIFEST = [
             "required": ["repository"],
         },
     },
+    {
+        "name": "index_freshness",
+        "description": (
+            "Report index freshness for a stamped repository: latest node indexed_at, "
+            "total node count, and commit_sha from the last indexing run when git metadata was captured."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {
+                    "type": "string",
+                    "description": "Repository name as stored on indexed nodes.",
+                },
+            },
+            "required": ["repository"],
+        },
+    },
 ] + WIKI_MCP_TOOLS_MANIFEST
 
 
@@ -773,6 +791,7 @@ class KnowledgeBaseMCPHandler:
             "build_context": self.handle_build_context,
             "dashboard_stats": self.handle_dashboard_stats,
             "graph_insights": self.handle_graph_insights,
+            "index_freshness": self.handle_index_freshness,
             "task_status": self.handle_task_status,
             "get_wiki_page": self._wiki.handle_get_wiki_page,
             "list_wiki_pages": self._wiki.handle_list_wiki_pages,
@@ -1137,6 +1156,14 @@ class KnowledgeBaseMCPHandler:
         report = await svc.analyze(repository)
         return {"status": "success", **report.to_dict()}
 
+    async def handle_index_freshness(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        repository = str(arguments.get("repository") or "").strip()
+        if not repository:
+            return _mcp_error("invalid_params", "repository parameter is required")
+        if not self._store:
+            return _mcp_error("service_unavailable", "Graph store not available")
+        return await self._store.get_repository_index_freshness(repository)
+
     async def handle_task_status(self, arguments: dict[str, Any]) -> dict[str, Any]:
         task_id = str(arguments.get("task_id") or "").strip()
         if not task_id:
@@ -1388,9 +1415,10 @@ class KnowledgeBaseMCPHandler:
 
         from pathlib import Path
 
-        from indexer.incremental_indexer import _stamp_repository_on_nodes
+        from indexer.incremental_indexer import _stamp_repository_metadata, _try_git_head_sha
 
         base = Path(directory)
+        commit_sha = _try_git_head_sha(directory)
         total_nodes = 0
         total_edges = 0
         total_embeds = 0
@@ -1412,7 +1440,7 @@ class KnowledgeBaseMCPHandler:
                 rel = str(fpath.relative_to(base))
                 doc = self._doc_indexer.parse_document(str(fpath), store_path=rel)
                 nodes, edges = self._doc_indexer.build_graph(doc)
-                _stamp_repository_on_nodes(nodes, repository)
+                _stamp_repository_metadata(nodes, repository, commit_sha=commit_sha)
                 await self._store.batch_upsert(nodes, edges)
                 total_nodes += len(nodes)
                 total_edges += len(edges)

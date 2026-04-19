@@ -6,7 +6,7 @@ import re
 from typing import TYPE_CHECKING
 
 from log import get_logger
-from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
+from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
 
 if TYPE_CHECKING:
     from store.falkordb_store import FalkorDBStore
@@ -52,6 +52,7 @@ def _kafka_topic_module_node(topic: str) -> GraphNode:
             "language": "kafka",
             "kafka_topic": topic,
             "start_line": 0,
+            "indexed_at": utc_indexed_at_iso(),
         },
     )
 

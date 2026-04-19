@@ -53,12 +53,50 @@ def _git_changed_pairs_to_diff_triples(
     return out
 
 
-def _stamp_repository_on_nodes(nodes: list[GraphNode], repository: str | None) -> None:
-    """Set ``repository`` on node properties before upsert (avoids cross-repo tagging races)."""
-    if not repository:
-        return
-    for n in nodes:
-        n.properties["repository"] = repository
+def _try_git_head_sha(repo_root: str) -> str | None:
+    """Return ``git rev-parse HEAD`` when *repo_root* is a git checkout, else ``None``."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if proc.returncode != 0:
+            return None
+        sha = (proc.stdout or "").strip()
+        return sha or None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _try_git_head_sha_for_file(file_path: str) -> str | None:
+    """Walk parents from *file_path* to find ``.git`` and resolve HEAD."""
+    p = Path(file_path).resolve()
+    cur = p if p.is_dir() else p.parent
+    for _ in range(64):
+        if (cur / ".git").exists():
+            return _try_git_head_sha(str(cur))
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+    return None
+
+
+def _stamp_repository_metadata(
+    nodes: list[GraphNode],
+    repository: str | None,
+    *,
+    commit_sha: str | None = None,
+) -> None:
+    """Set ``repository`` and optional ``commit_sha`` on node properties before upsert."""
+    if repository:
+        for n in nodes:
+            n.properties["repository"] = repository
+    if commit_sha:
+        for n in nodes:
+            n.properties["commit_sha"] = commit_sha
 
 
 def _get_exclude_dirs() -> set[str]:
@@ -179,10 +217,11 @@ class IncrementalIndexer:
         enrichment_task = asyncio.create_task(_enrichment_consumer())
 
         batch_buffer: list[dict[str, str]] = []
+        commit_sha = _try_git_head_sha(directory)
 
         for fpath, nodes, edges in self._builder.iter_directory(directory):
             try:
-                _stamp_repository_on_nodes(nodes, repository)
+                _stamp_repository_metadata(nodes, repository, commit_sha=commit_sha)
                 await self._store.batch_upsert(nodes, edges)
                 total_nodes += len(nodes)
                 total_edges += len(edges)
@@ -364,6 +403,7 @@ class IncrementalIndexer:
         doc_file_paths: list[str] = []
 
         processed_count = 0
+        commit_sha = _try_git_head_sha(directory)
         for fpath in modified_files:
             try:
                 full_path = str(Path(directory) / fpath)
@@ -379,7 +419,7 @@ class IncrementalIndexer:
                     try:
                         doc = self._doc_indexer.parse_document(full_path, store_path=fpath)
                         doc_nodes, doc_edges = self._doc_indexer.build_graph(doc)
-                        _stamp_repository_on_nodes(doc_nodes, repository)
+                        _stamp_repository_metadata(doc_nodes, repository, commit_sha=commit_sha)
                         await self._store.batch_upsert(doc_nodes, doc_edges)
                         doc_file_paths.append(fpath)
                         total_doc_nodes += len(doc_nodes)
@@ -390,7 +430,7 @@ class IncrementalIndexer:
                         report.record_file_failure(fpath, str(exc))
                 else:
                     nodes, edges = self._builder.build_from_file(full_path, store_path=fpath)
-                    _stamp_repository_on_nodes(nodes, repository)
+                    _stamp_repository_metadata(nodes, repository, commit_sha=commit_sha)
                     await self._store.batch_upsert(nodes, edges)
                     code_file_paths.append(fpath)
                     total_nodes += len(nodes)
@@ -605,7 +645,8 @@ class IncrementalIndexer:
         if persist != file_path:
             await self._store.delete_by_file(file_path)
         nodes, edges = self._builder.build_from_file(file_path, content, store_path=persist)
-        _stamp_repository_on_nodes(nodes, repository)
+        _sha = _try_git_head_sha_for_file(file_path)
+        _stamp_repository_metadata(nodes, repository, commit_sha=_sha)
         await self._store.batch_upsert(nodes, edges)
         embed_count = await self._generate_and_store_embeddings(nodes)
         return {"nodes": len(nodes), "edges": len(edges), "embeddings": embed_count}

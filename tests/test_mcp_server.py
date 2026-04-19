@@ -5,7 +5,7 @@ from api.mcp_server import MCP_TOOLS_MANIFEST
 
 class TestMCPToolsManifest:
     def test_tool_count(self):
-        assert len(MCP_TOOLS_MANIFEST) == 26
+        assert len(MCP_TOOLS_MANIFEST) == 27
 
     def test_tool_names(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}
@@ -27,6 +27,7 @@ class TestMCPToolsManifest:
             "code_quality",
             "dashboard_stats",
             "graph_insights",
+            "index_freshness",
             "get_wiki_page",
             "list_wiki_pages",
             "search_wiki",

@@ -12,7 +12,7 @@ from pathlib import Path
 from indexer.annotation_semantics import classify_annotations, lookup_annotation
 from indexer.tree_sitter_parser import ParseResult, ParsedField, TreeSitterParser
 from log import get_logger
-from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
+from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
 
 log = get_logger(__name__)
 
@@ -206,6 +206,7 @@ class CodeGraphBuilder:
         nodes: list[GraphNode] = []
         edges: list[GraphEdge] = []
 
+        indexed_at = utc_indexed_at_iso()
         import_names = [imp.module for imp in result.imports]
 
         module_name = Path(file_path).stem
@@ -216,6 +217,7 @@ class CodeGraphBuilder:
                 "path": file_path,
                 "language": language,
                 "imports": import_names,
+                "indexed_at": indexed_at,
             },
         )
         nodes.append(module_node)
@@ -234,6 +236,7 @@ class CodeGraphBuilder:
                         "name": mod_name,
                         "path": ext_path,
                         "language": language,
+                        "indexed_at": indexed_at,
                     },
                 )
                 nodes.append(import_target_by_name[mod_name])
@@ -275,6 +278,7 @@ class CodeGraphBuilder:
             semantic_roles = classify_annotations(cls.decorators)
             if semantic_roles:
                 cls_props["semantic_roles"] = semantic_roles
+            cls_props["indexed_at"] = indexed_at
             class_node = GraphNode(label=NodeLabel.CLASS, properties=cls_props)
             nodes.append(class_node)
             class_uid_by_name[cls.name] = class_node.uid
@@ -341,6 +345,7 @@ class CodeGraphBuilder:
                 func_props["parameters"] = [f"{p['name']}:{p['type']}" if p.get("type") else p["name"] for p in func.parameters]
             if func.return_type:
                 func_props["return_type"] = func.return_type
+            func_props["indexed_at"] = indexed_at
             func_node = GraphNode(label=NodeLabel.FUNCTION, properties=func_props)
             nodes.append(func_node)
             func_uid_by_name.setdefault(func.name, []).append(func_node.uid)
@@ -417,6 +422,7 @@ class CodeGraphBuilder:
                 if field_fqn:
                     field_props["fqn"] = field_fqn
 
+                field_props["indexed_at"] = indexed_at
                 field_node = GraphNode(label=NodeLabel.FUNCTION, properties=field_props)
                 nodes.append(field_node)
                 func_uid_by_name.setdefault(f"field:{fld.name}", []).append(field_node.uid)

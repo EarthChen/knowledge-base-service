@@ -285,6 +285,46 @@ class FalkorDBStore:
         data = [dict(zip(header, row)) for row in (result.result_set or [])]
         return QueryResultWrapper(data=data, raw=result.result_set)
 
+    async def get_repository_index_freshness(self, repository: str) -> dict[str, Any]:
+        """Aggregate index freshness for nodes stamped with ``repository``."""
+        repo = (repository or "").strip()
+        q_stats = (
+            "MATCH (n) WHERE n.repository = $repo "
+            "RETURN max(n.indexed_at) AS last_indexed_at, count(n) AS node_count"
+        )
+        stats = await self.execute_query(q_stats, {"repo": repo})
+        last_indexed_at: str | None = None
+        node_count = 0
+        if stats.data:
+            row = stats.data[0]
+            last_indexed_at = row.get("last_indexed_at")
+            if last_indexed_at is not None:
+                last_indexed_at = str(last_indexed_at)
+            raw_cnt = row.get("node_count")
+            try:
+                node_count = int(raw_cnt) if raw_cnt is not None else 0
+            except (TypeError, ValueError):
+                node_count = 0
+
+        commit_sha: str | None = None
+        q_sha = (
+            "MATCH (n) WHERE n.repository = $repo AND n.commit_sha IS NOT NULL "
+            "RETURN n.commit_sha AS commit_sha "
+            "ORDER BY n.indexed_at DESC LIMIT 1"
+        )
+        sha_res = await self.execute_query(q_sha, {"repo": repo})
+        if sha_res.data:
+            cs = sha_res.data[0].get("commit_sha")
+            if cs is not None and str(cs).strip():
+                commit_sha = str(cs).strip()
+
+        return {
+            "repository": repo,
+            "last_indexed_at": last_indexed_at,
+            "node_count": node_count,
+            "commit_sha": commit_sha,
+        }
+
     async def persist_wiki_pages(self, repository: str, pages: list[dict[str, Any]]) -> int:
         """MERGE WikiPage nodes from generated wiki output. Returns count of upserted nodes."""
         if not pages:

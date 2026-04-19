@@ -35,7 +35,24 @@ from auth import (
     resolve_business_id,
     resolve_token,
 )
-from config import get_settings
+from config import Settings, get_settings
+
+
+def _startup_auth_gate(settings: Settings) -> None:
+    """Log when no tokens are configured; optionally fail startup if ``require_auth``."""
+    if get_auth_mode() == "open":
+        log.warning(
+            "no_api_tokens_configured",
+            detail=(
+                "No API tokens configured — all endpoints are accessible without authentication. "
+                "Set API_TOKEN, API_TOKENS, or TOKENS_FILE for production deployments."
+            ),
+        )
+        if settings.require_auth:
+            raise RuntimeError(
+                "require_auth is enabled but no API tokens are configured. "
+                "Set API_TOKEN, API_TOKENS, or TOKENS_FILE before starting the service.",
+            )
 from indexer.embedding_generator import doc_dict_for_embedding
 from indexer.incremental_indexer import _stamp_repository_metadata, _try_git_head_sha_for_file
 from indexer.task_manager import IndexTaskManager
@@ -109,6 +126,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     setup_logging(level=settings.log_level)
     log.info("kb_service_starting", host=settings.host, port=settings.port)
 
+    _startup_auth_gate(settings)
+
     _task_manager = IndexTaskManager()
 
     def _index_task_status_for_mcp(task_id: str) -> dict[str, Any] | None:
@@ -151,15 +170,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.wiki_lint_service_factory = wiki_lint_service_factory
 
     await wire_wiki_app_state(app, _registry)
-
-    if get_auth_mode() == "open":
-        log.warning(
-            "open_mode_active",
-            detail=(
-                "No API tokens configured — all endpoints are accessible without authentication. "
-                "Set API_TOKEN, API_TOKENS, or TOKENS_FILE for production deployments."
-            ),
-        )
 
     log.info("kb_service_started")
     yield
@@ -1540,13 +1550,16 @@ async def get_code_snippet(
     return data
 
 
-@editor_router.post("/mcp/tool")
+@viewer_router.post("/mcp/tool")
 async def mcp_tool_call(
     req: MCPToolCallRequest,
     svc: KnowledgeBaseService = Depends(_get_service),
+    token_info: TokenInfo | None = Depends(require_role(Role.VIEWER)),
 ) -> dict[str, Any]:
     """MCP-compatible tool call endpoint."""
-    return await svc.mcp_handler.handle_tool_call(req.tool_name, req.arguments)
+    return await svc.mcp_handler.handle_tool_call(
+        req.tool_name, req.arguments, token_info=token_info,
+    )
 
 
 @viewer_router.get("/mcp/tools")

@@ -18,7 +18,7 @@ from typing import Any
 
 from log import get_logger
 from query.graph_query import GraphQueryService
-from query.query_router import route_query
+from query.query_router import SearchStrategy, route_query
 from query.semantic_query import SemanticQueryService
 from search.fusion import position_aware_blend, rrf_fusion
 from store.falkordb_store import FalkorDBStore
@@ -140,12 +140,15 @@ class HybridQueryService:
         if use_child_chunks is None:
             use_child_chunks = self._use_child_chunks
 
+        router_strategy = route_query(query_text) if use_query_router else None
+
         if use_child_chunks:
             return await self._search_with_child_chunks(
                 query_text, k, expand_depth, include_callers, include_callees,
                 repository=repository, language=language, per_file_cap=per_file_cap,
+                router_strategy=router_strategy,
+                use_query_router=use_query_router,
             )
-        router_strategy = route_query(query_text) if use_query_router else None
 
         should_expand = use_query_expansion and self._query_expansion_enabled
         if should_expand:
@@ -244,8 +247,20 @@ class HybridQueryService:
         repository: str | None = None,
         language: str | None = None,
         per_file_cap: int = 3,
+        router_strategy: SearchStrategy | None = None,
+        use_query_router: bool = True,
     ) -> HybridResult:
         """Chunk-aware hybrid search: keyword + chunk-vector + parent context."""
+        if not use_query_router:
+            router_strategy = None
+        if router_strategy is None:
+            kw_w, sem_w = 1.5, 1.0
+            expand_graph = True
+        else:
+            kw_w = router_strategy.keyword_weight
+            sem_w = router_strategy.semantic_weight
+            expand_graph = router_strategy.expand_graph
+
         identifiers = _extract_identifiers(query_text)
         kw_coro = (
             self._keyword_search_multi(identifiers, k, repository=repository, language=language)
@@ -282,16 +297,26 @@ class HybridQueryService:
             query_text,
             [kw_ranked],
             [sem_ranked],
-            [1.5],
-            [1.0],
+            [kw_w],
+            [sem_w],
             doc_map,
             k,
             per_file_cap=per_file_cap,
         )
 
-        graph_context = await self._expand_graph(
-            merged, expand_depth, include_callers, include_callees,
-        )
+        if not expand_graph:
+            graph_context = []
+        else:
+            graph_seed_matches = merged
+            if router_strategy is not None and router_strategy.entity_priority:
+                preferred = [
+                    m for m in merged if str(m.get("type", "")) in router_strategy.entity_priority
+                ]
+                if preferred:
+                    graph_seed_matches = preferred
+            graph_context = await self._expand_graph(
+                graph_seed_matches, expand_depth, include_callers, include_callees,
+            )
 
         confidence, no_results_reason = self._confidence_and_reason(merged)
 

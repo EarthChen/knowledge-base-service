@@ -180,6 +180,14 @@ def require_role(minimum: Role):
     def _check(authorization: str | None = Header(default=None)) -> TokenInfo | None:
         info = resolve_token(authorization)
         if info is None:
+            if get_settings().require_auth:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Authentication required (require_auth is enabled but no API tokens "
+                        "are configured). Set API_TOKEN, API_TOKENS, or TOKENS_FILE.",
+                    ),
+                )
             return None
         if info.role < minimum:
             raise HTTPException(

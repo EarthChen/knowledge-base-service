@@ -225,6 +225,10 @@ class Settings(BaseSettings):
     rate_limit_rpm: int = 120
     rate_limit_trust_proxy: bool = False
 
+    #: When ``True``, the service refuses to start without API tokens and
+    #: protected routes return 403 if authentication is not configured.
+    require_auth: bool = False
+
     api_token: str = ""
     api_tokens: str = ""
     tokens_file: str = "tokens.yaml"

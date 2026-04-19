@@ -363,6 +363,7 @@ class WikiMCPHandler:
             "content": page.content,
             "diagrams": pd.get("diagrams", []),
             "source_locations": pd.get("source_locations", []),
+            "synthesized": True,
         }
 
     async def handle_list_wiki_pages(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -417,7 +418,7 @@ class WikiMCPHandler:
             if s:
                 scope_filter = s
         try:
-            return await self._pipeline.search_wiki(
+            payload = await self._pipeline.search_wiki(
                 repository,
                 query,
                 mode,
@@ -427,6 +428,9 @@ class WikiMCPHandler:
             )
         except Exception as exc:
             return self._mcp_error("internal_error", str(exc))
+        if isinstance(payload, dict):
+            return {**payload, "synthesized": True}
+        return payload
 
     async def handle_ask_about_code(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._pipeline is None:

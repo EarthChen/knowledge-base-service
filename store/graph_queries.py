@@ -271,7 +271,8 @@ class GraphQueryRepository:
             "RETURN n.name AS name, n.file AS file, n.start_line AS start_line, "
             "n.end_line AS end_line, coalesce(n.code_snippet, '') AS code_snippet, "
             "coalesce(n.signature, '') AS signature, coalesce(n.docstring, '') AS docstring, "
-            "coalesce(n.fqn, '') AS fqn, labels(n)[0] AS type",
+            "coalesce(n.fqn, '') AS fqn, labels(n)[0] AS type, "
+            "n.commit_sha AS commit_sha, n.indexed_at AS indexed_at",
             {"uid": node_uid},
         )
         return result.data[0] if result.data else None

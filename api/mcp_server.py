@@ -33,6 +33,7 @@ from typing import Any
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from indexer.incremental_indexer import IncrementalIndexer
+from auth import Role, TokenInfo
 from log import get_logger
 from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
@@ -95,6 +96,14 @@ def _filter_graph_context_by_entity_type(
 
 def _mcp_error(code: str, message: str) -> dict[str, Any]:
     return {"error": {"code": code, "message": message}}
+
+
+# Minimum role per MCP tool name. Omitted tools default to ``Role.VIEWER``.
+MCP_TOOL_MIN_ROLE: dict[str, Role] = {
+    "rag_index": Role.EDITOR,
+    "wiki_export_execute": Role.EDITOR,
+}
+TOOL_ROLES: dict[str, Role] = MCP_TOOL_MIN_ROLE
 
 
 _DOC_NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)[\.\s]")
@@ -843,8 +852,22 @@ class KnowledgeBaseMCPHandler:
     def get_tools_manifest(self) -> list[dict[str, Any]]:
         return MCP_TOOLS_MANIFEST
 
-    async def handle_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def handle_tool_call(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        token_info: TokenInfo | None = None,
+    ) -> dict[str, Any]:
         """Dispatch MCP tool calls to the appropriate handler."""
+        if token_info is not None:
+            minimum = MCP_TOOL_MIN_ROLE.get(tool_name, Role.VIEWER)
+            if token_info.role < minimum:
+                return _mcp_error(
+                    "forbidden",
+                    f"This tool requires at least the {minimum.name.lower()} role.",
+                )
+
         handlers = {
             "rag_query": self.handle_rag_query,
             "rag_graph": self.handle_rag_graph,

@@ -284,6 +284,8 @@ class SemanticQueryService:
                         match["signature"] = props.get("signature", "")
                     elif label == NodeLabel.DOCUMENT:
                         match["content"] = props.get("content", "")[:500]
+                match["commit_sha"] = props.get("commit_sha")
+                match["indexed_at"] = props.get("indexed_at")
             matches.append(match)
 
         return SemanticResult(matches=matches, query_text=query_text, total=len(matches))

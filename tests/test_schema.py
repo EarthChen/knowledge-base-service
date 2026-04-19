@@ -72,7 +72,7 @@ class TestGraphEdge:
 
 class TestVectorIndexConfigs:
     def test_configs_exist(self):
-        assert len(VECTOR_INDEX_CONFIGS) == 7
+        assert len(VECTOR_INDEX_CONFIGS) == 8
 
     def test_configs_cover_labels(self):
         labels = {c["label"] for c in VECTOR_INDEX_CONFIGS}

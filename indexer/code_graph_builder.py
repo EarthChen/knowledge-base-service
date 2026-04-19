@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from indexer.annotation_semantics import classify_annotations, lookup_annotation
+from indexer.child_chunker import chunk_code_entity
 from indexer.tree_sitter_parser import ParseResult, ParsedField, TreeSitterParser
 from log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
@@ -116,12 +117,25 @@ def compute_fqn(file_path: str, entity_name: str, label: str, parent_class: str 
 class CodeGraphBuilder:
     """Builds graph nodes and edges from parsed code AST."""
 
-    def __init__(self, parser: TreeSitterParser, file_extensions: dict[str, list[str]]) -> None:
+    def __init__(
+        self,
+        parser: TreeSitterParser,
+        file_extensions: dict[str, list[str]],
+        *,
+        child_chunk_enabled: bool = False,
+        child_chunk_window_chars: int = 800,
+        child_chunk_stride_chars: int = 600,
+        child_chunk_min_parent_chars: int = 400,
+    ) -> None:
         self._parser = parser
         self._ext_to_lang: dict[str, str] = {}
         for lang, exts in file_extensions.items():
             for ext in exts:
                 self._ext_to_lang[ext] = lang
+        self._child_chunk_enabled = child_chunk_enabled
+        self._child_chunk_window = child_chunk_window_chars
+        self._child_chunk_stride = child_chunk_stride_chars
+        self._child_chunk_min = child_chunk_min_parent_chars
 
     def detect_language(self, file_path: str) -> str | None:
         suffix = Path(file_path).suffix
@@ -455,4 +469,63 @@ class CodeGraphBuilder:
                     properties={"line": call.line},
                 ))
 
+        if self._child_chunk_enabled:
+            self._generate_child_chunks(nodes, edges, file_path, indexed_at)
+
         return nodes, edges
+
+    def _generate_child_chunks(
+        self,
+        nodes: list[GraphNode],
+        edges: list[GraphEdge],
+        file_path: str,
+        indexed_at: str,
+    ) -> None:
+        """Generate Chunk nodes and PART_OF edges for large Function/Class entities."""
+        parent_nodes = [
+            n for n in list(nodes)
+            if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS)
+        ]
+        for parent in parent_nodes:
+            props = parent.properties
+            code = props.get("code_snippet", "")
+            if not code or not isinstance(code, str):
+                continue
+            signature = str(props.get("signature", ""))
+            name = str(props.get("name", ""))
+            start_line = int(props.get("start_line", 0))
+
+            children = chunk_code_entity(
+                code_snippet=code,
+                signature=signature,
+                entity_name=name,
+                start_line=start_line,
+                window_chars=self._child_chunk_window,
+                stride_chars=self._child_chunk_stride,
+                min_parent_chars=self._child_chunk_min,
+            )
+            for child in children:
+                parent_start = int(props.get("start_line", 0))
+                chunk_uid = f"{NodeLabel.CHUNK}:{file_path}:{name}:{parent_start}:c{child.chunk_index}"
+                chunk_node = GraphNode(
+                    label=NodeLabel.CHUNK,
+                    uid=chunk_uid,
+                    properties={
+                        "name": f"{name}:chunk_{child.chunk_index}",
+                        "text": child.text,
+                        "parent_uid": parent.uid,
+                        "parent_label": str(parent.label),
+                        "parent_name": name,
+                        "chunk_index": child.chunk_index,
+                        "file": file_path,
+                        "start_line": child.start_line,
+                        "end_line": child.end_line,
+                        "indexed_at": indexed_at,
+                    },
+                )
+                nodes.append(chunk_node)
+                edges.append(GraphEdge(
+                    edge_type=EdgeType.PART_OF,
+                    source_uid=chunk_uid,
+                    target_uid=parent.uid,
+                ))

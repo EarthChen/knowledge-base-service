@@ -8,6 +8,8 @@ Node types:
   - Module(name, path, language, description; optional indexed_at, repository, commit_sha)
   - Document(title, path, content_hash, section; optional indexed_at, repository, commit_sha)
   - BusinessFlow, BusinessConcept (business semantics)
+  - Chunk(text, parent_uid, parent_label, parent_name, chunk_index, file, start_line,
+          end_line, repository, indexed_at; embedding)
 
 Edge types:
   - CALLS(caller → callee)
@@ -17,7 +19,7 @@ Edge types:
   - USES_TYPE(function → type)
   - REFERENCES(doc → code_entity)
   - SOURCE_DOC(wiki page → document used as wiki context)
-  - IMPLEMENTS, RELATES_TO, PART_OF, CONCEPT_IN (business semantics)
+  - IMPLEMENTS, RELATES_TO, PART_OF, CONCEPT_IN (business semantics; PART_OF also Chunk→parent)
   - PROVIDES_RPC(provider class → module)
   - CONSUMES_RPC(consumer function → module)
   - CROSS_REPO_CALLS(consumer → provider across repositories)
@@ -47,6 +49,7 @@ class NodeLabel(StrEnum):
     BUSINESS_FLOW = "BusinessFlow"
     BUSINESS_CONCEPT = "BusinessConcept"
     WIKI_PAGE = "WikiPage"
+    CHUNK = "Chunk"
 
 
 class EdgeType(StrEnum):
@@ -100,4 +103,5 @@ VECTOR_INDEX_CONFIGS = [
     {"label": NodeLabel.BUSINESS_CONCEPT, "attribute": "embedding", "similarity": "cosine"},
     {"label": NodeLabel.MODULE, "attribute": "embedding", "similarity": "cosine"},
     {"label": NodeLabel.WIKI_PAGE, "attribute": "embedding", "similarity": "cosine"},
+    {"label": NodeLabel.CHUNK, "attribute": "embedding", "similarity": "cosine"},
 ]

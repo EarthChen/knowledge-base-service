@@ -233,10 +233,10 @@ class FalkorDBStore:
             await self.upsert_edge(edge)
 
     async def get_nodes_by_file(self, file_path: str) -> list:
-        """Retrieve embeddable nodes (Function, Class, Document) for a given file path."""
+        """Retrieve embeddable nodes (Function, Class, Document, Chunk) for a given file path."""
         from store.schema import GraphNode
 
-        embeddable_labels = ["Function", "Class", "Document"]
+        embeddable_labels = ["Function", "Class", "Document", "Chunk"]
         nodes: list = []
         loop = asyncio.get_running_loop()
         for lbl in embeddable_labels:

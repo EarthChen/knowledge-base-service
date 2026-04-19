@@ -145,7 +145,7 @@ class TestSchemaExtensions:
         assert NodeLabel.BUSINESS_CONCEPT in labels
         assert NodeLabel.MODULE in labels
         assert NodeLabel.WIKI_PAGE in labels
-        assert len(VECTOR_INDEX_CONFIGS) == 7
+        assert len(VECTOR_INDEX_CONFIGS) == 8
 
 
 class TestSearchEngineEnhancement:

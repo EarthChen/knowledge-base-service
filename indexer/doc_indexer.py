@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from log import get_logger
+from indexer.child_chunker import chunk_document_section
 from indexer.smart_chunker import Chunk, smart_chunk_markdown
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
 
@@ -47,12 +48,24 @@ class DocumentIndexer:
 
     SUPPORTED_EXTENSIONS = {".md", ".markdown", ".rst", ".txt"}
 
-    def __init__(self, exclude_patterns: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        exclude_patterns: list[str] | None = None,
+        *,
+        child_chunk_enabled: bool = False,
+        child_chunk_window_chars: int = 800,
+        child_chunk_stride_chars: int = 600,
+        child_chunk_min_parent_chars: int = 400,
+    ) -> None:
         if exclude_patterns is not None:
             self._exclude_dirs = set(exclude_patterns)
         else:
             from config import get_settings
             self._exclude_dirs = set(get_settings().exclude_dirs)
+        self._child_chunk_enabled = child_chunk_enabled
+        self._child_chunk_window = child_chunk_window_chars
+        self._child_chunk_stride = child_chunk_stride_chars
+        self._child_chunk_min = child_chunk_min_parent_chars
 
     def parse_document(
         self, file_path: str, content: str | None = None, *, store_path: str | None = None,
@@ -142,11 +155,64 @@ class DocumentIndexer:
                     target_uid=section_node.uid,
                 ))
 
-        # Inline code references are stored on the document node only. We do not
-        # materialize Class/Function nodes from markdown backticks — those lack FQN
-        # and skew architecture-layer statistics.
+        if self._child_chunk_enabled:
+            self._generate_doc_child_chunks(nodes, edges, doc, indexed_at)
 
         return nodes, edges
+
+    def _generate_doc_child_chunks(
+        self,
+        nodes: list[GraphNode],
+        edges: list[GraphEdge],
+        doc: ParsedDocument,
+        indexed_at: str,
+    ) -> None:
+        """Generate Chunk nodes for large document sections."""
+        section_nodes = [
+            n for n in list(nodes)
+            if n.label == NodeLabel.DOCUMENT and n.properties.get("section")
+        ]
+        for section_node in section_nodes:
+            props = section_node.properties
+            content = props.get("content", "")
+            if not content or not isinstance(content, str):
+                continue
+            section_title = str(props.get("section", ""))
+            start_line = int(props.get("start_line", 0))
+
+            children = chunk_document_section(
+                content=content,
+                section_title=section_title,
+                doc_title=doc.title,
+                start_line=start_line,
+                window_chars=self._child_chunk_window,
+                stride_chars=self._child_chunk_stride,
+                min_parent_chars=self._child_chunk_min,
+            )
+            for child in children:
+                chunk_uid = f"{NodeLabel.CHUNK}:{section_node.uid}:c{child.chunk_index}"
+                chunk_node = GraphNode(
+                    label=NodeLabel.CHUNK,
+                    uid=chunk_uid,
+                    properties={
+                        "name": f"{section_title}:chunk_{child.chunk_index}",
+                        "text": child.text,
+                        "parent_uid": section_node.uid,
+                        "parent_label": str(NodeLabel.DOCUMENT),
+                        "parent_name": section_title,
+                        "chunk_index": child.chunk_index,
+                        "file": doc.path,
+                        "start_line": child.start_line,
+                        "end_line": child.end_line,
+                        "indexed_at": indexed_at,
+                    },
+                )
+                nodes.append(chunk_node)
+                edges.append(GraphEdge(
+                    edge_type=EdgeType.PART_OF,
+                    source_uid=chunk_uid,
+                    target_uid=section_node.uid,
+                ))
 
     def index_directory(self, directory: str) -> tuple[list[GraphNode], list[GraphEdge]]:
         all_nodes: list[GraphNode] = []

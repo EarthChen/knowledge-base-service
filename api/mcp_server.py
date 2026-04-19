@@ -3,23 +3,16 @@
 Exposes the knowledge base as MCP tools that can be injected into
 Cursor Agent sessions, enabling the agent to query the code knowledge graph.
 
-Tools exposed:
-  - rag_query: Natural language search over code and docs (semantic + graph expansion)
-  - rag_graph: Execute structured graph queries (call chains, inheritance, etc.)
-  - rag_index: Trigger indexing for a repository/directory or remote git_url
-  - task_status: Poll background indexing task status by task_id (from rag_index async flows)
-  - list_documents, get_document, get_code_snippet, get_file_structure: Browse indexed documentation graph; fetch source by code node uid; file tree per repo
-  - analyze_impact: Blast-radius analysis for changed functions
-  - list_endpoints: HTTP, RPC, and Kafka endpoints from the graph
-  - check_consistency: Compare graph file paths to on-disk repository files
-  - search_architecture: List classes (with methods) filtered by architecture layer
-  - code_quality: Heuristic 0–100 quality score for a Function or Class node
-  - dashboard_stats: P2 enrichment aggregates (architecture layers, Kafka events, RPC, cross-repo)
-  - get_wiki_page, list_wiki_pages, search_wiki, wiki_lint, wiki_export_preview, wiki_export_execute: Wiki browsing, search, lint, and repo markdown export
-  - get_complete_context: One-stop entity context (code, call chain, hierarchy, flows, wiki)
-  - traverse_call_chain, find_impact_scope, analyze_pr_impact: Wiki-scoped graph traversal (no LLM)
-  - graph_insights: Architecture anomaly scan (isolation, import cycles, cross-layer calls, cohesion, bridges)
-  - index_freshness: Last indexed time, node counts, and git HEAD for a repository stamp
+Tools exposed (consolidated):
+  - rag_query, rag_graph, rag_index, task_status: Search, graph queries, indexing
+  - documents: List indexed docs or fetch one by uid
+  - get_code_snippet, get_complete_context: Source and assembled entity context
+  - analyze_code: Quality score or index vs disk consistency (mode)
+  - analyze_changes: PR review, blast-radius impact, wiki impact scope, wiki file-level PR impact (mode)
+  - search_architecture: Classes by layer or discovered HTTP/RPC/Kafka endpoints (mode)
+  - get_insights: Dashboard P2 stats and/or per-repo graph anomaly scan (type)
+  - index_freshness: Repository index stamp and counts
+  - get_wiki_page, list_wiki_pages, search_wiki, wiki_export: Wiki browse/search/export
 """
 
 from __future__ import annotations
@@ -101,7 +94,7 @@ def _mcp_error(code: str, message: str) -> dict[str, Any]:
 # Minimum role per MCP tool name. Omitted tools default to ``Role.VIEWER``.
 MCP_TOOL_MIN_ROLE: dict[str, Role] = {
     "rag_index": Role.EDITOR,
-    "wiki_export_execute": Role.EDITOR,
+    "wiki_export": Role.EDITOR,
 }
 TOOL_ROLES: dict[str, Role] = MCP_TOOL_MIN_ROLE
 
@@ -228,43 +221,6 @@ def _format_get_document_mcp(result_rows: list[dict[str, Any]]) -> dict[str, Any
         "repository": repo,
         "sections": sections,
     }
-
-
-def _build_file_tree(paths: list[dict[str, Any]], max_depth: int) -> list[dict[str, Any]]:
-    root: dict[str, Any] = {}
-    for item in paths:
-        parts = item["path"].strip("/").split("/")
-        node = root
-        for i, part in enumerate(parts):
-            if i >= max_depth:
-                break
-            is_leaf = i == len(parts) - 1
-            if part not in node:
-                node[part] = {"__type": item["type"]} if is_leaf else {}
-            elif is_leaf and "__type" not in node[part]:
-                node[part]["__type"] = item["type"]
-            if not isinstance(node[part], dict):
-                break
-            node = node[part]
-
-    def to_list(d: dict[str, Any], depth: int = 0) -> list[dict[str, Any]]:
-        result: list[dict[str, Any]] = []
-        for name, children in sorted(d.items()):
-            if name == "__type":
-                continue
-            if not isinstance(children, dict):
-                result.append({"name": name})
-                continue
-            entry: dict[str, Any] = {"name": name}
-            if "__type" in children:
-                entry["type"] = children["__type"]
-            sub = {k: v for k, v in children.items() if k != "__type"}
-            if sub and depth < max_depth:
-                entry["children"] = to_list(sub, depth + 1)
-            result.append(entry)
-        return result
-
-    return to_list(root)
 
 
 def _looks_like_git_url(value: str) -> bool:
@@ -477,40 +433,33 @@ MCP_TOOLS_MANIFEST = [
         },
     },
     {
-        "name": "list_documents",
+        "name": "documents",
         "description": (
-            "List indexed document nodes with section metadata for navigation. "
-            "Optionally filter by repository name."
+            "Browse indexed documentation: without uid, list document nodes with section metadata; "
+            "with uid, return full document content (root + sections) for that document node."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
+                "uid": {
+                    "type": "string",
+                    "description": (
+                        "Document node uid from a prior list or graph results. "
+                        "When set, returns a single document; when omitted, lists documents."
+                    ),
+                },
                 "repository": {
                     "type": "string",
-                    "description": "Optional repository name to scope results.",
+                    "description": "When listing (no uid), optionally filter by repository name.",
                 },
             },
-        },
-    },
-    {
-        "name": "get_document",
-        "description": "Return full document content (root + sections) by document node uid.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "doc_uid": {
-                    "type": "string",
-                    "description": "Document node uid from list_documents or graph results.",
-                },
-            },
-            "required": ["doc_uid"],
         },
     },
     {
         "name": "get_code_snippet",
         "description": (
             "Retrieve the source code snippet for a code entity (Function or Class) by its graph node uid. "
-            "Use after rag_query or build_context to get the full source code."
+            "Use after rag_query or get_complete_context to fetch full source."
         ),
         "inputSchema": {
             "type": "object",
@@ -524,89 +473,51 @@ MCP_TOOLS_MANIFEST = [
         },
     },
     {
-        "name": "get_file_structure",
-        "description": "Returns the file and directory structure of an indexed repository as a tree.",
+        "name": "analyze_code",
+        "description": (
+            "Code analysis: mode 'quality' computes a 0–100 heuristic score for a Function or Class uid; "
+            "mode 'consistency' verifies the index against on-disk files for a repository (ghost/missing nodes)."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["quality", "consistency"],
+                    "default": "quality",
+                    "description": "quality: score one entity; consistency: verify repo vs graph",
+                },
+                "entity_uid": {
+                    "type": "string",
+                    "description": "Graph node uid (required for mode quality)",
+                },
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["function", "class"],
+                    "description": "Optional entity kind for quality scoring",
+                },
                 "repository": {
                     "type": "string",
-                    "description": "Repository identifier (e.g. 'owner/repo')",
-                },
-                "path_prefix": {
-                    "type": "string",
-                    "description": "Optional path prefix to filter the tree (e.g. 'src/main/java')",
-                },
-                "max_depth": {
-                    "type": "integer",
-                    "description": "Max depth of tree to return (default 5)",
+                    "description": "Repository name or path (required for mode consistency)",
                 },
             },
-            "required": ["repository"],
-        },
-    },
-    # rag_business_search removed in P3 (Track C).
-    # Use rag_query with entity_type='flow' or entity_type='concept' instead.
-    {
-        "name": "analyze_impact",
-        "description": (
-            "Analyze the blast radius of code changes. Given function names that were modified, "
-            "returns all directly and transitively affected callers, affected architectural layers, "
-            "and entry points in the blast radius."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "changed_functions": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Names of changed functions",
-                },
-                "max_depth": {
-                    "type": "integer",
-                    "default": 5,
-                    "description": "Maximum call chain depth to trace",
-                },
-            },
-            "required": ["changed_functions"],
-        },
-    },
-    {
-        "name": "list_endpoints",
-        "description": (
-            "List all discovered API endpoints (HTTP, RPC, Kafka) in the indexed codebase."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-    {
-        "name": "check_consistency",
-        "description": (
-            "Verify index consistency by comparing the graph against actual repository files. "
-            "Detects ghost nodes and missing files."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "repository": {
-                    "type": "string",
-                    "description": "Repository name or path",
-                },
-            },
-            "required": ["repository"],
         },
     },
     {
         "name": "search_architecture",
         "description": (
-            "Search indexed classes by architecture layer (presentation, business, data_access, "
-            "rpc, messaging, infrastructure, model, unknown). Returns each class with its methods."
+            "Architecture discovery: mode 'layers' lists classes (with methods) filtered by architecture layer; "
+            "mode 'endpoints' lists discovered HTTP, RPC, and Kafka endpoints (optional repository filter)."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["layers", "endpoints"],
+                    "default": "layers",
+                    "description": "layers: class search by layer; endpoints: API surface from the graph",
+                },
                 "layer": {
                     "type": "string",
                     "enum": [
@@ -619,130 +530,81 @@ MCP_TOOLS_MANIFEST = [
                         "model",
                         "unknown",
                     ],
-                    "description": "Architecture layer to filter Class nodes",
+                    "description": "Required when mode is layers",
                 },
                 "repository": {
                     "type": "string",
-                    "description": "Optional repository name to scope results",
+                    "description": "Optional repository scope (both modes)",
                 },
                 "limit": {
                     "type": "integer",
                     "default": 50,
-                    "description": "Max classes to return (capped at 500)",
+                    "description": "Max classes (layers mode), capped at 500",
                 },
                 "offset": {
                     "type": "integer",
                     "default": 0,
-                    "description": "Number of classes to skip (pagination)",
+                    "description": "Pagination offset (layers mode)",
                 },
                 "search": {
                     "type": "string",
-                    "description": "Optional substring match on class name (case-insensitive)",
+                    "description": "Substring on class name, case-insensitive (layers mode)",
                 },
             },
-            "required": ["layer"],
         },
     },
     {
-        "name": "code_quality",
+        "name": "analyze_changes",
         "description": (
-            "Compute a 0–100 heuristic quality score for a code entity (Function or Class) "
-            "using docstrings, typing, length, tests, naming, semantic roles, and complexity."
+            "Change and impact analysis (pick mode): "
+            "'pr_review' — diff/branch-based PR review context; "
+            "'impact' — blast radius from changed function names; "
+            "'impact_scope' — wiki-scoped reverse impact along CALLS/IMPORTS/INHERITS; "
+            "'wiki_pr_impact' — map changed files to entities and affected wiki paths."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "entity_uid": {
+                "mode": {
                     "type": "string",
-                    "description": "Graph node uid of the Function or Class",
+                    "enum": ["pr_review", "impact", "impact_scope", "wiki_pr_impact"],
+                    "description": "Which analysis to run",
                 },
-                "entity_type": {
+                "diff_text": {"type": "string", "description": "pr_review: unified diff"},
+                "branch": {"type": "string"},
+                "base_branch": {"type": "string", "default": "master"},
+                "repo_path": {"type": "string"},
+                "repo_url": {"type": "string"},
+                "repository": {"type": "string", "description": "Repository scope where applicable"},
+                "max_depth": {"type": "integer", "default": 3, "description": "pr_review / impact depth"},
+                "changed_functions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "impact: modified function names",
+                },
+                "node_name": {
                     "type": "string",
-                    "enum": ["function", "class"],
-                    "description": "Optional: restrict match to Function or Class",
+                    "description": "impact_scope: target function/class/module name or FQN",
                 },
-            },
-            "required": ["entity_uid"],
-        },
-    },
-    {
-        "name": "review_pr",
-        "description": (
-            "Analyze a PR diff and build comprehensive review context. Returns changed entities, "
-            "impact analysis, affected API endpoints, cross-repository impacts, and review suggestions. "
-            "Use this when starting a code review to understand the blast radius of changes."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "diff_text": {
-                    "type": "string",
-                    "description": (
-                        "Unified diff text from git diff. Optional if branch and repo_path are set."
-                    ),
-                },
-                "branch": {
-                    "type": "string",
-                    "description": (
-                        "Branch to compare against base_branch (requires repo_path on the KB host)."
-                    ),
-                },
-                "base_branch": {
-                    "type": "string",
-                    "description": 'Base branch for git diff (default "master").',
-                    "default": "master",
-                },
-                "repo_path": {
-                    "type": "string",
-                    "description": (
-                        "Local path to a git repository on the KB server; used with branch to run git diff."
-                    ),
-                },
-                "repo_url": {
-                    "type": "string",
-                    "description": (
-                        "Remote git URL (reserved for future server-side fetch; validated for format when set)."
-                    ),
-                },
-                "repository": {
-                    "type": "string",
-                    "description": "Optional repository name to scope the analysis",
-                },
-                "max_depth": {
+                "max_hops": {
                     "type": "integer",
-                    "default": 3,
-                    "description": "Maximum call chain depth for impact analysis",
+                    "default": 2,
+                    "description": "impact_scope: reverse hop count (1–3)",
+                },
+                "changed_files": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "status": {"type": "string"},
+                        },
+                        "required": ["path", "status"],
+                    },
+                    "description": "wiki_pr_impact: git changed file list",
                 },
             },
-        },
-    },
-    {
-        "name": "build_context",
-        "description": (
-            "Build an optimal context package for a code entity (function or class). "
-            "Returns the entity's code, callers, callees, parent class, sibling methods, "
-            "cross-repository dependencies, entity tables, DI dependencies, and interfaces. "
-            "Use this to deeply understand a function or class before modifying it."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "entity_name": {
-                    "type": "string",
-                    "description": "Name of the function or class to get context for",
-                },
-                "entity_type": {
-                    "type": "string",
-                    "enum": ["function", "class"],
-                    "default": "function",
-                    "description": "Type of entity",
-                },
-                "repository": {
-                    "type": "string",
-                    "description": "Optional repository name to scope the search",
-                },
-            },
-            "required": ["entity_name"],
+            "required": ["mode"],
         },
     },
     {
@@ -774,34 +636,26 @@ MCP_TOOLS_MANIFEST = [
         },
     },
     {
-        "name": "dashboard_stats",
+        "name": "get_insights",
         "description": (
-            "Return P2 enrichment statistics for the knowledge graph dashboard: "
-            "architecture layer counts, Kafka topic and event edge counts, RPC contract totals, "
-            "and cross-repository / DI / entity-table edge counts. "
-            "quality_overview is omitted (null) because bulk scoring is expensive."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-    {
-        "name": "graph_insights",
-        "description": (
-            "Analyze the code graph for one repository and return architecture insights: "
-            "isolated classes, module import cycles (with query timeout), controller→repository "
-            "layer violations, low module cohesion, and multi-layer bridge classes."
+            "Knowledge graph insights: type 'dashboard' returns global P2 enrichment aggregates; "
+            "type 'graph' runs per-repository architecture anomaly analysis; "
+            "type 'all' returns both (repository required for the graph portion)."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": ["dashboard", "graph", "all"],
+                    "default": "dashboard",
+                    "description": "Which insight bundle to compute",
+                },
                 "repository": {
                     "type": "string",
-                    "description": "Repository name as stored on Class/Module nodes",
+                    "description": "Required when type is graph or all",
                 },
             },
-            "required": ["repository"],
         },
     },
     {
@@ -872,31 +726,19 @@ class KnowledgeBaseMCPHandler:
             "rag_query": self.handle_rag_query,
             "rag_graph": self.handle_rag_graph,
             "rag_index": self.handle_rag_index,
-            "list_documents": self.handle_list_documents,
-            "get_document": self.handle_get_document,
+            "documents": self.handle_documents,
             "get_code_snippet": self.handle_get_code_snippet,
-            "get_file_structure": self.handle_get_file_structure,
-            "analyze_impact": self.handle_analyze_impact,
-            "list_endpoints": self.handle_list_endpoints,
-            "check_consistency": self.handle_check_consistency,
+            "analyze_code": self.handle_analyze_code,
             "search_architecture": self.handle_search_architecture,
-            "code_quality": self.handle_code_quality,
-            "review_pr": self.handle_review_pr,
-            "build_context": self.handle_build_context,
+            "analyze_changes": self.handle_analyze_changes,
             "get_complete_context": self.handle_get_complete_context,
-            "dashboard_stats": self.handle_dashboard_stats,
-            "graph_insights": self.handle_graph_insights,
+            "get_insights": self.handle_get_insights,
             "index_freshness": self.handle_index_freshness,
             "task_status": self.handle_task_status,
             "get_wiki_page": self._wiki.handle_get_wiki_page,
             "list_wiki_pages": self._wiki.handle_list_wiki_pages,
             "search_wiki": self._wiki.handle_search_wiki,
-            "traverse_call_chain": self._wiki.handle_traverse_call_chain,
-            "find_impact_scope": self._wiki.handle_find_impact_scope,
-            "analyze_pr_impact": self._wiki.handle_analyze_pr_impact,
-            "wiki_lint": self._wiki.handle_wiki_lint,
-            "wiki_export_preview": self._wiki.handle_wiki_export_preview,
-            "wiki_export_execute": self._wiki.handle_wiki_export_execute,
+            "wiki_export": self._wiki.handle_wiki_export,
         }
 
         handler = handlers.get(tool_name)
@@ -1129,9 +971,19 @@ class KnowledgeBaseMCPHandler:
     async def handle_search_architecture(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 
+        mode_raw = arguments.get("mode", "layers")
+        arch_mode = str(mode_raw).strip().lower() if mode_raw is not None else "layers"
+        if arch_mode == "endpoints":
+            repo_ep = arguments.get("repository", "")
+            if repo_ep is not None and not isinstance(repo_ep, str):
+                repo_ep = str(repo_ep)
+            return await self.handle_list_endpoints({"repository": repo_ep or ""})
+        if arch_mode != "layers":
+            return _mcp_error("invalid_params", "mode must be 'layers' or 'endpoints'")
+
         layer = (arguments.get("layer") or "").strip()
         if not layer:
-            return _mcp_error("invalid_params", "layer is required")
+            return _mcp_error("invalid_params", "layer is required when mode is layers")
         _allowed = {
             "presentation",
             "business",
@@ -1248,22 +1100,55 @@ class KnowledgeBaseMCPHandler:
             return _mcp_error("invalid_params", str(exc))
         return ctx.to_dict()
 
-    async def handle_build_context(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        from query.agent_workflow import AgentWorkflowService
+    async def handle_documents(self, args: dict[str, Any]) -> dict[str, Any]:
+        uid_raw = args.get("uid")
+        uid = str(uid_raw).strip() if uid_raw not in (None, "") else ""
+        if uid:
+            return await self.handle_get_document({"doc_uid": uid})
+        return await self.handle_list_documents({"repository": args.get("repository")})
 
-        entity_name = arguments.get("entity_name", "")
-        if not entity_name:
-            return _mcp_error("invalid_params", "entity_name parameter is required")
-        if not self._store:
-            return _mcp_error("service_unavailable", "Graph store not available")
+    async def handle_analyze_code(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        mode_raw = arguments.get("mode", "quality")
+        mode = str(mode_raw).strip().lower() if mode_raw is not None else "quality"
+        if mode == "consistency":
+            return await self.handle_check_consistency(arguments)
+        if mode == "quality":
+            return await self.handle_code_quality(arguments)
+        return _mcp_error("invalid_params", "mode must be 'quality' or 'consistency'")
 
-        workflow = AgentWorkflowService(self._store)
-        ctx = await workflow.build_smart_context(
-            entity_name=entity_name,
-            entity_type=arguments.get("entity_type", "function"),
-            repository=arguments.get("repository"),
+    async def handle_analyze_changes(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        mode_raw = arguments.get("mode")
+        if mode_raw is None or str(mode_raw).strip() == "":
+            return _mcp_error("invalid_params", "mode is required")
+        mode = str(mode_raw).strip().lower()
+        if mode == "pr_review":
+            return await self.handle_review_pr(arguments)
+        if mode == "impact":
+            return await self.handle_analyze_impact(arguments)
+        if mode == "impact_scope":
+            return await self._wiki.handle_find_impact_scope(arguments)
+        if mode == "wiki_pr_impact":
+            return await self._wiki.handle_analyze_pr_impact(arguments)
+        return _mcp_error(
+            "invalid_params",
+            "mode must be one of: pr_review, impact, impact_scope, wiki_pr_impact",
         )
-        return ctx.to_dict()
+
+    async def handle_get_insights(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        raw = arguments.get("type", "dashboard")
+        t = str(raw).strip().lower() if raw is not None else "dashboard"
+        if t not in ("dashboard", "graph", "all"):
+            return _mcp_error("invalid_params", "type must be 'dashboard', 'graph', or 'all'")
+        if t == "dashboard":
+            return await self.handle_dashboard_stats({})
+        if t == "graph":
+            return await self.handle_graph_insights(arguments)
+        repo = str(arguments.get("repository") or "").strip()
+        if not repo:
+            return _mcp_error("invalid_params", "repository is required when type is 'all'")
+        dash = await self.handle_dashboard_stats({})
+        graph = await self.handle_graph_insights(arguments)
+        return {"type": "all", "dashboard": dash, "graph": graph}
 
     async def handle_get_complete_context(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from query.context_assembler import ContextAssembler
@@ -1435,37 +1320,6 @@ class KnowledgeBaseMCPHandler:
             "language": row.get("language", ""),
             "fqn": row.get("fqn", ""),
         }
-
-    async def handle_get_file_structure(self, args: dict[str, Any]) -> dict[str, Any]:
-        repository = str(args.get("repository") or "").strip()
-        if not repository:
-            return _mcp_error("invalid_params", "repository is required")
-        if not self._store:
-            return _mcp_error("service_unavailable", "Graph store not available")
-
-        path_prefix = str(args.get("path_prefix") or "").strip()
-        max_depth = int(args.get("max_depth") or 5)
-
-        cypher = (
-            "MATCH (n) WHERE (n:Module OR n:Document) AND n.repository = $repo "
-            "RETURN DISTINCT coalesce(n.path, n.file) AS path, labels(n)[0] AS type "
-            "ORDER BY path"
-        )
-        result = await self._store.execute_query(cypher, {"repo": repository})
-        if not result.data:
-            return {"repository": repository, "tree": [], "total_files": 0}
-
-        paths: list[dict[str, Any]] = []
-        for row in result.data:
-            p = row.get("path")
-            if not p:
-                continue
-            if path_prefix and not str(p).startswith(path_prefix):
-                continue
-            paths.append({"path": str(p), "type": row.get("type", "")})
-
-        tree = _build_file_tree(paths, max_depth)
-        return {"repository": repository, "tree": tree, "total_files": len(paths)}
 
     async def handle_rag_index(
         self, args: dict[str, Any], progress_callback: Callable[..., None] | None = None,

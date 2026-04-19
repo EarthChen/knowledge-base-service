@@ -5,7 +5,7 @@ from api.mcp_server import MCP_TOOLS_MANIFEST
 
 class TestMCPToolsManifest:
     def test_tool_count(self):
-        assert len(MCP_TOOLS_MANIFEST) == 28
+        assert len(MCP_TOOLS_MANIFEST) == 16
 
     def test_tool_names(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}
@@ -14,30 +14,18 @@ class TestMCPToolsManifest:
             "rag_graph",
             "rag_index",
             "task_status",
-            "list_documents",
-            "get_document",
+            "documents",
             "get_code_snippet",
-            "get_file_structure",
-            "analyze_impact",
-            "list_endpoints",
-            "check_consistency",
-            "review_pr",
-            "build_context",
+            "analyze_code",
             "search_architecture",
-            "code_quality",
-            "dashboard_stats",
-            "graph_insights",
+            "analyze_changes",
+            "get_complete_context",
+            "get_insights",
             "index_freshness",
             "get_wiki_page",
             "list_wiki_pages",
             "search_wiki",
-            "traverse_call_chain",
-            "find_impact_scope",
-            "analyze_pr_impact",
-            "wiki_lint",
-            "wiki_export_preview",
-            "wiki_export_execute",
-            "get_complete_context",
+            "wiki_export",
         }
 
     def test_rag_query_schema(self):
@@ -76,13 +64,10 @@ class TestMCPToolsManifest:
         assert "task_id" in schema["properties"]
         assert schema["required"] == ["task_id"]
 
-    def test_list_documents_schema(self):
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "list_documents")
+    def test_documents_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "documents")
+        assert "uid" in tool["inputSchema"]["properties"]
         assert "repository" in tool["inputSchema"]["properties"]
-
-    def test_get_document_schema(self):
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "get_document")
-        assert "doc_uid" in tool["inputSchema"]["required"]
 
     def test_get_code_snippet_schema(self):
         tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "get_code_snippet")
@@ -90,31 +75,26 @@ class TestMCPToolsManifest:
         assert "node_uid" in schema["properties"]
         assert schema["required"] == ["node_uid"]
 
-    def test_get_file_structure_schema(self):
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "get_file_structure")
-        schema = tool["inputSchema"]
-        assert "repository" in schema["properties"]
-        assert "path_prefix" in schema["properties"]
-        assert "max_depth" in schema["properties"]
-        assert schema["required"] == ["repository"]
+    def test_analyze_code_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "analyze_code")
+        modes = tool["inputSchema"]["properties"]["mode"]["enum"]
+        assert modes == ["quality", "consistency"]
 
-    def test_analyze_impact_schema(self):
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "analyze_impact")
+    def test_search_architecture_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "search_architecture")
         schema = tool["inputSchema"]
-        assert "changed_functions" in schema["properties"]
-        assert schema["properties"]["changed_functions"]["type"] == "array"
-        assert "changed_functions" in schema["required"]
+        assert schema["properties"]["mode"]["enum"] == ["layers", "endpoints"]
 
-    def test_list_endpoints_schema(self):
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "list_endpoints")
-        schema = tool["inputSchema"]
-        assert schema["properties"] == {}
+    def test_analyze_changes_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "analyze_changes")
+        assert tool["inputSchema"]["required"] == ["mode"]
+        modes = tool["inputSchema"]["properties"]["mode"]["enum"]
+        assert set(modes) == {"pr_review", "impact", "impact_scope", "wiki_pr_impact"}
 
-    def test_check_consistency_schema(self):
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "check_consistency")
-        schema = tool["inputSchema"]
-        assert "repository" in schema["properties"]
-        assert "repository" in schema["required"]
+    def test_get_insights_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "get_insights")
+        types = tool["inputSchema"]["properties"]["type"]["enum"]
+        assert types == ["dashboard", "graph", "all"]
 
     def test_all_tools_have_description(self):
         for tool in MCP_TOOLS_MANIFEST:

@@ -141,123 +141,10 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
         },
     },
     {
-        "name": "traverse_call_chain",
+        "name": "wiki_export",
         "description": (
-            "Walk CALLS edges from a Function node to list callees or callers with optional wiki page paths."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "repository": {"type": "string", "description": "Repository identifier in the knowledge base."},
-                "node_name": {"type": "string", "description": "Function name or FQN to start from."},
-                "direction": {
-                    "type": "string",
-                    "enum": ["callees", "callers"],
-                    "description": "callees: root calls others; callers: others call root.",
-                    "default": "callees",
-                },
-                "max_depth": {
-                    "type": "integer",
-                    "description": "Maximum CALLS hops (1–5).",
-                    "default": 3,
-                },
-            },
-            "required": ["repository", "node_name"],
-        },
-    },
-    {
-        "name": "find_impact_scope",
-        "description": (
-            "Compute reverse impact along CALLS, IMPORTS, and INHERITS toward a target entity, grouped by hop."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "repository": {"type": "string", "description": "Repository identifier."},
-                "node_name": {"type": "string", "description": "Target function, class, or module name / FQN."},
-                "max_hops": {
-                    "type": "integer",
-                    "description": "Maximum reverse hops (1–3).",
-                    "default": 2,
-                },
-            },
-            "required": ["repository", "node_name"],
-        },
-    },
-    {
-        "name": "analyze_pr_impact",
-        "description": (
-            "Map changed files to code entities, expand one hop upstream in the graph, "
-            "and summarize affected WikiPage paths with impact levels."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "repository": {"type": "string", "description": "Repository identifier."},
-                "changed_files": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "path": {"type": "string"},
-                            "status": {"type": "string"},
-                        },
-                        "required": ["path", "status"],
-                    },
-                    "description": "List of changed file paths and git status codes.",
-                },
-            },
-            "required": ["repository", "changed_files"],
-        },
-    },
-    {
-        "name": "wiki_lint",
-        "description": (
-            "Run wiki health checks against the graph (and optional in-memory wiki cache): "
-            "staleness of entity references, orphan pages, broken markdown/wikilinks, "
-            "coverage gaps for service/controller/repository classes, and outdated pages vs last index time."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "repository": {
-                    "type": "string",
-                    "description": "Repository name in the knowledge base.",
-                },
-                "scope": {
-                    "type": "string",
-                    "description": "Issue filter: 'all' or a wiki scope string (repo, module:path, class:fqn).",
-                    "default": "all",
-                },
-            },
-            "required": ["repository"],
-        },
-    },
-    {
-        "name": "wiki_export_preview",
-        "description": (
-            "Preview exporting cached wiki pages as markdown files under a target directory. "
-            "Does not write files; shows create/update/skip with AUTO-GENERATED marker handling."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "repository": {"type": "string", "description": "Repository name in the knowledge base."},
-                "target_dir": {"type": "string", "description": "Absolute or relative directory for markdown output."},
-                "include_auto_generated_marker": {
-                    "type": "boolean",
-                    "description": "When true, prepend KBS auto-generated marker to wiki markdown.",
-                    "default": True,
-                },
-            },
-            "required": ["repository", "target_dir"],
-        },
-    },
-    {
-        "name": "wiki_export_execute",
-        "description": (
-            "Write wiki markdown files under target_dir for paths in selected_files (or all pending create/update when omitted). "
-            "Skips human-written files lacking the AUTO-GENERATED marker."
+            "Write wiki markdown files under target_dir for paths in selected_files "
+            "(or all pending create/update when omitted). Skips human-written files lacking the AUTO-GENERATED marker."
         ),
         "inputSchema": {
             "type": "object",
@@ -267,7 +154,7 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
                 "selected_files": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Wiki page paths to write; omit to write all create/update from preview.",
+                    "description": "Wiki page paths to write; omit to write all pending updates.",
                 },
             },
             "required": ["repository", "target_dir"],
@@ -555,9 +442,9 @@ class WikiMCPHandler:
             return self._mcp_error("invalid_params", str(exc))
         return {"status": "success", **export_result_to_dict(result)}
 
-    async def handle_wiki_export_execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def handle_wiki_export(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._wiki_cache is None:
-            return self._mcp_error("service_unavailable", "Wiki cache not configured for wiki_export_execute")
+            return self._mcp_error("service_unavailable", "Wiki cache not configured for wiki_export")
         repository = str(arguments.get("repository", "")).strip()
         if not repository:
             return self._mcp_error("invalid_params", "repository parameter is required")

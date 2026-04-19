@@ -1,4 +1,4 @@
-"""MCP handlers: list_documents, get_document, rag_index git_url (deep_search is HTTP-only)."""
+"""MCP handlers: documents, rag_index git_url (deep_search is HTTP-only)."""
 
 from __future__ import annotations
 
@@ -9,26 +9,14 @@ import pytest
 from api.mcp_server import KnowledgeBaseMCPHandler, MCP_TOOLS_MANIFEST
 
 
-@pytest.fixture
-def minimal_kb_handler() -> KnowledgeBaseMCPHandler:
-    return KnowledgeBaseMCPHandler(
-        hybrid_svc=MagicMock(),
-        graph_svc=MagicMock(),
-        indexer=MagicMock(),
-        store=None,
-        wiki_handler=MagicMock(),
-    )
-
-
 @pytest.mark.asyncio
-async def test_manifest_includes_new_tools() -> None:
+async def test_manifest_includes_documents_tool() -> None:
     names = {t["name"] for t in MCP_TOOLS_MANIFEST}
-    assert "list_documents" in names
-    assert "get_document" in names
+    assert "documents" in names
 
 
 @pytest.mark.asyncio
-async def test_list_documents_requires_store() -> None:
+async def test_documents_list_requires_store() -> None:
     h = KnowledgeBaseMCPHandler(
         hybrid_svc=MagicMock(),
         graph_svc=MagicMock(),
@@ -36,12 +24,12 @@ async def test_list_documents_requires_store() -> None:
         store=None,
         wiki_handler=MagicMock(),
     )
-    r = await h.handle_list_documents({})
+    r = await h.handle_documents({})
     assert r["error"]["code"] == "service_unavailable"
 
 
 @pytest.mark.asyncio
-async def test_list_documents_formats_response() -> None:
+async def test_documents_list_formats_response() -> None:
     store = MagicMock()
     mock_qr = MagicMock()
     mock_qr.list_documents = AsyncMock(
@@ -70,7 +58,7 @@ async def test_list_documents_formats_response() -> None:
             store=store,
             wiki_handler=MagicMock(),
         )
-        r = await h.handle_list_documents({"repository": "myrepo"})
+        r = await h.handle_documents({"repository": "myrepo"})
     assert "error" not in r
     assert r["total"] == 1
     assert r["documents"][0]["uid"] == "d1"
@@ -79,7 +67,7 @@ async def test_list_documents_formats_response() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_document_not_found() -> None:
+async def test_documents_get_not_found() -> None:
     store = MagicMock()
     mock_qr = MagicMock()
     mock_qr.get_document = AsyncMock(return_value=MagicMock(data=[]))
@@ -91,12 +79,12 @@ async def test_get_document_not_found() -> None:
             store=store,
             wiki_handler=MagicMock(),
         )
-        r = await h.handle_get_document({"doc_uid": "missing"})
+        r = await h.handle_documents({"uid": "missing"})
     assert r["error"]["code"] == "not_found"
 
 
 @pytest.mark.asyncio
-async def test_get_document_success() -> None:
+async def test_documents_get_success() -> None:
     store = MagicMock()
     mock_qr = MagicMock()
     mock_qr.get_document = AsyncMock(
@@ -124,7 +112,7 @@ async def test_get_document_success() -> None:
             store=store,
             wiki_handler=MagicMock(),
         )
-        r = await h.handle_get_document({"doc_uid": "d1"})
+        r = await h.handle_documents({"uid": "d1"})
     assert "error" not in r
     assert r["title"] == "T"
     assert r["file"] == "doc.md"

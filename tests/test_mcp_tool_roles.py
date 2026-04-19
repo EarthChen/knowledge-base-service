@@ -82,5 +82,5 @@ async def test_handle_tool_call_skips_role_check_when_no_token_info() -> None:
 
 def test_editor_tools_minimum_role_map() -> None:
     assert MCP_TOOL_MIN_ROLE["rag_index"] == Role.EDITOR
-    assert MCP_TOOL_MIN_ROLE["wiki_export_execute"] == Role.EDITOR
+    assert MCP_TOOL_MIN_ROLE["wiki_export"] == Role.EDITOR
     assert TOOL_ROLES is MCP_TOOL_MIN_ROLE

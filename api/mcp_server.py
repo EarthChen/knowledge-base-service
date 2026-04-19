@@ -24,10 +24,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from auth import Role, TokenInfo
+from indexer.config_indexer import _config_file_extension
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from indexer.incremental_indexer import IncrementalIndexer
-from auth import Role, TokenInfo
 from log import get_logger
 from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
@@ -1530,9 +1531,10 @@ class KnowledgeBaseMCPHandler:
             if not _looks_like_git_url(git_url):
                 return _mcp_error("invalid_params", "git_url must be an https, ssh, git@, or .git remote URL")
 
+            from pathlib import Path as _Path
+
             from config import get_settings
             from git_manager import GitManager
-            from pathlib import Path as _Path
 
             branch_arg = args.get("branch")
             branch = str(branch_arg).strip() if branch_arg not in (None, "") else None
@@ -1620,11 +1622,10 @@ class KnowledgeBaseMCPHandler:
 
         exclude_dirs = set(self._doc_indexer._exclude_dirs)
         doc_paths: list[Path] = []
-        for ext in self._doc_indexer.SUPPORTED_EXTENSIONS:
-            for fpath in base.rglob(f"*{ext}"):
-                if any(part in exclude_dirs for part in fpath.parts):
-                    continue
-                doc_paths.append(fpath)
+        for fpath in DocumentIndexer.iter_supported_paths(base):
+            if any(part in exclude_dirs for part in fpath.parts):
+                continue
+            doc_paths.append(fpath)
 
         if progress_callback:
             progress_callback(phase="indexing_docs", total_files=len(doc_paths))
@@ -1700,7 +1701,7 @@ class KnowledgeBaseMCPHandler:
                 parts = line.split("\t", 1)
                 if len(parts) == 2:
                     status, fpath = parts
-                    if Path(fpath).suffix.lower() in doc_exts:
+                    if _config_file_extension(Path(fpath)) in doc_exts:
                         changed.append((fpath, status[0]))
 
             if not changed:

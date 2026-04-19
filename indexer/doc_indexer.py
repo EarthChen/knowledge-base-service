@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from log import get_logger
 from indexer.child_chunker import chunk_document_section
 from indexer.smart_chunker import Chunk, smart_chunk_markdown
+from log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
 
 log = get_logger(__name__)
@@ -46,7 +47,32 @@ class ParsedDocument:
 class DocumentIndexer:
     """Indexes Markdown and RST documents into the knowledge graph."""
 
-    SUPPORTED_EXTENSIONS = {".md", ".markdown", ".rst", ".txt"}
+    SUPPORTED_EXTENSIONS = {
+        ".md",
+        ".markdown",
+        ".rst",
+        ".txt",
+        ".yml",
+        ".yaml",
+        ".xml",
+        ".properties",
+        ".env",
+        ".toml",
+        ".conf",
+    }
+
+    @staticmethod
+    def iter_supported_paths(base: Path) -> Iterator[Path]:
+        """Yield paths under *base* matching any supported extension (single walk)."""
+        exts = DocumentIndexer.SUPPORTED_EXTENSIONS
+        for fpath in base.rglob("*"):
+            if not fpath.is_file():
+                continue
+            name_lower = fpath.name.lower()
+            if name_lower == ".env" or name_lower.endswith(".env"):
+                yield fpath
+            elif fpath.suffix.lower() in exts:
+                yield fpath
 
     def __init__(
         self,
@@ -62,10 +88,18 @@ class DocumentIndexer:
         else:
             from config import get_settings
             self._exclude_dirs = set(get_settings().exclude_dirs)
+        self._config_indexer = None  # lazy: indexer.config_indexer.ConfigIndexer
         self._child_chunk_enabled = child_chunk_enabled
         self._child_chunk_window = child_chunk_window_chars
         self._child_chunk_stride = child_chunk_stride_chars
         self._child_chunk_min = child_chunk_min_parent_chars
+
+    def _get_config_indexer(self):
+        from indexer.config_indexer import ConfigIndexer
+
+        if self._config_indexer is None:
+            self._config_indexer = ConfigIndexer(self)
+        return self._config_indexer
 
     def parse_document(
         self, file_path: str, content: str | None = None, *, store_path: str | None = None,
@@ -73,14 +107,19 @@ class DocumentIndexer:
         """Parse a document.  *store_path* is what gets stored as the
         persistent file path (relative to repo root).  Falls back to
         *file_path* when not supplied."""
+        persist_path = store_path or file_path
+        from indexer.config_indexer import ConfigIndexer, _config_file_extension
+
+        ext = _config_file_extension(Path(file_path))
+        if ext in ConfigIndexer.SUPPORTED_EXTENSIONS:
+            return self._get_config_indexer().parse_config(file_path, persist_path)
+
         if content is None:
             content = Path(file_path).read_text(encoding="utf-8", errors="replace")
 
         content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
-        persist_path = store_path or file_path
         title = Path(persist_path).stem
 
-        ext = Path(file_path).suffix.lower()
         if ext == ".rst":
             sections = self._parse_rst_sections(content)
         else:
@@ -219,18 +258,17 @@ class DocumentIndexer:
         all_edges: list[GraphEdge] = []
         base = Path(directory)
 
-        for ext in self.SUPPORTED_EXTENSIONS:
-            for fpath in base.rglob(f"*{ext}"):
-                if any(part in self._exclude_dirs for part in fpath.parts):
-                    continue
-                try:
-                    rel = str(fpath.relative_to(base))
-                    doc = self.parse_document(str(fpath), store_path=rel)
-                    nodes, edges = self.build_graph(doc)
-                    all_nodes.extend(nodes)
-                    all_edges.extend(edges)
-                except Exception as exc:
-                    log.warning("doc_parse_error", file=str(fpath), error=str(exc))
+        for fpath in type(self).iter_supported_paths(base):
+            if any(part in self._exclude_dirs for part in fpath.parts):
+                continue
+            try:
+                rel = str(fpath.relative_to(base))
+                doc = self.parse_document(str(fpath), store_path=rel)
+                nodes, edges = self.build_graph(doc)
+                all_nodes.extend(nodes)
+                all_edges.extend(edges)
+            except Exception as exc:
+                log.warning("doc_parse_error", file=str(fpath), error=str(exc))
 
         log.info("doc_directory_indexed", directory=directory, nodes=len(all_nodes), edges=len(all_edges))
         return all_nodes, all_edges

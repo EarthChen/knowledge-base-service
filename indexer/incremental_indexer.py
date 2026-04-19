@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from config import get_settings
 from indexer.code_graph_builder import CodeGraphBuilder
+from indexer.config_indexer import _config_file_extension
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from indexer.enrichment import is_trivial_enrichment_entity, truncate_enrichment_item
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-_DOC_EXTENSIONS = {".md", ".markdown", ".rst", ".txt"}
+_DOC_EXTENSIONS = frozenset(DocumentIndexer.SUPPORTED_EXTENSIONS)
 _ENRICH_BATCH_SIZE = 50
 
 
@@ -417,9 +418,9 @@ class IncrementalIndexer:
                     report.record_file_skipped()
                     continue
 
-                suffix = Path(fpath).suffix.lower()
+                ext = _config_file_extension(Path(fpath))
 
-                if suffix in _DOC_EXTENSIONS:
+                if ext in _DOC_EXTENSIONS:
                     try:
                         doc = self._doc_indexer.parse_document(full_path, store_path=fpath)
                         doc_nodes, doc_edges = self._doc_indexer.build_graph(doc)
@@ -777,8 +778,8 @@ class IncrementalIndexer:
         parts = Path(file_path).parts
         if any(part in _get_exclude_dirs() for part in parts):
             return False
-        suffix = Path(file_path).suffix.lower()
-        return self._builder.detect_language(file_path) is not None or suffix in _DOC_EXTENSIONS
+        ext = _config_file_extension(Path(file_path))
+        return self._builder.detect_language(file_path) is not None or ext in _DOC_EXTENSIONS
 
     async def _get_changed_files(
         self, directory: str, base_ref: str, head_ref: str,

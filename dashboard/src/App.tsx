@@ -1,18 +1,18 @@
-import { lazy, Suspense } from "react";
+import { lazy } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
 import { ToastProvider } from "./components/Toast";
-import Overview from "./pages/Overview";
-import SearchPage from "./pages/SearchPage";
-import GraphExplorer from "./pages/GraphExplorer";
-import ArchitecturePage from "./pages/ArchitecturePage";
-import Repositories from "./pages/Repositories";
-import Indexing from "./pages/Indexing";
-import Documents from "./pages/Documents";
-import SettingsPage from "./pages/SettingsPage";
-import WikiPage from "./pages/WikiPage";
-import PrImpactPage from "./pages/PrImpactPage";
 
+const Overview = lazy(() => import("./pages/Overview"));
+const SearchPage = lazy(() => import("./pages/SearchPage"));
+const GraphExplorer = lazy(() => import("./pages/GraphExplorer"));
+const ArchitecturePage = lazy(() => import("./pages/ArchitecturePage"));
+const Repositories = lazy(() => import("./pages/Repositories"));
+const Indexing = lazy(() => import("./pages/Indexing"));
+const Documents = lazy(() => import("./pages/Documents"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const WikiPage = lazy(() => import("./pages/WikiPage"));
+const PrImpactPage = lazy(() => import("./pages/PrImpactPage"));
 const Businesses = lazy(() => import("./pages/Businesses"));
 
 export default function App() {
@@ -33,10 +33,9 @@ export default function App() {
           </Route>
           <Route path="pr-impact" element={<PrImpactPage />} />
           <Route path="settings" element={<SettingsPage />} />
-          {/* Legacy routes — redirect or lazy-load for backward compat */}
           <Route path="deep-search" element={<Navigate to="/search" replace />} />
           <Route path="graph" element={<Navigate to="/explorer" replace />} />
-          <Route path="businesses" element={<Suspense fallback={null}><Businesses /></Suspense>} />
+          <Route path="businesses" element={<Businesses />} />
         </Route>
       </Routes>
     </ToastProvider>

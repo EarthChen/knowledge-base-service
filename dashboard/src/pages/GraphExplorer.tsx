@@ -14,7 +14,8 @@ import {
   Panel,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Network, Search, ZoomIn, Loader2, Eye, EyeOff } from "lucide-react";
+import dagre from "@dagrejs/dagre";
+import { Network, Search, ZoomIn, Loader2, Eye, EyeOff, AlertTriangle } from "lucide-react";
 import { useGraphExplore } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "../api/types";
@@ -45,22 +46,53 @@ const DEFAULT_VISIBILITY: Record<NodeTypeKey, boolean> = {
   Document: true,
 };
 
+const DAGRE_NODE_LIMIT = 200;
+const NODE_WIDTH = 160;
+const NODE_HEIGHT = 48;
+
 function normalizeGraphType(raw: string): keyof typeof TYPE_FLOW_COLORS {
   const t = raw?.trim();
   if (t === "Function" || t === "Class" || t === "Module" || t === "Document") return t;
   return "Unknown";
 }
 
-function buildFlowNodes(apiNodes: ApiNode[]): Node[] {
-  const cols = Math.max(Math.ceil(Math.sqrt(apiNodes.length)), 1);
-  return apiNodes.map((n, i) => {
+function hasInheritsEdges(apiEdges: ApiEdge[]): boolean {
+  return apiEdges.some((e) => e.type === "INHERITS");
+}
+
+function buildFlowNodesWithDagre(
+  apiNodes: ApiNode[],
+  apiEdges: ApiEdge[],
+): { nodes: Node[]; truncated: boolean } {
+  const truncated = apiNodes.length > DAGRE_NODE_LIMIT;
+  const limitedNodes = truncated ? apiNodes.slice(0, DAGRE_NODE_LIMIT) : apiNodes;
+  const nodeIdSet = new Set(limitedNodes.map((n) => n.id));
+
+  const g = new dagre.graphlib.Graph();
+  const rankdir = hasInheritsEdges(apiEdges) ? "TB" : "LR";
+  g.setGraph({ rankdir, nodesep: 60, ranksep: 80, marginx: 20, marginy: 20 });
+  g.setDefaultEdgeLabel(() => ({}));
+
+  for (const n of limitedNodes) {
+    g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+  }
+  for (const e of apiEdges) {
+    if (nodeIdSet.has(e.source) && nodeIdSet.has(e.target)) {
+      g.setEdge(e.source, e.target);
+    }
+  }
+  dagre.layout(g);
+
+  const nodes: Node[] = limitedNodes.map((n) => {
     const nt = normalizeGraphType(n.type);
     const colors = TYPE_FLOW_COLORS[nt];
-    const col = i % cols;
-    const row = Math.floor(i / cols);
+    const pos = g.node(n.id);
     return {
       id: n.id,
-      position: { x: col * 260 + (Math.random() - 0.5) * 40, y: row * 120 + (Math.random() - 0.5) * 20 },
+      position: {
+        x: (pos?.x ?? 0) - NODE_WIDTH / 2,
+        y: (pos?.y ?? 0) - NODE_HEIGHT / 2,
+      },
       data: {
         label: n.name,
         type: n.type,
@@ -87,6 +119,7 @@ function buildFlowNodes(apiNodes: ApiNode[]): Node[] {
       },
     };
   });
+  return { nodes, truncated };
 }
 
 function buildFlowEdges(apiEdges: ApiEdge[], nodeIds: Set<string>, showLabels: boolean): Edge[] {
@@ -118,9 +151,11 @@ export default function GraphExplorer() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [typeVisible, setTypeVisible] = useState<Record<NodeTypeKey, boolean>>({ ...DEFAULT_VISIBILITY });
   const [showEdgeLabels, setShowEdgeLabels] = useState(true);
+  const [graphTruncated, setGraphTruncated] = useState(false);
 
   const apiNodesRef = useRef<Map<string, ApiNode>>(new Map());
   const edgesRef = useRef<ApiEdge[]>([]);
+  const visibleNodeIdsRef = useRef<Set<string>>(new Set());
   const showEdgeLabelsRef = useRef(showEdgeLabels);
   const typeVisibleRef = useRef(typeVisible);
 
@@ -146,14 +181,16 @@ export default function GraphExplorer() {
           onSuccess: (data) => {
             apiNodesRef.current = new Map(data.nodes.map((n) => [n.id, n]));
             edgesRef.current = data.edges;
-            const built = buildFlowNodes(data.nodes);
-            const flowNodes = built.map((n) => {
+            const { nodes: builtNodes, truncated } = buildFlowNodesWithDagre(data.nodes, data.edges);
+            setGraphTruncated(truncated);
+            const flowNodes = builtNodes.map((n) => {
               const nt = normalizeGraphType((n.data?.type as string) || "");
               let vis = true;
               if (nt !== "Unknown") vis = typeVisibleRef.current[nt as NodeTypeKey];
               return { ...n, hidden: !vis };
             });
-            const nodeIds = new Set(data.nodes.map((n) => n.id));
+            const nodeIds = new Set(builtNodes.map((n) => n.id));
+            visibleNodeIdsRef.current = nodeIds;
             const flowEdges = buildFlowEdges(data.edges, nodeIds, showEdgeLabelsRef.current);
             setNodes(flowNodes);
             setEdges(flowEdges);
@@ -166,11 +203,9 @@ export default function GraphExplorer() {
   );
 
   useEffect(() => {
-    const data = mutation.data;
-    if (!data?.nodes?.length) return;
-    const nodeIds = new Set(data.nodes.map((n) => n.id));
-    setEdges(buildFlowEdges(edgesRef.current, nodeIds, showEdgeLabels));
-  }, [showEdgeLabels, mutation.data, setEdges]);
+    if (!visibleNodeIdsRef.current.size) return;
+    setEdges(buildFlowEdges(edgesRef.current, visibleNodeIdsRef.current, showEdgeLabels));
+  }, [showEdgeLabels, setEdges]);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -302,6 +337,13 @@ export default function GraphExplorer() {
           {t.explorer.explore}
         </button>
       </form>
+
+      {graphTruncated && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+          <AlertTriangle size={16} />
+          Graph truncated to {DAGRE_NODE_LIMIT} nodes for performance. Narrow your search or reduce depth/limit.
+        </div>
+      )}
 
       {mutation.error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-600">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -222,7 +222,15 @@ export default function Layout() {
         </header>
 
         <main className="flex-1 overflow-y-auto bg-slate-925 p-4 dark:bg-slate-950 lg:p-6">
-          <Outlet />
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center py-20">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-purple-600" />
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

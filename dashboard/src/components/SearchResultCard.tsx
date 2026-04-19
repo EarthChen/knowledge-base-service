@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { BookOpen, Code, Copy, Check } from "lucide-react";
 import type { SearchMatch } from "../api/types";
 import HighlightText from "./HighlightText";
+import CodeBlock from "./CodeBlock";
 import { useCodeSnippet } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 
@@ -37,15 +38,19 @@ export default function SearchResultCard({
   const wikiHref = wikiQuery ? `/wiki?q=${wikiQuery}` : "/wiki";
 
   const handleCopy = async (text: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard denied in non-secure context */ }
   };
 
   const handleCopyFilePath = async (path: string) => {
-    await navigator.clipboard.writeText(path);
-    setFilePathCopied(true);
-    setTimeout(() => setFilePathCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(path);
+      setFilePathCopied(true);
+      setTimeout(() => setFilePathCopied(false), 2000);
+    } catch { /* clipboard denied in non-secure context */ }
   };
 
   return (
@@ -156,7 +161,7 @@ export default function SearchResultCard({
             <p className="text-xs text-gray-400 dark:text-gray-500">Loading code…</p>
           )}
           {snippetQuery.error && (
-            <p className="text-xs text-red-600">{snippetQuery.error.message}</p>
+            <p className="text-xs text-red-600 dark:text-red-400">{snippetQuery.error.message}</p>
           )}
           {snippetQuery.data && (
             <div>
@@ -176,9 +181,11 @@ export default function SearchResultCard({
                   {copied ? "Copied" : "Copy"}
                 </button>
               </div>
-              <pre className="max-h-80 overflow-auto text-xs leading-5 text-gray-700 dark:text-gray-200">
-                <code>{snippetQuery.data.code_snippet || "(no code stored)"}</code>
-              </pre>
+              <CodeBlock
+                code={snippetQuery.data.code_snippet || "(no code stored)"}
+                filePath={snippetQuery.data.file ?? match.file}
+                startLine={snippetQuery.data.start_line}
+              />
             </div>
           )}
         </div>

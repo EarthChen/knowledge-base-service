@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from store.wiki_store import WikiStore
 from wiki.search import SearchResponse, SearchResult
 
 
@@ -158,8 +159,8 @@ def _truncate_to_token_budget(text: str, max_tokens: int) -> str:
 class GraphEnhancedContextCollector:
     """Collects richer context by traversing the code graph."""
 
-    def __init__(self, graph: GraphPort) -> None:
-        self._graph = graph
+    def __init__(self, wiki_store: WikiStore) -> None:
+        self._wiki = wiki_store
 
     @staticmethod
     def _seed_names(search_results: list[SearchResult]) -> list[str]:
@@ -186,13 +187,7 @@ class GraphEnhancedContextCollector:
     async def _query_wiki_pages(self, repository: str, paths: list[str]) -> str:
         if not paths:
             return ""
-        cypher = (
-            "MATCH (wp:WikiPage) "
-            "WHERE wp.repository = $repository AND wp.path IN $paths "
-            "RETURN wp.path AS page_path, wp.title AS title, wp.content AS content "
-            "ORDER BY wp.path"
-        )
-        rows = _graph_rows(await self._graph.execute_query(cypher, {"repository": repository, "paths": paths}))
+        rows = _graph_rows(await self._wiki.ask_query_wiki_pages(repository, paths))
         lines: list[str] = []
         for row in rows:
             title = str(row.get("title") or "")
@@ -204,12 +199,7 @@ class GraphEnhancedContextCollector:
     async def _query_one_hop(self, names: list[str]) -> str:
         if not names:
             return ""
-        cypher = (
-            "MATCH (n)-[r:CALLS|INHERITS|IMPORTS]-(m) "
-            "WHERE n.name IN $names "
-            "RETURN type(r) AS rel_type, n.name AS from_name, m.name AS to_name LIMIT 25"
-        )
-        rows = _graph_rows(await self._graph.execute_query(cypher, {"names": names}))
+        rows = _graph_rows(await self._wiki.ask_query_one_hop(names))
         lines: list[str] = []
         for row in rows:
             lines.append(f"{row.get('from_name')} -[{row.get('rel_type')}]-> {row.get('to_name')}")
@@ -218,12 +208,7 @@ class GraphEnhancedContextCollector:
     async def _query_flow_callees(self, names: list[str]) -> str:
         if not names:
             return ""
-        cypher = (
-            "MATCH (n) WHERE n.name IN $names "
-            "MATCH path = (n)-[:CALLS*2..3]->(m) "
-            "RETURN [x IN nodes(path) | coalesce(x.name, x.fqn, '')] AS chain LIMIT 15"
-        )
-        rows = _graph_rows(await self._graph.execute_query(cypher, {"names": names}))
+        rows = _graph_rows(await self._wiki.ask_query_flow_callees(names))
         lines: list[str] = []
         for row in rows:
             chain = row.get("chain") or []
@@ -234,15 +219,7 @@ class GraphEnhancedContextCollector:
     async def _query_relation_paths(self, names: list[str]) -> str:
         if len(names) < 2:
             return ""
-        cypher = (
-            "MATCH (seed) WHERE seed.name IN $names AND (seed:Function OR seed:Class OR seed:Module) "
-            "WITH collect(DISTINCT seed) AS seeds "
-            "WHERE size(seeds) >= 2 "
-            "WITH seeds[0] AS seed_a, seeds[-1] AS seed_b "
-            "MATCH p = shortestPath((seed_a)-[:CALLS|INHERITS|IMPORTS*1..4]-(seed_b)) "
-            "RETURN length(p) AS len, [x IN nodes(p) | coalesce(x.name, x.fqn, '')] AS path LIMIT 5"
-        )
-        rows = _graph_rows(await self._graph.execute_query(cypher, {"names": names}))
+        rows = _graph_rows(await self._wiki.ask_query_relation_paths(names))
         lines: list[str] = []
         for row in rows:
             path = row.get("path") or []
@@ -253,12 +230,7 @@ class GraphEnhancedContextCollector:
     async def _query_impact_callers(self, names: list[str]) -> str:
         if not names:
             return ""
-        cypher = (
-            "MATCH (n) WHERE n.name IN $names "
-            "MATCH path = (caller)-[:CALLS*1..3]->(n) "
-            "RETURN DISTINCT caller.name AS caller LIMIT 25"
-        )
-        rows = _graph_rows(await self._graph.execute_query(cypher, {"names": names}))
+        rows = _graph_rows(await self._wiki.ask_query_impact_callers(names))
         lines: list[str] = []
         for row in rows:
             c = row.get("caller")
@@ -269,12 +241,7 @@ class GraphEnhancedContextCollector:
     async def _query_signatures(self, names: list[str]) -> str:
         if not names:
             return ""
-        cypher = (
-            "MATCH (n) WHERE n.name IN $names AND (n:Function OR n:Class OR n:Method) "
-            "RETURN n.name AS name, coalesce(n.signature, '') AS signature, "
-            "coalesce(n.docstring, '') AS docstring LIMIT 20"
-        )
-        rows = _graph_rows(await self._graph.execute_query(cypher, {"names": names}))
+        rows = _graph_rows(await self._wiki.ask_query_signatures(names))
         lines: list[str] = []
         for row in rows:
             nm = row.get("name", "")
@@ -286,13 +253,7 @@ class GraphEnhancedContextCollector:
     async def _query_module_overview(self, repository: str, names: list[str]) -> str:
         if not names:
             return ""
-        cypher = (
-            "MATCH (m:Module)-[:CONTAINS|DECLARED_IN*0..3]-(n) "
-            "WHERE n.name IN $names AND m.repository = $repository "
-            "RETURN coalesce(m.name, m.path, '') AS module, "
-            "coalesce(m.summary, m.overview, '') AS overview LIMIT 8"
-        )
-        rows = _graph_rows(await self._graph.execute_query(cypher, {"repository": repository, "names": names}))
+        rows = _graph_rows(await self._wiki.ask_query_module_overview(repository, names))
         lines: list[str] = []
         for row in rows:
             mod = row.get("module", "")
@@ -489,11 +450,12 @@ class WikiAskService:
         llm: LLMPort,
         conversation_store: ConversationStore | None = None,
         graph: GraphPort | None = None,
+        wiki_store: WikiStore | None = None,
     ) -> None:
         self._search = search
         self._llm = llm
         self._store = conversation_store or ConversationStore()
-        self._graph = graph
+        self._wiki_store = wiki_store or (WikiStore(graph) if graph is not None else None)
 
     def _resolve_conversation(
         self,
@@ -558,8 +520,8 @@ class WikiAskService:
         if not isinstance(search_resp, SearchResponse):
             raise TypeError("search must return SearchResponse")
         formatted = _format_search_results(search_resp)
-        if self._graph is not None:
-            collector = GraphEnhancedContextCollector(self._graph)
+        if self._wiki_store is not None:
+            collector = GraphEnhancedContextCollector(self._wiki_store)
             qtype = detect_question_type(question)
             token_budget = wiki_context_token_budget(question, qtype)
             try:

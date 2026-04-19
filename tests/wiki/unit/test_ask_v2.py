@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from store.wiki_store import WikiStore
 from wiki.ask import (
     GraphEnhancedContextCollector,
     WikiAskService,
@@ -126,7 +127,7 @@ class TestGraphEnhancedContextCollector:
 
         graph = AsyncMock()
         graph.execute_query = AsyncMock(side_effect=exec_q)
-        collector = GraphEnhancedContextCollector(graph)
+        collector = GraphEnhancedContextCollector(WikiStore(graph))
         out = await collector.collect(
             "my-repo",
             [_sr()],
@@ -153,7 +154,7 @@ class TestGraphEnhancedContextCollector:
 
         graph = AsyncMock()
         graph.execute_query = AsyncMock(side_effect=exec_q)
-        collector = GraphEnhancedContextCollector(graph)
+        collector = GraphEnhancedContextCollector(WikiStore(graph))
         out = await collector.collect("repo", [_sr()], "flow", token_budget=8000)
         assert "wiki" in out.lower() or "chain" in out.lower()
         cy_all = " ".join(str(call.args[0]) for call in graph.execute_query.await_args_list)
@@ -173,7 +174,7 @@ class TestGraphEnhancedContextCollector:
 
         graph = AsyncMock()
         graph.execute_query = AsyncMock(side_effect=exec_q)
-        collector = GraphEnhancedContextCollector(graph)
+        collector = GraphEnhancedContextCollector(WikiStore(graph))
         out = await collector.collect(
             "repo",
             [
@@ -207,7 +208,7 @@ class TestGraphEnhancedContextCollector:
 
         graph = AsyncMock()
         graph.execute_query = AsyncMock(side_effect=exec_q)
-        collector = GraphEnhancedContextCollector(graph)
+        collector = GraphEnhancedContextCollector(WikiStore(graph))
         out = await collector.collect("repo", [_sr()], "impact", token_budget=8000)
         assert "Root" in out or "caller" in out.lower()
         cy_all = " ".join(str(call.args[0]) for call in graph.execute_query.await_args_list).lower()
@@ -221,7 +222,7 @@ class TestGraphEnhancedContextCollector:
 
         graph = AsyncMock()
         graph.execute_query = AsyncMock(side_effect=exec_q)
-        collector = GraphEnhancedContextCollector(graph)
+        collector = GraphEnhancedContextCollector(WikiStore(graph))
         out = await collector.collect("repo", [_sr()], "general", token_budget=8000)
         assert "full" in out
 
@@ -235,7 +236,7 @@ class TestGraphEnhancedContextCollector:
 
         graph = AsyncMock()
         graph.execute_query = AsyncMock(side_effect=exec_q)
-        collector = GraphEnhancedContextCollector(graph)
+        collector = GraphEnhancedContextCollector(WikiStore(graph))
         out = await collector.collect("repo", [_sr()], "concept", token_budget=50)
         from wiki.ask import _estimate_tokens
 

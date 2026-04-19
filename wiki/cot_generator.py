@@ -8,6 +8,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from store.wiki_store import WikiStore
 from wiki.doc_wiki_fusion import find_related_docs, format_related_docs_for_prompt
 from wiki.models import PageType, WikiPage, WikiPageMetadata
 
@@ -193,7 +194,7 @@ class CoTWikiGenerator:
         related_docs: list[dict[str, str]] = []
         effective_code_ctx = code_context
         if store is not None and entity_names:
-            related_docs = await find_related_docs(store, entity_names)
+            related_docs = await find_related_docs(WikiStore(store), entity_names)
             doc_block = format_related_docs_for_prompt(related_docs)
             if doc_block:
                 effective_code_ctx = f"{code_context.rstrip()}\n\n{doc_block}"

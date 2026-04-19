@@ -10,6 +10,8 @@ from typing import Any, Protocol, runtime_checkable
 from log import get_logger
 from search.fusion import rrf_fusion as _shared_rrf_fusion
 
+from store.wiki_store import WikiStore
+
 log = get_logger(__name__)
 
 # Graph path ×2, vector ×1, FTS ×1.5 (hybrid)
@@ -82,37 +84,6 @@ def _extract_entity_names(text: str) -> list[str]:
     return out
 
 
-def _neighbor_cypher() -> str:
-    return (
-        "MATCH (n)-[:CALLS|INHERITS|IMPORTS]->(m) "
-        "WHERE n.name = $name "
-        "RETURN DISTINCT m.name AS neighbor LIMIT 5"
-    )
-
-
-def _graph_path_cypher() -> str:
-    return (
-        "UNWIND $terms AS term "
-        "MATCH (seed)-[:CALLS|INHERITS|IMPORTS*1..3]-(related) "
-        "WHERE (seed:Function OR seed:Class OR seed:Module) "
-        "AND (seed.name = term OR seed.fqn = term OR seed.fqn ENDS WITH term) "
-        "MATCH (wp:WikiPage) "
-        "WHERE wp.repository = $repository "
-        "AND (wp.title CONTAINS related.name OR wp.content CONTAINS related.name) "
-        "RETURN DISTINCT wp.path AS page_path, wp.title AS title, "
-        "left(wp.content, 240) AS snippet "
-        "LIMIT $limit"
-    )
-
-
-def _fts_cypher() -> str:
-    return (
-        "CALL db.idx.fulltext.queryNodes('WikiPage', $text) YIELD node, score "
-        "WHERE node.repository = $repository "
-        "RETURN node, score LIMIT $limit"
-    )
-
-
 class WikiSearchService:
     """3-path fusion wiki search with optional graph query expansion."""
 
@@ -123,17 +94,17 @@ class WikiSearchService:
         fts: FTSPort,
         *,
         embedding_gen: Any | None = None,
+        wiki_store: WikiStore | None = None,
     ) -> None:
         self._graph = graph
         self._vector = vector
         self._fts = fts
         self._embedding_gen = embedding_gen
+        self._wiki_store = wiki_store or WikiStore(graph)
 
     async def ensure_fulltext_index(self) -> None:
         """Create FalkorDB full-text index on WikiPage content and title."""
-        await self._fts.execute_query(
-            "CALL db.idx.fulltext.createNodeIndex('WikiPage', 'content', 'title')"
-        )
+        await self._wiki_store.ensure_wiki_fulltext_index()
 
     @staticmethod
     def rrf_fusion(
@@ -152,10 +123,9 @@ class WikiSearchService:
 
         neighbors: list[str] = []
         seen: set[str] = set()
-        cy = _neighbor_cypher()
         for name in entities:
             try:
-                res = await self._graph.execute_query(cy, {"name": name})
+                res = await self._wiki_store.neighbor_names(name)
             except Exception as exc:
                 log.warning("graph_expand_failed", name=name, error=str(exc))
                 continue
@@ -199,11 +169,11 @@ class WikiSearchService:
         async def run_graph() -> list[tuple[str, float]]:
             if mode not in ("hybrid", "graph"):
                 return []
-            cy = _graph_path_cypher()
             try:
-                res = await self._graph.execute_query(
-                    cy,
-                    {"repository": repository, "terms": terms, "limit": max(limit * 5, limit)},
+                res = await self._wiki_store.graph_path_search(
+                    repository,
+                    terms,
+                    max(limit * 5, limit),
                 )
             except Exception as exc:
                 log.warning("wiki_graph_path_error", error=str(exc))
@@ -235,21 +205,12 @@ class WikiSearchService:
                     return []
                 vec = embeddings[0]
                 k = max(limit * 5, limit)
-                cypher = (
-                    "CALL db.idx.vector.queryNodes('WikiPage', 'embedding', $k, vecf32($vec)) "
-                    "YIELD node, score "
-                    "WHERE node.repository = $repository "
-                    "RETURN node, score LIMIT $limit"
-                )
                 try:
-                    res = await self._graph.execute_query(
-                        cypher,
-                        {
-                            "k": k,
-                            "vec": vec,
-                            "repository": repository,
-                            "limit": k,
-                        },
+                    res = await self._wiki_store.vector_wiki_search(
+                        k,
+                        vec,
+                        repository,
+                        k,
                     )
                 except Exception as exc:
                     log.warning("wiki_vector_path_error", error=str(exc))
@@ -302,15 +263,11 @@ class WikiSearchService:
         async def run_fts() -> list[tuple[str, float]]:
             if mode not in ("hybrid", "keyword"):
                 return []
-            cy = _fts_cypher()
             try:
-                res = await self._fts.execute_query(
-                    cy,
-                    {
-                        "text": search_query.replace("\n", " "),
-                        "repository": repository,
-                        "limit": max(limit * 5, limit),
-                    },
+                res = await self._wiki_store.fulltext_wiki_search(
+                    search_query.replace("\n", " "),
+                    repository,
+                    max(limit * 5, limit),
                 )
             except Exception as exc:
                 log.warning("wiki_fts_path_error", error=str(exc))

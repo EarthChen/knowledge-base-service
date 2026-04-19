@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from auth import Role, require_role
 from log import get_logger
 from query.graph_query import GraphQueryService
+from store.wiki_store import WikiStore
 from git_manager import normalize_repo_name
 from wiki.ask import WikiAskService
 from wiki.cache import WikiCache
@@ -831,12 +832,7 @@ async def wiki_list_pages(
 ) -> dict[str, Any]:
     # ``scope`` is kept for OpenAPI/backward compatibility; listing reads all persisted pages.
     _ = scope
-    cypher = (
-        "MATCH (wp:WikiPage {repository: $repo}) "
-        "RETURN wp.path AS path, wp.title AS title, wp.page_type AS page_type "
-        "ORDER BY wp.path"
-    )
-    result = await store.execute_query(cypher, {"repo": repository})
+    result = await WikiStore(store).list_all_wiki_pages(repository)
     pages = [
         {
             "path": r["path"],
@@ -855,8 +851,7 @@ async def wiki_get_page_detail(
     store: Any = Depends(get_wiki_store_dep),
 ) -> dict[str, Any]:
     decoded_path = unquote(wiki_page_path).lstrip("/")
-    cypher = "MATCH (wp:WikiPage {repository: $repo, path: $path}) RETURN wp LIMIT 1"
-    result = await store.execute_query(cypher, {"repo": repository, "path": decoded_path})
+    result = await WikiStore(store).get_wiki_page_detail(repository, decoded_path)
     if not result.data:
         raise HTTPException(
             status_code=404,

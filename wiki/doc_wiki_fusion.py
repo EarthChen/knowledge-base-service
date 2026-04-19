@@ -2,36 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
-from store.schema import EdgeType
-
-
-@runtime_checkable
-class _GraphExecutePort(Protocol):
-    async def execute_query(self, cypher: str, params: dict[str, Any] | None = None) -> Any: ...
-
-
-_RELATED_DOCS_CYPHER = (
-    "MATCH (d:Document)-[:REFERENCES]->(e) "
-    "WHERE e.name IN $entities OR e.fqn IN $entities "
-    "RETURN DISTINCT d.file AS file, d.content AS content "
-    "LIMIT $limit"
-)
+from store.wiki_store import WikiStore
 
 
 async def find_related_docs(
-    store: _GraphExecutePort,
+    wiki_store: WikiStore,
     entity_names: list[str],
     limit: int = 5,
 ) -> list[dict[str, str]]:
     """Find repository documents that REFERENCE the given entities (name or FQN)."""
     if not entity_names:
         return []
-    rows = await store.execute_query(
-        _RELATED_DOCS_CYPHER,
-        {"entities": entity_names, "limit": limit},
-    )
+    rows = await wiki_store.find_related_docs_entities(entity_names, limit)
     data = getattr(rows, "data", None) or []
     out: list[dict[str, str]] = []
     for r in data:
@@ -47,20 +31,8 @@ async def find_related_docs(
     return out
 
 
-_SOURCE_DOC_EDGE = EdgeType.SOURCE_DOC.value
-
-_BATCH_SOURCE_DOC_CYPHER = (
-    "UNWIND $docs AS doc_file "
-    f"MATCH (wp:WikiPage {{repository: $repository, path: $path}}) "
-    "MATCH (d:Document) "
-    "WHERE d.file = doc_file AND d.repository = $repository "
-    f"MERGE (wp)-[:{_SOURCE_DOC_EDGE}]->(d) "
-    "RETURN count(*) AS cnt"
-)
-
-
 async def create_source_doc_edges(
-    store: _GraphExecutePort,
+    wiki_store: WikiStore,
     *,
     repository: str,
     wiki_page_path: str,
@@ -71,10 +43,7 @@ async def create_source_doc_edges(
     files = [f for f in files if f]
     if not files:
         return 0
-    await store.execute_query(
-        _BATCH_SOURCE_DOC_CYPHER,
-        {"repository": repository, "path": wiki_page_path, "docs": files},
-    )
+    await wiki_store.merge_source_doc_edges_batch(repository, wiki_page_path, files)
     return len(files)
 
 

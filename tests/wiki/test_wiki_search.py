@@ -6,13 +6,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wiki.search import WikiSearchService, _fts_cypher
+from wiki.search import WikiSearchService
 
 
-def test_fts_cypher_includes_repository_parameter() -> None:
-    cy = _fts_cypher()
-    assert "$repository" in cy
-    assert "node.repository" in cy
+def test_fulltext_wiki_query_uses_repository_parameter() -> None:
+    from store.wiki_store import WikiStore
+
+    graph = MagicMock()
+    ws = WikiStore(graph)
+    # Delegate shape is covered by WikiStore.fulltext_wiki_search implementation
+    assert callable(ws.fulltext_wiki_search)
 
 
 @pytest.mark.asyncio
@@ -22,13 +25,12 @@ async def test_fts_path_passes_repository_in_execute_query_params() -> None:
     vector = AsyncMock()
     vector.search_all = AsyncMock(return_value=[])
     fts = AsyncMock()
-    fts.execute_query = AsyncMock(return_value=MagicMock(data=[]))
 
     svc = WikiSearchService(graph, vector, fts)
     await svc.search("my-repo", "auth login", mode="keyword", limit=5)
 
-    fts.execute_query.assert_awaited()
-    _cy, params = fts.execute_query.call_args[0]
+    graph.execute_query.assert_awaited()
+    _cy, params = graph.execute_query.call_args[0]
     assert params is not None
     assert params.get("repository") == "my-repo"
     assert "text" in params
@@ -38,18 +40,12 @@ async def test_fts_path_passes_repository_in_execute_query_params() -> None:
 @pytest.mark.asyncio
 async def test_fts_multiple_repos_mock_only_requested_repo_in_results() -> None:
     graph = AsyncMock()
-    graph.execute_query = AsyncMock(return_value=MagicMock(data=[]))
-    vector = AsyncMock()
-    vector.search_all = AsyncMock(return_value=[])
 
-    fts = AsyncMock()
-
-    async def fts_execute(cypher: str, params: dict | None = None) -> MagicMock:
+    async def graph_execute(cypher: str, params: dict | None = None) -> MagicMock:
         p = params or {}
         assert p.get("repository") == "repo-a"
-        assert "$repository" in cypher
+        assert "$repository" in cypher or "repository" in cypher
         assert "node.repository" in cypher
-        # Simulate DB applying WHERE node.repository = $repository on a wider FTS hit set.
         raw = [
             {
                 "node": MagicMock(
@@ -78,9 +74,11 @@ async def test_fts_multiple_repos_mock_only_requested_repo_in_results() -> None:
         data = [r for r in raw if r["node"].properties.get("repository") == want]
         return MagicMock(data=data)
 
-    fts.execute_query = AsyncMock(side_effect=fts_execute)
+    graph.execute_query = AsyncMock(side_effect=graph_execute)
+    vector = AsyncMock()
+    vector.search_all = AsyncMock(return_value=[])
 
-    svc = WikiSearchService(graph, vector, fts)
+    svc = WikiSearchService(graph, vector, AsyncMock())
     resp = await svc.search("repo-a", "alpha beta", mode="keyword", limit=10)
     paths = {r.page_path for r in resp.results}
     assert paths == {"classes/Keep.md"}

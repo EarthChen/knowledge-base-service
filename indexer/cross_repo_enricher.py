@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 from log import get_logger
 
+from store.indexer_store import IndexerStore
+
 if TYPE_CHECKING:
     from store.falkordb_store import FalkorDBStore
 
@@ -65,8 +67,9 @@ _ENTITY_ANNOTATION_NAMES = frozenset({"Entity", "Table", "Document", "MappedSupe
 class CrossRepoEnricher:
     """Global enrichment pass that resolves cross-repository relationships."""
 
-    def __init__(self, store: FalkorDBStore) -> None:
+    def __init__(self, store: FalkorDBStore, indexer_store: IndexerStore | None = None) -> None:
         self._store = store
+        self._idx = indexer_store or IndexerStore(store)
 
     async def enrich_all(self) -> dict[str, Any]:
         """Run all cross-repo enrichment passes. Returns counts."""
@@ -85,16 +88,9 @@ class CrossRepoEnricher:
         """Match @MoaConsumer/@DubboReference → @MoaProvider/@DubboService across repos."""
         count = 0
         try:
-            await self._store.execute_query(
-                "MATCH ()-[r:CROSS_REPO_CALLS]->() DELETE r"
-            )
+            await self._idx.cross_repo_delete_edges()
 
-            providers = await self._store.execute_query(
-                "MATCH (c:Class) "
-                "WHERE c.semantic_roles IS NOT NULL AND 'rpc_provider' IN c.semantic_roles "
-                "RETURN c.uid AS uid, c.name AS name, c.rpc_interface AS rpc_interface, "
-                "c.repository AS repository, c.annotations AS annotations, c.fqn AS fqn"
-            )
+            providers = await self._idx.cross_repo_rpc_providers()
 
             iface_to_provider: dict[str, dict[str, Any]] = {}
             for row in providers.data:
@@ -125,14 +121,7 @@ class CrossRepoEnricher:
                         "name": name,
                     }
 
-            consumers = await self._store.execute_query(
-                "MATCH (f:Function) "
-                "WHERE f.semantic_roles IS NOT NULL AND 'rpc_consumer' IN f.semantic_roles "
-                "OPTIONAL MATCH (c:Class)-[:CONTAINS]->(f) "
-                "RETURN f.uid AS uid, f.name AS name, f.annotations AS annotations, "
-                "f.repository AS repository, c.uid AS class_uid, c.name AS class_name, "
-                "c.repository AS class_repository"
-            )
+            consumers = await self._idx.cross_repo_rpc_consumers()
 
             for row in consumers.data:
                 func_uid = row.get("uid") or ""
@@ -167,20 +156,12 @@ class CrossRepoEnricher:
                     continue
 
                 try:
-                    await self._store.execute_query(
-                        "MATCH (consumer:Function {uid: $consumer_uid}), "
-                        "(provider:Class {uid: $provider_uid}) "
-                        "MERGE (consumer)-[r:CROSS_REPO_CALLS]->(provider) "
-                        "SET r.source_repo = $source_repo, "
-                        "r.target_repo = $target_repo, "
-                        "r.interface = $interface",
-                        {
-                            "consumer_uid": func_uid,
-                            "provider_uid": provider["uid"],
-                            "source_repo": consumer_repo,
-                            "target_repo": provider["repository"],
-                            "interface": target_iface,
-                        },
+                    await self._idx.cross_repo_merge_rpc_edge(
+                        func_uid,
+                        provider["uid"],
+                        consumer_repo,
+                        provider["repository"],
+                        target_iface,
                     )
                     count += 1
                 except Exception as exc:
@@ -198,14 +179,9 @@ class CrossRepoEnricher:
         """Build DEPENDS_ON edges from DI annotations and constructor injection."""
         count = 0
         try:
-            await self._store.execute_query(
-                "MATCH ()-[r:DEPENDS_ON]->() DELETE r"
-            )
+            await self._idx.di_delete_depends_on_edges()
 
-            all_classes = await self._store.execute_query(
-                "MATCH (c:Class) RETURN c.uid AS uid, c.name AS name, c.fqn AS fqn, "
-                "c.repository AS repository"
-            )
+            all_classes = await self._idx.di_all_classes()
             class_name_to_uid: dict[str, str] = {}
             for row in all_classes.data:
                 name = row.get("name") or ""
@@ -219,15 +195,7 @@ class CrossRepoEnricher:
                     if simple and simple not in class_name_to_uid:
                         class_name_to_uid[simple] = uid
 
-            di_fields = await self._store.execute_query(
-                "MATCH (c:Class)-[:CONTAINS]->(f:Function) "
-                "WHERE (f.annotations IS NOT NULL AND size(f.annotations) > 0) "
-                "   OR (f.semantic_roles IS NOT NULL AND 'di_inject' IN f.semantic_roles) "
-                "RETURN c.uid AS class_uid, c.name AS class_name, c.repository AS repository, "
-                "f.uid AS func_uid, f.name AS func_name, f.annotations AS annotations, "
-                "f.signature AS signature, f.semantic_roles AS semantic_roles, "
-                "f.injection_type AS injection_type, f.field_type AS field_type"
-            )
+            di_fields = await self._idx.di_field_and_constructor_candidates()
 
             for row in di_fields.data:
                 cls_uid = row.get("class_uid") or ""
@@ -278,18 +246,11 @@ class CrossRepoEnricher:
                     if not target_uid or target_uid == cls_uid:
                         continue
                     try:
-                        await self._store.execute_query(
-                            "MATCH (source:Class {uid: $source_uid}), "
-                            "(target:Class {uid: $target_uid}) "
-                            "MERGE (source)-[r:DEPENDS_ON]->(target) "
-                            "SET r.injection_type = $injection_type, "
-                            "r.field_name = $field_name",
-                            {
-                                "source_uid": cls_uid,
-                                "target_uid": target_uid,
-                                "injection_type": injection_type,
-                                "field_name": func_name,
-                            },
+                        await self._idx.di_merge_depends_on(
+                            cls_uid,
+                            target_uid,
+                            injection_type,
+                            func_name,
                         )
                         count += 1
                     except Exception as exc:
@@ -347,16 +308,9 @@ class CrossRepoEnricher:
         """Create ACCESSES_TABLE edges from Repository/DAO classes to Entity classes."""
         count = 0
         try:
-            await self._store.execute_query(
-                "MATCH ()-[r:ACCESSES_TABLE]->() DELETE r"
-            )
+            await self._idx.entity_delete_accesses_table_edges()
 
-            entity_classes = await self._store.execute_query(
-                "MATCH (c:Class) "
-                "WHERE c.semantic_roles IS NOT NULL AND 'entity' IN c.semantic_roles "
-                "RETURN c.uid AS uid, c.name AS name, c.fqn AS fqn, "
-                "c.annotations AS annotations, c.repository AS repository"
-            )
+            entity_classes = await self._idx.entity_semantic_entity_classes()
 
             entity_map: dict[str, dict[str, Any]] = {}
             for row in entity_classes.data:
@@ -376,10 +330,7 @@ class CrossRepoEnricher:
 
                 if table_name:
                     try:
-                        await self._store.execute_query(
-                            "MATCH (c:Class {uid: $uid}) SET c.table_name = $table_name",
-                            {"uid": uid, "table_name": table_name},
-                        )
+                        await self._idx.entity_set_table_name(uid, table_name)
                     except Exception as exc:
                         log.warning("entity_table_name_set_failed", uid=uid, error=str(exc))
 
@@ -391,13 +342,7 @@ class CrossRepoEnricher:
                     if simple_name and simple_name not in entity_map:
                         entity_map[simple_name] = {"uid": uid, "table_name": table_name}
 
-            dao_classes = await self._store.execute_query(
-                "MATCH (c:Class) "
-                "WHERE c.semantic_roles IS NOT NULL "
-                "AND ('repository' IN c.semantic_roles OR c.architecture_layer = 'data_access') "
-                "RETURN c.uid AS uid, c.name AS name, c.fqn AS fqn, "
-                "c.base_classes AS base_classes, c.repository AS repository"
-            )
+            dao_classes = await self._idx.entity_dao_candidates()
 
             for row in dao_classes.data:
                 dao_uid = row.get("uid") or ""
@@ -419,16 +364,10 @@ class CrossRepoEnricher:
                         if entity and entity["uid"] not in linked_entities:
                             linked_entities.add(entity["uid"])
                             try:
-                                await self._store.execute_query(
-                                    "MATCH (dao:Class {uid: $dao_uid}), "
-                                    "(entity:Class {uid: $entity_uid}) "
-                                    "MERGE (dao)-[r:ACCESSES_TABLE]->(entity) "
-                                    "SET r.table_name = $table_name",
-                                    {
-                                        "dao_uid": dao_uid,
-                                        "entity_uid": entity["uid"],
-                                        "table_name": entity.get("table_name") or "",
-                                    },
+                                await self._idx.entity_merge_accesses_table(
+                                    dao_uid,
+                                    entity["uid"],
+                                    entity.get("table_name") or "",
                                 )
                                 count += 1
                             except Exception as exc:
@@ -442,16 +381,10 @@ class CrossRepoEnricher:
                                 and entity_info["uid"] not in linked_entities):
                             linked_entities.add(entity_info["uid"])
                             try:
-                                await self._store.execute_query(
-                                    "MATCH (dao:Class {uid: $dao_uid}), "
-                                    "(entity:Class {uid: $entity_uid}) "
-                                    "MERGE (dao)-[r:ACCESSES_TABLE]->(entity) "
-                                    "SET r.table_name = $table_name",
-                                    {
-                                        "dao_uid": dao_uid,
-                                        "entity_uid": entity_info["uid"],
-                                        "table_name": entity_info.get("table_name") or "",
-                                    },
+                                await self._idx.entity_merge_accesses_table(
+                                    dao_uid,
+                                    entity_info["uid"],
+                                    entity_info.get("table_name") or "",
                                 )
                                 count += 1
                             except Exception as exc:

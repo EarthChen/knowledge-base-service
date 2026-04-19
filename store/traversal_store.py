@@ -489,3 +489,19 @@ class TraversalStore:
             "LIMIT 5"
         )
         return await self._store.execute_query(q, {"needle": needle})
+
+    async def get_code_entity_for_snippet(self, uid: str) -> QueryResultWrapper:
+        """Load function/class source fields for MCP ``get_code_snippet``."""
+        q = (
+            "MATCH (n) WHERE n.uid = $uid AND (n:Function OR n:Class) "
+            "RETURN n.uid AS uid, n.name AS name, n.file AS file, "
+            "n.start_line AS start_line, n.end_line AS end_line, "
+            "labels(n)[0] AS type, "
+            "coalesce(n.code_snippet, '') AS code_snippet, "
+            "coalesce(n.signature, '') AS signature, "
+            "coalesce(n.docstring, '') AS docstring, "
+            "coalesce(n.language, '') AS language, "
+            "coalesce(n.fqn, '') AS fqn, "
+            "coalesce(n.repository, '') AS repository"
+        )
+        return await self._store.execute_query(q, {"uid": uid})

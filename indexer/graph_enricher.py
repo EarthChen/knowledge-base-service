@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
 
+from store.indexer_store import IndexerStore
+
 if TYPE_CHECKING:
     from store.falkordb_store import FalkorDBStore
 
@@ -300,8 +302,9 @@ def _classify_architecture_layer(
 class GraphEnricher:
     """Post-indexing enrichment: derives API endpoint info and architecture layers from annotations."""
 
-    def __init__(self, store: FalkorDBStore) -> None:
+    def __init__(self, store: FalkorDBStore, indexer_store: IndexerStore | None = None) -> None:
         self._store = store
+        self._idx = indexer_store or IndexerStore(store)
 
     async def enrich(self) -> dict[str, int]:
         """Run all enrichment passes. Returns counts of enriched nodes."""
@@ -319,13 +322,7 @@ class GraphEnricher:
     async def _enrich_api_endpoints(self) -> int:
         count = 0
         try:
-            q_http = (
-                "MATCH (f:Function) "
-                "WHERE f.semantic_roles IS NOT NULL AND 'http_endpoint' IN f.semantic_roles "
-                "OPTIONAL MATCH (c:Class)-[:CONTAINS]->(f) "
-                "RETURN f.uid AS uid, f.annotations AS f_ann, c.annotations AS c_ann"
-            )
-            res = await self._store.execute_query(q_http)
+            res = await self._idx.enrich_scan_http_endpoint_rows()
             for row in res.data:
                 uid = row.get("uid")
                 if not uid:
@@ -342,21 +339,12 @@ class GraphEnricher:
                     method = "*ALL*"
                 full_path = _join_api_paths(base, rel_path)
                 try:
-                    await self._store.execute_query(
-                        "MATCH (f:Function) WHERE f.uid = $uid "
-                        "SET f.http_method = $method, f.api_path = $path",
-                        {"uid": uid, "method": method, "path": full_path},
-                    )
+                    await self._idx.enrich_set_function_http_props(uid, method, full_path)
                     count += 1
                 except Exception as exc:
                     log.warning("graph_enrich_http_failed", uid=uid, error=str(exc))
 
-            q_rpc = (
-                "MATCH (c:Class) "
-                "WHERE c.semantic_roles IS NOT NULL AND 'rpc_provider' IN c.semantic_roles "
-                "RETURN c.uid AS uid, c.annotations AS annotations"
-            )
-            res_rpc = await self._store.execute_query(q_rpc)
+            res_rpc = await self._idx.enrich_scan_rpc_provider_classes()
             for row in res_rpc.data:
                 uid = row.get("uid")
                 if not uid:
@@ -372,20 +360,12 @@ class GraphEnricher:
                         if iface:
                             break
                 try:
-                    await self._store.execute_query(
-                        "MATCH (c:Class) WHERE c.uid = $uid SET c.rpc_interface = $iface",
-                        {"uid": uid, "iface": iface},
-                    )
+                    await self._idx.enrich_set_class_rpc_interface(uid, iface)
                     count += 1
                 except Exception as exc:
                     log.warning("graph_enrich_rpc_failed", uid=uid, error=str(exc))
 
-            q_kafka = (
-                "MATCH (f:Function) "
-                "WHERE f.semantic_roles IS NOT NULL AND 'message_listener' IN f.semantic_roles "
-                "RETURN f.uid AS uid, f.annotations AS annotations"
-            )
-            res_k = await self._store.execute_query(q_kafka)
+            res_k = await self._idx.enrich_scan_kafka_listener_functions()
             for row in res_k.data:
                 uid = row.get("uid")
                 if not uid:
@@ -409,10 +389,7 @@ class GraphEnricher:
                             if topic:
                                 break
                 try:
-                    await self._store.execute_query(
-                        "MATCH (f:Function) WHERE f.uid = $uid SET f.kafka_topic = $topic",
-                        {"uid": uid, "topic": topic},
-                    )
+                    await self._idx.enrich_set_function_kafka_topic(uid, topic)
                     count += 1
                 except Exception as exc:
                     log.warning("graph_enrich_kafka_failed", uid=uid, error=str(exc))
@@ -424,9 +401,7 @@ class GraphEnricher:
     async def _enrich_architecture_layers(self) -> int:
         count = 0
         try:
-            res = await self._store.execute_query(
-                "MATCH (c:Class) RETURN c.uid AS uid, c.semantic_roles AS sr, c.fqn AS fqn",
-            )
+            res = await self._idx.enrich_list_classes_with_semantic_roles()
             for row in res.data:
                 uid = row.get("uid")
                 if not uid:
@@ -436,15 +411,7 @@ class GraphEnricher:
                     sr = None
                 layer = _classify_architecture_layer(sr, row.get("fqn"))
                 try:
-                    prop = await self._store.execute_query(
-                        "MATCH (c:Class) WHERE c.uid = $uid "
-                        "SET c.architecture_layer = $layer "
-                        "WITH c "
-                        "MATCH (c)-[:CONTAINS]->(f:Function) "
-                        "SET f.architecture_layer = $layer "
-                        "RETURN count(f) AS fn",
-                        {"uid": uid, "layer": layer},
-                    )
+                    prop = await self._idx.enrich_set_class_layer_and_functions(uid, layer)
                     fn = 0
                     if prop.data:
                         fn = int(prop.data[0].get("fn") or 0)
@@ -459,36 +426,20 @@ class GraphEnricher:
         """Mark RPC interface classes and store method signatures for contract surfaces."""
         count = 0
         try:
-            await self._store.execute_query(
-                "MATCH (iface:Class) WHERE coalesce(iface.is_interface, false) = true "
-                "SET iface.is_rpc_contract = false, iface.contract_methods = []",
-            )
-            res = await self._store.execute_query(
-                "MATCH (iface:Class) WHERE coalesce(iface.is_interface, false) = true "
-                "MATCH (p:Class)-[:IMPLEMENTS]->(iface) "
-                "WHERE p.semantic_roles IS NOT NULL AND 'rpc_provider' IN p.semantic_roles "
-                "RETURN DISTINCT iface.uid AS uid",
-            )
+            await self._idx.enrich_reset_rpc_contract_flags()
+            res = await self._idx.enrich_rpc_provider_interface_candidates()
             for row in res.data:
                 uid = row.get("uid")
                 if not uid:
                     continue
-                mres = await self._store.execute_query(
-                    "MATCH (iface:Class {uid: $uid})-[:CONTAINS]->(m:Function) "
-                    "RETURN m.name AS name, m.signature AS signature ORDER BY m.name",
-                    {"uid": uid},
-                )
+                mres = await self._idx.enrich_iface_contract_methods(uid)
                 methods: list[str] = []
                 for mr in mres.data:
                     sig = (mr.get("signature") or "").strip()
                     name = (mr.get("name") or "").strip()
                     methods.append(sig if sig else name)
                 try:
-                    await self._store.execute_query(
-                        "MATCH (iface:Class {uid: $uid}) "
-                        "SET iface.is_rpc_contract = true, iface.contract_methods = $methods",
-                        {"uid": uid, "methods": methods},
-                    )
+                    await self._idx.enrich_set_iface_rpc_contract(uid, methods)
                     count += 1
                 except Exception as exc:
                     log.warning("graph_enrich_rpc_contract_failed", uid=uid, error=str(exc))
@@ -500,15 +451,10 @@ class GraphEnricher:
         """Kafka EVENT_CONSUMES / EVENT_PRODUCES edges to synthetic topic :Module nodes."""
         count = 0
         try:
-            await self._store.execute_query("MATCH ()-[r:EVENT_PRODUCES]->() DELETE r")
-            await self._store.execute_query("MATCH ()-[r:EVENT_CONSUMES]->() DELETE r")
+            await self._idx.enrich_delete_all_event_produces_edges()
+            await self._idx.enrich_delete_all_event_consumes_edges()
 
-            res_consume = await self._store.execute_query(
-                "MATCH (f:Function) "
-                "WHERE f.semantic_roles IS NOT NULL AND 'message_listener' IN f.semantic_roles "
-                "AND coalesce(f.kafka_topic, '') <> '' "
-                "RETURN f.uid AS uid, f.kafka_topic AS topic",
-            )
+            res_consume = await self._idx.enrich_kafka_consumer_functions_with_topic()
             for row in res_consume.data:
                 func_uid = row.get("uid")
                 topic = (row.get("topic") or "").strip()
@@ -533,13 +479,7 @@ class GraphEnricher:
                         error=str(exc),
                     )
 
-            res_producers = await self._store.execute_query(
-                "MATCH (caller:Function)-[:CALLS]->(callee:Function) "
-                "WHERE callee.name IN ['sendSync', 'sendAsync', 'send', 'sendDefault', 'convertAndSend', 'publish'] "
-                "MATCH (owner:Class)-[:CONTAINS]->(callee) "
-                "WHERE toLower(owner.name) CONTAINS 'kafka' OR toLower(owner.name) CONTAINS 'producer' "
-                "RETURN DISTINCT caller.uid AS uid, caller.code_snippet AS snippet",
-            )
+            res_producers = await self._idx.enrich_kafka_producer_call_rows()
             for row in res_producers.data:
                 func_uid = row.get("uid")
                 if not func_uid:

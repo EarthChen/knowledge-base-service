@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from wiki.ask import WikiAskService
 from wiki.models import PageType, WikiPage, WikiPageMetadata, parse_scope
 from wiki.search import SearchResponse, WikiSearchService
+from store.wiki_store import WikiStore
 from wiki.service import WikiService
 
 if TYPE_CHECKING:
@@ -123,11 +124,13 @@ class WikiPipelineAdapter:
         search: WikiSearchService,
         ask: WikiAskService | None,
         store: FalkorDBStore | None = None,
+        wiki_store: WikiStore | None = None,
     ) -> None:
         self._wiki = wiki_service
         self._search = search
         self._ask = ask
         self._store = store
+        self._wiki_store = wiki_store or (WikiStore(store) if store is not None else None)
 
     async def generate_wiki(self, repository: str, scope: str, mode: str) -> list[WikiPage]:
         bundle = await self._wiki.generate(repository, scope, mode, "json")
@@ -135,32 +138,17 @@ class WikiPipelineAdapter:
         return [WikiPage.from_dict(p) for p in raw_pages]
 
     async def get_wiki_page(self, repository: str, scope: str) -> WikiPage | None:
-        if self._store is None:
+        if self._wiki_store is None:
             return None
         sp = parse_scope(scope)
-        params: dict[str, Any] = {"repo": repository}
         if sp.scope_type == "repo":
-            cypher = (
-                "MATCH (wp:WikiPage {repository: $repo, page_type: 'repo_overview'}) "
-                "RETURN wp LIMIT 1"
-            )
+            result = await self._wiki_store.get_wiki_page_repo_overview(repository)
         elif sp.scope_type == "module":
             slug = _slugify_module_path(sp.value or "")
-            params["slug"] = slug
-            cypher = (
-                "MATCH (wp:WikiPage {repository: $repo}) "
-                "WHERE wp.page_type = 'module_overview' AND wp.path CONTAINS $slug "
-                "RETURN wp LIMIT 1"
-            )
+            result = await self._wiki_store.get_wiki_page_module(repository, slug)
         else:
             name = _class_scope_simple_name(sp.value or "")
-            params["name"] = name
-            cypher = (
-                "MATCH (wp:WikiPage {repository: $repo}) "
-                "WHERE wp.page_type = 'class_detail' AND (wp.title = $name OR wp.path CONTAINS $name) "
-                "RETURN wp LIMIT 1"
-            )
-        result = await self._store.execute_query(cypher, params)
+            result = await self._wiki_store.get_wiki_page_class(repository, name)
         if not result.data:
             return None
         props = _wiki_page_props_from_row(result.data[0])
@@ -169,30 +157,23 @@ class WikiPipelineAdapter:
         return _wiki_page_from_graph(props)
 
     async def list_wiki_pages(self, repository: str, scope: str | None) -> dict[str, Any]:
-        if self._store is None:
+        if self._wiki_store is None:
             tree, n = _flat_wiki_rows_to_tree(repository, [])
             return {"repository": repository, "tree": tree, "total_pages": n}
 
-        params: dict[str, Any] = {"repo": repository}
-        scope_filter = ""
         if scope and scope.strip() and scope.strip() != "repo":
             sp = parse_scope(scope.strip())
             if sp.scope_type == "module":
                 slug = _slugify_module_path(sp.value or "")
-                params["prefix"] = f"modules/{slug}"
-                scope_filter = " AND wp.path STARTS WITH $prefix"
+                prefix = f"modules/{slug}"
+                result = await self._wiki_store.list_wiki_pages_module_prefix(repository, prefix)
             elif sp.scope_type == "class":
                 name = _class_scope_simple_name(sp.value or "")
-                params["name"] = name
-                scope_filter = " AND wp.path CONTAINS $name"
-
-        cypher = (
-            f"MATCH (wp:WikiPage {{repository: $repo}})"
-            f"{scope_filter} "
-            "RETURN wp.path AS path, wp.title AS title, wp.page_type AS page_type "
-            "ORDER BY wp.path"
-        )
-        result = await self._store.execute_query(cypher, params)
+                result = await self._wiki_store.list_wiki_pages_class_contains(repository, name)
+            else:
+                result = await self._wiki_store.list_wiki_pages_all(repository)
+        else:
+            result = await self._wiki_store.list_wiki_pages_all(repository)
         rows = list(result.data)
         tree, total = _flat_wiki_rows_to_tree(repository, rows)
         return {

@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from store.wiki_store import WikiStore
 from wiki.cache import WikiCache
 from wiki.models import WikiPage, parse_scope
 
@@ -82,8 +83,10 @@ class WikiLintService:
         store: _GraphExecutePort,
         wiki_cache: WikiCache | None = None,
         repo_registry: Any | None = None,
+        wiki_store: WikiStore | None = None,
     ) -> None:
         self._store = store
+        self._wiki_store = wiki_store or WikiStore(store)
         self._cache = wiki_cache
         self._repo_registry = repo_registry
 
@@ -143,13 +146,7 @@ class WikiLintService:
         return [i for i in issues if keep(i)]
 
     async def _wiki_pages_for_repo(self, repository: str) -> list[dict[str, Any]]:
-        rows = await self._store.execute_query(
-            "MATCH (wp:WikiPage {repository: $repository}) "
-            "RETURN wp.path AS path, wp.title AS title, wp.content AS content, "
-            "coalesce(wp.generated_at, '') AS generated_at, "
-            "coalesce(wp.referenced_entity_uids, []) AS referenced_entity_uids",
-            {"repository": repository},
-        )
+        rows = await self._wiki_store.list_wiki_pages_for_repo(repository)
         data = getattr(rows, "data", None) or []
         pages = [dict(r) for r in data]
         if pages or self._cache is None:
@@ -173,14 +170,7 @@ class WikiLintService:
 
     async def _check_staleness(self, repository: str) -> list[LintIssue]:
         issues: list[LintIssue] = []
-        graph_rows = await self._store.execute_query(
-            "MATCH (wp:WikiPage {repository: $repository}) "
-            "UNWIND coalesce(wp.referenced_entity_uids, []) AS uid "
-            "OPTIONAL MATCH (n) WHERE n.uid = uid "
-            "WITH wp, uid, n WHERE n IS NULL AND uid <> '' "
-            "RETURN DISTINCT wp.path AS page_path, uid AS stale_uid",
-            {"repository": repository},
-        )
+        graph_rows = await self._wiki_store.lint_stale_entity_refs(repository)
         for r in getattr(graph_rows, "data", None) or []:
             uid = str(r.get("stale_uid", "") or "")
             pp = str(r.get("page_path", "") or "")
@@ -198,10 +188,7 @@ class WikiLintService:
             )
 
         cache_only_pages: list[WikiPage] = []
-        graph_pages = await self._store.execute_query(
-            "MATCH (wp:WikiPage {repository: $repository}) RETURN count(wp) AS cnt",
-            {"repository": repository},
-        )
+        graph_pages = await self._wiki_store.count_wiki_pages_for_repository(repository)
         cnt = 0
         if getattr(graph_pages, "data", None):
             cnt = int(graph_pages.data[0].get("cnt") or 0)
@@ -213,11 +200,7 @@ class WikiLintService:
                 fqn = (loc.fqn or "").strip()
                 if not fqn:
                     continue
-                chk = await self._store.execute_query(
-                    "MATCH (n) WHERE n.repository = $repository AND n.fqn = $fqn "
-                    "RETURN n.uid AS uid LIMIT 1",
-                    {"repository": repository, "fqn": fqn},
-                )
+                chk = await self._wiki_store.entity_uid_by_fqn(repository, fqn)
                 rows = getattr(chk, "data", None) or []
                 if rows:
                     continue
@@ -234,13 +217,7 @@ class WikiLintService:
         return issues
 
     async def _check_orphans(self, repository: str) -> list[LintIssue]:
-        res = await self._store.execute_query(
-            "MATCH (wp:WikiPage {repository: $repository}) "
-            "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp) "
-            "WITH wp, count(src) AS in_degree "
-            "RETURN wp.path AS path, in_degree",
-            {"repository": repository},
-        )
+        res = await self._wiki_store.wiki_orphan_in_degrees(repository)
         issues: list[LintIssue] = []
         rows = getattr(res, "data", None) or []
         if not rows and self._cache is not None:
@@ -333,20 +310,7 @@ class WikiLintService:
         return issues
 
     async def _check_coverage_gaps(self, repository: str) -> list[LintIssue]:
-        res = await self._store.execute_query(
-            "MATCH (c:Class) "
-            "WHERE c.repository = $repository "
-            "AND ("
-            " 'service' IN coalesce(c.semantic_roles, []) OR "
-            " 'http_controller' IN coalesce(c.semantic_roles, []) OR "
-            " 'repository' IN coalesce(c.semantic_roles, [])"
-            ") "
-            "OPTIONAL MATCH (wp:WikiPage {repository: $repository}) "
-            "WHERE wp.title = c.name OR wp.path ENDS WITH '/' + c.name + '.md' OR wp.path ENDS WITH c.name + '.md' "
-            "WITH c, wp WHERE wp IS NULL "
-            "RETURN coalesce(c.name, '') AS name, coalesce(c.fqn, '') AS fqn",
-            {"repository": repository},
-        )
+        res = await self._wiki_store.lint_coverage_gaps(repository)
         issues: list[LintIssue] = []
         for r in getattr(res, "data", None) or []:
             name = str(r.get("name", "") or "")

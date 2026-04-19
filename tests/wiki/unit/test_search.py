@@ -93,9 +93,7 @@ class TestFTSIndex:
     @pytest.mark.asyncio
     async def test_fts_index_build(self) -> None:
         graph = AsyncMock()
-        vector = AsyncMock()
-        fts = AsyncMock()
-        fts.execute_query = AsyncMock(
+        graph.execute_query = AsyncMock(
             side_effect=[
                 MagicMock(data=[]),
                 MagicMock(
@@ -114,16 +112,16 @@ class TestFTSIndex:
                 ),
             ]
         )
+        vector = AsyncMock()
+        fts = AsyncMock()
         svc = WikiSearchService(graph, vector, fts)
 
         await svc.ensure_fulltext_index()
-        first_cypher = fts.execute_query.call_args_list[0][0][0]
+        first_cypher = graph.execute_query.call_args_list[0][0][0]
         assert "createNodeIndex" in first_cypher
         assert "WikiPage" in first_cypher
 
-        # Searchable via keyword path
-        fts.execute_query.side_effect = None
-        fts.execute_query = AsyncMock(
+        graph.execute_query = AsyncMock(
             return_value=MagicMock(
                 data=[
                     {
@@ -139,12 +137,11 @@ class TestFTSIndex:
                 ]
             )
         )
-        graph.execute_query = AsyncMock(return_value=MagicMock(data=[]))
         vector.search_all = AsyncMock(return_value=[])
 
         resp = await svc.search("repo1", "authentication", mode="keyword", limit=5)
         assert len(resp.results) >= 1
-        assert any("queryNodes" in str(c[0][0]) for c in fts.execute_query.call_args_list)
+        assert any("queryNodes" in str(c[0][0]) for c in graph.execute_query.call_args_list)
 
 
 class TestHybridParallelAndWeights:
@@ -154,8 +151,11 @@ class TestHybridParallelAndWeights:
     async def test_3path_parallel_execution(self) -> None:
         entered: list[tuple[str, float]] = []
 
-        async def mark_graph(*_a: object, **_k: object) -> MagicMock:
-            entered.append(("g", time.perf_counter()))
+        async def mark_graph(cypher: str, *_a: object, **_k: object) -> MagicMock:
+            if "fulltext.queryNodes" in cypher:
+                entered.append(("f", time.perf_counter()))
+            else:
+                entered.append(("g", time.perf_counter()))
             await asyncio.sleep(0.06)
             return MagicMock(data=[])
 
@@ -164,11 +164,6 @@ class TestHybridParallelAndWeights:
             await asyncio.sleep(0.06)
             return []
 
-        async def mark_fts(*_a: object, **_k: object) -> MagicMock:
-            entered.append(("f", time.perf_counter()))
-            await asyncio.sleep(0.06)
-            return MagicMock(data=[])
-
         graph = AsyncMock()
         graph.execute_query = AsyncMock(side_effect=mark_graph)
 
@@ -176,7 +171,6 @@ class TestHybridParallelAndWeights:
         vector.search_all = AsyncMock(side_effect=mark_vector)
 
         fts = AsyncMock()
-        fts.execute_query = AsyncMock(side_effect=mark_fts)
 
         svc = WikiSearchService(graph, vector, fts)
 
@@ -238,27 +232,28 @@ class TestSearchBehavior:
     @pytest.mark.asyncio
     async def test_search_respects_limit(self) -> None:
         graph = AsyncMock()
-        graph.execute_query = AsyncMock(
-            return_value=MagicMock(
+
+        async def graph_exec(cypher: str, params: dict | None = None) -> MagicMock:
+            if "fulltext.queryNodes" in cypher:
+                return MagicMock(
+                    data=[
+                        {
+                            "node": MagicMock(properties={"path": f"f{i}.md", "title": f"F{i}", "content": "x"}),
+                            "score": 1.0,
+                        }
+                        for i in range(10)
+                    ]
+                )
+            return MagicMock(
                 data=[{"page_path": f"p{i}.md", "title": f"T{i}", "snippet": ""} for i in range(10)]
             )
-        )
+
+        graph.execute_query = AsyncMock(side_effect=graph_exec)
         vector = AsyncMock()
         vector.search_all = AsyncMock(
             return_value=[{"page_path": f"v{i}.md", "title": f"V{i}", "score": 1.0 - i * 0.01} for i in range(10)]
         )
         fts = AsyncMock()
-        fts.execute_query = AsyncMock(
-            return_value=MagicMock(
-                data=[
-                    {
-                        "node": MagicMock(properties={"path": f"f{i}.md", "title": f"F{i}", "content": "x"}),
-                        "score": 1.0,
-                    }
-                    for i in range(10)
-                ]
-            )
-        )
 
         svc = WikiSearchService(graph, vector, fts)
         resp = await svc.search("repo", "q", mode="hybrid", limit=5)
@@ -316,8 +311,8 @@ async def test_modes_single_path_only() -> None:
     fts.reset_mock()
 
     await svc.search("r", "auth login", mode="keyword", limit=5)
-    fts.execute_query.assert_awaited()
-    graph.execute_query.assert_not_called()
+    graph.execute_query.assert_awaited()
+    fts.execute_query.assert_not_called()
     vector.search_all.assert_not_called()
 
 
@@ -362,9 +357,9 @@ class TestSearchErrorPathsAndScope:
     @pytest.mark.asyncio
     async def test_keyword_fts_path_error_returns_empty(self) -> None:
         graph = AsyncMock()
+        graph.execute_query = AsyncMock(side_effect=RuntimeError("fts"))
         vector = AsyncMock()
         fts = AsyncMock()
-        fts.execute_query = AsyncMock(side_effect=RuntimeError("fts"))
 
         svc = WikiSearchService(graph, vector, fts)
         resp = await svc.search("repo", "anything", mode="keyword", limit=10)

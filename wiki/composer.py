@@ -7,6 +7,7 @@ from typing import Any
 
 from log import get_logger
 from store.schema import EdgeType, GraphNode, NodeLabel
+from store.wiki_store import WikiStore
 from wiki.context import LLMPort, WikiContextBuilder
 from wiki.doc_wiki_fusion import create_source_doc_edges, find_related_docs, format_related_docs_for_prompt
 from wiki.data_collector import PageData
@@ -75,10 +76,12 @@ class WikiComposer:
         llm: LLMPort | None,
         context_builder: WikiContextBuilder,
         store: Any | None = None,
+        wiki_store: WikiStore | None = None,
     ) -> None:
         self._llm = llm
         self._ctx = context_builder
         self._store = store
+        self._wiki_store = wiki_store or (WikiStore(store) if store is not None else None)
 
     async def compose_page(
         self,
@@ -97,10 +100,10 @@ class WikiComposer:
         eff_lang = _effective_wiki_language(config.language)
         related_docs_block = ""
         doc_rows: list[dict[str, str]] = []
-        if self._store is not None:
+        if self._wiki_store is not None:
             doc_entities = _entity_names_for_doc_lookup(page_data.node)
             if doc_entities:
-                doc_rows = await find_related_docs(self._store, doc_entities, limit=5)
+                doc_rows = await find_related_docs(self._wiki_store, doc_entities, limit=5)
                 related_docs_block = format_related_docs_for_prompt(doc_rows, max_chars_per_doc=3000)
         if page_data.business_summary and page_data.business_summary.strip():
             tier = 1
@@ -140,10 +143,10 @@ class WikiComposer:
             metadata=meta,
             method_locations=list(page_data.method_locations),
         )
-        if self._store is not None and doc_rows:
+        if self._wiki_store is not None and doc_rows:
             try:
                 await create_source_doc_edges(
-                    self._store,
+                    self._wiki_store,
                     repository=config.repository,
                     wiki_page_path=path,
                     docs=doc_rows,

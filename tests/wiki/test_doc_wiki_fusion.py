@@ -9,6 +9,7 @@ import pytest
 from query.semantic_query import SemanticQueryService, SemanticResult
 from store.falkordb_store import QueryResultWrapper
 from store.schema import EdgeType, NodeLabel
+from store.wiki_store import WikiStore
 from wiki.doc_wiki_fusion import create_source_doc_edges, find_related_docs
 
 
@@ -32,8 +33,9 @@ async def test_find_related_docs_returns_matching_documents() -> None:
 
     store = MagicMock()
     store.execute_query = AsyncMock(side_effect=execute_query)
+    ws = WikiStore(store)
 
-    out = await find_related_docs(store, ["Foo", "pkg.Foo"], limit=5)
+    out = await find_related_docs(ws, ["Foo", "pkg.Foo"], limit=5)
     assert out == [
         {"file": "docs/a.md", "content": "body a"},
         {"file": "docs/b.md", "content": "body b"},
@@ -45,8 +47,9 @@ async def test_find_related_docs_returns_matching_documents() -> None:
 async def test_find_related_docs_returns_empty_when_no_matches() -> None:
     store = MagicMock()
     store.execute_query = AsyncMock(return_value=_wrap([]))
+    ws = WikiStore(store)
 
-    out = await find_related_docs(store, ["Unknown"], limit=3)
+    out = await find_related_docs(ws, ["Unknown"], limit=3)
     assert out == []
 
 
@@ -124,9 +127,10 @@ async def test_create_source_doc_edges_batched() -> None:
 
     store = MagicMock()
     store.execute_query = AsyncMock(side_effect=execute_query)
+    ws = WikiStore(store)
 
     n = await create_source_doc_edges(
-        store,
+        ws,
         repository="r1",
         wiki_page_path="wiki/p.md",
         docs=[{"file": "d1.md", "content": "x"}, {"file": "d2.md", "content": "y"}],
@@ -139,9 +143,10 @@ async def test_create_source_doc_edges_batched() -> None:
 async def test_create_source_doc_edges_skips_empty_files() -> None:
     store = MagicMock()
     store.execute_query = AsyncMock()
+    ws = WikiStore(store)
 
     n = await create_source_doc_edges(
-        store,
+        ws,
         repository="r1",
         wiki_page_path="wiki/p.md",
         docs=[{"file": "", "content": "x"}, {"file": "  ", "content": "y"}],

@@ -59,3 +59,10 @@ class TestTraversalStoreQueries:
         assert "CALLS|INHERITS|IMPORTS|CONTAINS|PART_OF|REFERENCES" in cypher
         assert params["center_uid"] == "uid-1"
         assert params["limit"] == 10
+
+    async def test_get_code_entity_for_snippet(self, mock_store: MagicMock, traversal: TraversalStore) -> None:
+        await traversal.get_code_entity_for_snippet("uid-x")
+        cypher, params = mock_store.execute_query.call_args[0]
+        assert "MATCH (n) WHERE n.uid = $uid AND (n:Function OR n:Class)" in cypher
+        assert "code_snippet" in cypher
+        assert params["uid"] == "uid-x"

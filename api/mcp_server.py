@@ -32,6 +32,7 @@ from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
 from store.falkordb_store import FalkorDBStore
 from store.schema import NodeLabel
+from store.traversal_store import TraversalStore
 from wiki.mcp_tools import WIKI_MCP_TOOLS_MANIFEST, WikiMCPHandler
 
 log = get_logger(__name__)
@@ -724,6 +725,7 @@ class KnowledgeBaseMCPHandler:
         self._indexer = indexer
         self._doc_indexer = doc_indexer
         self._store = store
+        self._traversal = TraversalStore(store) if store is not None else None
         self._embedding = embedding_gen
         self._wiki = wiki_handler if wiki_handler is not None else WikiMCPHandler(None)
         self._deep_search_engine = deep_search_engine
@@ -1358,22 +1360,10 @@ class KnowledgeBaseMCPHandler:
         node_uid = str(args.get("node_uid") or "").strip()
         if not node_uid:
             return _mcp_error("invalid_params", "node_uid is required")
-        if not self._store:
+        if not self._traversal:
             return _mcp_error("service_unavailable", "Graph store not available")
 
-        cypher = (
-            "MATCH (n) WHERE n.uid = $uid AND (n:Function OR n:Class) "
-            "RETURN n.uid AS uid, n.name AS name, n.file AS file, "
-            "n.start_line AS start_line, n.end_line AS end_line, "
-            "labels(n)[0] AS type, "
-            "coalesce(n.code_snippet, '') AS code_snippet, "
-            "coalesce(n.signature, '') AS signature, "
-            "coalesce(n.docstring, '') AS docstring, "
-            "coalesce(n.language, '') AS language, "
-            "coalesce(n.fqn, '') AS fqn, "
-            "coalesce(n.repository, '') AS repository"
-        )
-        result = await self._store.execute_query(cypher, {"uid": node_uid})
+        result = await self._traversal.get_code_entity_for_snippet(node_uid)
         if not result.data:
             return _mcp_error("not_found", f"No code entity with uid '{node_uid}'")
         row = result.data[0]

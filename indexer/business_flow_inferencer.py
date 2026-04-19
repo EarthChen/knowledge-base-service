@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
+
+from store.indexer_store import IndexerStore
 
 if TYPE_CHECKING:
     from llm.provider import LLMProvider
@@ -40,9 +41,11 @@ class BusinessFlowInferencer:
         store: FalkorDBStore,
         *,
         business_flow_enabled: bool | None = None,
+        indexer_store: IndexerStore | None = None,
     ) -> None:
         self._llm = llm
         self._store = store
+        self._idx = indexer_store or IndexerStore(store)
         if business_flow_enabled is None:
             from config import get_settings
 
@@ -74,54 +77,20 @@ class BusinessFlowInferencer:
         1. Strong: Functions with HTTP/RPC/Kafka annotations
         2. Weak: Functions with no CALLS inbound but having CALLS outbound
         """
-        loop = asyncio.get_running_loop()
 
-        strong_func_query = (
-            "MATCH (f:Function) "
-            "WHERE f.semantic_roles IS NOT NULL AND "
-            "ANY(r IN f.semantic_roles WHERE r IN "
-            "['http_endpoint', 'rpc_consumer', 'message_listener', 'scheduled_task']) "
-            "RETURN f"
-        )
+        def _props_from_row(node: Any) -> dict[str, Any]:
+            if hasattr(node, "properties"):
+                return dict(node.properties)
+            if isinstance(node, dict):
+                return dict(node)
+            return {}
 
-        strong_class_query = (
-            "MATCH (c:Class)-[:CONTAINS]->(f:Function) "
-            "WHERE c.semantic_roles IS NOT NULL AND "
-            "ANY(r IN c.semantic_roles WHERE r IN "
-            "['http_controller', 'rpc_provider']) "
-            "RETURN f"
-        )
-
-        legacy_strong_query = (
-            "MATCH (f:Function) "
-            "WHERE f.signature CONTAINS '@RequestMapping' "
-            "OR f.signature CONTAINS '@GetMapping' "
-            "OR f.signature CONTAINS '@PostMapping' "
-            "OR f.signature CONTAINS '@PutMapping' "
-            "OR f.signature CONTAINS '@DeleteMapping' "
-            "OR f.signature CONTAINS '@MoaProvider' "
-            "OR f.signature CONTAINS '@KafkaListener' "
-            "OR f.signature CONTAINS '@KafkaHandler' "
-            "OR f.signature CONTAINS '@app.route' "
-            "OR f.signature CONTAINS '@Scheduled' "
-            "RETURN f"
-        )
-
-        weak_query = (
-            "MATCH (f:Function)-[:CALLS]->() "
-            "WHERE NOT ()-[:CALLS]->(f) "
-            "RETURN DISTINCT f"
-        )
-
-        strong_rows = []
+        strong_rows: list[Any] = []
         try:
-            strong_func_result = await loop.run_in_executor(
-                None, lambda: self._store._graph.query(strong_func_query)
-            )
-            strong_class_result = await loop.run_in_executor(
-                None, lambda: self._store._graph.query(strong_class_query)
-            )
-            strong_rows = (strong_func_result.result_set or []) + (strong_class_result.result_set or [])
+            strong_func_result = await self._idx.entry_points_semantic_functions()
+            strong_class_result = await self._idx.entry_points_semantic_controller_classes()
+            for d in (strong_func_result.data or []) + (strong_class_result.data or []):
+                strong_rows.append(d.get("f"))
         except Exception:
             logger.warning(
                 "Semantic entry-point queries failed; falling back to signature-based matching",
@@ -129,29 +98,30 @@ class BusinessFlowInferencer:
             )
 
         if not strong_rows:
-            legacy_result = await loop.run_in_executor(
-                None, lambda: self._store._graph.query(legacy_strong_query)
-            )
-            strong_rows = legacy_result.result_set or []
+            legacy_result = await self._idx.entry_points_legacy_signatures()
+            strong_rows = [d.get("f") for d in (legacy_result.data or [])]
 
-        weak_result = await loop.run_in_executor(
-            None, lambda: self._store._graph.query(weak_query)
-        )
+        weak_result = await self._idx.entry_points_weak_leaf_functions()
 
         entries = []
         seen: set[str] = set()
-        for row in strong_rows:
-            node = row[0]
-            uid = node.properties.get("uid", node.properties.get("name", ""))
+        for node in strong_rows:
+            if node is None:
+                continue
+            props = _props_from_row(node)
+            uid = props.get("uid", props.get("name", ""))
             if uid not in seen:
                 seen.add(uid)
-                entries.append({**node.properties, "_entry_type": "strong"})
+                entries.append({**props, "_entry_type": "strong"})
 
-        for row in weak_result.result_set or []:
-            node = row[0]
-            uid = node.properties.get("uid", node.properties.get("name", ""))
+        for row in weak_result.data or []:
+            node = row.get("f")
+            if node is None:
+                continue
+            props = _props_from_row(node)
+            uid = props.get("uid", props.get("name", ""))
             if uid not in seen:
                 seen.add(uid)
-                entries.append({**node.properties, "_entry_type": "weak"})
+                entries.append({**props, "_entry_type": "weak"})
 
         return entries

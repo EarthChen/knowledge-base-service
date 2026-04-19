@@ -220,6 +220,12 @@ class KnowledgeBaseService:
                 synthesis_max_tokens=settings.llm.synthesis_max_tokens,
             )
 
+        nl_cypher_svc = None
+        if self._llm_provider is not None:
+            from query.nl_cypher import NLCypherService
+
+            nl_cypher_svc = NLCypherService(self._store, self._llm_provider)
+
         self._mcp_handler = KnowledgeBaseMCPHandler(
             hybrid_svc=self._hybrid_query,
             graph_svc=self._graph_query,
@@ -233,6 +239,7 @@ class KnowledgeBaseService:
                 store=self._store,
                 wiki_cache=self._wiki_cache,
             ),
+            nl_cypher=nl_cypher_svc,
             deep_search_engine=self._deep_search,
             task_status_fn=self._index_task_status_lookup,
         )

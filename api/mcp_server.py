@@ -30,6 +30,7 @@ from auth import Role, TokenInfo
 from log import get_logger
 from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
+from query.nl_cypher import NLCypherService
 from store.falkordb_store import FalkorDBStore
 from store.schema import NodeLabel
 from store.traversal_store import TraversalStore
@@ -351,7 +352,7 @@ MCP_TOOLS_MANIFEST = [
         "description": (
             "Execute structured graph queries on the code knowledge graph. "
             "Supports: call_chain, inheritance_tree, class_methods, "
-            "module_dependencies, find_entity, file_entities, raw_cypher."
+            "module_dependencies, find_entity, file_entities, raw_cypher, nl_query."
         ),
         "inputSchema": {
             "type": "object",
@@ -374,6 +375,7 @@ MCP_TOOLS_MANIFEST = [
                         "explore_domain",
                         "flow_dependencies",
                         "blast_radius",
+                        "nl_query",
                     ],
                     "description": "Type of graph query to execute.",
                 },
@@ -772,6 +774,7 @@ class KnowledgeBaseMCPHandler:
         store: FalkorDBStore | None = None,
         embedding_gen: EmbeddingGenerator | None = None,
         wiki_handler: WikiMCPHandler | None = None,
+        nl_cypher: NLCypherService | None = None,
         deep_search_engine: Any | None = None,
         task_status_fn: Callable[[str], dict[str, Any] | None] | None = None,
     ) -> None:
@@ -783,6 +786,7 @@ class KnowledgeBaseMCPHandler:
         self._traversal = TraversalStore(store) if store is not None else None
         self._embedding = embedding_gen
         self._wiki = wiki_handler if wiki_handler is not None else WikiMCPHandler(None)
+        self._nl_cypher = nl_cypher
         self._deep_search_engine = deep_search_engine
         self._task_status_fn = task_status_fn
 
@@ -1019,6 +1023,17 @@ class KnowledgeBaseMCPHandler:
             analyzer = BlastRadiusAnalyzer(self._store)
             result = await analyzer.analyze(names_list, max_depth=depth_val, repository=repository)
             return {"type": "blast_radius", **result}
+
+        elif query_type == "nl_query":
+            question = str(args.get("name", "") or "").strip()
+            if not question:
+                return _mcp_error("invalid_params", "name (question) is required for nl_query")
+            if not self._nl_cypher:
+                return _mcp_error("service_unavailable", "NL→Cypher requires LLM to be enabled")
+            repo = args.get("repository")
+            repository = str(repo).strip() if repo not in (None, "") else None
+            result = await self._nl_cypher.query(question, repository=repository)
+            return {"type": "nl_query", **result}
 
         return _mcp_error("invalid_params", f"Unknown query_type: {query_type}")
 

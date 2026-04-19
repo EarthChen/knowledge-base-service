@@ -1,28 +1,28 @@
-# Documentation index
+# 文档索引
 
-**Knowledge Base Service** — FastAPI backend, FalkorDB graph storage, Tree-sitter indexing, ONNX/torch embeddings (BAAI/bge-m3), hybrid retrieval with RRF and optional reranking, React + Vite dashboard, and MCP-style HTTP tools for agents.
+**Knowledge Base Service** — FastAPI 后端、FalkorDB 图存储、Tree-sitter 索引、ONNX/torch 嵌入（BAAI/bge-m3）、RRF 混合检索与可选重排序、React + Vite 仪表盘，以及面向 Agent 的 MCP 风格 HTTP 工具。
 
-## Guides
+## 文档导航
 
-| Document | Contents |
-|----------|----------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | End-to-end architecture, indexing and retrieval pipelines, graph schema, dashboard |
-| [MCP-INTEGRATION.md](MCP-INTEGRATION.md) | Complete MCP tool reference (16 tools), roles, HTTP binding |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Prerequisites, full env var table, auth, rate limits, Docker, security |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Directory layout, `uv` / `pnpm`, tests, adding languages and MCP tools |
-| [ONBOARDING.md](ONBOARDING.md) | Product tour, first index, search tips, MCP setup |
-| [wiki-generation-architecture.md](wiki-generation-architecture.md) | Wiki generation stack, search, webhooks, scheduler |
+| 文档 | 内容 |
+|------|------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 端到端架构、索引与检索管道、图 Schema、仪表盘 |
+| [MCP-INTEGRATION.md](MCP-INTEGRATION.md) | 完整 MCP 工具参考（16 个工具）、角色、HTTP 绑定 |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | 前置条件、完整环境变量表、认证、限流、Docker、安全 |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | 目录结构、`uv` / `pnpm`、测试、新增语言与 MCP 工具 |
+| [ONBOARDING.md](ONBOARDING.md) | 产品导览、首次索引、搜索技巧、MCP 设置 |
+| [wiki-generation-architecture.md](wiki-generation-architecture.md) | Wiki 生成栈、搜索、Webhook、定时器 |
 
-## Tech stack summary
+## 技术栈概览
 
-| Layer | Components |
-|-------|----------------|
-| API | FastAPI, structured logging, rate-limit middleware |
-| Storage | FalkorDB (RedisGraph-compatible), vector indexes per label |
-| Parsing | tree-sitter, language pack (python, java, go, javascript, typescript) |
-| Embeddings | Transformers / ONNX runtime, default bge-m3 1024-dim |
-| Search | Keyword + vector + (optional) chunk search → weighted RRF → optional bge-reranker → per-file cap → graph expansion |
-| UI | React 19, Vite, TanStack Query, React Router, Mermaid, xyflow |
-| Auth | YAML or env tokens; roles VIEWER / EDITOR / ADMIN |
+| 层级 | 组件 |
+|------|------|
+| API | FastAPI、结构化日志、限流中间件 |
+| 存储 | FalkorDB（RedisGraph 兼容）、按标签向量索引 |
+| 解析 | Tree-sitter，语言包（Python、Java、Go、JavaScript、TypeScript） |
+| 嵌入 | Transformers / ONNX Runtime，默认 bge-m3 1024 维 |
+| 搜索 | 关键词 + 向量 +（可选）子块搜索 → 加权 RRF → 可选 bge-reranker → 每文件上限 → 图扩展 |
+| 前端 | React 19、Vite、TanStack Query、React Router、Mermaid、xyflow |
+| 认证 | YAML 或环境变量 Token；角色 VIEWER / EDITOR / ADMIN |
 
-The [root README](../README.md) has a short quick start and configuration overview.
+[根目录 README](../README.md) 包含快速开始和配置概览。

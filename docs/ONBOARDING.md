@@ -1,33 +1,33 @@
-# User guide
+# 用户指南
 
-## What is this system?
+## 这个系统是什么？
 
-The **Knowledge Base Service** indexes your repositories into a **graph** (functions, classes, modules, calls, imports, …) plus **semantic vectors** so you can search by natural language, explore relationships, and (optionally) generate wiki-style documentation. A **web dashboard** provides search and exploration without writing code.
+**Knowledge Base Service** 将你的代码仓库索引为**图**（函数、类、模块、调用关系、导入关系等）和**语义向量**，支持自然语言搜索、关系探索，以及（可选的）Wiki 风格文档生成。**Web 仪表盘**提供无需编写代码的搜索和探索界面。
 
-## Dashboard tour
+## 仪表盘导览
 
-After starting the server (`uv run uvicorn main:app …`), open the root URL (default **http://localhost:8100**).
+启动服务后（`uv run uvicorn main:app …`），打开根 URL（默认 **http://localhost:8100**）。
 
-| Area | What you do there |
-|------|-------------------|
-| **Search** | Run **hybrid** NL queries (`POST /hybrid` under the hood): results combine semantic hits with graph-expanded context. Filter by repository or language when needed. |
-| **Deep Search** | Multi-step **LLM** investigation (requires `LLM__ENABLED` and working provider). Streams stages when using the SSE endpoint from the UI. |
-| **Graph / Explorer** | Explore entities and neighborhoods (force-directed views, entity detail). Aligns with `rag_graph` and `/graph/explore` APIs. |
-| **Repositories** | See indexed repos, stats, and status; entry point for “what’s in the index”. |
-| **Indexing** | Trigger **full** or **incremental** jobs; for remotes, configure Git and pass `git_url` via API if not using the UI wiring. |
-| **Wiki** | Browse and search **generated** wiki pages when the wiki pipeline is enabled and pages exist. |
-| **Architecture** | View layer and endpoint-oriented breakdowns where enrichment has classified services. |
-| **Sync / Settings** | Scheduled git pull + re-index, hooks, LLM/provider settings (as exposed in UI). |
+| 区域 | 功能说明 |
+|------|----------|
+| **搜索** | 执行**混合**自然语言查询（底层调用 `POST /hybrid`）：结果融合语义命中与图扩展上下文。可按仓库或语言过滤。 |
+| **深度搜索** | 多步骤 **LLM** 推理调查（需 `LLM__ENABLED` 及可用 Provider）。使用 SSE 端点时在界面流式展示各阶段。 |
+| **图 / 探索器** | 探索实体及其邻域（力导向视图、实体详情）。对应 `rag_graph` 和 `/graph/explore` API。 |
+| **仓库** | 查看已索引仓库、统计信息及状态；"索引中有什么"的入口。 |
+| **索引** | 触发**全量**或**增量**索引任务；远程仓库需配置 Git 并通过 API 传入 `git_url`。 |
+| **Wiki** | 浏览和搜索**生成的** Wiki 页面（需启用 Wiki 管道且已生成页面）。 |
+| **架构** | 查看按层和端点分类的架构分解（丰富化已分类服务时可用）。 |
+| **同步 / 设置** | 定时 git pull + 重新索引、Webhook、LLM/Provider 设置。 |
 
-The UI is a **React + Vite** SPA: heavy charts and graph code load when you open those routes.
+界面是 **React + Vite** SPA：重型图表和图形代码仅在打开对应路由时加载。
 
-## Index your first repository
+## 索引你的第一个仓库
 
-### Option A: Local directory (API)
+### 方式 A：本地目录（API）
 
-Use an **editor** token. Call:
+使用 **Editor** Token。调用：
 
-`POST /api/v1/index` with JSON like:
+`POST /api/v1/index`，JSON 请求体如下：
 
 ```json
 {
@@ -37,11 +37,11 @@ Use an **editor** token. Call:
 }
 ```
 
-You receive a **`task_id`**. Poll `GET /api/v1/index/tasks/{task_id}` until `completed` or `failed`.
+返回 **`task_id`**。轮询 `GET /api/v1/index/tasks/{task_id}` 直到状态为 `completed` 或 `failed`。
 
-### Option B: Git URL
+### 方式 B：Git URL
 
-Set `GIT__GITLAB_URL` / `GIT__GITLAB_TOKEN` (or SSH) as needed, then:
+按需设置 `GIT__GITLAB_URL` / `GIT__GITLAB_TOKEN`（或 SSH），然后：
 
 ```json
 {
@@ -52,35 +52,35 @@ Set `GIT__GITLAB_URL` / `GIT__GITLAB_TOKEN` (or SSH) as needed, then:
 }
 ```
 
-The server clones under `GIT__CLONE_BASE_PATH` and indexes the checkout.
+服务会在 `GIT__CLONE_BASE_PATH` 下克隆并索引检出内容。
 
-### Option C: MCP agent
+### 方式 C：MCP Agent
 
-Use tool **`rag_index`** (requires **editor** role) with the same fields as the HTTP body.
+使用 **`rag_index`** 工具（需 **Editor** 角色），字段与 HTTP 请求体相同。
 
-## Search effectively
+## 搜索技巧
 
-- Prefer **specific** identifiers in the query when you know them (class/function names); the hybrid stack boosts **keyword** matches via RRF.
-- **Scope** with `repository` and `language` to reduce noise.
-- For **large files**, enable child-chunk behavior (see `HYBRID_SEARCH__USE_CHILD_CHUNKS` and MCP `use_child_chunks`) for finer-grained hits.
-- For **architecture questions**, use the architecture view or MCP `search_architecture` (`mode: layers` or `endpoints`).
+- 当知道具体标识符时，在查询中使用**具体的**类名/函数名；混合栈通过 RRF 提升**关键词**匹配权重。
+- 使用 `repository` 和 `language` 缩小**范围**以减少噪声。
+- 对于**大文件**，启用子块行为（参见 `HYBRID_SEARCH__USE_CHILD_CHUNKS` 和 MCP `use_child_chunks`）以获取更细粒度的命中。
+- 对于**架构类问题**，使用架构视图或 MCP `search_architecture`（`mode: layers` 或 `endpoints`）。
 
-Deprecated global search endpoints have been removed; use **`POST /api/v1/hybrid`** with optional `entity_type` for business entities (`flow`, `concept`).
+已废弃的全局搜索端点已移除；使用 **`POST /api/v1/hybrid`** 并配合 `entity_type` 查询业务实体（`flow`、`concept`）。
 
-## Using with AI agents (MCP)
+## 与 AI Agent 集成（MCP）
 
-1. **Token** — Create a `viewer` or `editor` token (`tokens.yaml` or `API_TOKENS`).
-2. **List tools** — `GET /api/v1/mcp/tools` with `Authorization: Bearer <token>`.
-3. **Invoke** — `POST /api/v1/mcp/tool` with `{"tool_name":"rag_query","arguments":{...}}`.
-4. **Tenant** — Pass `X-Business-Id: your-tenant` when using multi-business graphs with unbound admin tokens.
+1. **Token** — 创建 `viewer` 或 `editor` Token（`tokens.yaml` 或 `API_TOKENS`）。
+2. **列出工具** — `GET /api/v1/mcp/tools`，带 `Authorization: Bearer <token>`。
+3. **调用** — `POST /api/v1/mcp/tool`，请求体 `{"tool_name":"rag_query","arguments":{...}}`。
+4. **租户** — 使用多租户图时，通过无绑定 Admin Token 传入 `X-Business-Id: your-tenant`。
 
-Full tool list and schemas: [MCP-INTEGRATION.md](MCP-INTEGRATION.md).
+完整工具列表和 Schema：[MCP-INTEGRATION.md](MCP-INTEGRATION.md)。
 
-## Authentication quick reference
+## 认证快速参考
 
-| Mode | Behavior |
-|------|----------|
-| No tokens configured | Open access (not for production); `REQUIRE_AUTH` forces failure at startup unless tokens exist |
-| `tokens.yaml` / env tokens | Bearer required for protected routers; roles control viewer vs editor vs admin routes |
+| 模式 | 行为 |
+|------|------|
+| 未配置 Token | 开放访问（不适合生产环境）；`REQUIRE_AUTH` 在无 Token 时强制启动失败 |
+| `tokens.yaml` / 环境变量 Token | 受保护路由需 Bearer；角色控制 Viewer / Editor / Admin 路由访问 |
 
-Check your role: `GET /api/v1/auth/me`.
+检查你的角色：`GET /api/v1/auth/me`。

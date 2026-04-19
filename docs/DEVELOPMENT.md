@@ -1,25 +1,25 @@
-# Developer guide
+# 开发指南
 
-## Project structure
+## 项目结构
 
 ```text
 knowledge-base-service/
-├── main.py                 # FastAPI app, route registration, lifespan
-├── config.py               # Pydantic settings (env / .env)
-├── auth.py                 # Token registry, roles, dependencies
-├── service.py              # KnowledgeBaseService composition
-├── service_registry.py     # Multi-tenant graph services
+├── main.py                 # FastAPI 应用、路由注册、生命周期
+├── config.py               # Pydantic 配置（env / .env）
+├── auth.py                 # Token 注册、角色、依赖注入
+├── service.py              # KnowledgeBaseService 组合
+├── service_registry.py     # 多租户图服务
 ├── api/
-│   ├── mcp_server.py       # MCP manifest + KnowledgeBaseMCPHandler
-│   ├── rate_limiter.py     # Token-bucket middleware
-│   └── routes/             # wiki, webhook, provider helpers
-├── indexer/                # Tree-sitter → graph, incremental index, embeddings
-├── store/                  # FalkorDB adapter, schema, graph_queries
-├── query/                  # Hybrid, semantic, graph_query, insights, …
-├── search/                 # RRF fusion helpers
-├── wiki/                   # Wiki pipeline, MCP wiki tools, webhook, scheduler
-├── llm/                    # OpenAI-compatible providers
-├── dashboard/              # React + Vite SPA (build → ../static)
+│   ├── mcp_server.py       # MCP 清单 + KnowledgeBaseMCPHandler
+│   ├── rate_limiter.py     # 令牌桶中间件
+│   └── routes/             # Wiki、Webhook、Provider 辅助路由
+├── indexer/                # Tree-sitter → 图、增量索引、嵌入
+├── store/                  # FalkorDB 适配器、Schema、graph_queries
+├── query/                  # 混合、语义、图查询、洞察等
+├── search/                 # RRF 融合辅助
+├── wiki/                   # Wiki 管道、MCP Wiki 工具、Webhook、调度器
+├── llm/                    # OpenAI 兼容提供者
+├── dashboard/              # React + Vite SPA（构建 → ../static）
 ├── tests/
 ├── docs/
 ├── pyproject.toml
@@ -27,72 +27,72 @@ knowledge-base-service/
 └── README.md
 ```
 
-## Dev setup
+## 开发环境搭建
 
-### Backend
+### 后端
 
 ```bash
 uv sync
-uv sync --extra dev    # pytest, ruff, …
+uv sync --extra dev    # pytest, ruff 等开发依赖
 ```
 
-Optional extras from `pyproject.toml`:
+`pyproject.toml` 中的可选扩展：
 
 ```bash
-uv sync --extra torch    # GPU sentence-transformers path when not using ONNX only
+uv sync --extra torch    # 不仅使用 ONNX 时的 GPU sentence-transformers 路径
 ```
 
-Run the API:
+运行 API：
 
 ```bash
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8100
 ```
 
-### Frontend
+### 前端
 
 ```bash
 cd dashboard
 pnpm install
-pnpm dev          # local dev server
-pnpm build        # production bundle → static/
+pnpm dev          # 本地开发服务器
+pnpm build        # 生产构建 → static/
 ```
 
-Use **`pnpm`**, not npm, per project convention.
+项目约定使用 **`pnpm`**，禁止使用 npm。
 
-## Tests
+## 测试
 
 ```bash
 uv run python -m pytest
 ```
 
-Async tests use `pytest-asyncio` (`asyncio_mode = auto` in `pyproject.toml`).
+异步测试使用 `pytest-asyncio`（`pyproject.toml` 中 `asyncio_mode = auto`）。
 
-Frontend: **`pnpm build`** verifies TypeScript and Vite production build (ci-style); add `pnpm lint` for ESLint when tightening quality gates.
+前端：**`pnpm build`** 验证 TypeScript 和 Vite 生产构建（CI 风格）；若需收紧质量门禁可添加 `pnpm lint`（ESLint）。
 
-## Adding a programming language
+## 新增编程语言支持
 
-1. **Config** — Extend `supported_languages` and `file_extensions` in `config.py` (or override via env if your deployment supports list serialization).
-2. **Parser** — Add or extend Tree-sitter queries in `indexer/tree_sitter_parser.py` (and related language-specific helpers).
-3. **Graph** — Map AST constructs to `NodeLabel` / `EdgeType` in `indexer/code_graph_builder.py`.
-4. **Vectors** — Ensure emitted nodes use labels covered by `VECTOR_INDEX_CONFIGS` in `store/schema.py` if they need embeddings.
-5. **Tests** — Add fixture snippets under `tests/indexer/` and run pytest.
+1. **配置** — 在 `config.py` 中扩展 `supported_languages` 和 `file_extensions`（或通过环境变量覆盖，如部署支持列表序列化）。
+2. **解析器** — 在 `indexer/tree_sitter_parser.py` 中添加或扩展 Tree-sitter 查询（及相关语言辅助）。
+3. **图构建** — 在 `indexer/code_graph_builder.py` 中将 AST 构造映射到 `NodeLabel` / `EdgeType`。
+4. **向量** — 确保生成的节点使用 `store/schema.py` 中 `VECTOR_INDEX_CONFIGS` 覆盖的标签（如需嵌入）。
+5. **测试** — 在 `tests/indexer/` 下添加测试夹具代码片段并运行 pytest。
 
-## Adding MCP tools
+## 新增 MCP 工具
 
-1. Append a manifest entry to `MCP_TOOLS_MANIFEST` in `api/mcp_server.py` (or `WIKI_MCP_TOOLS_MANIFEST` in `wiki/mcp_tools.py` for wiki-specific tools).
-2. If the tool requires more than viewer access, add `MCP_TOOL_MIN_ROLE` (`Role.EDITOR` or `Role.ADMIN`).
-3. Implement an async handler on `KnowledgeBaseMCPHandler` (or delegate to `WikiMCPHandler`).
-4. Register the name in the `handlers` dict inside `handle_tool_call`.
-5. Wire HTTP `POST /api/v1/mcp/tool` automatically via existing routes; expose listing via `get_tools_manifest`.
-6. Add tests under `tests/test_mcp_*.py`.
+1. 在 `api/mcp_server.py` 的 `MCP_TOOLS_MANIFEST` 中追加清单条目（Wiki 相关工具则在 `wiki/mcp_tools.py` 的 `WIKI_MCP_TOOLS_MANIFEST`）。
+2. 若工具需要高于 Viewer 的权限，在 `MCP_TOOL_MIN_ROLE` 中添加（`Role.EDITOR` 或 `Role.ADMIN`）。
+3. 在 `KnowledgeBaseMCPHandler` 上实现异步处理方法（或委托给 `WikiMCPHandler`）。
+4. 在 `handle_tool_call` 内部的 `handlers` 字典中注册工具名。
+5. HTTP `POST /api/v1/mcp/tool` 通过已有路由自动可用；工具列表通过 `get_tools_manifest` 暴露。
+6. 在 `tests/test_mcp_*.py` 下添加测试。
 
-## Code style
+## 代码规范
 
-- **Python**: Ruff (`tool.ruff` in `pyproject.toml`), target 3.12, line length 120.
-- **Type hints**: Prefer explicit types on public APIs (`from __future__ import annotations`).
-- **Logging**: Use `log = get_logger(__name__)` and structured keys (`log.info("event", key=value)`).
+- **Python**：Ruff（`pyproject.toml` 中 `tool.ruff`），target 3.12，行宽 120。
+- **类型注解**：公共 API 优先使用显式类型（`from __future__ import annotations`）。
+- **日志**：使用 `log = get_logger(__name__)` 和结构化键（`log.info("event", key=value)`）。
 
-Run Ruff:
+运行 Ruff：
 
 ```bash
 uv run ruff check .

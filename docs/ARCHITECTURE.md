@@ -1,30 +1,30 @@
-# System architecture
+# 系统架构
 
-## High level
+## 整体架构
 
 ```mermaid
 flowchart TB
-  subgraph ingest [Indexing]
-    TS[Tree-sitter parse]
-    CGB[CodeGraphBuilder AST → nodes/edges]
-    DOC[Document indexer .md/.rst/.txt]
-    EMB[Embedding generator]
-    ENR[Optional LLM enrichment business_summary]
+  subgraph ingest [索引]
+    TS[Tree-sitter 解析]
+    CGB[CodeGraphBuilder AST → 节点/边]
+    DOC[文档索引器 .md/.rst/.txt]
+    EMB[嵌入生成器]
+    ENR[可选 LLM 丰富化 business_summary]
   end
 
   subgraph store [FalkorDB]
-    G[Property graph]
-    V[Vector indexes per NodeLabel]
+    G[属性图]
+    V[按 NodeLabel 的向量索引]
   end
 
-  subgraph retrieve [Retrieval]
-    QR[Query router intent weights]
+  subgraph retrieve [检索]
+    QR[查询路由器 意图权重]
     KW[keyword_search]
-    SEM[semantic_search / chunk + parent]
-    RRF[Weighted RRF fusion]
-    RR[Optional cross-encoder rerank]
-    CAP[per_file_cap diversity]
-    EXP[Graph expansion CALLS INHERITS ...]
+    SEM[semantic_search / 子块 + 父块]
+    RRF[加权 RRF 融合]
+    RR[可选交叉编码器重排序]
+    CAP[per_file_cap 多样性]
+    EXP[图扩展 CALLS INHERITS ...]
   end
 
   TS --> CGB --> G
@@ -40,66 +40,66 @@ flowchart TB
   V --> SEM
 ```
 
-## Backend components
+## 后端组件
 
-| Component | Role |
-|-----------|------|
-| **FastAPI** (`main.py`) | HTTP API, static SPA, lifespan wiring for registry, scheduler, wiki services |
-| **FalkorDB** | Labeled property graph + full-text/vector operations used by `FalkorDBStore` |
-| **Tree-sitter** | Per-file AST capture; queries per language feed `CodeGraphBuilder` |
-| **Embeddings** | `EmbeddingConfig`: default `BAAI/bge-m3`, `embedding` on multiple node labels (see `VECTOR_INDEX_CONFIGS` in `store/schema.py`) |
-| **LLM** (optional) | OpenAI-compatible API for deep search, optional indexing enrichment (`LLMConfig`) |
-| **MCP handler** (`api/mcp_server.py`) | Maps tool calls to hybrid/graph/index/wiki services |
+| 组件 | 职责 |
+|------|------|
+| **FastAPI**（`main.py`） | HTTP API、静态 SPA 托管、生命周期管理（注册中心、调度器、Wiki 服务初始化） |
+| **FalkorDB** | 带标签的属性图 + 全文/向量操作，由 `FalkorDBStore` 封装 |
+| **Tree-sitter** | 按文件 AST 捕获；每种语言的查询规则驱动 `CodeGraphBuilder` |
+| **嵌入**（Embeddings） | `EmbeddingConfig`：默认 `BAAI/bge-m3`，在多种节点标签上建立向量索引（参见 `store/schema.py` 中的 `VECTOR_INDEX_CONFIGS`） |
+| **LLM**（可选） | OpenAI 兼容 API，用于深度搜索、可选索引丰富化（`LLMConfig`） |
+| **MCP 处理器**（`api/mcp_server.py`） | 将工具调用映射到混合/图/索引/Wiki 服务 |
 
-## Indexing pipeline
+## 索引管道
 
-1. **Parse** — Walk source files (respect `exclude_dirs` / `file_extensions`); Tree-sitter produces functions, classes, imports, calls, etc.
-2. **AST → graph** — `CodeGraphBuilder` emits `GraphNode` / `GraphEdge` with `NodeLabel` and `EdgeType` (e.g. `CALLS`, `IMPORTS`, `CONTAINS`).
-3. **Parent–child chunks** — Large functions/classes/doc sections may be split into `Chunk` nodes (`child_chunker.py`) linked via `PART_OF`; embeddings can target chunks.
-4. **Persist** — `batch_upsert` into FalkorDB; vector indexes updated per label.
-5. **Enrich** (optional) — LLM `business_summary`, cross-repo enrichment, architecture/RPC inference when features are enabled.
+1. **解析** — 遍历源文件（遵守 `exclude_dirs` / `file_extensions`）；Tree-sitter 生成函数、类、导入、调用等 AST 节点。
+2. **AST → 图** — `CodeGraphBuilder` 生成 `GraphNode` / `GraphEdge`，包含 `NodeLabel` 和 `EdgeType`（如 `CALLS`、`IMPORTS`、`CONTAINS`）。
+3. **父子块** — 大型函数/类/文档段落可被拆分为 `Chunk` 节点（`child_chunker.py`），通过 `PART_OF` 边关联；嵌入可针对子块生成。
+4. **持久化** — `batch_upsert` 写入 FalkorDB；按标签更新向量索引。
+5. **丰富化**（可选） — LLM 生成 `business_summary`、跨仓库丰富化、架构/RPC 推断等（需显式启用）。
 
-## Retrieval pipeline
+## 检索管道
 
-1. **Query routing** — `query_router.route_query` adjusts keyword vs semantic weights from query shape (identifiers, NL, etc.).
-2. **Query expansion** (optional, `HYBRID_SEARCH__QUERY_EXPANSION_ENABLED`) — Seed keyword hits then add neighbor names from call chains / class methods to form auxiliary queries.
-3. **Parallel retrieval** — Keyword lists via `keyword_search`; semantic via entity embeddings or **child-chunk** path (`search_with_parent_context`) when `use_child_chunks` is on.
-4. **RRF** — `rrf_fusion` merges ranked lists with per-query weights.
-5. **Rerank** — If `RERANK__ENABLED`, cross-encoder reranks fused candidates (`position_aware_blend` with RRF scores).
-6. **Diversity** — `_apply_per_file_cap` limits how many hits per file (default `per_file_cap=3`).
-7. **Graph expansion** — From fused seeds, traverse relationships up to `expand_depth` for contextual neighbors.
+1. **查询路由** — `query_router.route_query` 根据查询形态（标识符、自然语言等）动态调整关键词与语义的权重。
+2. **查询扩展**（可选，`HYBRID_SEARCH__QUERY_EXPANSION_ENABLED`） — 以初始关键词命中为种子，从调用链/类方法中提取邻居名称构造辅助查询。
+3. **并行检索** — 关键词经 `keyword_search` 检索列表；语义经实体嵌入或**子块路径**（`search_with_parent_context`，当 `use_child_chunks` 开启时）。
+4. **RRF** — `rrf_fusion` 按查询权重合并排序列表。
+5. **重排序** — 若 `RERANK__ENABLED`，交叉编码器对融合候选进行重排序（`position_aware_blend` 结合 RRF 分数）。
+6. **多样性** — `_apply_per_file_cap` 限制每个文件的命中数（默认 `per_file_cap=3`）。
+7. **图扩展** — 从融合种子出发，沿关系遍历至 `expand_depth` 深度，获取上下文相关邻居。
 
-## Parent–child chunking
+## 父子块策略
 
-Configured via `HybridSearchConfig`:
+通过 `HybridSearchConfig` 配置：
 
-| Setting | Default | Meaning |
-|---------|---------|---------|
-| `use_child_chunks` | `true` in `HybridSearchConfig` | Chunk-level retrieval with parent grouping; MCP callers may omit the argument to inherit this setting |
-| `child_chunk_window_chars` | 800 | Sliding window size (~200 tokens) |
-| `child_chunk_stride_chars` | 600 | Overlap (~25%) |
-| `child_chunk_min_parent_chars` | 400 | Skip chunking small parents |
+| 设置 | 默认值 | 含义 |
+|------|--------|------|
+| `use_child_chunks` | `true` | 子块级检索 + 父块分组；MCP 调用者可省略此参数以继承服务端设置 |
+| `child_chunk_window_chars` | 800 | 滑动窗口大小（约 200 token） |
+| `child_chunk_stride_chars` | 600 | 重叠步长（约 25%） |
+| `child_chunk_min_parent_chars` | 400 | 低于此阈值的父块跳过分块 |
 
-Chunks are prefixed with parent signature context before embedding (`indexer/child_chunker.py`).
+子块在生成嵌入前会添加父签名上下文前缀（`indexer/child_chunker.py`）。
 
-## Knowledge graph schema
+## 知识图谱 Schema
 
-### NodeLabel (`store/schema.py`)
+### NodeLabel（`store/schema.py`）
 
-`Function`, `Class`, `Module`, `Document`, `BusinessFlow`, `BusinessConcept`, `WikiPage`, `Chunk`.
+`Function`、`Class`、`Module`、`Document`、`BusinessFlow`、`BusinessConcept`、`WikiPage`、`Chunk`。
 
 ### EdgeType
 
-| Edge | Typical use |
-|------|-------------|
-| `CALLS`, `INHERITS`, `IMPORTS`, `CONTAINS`, `USES_TYPE`, `REFERENCES` | Code structure |
-| `IMPLEMENTS`, `RELATES_TO`, `PART_OF`, `CONCEPT_IN` | Business / chunk hierarchy |
-| `PROVIDES_RPC`, `CONSUMES_RPC`, `CROSS_REPO_CALLS` | RPC / multi-repo |
-| `DEPENDS_ON`, `ACCESSES_TABLE`, `EVENT_PRODUCES`, `EVENT_CONSUMES` | DI / data / Kafka |
-| `SOURCE_DOC` | Wiki provenance |
+| 边类型 | 典型用途 |
+|--------|----------|
+| `CALLS`、`INHERITS`、`IMPORTS`、`CONTAINS`、`USES_TYPE`、`REFERENCES` | 代码结构 |
+| `IMPLEMENTS`、`RELATES_TO`、`PART_OF`、`CONCEPT_IN` | 业务/块层次 |
+| `PROVIDES_RPC`、`CONSUMES_RPC`、`CROSS_REPO_CALLS` | RPC / 多仓库 |
+| `DEPENDS_ON`、`ACCESSES_TABLE`、`EVENT_PRODUCES`、`EVENT_CONSUMES` | 依赖注入 / 数据 / Kafka |
+| `SOURCE_DOC` | Wiki 来源溯源 |
 
-## Dashboard architecture
+## 仪表盘架构
 
-- **Stack**: React + **Vite** (`dashboard/`), TypeScript, Tailwind, React Router.
-- **Delivery**: Production build emitted to `static/`; FastAPI mounts `/assets` and falls back to `index.html` for SPA routes (`search`, `deep-search`, `graph`, `explorer`, `repositories`, `indexing`, `settings`, `businesses`, `documents`, `sync`).
-- **Lazy loading**: Route-based code splitting keeps initial JS smaller; heavy visuals (charts, graph) load when navigating to those pages.
+- **技术栈**：React + **Vite**（`dashboard/`）、TypeScript、Tailwind、React Router。
+- **交付方式**：生产构建输出至 `static/`；FastAPI 挂载 `/assets` 并对 SPA 路由回退至 `index.html`（`search`、`deep-search`、`graph`、`explorer`、`repositories`、`indexing`、`settings`、`businesses`、`documents`、`sync`）。
+- **懒加载**：基于路由的代码分割减小初始 JS 体积；重型可视化组件（图表、图形）仅在导航到对应页面时加载。

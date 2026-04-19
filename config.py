@@ -105,6 +105,7 @@ class LLMConfig(BaseModel):
     timeout: int = 30
     retry_count: int = 3
     temperature: float = 0.1
+    synthesis_max_tokens: int = 2000
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
 
     def resolve_gateway_urls(self) -> tuple[str, str]:

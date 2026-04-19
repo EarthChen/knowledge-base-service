@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import threading
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
@@ -28,6 +30,7 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 MAX_CODE_SNIPPET_CHARS = 3000
+QUERY_EMBEDDING_CACHE_SIZE = 256
 
 
 def _smart_truncate(code: str, max_chars: int = MAX_CODE_SNIPPET_CHARS) -> str:
@@ -381,6 +384,8 @@ class EmbeddingGenerator:
     def __init__(self, config: EmbeddingConfig) -> None:
         self._config = config
         self._backend: _EmbeddingBackend | None = None
+        self._query_embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
+        self._query_embedding_lock = threading.Lock()
 
     @classmethod
     def shared(cls, config: EmbeddingConfig) -> EmbeddingGenerator:
@@ -442,7 +447,45 @@ class EmbeddingGenerator:
 
     async def generate_for_query(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for search queries (with instruction prefix)."""
-        return await self.generate(texts, is_query=True)
+        if not texts:
+            return []
+
+        resolved: list[list[float] | None] = [None] * len(texts)
+        miss_idx: list[int] = []
+
+        with self._query_embedding_lock:
+            for i, t in enumerate(texts):
+                if t in self._query_embedding_cache:
+                    self._query_embedding_cache.move_to_end(t)
+                    resolved[i] = self._query_embedding_cache[t]
+                else:
+                    miss_idx.append(i)
+
+        if not miss_idx:
+            return [resolved[i] for i in range(len(texts))]
+
+        unique_texts: list[str] = []
+        seen: set[str] = set()
+        for i in miss_idx:
+            t = texts[i]
+            if t not in seen:
+                seen.add(t)
+                unique_texts.append(t)
+
+        computed_lists = await self.generate(unique_texts, is_query=True)
+        emb_by_text = dict(zip(unique_texts, computed_lists, strict=True))
+
+        with self._query_embedding_lock:
+            for t, emb in emb_by_text.items():
+                self._query_embedding_cache[t] = emb
+                self._query_embedding_cache.move_to_end(t)
+                while len(self._query_embedding_cache) > QUERY_EMBEDDING_CACHE_SIZE:
+                    self._query_embedding_cache.popitem(last=False)
+
+            for i in miss_idx:
+                resolved[i] = self._query_embedding_cache[texts[i]]
+
+        return [resolved[i] for i in range(len(texts))]
 
     async def generate_for_code(
         self,

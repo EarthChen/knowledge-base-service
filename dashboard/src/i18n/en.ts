@@ -4,6 +4,12 @@ const en: Translations = {
   app: {
     title: "Knowledge Base Dashboard",
     headerTitle: "Code Knowledge Base Dashboard",
+    commandPalettePlaceholder: "Search code and wiki…",
+    commandPaletteShortcutOpen: "Open command palette",
+    commandPaletteFooterHint:
+      "↑↓ Navigate · ↵ Open · Esc Close — Wiki opens wiki search; code opens hybrid search.",
+    commandPaletteSearching: "Searching…",
+    commandPaletteNoMatches: "No matches. Try another phrase.",
   },
   nav: {
     overview: "Overview",
@@ -52,6 +58,17 @@ const en: Translations = {
     crossRepoRpc: "RPC call edges",
     diDependencies: "DI dependency edges",
     entityTables: "Entity–table edges",
+    knowledgeHealthTitle: "Knowledge Health",
+    knowledgeHealthSubtitle:
+      "Index freshness across repositories, staleness since last write, and isolated nodes.",
+    indexCoverageLabel: "Index coverage (<7 days)",
+    stalenessLabel: "Staleness",
+    orphanRatioLabel: "Isolated nodes",
+    lastIndexedLabel: "Last indexed",
+    nodesEdgesSummary: "{nodes} nodes · {edges} edges",
+    hoursShort: "h",
+    daysShort: "d",
+    neverIndexed: "Never",
   },
   search: {
     title: "Search",
@@ -109,6 +126,13 @@ const en: Translations = {
     deepResearchDesc:
       "Multi-round research process that thoroughly investigates complex topics across the entire repository.",
     streamMode: "Live Progress",
+    graphSectionCallChain: "Call chain",
+    graphSectionMethods: "Methods",
+    graphSectionInheritance: "Inheritance",
+    graphSectionBusinessFlows: "Business flows",
+    graphSectionOther: "Other relationships",
+    graphContextCopyHint: "Click to copy file:line",
+    graphRelatedFn: "Seed",
   },
   graph: {
     title: "Graph Query",
@@ -305,6 +329,7 @@ const en: Translations = {
     overviewTitle: "Wiki overview",
     selectPage: "Select a page",
     selectPageFromSidebar: "Select a page from the sidebar.",
+    tocHeading: "On this page",
     choosePageHint:
       "Choose a page from the tree, or type a query in wiki search. Expand folders with the chevron control.",
     sourceLocations: "Source locations",

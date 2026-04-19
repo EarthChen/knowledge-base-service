@@ -10,7 +10,9 @@ import {
 } from "lucide-react";
 import type { WikiPageDetail, WikiSourceLocation } from "../../hooks/wikiTypes";
 import MarkdownRenderer from "./MarkdownRenderer";
+import TableOfContents from "./TableOfContents";
 import WikiBreadcrumbs from "./WikiBreadcrumbs";
+import { parseMarkdownHeadings } from "./headingUtils";
 import { buildIdeHref, type EditorId } from "./editorLinks";
 import { EDITOR_PREF_KEY } from "./SourceLink";
 import { useAnalyzeImpact } from "../../api/hooks";
@@ -245,6 +247,9 @@ export default function WikiContent({
   const generatedLabel = t.wiki.generated;
   const generatedAt = formatGeneratedAt(detail?.generated_at, locale);
 
+  const tocItems = detail?.content ? parseMarkdownHeadings(detail.content) : [];
+  const showToc = tocItems.length >= 3;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-gray-200 bg-white shadow-sm">
       <header className="border-b border-gray-100 px-5 py-4">
@@ -269,7 +274,8 @@ export default function WikiContent({
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-5 py-6">
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:items-start">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
         {isLoading && (
           <div className="animate-pulse space-y-3">
             <div className="h-4 w-2/3 rounded bg-gray-100" />
@@ -312,6 +318,13 @@ export default function WikiContent({
 
         {!isLoading && !error && !detail && pagePath && (
           <p className="text-sm text-gray-500">{t.wiki.selectPageFromSidebar}</p>
+        )}
+        </div>
+
+        {showToc && detail?.content && (
+          <aside className="hidden shrink-0 border-t border-gray-100 px-5 py-6 lg:block lg:w-56 lg:border-l lg:border-t-0 xl:w-60">
+            <TableOfContents content={detail.content} />
+          </aside>
         )}
       </div>
     </div>

@@ -24,6 +24,16 @@ export interface GraphStats {
   total_edges: number;
 }
 
+/** GET /stats/health — knowledge graph freshness and isolation signals */
+export interface KnowledgeHealthStats {
+  index_coverage: number;
+  staleness_hours: number | null;
+  orphan_ratio: number;
+  last_indexed_at: string | null;
+  total_nodes: number;
+  total_edges: number;
+}
+
 export interface P2Stats {
   architecture_layers: Record<string, number>;
   event_tracking: {

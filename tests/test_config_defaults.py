@@ -3,6 +3,14 @@
 from __future__ import annotations
 
 
+def test_default_synthesis_max_tokens(monkeypatch) -> None:
+    monkeypatch.delenv("LLM__SYNTHESIS_MAX_TOKENS", raising=False)
+    from config import Settings
+
+    s = Settings()
+    assert s.llm.synthesis_max_tokens == 2000
+
+
 def test_default_business_summary_enrichment_enabled(monkeypatch) -> None:
     monkeypatch.delenv("LLM__GATEWAY__ENRICHMENT_ENABLED", raising=False)
     from config import Settings

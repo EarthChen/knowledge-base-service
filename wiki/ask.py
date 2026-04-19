@@ -112,6 +112,27 @@ def detect_question_type(question: str) -> str:
     return "general"
 
 
+_WIKI_TYPE_TOKEN_BUDGET: dict[str, int] = {
+    "concept": 6000,
+    "flow": 10000,
+    "relation": 10000,
+    "impact": 8000,
+    "general": 8000,
+}
+
+
+def wiki_context_token_budget(question: str, question_type: str | None = None) -> int:
+    """Token budget for graph-enhanced wiki context collection.
+
+    Combines a base allowance per ``question_type`` with the estimated token count of
+    ``question`` (complexity). Capped to avoid runaway prompts.
+    """
+    qt = question_type if question_type is not None else detect_question_type(question)
+    base = _WIKI_TYPE_TOKEN_BUDGET.get(qt, 8000)
+    q_tokens = max(len(question) // 4, 0)
+    return min(base + q_tokens, 16000)
+
+
 def _graph_rows(result: Any) -> list[dict[str, Any]]:
     if result is None:
         return []
@@ -540,12 +561,13 @@ class WikiAskService:
         if self._graph is not None:
             collector = GraphEnhancedContextCollector(self._graph)
             qtype = detect_question_type(question)
+            token_budget = wiki_context_token_budget(question, qtype)
             try:
                 enriched = await collector.collect(
                     repository,
                     search_resp.results,
                     qtype,
-                    token_budget=8000,
+                    token_budget=token_budget,
                 )
                 if enriched.strip():
                     formatted = enriched

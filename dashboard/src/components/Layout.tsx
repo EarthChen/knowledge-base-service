@@ -20,6 +20,7 @@ import {
 import { useHealth } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import { useBusiness } from "../contexts/BusinessContext";
+import CommandPalette from "./CommandPalette";
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -190,9 +191,10 @@ export default function Layout() {
           >
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <h1 className="text-sm font-medium text-gray-600">
+          <h1 className="min-w-0 flex-1 truncate text-sm font-medium text-gray-600">
             {t.app.headerTitle}
           </h1>
+          <CommandPalette />
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">

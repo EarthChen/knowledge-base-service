@@ -4,6 +4,11 @@ export interface Translations {
   app: {
     title: string;
     headerTitle: string;
+    commandPalettePlaceholder: string;
+    commandPaletteShortcutOpen: string;
+    commandPaletteFooterHint: string;
+    commandPaletteSearching: string;
+    commandPaletteNoMatches: string;
   };
   nav: {
     overview: string;
@@ -52,6 +57,16 @@ export interface Translations {
     crossRepoRpc: string;
     diDependencies: string;
     entityTables: string;
+    knowledgeHealthTitle: string;
+    knowledgeHealthSubtitle: string;
+    indexCoverageLabel: string;
+    stalenessLabel: string;
+    orphanRatioLabel: string;
+    lastIndexedLabel: string;
+    nodesEdgesSummary: string;
+    hoursShort: string;
+    daysShort: string;
+    neverIndexed: string;
   };
   search: {
     title: string;
@@ -106,6 +121,13 @@ export interface Translations {
     deepResearch: string;
     deepResearchDesc: string;
     streamMode: string;
+    graphSectionCallChain: string;
+    graphSectionMethods: string;
+    graphSectionInheritance: string;
+    graphSectionBusinessFlows: string;
+    graphSectionOther: string;
+    graphContextCopyHint: string;
+    graphRelatedFn: string;
   };
   graph: {
     title: string;
@@ -301,6 +323,8 @@ export interface Translations {
     overviewTitle: string;
     selectPage: string;
     selectPageFromSidebar: string;
+    /** Table of contents sidebar */
+    tocHeading: string;
     choosePageHint: string;
     sourceLocations: string;
     generated: string;

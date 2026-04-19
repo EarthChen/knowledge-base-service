@@ -1,40 +1,54 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Zap, Brain } from "lucide-react";
 import { useHybridSearch } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import SearchResultCard from "../components/SearchResultCard";
-import JsonView from "../components/JsonView";
 import DeepSearchSection from "../components/DeepSearchSection";
+import GraphContextCards from "../components/GraphContextCards";
 
 type SearchMode = "hybrid" | "deep";
 
 const ENTITY_TYPES = ["all", "function", "class", "module", "document"] as const;
 
 export default function SearchPage() {
-  const [query, setQuery] = useState("");
+  const [searchParams] = useSearchParams();
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [mode, setMode] = useState<SearchMode>("hybrid");
   const [entityType, setEntityType] = useState("all");
   const [k, setK] = useState(10);
   const [expandDepth, setExpandDepth] = useState(2);
 
   const { t } = useI18n();
-  const hybrid = useHybridSearch();
+  const { mutate: runHybridSearch, isPending: hybridPending, data: hybridResult, error } =
+    useHybridSearch();
 
-  const isLoading = hybrid.isPending;
+  useEffect(() => {
+    const raw = searchParams.get("q") ?? "";
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync ?q= from navigation into the form field
+    setQuery(raw);
+    const q = raw.trim();
+    if (!q) return;
+    runHybridSearch({
+      query: q,
+      k,
+      expand_depth: expandDepth,
+      entity_type: entityType === "all" ? undefined : entityType,
+    });
+  }, [searchParams, k, expandDepth, entityType, runHybridSearch]);
+
+  const isLoading = hybridPending;
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
-    hybrid.mutate({
+    runHybridSearch({
       query: query.trim(),
       k,
       expand_depth: expandDepth,
       entity_type: entityType === "all" ? undefined : entityType,
     });
   }
-
-  const hybridResult = hybrid.data;
-  const error = hybrid.error;
 
   if (mode === "deep") {
     return (
@@ -166,7 +180,11 @@ export default function SearchPage() {
             <div className="space-y-3">
               <h3 className="text-sm font-medium text-gray-700">{t.search.semanticMatches}</h3>
               {hybridResult.semantic_matches.map((m, i) => (
-                <SearchResultCard key={`s-${i}`} match={m} />
+                <SearchResultCard
+                  key={`s-${i}`}
+                  match={m}
+                  highlightQuery={hybridResult.query?.trim() ? hybridResult.query : query}
+                />
               ))}
             </div>
           )}
@@ -174,7 +192,7 @@ export default function SearchPage() {
           {hybridResult.graph_context?.length > 0 && (
             <div>
               <h3 className="mb-2 text-sm font-medium text-gray-700">{t.search.graphContext}</h3>
-              <JsonView data={hybridResult.graph_context} />
+              <GraphContextCards items={hybridResult.graph_context} />
             </div>
           )}
         </div>

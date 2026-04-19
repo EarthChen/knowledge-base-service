@@ -27,9 +27,10 @@ class TestRRFFusion:
 
         expected_a = 2.0 / (k + 0 + 1) + 0.05
         expected_b = 2.0 / (k + 1 + 1) + 1.0 / (k + 0 + 1) + 0.05
+        mx = max(expected_a, expected_b)
 
-        assert scores["a"] == pytest.approx(expected_a)
-        assert scores["b"] == pytest.approx(expected_b)
+        assert scores["a"] == pytest.approx(expected_a / mx)
+        assert scores["b"] == pytest.approx(expected_b / mx)
 
     def test_rrf_top_rank_bonus(self) -> None:
         """#1 (rank 0) receives +0.05 bonus."""
@@ -40,8 +41,7 @@ class TestRRFFusion:
         assert len(out) == 1
         doc, score = out[0]
         assert doc == "only"
-        base = 1.0 / (k + 0 + 1)
-        assert score == pytest.approx(base + 0.05)
+        assert score == pytest.approx(1.0)
 
 
 class TestGraphExpansion:
@@ -199,9 +199,7 @@ class TestHybridParallelAndWeights:
         score_x = next(s for d, s in out if d == "x")
         g_term = 2.0 / (k + 0 + 1)
         v_term = 1.0 / (k + 0 + 1)
-        bonus = 0.05
-        expected = g_term + v_term + bonus
-        assert score_x == pytest.approx(expected)
+        assert score_x == pytest.approx(1.0)
         assert g_term == pytest.approx(2.0 * v_term)
 
     def test_fts_path_weight_1_5x(self) -> None:
@@ -216,8 +214,7 @@ class TestHybridParallelAndWeights:
         score_y = next(s for d, s in out if d == "y")
         fts_term = 1.5 / (k + 0 + 1)
         v_term = 1.0 / (k + 0 + 1)
-        bonus = 0.05
-        assert score_y == pytest.approx(fts_term + v_term + bonus)
+        assert score_y == pytest.approx(1.0)
         assert fts_term == pytest.approx(1.5 * v_term)
 
 

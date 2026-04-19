@@ -196,6 +196,7 @@ class KnowledgeBaseService:
                 hybrid_svc=self._hybrid_query,
                 graph_svc=self._graph_query,
                 task_manager=self._repo_task_mgr,
+                synthesis_max_tokens=settings.llm.synthesis_max_tokens,
             )
 
         self._mcp_handler = KnowledgeBaseMCPHandler(

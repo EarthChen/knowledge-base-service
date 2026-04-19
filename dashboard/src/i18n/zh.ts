@@ -4,6 +4,12 @@ const zh: Translations = {
   app: {
     title: "知识库仪表盘",
     headerTitle: "代码知识库仪表盘",
+    commandPalettePlaceholder: "搜索代码与 Wiki…",
+    commandPaletteShortcutOpen: "打开命令面板",
+    commandPaletteFooterHint:
+      "↑↓ 选择 · ↵ 打开 · Esc 关闭 — Wiki 结果跳转 Wiki；代码结果跳转混合搜索页。",
+    commandPaletteSearching: "搜索中…",
+    commandPaletteNoMatches: "暂无结果，请换个关键词。",
   },
   nav: {
     overview: "概览",
@@ -52,6 +58,16 @@ const zh: Translations = {
     crossRepoRpc: "RPC 调用边",
     diDependencies: "DI 依赖边",
     entityTables: "实体表映射边",
+    knowledgeHealthTitle: "知识健康",
+    knowledgeHealthSubtitle: "各仓库索引时效、全局陈旧度与孤立节点占比。",
+    indexCoverageLabel: "索引覆盖率（7 天内）",
+    stalenessLabel: "陈旧度",
+    orphanRatioLabel: "孤立节点占比",
+    lastIndexedLabel: "最近索引时间",
+    nodesEdgesSummary: "{nodes} 个节点 · {edges} 条边",
+    hoursShort: "小时",
+    daysShort: "天",
+    neverIndexed: "从未",
   },
   search: {
     title: "搜索",
@@ -107,6 +123,13 @@ const zh: Translations = {
     deepResearch: "深度研究",
     deepResearchDesc: "多轮研究过程，深入调查整个仓库中的复杂主题。",
     streamMode: "实时进度",
+    graphSectionCallChain: "调用链",
+    graphSectionMethods: "方法",
+    graphSectionInheritance: "继承",
+    graphSectionBusinessFlows: "业务流程",
+    graphSectionOther: "其他关系",
+    graphContextCopyHint: "点击复制 file:line",
+    graphRelatedFn: "检索种子",
   },
   graph: {
     title: "图查询",
@@ -302,6 +325,7 @@ const zh: Translations = {
     overviewTitle: "Wiki 概览",
     selectPage: "选择页面",
     selectPageFromSidebar: "请从侧边栏选择一个页面。",
+    tocHeading: "本页目录",
     choosePageHint:
       "从树中选择页面，或在 Wiki 搜索中输入查询。使用折叠箭头展开文件夹。",
     sourceLocations: "源码位置",

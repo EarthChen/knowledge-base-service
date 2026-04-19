@@ -18,6 +18,7 @@ from typing import Any
 
 from log import get_logger
 from query.graph_query import GraphQueryService
+from query.query_router import route_query
 from query.semantic_query import SemanticQueryService
 from search.fusion import position_aware_blend, rrf_fusion
 from store.falkordb_store import FalkorDBStore
@@ -97,6 +98,7 @@ class HybridQueryService:
         include_callers: bool = True,
         include_callees: bool = True,
         use_query_expansion: bool = True,
+        use_query_router: bool = False,
     ) -> HybridResult:
         """Layered hybrid search with optional graph-based query expansion.
 
@@ -104,6 +106,8 @@ class HybridQueryService:
         Layer 2: vector similarity search (via embedding model)
         Layer 3: fusion (keyword hits scored higher), dedup, graph expansion
         """
+        router_strategy = route_query(query_text) if use_query_router else None
+
         should_expand = use_query_expansion and self._query_expansion_enabled
         if should_expand:
             expansion_queries = await self._expand_query_with_graph(query_text)
@@ -128,11 +132,15 @@ class HybridQueryService:
 
             kw_hits, sem_result = await asyncio.gather(kw_coro, sem_coro)
 
-            w = 1.5 if i == 0 else 0.75
+            if router_strategy is None:
+                w = 1.5 if i == 0 else 0.75
+                sw = 1.0 if i == 0 else 0.5
+            else:
+                w = router_strategy.keyword_weight if i == 0 else router_strategy.keyword_weight * 0.5
+                sw = router_strategy.semantic_weight if i == 0 else router_strategy.semantic_weight * 0.5
             kw_ranked_lists.append([(self._doc_key(h), float(j)) for j, h in enumerate(kw_hits)])
             kw_weights.append(w)
 
-            sw = 1.0 if i == 0 else 0.5
             sem_ranked_lists.append([(self._doc_key(m), float(j)) for j, m in enumerate(sem_result.matches)])
             sem_weights.append(sw)
 
@@ -149,7 +157,19 @@ class HybridQueryService:
             query_text, kw_ranked_lists, sem_ranked_lists, kw_weights, sem_weights, doc_map, k,
         )
 
-        graph_context = await self._expand_graph(merged, expand_depth, include_callers, include_callees)
+        if router_strategy is not None and not router_strategy.expand_graph:
+            graph_context = []
+        else:
+            graph_seed_matches = merged
+            if router_strategy is not None and router_strategy.entity_priority:
+                preferred = [
+                    m for m in merged if str(m.get("type", "")) in router_strategy.entity_priority
+                ]
+                if preferred:
+                    graph_seed_matches = preferred
+            graph_context = await self._expand_graph(
+                graph_seed_matches, expand_depth, include_callers, include_callees,
+            )
 
         confidence, no_results_reason = self._confidence_and_reason(merged)
 
@@ -233,22 +253,64 @@ class HybridQueryService:
         return f"{name}:{file}:{line}"
 
     @staticmethod
+    def _blend_rrf_rerank_confidence(
+        rrf_normalized: float,
+        *rerank_candidates: Any,
+    ) -> float:
+        """Combine normalized RRF confidence with an optional reranker score when present."""
+        base = max(0.0, min(1.0, float(rrf_normalized)))
+        rerank_raw = None
+        for c in rerank_candidates:
+            if c is None:
+                continue
+            try:
+                rerank_raw = float(c)
+                break
+            except (TypeError, ValueError):
+                continue
+        if rerank_raw is None:
+            return base
+        rerank_norm = max(0.0, min(1.0, rerank_raw))
+        return max(0.0, min(1.0, 0.55 * base + 0.45 * rerank_norm))
+
+    @staticmethod
+    def _attach_fusion_scores(
+        ordered_pairs: list[tuple[str, float]],
+        doc_map: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Copy matches from ``doc_map`` in fused order with ``score`` / ``confidence`` (0–1)."""
+        out: list[dict[str, Any]] = []
+        for doc_id, fused_score in ordered_pairs:
+            if doc_id not in doc_map:
+                continue
+            item = dict(doc_map[doc_id])
+            fs = float(fused_score)
+            item["score"] = fs
+            item["confidence"] = fs
+            out.append(item)
+        return out
+
+    @staticmethod
     def _confidence_and_reason(semantic_matches: list[dict[str, Any]]) -> tuple[float, str]:
-        """Signal whether search ran successfully but found nothing vs. match quality."""
+        """Aggregate confidence from per-result scores (normalized RRF ± reranker blend)."""
         if not semantic_matches:
             return 0.0, "No matching entities found for query"
-        scores: list[float] = []
+        values: list[float] = []
         for m in semantic_matches:
-            raw = m.get("score")
+            raw = m.get("confidence")
+            if raw is None:
+                raw = m.get("score")
             if raw is None:
                 continue
             try:
-                scores.append(float(raw))
+                values.append(float(raw))
             except (TypeError, ValueError):
                 continue
-        best = max(scores) if scores else 0.0
-        clamped = max(0.0, min(1.0, best))
-        return clamped, ""
+        if not values:
+            return 0.0, ""
+        top = sorted(values, reverse=True)[:3]
+        blended = 0.65 * top[0] + 0.35 * (sum(top) / len(top))
+        return max(0.0, min(1.0, blended)), ""
 
     @staticmethod
     def _ensure_graph_location_fields(item: dict[str, Any]) -> dict[str, Any]:
@@ -342,25 +404,42 @@ class HybridQueryService:
         candidate_k = k * 3 if self._reranker else k
         fused = rrf_fusion(all_ranked, all_weights)[:candidate_k]
 
-        merged = [doc_map[doc_id] for doc_id, _ in fused if doc_id in doc_map]
         rrf_ordered = [(doc_id, score) for doc_id, score in fused if doc_id in doc_map]
 
         if self._reranker:
             try:
                 if hasattr(self._reranker, "rerank_with_scores"):
+                    merged_pre = [dict(doc_map[i]) for i, _ in rrf_ordered]
                     scored_pairs = await self._reranker.rerank_with_scores(
-                        query_text, merged, top_k=k, return_all_scores=True
+                        query_text, merged_pre, top_k=k, return_all_scores=True
                     )
-                    re_scores = {self._doc_key(m): s for m, s in scored_pairs}
+                    re_scores = {self._doc_key(m): float(s) for m, s in scored_pairs}
                     final = position_aware_blend(rrf_ordered, re_scores, top_k=k)
-                    merged = [doc_map[doc_id] for doc_id, _ in final if doc_id in doc_map]
+                    merged = self._attach_fusion_scores(final, doc_map)
                 else:
-                    merged = await self._reranker.rerank(query_text, merged, top_k=k)
+                    merged_raw = await self._reranker.rerank(
+                        query_text,
+                        [dict(doc_map[i]) for i, _ in rrf_ordered[:candidate_k]],
+                        top_k=k,
+                    )
+                    rrf_lookup = dict(rrf_ordered)
+                    merged = []
+                    for m in merged_raw[:k]:
+                        item = dict(m)
+                        ky = self._doc_key(item)
+                        rrf_s = float(rrf_lookup.get(ky, 0.0))
+                        item["score"] = rrf_s
+                        item["confidence"] = HybridQueryService._blend_rrf_rerank_confidence(
+                            rrf_s,
+                            item.get("rerank_score"),
+                            item.get("reranker_score"),
+                        )
+                        merged.append(item)
             except Exception:
                 log.warning("reranker_blend_failed", exc_info=True)
-                merged = merged[:k]
+                merged = self._attach_fusion_scores(rrf_ordered[:k], doc_map)
         else:
-            merged = merged[:k]
+            merged = self._attach_fusion_scores(rrf_ordered[:k], doc_map)
 
         return merged
 

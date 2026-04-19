@@ -19,6 +19,7 @@ import type {
   SyncSchedulesResponse,
   SyncScheduleRequest,
   P2Stats,
+  KnowledgeHealthStats,
   ArchitectureSearchResponse,
   WebhookConfig,
   AnalyzeImpactResponse,
@@ -48,6 +49,15 @@ export function useP2Stats() {
   });
 }
 
+export function useHealthStats() {
+  return useQuery<KnowledgeHealthStats>({
+    queryKey: ["stats", "health"],
+    queryFn: () => api("/stats/health", { method: "GET" }),
+    staleTime: 60_000,
+    retry: 1,
+  });
+}
+
 export function useRepositories() {
   return useQuery<RepositoriesResponse>({
     queryKey: ["repositories"],
@@ -63,6 +73,25 @@ export function useHybridSearch() {
   >({
     mutationFn: (body) =>
       api("/hybrid", { method: "POST", body: JSON.stringify(body) }),
+  });
+}
+
+/** Debounced callers should gate `enabled`; used by the command palette quick search. */
+export function useHybridQuickSearch(query: string, enabled: boolean) {
+  const trimmed = query.trim();
+  return useQuery<HybridSearchResponse>({
+    queryKey: ["hybrid-quick", trimmed],
+    queryFn: () =>
+      api("/hybrid", {
+        method: "POST",
+        body: JSON.stringify({
+          query: trimmed,
+          k: 12,
+          expand_depth: 2,
+        }),
+      }),
+    enabled: enabled && trimmed.length >= 2,
+    staleTime: 30_000,
   });
 }
 

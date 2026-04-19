@@ -1058,6 +1058,17 @@ async def get_p2_stats(
     return await svc.graph_query.get_p2_stats()
 
 
+@viewer_router.get("/stats/health")
+async def get_knowledge_health_stats(
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Knowledge graph health: index coverage, staleness, orphans, totals."""
+    if svc.store.graph is None:
+        raise HTTPException(status_code=503, detail="Graph store is not connected")
+    queries = GraphQueryRepository(svc.store)
+    return await queries.get_knowledge_health_stats()
+
+
 @viewer_router.get("/graph/insights/{repository:path}")
 async def get_graph_insights(
     repository: str,

@@ -22,18 +22,43 @@ import {
   Server,
   FileStack,
   ListTree,
+  Activity,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useP2Stats, useStats } from "../api/hooks";
+import { useHealthStats, useP2Stats, useStats } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import StatCard from "../components/StatCard";
 import { SkeletonCard } from "../components/Skeleton";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
+function coverageBarColor(ratio: number): string {
+  if (ratio > 0.8) return "bg-emerald-500";
+  if (ratio > 0.5) return "bg-amber-400";
+  return "bg-red-500";
+}
+
+function stalenessBadgeClass(hours: number | null): string {
+  if (hours === null) return "bg-gray-100 text-gray-600";
+  if (hours < 24) return "bg-emerald-100 text-emerald-800";
+  if (hours < 72) return "bg-amber-100 text-amber-900";
+  return "bg-red-100 text-red-800";
+}
+
+function orphanTextClass(ratio: number): string {
+  if (ratio < 0.05) return "text-emerald-700";
+  if (ratio < 0.2) return "text-amber-700";
+  return "text-red-700";
+}
+
 export default function Overview() {
   const { data: stats, isLoading, error } = useStats();
   const { data: p2, isLoading: p2Loading, error: p2Error } = useP2Stats();
+  const {
+    data: health,
+    isLoading: healthLoading,
+    error: healthError,
+  } = useHealthStats();
   const { t } = useI18n();
   const navigate = useNavigate();
 
@@ -163,6 +188,90 @@ export default function Overview() {
             />
           </>
         )}
+      </div>
+
+      <div className="rounded-xl border border-teal-200/80 bg-gradient-to-br from-teal-50/90 to-sky-50/50 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-teal-950">
+              <Activity size={18} className="text-teal-600" />
+              {t.overview.knowledgeHealthTitle}
+            </h3>
+            <p className="mt-1 max-w-xl text-xs text-teal-900/70">{t.overview.knowledgeHealthSubtitle}</p>
+          </div>
+          {health && !healthLoading ? (
+            <p className="text-xs text-teal-800/80">
+              {t.overview.nodesEdgesSummary
+                .replace("{nodes}", String(health.total_nodes))
+                .replace("{edges}", String(health.total_edges))}
+            </p>
+          ) : null}
+        </div>
+
+        {healthError && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-900">
+            {(healthError as Error).message}
+          </div>
+        )}
+
+        {healthLoading && !health ? (
+          <div className="mt-4 space-y-3">
+            <div className="h-9 animate-pulse rounded-lg bg-teal-100/80" />
+            <div className="h-9 animate-pulse rounded-lg bg-teal-100/80" />
+            <div className="h-9 animate-pulse rounded-lg bg-teal-100/80" />
+          </div>
+        ) : null}
+
+        {health ? (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="rounded-lg border border-white/80 bg-white/70 p-3 shadow-sm">
+              <p className="text-xs font-medium text-gray-500">{t.overview.indexCoverageLabel}</p>
+              <div className="mt-2 flex items-center gap-2">
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-200">
+                  <div
+                    className={`h-full rounded-full transition-all ${coverageBarColor(health.index_coverage)}`}
+                    style={{
+                      width: `${Math.min(100, Math.max(0, health.index_coverage * 100))}%`,
+                    }}
+                  />
+                </div>
+                <span className="text-sm font-semibold tabular-nums text-gray-900">
+                  {(health.index_coverage * 100).toFixed(1)}%
+                </span>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-white/80 bg-white/70 p-3 shadow-sm">
+              <p className="text-xs font-medium text-gray-500">{t.overview.stalenessLabel}</p>
+              <div className="mt-2">
+                <span
+                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${stalenessBadgeClass(
+                    health.staleness_hours,
+                  )}`}
+                >
+                  {health.staleness_hours === null
+                    ? t.overview.neverIndexed
+                    : health.staleness_hours < 48
+                      ? `${health.staleness_hours.toFixed(1)} ${t.overview.hoursShort}`
+                      : `${(health.staleness_hours / 24).toFixed(1)} ${t.overview.daysShort}`}
+                </span>
+              </div>
+              <p className="mt-2 text-[11px] text-gray-500">
+                {t.overview.lastIndexedLabel}:{" "}
+                {health.last_indexed_at
+                  ? new Date(health.last_indexed_at).toLocaleString()
+                  : "—"}
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-white/80 bg-white/70 p-3 shadow-sm sm:col-span-2 lg:col-span-1">
+              <p className="text-xs font-medium text-gray-500">{t.overview.orphanRatioLabel}</p>
+              <p className={`mt-2 text-lg font-semibold tabular-nums ${orphanTextClass(health.orphan_ratio)}`}>
+                {(health.orphan_ratio * 100).toFixed(1)}%
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {stats && (

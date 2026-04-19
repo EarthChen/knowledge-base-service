@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { BookOpen, Code, Copy, Check } from "lucide-react";
 import type { SearchMatch } from "../api/types";
+import HighlightText from "./HighlightText";
 import { useCodeSnippet } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 
@@ -12,7 +13,13 @@ const TYPE_COLORS: Record<string, string> = {
   module: "bg-purple-50 text-purple-700",
 };
 
-export default function SearchResultCard({ match }: { match: SearchMatch }) {
+export default function SearchResultCard({
+  match,
+  highlightQuery,
+}: {
+  match: SearchMatch;
+  highlightQuery?: string;
+}) {
   const { t } = useI18n();
   const typeStyle = TYPE_COLORS[match.type?.toLowerCase()] || "bg-gray-100 text-gray-700";
 
@@ -72,10 +79,20 @@ export default function SearchResultCard({ match }: { match: SearchMatch }) {
             to={wikiHref}
             className="text-gray-900 underline decoration-transparent decoration-1 underline-offset-2 transition-colors hover:cursor-pointer hover:text-sky-800 hover:decoration-sky-600/50"
           >
-            {match.name || "—"}
+            {highlightQuery?.trim() ? (
+              <HighlightText text={match.name || "—"} query={highlightQuery} />
+            ) : (
+              match.name || "—"
+            )}
           </Link>
         ) : (
-          <span className="text-gray-900">{match.name || "—"}</span>
+          <span className="text-gray-900">
+            {highlightQuery?.trim() ? (
+              <HighlightText text={match.name || "—"} query={highlightQuery} />
+            ) : (
+              match.name || "—"
+            )}
+          </span>
         )}
       </h3>
 
@@ -120,7 +137,10 @@ export default function SearchResultCard({ match }: { match: SearchMatch }) {
 
       {(match.docstring || match.content) && (
         <p className="mt-2 line-clamp-3 text-sm text-gray-500">
-          {match.docstring || match.content}
+          <HighlightText
+            text={match.docstring || match.content || ""}
+            query={highlightQuery ?? ""}
+          />
         </p>
       )}
 

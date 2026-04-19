@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 
 import json_repair
 
+from config import get_settings
+
 if TYPE_CHECKING:
     from llm.gateway_client import RepoTaskManager
     from llm.provider import LLMProvider
@@ -23,6 +25,16 @@ if TYPE_CHECKING:
     from query.hybrid_query import HybridQueryService
 
 logger = logging.getLogger(__name__)
+
+
+def _truncate_for_synthesis(results_text: str, max_tokens: int) -> str:
+    """Cap JSON payload using the same ``len(text) // 4`` heuristic as wiki token estimates."""
+    if max_tokens <= 0:
+        return ""
+    estimated = len(results_text) // 4
+    if estimated <= max_tokens:
+        return results_text
+    return results_text[: max_tokens * 4]
 
 
 def _extract_first_brace_json_slice(candidate: str) -> str | None:
@@ -139,11 +151,18 @@ class DeepSearchEngine:
         hybrid_svc: HybridQueryService,
         graph_svc: GraphQueryService,
         task_manager: RepoTaskManager | None = None,
+        *,
+        synthesis_max_tokens: int | None = None,
     ) -> None:
         self._llm = llm
         self._hybrid = hybrid_svc
         self._graph = graph_svc
         self._task_manager = task_manager
+        self._synthesis_max_tokens = (
+            synthesis_max_tokens
+            if synthesis_max_tokens is not None
+            else get_settings().llm.synthesis_max_tokens
+        )
 
     async def search(
         self,
@@ -382,7 +401,8 @@ class DeepSearchEngine:
         model: str | None = None,
         tenant_id: str | None = None,
     ) -> dict[str, Any]:
-        results_text = json.dumps(results, ensure_ascii=False, default=str)[:4000]
+        raw_json = json.dumps(results, ensure_ascii=False, default=str)
+        results_text = _truncate_for_synthesis(raw_json, self._synthesis_max_tokens)
         prompt = _SYNTHESIZE_PROMPT.format(query=query, results_text=results_text)
         error_fallback = {
             "sufficient": False,

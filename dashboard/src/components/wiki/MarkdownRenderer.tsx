@@ -1,9 +1,10 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useMemo, useRef } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import SourceLink from "./SourceLink";
+import { parseMarkdownHeadings } from "./headingUtils";
 
 function MermaidBlock({ chart }: { chart: string }) {
   const id = useId().replace(/:/g, "");
@@ -103,17 +104,46 @@ type Props = {
 };
 
 export default function MarkdownRenderer({ content }: Props) {
+  const headingIds = useMemo(
+    () => parseMarkdownHeadings(content).map((h) => h.id),
+    [content],
+  );
+
+  const components = useMemo<Components>(() => {
+    let headingIndex = 0;
+    function nextHeadingId() {
+      return headingIds[headingIndex++];
+    }
+
+    const H1: Components["h1"] = ({ children, ...rest }) => (
+      <h1 id={nextHeadingId()} className="scroll-mt-24" {...rest}>
+        {children}
+      </h1>
+    );
+    const H2: Components["h2"] = ({ children, ...rest }) => (
+      <h2 id={nextHeadingId()} className="scroll-mt-24" {...rest}>
+        {children}
+      </h2>
+    );
+    const H3: Components["h3"] = ({ children, ...rest }) => (
+      <h3 id={nextHeadingId()} className="scroll-mt-24" {...rest}>
+        {children}
+      </h3>
+    );
+
+    return {
+      a: MarkdownAnchor,
+      code: MarkdownCode,
+      pre: MarkdownPre,
+      h1: H1,
+      h2: H2,
+      h3: H3,
+    };
+  }, [headingIds]);
+
   return (
     <article className="prose prose-slate max-w-none prose-headings:scroll-mt-24 prose-a:text-sky-700 prose-pre:bg-transparent prose-pre:p-0">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw]}
-        components={{
-          a: MarkdownAnchor,
-          code: MarkdownCode,
-          pre: MarkdownPre,
-        }}
-      >
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={components}>
         {content}
       </ReactMarkdown>
     </article>

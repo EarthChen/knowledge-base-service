@@ -43,40 +43,57 @@ class TestRRFFusion:
         assert result[0][0] == "a"
         assert result[1][0] == "b"
 
+    def test_scores_normalized_to_unit_range(self):
+        """RRF outputs are divided by max score so the top doc is 1.0."""
+        ranked = [("a", 0.9), ("b", 0.5)]
+        result = rrf_fusion([ranked], [1.0])
+        scores = dict(result)
+        assert max(scores.values()) == pytest.approx(1.0)
+        assert all(0.0 <= s <= 1.0 for s in scores.values())
+
     def test_top_rank_bonus_first(self):
-        """Document ranked #1 in any list gets +0.05 bonus."""
+        """Document ranked #1 in any list gets +0.05 bonus (then max-normalized)."""
         ranked = [("a", 0.9), ("b", 0.5)]
         result = rrf_fusion([ranked], [1.0])
         a_score = dict(result)["a"]
-        # score = 1.0 * 1/(60+0+1) + 0.05 = 1/61 + 0.05
-        expected = 1.0 / 61 + 0.05
-        assert a_score == pytest.approx(expected)
+        raw_a = 1.0 / 61 + 0.05
+        raw_b = 1.0 / 62 + 0.02
+        assert a_score == pytest.approx(raw_a / max(raw_a, raw_b))
 
     def test_top_rank_bonus_second_third(self):
         """Documents ranked #2 or #3 in any list get +0.02 bonus."""
         ranked = [("a", 0.9), ("b", 0.5), ("c", 0.3)]
         result = rrf_fusion([ranked], [1.0])
-        b_score = dict(result)["b"]
-        c_score = dict(result)["c"]
-        assert b_score == pytest.approx(1.0 / 62 + 0.02)
-        assert c_score == pytest.approx(1.0 / 63 + 0.02)
+        scores = dict(result)
+        raw_a = 1.0 / 61 + 0.05
+        raw_b = 1.0 / 62 + 0.02
+        raw_c = 1.0 / 63 + 0.02
+        mx = max(raw_a, raw_b, raw_c)
+        assert scores["b"] == pytest.approx(raw_b / mx)
+        assert scores["c"] == pytest.approx(raw_c / mx)
 
     def test_no_bonus_below_top3(self):
-        """Documents ranked 4+ get no bonus."""
+        """Fourth-ranked doc (index 3) does not receive the top-3 rank bonus."""
         ranked = [("a", 0), ("b", 0), ("c", 0), ("d", 0)]
         result = rrf_fusion([ranked], [1.0])
-        d_score = dict(result)["d"]
-        assert d_score == pytest.approx(1.0 / 64)
+        scores = dict(result)
+        raw_a = 1.0 / 61 + 0.05
+        raw_b = 1.0 / 62 + 0.02
+        raw_c = 1.0 / 63 + 0.02
+        raw_d = 1.0 / 64
+        mx = max(raw_a, raw_b, raw_c, raw_d)
+        assert scores["d"] == pytest.approx(raw_d / mx)
 
     def test_two_lists_different_weights(self):
         list1 = [("a", 0.9), ("b", 0.5)]
         list2 = [("b", 0.8), ("c", 0.6)]
         result = rrf_fusion([list1, list2], [1.5, 1.0])
         scores = dict(result)
-        # "b" appears in both lists
-        b_expected = 1.5 * (1 / 62) + 1.0 * (1 / 61)  # rank1 in list1, rank0 in list2
-        b_expected += 0.05  # best rank is 0 (in list2)
-        assert scores["b"] == pytest.approx(b_expected)
+        a_raw = 1.5 * (1 / 61) + 0.05
+        b_raw = 1.5 * (1 / 62) + 1.0 * (1 / 61) + 0.05
+        c_raw = 1.0 * (1 / 62)
+        mx = max(a_raw, b_raw, c_raw)
+        assert scores["b"] == pytest.approx(b_raw / mx)
 
     def test_descending_order(self):
         list1 = [("a", 0), ("b", 0), ("c", 0)]
@@ -86,13 +103,17 @@ class TestRRFFusion:
         assert scores == sorted(scores, reverse=True)
 
     def test_custom_k_value(self):
-        ranked = [("a", 0)]
+        """Larger RRF ``k`` dampens rank contributions; results stay max-normalized to 1.0."""
+        ranked = [("a", 0), ("b", 0)]
         result_k10 = rrf_fusion([ranked], [1.0], k=10)
         result_k100 = rrf_fusion([ranked], [1.0], k=100)
-        # Higher k makes individual rank differences smaller
-        a10 = dict(result_k10)["a"]
-        a100 = dict(result_k100)["a"]
-        assert a10 > a100  # k=10: 1/11+0.05 > k=100: 1/101+0.05
+        s10 = dict(result_k10)
+        s100 = dict(result_k100)
+        assert max(s10.values()) == pytest.approx(1.0)
+        assert max(s100.values()) == pytest.approx(1.0)
+        assert s10["a"] == pytest.approx(1.0)
+        assert s100["a"] == pytest.approx(1.0)
+        assert s10["b"] < s10["a"] and s100["b"] < s100["a"]
 
     def test_weight_default_is_one(self):
         """If weights list is shorter than ranked_lists, default weight is 1.0."""
@@ -100,14 +121,14 @@ class TestRRFFusion:
         list2 = [("a", 0)]
         result = rrf_fusion([list1, list2], [2.0])  # only 1 weight for 2 lists
         a_score = dict(result)["a"]
-        # list1: 2.0/61, list2: 1.0/61, bonus: +0.05
-        assert a_score == pytest.approx(2.0 / 61 + 1.0 / 61 + 0.05)
+        raw = 2.0 / 61 + 1.0 / 61 + 0.05
+        assert a_score == pytest.approx(1.0)
 
     def test_large_k_boundary(self):
         ranked = [("a", 0)]
         result = rrf_fusion([ranked], [1.0], k=10000)
         a_score = dict(result)["a"]
-        assert a_score == pytest.approx(1.0 / 10001 + 0.05)
+        assert a_score == pytest.approx(1.0)
 
 
 class TestPositionAwareBlend:

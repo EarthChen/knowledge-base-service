@@ -51,6 +51,8 @@ class TestHybridQueryRRF:
         assert len(result.semantic_matches) == 1
         assert result.semantic_matches[0]["name"] == "UserService"
         assert result.semantic_matches[0]["match_source"] == "keyword"
+        assert "confidence" in result.semantic_matches[0]
+        assert result.semantic_matches[0]["confidence"] == pytest.approx(1.0)
 
     @pytest.mark.asyncio
     async def test_semantic_only_results(self, mock_store, mock_semantic, mock_graph):

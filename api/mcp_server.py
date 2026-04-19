@@ -16,6 +16,7 @@ Tools exposed:
   - code_quality: Heuristic 0–100 quality score for a Function or Class node
   - dashboard_stats: P2 enrichment aggregates (architecture layers, Kafka events, RPC, cross-repo)
   - get_wiki_page, list_wiki_pages, search_wiki, wiki_lint, wiki_export_preview, wiki_export_execute: Wiki browsing, search, lint, and repo markdown export
+  - get_complete_context: One-stop entity context (code, call chain, hierarchy, flows, wiki)
   - traverse_call_chain, find_impact_scope, analyze_pr_impact: Wiki-scoped graph traversal (no LLM)
   - graph_insights: Architecture anomaly scan (isolation, import cycles, cross-layer calls, cohesion, bridges)
   - index_freshness: Last indexed time, node counts, and git HEAD for a repository stamp
@@ -694,6 +695,34 @@ MCP_TOOLS_MANIFEST = [
         },
     },
     {
+        "name": "get_complete_context",
+        "description": (
+            "Assemble full context for an entity in one call: source snippet, docstring, "
+            "one-hop call chain (callers and callees), class hierarchy (for classes), "
+            "related business flows, and matching wiki page text. "
+            "Respects max_tokens by trimming less critical sections first."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_name": {
+                    "type": "string",
+                    "description": "Function or class name (or substring matched by hybrid search)",
+                },
+                "repository": {
+                    "type": "string",
+                    "description": "Optional repository name to scope the entity and wiki lookup",
+                },
+                "max_tokens": {
+                    "type": "integer",
+                    "description": "Approximate token budget for the assembled context payload",
+                    "default": 8000,
+                },
+            },
+            "required": ["entity_name"],
+        },
+    },
+    {
         "name": "dashboard_stats",
         "description": (
             "Return P2 enrichment statistics for the knowledge graph dashboard: "
@@ -789,6 +818,7 @@ class KnowledgeBaseMCPHandler:
             "code_quality": self.handle_code_quality,
             "review_pr": self.handle_review_pr,
             "build_context": self.handle_build_context,
+            "get_complete_context": self.handle_get_complete_context,
             "dashboard_stats": self.handle_dashboard_stats,
             "graph_insights": self.handle_graph_insights,
             "index_freshness": self.handle_index_freshness,
@@ -851,6 +881,7 @@ class KnowledgeBaseMCPHandler:
             "semantic_matches": matches,
             "graph_context": graph_ctx,
             "total_results": total,
+            "confidence": result.confidence,
         }
 
     async def handle_rag_graph(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -1139,6 +1170,26 @@ class KnowledgeBaseMCPHandler:
             repository=arguments.get("repository"),
         )
         return ctx.to_dict()
+
+    async def handle_get_complete_context(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        from query.context_assembler import ContextAssembler
+
+        entity_name = str(arguments.get("entity_name") or "").strip()
+        if not entity_name:
+            return _mcp_error("invalid_params", "entity_name parameter is required")
+        if not self._store:
+            return _mcp_error("service_unavailable", "Graph store not available")
+        repo = arguments.get("repository")
+        repository = str(repo).strip() if repo not in (None, "") else None
+        raw_max = arguments.get("max_tokens", 8000)
+        try:
+            max_tokens = int(raw_max) if raw_max is not None else 8000
+        except (TypeError, ValueError):
+            return _mcp_error("invalid_params", "max_tokens must be an integer")
+        max_tokens = max(256, min(max_tokens, 100_000))
+
+        assembler = ContextAssembler(self._store, self._hybrid, self._graph)
+        return await assembler.assemble(entity_name, repository=repository, max_tokens=max_tokens)
 
     async def handle_dashboard_stats(self, _arguments: dict[str, Any]) -> dict[str, Any]:
         stats = await self._graph.get_p2_stats()

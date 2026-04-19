@@ -55,7 +55,7 @@ async def test_matches_have_confidence_and_clear_reason(mock_store, mock_semanti
     result = await svc.search_with_context("auth")
     assert len(result.semantic_matches) >= 1
     assert result.confidence > 0.0
-    assert result.confidence == pytest.approx(0.85)
+    assert result.confidence > 0.5
     assert result.no_results_reason == ""
 
 

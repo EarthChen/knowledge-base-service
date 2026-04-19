@@ -7,6 +7,7 @@ providing a single point of maintenance for the query vocabulary.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -153,6 +154,83 @@ class GraphQueryRepository:
             {"repo": repository},
         )
         return result.data[0]["deleted"] if result.data else 0
+
+    async def get_knowledge_health_stats(self) -> dict[str, Any]:
+        """Coverage, staleness, orphan ratio, and graph size for the health dashboard."""
+
+        def _parse_ts(value: Any) -> datetime | None:
+            if value is None:
+                return None
+            if isinstance(value, datetime):
+                return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+            if isinstance(value, (int, float)):
+                ts = float(value)
+                if ts > 1e12:
+                    ts /= 1000.0
+                return datetime.fromtimestamp(ts, tz=timezone.utc)
+            s = str(value).strip()
+            if not s:
+                return None
+            try:
+                if s.endswith("Z"):
+                    s = s[:-1] + "+00:00"
+                dt = datetime.fromisoformat(s)
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                return None
+
+        now = datetime.now(timezone.utc)
+        recent_cutoff = now - timedelta(days=7)
+
+        cnt_nodes = await self._store.execute_query("MATCH (n) RETURN count(n) AS c")
+        total_nodes = int(cnt_nodes.data[0].get("c") or 0) if cnt_nodes.data else 0
+
+        cnt_edges = await self._store.execute_query("MATCH ()-[r]->() RETURN count(r) AS c")
+        total_edges = int(cnt_edges.data[0].get("c") or 0) if cnt_edges.data else 0
+
+        orphan_q = await self._store.execute_query(
+            "MATCH (n) WHERE NOT (n)-[]-() RETURN count(n) AS c"
+        )
+        orphan_count = int(orphan_q.data[0].get("c") or 0) if orphan_q.data else 0
+        orphan_ratio = (orphan_count / total_nodes) if total_nodes > 0 else 0.0
+
+        repo_rows = await self._store.execute_query(
+            "MATCH (n) WHERE n.repository IS NOT NULL "
+            "RETURN n.repository AS repo, max(n.indexed_at) AS last_idx"
+        )
+
+        total_repos = 0
+        recent_repos = 0
+        for row in repo_rows.data:
+            total_repos += 1
+            last_idx = _parse_ts(row.get("last_idx"))
+            if last_idx is not None and last_idx >= recent_cutoff:
+                recent_repos += 1
+
+        if total_repos > 0:
+            index_coverage = recent_repos / total_repos
+        else:
+            index_coverage = 1.0
+
+        global_q = await self._store.execute_query(
+            "MATCH (n) WHERE n.indexed_at IS NOT NULL RETURN max(n.indexed_at) AS mx"
+        )
+        global_max = _parse_ts(global_q.data[0].get("mx")) if global_q.data else None
+
+        last_indexed_at: str | None = None
+        staleness_hours: float | None = None
+        if global_max is not None:
+            last_indexed_at = global_max.isoformat().replace("+00:00", "Z")
+            staleness_hours = max(0.0, (now - global_max).total_seconds() / 3600.0)
+
+        return {
+            "index_coverage": round(float(index_coverage), 4),
+            "staleness_hours": round(float(staleness_hours), 2) if staleness_hours is not None else None,
+            "orphan_ratio": round(float(orphan_ratio), 4),
+            "last_indexed_at": last_indexed_at,
+            "total_nodes": total_nodes,
+            "total_edges": total_edges,
+        }
 
     # ── Document queries ────────────────────────────────────────
 

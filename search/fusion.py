@@ -55,7 +55,15 @@ def rrf_fusion(
         elif br in (1, 2):
             scores[doc_id] += 0.02
 
-    return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    if not scores:
+        return []
+
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    max_score = ranked[0][1]
+    if max_score <= 0:
+        return [(doc_id, 0.0) for doc_id, _ in ranked]
+
+    return [(doc_id, s / max_score) for doc_id, s in ranked]
 
 
 def position_aware_blend(

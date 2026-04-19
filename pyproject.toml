@@ -49,3 +49,5 @@ select = ["E", "F", "I", "N", "W", "UP"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Ensure project root resolves top-level packages (e.g. search/, wiki/) when collecting tests/query/*
+pythonpath = ["."]

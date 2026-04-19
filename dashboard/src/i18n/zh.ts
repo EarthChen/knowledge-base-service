@@ -102,6 +102,9 @@ const zh: Translations = {
       "使用多轮规划与检索，生成分析结论、业务流程与代码位置。需要服务端已配置 LLM。",
     searchTrace: "检索轨迹",
     searchTraceHint: "展示规划、子查询与综合各步，便于排查与审计。",
+    deepResearch: "深度研究",
+    deepResearchDesc: "多轮研究过程，深入调查整个仓库中的复杂主题。",
+    streamMode: "实时进度",
   },
   graph: {
     title: "图查询",

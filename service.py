@@ -128,6 +128,7 @@ class KnowledgeBaseService:
             semantic_svc=self._semantic_query,
             graph_svc=self._graph_query,
             reranker=self._reranker,
+            query_expansion_enabled=settings.hybrid_search.query_expansion_enabled,
         )
 
         self._mcp_handler = KnowledgeBaseMCPHandler(

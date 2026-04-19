@@ -27,6 +27,21 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+MAX_CODE_SNIPPET_CHARS = 3000
+
+
+def _smart_truncate(code: str, max_chars: int = MAX_CODE_SNIPPET_CHARS) -> str:
+    """Truncate at the nearest statement boundary instead of hard cut."""
+    if len(code) <= max_chars:
+        return code
+    window_start = max(0, max_chars - 200)
+    window = code[window_start:max_chars]
+    for pattern in ["\n\n", ";\n", "\n"]:
+        idx = window.rfind(pattern)
+        if idx >= 0:
+            return code[: window_start + idx + len(pattern)]
+    return code[:max_chars]
+
 
 def _format_code_text(
     name: str,
@@ -46,7 +61,7 @@ def _format_code_text(
     if docstring and not business_summary:
         parts.append(f"Description: {docstring[:500]}")
     if code_snippet:
-        parts.append(f"Code: {code_snippet[:1000]}")
+        parts.append(f"Code: {_smart_truncate(code_snippet)}")
     return "\n".join(parts)
 
 

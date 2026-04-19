@@ -1,6 +1,6 @@
 import type { EnrichRequest, TaskInfo } from "./types";
 
-const API_BASE = "/api/v1";
+export const API_BASE = "/api/v1";
 const STORAGE_KEY = "kb_api_token";
 const BUSINESS_STORAGE_KEY = "kb_business_id";
 
@@ -17,7 +17,7 @@ export function getCurrentBusiness(): string {
   return localStorage.getItem(BUSINESS_STORAGE_KEY) || "default";
 }
 
-function authHeaders(): Record<string, string> {
+export function authHeaders(): Record<string, string> {
   const t = getToken();
   const biz = getCurrentBusiness();
   const h: Record<string, string> = { "Content-Type": "application/json" };

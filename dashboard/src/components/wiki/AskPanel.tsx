@@ -1,11 +1,21 @@
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Loader2, MessageCircle, Send } from "lucide-react";
+import {
+  Brain,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  MessageCircle,
+  Send,
+} from "lucide-react";
 import { Link } from "react-router-dom";
 import { useWikiAsk } from "../../hooks/useWikiAsk";
 import type { WikiAskSource } from "../../hooks/wikiTypes";
 import { useI18n } from "../../i18n/context";
 import { buildIdeHref, type EditorId } from "./editorLinks";
 import { EDITOR_PREF_KEY } from "./SourceLink";
+import DeepResearchTimeline from "../DeepResearchTimeline";
+import { useDeepSearchStream } from "../../hooks/useDeepSearchStream";
+import MarkdownRenderer from "../MarkdownRenderer";
 
 function readEditorPref(): EditorId {
   try {
@@ -25,6 +35,15 @@ function wikiHref(repository: string, path: string): string {
     .map((s) => encodeURIComponent(s))
     .join("/");
   return `/wiki/${er}/${ep}`;
+}
+
+function conclusionMarkdownText(c: Record<string, unknown> | null): string {
+  if (!c) return "";
+  for (const key of ["analysis", "markdown", "content", "text"] as const) {
+    const v = c[key];
+    if (typeof v === "string" && v.trim()) return v;
+  }
+  return "";
 }
 
 function SourceRef({
@@ -67,14 +86,19 @@ type Props = {
 };
 
 export default function AskPanel({ repository }: Props) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const isZh = locale === "zh";
   const [open, setOpen] = useState(true);
+  const [mode, setMode] = useState<"ask" | "deep">("ask");
   const [input, setInput] = useState("");
+  const [deepInput, setDeepInput] = useState("");
   const { answer, sources, isStreaming, error, ask, cancel, reset, conversationId } =
     useWikiAsk(repository);
+  const deepStream = useDeepSearchStream();
 
   if (!repository?.trim()) return null;
+
+  const deepMarkdown = conclusionMarkdownText(deepStream.conclusion);
 
   return (
     <section className="rounded-xl border border-gray-200 bg-gradient-to-b from-white to-gray-50/80 shadow-sm">
@@ -97,95 +121,215 @@ export default function AskPanel({ repository }: Props) {
 
       {open && (
         <div className="space-y-4 border-t border-gray-100 px-4 pb-4 pt-2">
-          <p className="text-xs text-gray-500">
-            Answers use hybrid search context and stream from the wiki Q&A endpoint (
-            <code className="rounded bg-gray-100 px-1">POST /api/v1/wiki/ask</code>
-            ).
-          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (mode === "deep" && deepStream.isStreaming) deepStream.cancel();
+                setMode("ask");
+              }}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                mode === "ask"
+                  ? "bg-sky-100 text-sky-700"
+                  : "text-gray-400 hover:text-gray-700"
+              }`}
+            >
+              <MessageCircle size={14} /> Ask wiki
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (mode === "ask" && isStreaming) cancel();
+                setMode("deep");
+              }}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                mode === "deep"
+                  ? "bg-amber-100 text-amber-700"
+                  : "text-gray-400 hover:text-gray-700"
+              }`}
+            >
+              <Brain size={14} /> {t.search.deepResearch}
+            </button>
+          </div>
 
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const q = input.trim();
-              if (!q || isStreaming) return;
-              void ask({ question: q });
-              setInput("");
-            }}
-          >
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              rows={2}
-              placeholder="Ask a question about this repository…"
-              className="min-h-[44px] flex-1 resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none ring-sky-500/30 focus:border-sky-400 focus:ring-2"
-            />
-            <div className="flex shrink-0 flex-col gap-2">
-              <button
-                type="submit"
-                disabled={isStreaming || !input.trim()}
-                className="inline-flex items-center justify-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-              >
-                {isStreaming ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Send className="size-4" />
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => cancel()}
-                disabled={!isStreaming}
-                className="text-xs text-gray-600 hover:text-gray-900 disabled:opacity-40"
-              >
-                Stop
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  reset();
+          {mode === "ask" ? (
+            <>
+              <p className="text-xs text-gray-500">
+                Answers use hybrid search context and stream from the wiki Q&A endpoint (
+                <code className="rounded bg-gray-100 px-1">POST /api/v1/wiki/ask</code>
+                ).
+              </p>
+
+              <form
+                className="flex gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const q = input.trim();
+                  if (!q || isStreaming) return;
+                  void ask({ question: q });
                   setInput("");
                 }}
-                className="text-xs text-gray-600 hover:text-gray-900"
               >
-                Clear
-              </button>
-            </div>
-          </form>
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  rows={2}
+                  placeholder="Ask a question about this repository…"
+                  className="min-h-[44px] flex-1 resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none ring-sky-500/30 focus:border-sky-400 focus:ring-2"
+                />
+                <div className="flex shrink-0 flex-col gap-2">
+                  <button
+                    type="submit"
+                    disabled={isStreaming || !input.trim()}
+                    className="inline-flex items-center justify-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                  >
+                    {isStreaming ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Send className="size-4" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => cancel()}
+                    disabled={!isStreaming}
+                    className="text-xs text-gray-600 hover:text-gray-900 disabled:opacity-40"
+                  >
+                    Stop
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      reset();
+                      setInput("");
+                    }}
+                    className="text-xs text-gray-600 hover:text-gray-900"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </form>
 
-          {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-              {error}
-            </div>
-          )}
+              {error && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  {error}
+                </div>
+              )}
 
-          {(answer || isStreaming) && (
-            <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner">
-              <div className="prose prose-sm prose-slate max-w-none whitespace-pre-wrap">
-                {answer}
-                {isStreaming && (
-                  <span className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-sky-500 align-middle" />
-                )}
-              </div>
-            </div>
-          )}
+              {(answer || isStreaming) && (
+                <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner">
+                  <div className="prose prose-sm prose-slate max-w-none whitespace-pre-wrap">
+                    {answer}
+                    {isStreaming && (
+                      <span className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-sky-500 align-middle" />
+                    )}
+                  </div>
+                </div>
+              )}
 
-          {sources.length > 0 && (
-            <div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Sources
-              </h4>
-              <ul className="space-y-2">
-                {sources.map((s, i) => (
-                  <SourceRef key={`${s.wiki_page}-${s.entity}-${i}`} repository={repository} s={s} />
-                ))}
-              </ul>
-              <p className="mt-2 text-xs text-gray-400">
+              {sources.length > 0 && (
+                <div>
+                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Sources
+                  </h4>
+                  <ul className="space-y-2">
+                    {sources.map((s, i) => (
+                      <SourceRef key={`${s.wiki_page}-${s.entity}-${i}`} repository={repository} s={s} />
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-gray-400">
+                    {isZh
+                      ? "Ask v2: 上下文由图增强搜索提供，包含调用链和模块上下文"
+                      : "Ask v2: Context enhanced by graph search including call chains and module context"}
+                  </p>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-gray-500">{t.search.deepResearchDesc}</p>
+              <p className="text-xs text-amber-800/90">
                 {isZh
-                  ? "Ask v2: 上下文由图增强搜索提供，包含调用链和模块上下文"
-                  : "Ask v2: Context enhanced by graph search including call chains and module context"}
+                  ? "Deep Research 搜索范围为整个知识库（可能跨多个仓库）"
+                  : "Deep Research searches the entire knowledge base (may span multiple repos)"}
               </p>
-            </div>
+              <form
+                className="flex flex-col gap-2 sm:flex-row"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const q = deepInput.trim();
+                  if (!q || deepStream.isStreaming) return;
+                  void deepStream.start({ query: q, max_iterations: 3 });
+                }}
+              >
+                <textarea
+                  value={deepInput}
+                  onChange={(e) => setDeepInput(e.target.value)}
+                  rows={3}
+                  placeholder={t.search.deepPlaceholder}
+                  className="min-h-[72px] flex-1 resize-y rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm outline-none ring-amber-500/30 focus:border-amber-400 focus:ring-2"
+                />
+                <div className="flex shrink-0 flex-col gap-2 sm:w-auto">
+                  <button
+                    type="submit"
+                    disabled={deepStream.isStreaming || !deepInput.trim()}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+                  >
+                    {deepStream.isStreaming && <Loader2 className="size-4 animate-spin" />}
+                    {deepStream.isStreaming ? t.search.deepSearching : t.search.searchBtn}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deepStream.cancel()}
+                    disabled={!deepStream.isStreaming}
+                    className="text-xs text-gray-600 hover:text-gray-900 disabled:opacity-40"
+                  >
+                    Stop
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      deepStream.cancel();
+                      setDeepInput("");
+                    }}
+                    className="text-xs text-gray-600 hover:text-gray-900"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </form>
+
+              {deepStream.error && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  {deepStream.error}
+                </div>
+              )}
+
+              {(deepStream.stages.length > 0 || deepStream.isStreaming) && (
+                <div className="space-y-3">
+                  <DeepResearchTimeline stages={deepStream.stages} isZh={isZh} />
+                  {deepMarkdown ? (
+                    <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner">
+                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        {t.search.analysis}
+                      </h4>
+                      <div className="prose prose-sm prose-slate max-w-none">
+                        <MarkdownRenderer content={deepMarkdown} />
+                      </div>
+                    </div>
+                  ) : deepStream.conclusion ? (
+                    <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner">
+                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        {t.search.analysis}
+                      </h4>
+                      <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-gray-700">
+                        {JSON.stringify(deepStream.conclusion, null, 2)}
+                      </pre>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

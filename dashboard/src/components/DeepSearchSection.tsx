@@ -4,6 +4,17 @@ import { useDeepSearch } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import JsonView from "./JsonView";
 import MarkdownRenderer from "./MarkdownRenderer";
+import DeepResearchTimeline from "./DeepResearchTimeline";
+import { useDeepSearchStream } from "../hooks/useDeepSearchStream";
+
+function conclusionMarkdownText(c: Record<string, unknown> | null): string {
+  if (!c) return "";
+  for (const key of ["analysis", "markdown", "content", "text"] as const) {
+    const v = c[key];
+    if (typeof v === "string" && v.trim()) return v;
+  }
+  return "";
+}
 
 type Props = {
   /** When false, hides the page-level title (e.g. embedded in unified search). */
@@ -15,23 +26,41 @@ export default function DeepSearchSection({ showTitle = true }: Props) {
   const [maxIterations, setMaxIterations] = useState(3);
   const [includeCode, setIncludeCode] = useState(true);
   const [traceOpen, setTraceOpen] = useState(true);
+  const [streamMode, setStreamMode] = useState(true);
 
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const isZh = locale === "zh";
   const deepSearch = useDeepSearch();
+  const stream = useDeepSearchStream();
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
-    deepSearch.mutate({
-      query: query.trim(),
-      max_iterations: maxIterations,
-      include_code: includeCode,
-    });
+    if (streamMode) {
+      void stream.start({
+        query: query.trim(),
+        max_iterations: maxIterations,
+      });
+    } else {
+      deepSearch.mutate({
+        query: query.trim(),
+        max_iterations: maxIterations,
+        include_code: includeCode,
+      });
+    }
   }
 
-  const submitLabel = deepSearch.isPending
+  const busy = streamMode ? stream.isStreaming : deepSearch.isPending;
+  const submitLabel = busy
     ? t.search.deepSearching
     : t.search.searchBtn;
+
+  function onStreamToggle(next: boolean) {
+    if (!next && stream.isStreaming) stream.cancel();
+    setStreamMode(next);
+  }
+
+  const streamMarkdown = conclusionMarkdownText(stream.conclusion);
 
   return (
     <div className="space-y-6">
@@ -57,15 +86,24 @@ export default function DeepSearchSection({ showTitle = true }: Props) {
           />
           <button
             type="submit"
-            disabled={deepSearch.isPending || !query.trim()}
+            disabled={busy || !query.trim()}
             className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:opacity-50"
           >
-            {deepSearch.isPending && <Loader2 size={16} className="animate-spin" />}
+            {busy && <Loader2 size={16} className="animate-spin" />}
             {submitLabel}
           </button>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-4">
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-gray-500">
+            <input
+              type="checkbox"
+              checked={streamMode}
+              onChange={(e) => onStreamToggle(e.target.checked)}
+              className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+            />
+            {t.search.streamMode}
+          </label>
           <label className="flex items-center gap-2 text-xs text-gray-500">
             {t.search.maxIterations}
             <input
@@ -79,25 +117,56 @@ export default function DeepSearchSection({ showTitle = true }: Props) {
               className="w-16 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
             />
           </label>
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-gray-500">
+          <label
+            className={`flex cursor-pointer items-center gap-2 text-xs text-gray-500 ${
+              streamMode ? "opacity-50" : ""
+            }`}
+            title={streamMode ? (isZh ? "JSON 模式下可用" : "Available in JSON mode") : undefined}
+          >
             <input
               type="checkbox"
               checked={includeCode}
+              disabled={streamMode}
               onChange={(e) => setIncludeCode(e.target.checked)}
-              className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+              className="rounded border-gray-300 text-amber-600 focus:ring-amber-500 disabled:cursor-not-allowed"
             />
             {t.search.includeCode}
           </label>
         </div>
       </form>
 
-      {deepSearch.error && (
+      {streamMode && stream.error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+          {stream.error}
+        </div>
+      )}
+
+      {!streamMode && deepSearch.error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
           {(deepSearch.error as Error).message}
         </div>
       )}
 
-      {deepSearch.data && (
+      {streamMode && (stream.stages.length > 0 || stream.isStreaming) && (
+        <div className="space-y-4">
+          <DeepResearchTimeline stages={stream.stages} isZh={isZh} />
+          {streamMarkdown ? (
+            <div className="rounded-xl border border-gray-200 bg-white p-5">
+              <h3 className="mb-2 text-sm font-medium text-gray-700">{t.search.analysis}</h3>
+              <div className="prose prose-sm max-w-none text-gray-600">
+                <MarkdownRenderer content={streamMarkdown} />
+              </div>
+            </div>
+          ) : stream.conclusion ? (
+            <div className="rounded-xl border border-gray-200 bg-white p-5">
+              <h3 className="mb-2 text-sm font-medium text-gray-700">{t.search.analysis}</h3>
+              <JsonView data={stream.conclusion} />
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {!streamMode && deepSearch.data && (
         <div className="space-y-4">
           {(deepSearch.data.error || deepSearch.data.sufficient === false) && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">

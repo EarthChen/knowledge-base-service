@@ -129,6 +129,12 @@ class LLMConfig(BaseModel):
         return ws_url, http_url
 
 
+class HybridSearchConfig(BaseModel):
+    """Hybrid keyword + semantic + graph search defaults."""
+
+    query_expansion_enabled: bool = True
+
+
 class RerankConfig(BaseModel):
     """Configuration for cross-encoder reranking."""
 
@@ -173,6 +179,7 @@ class Settings(BaseSettings):
     falkordb: FalkorDBConfig = Field(default_factory=FalkorDBConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    hybrid_search: HybridSearchConfig = Field(default_factory=HybridSearchConfig)
     rerank: RerankConfig = Field(default_factory=RerankConfig)
     git: GitConfig = Field(default_factory=GitConfig)
 

@@ -8,6 +8,7 @@ Supports multi-business isolation via independent FalkorDB graphs.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -15,7 +16,7 @@ from pathlib import Path
 from typing import Any, Self
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -472,6 +473,39 @@ async def deep_search(
         tenant_id=business_id,
     )
 
+
+@viewer_router.post("/deep-search/stream")
+async def deep_search_stream(
+    req: DeepSearchRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+    business_id: str = Depends(_get_effective_business_id),
+) -> StreamingResponse:
+    """SSE streaming version of deep search with real-time stage updates."""
+    engine = svc.deep_search
+    if engine is None:
+        raise HTTPException(
+            status_code=501,
+            detail="LLM not configured, deep search unavailable",
+        )
+
+    async def event_generator():
+        async for event in engine.search_stream(
+            req.query,
+            max_iterations=req.max_iterations,
+            tenant_id=business_id,
+        ):
+            event_type = event.get("type", "message")
+            data = json.dumps(event.get("data", {}), ensure_ascii=False, default=str)
+            yield f"event: {event_type}\ndata: {data}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # NOTE: POST /business/search was removed in P3 (Track C).

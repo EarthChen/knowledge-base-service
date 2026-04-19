@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -128,7 +129,7 @@ class DeepSearchEngine:
             if not sub_queries:
                 break
 
-            results = await self._execute_sub_queries(sub_queries)
+            results, _failed = await self._execute_sub_queries(sub_queries)
             all_results.extend(results)
             trace.append({
                 "step": f"search_iter_{iteration}",
@@ -153,6 +154,103 @@ class DeepSearchEngine:
             "code_locations": synthesis.get("code_locations", []),
             "search_trace": trace,
         }
+
+    async def search_stream(
+        self,
+        query: str,
+        *,
+        max_iterations: int = 3,
+        model: str | None = None,
+        tenant_id: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Streaming version of search — yields SSE-compatible event dicts.
+
+        Event types:
+          plan       — search plan with intent and sub_queries
+          progress   — a sub-query is being executed
+          search_done — iteration search complete with result count
+          synthesis  — iteration synthesis with sufficient flag and partial analysis
+          conclusion — final result
+          error      — non-fatal or fatal error
+        """
+        try:
+            plan = await self._plan_search(query, model=model, tenant_id=tenant_id)
+            yield {"type": "plan", "data": plan}
+        except Exception as exc:
+            yield {"type": "error", "data": {"phase": "plan", "message": str(exc)}}
+            return
+
+        all_results: list[dict[str, Any]] = []
+        synthesis: dict[str, Any] = {}
+
+        for iteration in range(max_iterations):
+            sub_queries = (
+                plan.get("sub_queries", [])
+                if iteration == 0
+                else synthesis.get("follow_up_queries", [])
+            )
+            if not sub_queries:
+                break
+
+            yield {"type": "progress", "data": {
+                "iteration": iteration,
+                "sub_queries": sub_queries,
+            }}
+
+            try:
+                results, failed_count = await self._execute_sub_queries(sub_queries)
+                all_results.extend(results)
+                event_data: dict[str, Any] = {
+                    "iteration": iteration,
+                    "result_count": len(results),
+                    "total_results": len(all_results),
+                }
+                if failed_count:
+                    event_data["failed_queries"] = failed_count
+                yield {"type": "search_done", "data": event_data}
+            except Exception as exc:
+                yield {"type": "error", "data": {
+                    "phase": "search",
+                    "iteration": iteration,
+                    "message": str(exc),
+                }}
+                continue
+
+            try:
+                synthesis = await self._synthesize(
+                    query, all_results, model=model, tenant_id=tenant_id,
+                )
+            except Exception as exc:
+                yield {"type": "error", "data": {
+                    "phase": "synthesis",
+                    "iteration": iteration,
+                    "message": str(exc),
+                }}
+                synthesis = {}
+                break
+
+            if synthesis.get("error"):
+                yield {"type": "error", "data": {
+                    "phase": "synthesis",
+                    "iteration": iteration,
+                    "message": synthesis.get("analysis", "Synthesis failed"),
+                }}
+                break
+
+            yield {"type": "synthesis", "data": {
+                "iteration": iteration,
+                "sufficient": synthesis.get("sufficient"),
+                "partial_analysis": (synthesis.get("analysis") or "")[:500],
+            }}
+
+            if synthesis.get("sufficient", True):
+                break
+
+        yield {"type": "conclusion", "data": {
+            "analysis": synthesis.get("analysis", ""),
+            "business_flows": synthesis.get("business_flows", []),
+            "code_locations": synthesis.get("code_locations", []),
+        }}
 
     async def _plan_search(
         self,
@@ -187,15 +285,21 @@ class DeepSearchEngine:
 
     async def _execute_sub_queries(
         self, sub_queries: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Execute sub-queries in parallel.
+
+        Returns (results, failed_count).
+        """
         tasks = [self._execute_single(sq) for sq in sub_queries]
         results: list[dict[str, Any]] = []
+        failed = 0
         for result in await asyncio.gather(*tasks, return_exceptions=True):
             if isinstance(result, Exception):
                 logger.warning("Sub-query failed: %s", result)
+                failed += 1
             elif result:
                 results.append(result)
-        return results
+        return results, failed
 
     async def _execute_single(
         self, sub_query: dict[str, Any]

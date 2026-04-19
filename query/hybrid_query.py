@@ -19,6 +19,7 @@ from typing import Any
 from log import get_logger
 from query.graph_query import GraphQueryService
 from query.semantic_query import SemanticQueryService
+from search.fusion import position_aware_blend, rrf_fusion
 from store.falkordb_store import FalkorDBStore
 from store.schema import NodeLabel
 
@@ -74,11 +75,13 @@ class HybridQueryService:
         semantic_svc: SemanticQueryService,
         graph_svc: GraphQueryService,
         reranker=None,
+        query_expansion_enabled: bool = True,
     ) -> None:
         self._store = store
         self._semantic = semantic_svc
         self._graph = graph_svc
         self._reranker = reranker
+        self._query_expansion_enabled = query_expansion_enabled
 
     @property
     def semantic(self) -> SemanticQueryService:
@@ -91,32 +94,58 @@ class HybridQueryService:
         expand_depth: int = 2,
         include_callers: bool = True,
         include_callees: bool = True,
+        use_query_expansion: bool = True,
     ) -> HybridResult:
-        """Layered hybrid search: keyword match + semantic search + graph expansion.
+        """Layered hybrid search with optional graph-based query expansion.
 
         Layer 1: exact & fuzzy name match (via FalkorDB keyword_search)
         Layer 2: vector similarity search (via embedding model)
         Layer 3: fusion (keyword hits scored higher), dedup, graph expansion
         """
-        fqn_matches = _FQN_RE.findall(query_text)
-        if fqn_matches:
-            identifiers = [m.split("(")[0].strip() for m in fqn_matches]
+        should_expand = use_query_expansion and self._query_expansion_enabled
+        if should_expand:
+            expansion_queries = await self._expand_query_with_graph(query_text)
         else:
-            identifiers = _extract_identifiers(query_text)
+            expansion_queries = [query_text]
 
-        keyword_coro = self._keyword_search_multi(identifiers, k) if identifiers else _empty_list()
-        semantic_coro = self._semantic.search_all(query_text, k)
+        kw_ranked_lists: list[list[tuple[str, float]]] = []
+        sem_ranked_lists: list[list[tuple[str, float]]] = []
+        kw_weights: list[float] = []
+        sem_weights: list[float] = []
+        doc_map: dict[str, dict[str, Any]] = {}
 
-        keyword_hits, semantic_result = await asyncio.gather(keyword_coro, semantic_coro)
+        for i, eq in enumerate(expansion_queries):
+            fqn_matches = _FQN_RE.findall(eq)
+            if fqn_matches:
+                identifiers = [m.split("(")[0].strip() for m in fqn_matches]
+            else:
+                identifiers = _extract_identifiers(eq)
 
-        merged = self._fuse_results(
-            keyword_hits, semantic_result.matches, k * 3 if self._reranker else k
+            kw_coro = self._keyword_search_multi(identifiers, k) if identifiers else _empty_list()
+            sem_coro = self._semantic.search_all(eq, k)
+
+            kw_hits, sem_result = await asyncio.gather(kw_coro, sem_coro)
+
+            w = 1.5 if i == 0 else 0.75
+            kw_ranked_lists.append([(self._doc_key(h), float(j)) for j, h in enumerate(kw_hits)])
+            kw_weights.append(w)
+
+            sw = 1.0 if i == 0 else 0.5
+            sem_ranked_lists.append([(self._doc_key(m), float(j)) for j, m in enumerate(sem_result.matches)])
+            sem_weights.append(sw)
+
+            for h in kw_hits:
+                key = self._doc_key(h)
+                if key not in doc_map:
+                    doc_map[key] = {**h, "match_source": "keyword"}
+            for m in sem_result.matches:
+                key = self._doc_key(m)
+                if key not in doc_map:
+                    doc_map[key] = {**m, "match_source": "semantic"}
+
+        merged = await self._fuse_expansion_results(
+            query_text, kw_ranked_lists, sem_ranked_lists, kw_weights, sem_weights, doc_map, k,
         )
-
-        if self._reranker:
-            merged = await self._reranker.rerank(query_text, merged, top_k=k)
-        else:
-            merged = merged[:k]
 
         graph_context = await self._expand_graph(merged, expand_depth, include_callers, include_callees)
 
@@ -126,6 +155,56 @@ class HybridQueryService:
             query_text=query_text,
             total=len(merged) + len(graph_context),
         )
+
+    async def _expand_query_with_graph(self, query_text: str, max_expansions: int = 3) -> list[str]:
+        """Expand query using graph neighbor names for richer search.
+
+        Given a query, find entities matching the query terms via keyword search,
+        then collect their graph neighbors' names as expansion terms.
+        Returns [original_query, expanded_query_1, ...].
+        """
+        queries = [query_text]
+
+        try:
+            identifiers = _extract_identifiers(query_text)
+            if not identifiers:
+                return queries
+
+            hits = await self._keyword_search_multi(identifiers[:2], k=3)
+            if not hits:
+                return queries
+
+            neighbor_names: set[str] = set()
+            for hit in hits[:2]:
+                name = hit.get("name", "")
+                entity_type = hit.get("type", "")
+                if not name:
+                    continue
+
+                try:
+                    if entity_type in ("Function", str(NodeLabel.FUNCTION)):
+                        callees = await self._graph.find_call_chain(name, depth=1, direction="downstream")
+                        for item in callees.data[:3]:
+                            n = item.get("name", "")
+                            if n and n != name:
+                                neighbor_names.add(n)
+                    elif entity_type in ("Class", str(NodeLabel.CLASS)):
+                        methods = await self._graph.find_class_methods(name)
+                        for item in methods.data[:3]:
+                            n = item.get("name", "")
+                            if n and n != name:
+                                neighbor_names.add(n)
+                except Exception:
+                    log.debug("graph_expansion_failed", entity=name, exc_info=True)
+                    continue
+
+            for neighbor in list(neighbor_names)[:max_expansions]:
+                queries.append(f"{query_text} {neighbor}")
+
+        except Exception:
+            log.debug("query_expansion_failed", exc_info=True)
+
+        return queries
 
     async def _keyword_search_multi(self, identifiers: list[str], k: int) -> list[dict[str, Any]]:
         """Run keyword search for each extracted identifier and merge results."""
@@ -141,17 +220,27 @@ class HybridQueryService:
         return all_hits
 
     @staticmethod
-    def _fuse_results(
+    def _doc_key(match: dict[str, Any]) -> str:
+        name = match.get("name") or ""
+        file = match.get("file") or ""
+        line = str(match.get("line") or "")
+        return f"{name}:{file}:{line}"
+
+    @staticmethod
+    def _fuse_results_legacy(
         keyword_hits: list[dict[str, Any]],
         semantic_matches: list[dict[str, Any]],
         k: int,
     ) -> list[dict[str, Any]]:
-        """Merge keyword and semantic results, dedup by name+file, keyword hits first."""
+        """Deprecated: merge keyword and semantic results by score sort (pre-RRF).
+
+        Kept for backward compatibility; prefer :meth:`_fuse_results_rrf`.
+        """
         merged: list[dict[str, Any]] = []
         seen: set[str] = set()
 
         for hit in keyword_hits:
-            key = f"{hit.get('name', '')}:{hit.get('file', '')}:{hit.get('line', '')}"
+            key = HybridQueryService._doc_key(hit)
             if key not in seen:
                 seen.add(key)
                 merged.append({
@@ -166,7 +255,7 @@ class HybridQueryService:
                 })
 
         for m in semantic_matches:
-            key = f"{m.get('name', '')}:{m.get('file', '')}:{m.get('line', '')}"
+            key = HybridQueryService._doc_key(m)
             if key not in seen:
                 seen.add(key)
                 entry = dict(m)
@@ -175,6 +264,78 @@ class HybridQueryService:
 
         merged.sort(key=lambda x: x.get("score", 0), reverse=True)
         return merged[:k]
+
+    # Deprecated name; use :meth:`_fuse_results_rrf` for hybrid search.
+    _fuse_results = _fuse_results_legacy
+
+    async def _fuse_expansion_results(
+        self,
+        query_text: str,
+        kw_ranked_lists: list[list[tuple[str, float]]],
+        sem_ranked_lists: list[list[tuple[str, float]]],
+        kw_weights: list[float],
+        sem_weights: list[float],
+        doc_map: dict[str, dict[str, Any]],
+        k: int,
+    ) -> list[dict[str, Any]]:
+        """Fuse multi-query results with per-query weighted RRF; optional reranker blend.
+
+        Each expansion round produces separate ranked lists with distinct weights.
+        Original query gets higher weights (kw=1.5, sem=1.0) than expansion
+        queries (kw=0.75, sem=0.5) ensuring original matches dominate.
+        """
+        all_ranked = kw_ranked_lists + sem_ranked_lists
+        all_weights = kw_weights + sem_weights
+
+        candidate_k = k * 3 if self._reranker else k
+        fused = rrf_fusion(all_ranked, all_weights)[:candidate_k]
+
+        merged = [doc_map[doc_id] for doc_id, _ in fused if doc_id in doc_map]
+        rrf_ordered = [(doc_id, score) for doc_id, score in fused if doc_id in doc_map]
+
+        if self._reranker:
+            try:
+                if hasattr(self._reranker, "rerank_with_scores"):
+                    scored_pairs = await self._reranker.rerank_with_scores(
+                        query_text, merged, top_k=k, return_all_scores=True
+                    )
+                    re_scores = {self._doc_key(m): s for m, s in scored_pairs}
+                    final = position_aware_blend(rrf_ordered, re_scores, top_k=k)
+                    merged = [doc_map[doc_id] for doc_id, _ in final if doc_id in doc_map]
+                else:
+                    merged = await self._reranker.rerank(query_text, merged, top_k=k)
+            except Exception:
+                log.warning("reranker_blend_failed", exc_info=True)
+                merged = merged[:k]
+        else:
+            merged = merged[:k]
+
+        return merged
+
+    async def _fuse_results_rrf(
+        self,
+        query_text: str,
+        keyword_hits: list[dict[str, Any]],
+        semantic_matches: list[dict[str, Any]],
+        k: int,
+    ) -> list[dict[str, Any]]:
+        """Fuse keyword and semantic hits with weighted RRF; optional reranker blend."""
+        doc_map: dict[str, dict[str, Any]] = {}
+        for h in keyword_hits:
+            key = self._doc_key(h)
+            if key not in doc_map:
+                doc_map[key] = {**h, "match_source": "keyword"}
+        for m in semantic_matches:
+            key = self._doc_key(m)
+            if key not in doc_map:
+                doc_map[key] = {**m, "match_source": "semantic"}
+
+        kw_ranked = [(self._doc_key(h), float(i)) for i, h in enumerate(keyword_hits)]
+        sem_ranked = [(self._doc_key(m), float(i)) for i, m in enumerate(semantic_matches)]
+
+        return await self._fuse_expansion_results(
+            query_text, [kw_ranked], [sem_ranked], [1.5], [1.0], doc_map, k,
+        )
 
     async def _expand_graph(
         self,

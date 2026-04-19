@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from log import get_logger
+from search.fusion import rrf_fusion as _shared_rrf_fusion
 
 log = get_logger(__name__)
 
@@ -114,27 +115,8 @@ class WikiSearchService:
         weights: list[float],
         k: int = 60,
     ) -> list[tuple[str, float]]:
-        """Weighted RRF plus top-rank bonus (#1 +0.05, #2–3 +0.02)."""
-        scores: dict[str, float] = {}
-        best_rank: dict[str, int] = {}
-
-        for li, ranked in enumerate(ranked_lists):
-            w = weights[li] if li < len(weights) else 1.0
-            for rank, (doc_id, _inner) in enumerate(ranked):
-                contrib = w * (1.0 / (k + rank + 1))
-                scores[doc_id] = scores.get(doc_id, 0.0) + contrib
-                prev = best_rank.get(doc_id)
-                if prev is None or rank < prev:
-                    best_rank[doc_id] = rank
-
-        for doc_id, br in best_rank.items():
-            if br == 0:
-                scores[doc_id] += 0.05
-            elif br in (1, 2):
-                scores[doc_id] += 0.02
-
-        merged = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        return merged
+        """Delegate to shared RRF implementation."""
+        return _shared_rrf_fusion(ranked_lists, weights, k)
 
     async def expand_query_with_graph(self, query: str) -> list[str]:
         """Extract entities and append graph neighbor names (P1.5 graph-only expansion)."""

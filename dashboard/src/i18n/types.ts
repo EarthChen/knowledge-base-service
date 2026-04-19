@@ -101,6 +101,9 @@ export interface Translations {
     deepPageDesc: string;
     searchTrace: string;
     searchTraceHint: string;
+    deepResearch: string;
+    deepResearchDesc: string;
+    streamMode: string;
   };
   graph: {
     title: string;

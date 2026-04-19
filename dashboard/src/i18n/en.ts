@@ -103,6 +103,10 @@ const en: Translations = {
       "Multi-step planning and retrieval with analysis, business flows, and code locations. Requires server-side LLM configuration.",
     searchTrace: "Search trace",
     searchTraceHint: "Shows plan, sub-queries, and synthesis steps for transparency and debugging.",
+    deepResearch: "Deep Research",
+    deepResearchDesc:
+      "Multi-round research process that thoroughly investigates complex topics across the entire repository.",
+    streamMode: "Live Progress",
   },
   graph: {
     title: "Graph Query",

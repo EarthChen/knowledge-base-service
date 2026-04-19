@@ -1,8 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, getCurrentBusiness, triggerEnrich } from "./client";
 import type {
-  Business,
-  BusinessesResponse,
   GraphStats,
   RepositoriesResponse,
   HybridSearchResponse,

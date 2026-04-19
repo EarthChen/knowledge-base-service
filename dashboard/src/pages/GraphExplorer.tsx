@@ -15,8 +15,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "@dagrejs/dagre";
-import { Network, Search, ZoomIn, Loader2, Eye, EyeOff, AlertTriangle } from "lucide-react";
-import { useGraphExplore } from "../api/hooks";
+import { Network, Search, ZoomIn, Loader2, Eye, EyeOff, AlertTriangle, Undo2 } from "lucide-react";
+import { useGraphExplore, useGraphExpand } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import type { GraphNode as ApiNode, GraphEdge as ApiEdge } from "../api/types";
 
@@ -73,9 +73,20 @@ const DEFAULT_VISIBILITY: Record<NodeTypeKey, boolean> = {
   Document: true,
 };
 
-const DAGRE_NODE_LIMIT = 200;
+/** Initial paint cap for POST /graph/explore results (progressive expansion adds more). */
+const INITIAL_NODE_LIMIT = 50;
+/** Hard safety cap to prevent browser tab from exhausting memory. */
+const MAX_GRAPH_NODES = 500;
 const NODE_WIDTH = 160;
 const NODE_HEIGHT = 48;
+
+function mergeGraphEdges(existing: ApiEdge[], incoming: ApiEdge[]): ApiEdge[] {
+  const key = (e: ApiEdge) => `${e.source}|${e.type}|${e.target}`;
+  const out = new Map<string, ApiEdge>();
+  for (const e of existing) out.set(key(e), e);
+  for (const e of incoming) out.set(key(e), e);
+  return [...out.values()];
+}
 
 function normalizeGraphType(raw: string): keyof typeof TYPE_FLOW_COLORS {
   const t = raw?.trim();
@@ -91,18 +102,16 @@ function buildFlowNodesWithDagre(
   apiNodes: ApiNode[],
   apiEdges: ApiEdge[],
   isDark: boolean,
-): { nodes: Node[]; truncated: boolean } {
+): Node[] {
   const PALETTE = paletteForTheme(isDark);
-  const truncated = apiNodes.length > DAGRE_NODE_LIMIT;
-  const limitedNodes = truncated ? apiNodes.slice(0, DAGRE_NODE_LIMIT) : apiNodes;
-  const nodeIdSet = new Set(limitedNodes.map((n) => n.id));
+  const nodeIdSet = new Set(apiNodes.map((n) => n.id));
 
   const g = new dagre.graphlib.Graph();
   const rankdir = hasInheritsEdges(apiEdges) ? "TB" : "LR";
   g.setGraph({ rankdir, nodesep: 60, ranksep: 80, marginx: 20, marginy: 20 });
   g.setDefaultEdgeLabel(() => ({}));
 
-  for (const n of limitedNodes) {
+  for (const n of apiNodes) {
     g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
   }
   for (const e of apiEdges) {
@@ -112,7 +121,7 @@ function buildFlowNodesWithDagre(
   }
   dagre.layout(g);
 
-  const nodes: Node[] = limitedNodes.map((n) => {
+  const nodes: Node[] = apiNodes.map((n) => {
     const nt = normalizeGraphType(n.type);
     const colors = PALETTE[nt];
     const pos = g.node(n.id);
@@ -148,7 +157,7 @@ function buildFlowNodesWithDagre(
       },
     };
   });
-  return { nodes, truncated };
+  return nodes;
 }
 
 function buildFlowEdges(
@@ -192,7 +201,9 @@ export default function GraphExplorer() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [typeVisible, setTypeVisible] = useState<Record<NodeTypeKey, boolean>>({ ...DEFAULT_VISIBILITY });
   const [showEdgeLabels, setShowEdgeLabels] = useState(true);
-  const [graphTruncated, setGraphTruncated] = useState(false);
+  /** True when last explore returned more nodes than INITIAL_NODE_LIMIT (only first N painted). */
+  const [initialSliceHint, setInitialSliceHint] = useState(false);
+  const [expandHistory, setExpandHistory] = useState<string[][]>([]);
 
   const apiNodesRef = useRef<Map<string, ApiNode>>(new Map());
   const edgesRef = useRef<ApiEdge[]>([]);
@@ -211,9 +222,31 @@ export default function GraphExplorer() {
   const { t } = useI18n();
   const isDark = useHtmlClassDark();
   const mutation = useGraphExplore();
+  const expandMutation = useGraphExpand();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const applyGraphLayout = useCallback(() => {
+    const list = [...apiNodesRef.current.values()];
+    const builtNodes = buildFlowNodesWithDagre(list, edgesRef.current, isDark);
+    const flowNodes = builtNodes.map((n) => {
+      const nt = normalizeGraphType((n.data?.type as string) || "");
+      let vis = true;
+      if (nt !== "Unknown") vis = typeVisibleRef.current[nt as NodeTypeKey];
+      return { ...n, hidden: !vis };
+    });
+    const nodeIds = new Set(builtNodes.map((n) => n.id));
+    visibleNodeIdsRef.current = nodeIds;
+    const flowEdges = buildFlowEdges(
+      edgesRef.current,
+      nodeIds,
+      showEdgeLabelsRef.current,
+      isDark,
+    );
+    setNodes(flowNodes);
+    setEdges(flowEdges);
+  }, [isDark, setNodes, setEdges]);
 
   const handleExplore = useCallback(
     (name: string) => {
@@ -221,37 +254,77 @@ export default function GraphExplorer() {
         { name: name.trim(), depth, limit },
         {
           onSuccess: (data) => {
-            apiNodesRef.current = new Map(data.nodes.map((n) => [n.id, n]));
-            edgesRef.current = data.edges;
-            const { nodes: builtNodes, truncated } = buildFlowNodesWithDagre(
-              data.nodes,
-              data.edges,
-              isDark,
+            expandMutation.reset();
+            setExpandHistory([]);
+            const overflow = data.nodes.length > INITIAL_NODE_LIMIT;
+            setInitialSliceHint(overflow);
+            const slice = overflow ? data.nodes.slice(0, INITIAL_NODE_LIMIT) : data.nodes;
+            apiNodesRef.current = new Map(slice.map((n) => [n.id, n]));
+            const idset = new Set(slice.map((n) => n.id));
+            edgesRef.current = data.edges.filter(
+              (e) => idset.has(e.source) && idset.has(e.target),
             );
-            setGraphTruncated(truncated);
-            const flowNodes = builtNodes.map((n) => {
-              const nt = normalizeGraphType((n.data?.type as string) || "");
-              let vis = true;
-              if (nt !== "Unknown") vis = typeVisibleRef.current[nt as NodeTypeKey];
-              return { ...n, hidden: !vis };
-            });
-            const nodeIds = new Set(builtNodes.map((n) => n.id));
-            visibleNodeIdsRef.current = nodeIds;
-            const flowEdges = buildFlowEdges(
-              data.edges,
-              nodeIds,
-              showEdgeLabelsRef.current,
-              isDark,
-            );
-            setNodes(flowNodes);
-            setEdges(flowEdges);
+            applyGraphLayout();
             setSelectedNodeId(null);
           },
         },
       );
     },
-    [depth, limit, isDark, mutation, setNodes, setEdges],
+    [depth, limit, mutation, expandMutation, applyGraphLayout],
   );
+
+  const handleExpandNeighbors = useCallback(
+    (nodeLabel: string, expandLimit: number) => {
+      const label = nodeLabel.trim();
+      if (!label) return;
+      if (apiNodesRef.current.size >= MAX_GRAPH_NODES) return;
+      const existingUids = [...apiNodesRef.current.keys()];
+      const selectedNode = apiNodesRef.current.get(
+        [...apiNodesRef.current.entries()].find(([, n]) => n.name === label)?.[0] ?? "",
+      );
+      expandMutation.mutate(
+        {
+          node_name: label,
+          center_uid: selectedNode?.id,
+          limit: expandLimit,
+          depth: 1,
+          exclude_uids: existingUids,
+        },
+        {
+          onSuccess: (result) => {
+            const newBatch: string[] = [];
+            for (const n of result.nodes) {
+              if (!apiNodesRef.current.has(n.id)) {
+                apiNodesRef.current.set(n.id, n);
+                newBatch.push(n.id);
+              }
+            }
+            edgesRef.current = mergeGraphEdges(edgesRef.current, result.edges);
+            if (newBatch.length) {
+              setExpandHistory((h) => [...h, newBatch]);
+            }
+            applyGraphLayout();
+          },
+        },
+      );
+    },
+    [expandMutation, applyGraphLayout],
+  );
+
+  const handleUndoExpand = useCallback(() => {
+    if (expandHistory.length === 0) return;
+    const lastBatch = expandHistory[expandHistory.length - 1];
+    for (const uid of lastBatch) {
+      apiNodesRef.current.delete(uid);
+    }
+    const idset = new Set(apiNodesRef.current.keys());
+    edgesRef.current = edgesRef.current.filter(
+      (e) => idset.has(e.source) && idset.has(e.target),
+    );
+    setExpandHistory((h) => h.slice(0, -1));
+    setSelectedNodeId((sid) => (sid && !apiNodesRef.current.has(sid) ? null : sid));
+    applyGraphLayout();
+  }, [expandHistory, applyGraphLayout]);
 
   useEffect(() => {
     if (!visibleNodeIdsRef.current.size) return;
@@ -271,12 +344,11 @@ export default function GraphExplorer() {
   const onNodeDoubleClick: NodeMouseHandler = useCallback(
     (_event, node) => {
       const name = node.data?.label as string;
-      if (name) {
-        setSearchName(name);
-        handleExplore(name);
+      if (name && !expandMutation.isPending) {
+        handleExpandNeighbors(name, 20);
       }
     },
-    [handleExplore],
+    [handleExpandNeighbors, expandMutation.isPending],
   );
 
   const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
@@ -413,16 +485,50 @@ export default function GraphExplorer() {
         </button>
       </form>
 
-      {graphTruncated && (
+      {initialSliceHint && (
         <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-900/80 dark:bg-amber-950/60 dark:text-amber-200">
           <AlertTriangle size={16} className="shrink-0" aria-hidden />
-          {t.explorer.graphTruncated.replace("{limit}", String(DAGRE_NODE_LIMIT))}
+          {t.explorer.expandMoreHint}
         </div>
       )}
+
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        {expandMutation.isPending ? (
+          <span className="flex items-center gap-2 text-sky-600 dark:text-sky-400">
+            <Loader2 size={16} className="animate-spin shrink-0" aria-hidden />
+            {t.explorer.expanding}
+          </span>
+        ) : null}
+        {expandHistory.length > 0 ? (
+          <button
+            type="button"
+            onClick={handleUndoExpand}
+            disabled={expandMutation.isPending}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+          >
+            <Undo2 size={14} aria-hidden />
+            {t.explorer.undoExpand}
+          </button>
+        ) : null}
+        {expandHistory.length > 0 ? (
+          <span className="text-xs text-gray-600 dark:text-gray-400">
+            {t.explorer.expandedCount.replace(
+              "{count}",
+              String(expandHistory.reduce((a, b) => a + b.length, 0)),
+            )}
+          </span>
+        ) : null}
+      </div>
 
       {mutation.error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900 dark:bg-red-950/60 dark:text-red-300">
           {mutation.error.message}
+        </div>
+      )}
+
+      {expandMutation.error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900 dark:bg-red-950/60 dark:text-red-300">
+          {expandMutation.error.message}
         </div>
       )}
 
@@ -611,6 +717,14 @@ export default function GraphExplorer() {
             ) : null}
 
             <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={expandMutation.isPending}
+                onClick={() => handleExpandNeighbors(selectedApiNode.name, 100)}
+                className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 transition-colors hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-100 dark:hover:bg-emerald-900"
+              >
+                {t.explorer.expandAllNeighbors}
+              </button>
               <Link
                 to={selectedApiNode.name ? `/wiki?q=${encodeURIComponent(selectedApiNode.name)}` : "/wiki"}
                 className="inline-flex items-center justify-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/80 dark:text-sky-100 dark:hover:bg-sky-900"

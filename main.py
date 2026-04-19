@@ -347,6 +347,14 @@ class GraphExploreRequest(BaseModel):
     limit: int = Field(default=100, ge=1, le=500)
 
 
+class GraphExpandRequest(BaseModel):
+    node_name: str = Field(..., min_length=1)
+    center_uid: str | None = None
+    limit: int = Field(default=20, ge=1, le=100)
+    depth: int = Field(default=1, ge=1, le=3)
+    exclude_uids: list[str] = Field(default_factory=list, max_length=2000)
+
+
 class ImpactAnalysisRequest(BaseModel):
     changed_functions: list[str] = Field(..., min_length=1)
     max_depth: int = Field(default=5, ge=1, le=50)
@@ -1506,6 +1514,25 @@ async def graph_explore(
             edges_list.append({"source": src, "target": tgt, "type": rtype})
 
     return {"nodes": nodes_list, "edges": edges_list}
+
+
+@viewer_router.post("/graph/expand")
+async def graph_expand(
+    req: GraphExpandRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """Incremental neighbor expansion around a named entity for progressive graph rendering."""
+
+    from query.graph_query import GraphQueryService
+
+    gq = GraphQueryService(svc.store)
+    return await gq.expand_node(
+        req.node_name,
+        center_uid=req.center_uid,
+        limit=req.limit,
+        depth=req.depth,
+        exclude_uids=req.exclude_uids,
+    )
 
 
 @admin_router.post("/admin/backfill-fqn")

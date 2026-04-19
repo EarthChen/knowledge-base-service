@@ -294,6 +294,14 @@ export interface Translations {
     searchRelated: string;
     /** Shown when graph layout caps nodes for performance; use {limit} placeholder */
     graphTruncated: string;
+    /** When /graph/explore returns more nodes than we paint initially */
+    expandMoreHint: string;
+    expanding: string;
+    undoExpand: string;
+    /** Use {count} placeholder */
+    expandedCount: string;
+    expandAllNeighbors: string;
+    maxNodesReached: string;
   };
   architecture: {
     title: string;

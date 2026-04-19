@@ -276,7 +276,7 @@ const zh: Translations = {
     edges: "条边",
     nodeTypes: "节点类型",
     edgeTypes: "边类型",
-    doubleClickHint: "双击节点以该节点为中心重新探索",
+    doubleClickHint: "双击节点展开邻居",
     emptyHint: "输入实体名称开始探索代码图谱",
     filterHint: "节点类型显示",
     typeFunction: "函数",
@@ -294,6 +294,13 @@ const zh: Translations = {
     searchRelated: "搜索相关",
     graphTruncated:
       "为保持性能，图谱已截断至 {limit} 个节点。请缩小检索范围或降低深度/上限。",
+    expandMoreHint:
+      "检索结果较多，仅显示前 50 个节点。双击节点可展开更多邻居。",
+    expanding: "正在展开...",
+    undoExpand: "撤销展开",
+    expandedCount: "已展开 {count} 个节点",
+    expandAllNeighbors: "展开全部邻居",
+    maxNodesReached: "已达到节点上限（500），请撤销部分展开后再继续",
   },
   architecture: {
     title: "架构浏览器",

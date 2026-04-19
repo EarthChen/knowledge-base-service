@@ -724,3 +724,102 @@ class GraphQueryService:
             },
             "quality_overview": None,
         }
+
+    _EXPAND_REL_TYPES = "CALLS|INHERITS|IMPORTS|CONTAINS|PART_OF|REFERENCES"
+
+    async def expand_node(
+        self,
+        node_name: str,
+        *,
+        center_uid: str | None = None,
+        limit: int = 20,
+        depth: int = 1,
+        exclude_uids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Expand a graph node: return new neighbor nodes and edges (progressive graph load).
+
+        When ``center_uid`` is provided the node is resolved directly by uid,
+        avoiding ambiguity when multiple entities share the same name.
+        Falls back to name/fqn resolution otherwise.
+        """
+        exclude = list(exclude_uids or [])
+        d = max(1, min(int(depth), 3))
+        lim = max(1, min(int(limit), 100))
+
+        resolved_uid: str = ""
+        if center_uid and str(center_uid).strip():
+            resolved_uid = str(center_uid).strip()
+        else:
+            center_q = (
+                "MATCH (center) "
+                "WHERE (center:Function OR center:Class OR center:Module) "
+                "AND (center.name = $name OR center.fqn = $name) "
+                "RETURN center.uid AS uid LIMIT 1"
+            )
+            center_rows = await self._store.execute_query(center_q, {"name": node_name})
+            if center_rows.data and center_rows.data[0].get("uid"):
+                resolved_uid = str(center_rows.data[0]["uid"])
+
+        if not resolved_uid:
+            return {"nodes": [], "edges": [], "center_uid": ""}
+
+        center_uid = resolved_uid
+
+        rel_pat = self._EXPAND_REL_TYPES
+        neighbor_q = (
+            f"MATCH (center) WHERE center.uid = $center_uid "
+            f"MATCH path = (center)-[:{rel_pat}*1..{d}]-(nbr) "
+            "WHERE (nbr:Function OR nbr:Class OR nbr:Module) "
+            "AND NOT coalesce(nbr.uid, '') IN $exclude_uids "
+            "WITH DISTINCT nbr "
+            "LIMIT $limit "
+            "RETURN nbr.uid AS uid, nbr.name AS name, labels(nbr)[0] AS type, "
+            "coalesce(nbr.file, '') AS file, coalesce(nbr.start_line, 0) AS line, "
+            "coalesce(nbr.end_line, nbr.start_line, 0) AS end_line, "
+            "coalesce(nbr.signature, '') AS signature, "
+            "coalesce(nbr.docstring, '') AS docstring"
+        )
+        n_rows = await self._store.execute_query(
+            neighbor_q,
+            {"center_uid": center_uid, "exclude_uids": exclude, "limit": lim},
+        )
+
+        nodes_list: list[dict[str, Any]] = []
+        for r in n_rows.data:
+            uid = r.get("uid", "")
+            if not uid:
+                continue
+            nodes_list.append({
+                "id": uid,
+                "name": r.get("name", ""),
+                "type": r.get("type", ""),
+                "file": r.get("file", ""),
+                "line": r.get("line", 0),
+                "end_line": r.get("end_line"),
+                "signature": r.get("signature") or "",
+                "docstring": r.get("docstring") or "",
+            })
+
+        all_uids = [center_uid] + [n["id"] for n in nodes_list]
+        if len(all_uids) < 2:
+            return {"nodes": nodes_list, "edges": [], "center_uid": center_uid}
+
+        edges_q = (
+            "MATCH (a)-[rel]->(b) "
+            "WHERE a.uid IN $uids AND b.uid IN $uids "
+            "RETURN a.uid AS source, b.uid AS target, type(rel) AS rel_type"
+        )
+        edges_result = await self._store.execute_query(edges_q, {"uids": all_uids})
+
+        edges_list: list[dict[str, Any]] = []
+        edge_keys: set[str] = set()
+        for row in edges_result.data:
+            src = row.get("source", "")
+            tgt = row.get("target", "")
+            rtype = row.get("rel_type", "")
+            key = f"{src}-{rtype}->{tgt}"
+            if key not in edge_keys:
+                edge_keys.add(key)
+                edges_list.append({"source": src, "target": tgt, "type": rtype})
+
+        return {"nodes": nodes_list, "edges": edges_list, "center_uid": center_uid}

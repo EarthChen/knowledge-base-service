@@ -200,6 +200,20 @@ export interface GraphExploreResponse {
   edges: GraphEdge[];
 }
 
+export interface GraphExpandRequest {
+  node_name: string;
+  center_uid?: string;
+  limit?: number;
+  depth?: number;
+  exclude_uids?: string[];
+}
+
+export interface GraphExpandResponse {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  center_uid: string;
+}
+
 export interface DocumentSection {
   title: string;
   content: string;

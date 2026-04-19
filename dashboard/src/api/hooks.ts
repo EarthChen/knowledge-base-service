@@ -9,6 +9,8 @@ import type {
   IndexTask,
   IndexTasksResponse,
   GraphExploreResponse,
+  GraphExpandRequest,
+  GraphExpandResponse,
   CodeSnippetResponse,
   DocumentsResponse,
   DocumentDetail,
@@ -223,6 +225,13 @@ export function useGraphExplore() {
   >({
     mutationFn: (body) =>
       api("/graph/explore", { method: "POST", body: JSON.stringify(body) }),
+  });
+}
+
+export function useGraphExpand() {
+  return useMutation<GraphExpandResponse, Error, GraphExpandRequest>({
+    mutationFn: (body) =>
+      api("/graph/expand", { method: "POST", body: JSON.stringify(body) }),
   });
 }
 

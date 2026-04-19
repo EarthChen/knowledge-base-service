@@ -280,7 +280,7 @@ const en: Translations = {
     edges: "edges",
     nodeTypes: "Node Types",
     edgeTypes: "Edge Types",
-    doubleClickHint: "Double-click a node to re-explore from that entity",
+    doubleClickHint: "Double-click a node to expand neighbors",
     emptyHint: "Enter an entity name to start exploring the code graph",
     filterHint: "Show node types",
     typeFunction: "Function",
@@ -298,6 +298,13 @@ const en: Translations = {
     searchRelated: "Search related",
     graphTruncated:
       "Graph truncated to {limit} nodes for performance. Narrow your search or reduce depth/limit.",
+    expandMoreHint:
+      "Many matches; only the first 50 nodes are shown. Double-click a node to load more neighbors.",
+    expanding: "Expanding…",
+    undoExpand: "Undo expand",
+    expandedCount: "Expanded {count} nodes",
+    expandAllNeighbors: "Expand all neighbors",
+    maxNodesReached: "Node limit reached (500). Undo some expansions to continue.",
   },
   architecture: {
     title: "Architecture Explorer",

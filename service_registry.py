@@ -158,6 +158,7 @@ class ServiceRegistry:
             settings=self._settings,
             index_task_status_lookup=self._index_task_status_lookup,
         )
+        await svc.ensure_fulltext_indexes()
         return svc
 
     async def readiness(self) -> tuple[dict[str, Any], int]:

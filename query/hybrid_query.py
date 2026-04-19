@@ -23,6 +23,7 @@ from query.semantic_query import SemanticQueryService
 from search.fusion import position_aware_blend, rrf_fusion
 from store.falkordb_store import FalkorDBStore
 from store.schema import NodeLabel
+from store.search_store import SearchStore
 
 log = get_logger(__name__)
 
@@ -153,6 +154,9 @@ class HybridQueryService:
         reranker=None,
         query_expansion_enabled: bool = True,
         use_child_chunks: bool = False,
+        search_store: SearchStore | None = None,
+        enable_bm25: bool = True,
+        bm25_weight: float = 1.2,
     ) -> None:
         self._store = store
         self._semantic = semantic_svc
@@ -160,6 +164,9 @@ class HybridQueryService:
         self._reranker = reranker
         self._query_expansion_enabled = query_expansion_enabled
         self._use_child_chunks = use_child_chunks
+        self._search_store = search_store
+        self._enable_bm25 = enable_bm25
+        self._bm25_weight = bm25_weight
 
     @property
     def semantic(self) -> SemanticQueryService:
@@ -182,6 +189,7 @@ class HybridQueryService:
         limit: int = 20,
         sort_by: str = "score",
         entity_type: str | None = None,
+        enable_bm25: bool | None = None,
     ) -> dict[str, Any]:
         """Layered hybrid search with optional graph-based query expansion.
 
@@ -194,6 +202,11 @@ class HybridQueryService:
         """
         if use_child_chunks is None:
             use_child_chunks = self._use_child_chunks
+
+        if enable_bm25 is not None:
+            do_bm25 = bool(enable_bm25) and self._search_store is not None
+        else:
+            do_bm25 = self._enable_bm25 and self._search_store is not None
 
         router_strategy = route_query(query_text) if use_query_router else None
 
@@ -216,8 +229,10 @@ class HybridQueryService:
 
         kw_ranked_lists: list[list[tuple[str, float]]] = []
         sem_ranked_lists: list[list[tuple[str, float]]] = []
+        bm25_ranked_lists: list[list[tuple[str, float]]] = []
         kw_weights: list[float] = []
         sem_weights: list[float] = []
+        bm25_weights: list[float] = []
         doc_map: dict[str, dict[str, Any]] = {}
 
         for i, eq in enumerate(expansion_queries):
@@ -232,8 +247,15 @@ class HybridQueryService:
                 if identifiers else _empty_list()
             )
             sem_coro = self._semantic.search_all(eq, k, repository=repository, language=language)
-
-            kw_hits, sem_result = await asyncio.gather(kw_coro, sem_coro)
+            if do_bm25 and self._search_store is not None:
+                bm25_lim = max(k * 3, 20)
+                bm25_coro = self._search_store.fulltext_search(
+                    eq, limit=bm25_lim, repository=repository, language=language,
+                )
+                kw_hits, sem_result, bm25_hits = await asyncio.gather(kw_coro, sem_coro, bm25_coro)
+            else:
+                kw_hits, sem_result = await asyncio.gather(kw_coro, sem_coro)
+                bm25_hits = []
 
             if router_strategy is None:
                 w = 1.5 if i == 0 else 0.75
@@ -247,6 +269,15 @@ class HybridQueryService:
             sem_ranked_lists.append([(self._doc_key(m), float(j)) for j, m in enumerate(sem_result.matches)])
             sem_weights.append(sw)
 
+            if do_bm25 and self._search_store is not None:
+                if router_strategy is None:
+                    bw = self._bm25_weight * (1.0 if i == 0 else 0.5)
+                else:
+                    base = router_strategy.semantic_weight * self._bm25_weight
+                    bw = base if i == 0 else base * 0.5
+                bm25_ranked_lists.append([(self._doc_key(h), float(j)) for j, h in enumerate(bm25_hits)])
+                bm25_weights.append(bw)
+
             for h in kw_hits:
                 key = self._doc_key(h)
                 if key not in doc_map:
@@ -255,6 +286,11 @@ class HybridQueryService:
                 key = self._doc_key(m)
                 if key not in doc_map:
                     doc_map[key] = {**m, "match_source": "semantic"}
+            if do_bm25 and self._search_store is not None:
+                for h in bm25_hits:
+                    key = self._doc_key(h)
+                    if key not in doc_map:
+                        doc_map[key] = {**h, "match_source": "bm25"}
 
         merged = await self._fuse_expansion_results(
             query_text,
@@ -265,6 +301,8 @@ class HybridQueryService:
             doc_map,
             k,
             per_file_cap=per_file_cap,
+            bm25_ranked_lists=bm25_ranked_lists if bm25_ranked_lists else None,
+            bm25_weights=bm25_weights if bm25_weights else None,
         )
 
         if router_strategy is not None and not router_strategy.expand_graph:
@@ -648,6 +686,8 @@ class HybridQueryService:
         doc_map: dict[str, dict[str, Any]],
         k: int,
         per_file_cap: int = 3,
+        bm25_ranked_lists: list[list[tuple[str, float]]] | None = None,
+        bm25_weights: list[float] | None = None,
     ) -> list[dict[str, Any]]:
         """Fuse multi-query results with per-query weighted RRF; optional reranker blend.
 
@@ -655,8 +695,13 @@ class HybridQueryService:
         Original query gets higher weights (kw=1.5, sem=1.0) than expansion
         queries (kw=0.75, sem=0.5) ensuring original matches dominate.
         """
-        all_ranked = kw_ranked_lists + sem_ranked_lists
-        all_weights = kw_weights + sem_weights
+        bm25_ranked_lists = bm25_ranked_lists or []
+        bm25_weights = bm25_weights or []
+        all_ranked = list(kw_ranked_lists) + list(sem_ranked_lists)
+        all_weights = list(kw_weights) + list(sem_weights)
+        if bm25_ranked_lists and bm25_weights:
+            all_ranked += bm25_ranked_lists
+            all_weights += bm25_weights
 
         candidate_k = k * 3 if self._reranker else k
         fused = rrf_fusion(all_ranked, all_weights)[:candidate_k]

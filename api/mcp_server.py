@@ -314,6 +314,11 @@ MCP_TOOLS_MANIFEST = [
                     "description": "Pagination offset into merged semantic results (after sort).",
                     "default": 0,
                 },
+                "enable_bm25": {
+                    "type": "boolean",
+                    "description": "Include BM25 full-text search in hybrid retrieval fusion.",
+                    "default": True,
+                },
             },
             "required": ["query"],
         },
@@ -797,6 +802,8 @@ class KnowledgeBaseMCPHandler:
             hybrid_kwargs["use_query_router"] = bool(args["use_query_router"])
         if "use_query_expansion" in args:
             hybrid_kwargs["use_query_expansion"] = bool(args["use_query_expansion"])
+        if "enable_bm25" in args:
+            hybrid_kwargs["enable_bm25"] = bool(args["enable_bm25"])
         if "per_file_cap" in args:
             try:
                 pfc = int(args["per_file_cap"])

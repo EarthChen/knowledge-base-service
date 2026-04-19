@@ -33,6 +33,7 @@ from query.hybrid_query import HybridQueryService
 from query.reranker import Reranker
 from query.semantic_query import SemanticQueryService
 from store.falkordb_store import FalkorDBStore
+from store.search_store import SearchStore
 
 log = get_logger(__name__)
 
@@ -156,6 +157,8 @@ class KnowledgeBaseService:
         )
         self._reranker = Reranker(settings.rerank) if settings.rerank.enabled else None
 
+        self._search_store = SearchStore(self._store)
+
         self._hybrid_query = HybridQueryService(
             store=self._store,
             semantic_svc=self._semantic_query,
@@ -163,6 +166,9 @@ class KnowledgeBaseService:
             reranker=self._reranker,
             query_expansion_enabled=hs.query_expansion_enabled,
             use_child_chunks=hs.use_child_chunks,
+            search_store=self._search_store,
+            enable_bm25=hs.enable_bm25,
+            bm25_weight=hs.bm25_weight,
         )
 
         self._wiki_cache = WikiCache()
@@ -227,9 +233,13 @@ class KnowledgeBaseService:
             task_status_fn=self._index_task_status_lookup,
         )
 
+    async def ensure_fulltext_indexes(self) -> None:
+        await self._search_store.ensure_fulltext_indexes()
+
     async def start(self) -> None:
         log.info("knowledge_base_starting")
         await self._store.connect()
+        await self.ensure_fulltext_indexes()
         if self._repo_task_mgr is not None:
             await self._repo_task_mgr.start()
         log.info("knowledge_base_started")

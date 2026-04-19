@@ -139,6 +139,8 @@ class HybridSearchConfig(BaseModel):
     child_chunk_window_chars: int = 800
     child_chunk_stride_chars: int = 600
     child_chunk_min_parent_chars: int = 400
+    enable_bm25: bool = True
+    bm25_weight: float = 1.2
 
 
 class RerankConfig(BaseModel):

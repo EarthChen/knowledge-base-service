@@ -222,6 +222,15 @@ function CallChainSection({
   );
 }
 
+function formatGeneratedAt(iso: string | null | undefined, locale: string): string | null {
+  if (!iso || !String(iso).trim()) return null;
+  try {
+    return new Date(iso).toLocaleString(locale === "zh" ? "zh-CN" : undefined);
+  } catch {
+    return iso;
+  }
+}
+
 export default function WikiContent({
   repository,
   pagePath,
@@ -229,9 +238,12 @@ export default function WikiContent({
   isLoading,
   error,
 }: Props) {
+  const { locale } = useI18n();
   const title =
     detail?.title ??
     (pagePath ? pagePath.split("/").pop() ?? pagePath : "Wiki overview");
+  const generatedLabel = locale === "zh" ? "生成时间" : "Generated";
+  const generatedAt = formatGeneratedAt(detail?.generated_at, locale);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -248,6 +260,11 @@ export default function WikiContent({
             <p className="mt-0.5 truncate font-mono text-xs text-gray-500">
               {pagePath || "Select a page"}
             </p>
+            {generatedAt && (
+              <p className="mt-1 text-xs text-gray-400">
+                {generatedLabel}: <span className="font-mono text-gray-600">{generatedAt}</span>
+              </p>
+            )}
           </div>
         </div>
       </header>

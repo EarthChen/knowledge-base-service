@@ -24,7 +24,15 @@ from api.routes.provider_routes import provider_router
 from api.routes.webhook_routes import init_webhook_state, webhook_router
 from api.routes.wiki_routes import wiki_router
 
-from auth import Role, TokenInfo, get_current_role, require_role, resolve_business_id, resolve_token
+from auth import (
+    Role,
+    TokenInfo,
+    get_auth_mode,
+    get_current_role,
+    require_role,
+    resolve_business_id,
+    resolve_token,
+)
 from config import get_settings
 from indexer.embedding_generator import doc_dict_for_embedding
 from indexer.incremental_indexer import _stamp_repository_on_nodes
@@ -96,8 +104,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     setup_logging(level=settings.log_level)
     log.info("kb_service_starting", host=settings.host, port=settings.port)
 
-    _registry = ServiceRegistry(settings)
     _task_manager = IndexTaskManager()
+
+    def _index_task_status_for_mcp(task_id: str) -> dict[str, Any] | None:
+        if _task_manager is None:
+            return None
+        task = _task_manager.get_task(task_id)
+        return task.to_dict() if task else None
+
+    _registry = ServiceRegistry(settings, index_task_status_lookup=_index_task_status_for_mcp)
     data_dir = Path(settings.git.clone_base_path).resolve().parent
     _repo_registry = RepoRegistry(str(data_dir))
     await _registry.start()
@@ -131,6 +146,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.wiki_lint_service_factory = wiki_lint_service_factory
 
     await wire_wiki_app_state(app, _registry)
+
+    if get_auth_mode() == "open":
+        log.warning(
+            "open_mode_active",
+            detail=(
+                "No API tokens configured — all endpoints are accessible without authentication. "
+                "Set API_TOKEN, API_TOKENS, or TOKENS_FILE for production deployments."
+            ),
+        )
 
     log.info("kb_service_started")
     yield

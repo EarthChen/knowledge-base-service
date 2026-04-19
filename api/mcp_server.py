@@ -8,6 +8,7 @@ Tools exposed:
   - rag_graph: Execute structured graph queries (call chains, inheritance, etc.)
   - deep_search: Multi-iteration LLM-driven deep codebase research
   - rag_index: Trigger indexing for a repository/directory or remote git_url
+  - task_status: Poll background indexing task status by task_id (from rag_index async flows)
   - list_documents, get_document: Browse indexed documentation graph
   - analyze_impact: Blast-radius analysis for changed functions
   - list_endpoints: HTTP, RPC, and Kafka endpoints from the graph
@@ -404,6 +405,17 @@ MCP_TOOLS_MANIFEST = [
         },
     },
     {
+        "name": "task_status",
+        "description": "Check status of a background indexing or enrichment task by task_id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "Task ID returned by rag_index."},
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
         "name": "list_documents",
         "description": (
             "List indexed document nodes with section metadata for navigation. "
@@ -680,6 +692,7 @@ class KnowledgeBaseMCPHandler:
         embedding_gen: EmbeddingGenerator | None = None,
         wiki_handler: WikiMCPHandler | None = None,
         deep_search_engine: Any | None = None,
+        task_status_fn: Callable[[str], dict[str, Any] | None] | None = None,
     ) -> None:
         self._hybrid = hybrid_svc
         self._graph = graph_svc
@@ -689,6 +702,7 @@ class KnowledgeBaseMCPHandler:
         self._embedding = embedding_gen
         self._wiki = wiki_handler if wiki_handler is not None else WikiMCPHandler(None)
         self._deep_search_engine = deep_search_engine
+        self._task_status_fn = task_status_fn
 
     def get_tools_manifest(self) -> list[dict[str, Any]]:
         return MCP_TOOLS_MANIFEST
@@ -711,6 +725,7 @@ class KnowledgeBaseMCPHandler:
             "build_context": self.handle_build_context,
             "dashboard_stats": self.handle_dashboard_stats,
             "graph_insights": self.handle_graph_insights,
+            "task_status": self.handle_task_status,
             "generate_wiki": self._wiki.handle_generate_wiki,
             "get_wiki_page": self._wiki.handle_get_wiki_page,
             "list_wiki_pages": self._wiki.handle_list_wiki_pages,
@@ -726,13 +741,13 @@ class KnowledgeBaseMCPHandler:
 
         handler = handlers.get(tool_name)
         if not handler:
-            return {"error": {"code": "unknown_tool", "message": f"Unknown tool: {tool_name}"}}
+            return _mcp_error("unknown_tool", f"Unknown tool: {tool_name}")
 
         try:
             return await handler(arguments)
         except Exception as exc:
             log.error("mcp_tool_error", tool=tool_name, error=str(exc))
-            return {"error": {"code": "internal_error", "message": "Tool execution failed unexpectedly"}}
+            return _mcp_error("internal_error", "Tool execution failed unexpectedly")
 
     async def handle_rag_query(self, args: dict[str, Any]) -> dict[str, Any]:
         query_text = args.get("query", "")
@@ -742,7 +757,7 @@ class KnowledgeBaseMCPHandler:
 
         if entity_type in ("flow", "concept"):
             if not str(query_text).strip():
-                return {"error": "query parameter is required"}
+                return _mcp_error("invalid_params", "query parameter is required")
             search_type = "flow" if entity_type == "flow" else "concept"
             business = await self._collect_business_search_results(
                 str(query_text),
@@ -820,7 +835,7 @@ class KnowledgeBaseMCPHandler:
         elif query_type == "raw_cypher":
             cypher = args.get("cypher", "")
             if not cypher:
-                return {"error": "cypher parameter is required for raw_cypher queries"}
+                return _mcp_error("invalid_params", "cypher parameter is required for raw_cypher queries")
             result = await self._graph.execute_raw(cypher)
             return {"type": "raw_cypher", "results": result.data}
 
@@ -844,7 +859,7 @@ class KnowledgeBaseMCPHandler:
             result = await self._graph.find_flow_dependencies(name)
             return {"type": "flow_dependencies", "flow": name, "results": result.data}
 
-        return {"error": f"Unknown query_type: {query_type}"}
+        return _mcp_error("invalid_params", f"Unknown query_type: {query_type}")
 
     async def _collect_business_search_results(
         self,
@@ -877,10 +892,10 @@ class KnowledgeBaseMCPHandler:
 
         changed = arguments.get("changed_functions", [])
         if not isinstance(changed, list):
-            return {"error": "changed_functions must be a list of strings"}
+            return _mcp_error("invalid_params", "changed_functions must be a list of strings")
         max_depth = arguments.get("max_depth", 5)
         if not self._store:
-            return {"error": "Graph store not available"}
+            return _mcp_error("service_unavailable", "Graph store not available")
         analysis = AnalysisService(self._store)
         report = await analysis.analyze_impact(
             [str(x) for x in changed],
@@ -890,7 +905,7 @@ class KnowledgeBaseMCPHandler:
 
     async def handle_list_endpoints(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if not self._store:
-            return {"error": "Graph store not available"}
+            return _mcp_error("service_unavailable", "Graph store not available")
         from query.endpoint_queries import query_all_endpoints
 
         repository = arguments.get("repository", "")
@@ -905,9 +920,9 @@ class KnowledgeBaseMCPHandler:
 
         repository = arguments.get("repository", "")
         if not repository:
-            return {"error": "repository parameter is required"}
+            return _mcp_error("invalid_params", "repository parameter is required")
         if not self._store:
-            return {"error": "Graph store not available"}
+            return _mcp_error("service_unavailable", "Graph store not available")
 
         settings = get_settings()
         git_mgr = GitManager(settings.git)
@@ -915,7 +930,7 @@ class KnowledgeBaseMCPHandler:
         base_path = Path(settings.git.clone_base_path).resolve()
         resolved = repo_path.resolve()
         if not resolved.is_relative_to(base_path):
-            return {"error": f"Repository path escapes clone base: {repository}"}
+            return _mcp_error("invalid_params", f"Repository path escapes clone base: {repository}")
 
         analysis = AnalysisService(self._store)
         report = await analysis.verify_consistency(str(resolved), repository=repository)
@@ -926,7 +941,7 @@ class KnowledgeBaseMCPHandler:
 
         layer = (arguments.get("layer") or "").strip()
         if not layer:
-            return {"error": "layer is required"}
+            return _mcp_error("invalid_params", "layer is required")
         _allowed = {
             "presentation",
             "business",
@@ -938,7 +953,10 @@ class KnowledgeBaseMCPHandler:
             "unknown",
         }
         if layer not in _allowed:
-            return {"error": f"Invalid layer; expected one of: {', '.join(sorted(_allowed))}"}
+            return _mcp_error(
+                "invalid_params",
+                f"Invalid layer; expected one of: {', '.join(sorted(_allowed))}",
+            )
         repository = arguments.get("repository")
         if repository is not None:
             repository = str(repository).strip() or None
@@ -948,19 +966,19 @@ class KnowledgeBaseMCPHandler:
             limit = int(raw_limit) if raw_limit is not None else 50
             offset = int(raw_offset) if raw_offset is not None else 0
         except (TypeError, ValueError):
-            return {"error": "limit and offset must be integers"}
+            return _mcp_error("invalid_params", "limit and offset must be integers")
         limit = max(1, min(limit, 500))
         if offset < 0:
-            return {"error": "offset must be >= 0"}
+            return _mcp_error("invalid_params", "offset must be >= 0")
         raw_search = arguments.get("search")
         if raw_search is not None and not isinstance(raw_search, str):
             raw_search = str(raw_search)
         try:
             search_param = validate_architecture_class_search(raw_search)
         except ValueError as exc:
-            return {"error": str(exc)}
+            return _mcp_error("invalid_params", str(exc))
         if not self._store:
-            return {"error": "Graph store not available"}
+            return _mcp_error("service_unavailable", "Graph store not available")
         try:
             queries = GraphQueryRepository(self._store)
             total_count = await queries.count_classes_by_architecture_layer(
@@ -980,29 +998,29 @@ class KnowledgeBaseMCPHandler:
             }
         except Exception as exc:
             log.error("mcp_search_architecture_failed", error=str(exc))
-            return {"error": str(exc)}
+            return _mcp_error("query_failed", str(exc))
 
     async def handle_code_quality(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from query.agent_workflow import AgentWorkflowService
 
         uid = arguments.get("entity_uid", "")
         if not uid:
-            return {"error": "entity_uid is required"}
+            return _mcp_error("invalid_params", "entity_uid is required")
         if not self._store:
-            return {"error": "Graph store not available"}
+            return _mcp_error("service_unavailable", "Graph store not available")
         et_raw = arguments.get("entity_type")
         if et_raw is None or et_raw == "":
             et = ""
         else:
             et = str(et_raw).strip().lower()
         if et and et not in ("function", "class"):
-            return {"error": "entity_type must be 'function' or 'class' when provided"}
+            return _mcp_error("invalid_params", "entity_type must be 'function' or 'class' when provided")
         try:
             workflow = AgentWorkflowService(self._store)
             return await workflow.compute_quality_score(str(uid), et)
         except Exception as exc:
             log.error("mcp_code_quality_failed", error=str(exc))
-            return {"error": str(exc)}
+            return _mcp_error("query_failed", str(exc))
 
     async def handle_review_pr(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from query.agent_workflow import AgentWorkflowService
@@ -1013,19 +1031,18 @@ class KnowledgeBaseMCPHandler:
         base_branch = arguments.get("base_branch")
         repo_url = (arguments.get("repo_url") or "").strip()
         if repo_url and not _looks_like_git_url(repo_url):
-            return {"error": "repo_url does not look like a valid git remote URL"}
+            return _mcp_error("invalid_params", "repo_url does not look like a valid git remote URL")
 
         has_diff = bool(str(diff_text).strip())
         has_branch_path = bool(branch) and bool(repo_path)
         if not has_diff and not has_branch_path:
-            return {
-                "error": (
-                    "Provide either diff_text, or both branch and repo_path "
-                    "(local git repo path on the KB server)",
-                ),
-            }
+            return _mcp_error(
+                "invalid_params",
+                "Provide either diff_text, or both branch and repo_path "
+                "(local git repo path on the KB server)",
+            )
         if not self._store:
-            return {"error": "Graph store not available"}
+            return _mcp_error("service_unavailable", "Graph store not available")
 
         workflow = AgentWorkflowService(self._store)
         try:
@@ -1038,7 +1055,7 @@ class KnowledgeBaseMCPHandler:
                 base_branch=base_branch,
             )
         except (ValueError, RuntimeError) as exc:
-            return {"error": str(exc)}
+            return _mcp_error("invalid_params", str(exc))
         return ctx.to_dict()
 
     async def handle_build_context(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -1046,9 +1063,9 @@ class KnowledgeBaseMCPHandler:
 
         entity_name = arguments.get("entity_name", "")
         if not entity_name:
-            return {"error": "entity_name parameter is required"}
+            return _mcp_error("invalid_params", "entity_name parameter is required")
         if not self._store:
-            return {"error": "Graph store not available"}
+            return _mcp_error("service_unavailable", "Graph store not available")
 
         workflow = AgentWorkflowService(self._store)
         ctx = await workflow.build_smart_context(
@@ -1064,15 +1081,29 @@ class KnowledgeBaseMCPHandler:
 
     async def handle_graph_insights(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if not self._store or self._store.graph is None:
-            return {"error": "Graph store not available"}
+            return _mcp_error("service_unavailable", "Graph store not available")
         repository = str(arguments.get("repository", "") or "").strip()
         if not repository:
-            return {"error": "repository parameter is required"}
+            return _mcp_error("invalid_params", "repository parameter is required")
         from query.graph_insights import GraphInsightsService
 
         svc = GraphInsightsService(self._store)
         report = await svc.analyze(repository)
         return {"status": "success", **report.to_dict()}
+
+    async def handle_task_status(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(arguments.get("task_id") or "").strip()
+        if not task_id:
+            return _mcp_error("invalid_params", "task_id is required")
+        if self._task_status_fn is None:
+            return _mcp_error(
+                "service_unavailable",
+                "Index task status is not available in this deployment.",
+            )
+        payload = self._task_status_fn(task_id)
+        if payload is None:
+            return _mcp_error("not_found", "Task not found")
+        return payload
 
     async def handle_deep_search(self, args: dict[str, Any]) -> dict[str, Any]:
         if self._deep_search_engine is None:

@@ -6,6 +6,9 @@ the knowledge base (store, indexer, query services, MCP handler).
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from api.mcp_server import KnowledgeBaseMCPHandler
 from store.graph_queries import GraphQueryRepository
 from wiki.ask import WikiAskService
@@ -47,16 +50,25 @@ class KnowledgeBaseService:
         self._init_components(settings)
 
     @classmethod
-    def from_components(cls, store: FalkorDBStore, settings: Settings) -> KnowledgeBaseService:
+    def from_components(
+        cls,
+        store: FalkorDBStore,
+        settings: Settings,
+        *,
+        index_task_status_lookup: Callable[[str], dict[str, Any] | None] | None = None,
+    ) -> KnowledgeBaseService:
         """Create a service with a pre-built store (used by ServiceRegistry for per-business instances)."""
         instance = cls.__new__(cls)
         instance._settings = settings
         instance._store = store
+        instance._index_task_status_lookup = index_task_status_lookup
         instance._init_components(settings)
         return instance
 
     def _init_components(self, settings: Settings) -> None:
         """Wire up all sub-components against the current store."""
+        if not hasattr(self, "_index_task_status_lookup"):
+            self._index_task_status_lookup: Callable[[str], dict[str, Any] | None] | None = None
         self._embedding = EmbeddingGenerator.shared(config=settings.embedding)
 
         self._llm_provider = None
@@ -193,6 +205,7 @@ class KnowledgeBaseService:
                 wiki_cache=self._wiki_cache,
             ),
             deep_search_engine=self._deep_search,
+            task_status_fn=self._index_task_status_lookup,
         )
 
     async def start(self) -> None:

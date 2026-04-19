@@ -5,7 +5,7 @@ from api.mcp_server import MCP_TOOLS_MANIFEST
 
 class TestMCPToolsManifest:
     def test_tool_count(self):
-        assert len(MCP_TOOLS_MANIFEST) == 26
+        assert len(MCP_TOOLS_MANIFEST) == 27
 
     def test_tool_names(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}
@@ -14,6 +14,7 @@ class TestMCPToolsManifest:
             "rag_graph",
             "deep_search",
             "rag_index",
+            "task_status",
             "list_documents",
             "get_document",
             "analyze_impact",
@@ -67,6 +68,12 @@ class TestMCPToolsManifest:
         assert "required" not in schema or schema.get("required") in (None, [])
         assert "mode" in schema["properties"]
         assert schema["properties"]["mode"]["enum"] == ["full", "incremental"]
+
+    def test_task_status_schema(self):
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "task_status")
+        schema = tool["inputSchema"]
+        assert "task_id" in schema["properties"]
+        assert schema["required"] == ["task_id"]
 
     def test_deep_search_schema(self):
         tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "deep_search")

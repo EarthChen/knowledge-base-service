@@ -1,6 +1,16 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Activity, BookOpen, ChevronRight, FileOutput, LayoutGrid, Network } from "lucide-react";
+import {
+  Activity,
+  BookOpen,
+  ChevronRight,
+  FileOutput,
+  LayoutGrid,
+  Loader2,
+  Network,
+  RefreshCw,
+} from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRepositories } from "../api/hooks";
 import AskPanel from "../components/wiki/AskPanel";
 import GraphInsightsPanel from "../components/wiki/GraphInsightsPanel";
@@ -10,6 +20,9 @@ import WikiLintPanel from "../components/wiki/WikiLintPanel";
 import WikiSidebar from "../components/wiki/WikiSidebar";
 import { useWikiPages } from "../hooks/useWikiPages";
 import { useWikiPage } from "../hooks/useWikiPage";
+import { wikiGenerate } from "../api/client";
+import { useToast } from "../components/Toast";
+import { useI18n } from "../i18n/context";
 
 type WikiToolTab = "page" | "health" | "insights" | "export";
 
@@ -52,6 +65,33 @@ export default function WikiPage() {
   const reposQuery = useRepositories();
   const pagesQuery = useWikiPages(repository);
   const pageQuery = useWikiPage(repository, pagePath || undefined);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { locale } = useI18n();
+  const isZh = locale === "zh";
+  const [regeneratePending, setRegeneratePending] = useState(false);
+
+  async function handleRegenerateWiki() {
+    if (!repository || regeneratePending) return;
+    setRegeneratePending(true);
+    try {
+      const res = await wikiGenerate(repository, "repo", "structure", locale === "zh" ? "zh" : "en");
+      const tid = res.task_id ? String(res.task_id) : "";
+      const msg = tid
+        ? isZh
+          ? `已触发 Wiki 重新生成，任务 ID：${tid}`
+          : `Wiki regeneration started. Task ID: ${tid}`
+        : isZh
+          ? "已触发 Wiki 重新生成"
+          : "Wiki regeneration started";
+      toast("success", msg);
+      await queryClient.invalidateQueries({ queryKey: ["wiki"] });
+    } catch (e) {
+      toast("error", e instanceof Error ? e.message : String(e));
+    } finally {
+      setRegeneratePending(false);
+    }
+  }
 
   if (!repository) {
     const repos = reposQuery.data?.repositories ?? [];
@@ -162,11 +202,26 @@ export default function WikiPage() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col gap-4">
-        <div className="flex flex-wrap gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
-          {tabBtn("page", "Page", <LayoutGrid size={14} className="text-sky-600" aria-hidden />)}
-          {tabBtn("health", "Health", <Activity size={14} className="text-emerald-600" aria-hidden />)}
-          {tabBtn("insights", "Insights", <Network size={14} className="text-violet-600" aria-hidden />)}
-          {tabBtn("export", "Export", <FileOutput size={14} className="text-sky-600" aria-hidden />)}
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+          <div className="flex flex-wrap gap-2">
+            {tabBtn("page", "Page", <LayoutGrid size={14} className="text-sky-600" aria-hidden />)}
+            {tabBtn("health", "Health", <Activity size={14} className="text-emerald-600" aria-hidden />)}
+            {tabBtn("insights", "Insights", <Network size={14} className="text-violet-600" aria-hidden />)}
+            {tabBtn("export", "Export", <FileOutput size={14} className="text-sky-600" aria-hidden />)}
+          </div>
+          <button
+            type="button"
+            onClick={handleRegenerateWiki}
+            disabled={regeneratePending}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+          >
+            {regeneratePending ? (
+              <Loader2 size={14} className="animate-spin" aria-hidden />
+            ) : (
+              <RefreshCw size={14} aria-hidden />
+            )}
+            {isZh ? "重新生成" : "Regenerate"}
+          </button>
         </div>
 
         {toolTab === "page" && (

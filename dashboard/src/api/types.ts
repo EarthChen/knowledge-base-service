@@ -149,8 +149,18 @@ export interface IndexTasksResponse {
   total: number;
 }
 
+/** Wiki-related fields exposed on GET /health (read-only server config). */
+export interface WikiHealthConfig {
+  cot_enabled: boolean;
+  cot_analysis_model: string;
+  cot_generation_model: string;
+}
+
 export interface HealthResponse {
   status: string;
+  redis?: string;
+  embedding?: string;
+  wiki?: WikiHealthConfig;
 }
 
 export interface GraphNode {

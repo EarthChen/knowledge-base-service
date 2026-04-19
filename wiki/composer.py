@@ -5,12 +5,15 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from log import get_logger
 from store.schema import EdgeType, GraphNode, NodeLabel
 from wiki.context import LLMPort, WikiContextBuilder
-from wiki.doc_wiki_fusion import find_related_docs, format_related_docs_for_prompt
+from wiki.doc_wiki_fusion import create_source_doc_edges, find_related_docs, format_related_docs_for_prompt
 from wiki.data_collector import PageData
 from wiki.diagram_gen import generate_call_flowchart, generate_class_diagram, generate_dependency_graph
 from wiki.models import PageType, SourceLocation, WikiConfig, WikiDiagram, WikiPage, WikiPageMetadata
+
+log = get_logger(__name__)
 
 
 def _effective_wiki_language(language: str) -> str:
@@ -93,6 +96,7 @@ class WikiComposer:
         tier: int
         eff_lang = _effective_wiki_language(config.language)
         related_docs_block = ""
+        doc_rows: list[dict[str, str]] = []
         if self._store is not None:
             doc_entities = _entity_names_for_doc_lookup(page_data.node)
             if doc_entities:
@@ -126,7 +130,7 @@ class WikiComposer:
             generation_mode=config.mode,
             fallback_tier=tier,
         )
-        return WikiPage(
+        page = WikiPage(
             path=path,
             title=title,
             page_type=page_type,
@@ -136,6 +140,22 @@ class WikiComposer:
             metadata=meta,
             method_locations=list(page_data.method_locations),
         )
+        if self._store is not None and doc_rows:
+            try:
+                await create_source_doc_edges(
+                    self._store,
+                    repository=config.repository,
+                    wiki_page_path=path,
+                    docs=doc_rows,
+                )
+            except Exception as exc:
+                log.warning(
+                    "wiki_source_doc_edges_failed",
+                    repository=config.repository,
+                    path=path,
+                    error=str(exc),
+                )
+        return page
 
     async def compose_incremental_navigation_pages(
         self,

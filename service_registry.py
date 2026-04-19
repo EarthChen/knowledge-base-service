@@ -7,11 +7,13 @@ across all businesses while maintaining isolated FalkorDB graphs per business.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import Any
 
 from falkordb import FalkorDB
 from redis.exceptions import BusyLoadingError
 
+from auth import get_auth_mode
 from config import Settings
 from indexer.embedding_generator import EmbeddingGenerator
 from log import get_logger
@@ -26,8 +28,14 @@ log = get_logger(__name__)
 class ServiceRegistry:
     """Manages per-business KnowledgeBaseService instances, sharing expensive resources."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        index_task_status_lookup: Callable[[str], dict[str, Any] | None] | None = None,
+    ) -> None:
         self._settings = settings
+        self._index_task_status_lookup = index_task_status_lookup
         self._db: FalkorDB | None = None
         self._business_mgr: BusinessManager | None = None
         self._services: dict[str, KnowledgeBaseService] = {}
@@ -148,13 +156,15 @@ class ServiceRegistry:
         svc = KnowledgeBaseService.from_components(
             store=store,
             settings=self._settings,
+            index_task_status_lookup=self._index_task_status_lookup,
         )
         return svc
 
     async def readiness(self) -> tuple[dict[str, Any], int]:
         """Return health payload and HTTP status: 200 when Redis and embeddings are usable, else 503."""
+        auth_mode = get_auth_mode()
         if self._db is None:
-            return {"status": "initializing", "redis": "disconnected"}, 503
+            return {"status": "initializing", "redis": "disconnected", "auth_mode": auth_mode}, 503
 
         loop = asyncio.get_running_loop()
 
@@ -164,16 +174,28 @@ class ServiceRegistry:
         try:
             await loop.run_in_executor(None, _ping)
         except BusyLoadingError:
-            return {"status": "initializing", "redis": "loading"}, 503
+            return {"status": "initializing", "redis": "loading", "auth_mode": auth_mode}, 503
         except Exception as exc:
             log.warning("health_redis_ping_failed", error=str(exc))
-            return {"status": "unhealthy", "redis": f"error: {exc!s}"}, 503
+            return {"status": "unhealthy", "redis": f"error: {exc!s}", "auth_mode": auth_mode}, 503
 
         emb = EmbeddingGenerator.shared(self._settings.embedding)
         if not emb.is_model_loaded():
-            return {"status": "initializing", "embedding": "not_loaded"}, 503
+            return {"status": "initializing", "embedding": "not_loaded", "auth_mode": auth_mode}, 503
 
-        return {"status": "ok", "redis": "ready", "embedding": "ready"}, 200
+        wiki_cfg = self._settings.wiki
+        wiki_health = {
+            "cot_enabled": bool(wiki_cfg.cot_enabled),
+            "cot_analysis_model": wiki_cfg.cot_analysis_model or "",
+            "cot_generation_model": wiki_cfg.cot_generation_model or "",
+        }
+        return {
+            "status": "ok",
+            "redis": "ready",
+            "embedding": "ready",
+            "auth_mode": auth_mode,
+            "wiki": wiki_health,
+        }, 200
 
     async def _maybe_migrate_legacy_graph(self) -> None:
         """Migrate legacy 'code_knowledge' graph to 'kb_default' on first run."""

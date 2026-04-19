@@ -112,3 +112,15 @@ export async function wikiExportExecute(
     body: JSON.stringify({ target_dir: targetDir, selected_files: selectedFiles }),
   });
 }
+
+export async function wikiGenerate(
+  repository: string,
+  scope: string,
+  mode = "structure",
+  language = "en",
+): Promise<TaskInfo> {
+  return api<TaskInfo>("/wiki/generate", {
+    method: "POST",
+    body: JSON.stringify({ repository, scope, mode, language }),
+  });
+}

@@ -111,13 +111,6 @@ export function useAnalyzeImpact() {
   });
 }
 
-export function useGraphQuery() {
-  return useMutation<Record<string, unknown>, Error, Record<string, unknown>>({
-    mutationFn: (body) =>
-      api("/graph", { method: "POST", body: JSON.stringify(body) }),
-  });
-}
-
 export function useIndex() {
   return useMutation<IndexResponse, Error, Record<string, unknown>>({
     mutationFn: (body) =>

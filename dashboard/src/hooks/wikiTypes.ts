@@ -27,6 +27,8 @@ export type WikiPageDetail = {
   source_locations: WikiSourceLocation[];
   method_locations: unknown[];
   context: Record<string, string>;
+  /** ISO timestamp from page metadata when the server provides it. */
+  generated_at?: string | null;
 };
 
 export type WikiSearchResult = {

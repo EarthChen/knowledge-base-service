@@ -916,6 +916,7 @@ async def wiki_get_page_detail(
         if str(p.get("path", "")) != decoded_path:
             continue
         ctx = _wiki_page_detail_context(repository, p)
+        meta = p.get("metadata") or {}
         return {
             "path": str(p.get("path", "")),
             "title": str(p.get("title", "")),
@@ -924,6 +925,7 @@ async def wiki_get_page_detail(
             "source_locations": p.get("source_locations") or [],
             "method_locations": p.get("method_locations") or [],
             "context": ctx,
+            "generated_at": meta.get("generated_at"),
         }
 
     raise HTTPException(

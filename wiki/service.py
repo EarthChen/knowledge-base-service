@@ -52,7 +52,7 @@ class WikiService:
 
     def _composer_for(self, llm_provider: str | None) -> WikiComposer:
         llm_port = self._resolve_llm_port(llm_provider)
-        return WikiComposer(llm_port, WikiContextBuilder(llm_port))
+        return WikiComposer(llm_port, WikiContextBuilder(llm_port), store=self._graph)
 
     def _resolve_llm_port(self, llm_provider: str | None) -> Any | None:
         if self._llm_factory is not None:

@@ -118,6 +118,11 @@ def _get_registry() -> dict[str, TokenInfo]:
     return _token_registry
 
 
+def get_auth_mode() -> str:
+    """Return ``open`` when no API tokens are loaded, else ``token``."""
+    return "token" if _get_registry() else "open"
+
+
 def resolve_token(authorization: str | None) -> TokenInfo | None:
     """Extract TokenInfo for a given Authorization header value.
 

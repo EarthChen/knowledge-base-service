@@ -13,6 +13,7 @@ import {
   Loader2,
   Webhook,
   CalendarClock,
+  BookOpen,
 } from "lucide-react";
 import { getToken, setToken } from "../api/client";
 import {
@@ -343,6 +344,67 @@ export default function SettingsPage() {
             <span className="text-gray-400">{t.settings.deployment}</span>
             <span className="text-gray-700">{t.settings.deploymentValue}</span>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white p-5">
+        <div className="flex items-center gap-2">
+          <BookOpen size={16} className="text-gray-500" />
+          <h3 className="text-sm font-medium text-gray-700">
+            {isZh ? "Wiki 配置（只读）" : "Wiki configuration (read-only)"}
+          </h3>
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          {isZh
+            ? "链式思考（CoT）与模型名称来自服务端环境变量，由 /health 返回。"
+            : "Chain-of-thought (CoT) flags and model names come from server environment variables via /health."}
+        </p>
+        <div className="mt-4 space-y-4 text-sm">
+          {!health?.wiki ? (
+            <p className="text-gray-500">
+              {isZh
+                ? "当前服务未在健康检查中返回 wiki 字段（可能为旧版本）。"
+                : "Health response has no wiki section (server may be an older build)."}
+            </p>
+          ) : (
+            <>
+              <label className="flex cursor-not-allowed items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 opacity-90">
+                <span className="text-gray-600">{isZh ? "启用 CoT" : "CoT enabled"}</span>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-gray-300 text-sky-600"
+                  checked={health.wiki.cot_enabled}
+                  readOnly
+                  disabled
+                  aria-readonly
+                />
+              </label>
+              <div className="space-y-1">
+                <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  {isZh ? "CoT 分析模型" : "CoT analysis model"}
+                </div>
+                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-800">
+                  {health.wiki.cot_analysis_model?.trim()
+                    ? health.wiki.cot_analysis_model
+                    : isZh
+                      ? "（未设置）"
+                      : "(not set)"}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  {isZh ? "CoT 生成模型" : "CoT generation model"}
+                </div>
+                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-800">
+                  {health.wiki.cot_generation_model?.trim()
+                    ? health.wiki.cot_generation_model
+                    : isZh
+                      ? "（未设置）"
+                      : "(not set)"}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

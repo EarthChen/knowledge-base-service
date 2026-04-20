@@ -573,6 +573,16 @@ const zh: Translations = {
     exportSelectAtLeastOne: "请至少选择一行「新建/更新」以导出。",
     exportFinished: "导出完成",
     exportFinishedSummary: "新建 {created}，更新 {updated}，跳过 {skipped}（导出后扫描）。",
+    globalSearchHeading: "搜索全部 Wiki",
+    globalSearchDescription:
+      "在所有已索引仓库的生成 Wiki 中同时检索；点击结果可跳转到对应页面。",
+    globalSearchLabel: "跨仓库搜索 Wiki",
+    globalSearchPlaceholder: "在所有 Wiki 中搜索…",
+    globalSearchSearching: "搜索中…",
+    globalSearchSubmit: "搜索",
+    globalSearchNoResults: "在所有仓库的 Wiki 中未找到匹配页面。",
+    globalSearchRepositoryGroup: "仓库：{repository}",
+    globalSearchPartialErrors: "有 {count} 个仓库搜索失败，结果可能不完整。",
     lintTitle: "Wiki 健康（检查）",
     lintRunCheck: "运行检查",
     lintHelp:

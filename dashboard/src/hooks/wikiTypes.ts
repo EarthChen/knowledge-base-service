@@ -46,6 +46,17 @@ export type WikiSearchResponse = {
   total: number;
 };
 
+export type WikiGlobalSearchResponse = {
+  /** Top hits after global merge, each with ``context.repository`` set. */
+  results: WikiSearchResult[];
+  /** Same hits grouped by repository (insertion order follows global rank). */
+  by_repository: Record<string, WikiSearchResult[]>;
+  query_expansion: Record<string, unknown>;
+  total: number;
+  repositories_searched: string[];
+  partial_errors: { repository: string; detail: string }[];
+};
+
 export type WikiAskSource = {
   entity: string;
   file_path: string;

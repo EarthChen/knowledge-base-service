@@ -17,6 +17,7 @@ import GraphInsightsPanel from "../components/wiki/GraphInsightsPanel";
 import WikiContent from "../components/wiki/WikiContent";
 import WikiExportPanel from "../components/wiki/WikiExportPanel";
 import WikiLintPanel from "../components/wiki/WikiLintPanel";
+import WikiGlobalSearchBar from "../components/wiki/WikiGlobalSearchBar";
 import WikiSidebar from "../components/wiki/WikiSidebar";
 import { useWikiPages } from "../hooks/useWikiPages";
 import { useWikiPage } from "../hooks/useWikiPage";
@@ -121,6 +122,20 @@ export default function WikiPage() {
     const pendingQuery = searchParams.get("q") ?? "";
     return (
       <div className="mx-auto max-w-3xl space-y-6">
+        <WikiGlobalSearchBar
+          urlQuery={pendingQuery}
+          onConsumeUrlQuery={() =>
+            setSearchParams(
+              (prev) => {
+                const next = new URLSearchParams(prev);
+                next.delete("q");
+                return next;
+              },
+              { replace: true },
+            )
+          }
+        />
+
         <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-900">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-400">
@@ -129,11 +144,6 @@ export default function WikiPage() {
             <div>
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.wiki.title}</h2>
               <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{t.wiki.browseDescription}</p>
-              {pendingQuery && (
-                <p className="mt-2 rounded-md bg-sky-50 px-3 py-2 text-sm text-sky-700 dark:bg-sky-950 dark:text-sky-300">
-                  {t.wiki.pendingSearchNotice.replace("{query}", pendingQuery)}
-                </p>
-              )}
             </div>
           </div>
         </div>

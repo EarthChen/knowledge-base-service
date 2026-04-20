@@ -578,6 +578,17 @@ export interface Translations {
     exportSelectAtLeastOne: string;
     exportFinished: string;
     exportFinishedSummary: string;
+    globalSearchHeading: string;
+    globalSearchDescription: string;
+    globalSearchLabel: string;
+    globalSearchPlaceholder: string;
+    globalSearchSearching: string;
+    globalSearchSubmit: string;
+    globalSearchNoResults: string;
+    /** Use {repository} */
+    globalSearchRepositoryGroup: string;
+    /** Use {count} */
+    globalSearchPartialErrors: string;
     lintTitle: string;
     lintRunCheck: string;
     lintHelp: string;

@@ -583,6 +583,17 @@ const en: Translations = {
     exportFinished: "Export finished",
     exportFinishedSummary:
       "Created {created}, updated {updated}, skipped {skipped} (post-run scan).",
+    globalSearchHeading: "Search all wikis",
+    globalSearchDescription:
+      "Search generated wiki pages across every indexed repository at once. Open a result to jump to that page.",
+    globalSearchLabel: "Search all repositories",
+    globalSearchPlaceholder: "Search across all wikis…",
+    globalSearchSearching: "Searching…",
+    globalSearchSubmit: "Search",
+    globalSearchNoResults: "No matching wiki pages across your repositories.",
+    globalSearchRepositoryGroup: "Repository: {repository}",
+    globalSearchPartialErrors:
+      "{count} repository search(es) failed; results may be incomplete.",
     lintTitle: "Wiki health (lint)",
     lintRunCheck: "Run check",
     lintHelp:

@@ -32,8 +32,20 @@ function statusLabel(t: Translations["prImpact"], s: AnalyzeImpactFile["status"]
   }
 }
 
+/** v4 UUID when available; fallback for non-secure HTTP where `crypto.randomUUID` is missing or throws. */
+function newRowId(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    /* some browsers only expose randomUUID in secure contexts */
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
 function newRow(): FileRow {
-  return { id: crypto.randomUUID(), path: "", status: "modified" };
+  return { id: newRowId(), path: "", status: "modified" };
 }
 
 function parseBulkLine(line: string): { path: string; status: AnalyzeImpactFile["status"] } | null {
@@ -114,7 +126,7 @@ export default function PrImpactPage() {
     const parsed: FileRow[] = [];
     for (const line of bulkText.split(/\r?\n/)) {
       const p = parseBulkLine(line);
-      if (p) parsed.push({ id: crypto.randomUUID(), path: p.path, status: p.status });
+      if (p) parsed.push({ id: newRowId(), path: p.path, status: p.status });
     }
     if (parsed.length > 0) setRows(parsed);
   };
@@ -317,34 +329,34 @@ export default function PrImpactPage() {
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">{p.affectedWikiPages}</h3>
             {result?.affected_pages?.length ? (
               <ul className="space-y-3">
-                {result.affected_pages.map((p: ImpactPage, i: number) => (
+                {result.affected_pages.map((page: ImpactPage, i: number) => (
                   <li
-                    key={`${p.wiki_page_path}-${i}`}
-                    className={`rounded-xl border p-4 shadow-sm ${impactLevelStyle(p.impact_level)}`}
+                    key={`${page.wiki_page_path}-${i}`}
+                    className={`rounded-xl border p-4 shadow-sm ${impactLevelStyle(page.impact_level)}`}
                   >
                     <div className="flex flex-wrap items-start gap-2">
                       <span
-                        className={`mt-1 inline-block h-2 w-2 shrink-0 rounded-full ${dotClass(p.impact_level)}`}
+                        className={`mt-1 inline-block h-2 w-2 shrink-0 rounded-full ${dotClass(page.impact_level)}`}
                       />
                       <div className="min-w-0 flex-1">
                         <Link
-                          to={wikiHref(repository.trim(), p.wiki_page_path)}
+                          to={wikiHref(repository.trim(), page.wiki_page_path)}
                           className="inline-block font-mono text-sm font-semibold text-sky-700 hover:text-sky-900 hover:underline dark:text-sky-400 dark:hover:text-sky-300"
                         >
-                          {p.wiki_page_path}
+                          {page.wiki_page_path}
                         </Link>
                         <div className="mt-2 flex flex-wrap gap-2 text-xs">
                           <span className="rounded-full bg-white/80 px-2 py-0.5 font-medium text-gray-800 ring-1 ring-gray-200/80 dark:bg-gray-800/90 dark:text-gray-200 dark:ring-gray-600">
-                            {p.impact_level}
+                            {page.impact_level}
                           </span>
                         </div>
                         <p className="mt-2 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
                           <span className="font-medium text-gray-800 dark:text-gray-200">{p.reason}: </span>
-                          {p.reason}
+                          {page.reason}
                         </p>
-                        {p.affected_entities.length > 0 && (
+                        {(page.affected_entities ?? []).length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1">
-                            {p.affected_entities.map((entity) => (
+                            {(page.affected_entities ?? []).map((entity) => (
                               <Link
                                 key={entity}
                                 to={wikiEntitySearchHref(repository.trim(), entity)}

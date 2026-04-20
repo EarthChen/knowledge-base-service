@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from auth import Role, require_role
 from log import get_logger
 from query.graph_query import GraphQueryService
+from store.graph_queries import GraphQueryRepository
 from store.wiki_store import WikiStore
 from git_manager import normalize_repo_name
 from wiki.ask import WikiAskService
@@ -74,6 +75,19 @@ class WikiSearchBody(BaseModel):
     limit: int = Field(default=10, ge=1, le=100)
     min_score: float = Field(default=0.0, ge=0.0, le=1.0)
     scope: str | None = None
+
+
+class WikiGlobalSearchBody(BaseModel):
+    """Cross-repository wiki search (all indexed repos unless ``repositories`` is set)."""
+
+    query: str = Field(..., min_length=1)
+    mode: str = Field(default="hybrid", pattern="^(hybrid|graph|semantic|keyword)$")
+    limit: int = Field(default=30, ge=1, le=200)
+    min_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    repositories: list[str] | None = Field(
+        default=None,
+        description="Optional allow-list of repository names (must be indexed).",
+    )
 
 
 class WikiAskBody(BaseModel):
@@ -307,6 +321,34 @@ def _search_response_to_json(resp: SearchResponse) -> dict[str, Any]:
         "query_expansion": resp.query_expansion,
         "total": resp.total,
     }
+
+
+async def _indexed_repository_names(
+    request: Request,
+    restrict: list[str] | None,
+) -> list[str]:
+    registry = getattr(request.app.state, "registry", None)
+    if registry is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "service_unavailable",
+                "detail": "Service registry is not configured",
+            },
+        )
+    kb = await registry.get_service("default")
+    queries = GraphQueryRepository(kb.store)
+    rows = await queries.list_repositories()
+    names: list[str] = []
+    for row in rows:
+        name = row.get("repository")
+        if name:
+            names.append(str(name))
+    out = sorted(set(names))
+    if restrict:
+        filt = {s.strip() for s in restrict if isinstance(s, str) and s.strip()}
+        out = [n for n in out if n in filt]
+    return out
 
 
 def _page_type_to_scope(page_type: str | None, path: str) -> str:
@@ -660,6 +702,94 @@ async def wiki_search(
         scope=body.scope,
     )
     return _search_response_to_json(result)
+
+
+@wiki_router.post("/search/global", response_model=None)
+async def wiki_search_global(
+    body: WikiGlobalSearchBody,
+    request: Request,
+    search_svc: WikiSearchService = Depends(get_wiki_search_dep),
+) -> dict[str, Any]:
+    """Search wiki pages across all indexed repositories (parallel per-repo search)."""
+    repo_names = await _indexed_repository_names(request, body.repositories)
+    if not repo_names:
+        return {
+            "by_repository": {},
+            "results": [],
+            "query_expansion": {
+                "original": body.query,
+                "expanded_queries": [body.query],
+                "terms": [],
+            },
+            "total": 0,
+            "repositories_searched": [],
+            "partial_errors": [],
+        }
+
+    n = len(repo_names)
+    per_repo_limit = max(5, min(40, (body.limit * 2 + n - 1) // n))
+
+    async def _search_repo(repo: str) -> tuple[str, SearchResponse | None, str | None]:
+        try:
+            resp = await search_svc.search(
+                repository=repo,
+                query=body.query,
+                mode=body.mode,
+                limit=per_repo_limit,
+                min_score=body.min_score,
+                scope=None,
+            )
+            return repo, resp, None
+        except Exception as exc:  # noqa: BLE001 — aggregate per-repo failures
+            log.warning("wiki_global_search_repo_failed", repository=repo, error=str(exc))
+            return repo, None, str(exc)
+
+    raw = await asyncio.gather(*[_search_repo(r) for r in repo_names])
+
+    partial_errors: list[dict[str, str]] = []
+    merged_rows: list[dict[str, Any]] = []
+    expansion: dict[str, Any] | None = None
+
+    for repo, resp, err in raw:
+        if err is not None:
+            partial_errors.append({"repository": repo, "detail": err})
+            continue
+        if resp is None:
+            continue
+        if expansion is None:
+            expansion = resp.query_expansion
+        for hit in resp.results:
+            row = asdict(hit)
+            ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
+            ctx = {**ctx, "repository": repo}
+            row["context"] = ctx
+            merged_rows.append(row)
+
+    merged_rows.sort(key=lambda r: float(r.get("score", 0.0)), reverse=True)
+    limited = merged_rows[: body.limit]
+
+    by_repository: dict[str, list[dict[str, Any]]] = {}
+    for row in limited:
+        rname = str((row.get("context") or {}).get("repository") or "")
+        by_repository.setdefault(rname, []).append(row)
+
+    qexp: dict[str, Any] = (
+        expansion
+        if expansion is not None
+        else {
+            "original": body.query,
+            "expanded_queries": [body.query],
+            "terms": [],
+        }
+    )
+    return {
+        "by_repository": by_repository,
+        "results": limited,
+        "query_expansion": qexp,
+        "total": len(limited),
+        "repositories_searched": repo_names,
+        "partial_errors": partial_errors,
+    }
 
 
 @wiki_router.post("/{repository}/lint", response_model=None)

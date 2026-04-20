@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Brain,
   ChevronDown,
   ChevronUp,
   History,
@@ -16,9 +15,6 @@ import type { WikiAskSource } from "../../hooks/wikiTypes";
 import { useI18n } from "../../i18n/context";
 import { buildIdeHref, type EditorId } from "./editorLinks";
 import { EDITOR_PREF_KEY } from "./SourceLink";
-import DeepResearchTimeline from "../DeepResearchTimeline";
-import { useDeepSearchStream } from "../../hooks/useDeepSearchStream";
-import MarkdownRenderer from "../MarkdownRenderer";
 
 function readEditorPref(): EditorId {
   try {
@@ -70,15 +66,6 @@ function formatAskHistoryTime(
   }
   const d = Math.floor(h / 24);
   return wiki.conversationHistoryTimeDays.replace("{n}", String(d));
-}
-
-function conclusionMarkdownText(c: Record<string, unknown> | null): string {
-  if (!c) return "";
-  for (const key of ["analysis", "markdown", "content", "text"] as const) {
-    const v = c[key];
-    if (typeof v === "string" && v.trim()) return v;
-  }
-  return "";
 }
 
 function SourceRef({
@@ -151,9 +138,7 @@ export default function AskPanel({ repository }: Props) {
   const { t } = useI18n();
   const [open, setOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [mode, setMode] = useState<"ask" | "deep">("ask");
   const [input, setInput] = useState("");
-  const [deepInput, setDeepInput] = useState("");
   const {
     answer,
     sources,
@@ -171,7 +156,6 @@ export default function AskPanel({ repository }: Props) {
   const questionForSaveRef = useRef("");
   const localThreadStorageIdRef = useRef<string | null>(null);
   const threadTitleRef = useRef("");
-  const deepStream = useDeepSearchStream();
 
   const historyItems = repository ? convHistory.list(repository) : [];
 
@@ -214,8 +198,6 @@ export default function AskPanel({ repository }: Props) {
 
   if (!repository?.trim()) return null;
 
-  const deepMarkdown = conclusionMarkdownText(deepStream.conclusion);
-
   return (
     <section
       id="wiki-ask-panel"
@@ -244,39 +226,6 @@ export default function AskPanel({ repository }: Props) {
 
       {open && (
         <div className="space-y-4 border-t border-gray-100 px-4 pb-4 pt-2 dark:border-gray-700">
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (mode === "deep" && deepStream.isStreaming) deepStream.cancel();
-                setMode("ask");
-              }}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                mode === "ask"
-                  ? "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300"
-                  : "text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
-              }`}
-            >
-              <MessageCircle size={14} /> {t.wiki.askWiki}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (mode === "ask" && isStreaming) cancel();
-                setMode("deep");
-              }}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                mode === "deep"
-                  ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
-                  : "text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
-              }`}
-            >
-              <Brain size={14} /> {t.search.deepResearch}
-            </button>
-          </div>
-
-          {mode === "ask" ? (
-            <>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {t.wiki.askEndpointHelpBefore}
                 <code className="rounded bg-gray-100 px-1 dark:bg-gray-800 dark:text-gray-300">POST /api/v1/wiki/ask</code>
@@ -462,89 +411,6 @@ export default function AskPanel({ repository }: Props) {
                   <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{t.wiki.askV2Footnote}</p>
                 </div>
               )}
-            </>
-          ) : (
-            <>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{t.search.deepResearchDesc}</p>
-              <p className="text-xs text-amber-800/90 dark:text-amber-300/90">{t.wiki.deepResearchScopeNote}</p>
-              <form
-                className="flex flex-col gap-2 sm:flex-row"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const q = deepInput.trim();
-                  if (!q || deepStream.isStreaming) return;
-                  void deepStream.start({ query: q, max_iterations: 3 });
-                }}
-              >
-                <textarea
-                  value={deepInput}
-                  onChange={(e) => setDeepInput(e.target.value)}
-                  rows={3}
-                  placeholder={t.search.deepPlaceholder}
-                  className="min-h-[72px] flex-1 resize-y rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none ring-amber-500/30 placeholder:text-gray-400 focus:border-amber-400 focus:ring-2 dark:border-amber-900 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-amber-500 dark:focus:ring-amber-800"
-                />
-                <div className="flex shrink-0 flex-col gap-2 sm:w-auto">
-                  <button
-                    type="submit"
-                    disabled={deepStream.isStreaming || !deepInput.trim()}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50 dark:bg-amber-600 dark:hover:bg-amber-500"
-                  >
-                    {deepStream.isStreaming && <Loader2 className="size-4 animate-spin" />}
-                    {deepStream.isStreaming ? t.search.deepSearching : t.search.searchBtn}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => deepStream.cancel()}
-                    disabled={!deepStream.isStreaming}
-                    className="text-xs text-gray-600 hover:text-gray-900 disabled:opacity-40 dark:text-gray-400 dark:hover:text-gray-100"
-                  >
-                    {t.wiki.stop}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      deepStream.cancel();
-                      setDeepInput("");
-                    }}
-                    className="text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
-                  >
-                    {t.wiki.clear}
-                  </button>
-                </div>
-              </form>
-
-              {deepStream.error && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
-                  {deepStream.error}
-                </div>
-              )}
-
-              {(deepStream.stages.length > 0 || deepStream.isStreaming) && (
-                <div className="space-y-3">
-                  <DeepResearchTimeline stages={deepStream.stages} />
-                  {deepMarkdown ? (
-                    <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner dark:border-gray-700 dark:bg-gray-900">
-                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                        {t.search.analysis}
-                      </h4>
-                      <div className="prose prose-sm prose-slate max-w-none dark:prose-invert">
-                        <MarkdownRenderer content={deepMarkdown} />
-                      </div>
-                    </div>
-                  ) : deepStream.conclusion ? (
-                    <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner dark:border-gray-700 dark:bg-gray-900">
-                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                        {t.search.analysis}
-                      </h4>
-                      <pre className="overflow-x-auto whitespace-pre-wrap text-xs text-gray-700 dark:text-gray-300">
-                        {JSON.stringify(deepStream.conclusion, null, 2)}
-                      </pre>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </>
-          )}
         </div>
       )}
     </section>

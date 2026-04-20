@@ -19,6 +19,7 @@ import WikiExportPanel from "../components/wiki/WikiExportPanel";
 import WikiLintPanel from "../components/wiki/WikiLintPanel";
 import WikiGlobalSearchBar from "../components/wiki/WikiGlobalSearchBar";
 import WikiSidebar from "../components/wiki/WikiSidebar";
+import DeepSearchSection from "../components/DeepSearchSection";
 import { useWikiPages } from "../hooks/useWikiPages";
 import { useWikiPage } from "../hooks/useWikiPage";
 import { wikiGenerate } from "../api/client";
@@ -135,6 +136,8 @@ export default function WikiPage() {
             )
           }
         />
+
+        <DeepSearchSection showTitle />
 
         <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-900">
           <div className="flex items-start gap-4">

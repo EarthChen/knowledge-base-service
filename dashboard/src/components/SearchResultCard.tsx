@@ -35,7 +35,7 @@ export default function SearchResultCard({
   const snippetQuery = useCodeSnippet(showCode ? (match.uid ?? null) : null);
 
   const wikiQuery = encodeURIComponent(match.name || "");
-  const wikiHref = wikiQuery ? `/wiki?q=${wikiQuery}` : "/wiki";
+  const wikiHref = wikiQuery ? `/search?mode=wiki&q=${wikiQuery}` : "/search?mode=wiki";
 
   const handleCopy = async (text: string) => {
     try {

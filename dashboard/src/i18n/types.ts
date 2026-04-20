@@ -170,6 +170,20 @@ export interface Translations {
     graphRelatedFn: string;
     /** Short label for repository filter */
     repo: string;
+    /** Wiki search tab (unified search page) */
+    wiki: string;
+    /** RepoSelector: toggle to search every repository */
+    repoSelectorAllRepos: string;
+    /** RepoSelector: trigger to open add-repository dropdown */
+    repoSelectorAdd: string;
+    /** RepoSelector: filter input in dropdown */
+    repoSelectorFilterPlaceholder: string;
+    /** RepoSelector: suffix when specific repos selected; use {count} */
+    repoSelectorSelectedCount: string;
+    /** RepoSelector: screen-reader label for chip remove */
+    repoSelectorRemoveRepo: string;
+    /** RepoSelector: empty filtered list */
+    repoSelectorNoMatches: string;
     /** Short label for language filter */
     lang: string;
     exportJson: string;

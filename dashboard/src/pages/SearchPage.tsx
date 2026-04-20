@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Zap, Brain, Clock, X, Download } from "lucide-react";
+import { Zap, Brain, Clock, X, Download, BookOpen } from "lucide-react";
 import { useHybridSearch, useRepositories } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import { useSearchHistory } from "../hooks/useSearchHistory";
@@ -8,8 +8,10 @@ import SearchResultCard from "../components/SearchResultCard";
 import SearchResultSkeleton from "../components/SearchResultSkeleton";
 import DeepSearchSection from "../components/DeepSearchSection";
 import GraphContextCards from "../components/GraphContextCards";
+import RepoSelector from "../components/RepoSelector";
+import WikiGlobalSearchBar from "../components/wiki/WikiGlobalSearchBar";
 
-type SearchMode = "hybrid" | "deep";
+type SearchMode = "hybrid" | "wiki" | "deep";
 
 const ENTITY_TYPES = ["all", "function", "class", "module", "document"] as const;
 const LANGUAGES = ["all", "python", "java", "go", "javascript", "typescript"] as const;
@@ -19,6 +21,11 @@ const PAGE_SIZE = 20;
 function parseSortParam(raw: string | null): "score" | "name" | "path" {
   if (raw === "name" || raw === "path" || raw === "score") return raw;
   return "score";
+}
+
+function parseModeParam(raw: string | null): SearchMode {
+  if (raw === "wiki" || raw === "deep" || raw === "hybrid") return raw;
+  return "hybrid";
 }
 
 /** Comma-separated in `repo` query param; empty or "all" = no repository filter. */
@@ -35,10 +42,22 @@ function formatRepoParam(repos: string[]): string {
   return repos.join(",");
 }
 
+function tabClass(active: boolean, accent: "purple" | "sky" | "amber"): string {
+  if (!active) {
+    return "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300";
+  }
+  if (accent === "purple") {
+    return "flex items-center gap-1.5 rounded-lg bg-purple-100 px-3 py-1.5 text-xs font-medium text-purple-600 dark:bg-purple-950/60 dark:text-purple-300";
+  }
+  if (accent === "sky") {
+    return "flex items-center gap-1.5 rounded-lg bg-sky-100 px-3 py-1.5 text-xs font-medium text-sky-700 dark:bg-sky-950/60 dark:text-sky-300";
+  }
+  return "flex items-center gap-1.5 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-300";
+}
+
 export default function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
-  const [mode, setMode] = useState<SearchMode>("hybrid");
   const [entityType, setEntityType] = useState("all");
   const [selectedRepos, setSelectedRepos] = useState<string[]>(() =>
     parseRepoParam(searchParams.get("repo")),
@@ -57,6 +76,7 @@ export default function SearchPage() {
   const { mutate: runHybridSearch, isPending: hybridPending, data: hybridResult, error } =
     useHybridSearch();
 
+  const mode = parseModeParam(searchParams.get("mode"));
   const sortFromUrl = parseSortParam(searchParams.get("sort"));
   const pageFromUrl = Math.max(1, Number.parseInt(searchParams.get("page") || "1", 10) || 1);
 
@@ -85,12 +105,13 @@ export default function SearchPage() {
     const langParam = searchParams.get("lang") ?? "all";
     const pageParam = Math.max(1, Number.parseInt(searchParams.get("page") || "1", 10) || 1);
     const sortParam = parseSortParam(searchParams.get("sort"));
+    const modeParam = parseModeParam(searchParams.get("mode"));
     // eslint-disable-next-line react-hooks/set-state-in-effect -- sync URL navigation into form state
     setQuery(raw);
     setSelectedRepos(repoList);
     setLanguage(langParam);
     const q = raw.trim();
-    if (!q) return;
+    if (!q || modeParam !== "hybrid") return;
     runHybridSearch({
       query: q,
       k,
@@ -114,36 +135,56 @@ export default function SearchPage() {
 
   const isLoading = hybridPending;
 
-  function handleSearch(e: React.FormEvent) {
+  function setModeTab(next: SearchMode) {
+    const params = new URLSearchParams(searchParams);
+    params.set("mode", next);
+    setSearchParams(params, { replace: true });
+  }
+
+  function handleSearch(e: FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
     addEntry(query.trim());
     setShowHistory(false);
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(searchParams);
     params.set("q", query.trim());
     params.set("repo", formatRepoParam(selectedRepos));
     params.set("lang", language);
     params.set("page", "1");
     params.set("sort", parseSortParam(searchParams.get("sort")));
+    params.set("mode", "hybrid");
     setSearchParams(params);
   }
 
-  const applyHistoryQuery = useCallback((h: string) => {
-    setQuery(h);
-    setShowHistory(false);
-    setHighlightedHistoryIndex(-1);
-    addEntry(h);
-    const params = new URLSearchParams();
-    params.set("q", h);
-    params.set("repo", formatRepoParam(selectedRepos));
-    params.set("lang", language);
-    params.set("page", "1");
-    params.set("sort", parseSortParam(searchParams.get("sort")));
-    setSearchParams(params);
-  }, [addEntry, selectedRepos, language, searchParams, setSearchParams]);
+  useEffect(() => {
+    if (mode !== "wiki") return;
+    const params = new URLSearchParams(searchParams);
+    const repoStr = formatRepoParam(selectedRepos);
+    if (params.get("repo") === repoStr) return;
+    params.set("repo", repoStr);
+    setSearchParams(params, { replace: true });
+  }, [mode, selectedRepos, searchParams, setSearchParams]);
+
+  const applyHistoryQuery = useCallback(
+    (h: string) => {
+      setQuery(h);
+      setShowHistory(false);
+      setHighlightedHistoryIndex(-1);
+      addEntry(h);
+      const params = new URLSearchParams(searchParams);
+      params.set("q", h);
+      params.set("repo", formatRepoParam(selectedRepos));
+      params.set("lang", language);
+      params.set("page", "1");
+      params.set("sort", parseSortParam(searchParams.get("sort")));
+      params.set("mode", "hybrid");
+      setSearchParams(params);
+    },
+    [addEntry, selectedRepos, language, searchParams, setSearchParams],
+  );
 
   const handleHistoryKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
+    (e: KeyboardEvent<HTMLInputElement>) => {
       const slice = history.slice(0, 10);
       if (!slice.length) return;
 
@@ -191,27 +232,77 @@ export default function SearchPage() {
     [applyHistoryQuery, highlightedHistoryIndex, history, showHistory],
   );
 
+  const repoOptions = reposData?.repositories?.map((r) => r.repository) ?? [];
+
+  const onWikiLinkedSearch = useCallback(
+    (wikiQuery: string) => {
+      const params = new URLSearchParams(searchParams);
+      params.set("q", wikiQuery);
+      params.set("mode", "wiki");
+      params.set("repo", formatRepoParam(selectedRepos));
+      params.delete("page");
+      setSearchParams(params);
+    },
+    [searchParams, selectedRepos, setSearchParams],
+  );
+
+  const tabRow = (
+    <div className="flex flex-wrap gap-2">
+      <button type="button" onClick={() => setModeTab("hybrid")} className={tabClass(mode === "hybrid", "purple")}>
+        <Zap size={14} /> {t.search.hybrid}
+      </button>
+      <button type="button" onClick={() => setModeTab("wiki")} className={tabClass(mode === "wiki", "sky")}>
+        <BookOpen size={14} /> {t.search.wiki}
+      </button>
+      <button type="button" onClick={() => setModeTab("deep")} className={tabClass(mode === "deep", "amber")}>
+        <Brain size={14} /> {t.search.deepResearch}
+      </button>
+    </div>
+  );
+
   if (mode === "deep") {
     return (
       <div className="space-y-6">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.search.title}</h2>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setMode("hybrid")}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
-          >
-            <Zap size={14} /> {t.search.hybrid}
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("deep")}
-            className="flex items-center gap-1.5 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
-          >
-            <Brain size={14} /> {t.search.deep}
-          </button>
-        </div>
+        {tabRow}
         <DeepSearchSection showTitle={false} />
+      </div>
+    );
+  }
+
+  if (mode === "wiki") {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.search.title}</h2>
+        {tabRow}
+
+        <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+          <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">{t.wiki.globalSearchDescription}</p>
+          <div className="mb-4 max-w-xl">
+            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{t.search.repo}</span>
+            <RepoSelector
+              options={repoOptions}
+              selected={selectedRepos}
+              onChange={setSelectedRepos}
+              groupLabel={t.search.repo}
+              labels={{
+                allRepos: t.search.repoSelectorAllRepos,
+                addRepo: t.search.repoSelectorAdd,
+                filterPlaceholder: t.search.repoSelectorFilterPlaceholder,
+                selectedCount: t.search.repoSelectorSelectedCount,
+                removeRepo: t.search.repoSelectorRemoveRepo,
+                noMatches: t.search.repoSelectorNoMatches,
+              }}
+            />
+          </div>
+          <WikiGlobalSearchBar
+            linkedQuery={searchParams.get("q") ?? ""}
+            onLinkedSearch={onWikiLinkedSearch}
+            repositories={selectedRepos.length > 0 ? selectedRepos : null}
+            showIntro={false}
+            className="border-0 bg-transparent p-0 shadow-none dark:bg-transparent"
+          />
+        </div>
       </div>
     );
   }
@@ -221,22 +312,7 @@ export default function SearchPage() {
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.search.title}</h2>
 
       <form onSubmit={handleSearch} className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setMode("hybrid")}
-            className="flex items-center gap-1.5 rounded-lg bg-purple-100 px-3 py-1.5 text-xs font-medium text-purple-600 dark:bg-purple-950/60 dark:text-purple-300"
-          >
-            <Zap size={14} /> {t.search.hybrid}
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("deep")}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-400 transition-colors hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
-          >
-            <Brain size={14} /> {t.search.deep}
-          </button>
-        </div>
+        {tabRow}
 
         <div className="relative mt-4 flex gap-3">
           <div className="relative flex-1">
@@ -307,7 +383,7 @@ export default function SearchPage() {
           </button>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-4">
+        <div className="mt-3 flex flex-wrap items-start gap-4">
           <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
             {t.search.type}
             <select
@@ -332,29 +408,23 @@ export default function SearchPage() {
               ))}
             </select>
           </label>
-          <label className="flex max-w-full flex-col gap-1 text-xs text-gray-500 dark:text-gray-400 sm:flex-row sm:items-center">
-            <span className="shrink-0">{t.search.repo}</span>
-            <select
-              multiple
-              value={selectedRepos}
-              onChange={(e) => {
-                const next = Array.from(e.target.selectedOptions, (o) => o.value);
-                setSelectedRepos(next);
+          <div className="flex min-w-[12rem] max-w-full flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
+            <span className="shrink-0 font-medium text-gray-600 dark:text-gray-400">{t.search.repo}</span>
+            <RepoSelector
+              options={repoOptions}
+              selected={selectedRepos}
+              onChange={setSelectedRepos}
+              groupLabel={t.search.repo}
+              labels={{
+                allRepos: t.search.repoSelectorAllRepos,
+                addRepo: t.search.repoSelectorAdd,
+                filterPlaceholder: t.search.repoSelectorFilterPlaceholder,
+                selectedCount: t.search.repoSelectorSelectedCount,
+                removeRepo: t.search.repoSelectorRemoveRepo,
+                noMatches: t.search.repoSelectorNoMatches,
               }}
-              size={Math.min(8, Math.max(3, 1 + (reposData?.repositories?.length ?? 0)))}
-              className="min-h-[2.75rem] min-w-[10rem] max-w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-              aria-label={t.search.repo}
-            >
-              {reposData?.repositories?.map((r) => (
-                <option key={r.repository} value={r.repository}>
-                  {r.repository}
-                </option>
-              ))}
-            </select>
-            <span className="text-[10px] text-gray-400 dark:text-gray-500">
-              {selectedRepos.length === 0 ? t.search.all : `${selectedRepos.length} selected`}
-            </span>
-          </label>
+            />
+          </div>
           <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
             {t.search.lang}
             <select
@@ -427,31 +497,31 @@ export default function SearchPage() {
               {hybridResult.total ?? 0} {t.search.resultsFor} "{hybridResult.query}"
             </p>
             <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  disabled={pageFromUrl <= 1}
-                  onClick={() => {
-                    const params = new URLSearchParams(searchParams);
-                    params.set("page", String(Math.max(1, pageFromUrl - 1)));
-                    setSearchParams(params);
-                  }}
-                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                >
-                  {t.search.pagePrev}
-                </button>
-                <span className="text-xs text-gray-500 dark:text-gray-400">{hybridPageIndicator}</span>
-                <button
-                  type="button"
-                  disabled={pageFromUrl >= hybridTotalPages}
-                  onClick={() => {
-                    const params = new URLSearchParams(searchParams);
-                    params.set("page", String(Math.min(hybridTotalPages, pageFromUrl + 1)));
-                    setSearchParams(params);
-                  }}
-                  className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                >
-                  {t.search.pageNext}
-                </button>
+              <button
+                type="button"
+                disabled={pageFromUrl <= 1}
+                onClick={() => {
+                  const params = new URLSearchParams(searchParams);
+                  params.set("page", String(Math.max(1, pageFromUrl - 1)));
+                  setSearchParams(params);
+                }}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                {t.search.pagePrev}
+              </button>
+              <span className="text-xs text-gray-500 dark:text-gray-400">{hybridPageIndicator}</span>
+              <button
+                type="button"
+                disabled={pageFromUrl >= hybridTotalPages}
+                onClick={() => {
+                  const params = new URLSearchParams(searchParams);
+                  params.set("page", String(Math.min(hybridTotalPages, pageFromUrl + 1)));
+                  setSearchParams(params);
+                }}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                {t.search.pageNext}
+              </button>
               <button
                 type="button"
                 onClick={() => {

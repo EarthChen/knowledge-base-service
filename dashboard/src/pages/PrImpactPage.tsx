@@ -89,7 +89,7 @@ function wikiHref(repository: string, path: string): string {
 function wikiEntitySearchHref(repository: string, entity: string): string {
   const er = encodeURIComponent(repository);
   const q = encodeURIComponent(entity);
-  return `/wiki/${er}?q=${q}`;
+  return `/search?mode=wiki&q=${q}&repo=${er}`;
 }
 
 export default function PrImpactPage() {

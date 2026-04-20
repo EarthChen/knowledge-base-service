@@ -991,7 +991,11 @@ export default function GraphExplorer() {
                 {t.explorer.expandAllNeighbors}
               </button>
               <Link
-                to={selectedApiNode.name ? `/wiki?q=${encodeURIComponent(selectedApiNode.name)}` : "/wiki"}
+                to={
+                  selectedApiNode.name
+                    ? `/search?mode=wiki&q=${encodeURIComponent(selectedApiNode.name)}`
+                    : "/search?mode=wiki"
+                }
                 className="inline-flex items-center justify-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/80 dark:text-sky-100 dark:hover:bg-sky-900"
               >
                 {t.explorer.openInWiki}

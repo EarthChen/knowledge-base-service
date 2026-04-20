@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Activity,
   BookOpen,
@@ -121,21 +121,15 @@ export default function WikiPage() {
   if (!repository) {
     const repos = reposQuery.data?.repositories ?? [];
     const pendingQuery = searchParams.get("q") ?? "";
+    if (pendingQuery.trim()) {
+      const p = new URLSearchParams();
+      p.set("mode", "wiki");
+      p.set("q", pendingQuery.trim());
+      return <Navigate to={`/search?${p.toString()}`} replace />;
+    }
     return (
       <div className="mx-auto max-w-3xl space-y-6">
-        <WikiGlobalSearchBar
-          urlQuery={pendingQuery}
-          onConsumeUrlQuery={() =>
-            setSearchParams(
-              (prev) => {
-                const next = new URLSearchParams(prev);
-                next.delete("q");
-                return next;
-              },
-              { replace: true },
-            )
-          }
-        />
+        <WikiGlobalSearchBar />
 
         <DeepSearchSection showTitle />
 
@@ -173,7 +167,7 @@ export default function WikiPage() {
             {repos.map((r) => (
               <li key={r.repository}>
                 <Link
-                  to={`/wiki/${encodeURIComponent(r.repository)}${pendingQuery ? `?q=${encodeURIComponent(pendingQuery)}` : ""}`}
+                  to={`/wiki/${encodeURIComponent(r.repository)}`}
                   className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm transition-colors hover:border-sky-200 hover:bg-sky-50/40 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-sky-800 dark:hover:bg-sky-950/30"
                 >
                   <span className="font-medium text-gray-900 dark:text-gray-100">{r.repository}</span>

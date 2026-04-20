@@ -90,7 +90,7 @@ export default function CommandPalette() {
       const q = encodeURIComponent(debounced.trim() || match.name || "");
       if (isWikiMatch(match)) {
         const nameQ = encodeURIComponent(match.name || "");
-        navigate(nameQ ? `/wiki?q=${nameQ}` : "/wiki");
+        navigate(nameQ ? `/search?mode=wiki&q=${nameQ}` : "/search?mode=wiki");
       } else {
         navigate(q ? `/search?q=${q}` : "/search");
       }

@@ -493,6 +493,12 @@ const zh: Translations = {
     statusModified: "修改",
     statusRemoved: "删除",
     statusRenamed: "重命名",
+    prUrlLabel: "GitHub PR 或 GitLab MR 链接",
+    prUrlPlaceholder:
+      "https://github.com/org/repo/pull/42 或 https://gitlab.com/org/repo/-/merge_requests/42",
+    fetchFromUrl: "拉取变更文件",
+    fetchingFromUrl: "正在拉取…",
+    fetchNoFiles: "该 PR/MR 未返回任何变更文件。",
   },
   wiki: {
     title: "Wiki",

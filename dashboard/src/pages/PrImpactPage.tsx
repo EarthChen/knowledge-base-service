@@ -7,7 +7,7 @@ import {
   Trash2,
   Loader2,
 } from "lucide-react";
-import { useRepositories, useAnalyzeImpact } from "../api/hooks";
+import { useRepositories, useAnalyzeImpact, useFetchPrFiles } from "../api/hooks";
 import type { AnalyzeImpactFile, AnalyzeImpactResponse, ImpactPage } from "../api/types";
 import { Link } from "react-router-dom";
 import { useI18n } from "../i18n/context";
@@ -96,14 +96,18 @@ export default function PrImpactPage() {
   const { t } = useI18n();
   const bulkId = useId();
   const repoSelectId = useId();
+  const prUrlInputId = useId();
   const p = t.prImpact;
 
   const { data: reposData, isLoading: reposLoading } = useRepositories();
   const analyzeMutation = useAnalyzeImpact();
+  const fetchPrMutation = useFetchPrFiles();
 
   const [repository, setRepository] = useState("");
   const [rows, setRows] = useState<FileRow[]>(() => [newRow()]);
   const [bulkText, setBulkText] = useState("");
+  const [prUrl, setPrUrl] = useState("");
+  const [fetchWarning, setFetchWarning] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeImpactResponse | null>(null);
 
   const repositories = reposData?.repositories ?? [];
@@ -129,6 +133,32 @@ export default function PrImpactPage() {
       if (p) parsed.push({ id: newRowId(), path: p.path, status: p.status });
     }
     if (parsed.length > 0) setRows(parsed);
+  };
+
+  const handleFetchFromUrl = () => {
+    const u = prUrl.trim();
+    if (!u) return;
+    setFetchWarning(null);
+    fetchPrMutation.mutate(
+      { url: u },
+      {
+        onSuccess: (data) => {
+          setResult(null);
+          setFetchWarning(data.warning ?? null);
+          const names = new Set(repositories.map((r) => r.repository));
+          if (data.repository && names.has(data.repository)) {
+            setRepository(data.repository);
+          }
+          const files = data.changed_files ?? [];
+          if (files.length > 0) {
+            setRows(files.map((f) => ({ id: newRowId(), path: f.path, status: f.status })));
+          } else {
+            setRows([newRow()]);
+            if (!data.warning) setFetchWarning(p.fetchNoFiles);
+          }
+        },
+      },
+    );
   };
 
   const handleAnalyze = () => {
@@ -177,6 +207,44 @@ export default function PrImpactPage() {
             </select>
             {!reposLoading && repositories.length === 0 && (
               <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{p.noRepositories}</p>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-600 dark:bg-gray-800/40">
+            <label
+              htmlFor={prUrlInputId}
+              className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              {p.prUrlLabel}
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <input
+                id={prUrlInputId}
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                value={prUrl}
+                onChange={(e) => setPrUrl(e.target.value)}
+                placeholder={p.prUrlPlaceholder}
+                className="min-w-[240px] flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none ring-sky-500/30 focus:border-sky-400 focus:ring-2 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:focus:border-sky-500 dark:focus:ring-sky-700"
+              />
+              <button
+                type="button"
+                onClick={handleFetchFromUrl}
+                disabled={fetchPrMutation.isPending || !prUrl.trim()}
+                className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800 hover:bg-sky-100 disabled:opacity-50 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-200 dark:hover:bg-sky-950/80"
+              >
+                {fetchPrMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+                {fetchPrMutation.isPending ? p.fetchingFromUrl : p.fetchFromUrl}
+              </button>
+            </div>
+            {fetchWarning && (
+              <p className="mt-2 text-sm text-amber-800 dark:text-amber-200">{fetchWarning}</p>
+            )}
+            {fetchPrMutation.isError && (
+              <p className="mt-2 text-sm text-red-700 dark:text-red-300">
+                {(fetchPrMutation.error as Error)?.message ?? String(fetchPrMutation.error)}
+              </p>
             )}
           </div>
 

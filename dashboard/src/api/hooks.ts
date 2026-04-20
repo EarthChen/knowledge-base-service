@@ -29,6 +29,7 @@ import type {
   WebhookConfig,
   AnalyzeImpactResponse,
   AnalyzeImpactFile,
+  FetchPrFilesResponse,
   FileTreeNode,
   FileContentResponse,
   FileEntitiesResponse,
@@ -163,6 +164,16 @@ export function useAnalyzeImpact() {
       api(`/wiki/${encodeURIComponent(repository)}/analyze-impact`, {
         method: "POST",
         body: JSON.stringify({ changed_files }),
+      }),
+  });
+}
+
+export function useFetchPrFiles() {
+  return useMutation<FetchPrFilesResponse, Error, { url: string }>({
+    mutationFn: ({ url }) =>
+      api("/pr/fetch", {
+        method: "POST",
+        body: JSON.stringify({ url }),
       }),
   });
 }

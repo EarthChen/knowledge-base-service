@@ -500,6 +500,11 @@ export interface Translations {
     statusModified: string;
     statusRemoved: string;
     statusRenamed: string;
+    prUrlLabel: string;
+    prUrlPlaceholder: string;
+    fetchFromUrl: string;
+    fetchingFromUrl: string;
+    fetchNoFiles: string;
   };
   wiki: {
     title: string;

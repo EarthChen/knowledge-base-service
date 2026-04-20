@@ -64,12 +64,14 @@ class KnowledgeBaseService:
         settings: Settings,
         *,
         index_task_status_lookup: Callable[[str], dict[str, Any] | None] | None = None,
+        repo_registry: Any | None = None,
     ) -> KnowledgeBaseService:
         """Create a service with a pre-built store (used by ServiceRegistry for per-business instances)."""
         instance = cls.__new__(cls)
         instance._settings = settings
         instance._store = store
         instance._index_task_status_lookup = index_task_status_lookup
+        instance._repo_registry = repo_registry
         instance._init_components(settings)
         return instance
 
@@ -249,6 +251,7 @@ class KnowledgeBaseService:
             ),
             deep_search_engine=self._deep_search,
             task_status_fn=self._index_task_status_lookup,
+            repo_registry=getattr(self, "_repo_registry", None),
         )
 
     async def ensure_fulltext_indexes(self) -> None:

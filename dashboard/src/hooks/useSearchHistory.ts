@@ -3,18 +3,48 @@ import { useCallback, useSyncExternalStore } from "react";
 const STORAGE_KEY = "kb_search_history";
 const MAX_ITEMS = 20;
 
+/** Stable empty snapshot — useSyncExternalStore requires referential stability when data is unchanged. */
+const EMPTY_HISTORY: string[] = [];
+
 let listeners: Array<() => void> = [];
+
+/** Last raw string from localStorage; `undefined` means cache is cold. */
+let cachedStorageKey: string | null | undefined = undefined;
+let cachedHistory: string[] = EMPTY_HISTORY;
 
 function emitChange() {
   for (const l of listeners) l();
 }
 
-function getSnapshot(): string[] {
+function readRaw(): string | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as string[]) : [];
+    return localStorage.getItem(STORAGE_KEY);
   } catch {
-    return [];
+    return null;
+  }
+}
+
+function getSnapshot(): string[] {
+  const raw = readRaw();
+  if (raw === cachedStorageKey) return cachedHistory;
+  cachedStorageKey = raw;
+
+  if (!raw) {
+    cachedHistory = EMPTY_HISTORY;
+    return cachedHistory;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      cachedHistory = EMPTY_HISTORY;
+      return cachedHistory;
+    }
+    const list = parsed.filter((item): item is string => typeof item === "string");
+    cachedHistory = list;
+    return cachedHistory;
+  } catch {
+    cachedHistory = EMPTY_HISTORY;
+    return cachedHistory;
   }
 }
 
@@ -26,7 +56,7 @@ function subscribe(listener: () => void) {
 }
 
 export function useSearchHistory() {
-  const history = useSyncExternalStore(subscribe, getSnapshot, () => []);
+  const history = useSyncExternalStore(subscribe, getSnapshot, () => EMPTY_HISTORY);
 
   const addEntry = useCallback((query: string) => {
     const trimmed = query.trim();

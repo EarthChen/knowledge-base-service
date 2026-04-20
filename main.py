@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Self
 
+import httpx
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,7 +26,6 @@ from api.rate_limiter import install_rate_limiter
 from api.routes.provider_routes import provider_router
 from api.routes.webhook_routes import init_webhook_state, webhook_router
 from api.routes.wiki_routes import wiki_router
-
 from auth import (
     Role,
     TokenInfo,
@@ -138,9 +138,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         task = _task_manager.get_task(task_id)
         return task.to_dict() if task else None
 
-    _registry = ServiceRegistry(settings, index_task_status_lookup=_index_task_status_for_mcp)
     data_dir = Path(settings.git.clone_base_path).resolve().parent
     _repo_registry = RepoRegistry(str(data_dir))
+    _registry = ServiceRegistry(
+        settings,
+        index_task_status_lookup=_index_task_status_for_mcp,
+        repo_registry=_repo_registry,
+    )
     await _registry.start()
 
     _scheduler = SyncScheduler(
@@ -387,6 +391,12 @@ class BlastRadiusRequest(BaseModel):
 class ImpactAnalysisRequest(BaseModel):
     changed_functions: list[str] = Field(..., min_length=1)
     max_depth: int = Field(default=5, ge=1, le=50)
+
+
+class PrFetchRequest(BaseModel):
+    """GitHub pull request or GitLab merge request URL for remote file listing."""
+
+    url: str = Field(..., min_length=1)
 
 
 class ReviewContextRequest(BaseModel):
@@ -1178,11 +1188,8 @@ async def get_graph_insights(
     return report.to_dict()
 
 
-@viewer_router.get("/repositories")
-async def list_repositories(
-    svc: KnowledgeBaseService = Depends(_get_service),
-) -> dict[str, Any]:
-    """List all indexed repositories with node counts and optional git URL metadata."""
+async def _enriched_repository_rows(svc: KnowledgeBaseService) -> list[dict[str, Any]]:
+    """Indexed repository rows merged with optional ``RepoRegistry`` git metadata."""
     queries = GraphQueryRepository(svc.store)
     repos = await queries.list_repositories()
     reg_by_repo: dict[str, dict[str, Any]] = {}
@@ -1200,7 +1207,53 @@ async def list_repositories(
             if not row.get("git_url") and reg.get("git_url"):
                 row["git_url"] = reg["git_url"]
             row["last_indexed"] = reg.get("last_indexed")
+    return repos
+
+
+@viewer_router.get("/repositories")
+async def list_repositories(
+    svc: KnowledgeBaseService = Depends(_get_service),
+) -> dict[str, Any]:
+    """List all indexed repositories with node counts and optional git URL metadata."""
+    repos = await _enriched_repository_rows(svc)
     return {"repositories": repos, "total": len(repos)}
+
+
+@viewer_router.post("/pr/fetch")
+async def fetch_pr_changed_files(
+    req: PrFetchRequest,
+    svc: KnowledgeBaseService = Depends(_get_service),
+    git_remote_token: str | None = Header(default=None, alias="X-Git-Remote-Token"),
+) -> dict[str, Any]:
+    """Resolve a GitHub PR or GitLab MR URL and return changed file paths for PR impact analysis."""
+    from api.pr_fetch import fetch_pr_from_url, resolve_indexed_repository
+
+    settings = get_settings()
+    override = (git_remote_token or "").strip()
+    gl_t = override or (settings.git.gitlab_token or "").strip()
+    gh_t = override or (settings.git.github_token or "").strip()
+
+    try:
+        raw = await fetch_pr_from_url(req.url.strip(), gitlab_token=gl_t, github_token=gh_t)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        snippet = (exc.response.text or "")[:800]
+        raise HTTPException(
+            status_code=502,
+            detail=f"Git host API error ({exc.response.status_code}): {snippet}",
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"Could not reach Git host: {exc}") from exc
+
+    rows = await _enriched_repository_rows(svc)
+    resolved, warning = resolve_indexed_repository(raw["canonical_path"], rows)
+    return {
+        "repository": resolved,
+        "changed_files": raw["changed_files"],
+        "provider": raw["provider"],
+        "warning": warning,
+    }
 
 
 def _relative_file_path(file_path: str, repository: str | None) -> str:
@@ -1573,14 +1626,17 @@ async def check_consistency(
     svc: KnowledgeBaseService = Depends(_get_service),
 ) -> dict[str, Any]:
     """Check index consistency for a repository."""
+    from git_manager import resolve_repo_clone_root
     from query.analysis_service import AnalysisService
-    from git_manager import GitManager
 
     settings = get_settings()
-    git_mgr = GitManager(settings.git)
-    repo_path = git_mgr._repo_local_path(repository)
+    resolved = resolve_repo_clone_root(repository, settings.git, _repo_registry)
+    if resolved is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Repository '{repository}' not found on disk",
+        )
     base_path = Path(settings.git.clone_base_path).resolve()
-    resolved = repo_path.resolve()
     if not resolved.is_relative_to(base_path):
         raise HTTPException(
             status_code=400,

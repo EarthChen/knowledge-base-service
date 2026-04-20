@@ -40,6 +40,37 @@ def normalize_repo_name(git_url: str) -> str:
     return s
 
 
+def resolve_repo_clone_root(
+    repository: str,
+    git_cfg: GitConfig,
+    repo_registry: Any | None = None,
+) -> Path | None:
+    """Resolve a graph ``repository`` name to its on-disk clone root under ``clone_base_path``.
+
+    First tries ``{clone_base}/{repository}`` (local indexes and URL-aligned names). If that
+    directory is missing and ``repo_registry`` maps this name to a ``git_url``, uses the
+    same path as :meth:`GitManager._repo_local_path` so canonical names match clone layout.
+    """
+    repo = repository.strip()
+    if not repo or ".." in Path(repo).parts or repo.startswith("/"):
+        return None
+
+    base = Path(git_cfg.clone_base_path).resolve()
+    direct = (base / repo).resolve()
+    if direct.is_relative_to(base) and direct.is_dir():
+        return direct
+
+    if repo_registry is not None:
+        git_url = repo_registry.get_git_url_for_repository(repo)
+        if git_url:
+            mgr = GitManager(git_cfg)
+            cloned = mgr._repo_local_path(git_url).resolve()
+            if cloned.is_relative_to(base) and cloned.is_dir():
+                return cloned
+
+    return None
+
+
 class GitManager:
     """Manages git clone/pull operations against private GitLab instances."""
 

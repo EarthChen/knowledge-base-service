@@ -96,24 +96,18 @@ def _mcp_error(code: str, message: str) -> dict[str, Any]:
     return {"error": {"code": code, "message": message}}
 
 
-def _resolve_repo_base_path(repository: str) -> Path | None:
+def _resolve_repo_base_path(repository: str, repo_registry: Any | None = None) -> Path | None:
     """Resolve repository name to its local clone directory.
 
     Security: rejects any repository value that resolves outside clone_base_path.
+    When the graph uses a canonical name that differs from the clone folder (see
+    ``RepoRegistry`` + ``GitManager``), ``repo_registry`` is used to find the git URL
+    and the same on-disk path as indexing.
     """
     from config import get_settings
+    from git_manager import resolve_repo_clone_root
 
-    if ".." in Path(repository).parts or repository.startswith("/"):
-        return None
-
-    settings = get_settings()
-    base = Path(settings.git.clone_base_path).resolve()
-
-    candidate = (base / repository).resolve()
-    if candidate.is_relative_to(base) and candidate.is_dir():
-        return candidate
-
-    return None
+    return resolve_repo_clone_root(repository, get_settings().git, repo_registry)
 
 
 # Minimum role per MCP tool name. Omitted tools default to ``Role.VIEWER``.
@@ -727,6 +721,7 @@ class KnowledgeBaseMCPHandler:
         wiki_handler: WikiMCPHandler | None = None,
         deep_search_engine: Any | None = None,
         task_status_fn: Callable[[str], dict[str, Any] | None] | None = None,
+        repo_registry: Any | None = None,
     ) -> None:
         self._hybrid = hybrid_svc
         self._graph = graph_svc
@@ -738,6 +733,7 @@ class KnowledgeBaseMCPHandler:
         self._wiki = wiki_handler if wiki_handler is not None else WikiMCPHandler(None)
         self._deep_search_engine = deep_search_engine
         self._task_status_fn = task_status_fn
+        self._repo_registry = repo_registry
 
     def get_tools_manifest(self) -> list[dict[str, Any]]:
         return MCP_TOOLS_MANIFEST
@@ -1061,7 +1057,7 @@ class KnowledgeBaseMCPHandler:
         from pathlib import Path
 
         from config import get_settings
-        from git_manager import GitManager
+        from git_manager import resolve_repo_clone_root
         from query.analysis_service import AnalysisService
 
         repository = arguments.get("repository", "")
@@ -1071,10 +1067,11 @@ class KnowledgeBaseMCPHandler:
             return _mcp_error("service_unavailable", "Graph store not available")
 
         settings = get_settings()
-        git_mgr = GitManager(settings.git)
-        repo_path = git_mgr._repo_local_path(repository)
+
+        resolved = resolve_repo_clone_root(repository, settings.git, self._repo_registry)
+        if resolved is None:
+            return _mcp_error("not_found", f"Repository '{repository}' not found on disk")
         base_path = Path(settings.git.clone_base_path).resolve()
-        resolved = repo_path.resolve()
         if not resolved.is_relative_to(base_path):
             return _mcp_error("invalid_params", f"Repository path escapes clone base: {repository}")
 
@@ -1406,7 +1403,7 @@ class KnowledgeBaseMCPHandler:
         if file_path.startswith("/") or ".." in Path(file_path).parts:
             return _mcp_error("invalid_params", "file_path must be relative and cannot contain '..'")
 
-        repo_base = _resolve_repo_base_path(repository)
+        repo_base = _resolve_repo_base_path(repository, self._repo_registry)
         if repo_base is None:
             return _mcp_error("not_found", f"Repository '{repository}' not found on disk")
 

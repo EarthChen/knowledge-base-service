@@ -72,6 +72,19 @@ class RepoRegistry:
     def list_all(self) -> list[dict[str, Any]]:
         return list(self._data.values())
 
+    def get_git_url_for_repository(self, repository: str) -> str | None:
+        """Return a registered git URL for the canonical graph ``repository`` name, if any."""
+        target = repository.strip()
+        if not target:
+            return None
+        for entry in self._data.values():
+            if str(entry.get("repository") or "") != target:
+                continue
+            url = entry.get("git_url")
+            if url:
+                return str(url).strip()
+        return None
+
     def remove(self, git_url: str) -> None:
         key = self._normalize_key(git_url)
         self._data.pop(key, None)

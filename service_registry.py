@@ -33,9 +33,11 @@ class ServiceRegistry:
         settings: Settings,
         *,
         index_task_status_lookup: Callable[[str], dict[str, Any] | None] | None = None,
+        repo_registry: Any | None = None,
     ) -> None:
         self._settings = settings
         self._index_task_status_lookup = index_task_status_lookup
+        self._repo_registry = repo_registry
         self._db: FalkorDB | None = None
         self._business_mgr: BusinessManager | None = None
         self._services: dict[str, KnowledgeBaseService] = {}
@@ -157,6 +159,7 @@ class ServiceRegistry:
             store=store,
             settings=self._settings,
             index_task_status_lookup=self._index_task_status_lookup,
+            repo_registry=self._repo_registry,
         )
         await svc.ensure_fulltext_indexes()
         return svc

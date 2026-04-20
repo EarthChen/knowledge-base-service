@@ -499,6 +499,12 @@ const en: Translations = {
     statusModified: "modified",
     statusRemoved: "removed",
     statusRenamed: "renamed",
+    prUrlLabel: "GitHub PR or GitLab MR link",
+    prUrlPlaceholder:
+      "https://github.com/org/repo/pull/42 or https://gitlab.com/org/repo/-/merge_requests/42",
+    fetchFromUrl: "Load changed files",
+    fetchingFromUrl: "Fetching…",
+    fetchNoFiles: "No file changes returned for this PR/MR.",
   },
   wiki: {
     title: "Wiki",

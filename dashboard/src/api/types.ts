@@ -335,6 +335,14 @@ export interface AnalyzeImpactResponse {
   };
 }
 
+/** POST /pr/fetch — load changed files from a GitHub PR or GitLab MR URL */
+export interface FetchPrFilesResponse {
+  repository: string;
+  changed_files: AnalyzeImpactFile[];
+  provider?: string;
+  warning?: string | null;
+}
+
 export interface SyncSchedule {
   repo_name: string;
   git_url: string;

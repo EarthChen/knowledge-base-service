@@ -184,6 +184,8 @@ class GitConfig(BaseModel):
 
     gitlab_url: str = ""
     gitlab_token: str = ""
+    #: Optional token for ``POST /api/v1/pr/fetch`` when resolving GitHub PR URLs.
+    github_token: str = ""
     ssh_key_path: str = ""
     clone_base_path: str = "./data/repos"
     clone_timeout: int = 600

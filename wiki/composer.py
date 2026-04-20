@@ -121,6 +121,24 @@ class WikiComposer:
                 config,
                 related_docs_block=related_docs_block,
             )
+            if self._wiki_store is not None and not (
+                page_data.business_summary and page_data.business_summary.strip()
+            ):
+                short_summary = description[:100].split("\n")[0].strip()
+                if short_summary and page_data.node.uid:
+                    try:
+                        await self._wiki_store.update_node_property(
+                            page_data.node.label,
+                            page_data.node.uid,
+                            "business_summary",
+                            short_summary,
+                        )
+                    except Exception as exc:
+                        log.warning(
+                            "tier2_backfill_failed",
+                            uid=page_data.node.uid,
+                            error=str(exc),
+                        )
         else:
             tier = 3
             description = self._tier3_structural(page_data, page_type, eff_lang)

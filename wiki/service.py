@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from config import get_settings
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
@@ -12,6 +13,7 @@ from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
 from store.schema import GraphNode, NodeLabel
 from wiki.composer import WikiComposer
+from wiki.deferred_enrichment import DeferredEnrichmentService
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
 from wiki.exporter import WikiExporter
@@ -27,6 +29,9 @@ from wiki.models import (
 from wiki.structure_planner import WikiScopeError, WikiStructurePlanner
 
 from log import get_logger
+
+if TYPE_CHECKING:
+    from indexer.business_flow_inferencer import BusinessFlowInferencer
 
 log = get_logger(__name__)
 
@@ -49,6 +54,8 @@ class WikiService:
         repository_exists: Callable[[str], Awaitable[bool]],
         llm_factory: LLMProviderFactory | None = None,
         store: Any | None = None,
+        deferred_enrichment: DeferredEnrichmentService | None = None,
+        flow_inferencer: BusinessFlowInferencer | None = None,
     ) -> None:
         self._graph = graph
         self._planner = WikiStructurePlanner(graph)
@@ -58,6 +65,8 @@ class WikiService:
         self._exporter = WikiExporter()
         self._repository_exists = repository_exists
         self._store = store
+        self._deferred_enrichment = deferred_enrichment
+        self._flow_inferencer = flow_inferencer
 
     def _composer_for(self, llm_provider: str | None) -> WikiComposer:
         llm_port = self._resolve_llm_port(llm_provider)
@@ -86,6 +95,91 @@ class WikiService:
     ) -> WikiConfig:
         return WikiConfig(repository=repository, mode=mode, format=format, language=language)
 
+    async def _generate_business_flows(self, repository: str) -> int:
+        """Infer BusinessFlow nodes from entry-point call chains."""
+        if not self._flow_inferencer:
+            return 0
+        if not self._flow_inferencer._business_flow_enabled:
+            return 0
+
+        entry_points = await self._flow_inferencer.find_entry_points()
+        created = 0
+        for ep in entry_points:
+            chain = await self._build_call_chain(ep)
+            if not chain:
+                continue
+            flow = await self._flow_inferencer.infer_from_chain(chain)
+            if flow:
+                await self._persist_flow(flow, repository)
+                created += 1
+        return created
+
+    async def _build_call_chain(self, entry_point: dict[str, Any]) -> list[dict[str, str]]:
+        """Build a call chain starting from an entry point by traversing CALLS edges."""
+        if self._store is None:
+            return []
+        uid = entry_point.get("uid", "")
+        if not uid:
+            return []
+        q = (
+            "MATCH path = (start:Function {uid: $uid})-[:CALLS*1..5]->(callee:Function) "
+            "RETURN callee.uid AS uid, callee.name AS name, "
+            "callee.business_summary AS business_summary, callee.file AS file "
+            "ORDER BY length(path)"
+        )
+        result = await self._store.execute_query(q, {"uid": uid})
+        raw = getattr(result, "raw", None)
+        if isinstance(raw, list):
+            rows = raw
+        else:
+            rs = getattr(result, "result_set", None)
+            rows = list(rs) if isinstance(rs, (list, tuple)) else []
+        chain: list[dict[str, str]] = [
+            {
+                "name": str(entry_point.get("name", "") or ""),
+                "business_summary": str(entry_point.get("business_summary", "") or ""),
+                "file": str(entry_point.get("file", "") or ""),
+            }
+        ]
+        seen: set[str] = {uid}
+        for row in rows:
+            row_uid = row[0]
+            if row_uid in seen:
+                continue
+            seen.add(str(row_uid))
+            chain.append(
+                {
+                    "name": str(row[1] or ""),
+                    "business_summary": str(row[2] or ""),
+                    "file": str(row[3] or ""),
+                }
+            )
+        return chain
+
+    async def _persist_flow(self, flow: dict[str, Any], repository: str) -> None:
+        """Persist a BusinessFlow node to the graph."""
+        if self._store is None:
+            return
+        flow_name = flow.get("flow_name", "unnamed_flow")
+        uid = f"BusinessFlow:{repository}:{flow_name}"
+        q = (
+            "MERGE (bf:BusinessFlow {uid: $uid}) "
+            "SET bf.name = $name, bf.description = $desc, "
+            "bf.category = $cat, bf.repository = $repo, "
+            "bf.steps = $steps"
+        )
+        await self._store.execute_query(
+            q,
+            {
+                "uid": uid,
+                "name": flow_name,
+                "desc": flow.get("description", ""),
+                "cat": flow.get("category", ""),
+                "repo": repository,
+                "steps": json.dumps(flow.get("steps", []), ensure_ascii=False),
+            },
+        )
+
     async def generate(
         self,
         repository: str,
@@ -100,8 +194,25 @@ class WikiService:
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
         composer = self._composer_for(llm_provider)
+        if self._deferred_enrichment:
+            enriched = await self._deferred_enrichment.enrich_remaining(repository)
+            log.info(
+                "deferred_enrichment_complete",
+                repository=repository,
+                enriched_count=enriched,
+            )
+        if self._flow_inferencer:
+            flows_created = await self._generate_business_flows(repository)
+            log.info("business_flows_generated", repository=repository, count=flows_created)
         pages, degraded = await self._compose_all_pages(repository, structure, config, composer)
         await self._persist_pages_to_graph(repository, pages)
+        if self._deferred_enrichment:
+            refreshed = await self._deferred_enrichment.refresh_stale_embeddings(repository)
+            log.info(
+                "embedding_refresh_complete",
+                repository=repository,
+                refreshed=refreshed,
+            )
 
         if format == "markdown" and len(pages) == 1:
             return {
@@ -129,6 +240,16 @@ class WikiService:
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
         composer = self._composer_for(llm_provider)
+        if self._deferred_enrichment:
+            enriched = await self._deferred_enrichment.enrich_remaining(repository)
+            log.info(
+                "deferred_enrichment_complete",
+                repository=repository,
+                enriched_count=enriched,
+            )
+        if self._flow_inferencer:
+            flows_created = await self._generate_business_flows(repository)
+            log.info("business_flows_generated", repository=repository, count=flows_created)
 
         pages: list[WikiPage] = []
 
@@ -159,6 +280,14 @@ class WikiService:
             if config.mode == "full" and page.metadata.fallback_tier == 3:
                 degraded = True
             yield {"page": page.to_dict()}
+
+        if self._deferred_enrichment:
+            refreshed = await self._deferred_enrichment.refresh_stale_embeddings(repository)
+            log.info(
+                "embedding_refresh_complete",
+                repository=repository,
+                refreshed=refreshed,
+            )
 
         bundle = self._exporter.export_json(pages, structure)
         bundle["degraded"] = degraded

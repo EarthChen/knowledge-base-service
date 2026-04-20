@@ -49,6 +49,15 @@ flowchart TB
 
 Wiki 行为的功能开关位于 `config.py` 的 **`WIKI__*`**（`WikiConfig`）。LLM 路由使用 `LLMProviderFactory` 和 OpenAI 兼容的 **LLM__** 配置。
 
+### 延迟 Enrichment 流程
+
+当 `LLM__ENRICHMENT_STRATEGY=disabled`（默认）时，索引阶段不调用 LLM。Wiki 生成前由 `DeferredEnrichmentService`（`wiki/deferred_enrichment.py`）批量补全缺少 `business_summary` 的实体，随后推理 BusinessFlow 节点，最后刷新受影响实体的 embedding。流程：
+
+1. `DeferredEnrichmentService.enrich_remaining()` — 批量 LLM enrichment
+2. `WikiService._generate_business_flows()` — 从入口函数调用链推理 BusinessFlow
+3. 页面组合（Tier 1/2/3）
+4. `DeferredEnrichmentService.refresh_stale_embeddings()` — 增量 embedding 刷新
+
 ## Wiki 混合搜索
 
 Wiki 搜索结合**图上下文**、**向量相似性**和**全文**信号，然后在 `wiki/search.py` 中应用 **RRF 风格融合**（与主产品的融合模式一致）。**Ask** 模式复用检索并可通过 **SSE** 流式输出。
@@ -87,6 +96,7 @@ sequenceDiagram
 | 关注点 | 位置 |
 |--------|------|
 | 模型 / 作用域 | `wiki/models.py`、`wiki/context.py` |
+| 延迟 Enrichment | `wiki/deferred_enrichment.py` |
 | 规划 / 组合 | `wiki/structure_planner.py`、`wiki/data_collector.py`、`wiki/composer.py`、`wiki/diagram_gen.py` |
 | 仓库级 / 增量 | `wiki/repo_composer.py`、`wiki/incremental.py`、`wiki/disk_exporter.py`、`wiki/persistent_cache.py` |
 | 搜索 / 问答 | `wiki/search.py`、`wiki/ask.py` |

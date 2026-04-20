@@ -19,7 +19,11 @@ from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.config_indexer import _config_file_extension
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
-from indexer.enrichment import is_trivial_enrichment_entity, truncate_enrichment_item
+from indexer.enrichment import (
+    EnrichmentPriorityClassifier,
+    is_trivial_enrichment_entity,
+    truncate_enrichment_item,
+)
 from indexer.graph_enricher import GraphEnricher
 from indexer.import_resolver import ImportResolver
 from indexer.index_report import IndexReport
@@ -157,6 +161,8 @@ class IncrementalIndexer:
 
     def _enrichment_backend_label(self) -> str:
         """Return API progress label for LLM enrichment mode (empty if disabled)."""
+        if get_settings().llm.enrichment_strategy == "disabled":
+            return ""
         if not self._enricher:
             return ""
         if self._repo_task_mgr and getattr(self._enricher, "_gw", None):
@@ -193,6 +199,12 @@ class IncrementalIndexer:
         enrich_candidates = 0
         enrich_skipped_trivial = 0
 
+        enrichment_strategy = get_settings().llm.enrichment_strategy
+        run_llm_indexing_enrichment = enrichment_strategy != "disabled"
+        priority_classifier = (
+            EnrichmentPriorityClassifier() if enrichment_strategy == "core_only" else None
+        )
+
         enrich_queue: asyncio.Queue[list[dict[str, str]] | None] = asyncio.Queue()
         summary_map: dict[str, str] = {}
 
@@ -205,6 +217,10 @@ class IncrementalIndexer:
         repo_id = f"enrich:{directory.rstrip('/').rsplit('/', 1)[-1]}"
 
         async def _enrichment_consumer() -> None:
+            if not run_llm_indexing_enrichment:
+                while await enrich_queue.get() is not None:
+                    pass
+                return
             if self._repo_task_mgr:
                 result = await self._repo_task_mgr.enrich_stream(repo_id, enrich_queue)
                 summary_map.update(result)
@@ -242,8 +258,15 @@ class IncrementalIndexer:
                                 "function" if n.label == NodeLabel.FUNCTION else "class"
                             ),
                         }
+                        sr = n.properties.get("semantic_roles")
+                        if sr:
+                            item["semantic_roles"] = sr
                         if is_trivial_enrichment_entity(item):
                             enrich_skipped_trivial += 1
+                            continue
+                        if not run_llm_indexing_enrichment:
+                            continue
+                        if priority_classifier and not priority_classifier.is_core_entity(item):
                             continue
                         item = truncate_enrichment_item(item)
                         enrich_refs.setdefault(item["name"], []).append((n.label, n.uid))
@@ -409,6 +432,12 @@ class IncrementalIndexer:
         repo_paths = self._builder.collect_relative_source_paths(directory)
         import_resolver = ImportResolver(ImportResolver.build_file_index(repo_paths))
 
+        enrichment_strategy = get_settings().llm.enrichment_strategy
+        run_llm_indexing_enrichment = enrichment_strategy != "disabled"
+        priority_classifier = (
+            EnrichmentPriorityClassifier() if enrichment_strategy == "core_only" else None
+        )
+
         for fpath in modified_files:
             try:
                 full_path = str(Path(directory) / fpath)
@@ -457,8 +486,15 @@ class IncrementalIndexer:
                                     "function" if n.label == NodeLabel.FUNCTION else "class"
                                 ),
                             }
+                            sr = n.properties.get("semantic_roles")
+                            if sr:
+                                item["semantic_roles"] = sr
                             if is_trivial_enrichment_entity(item):
                                 enrich_skipped_trivial += 1
+                                continue
+                            if not run_llm_indexing_enrichment:
+                                continue
+                            if priority_classifier and not priority_classifier.is_core_entity(item):
                                 continue
                             enrich_refs.append((n.label, n.uid))
                             enrich_items.append(truncate_enrichment_item(item))
@@ -571,6 +607,8 @@ class IncrementalIndexer:
         """对已入库的 Function/Class 批量生成 business_summary（不重新解析或嵌入）。"""
         if not self._enricher and not self._repo_task_mgr:
             return 0
+        if get_settings().llm.enrichment_strategy == "disabled":
+            return 0
 
         work_items: list[dict[str, str]] = []
         work_refs: list[tuple[NodeLabel, str]] = []
@@ -598,9 +636,12 @@ class IncrementalIndexer:
                 "file": row.get("file") or "",
                 "entity_kind": entity_kind,
             }
+            sr = row.get("semantic_roles")
+            if sr:
+                item["semantic_roles"] = sr
             if is_trivial_enrichment_entity(item):
                 continue
-            work_items.append(truncate_enrichment_item(item))
+            work_items.append(item)
             work_refs.append((nl, uid))
 
         total = len(work_items)
@@ -680,6 +721,17 @@ class IncrementalIndexer:
         if not self._enricher and not self._repo_task_mgr:
             return 0
 
+        strategy = get_settings().llm.enrichment_strategy
+        if strategy == "disabled":
+            return 0
+        if strategy == "core_only":
+            clf = EnrichmentPriorityClassifier()
+            pairs = [(it, ref) for it, ref in zip(items, refs) if clf.is_core_entity(it)]
+            if not pairs:
+                return 0
+            items = [p[0] for p in pairs]
+            refs = [p[1] for p in pairs]
+
         log.info("batch_enrich_start", total_entities=len(items))
 
         if self._repo_task_mgr and repo_id:
@@ -719,10 +771,14 @@ class IncrementalIndexer:
             return 0
 
         if not skip_enrich and self._enricher:
-            code_nodes = [n for n in embeddable if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS)]
-            if code_nodes:
-                items_for_enrich = [
-                    {
+            strategy = get_settings().llm.enrichment_strategy
+            if strategy != "disabled":
+                clf = EnrichmentPriorityClassifier() if strategy == "core_only" else None
+                code_nodes = [n for n in embeddable if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS)]
+                work_nodes: list[GraphNode] = []
+                items_for_enrich: list[dict[str, str]] = []
+                for n in code_nodes:
+                    item = {
                         "name": n.properties.get("name", ""),
                         "signature": n.properties.get("signature", ""),
                         "docstring": n.properties.get("docstring", ""),
@@ -732,15 +788,23 @@ class IncrementalIndexer:
                             "function" if n.label == NodeLabel.FUNCTION else "class"
                         ),
                     }
-                    for n in code_nodes
-                ]
-                summaries = await self._enricher.enrich_batch(items_for_enrich)
-                for node, summary in zip(code_nodes, summaries):
-                    if summary:
-                        node.properties["business_summary"] = summary
-                        await self._store.update_node_property(
-                            node.label, node.uid, "business_summary", summary
-                        )
+                    sr = n.properties.get("semantic_roles")
+                    if sr:
+                        item["semantic_roles"] = sr
+                    if is_trivial_enrichment_entity(item):
+                        continue
+                    if clf and not clf.is_core_entity(item):
+                        continue
+                    work_nodes.append(n)
+                    items_for_enrich.append(truncate_enrichment_item(item))
+                if work_nodes:
+                    summaries = await self._enricher.enrich_batch(items_for_enrich)
+                    for node, summary in zip(work_nodes, summaries):
+                        if summary:
+                            node.properties["business_summary"] = summary
+                            await self._store.update_node_property(
+                                node.label, node.uid, "business_summary", summary
+                            )
 
         doc_indices = [i for i, n in enumerate(embeddable) if n.label == NodeLabel.DOCUMENT]
         code_indices = [i for i, n in enumerate(embeddable) if n.label != NodeLabel.DOCUMENT]

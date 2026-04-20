@@ -16,6 +16,7 @@ from wiki.cache import WikiCache
 from wiki.kb_wiki_pipeline import WikiPipelineAdapter
 from wiki.mcp_tools import WikiMCPHandler
 from wiki.search import WikiSearchService
+from wiki.deferred_enrichment import DeferredEnrichmentService
 from wiki.service import WikiService
 from config import Settings
 from indexer.code_graph_builder import CodeGraphBuilder
@@ -112,19 +113,30 @@ class KnowledgeBaseService:
                 )
                 log.info("repo_task_manager_enabled", ws_url=ws_url, http_url=http_url)
 
-            indexing_enrichment_on = (
-                not settings.llm.gateway.enabled or settings.llm.gateway.enrichment_enabled
-            )
-            if indexing_enrichment_on:
-                from indexer.enrichment import CodeSummaryEnricher
+            from indexer.enrichment import CodeSummaryEnricher
 
-                self._enricher = CodeSummaryEnricher(
-                    llm=self._llm_provider,
-                    gateway_client=gateway_client,
-                )
-            else:
-                self._enricher = None
-                log.info("indexing_enrichment_disabled", gateway_enrichment_flag=False)
+            self._enricher = CodeSummaryEnricher(
+                llm=self._llm_provider,
+                gateway_client=gateway_client,
+            )
+
+        self._wiki_deferred_enrichment: DeferredEnrichmentService | None = None
+        if self._enricher is not None:
+            self._wiki_deferred_enrichment = DeferredEnrichmentService(
+                store=self._store,
+                enricher=self._enricher,
+                embedding_gen=self._embedding,
+            )
+
+        self._wiki_flow_inferencer = None
+        if self._llm_provider is not None and settings.llm.business_flow_enabled:
+            from indexer.business_flow_inferencer import BusinessFlowInferencer
+
+            self._wiki_flow_inferencer = BusinessFlowInferencer(
+                llm=self._llm_provider,
+                store=self._store,
+                business_flow_enabled=True,
+            )
 
         self._parser = TreeSitterParser(supported_languages=settings.supported_languages)
         hs = settings.hybrid_search
@@ -187,6 +199,8 @@ class KnowledgeBaseService:
             llm=self._llm_provider,
             repository_exists=_repository_exists,
             store=self._store,
+            deferred_enrichment=self._wiki_deferred_enrichment,
+            flow_inferencer=self._wiki_flow_inferencer,
         )
         self._wiki_search = WikiSearchService(
             graph=self._store,
@@ -277,6 +291,16 @@ class KnowledgeBaseService:
     @property
     def llm_provider(self):
         return self._llm_provider
+
+    @property
+    def wiki_deferred_enrichment(self) -> DeferredEnrichmentService | None:
+        """Optional wiki-stage batch enricher (requires LLM + :class:`CodeSummaryEnricher`)."""
+        return self._wiki_deferred_enrichment
+
+    @property
+    def wiki_flow_inferencer(self):
+        """Optional wiki-stage business-flow inferencer (requires LLM + ``business_flow_enabled``)."""
+        return self._wiki_flow_inferencer
 
     @property
     def graph_query(self) -> GraphQueryService:

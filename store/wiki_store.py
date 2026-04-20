@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Protocol, runtime_checkable
 
 from store.falkordb_store import QueryResultWrapper
-from store.schema import EdgeType
+from store.schema import EdgeType, NodeLabel
 
 
 _SOURCE_DOC_EDGE = EdgeType.SOURCE_DOC.value
@@ -23,6 +23,15 @@ class WikiStore:
 
     def __init__(self, base_store: _GraphQueryPort) -> None:
         self._store = base_store
+
+    async def update_node_property(
+        self, label: NodeLabel, uid: str, prop: str, value: object
+    ) -> None:
+        """Persist a whitelisted node property via the underlying FalkorDB store."""
+        updater = getattr(self._store, "update_node_property", None)
+        if updater is None:
+            raise AttributeError("Base graph store does not implement update_node_property")
+        await updater(label, uid, prop, value)
 
     # --- wiki/search.py ---
     async def neighbor_names(self, name: str) -> QueryResultWrapper:

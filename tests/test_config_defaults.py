@@ -43,3 +43,19 @@ def test_concept_extraction_and_business_flow_can_be_enabled_via_env(monkeypatch
     s = Settings()
     assert s.llm.concept_extraction_enabled is True
     assert s.llm.business_flow_enabled is True
+
+
+def test_enrichment_strategy_default_is_disabled(monkeypatch) -> None:
+    monkeypatch.delenv("LLM__ENRICHMENT_STRATEGY", raising=False)
+    from config import Settings
+
+    s = Settings()
+    assert s.llm.enrichment_strategy == "disabled"
+
+
+def test_enrichment_strategy_core_only_valid(monkeypatch) -> None:
+    monkeypatch.setenv("LLM__ENRICHMENT_STRATEGY", "core_only")
+    from config import Settings
+
+    s = Settings()
+    assert s.llm.enrichment_strategy == "core_only"

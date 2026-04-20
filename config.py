@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -94,6 +94,9 @@ class LLMConfig(BaseModel):
     # business_summary / CodeSummaryEnricher).
     concept_extraction_enabled: bool = False
     business_flow_enabled: bool = False
+    #: ``disabled`` — no LLM enrichment during indexing (default). ``core_only`` —
+    #: enrich only high-value entities (see ``EnrichmentPriorityClassifier``).
+    enrichment_strategy: str = "disabled"
     default_provider: str = "gateway"
     fallback_provider: str = ""
     providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -107,6 +110,15 @@ class LLMConfig(BaseModel):
     temperature: float = 0.1
     synthesis_max_tokens: int = 2000
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+
+    @field_validator("enrichment_strategy")
+    @classmethod
+    def validate_enrichment_strategy(cls, v: str) -> str:
+        allowed = frozenset({"disabled", "core_only"})
+        if v not in allowed:
+            msg = f"enrichment_strategy must be one of {sorted(allowed)}, got {v!r}"
+            raise ValueError(msg)
+        return v
 
     def resolve_gateway_urls(self) -> tuple[str, str]:
         """Return ``(ws_url, http_url)`` for gateway connections.

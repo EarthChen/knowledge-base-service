@@ -62,7 +62,9 @@ flowchart TB
 3. **跨文件 Import 解析** — `ImportResolver` 在索引开始时构建文件索引，将 import 语句解析到实际文件路径（Python/JS/TS/Java/Go），生成精确的 `IMPORTS` 边；解析失败时回退到虚拟 Module 节点。
 4. **父子块** — 大型函数/类/文档段落可被拆分为 `Chunk` 节点（`child_chunker.py`），通过 `PART_OF` 边关联；嵌入可针对子块生成。
 5. **持久化** — `batch_upsert` 写入 FalkorDB；按标签更新向量索引。
-6. **丰富化**（可选） — LLM 生成 `business_summary`、跨仓库丰富化、架构/RPC 推断等（需显式启用）。
+6. **丰富化**（可选） — LLM 生成 `business_summary`。由 `enrichment_strategy` 配置控制：
+   - `disabled`（默认）：索引阶段不调用 LLM，所有 enrichment 延迟到 Wiki 生成阶段
+   - `core_only`：仅对核心业务实体（Controller/Service/Handler 等）在索引时 enrich，其余延迟到 Wiki 阶段
 
 ## 检索管道
 

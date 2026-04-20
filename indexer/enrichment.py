@@ -13,7 +13,7 @@ import asyncio
 import logging
 import re
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from llm.gateway_client import GatewayTaskClient
@@ -98,6 +98,37 @@ def _is_accessor_name(name: str) -> bool:
     if _CAMEL_ACCESSOR.match(name) or _CAMEL_SETTER.match(name):
         return True
     return False
+
+
+class EnrichmentPriorityClassifier:
+    """Determines which code entities are 'core' — worth enriching at index time."""
+
+    CORE_CLASS_SUFFIXES = (
+        "Controller",
+        "Service",
+        "Handler",
+        "Manager",
+        "Repository",
+        "Dao",
+        "Gateway",
+        "Facade",
+        "Processor",
+        "Listener",
+        "Consumer",
+        "Producer",
+    )
+
+    def is_core_entity(self, item: dict[str, Any]) -> bool:
+        """Core entity = entry point / business class / complex function."""
+        if item.get("semantic_roles"):
+            return True
+        name = item.get("name", "")
+        if any(name.endswith(s) for s in self.CORE_CLASS_SUFFIXES):
+            return True
+        code = item.get("code_snippet", "")
+        if len(code.splitlines()) > 30:
+            return True
+        return False
 
 
 class CodeSummaryEnricher:

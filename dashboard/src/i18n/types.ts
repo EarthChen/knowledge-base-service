@@ -266,6 +266,7 @@ export interface Translations {
     linesCount: string;
     truncatedWarning: string;
     noEntities: string;
+    contentUnavailable: string;
   };
   indexing: {
     title: string;

@@ -253,6 +253,8 @@ const zh: Translations = {
     linesCount: "{count} 行",
     truncatedWarning: "预览已截断 — 文件超出单次读取上限。",
     noEntities: "该路径下暂无已索引的函数或类。",
+    contentUnavailable:
+      "无法加载该文件。若服务端无法解析检出目录，请重新索引仓库，或将 GIT 克隆根目录配置为仓库所在父路径。",
   },
   indexing: {
     title: "索引",

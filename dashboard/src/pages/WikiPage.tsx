@@ -17,9 +17,7 @@ import GraphInsightsPanel from "../components/wiki/GraphInsightsPanel";
 import WikiContent from "../components/wiki/WikiContent";
 import WikiExportPanel from "../components/wiki/WikiExportPanel";
 import WikiLintPanel from "../components/wiki/WikiLintPanel";
-import WikiGlobalSearchBar from "../components/wiki/WikiGlobalSearchBar";
 import WikiSidebar from "../components/wiki/WikiSidebar";
-import DeepSearchSection from "../components/DeepSearchSection";
 import { useWikiPages } from "../hooks/useWikiPages";
 import { useWikiPage } from "../hooks/useWikiPage";
 import { wikiGenerate } from "../api/client";
@@ -129,19 +127,23 @@ export default function WikiPage() {
     }
     return (
       <div className="mx-auto max-w-3xl space-y-6">
-        <WikiGlobalSearchBar />
-
-        <DeepSearchSection showTitle />
-
         <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-          <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-400">
-              <BookOpen size={24} aria-hidden />
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-400">
+                <BookOpen size={24} aria-hidden />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.wiki.title}</h2>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{t.wiki.browseDescription}</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.wiki.title}</h2>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{t.wiki.browseDescription}</p>
-            </div>
+            <Link
+              to="/search?mode=wiki"
+              className="inline-flex shrink-0 items-center justify-center self-start rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-sky-700 dark:bg-sky-600 dark:hover:bg-sky-500 sm:self-center"
+            >
+              {t.search.wiki}
+            </Link>
           </div>
         </div>
 

@@ -6,6 +6,7 @@ import re
 from typing import TYPE_CHECKING
 
 from log import get_logger
+from indexer.java_annotation_args import extract_java_annotation_primary_arg
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
 
 from store.indexer_store import IndexerStore
@@ -38,6 +39,14 @@ _RPC_PROVIDER_NAMES = frozenset({"MoaProvider", "DubboService"})
 _KAFKA_TOPIC_FROM_SNIPPET = re.compile(
     r"(?:\.|\s)(?:sendSync|sendAsync|sendDefault|convertAndSend|send|publish)\s*\(\s*[\"']([^\"']+)[\"']",
     re.IGNORECASE | re.DOTALL,
+)
+
+# FQN or simple @KafkaListener(...) occurrences in source (inheritance-based consumers).
+_KAFKA_LISTENER_ANNOTATION_IN_TEXT = re.compile(r"@(?:[\w.]+\.)?KafkaListener\b")
+
+_IMMOMO_KAFKA_LISTENER_HINTS = (
+    "immomo.kafka",
+    "autoconfigure.core.kafkalistener",
 )
 
 
@@ -73,33 +82,8 @@ def _topics_from_kafka_producer_snippet(snippet: str | None) -> list[str]:
 
 
 def _parse_annotation_arg(annotation: str) -> str:
-    """Extract first string argument from annotation like @GetMapping("/api/users")."""
-    s = annotation.strip()
-    start = s.find("(")
-    if start == -1:
-        return ""
-    depth = 0
-    end = -1
-    for i in range(start, len(s)):
-        ch = s[i]
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth == 0:
-                end = i
-                break
-    if end == -1:
-        return ""
-    inner = s[start + 1 : end]
-    m = re.search(r'["\']((?:[^"\'\\]|\\.)*)["\']', inner)
-    if m:
-        return m.group(1)
-    # topics = "foo" style — first quoted literal after optional attr name
-    m2 = re.search(r'=\s*["\']((?:[^"\'\\]|\\.)*)["\']', inner)
-    if m2:
-        return m2.group(1)
-    return ""
+    """Extract HTTP path, table name, or RPC ``interfaceClass`` from a Java annotation."""
+    return extract_java_annotation_primary_arg(annotation)
 
 
 def _annotation_simple_name(raw: str) -> str:
@@ -143,6 +127,73 @@ def _kafka_topic_from_listener(annotation: str) -> str:
         if q:
             return q.group(1)
     return _parse_annotation_arg(annotation)
+
+
+def _strip_java_type_generics(type_ref: str) -> str:
+    """Remove top-level ``<...>`` generic arguments from a Java type reference string."""
+    depth = 0
+    out: list[str] = []
+    for c in type_ref:
+        if c == "<":
+            depth += 1
+        elif c == ">":
+            if depth > 0:
+                depth -= 1
+        elif depth == 0:
+            out.append(c)
+    return "".join(out).strip()
+
+
+def _java_extends_company_kafka_listener(base_classes: list[object] | None) -> bool:
+    """True when a class extends the Immomo ``KafkaListener`` base (not the Spring annotation)."""
+    for b in base_classes or []:
+        raw = b.strip() if isinstance(b, str) else str(b).strip()
+        if not raw:
+            continue
+        base = _strip_java_type_generics(raw)
+        low = base.lower()
+        if "kafkalistener" not in low:
+            continue
+        if any(h in low for h in _IMMOMO_KAFKA_LISTENER_HINTS):
+            return True
+        if base == "KafkaListener" or base.endswith(".KafkaListener"):
+            if "springframework.kafka.annotation" in low:
+                continue
+            return True
+    return False
+
+
+def _extract_kafka_listener_topics_from_java_text(text: str | None) -> list[str]:
+    """Collect topic strings from any ``@KafkaListener`` annotations embedded in Java source."""
+    if not text:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in _KAFKA_LISTENER_ANNOTATION_IN_TEXT.finditer(text):
+        idx = m.start()
+        j = m.end()
+        while j < len(text) and text[j].isspace():
+            j += 1
+        if j >= len(text) or text[j] != "(":
+            continue
+        depth = 0
+        end_pos = -1
+        for k in range(j, len(text)):
+            if text[k] == "(":
+                depth += 1
+            elif text[k] == ")":
+                depth -= 1
+                if depth == 0:
+                    end_pos = k
+                    break
+        if end_pos == -1:
+            continue
+        ann = text[idx : end_pos + 1]
+        topic = _kafka_topic_from_listener(ann)
+        if topic and topic not in seen:
+            seen.add(topic)
+            out.append(topic)
+    return out
 
 
 def _join_api_paths(base: str, rel: str) -> str:
@@ -394,6 +445,47 @@ class GraphEnricher:
                 except Exception as exc:
                     log.warning("graph_enrich_kafka_failed", uid=uid, error=str(exc))
 
+            res_k_ext = await self._idx.enrich_scan_kafka_listener_subclass_methods()
+            for row in res_k_ext.data:
+                uid = row.get("uid")
+                if not uid:
+                    continue
+                bases = row.get("base_classes") or []
+                if not isinstance(bases, list):
+                    bases = []
+                if not _java_extends_company_kafka_listener(bases):
+                    continue
+                anns = row.get("annotations") or []
+                if not isinstance(anns, list):
+                    anns = []
+                topic = ""
+                for raw in anns:
+                    simple = _annotation_simple_name(raw)
+                    if simple in ("KafkaListener", "KafkaHandler") or simple.endswith(
+                        ".KafkaListener",
+                    ) or simple.endswith(".KafkaHandler"):
+                        topic = _kafka_topic_from_listener(raw)
+                        if topic:
+                            break
+                if not topic:
+                    for raw in anns:
+                        if "KafkaListener" in raw or "KafkaHandler" in raw:
+                            topic = _kafka_topic_from_listener(raw)
+                            if topic:
+                                break
+                if not topic:
+                    combined = (row.get("class_snippet") or "") + "\n" + (row.get("func_snippet") or "")
+                    topics = _extract_kafka_listener_topics_from_java_text(combined)
+                    if topics:
+                        topic = topics[0]
+                if not topic:
+                    continue
+                try:
+                    await self._idx.enrich_set_function_kafka_topic(uid, topic)
+                    count += 1
+                except Exception as exc:
+                    log.warning("graph_enrich_kafka_inherit_failed", uid=uid, error=str(exc))
+
         except Exception as exc:
             log.warning("graph_enrich_api_pass_error", error=str(exc))
         return count
@@ -480,6 +572,11 @@ class GraphEnricher:
                     )
 
             res_producers = await self._idx.enrich_kafka_producer_call_rows()
+            producer_uids: set[str] = set()
+            for row in res_producers.data:
+                u = row.get("uid")
+                if u:
+                    producer_uids.add(str(u))
             for row in res_producers.data:
                 func_uid = row.get("uid")
                 if not func_uid:
@@ -500,6 +597,32 @@ class GraphEnricher:
                     except Exception as exc:
                         log.warning(
                             "graph_enrich_event_produce_failed",
+                            uid=func_uid,
+                            topic=topic,
+                            error=str(exc),
+                        )
+
+            res_momo = await self._idx.enrich_kafka_momo_producer_functions()
+            for row in res_momo.data:
+                func_uid = row.get("uid")
+                if not func_uid or str(func_uid) in producer_uids:
+                    continue
+                topics = _topics_from_kafka_producer_snippet(row.get("snippet"))
+                for topic in topics:
+                    mod = _kafka_topic_module_node(topic)
+                    try:
+                        await self._store.upsert_node(mod)
+                        await self._store.upsert_edge(
+                            GraphEdge(
+                                edge_type=EdgeType.EVENT_PRODUCES,
+                                source_uid=func_uid,
+                                target_uid=mod.uid,
+                            ),
+                        )
+                        count += 1
+                    except Exception as exc:
+                        log.warning(
+                            "graph_enrich_event_produce_momo_failed",
                             uid=func_uid,
                             topic=topic,
                             error=str(exc),

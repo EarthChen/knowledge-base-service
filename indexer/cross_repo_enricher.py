@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from log import get_logger
 
+from indexer.java_annotation_args import extract_java_annotation_primary_arg
 from store.indexer_store import IndexerStore
 
 if TYPE_CHECKING:
@@ -20,32 +21,8 @@ log = get_logger(__name__)
 
 
 def _parse_annotation_arg(annotation: str) -> str:
-    """Extract first string argument from an annotation like @Table(name="users")."""
-    s = annotation.strip()
-    start = s.find("(")
-    if start == -1:
-        return ""
-    depth = 0
-    end = -1
-    for i in range(start, len(s)):
-        ch = s[i]
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth == 0:
-                end = i
-                break
-    if end == -1:
-        return ""
-    inner = s[start + 1 : end]
-    m = re.search(r'["\']((?:[^"\'\\]|\\.)*)["\']', inner)
-    if m:
-        return m.group(1)
-    m2 = re.search(r'=\s*["\']((?:[^"\'\\]|\\.)*)["\']', inner)
-    if m2:
-        return m2.group(1)
-    return ""
+    """Extract string or ``interfaceClass = SomeIface.class`` from a Java annotation."""
+    return extract_java_annotation_primary_arg(annotation)
 
 
 def _annotation_simple_name(raw: str) -> str:

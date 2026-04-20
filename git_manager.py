@@ -65,8 +65,13 @@ def resolve_repo_clone_root(
         if git_url:
             mgr = GitManager(git_cfg)
             cloned = mgr._repo_local_path(git_url).resolve()
-            if cloned.is_relative_to(base) and cloned.is_dir():
-                return cloned
+            if cloned.is_dir():
+                # Under managed clone base (typical git clones).
+                if cloned.is_relative_to(base):
+                    return cloned
+                # Directory-only indexes register an absolute path as git_url; trust registry.
+                if cloned.is_absolute():
+                    return cloned
 
     return None
 

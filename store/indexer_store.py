@@ -94,6 +94,19 @@ class IndexerStore:
         )
         return await self._store.execute_query(q)
 
+    async def enrich_scan_kafka_listener_subclass_methods(self) -> QueryResultWrapper:
+        """Methods in classes whose ``base_classes`` mention ``KafkaListener`` (Immomo inheritance)."""
+        q = (
+            "MATCH (c:Class)-[:CONTAINS]->(f:Function) "
+            "WHERE c.base_classes IS NOT NULL AND size(c.base_classes) > 0 "
+            "AND ANY(b IN c.base_classes WHERE toLower(toString(b)) CONTAINS 'kafkalistener') "
+            "RETURN f.uid AS uid, f.annotations AS annotations, "
+            "coalesce(f.code_snippet, '') AS func_snippet, "
+            "coalesce(c.code_snippet, '') AS class_snippet, "
+            "c.base_classes AS base_classes"
+        )
+        return await self._store.execute_query(q)
+
     async def enrich_set_function_kafka_topic(self, uid: str, topic: str) -> QueryResultWrapper:
         q = "MATCH (f:Function) WHERE f.uid = $uid SET f.kafka_topic = $topic"
         return await self._store.execute_query(q, {"uid": uid, "topic": topic})
@@ -152,9 +165,17 @@ class IndexerStore:
     async def enrich_kafka_consumer_functions_with_topic(self) -> QueryResultWrapper:
         q = (
             "MATCH (f:Function) "
-            "WHERE f.semantic_roles IS NOT NULL AND 'message_listener' IN f.semantic_roles "
-            "AND coalesce(f.kafka_topic, '') <> '' "
+            "WHERE coalesce(f.kafka_topic, '') <> '' "
             "RETURN f.uid AS uid, f.kafka_topic AS topic"
+        )
+        return await self._store.execute_query(q)
+
+    async def enrich_kafka_momo_producer_functions(self) -> QueryResultWrapper:
+        """Functions in classes that implement ``MomoKafkaProducer`` (simple name on ``interfaces``)."""
+        q = (
+            "MATCH (c:Class)-[:CONTAINS]->(caller:Function) "
+            "WHERE coalesce(c.interfaces, []) IS NOT NULL AND 'MomoKafkaProducer' IN c.interfaces "
+            "RETURN DISTINCT caller.uid AS uid, caller.code_snippet AS snippet"
         )
         return await self._store.execute_query(q)
 

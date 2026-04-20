@@ -256,6 +256,8 @@ const en: Translations = {
     linesCount: "{count} lines",
     truncatedWarning: "Preview truncated — file exceeds maximum read size.",
     noEntities: "No functions or classes indexed for this path.",
+    contentUnavailable:
+      "Could not load this file. If the server cannot resolve the checkout path, re-index the repository or set GIT clone base to the parent of your repo folder.",
   },
   indexing: {
     title: "Indexing",

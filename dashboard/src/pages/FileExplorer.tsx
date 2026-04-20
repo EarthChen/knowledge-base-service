@@ -230,11 +230,18 @@ export default function FileExplorer() {
     return filterTree(treeData, q);
   }, [treeData, treeFilter]);
 
+  const repoForContent = (selectedRepo || repository).trim();
+  const contentQueryEnabled = !!(selectedPath && repoForContent);
   const {
     data: content,
-    isLoading: contentLoading,
+    isPending: contentPending,
+    isFetching: contentFetching,
     error: contentError,
-  } = useFileContent(selectedRepo, selectedPath ?? "", !!(selectedPath && selectedRepo));
+  } = useFileContent(repoForContent, selectedPath ?? "", contentQueryEnabled);
+  const contentLoading =
+    contentQueryEnabled &&
+    !contentError &&
+    (contentFetching || (contentPending && content === undefined));
 
   const { data: entitiesData, isLoading: entitiesLoading } = useFileEntities(selectedPath ?? "", !!selectedPath);
 
@@ -490,9 +497,9 @@ export default function FileExplorer() {
                         <Search size={14} />
                         {t.fileExplorer.searchRelated}
                       </Link>
-                      {selectedRepo ? (
+                      {repoForContent ? (
                         <Link
-                          to={`/wiki/${encodeURIComponent(selectedRepo)}`}
+                          to={`/wiki/${encodeURIComponent(repoForContent)}`}
                           className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
                         >
                           <BookOpen size={14} />
@@ -504,7 +511,11 @@ export default function FileExplorer() {
                 )}
               </aside>
             </div>
-          ) : null}
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-sm text-gray-500 dark:text-gray-400">
+              <p>{repoForContent ? t.fileExplorer.contentUnavailable : t.fileExplorer.noRepository}</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

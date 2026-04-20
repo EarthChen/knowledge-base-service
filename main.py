@@ -1068,8 +1068,11 @@ async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> 
         merged_result = dict(result)
         merged_result["cross_repo_enrichment"] = cross_repo_stats
 
-        if req.git_url and repository and _repo_registry:
-            _repo_registry.register(req.git_url, repository)
+        if repository and _repo_registry:
+            if req.git_url:
+                _repo_registry.register(req.git_url, repository)
+            elif directory:
+                _repo_registry.register(str(Path(directory).resolve()), repository)
 
         _task_manager.mark_completed(task_id, merged_result)
     except Exception as exc:

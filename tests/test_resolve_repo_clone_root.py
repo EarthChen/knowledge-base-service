@@ -33,3 +33,21 @@ def test_resolve_canonical_name_via_repo_registry(tmp_path: Path) -> None:
     cfg = GitConfig(clone_base_path=str(clone_base))
     got = resolve_repo_clone_root("user-moa", cfg, reg)
     assert got == url_layout.resolve()
+
+
+def test_resolve_absolute_local_path_via_registry_outside_clone_base(tmp_path: Path) -> None:
+    """Directory indexes may register an absolute path; it must resolve even if not under clone_base."""
+    clone_base = tmp_path / "managed_repos"
+    clone_base.mkdir()
+    external = tmp_path / "work" / "user-moa"
+    external.mkdir(parents=True)
+    (external / "README.md").write_text("ok\n", encoding="utf-8")
+
+    reg_dir = tmp_path / "data"
+    reg_dir.mkdir()
+    reg = RepoRegistry(str(reg_dir))
+    reg.register(str(external.resolve()), "user-moa")
+
+    cfg = GitConfig(clone_base_path=str(clone_base))
+    got = resolve_repo_clone_root("user-moa", cfg, reg)
+    assert got == external.resolve()

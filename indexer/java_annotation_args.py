@@ -9,9 +9,11 @@ def extract_java_annotation_primary_arg(annotation: str) -> str:
     """Extract a primary value from a Java-style annotation body.
 
     Order:
-    1. First quoted string literal in the argument list.
-    2. First ``name = "quoted"`` style value.
-    3. ``interfaceClass = com.foo.SomeIface.class`` (or simple ``SomeIface.class``) →
+    1. ``serviceUri = "..."`` or ``uri = "..."`` (Moa RPC; avoids misparsing when other
+       string attrs like ``protocol`` appear first).
+    2. First quoted string literal in the argument list.
+    3. First ``name = "quoted"`` style value.
+    4. ``interfaceClass = com.foo.SomeIface.class`` (or simple ``SomeIface.class``) →
        returns the **simple** type name (``SomeIface``) for RPC matching.
     """
     s = annotation.strip()
@@ -32,6 +34,10 @@ def extract_java_annotation_primary_arg(annotation: str) -> str:
     if end == -1:
         return ""
     inner = s[start + 1 : end]
+    # Moa: ``serviceUri`` / ``uri`` must win over earlier string args (e.g. ``protocol = "tcp"``).
+    m0 = re.search(r"\b(?:serviceUri|uri)\s*=\s*[\"']((?:[^\"'\\]|\\.)*)[\"']", inner, re.IGNORECASE)
+    if m0:
+        return m0.group(1)
     m = re.search(r'["\']((?:[^"\'\\]|\\.)*)["\']', inner)
     if m:
         return m.group(1)

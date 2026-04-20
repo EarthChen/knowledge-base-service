@@ -1,7 +1,5 @@
 """Tests for post-indexing graph enrichment (API endpoints + architecture layers)."""
 
-import pytest
-
 from indexer.graph_enricher import (
     _annotation_simple_name,
     _classify_architecture_layer,
@@ -10,7 +8,6 @@ from indexer.graph_enricher import (
     _parse_annotation_arg,
     _pick_http_annotation,
     _class_request_mapping_base,
-    _topics_from_kafka_producer_snippet,
 )
 
 
@@ -150,23 +147,6 @@ class TestKafkaTopicFromListener:
     def test_no_parens(self):
         assert _kafka_topic_from_listener("@KafkaListener") == ""
 
-
-class TestTopicsFromKafkaProducerSnippet:
-    def test_send_sync_topic(self):
-        snippet = 'producer.sendSync("orders-outbound", payload)'
-        assert _topics_from_kafka_producer_snippet(snippet) == ["orders-outbound"]
-
-    def test_send_async_topic(self):
-        snippet = "kafkaProducer.sendAsync('events', msg, callback)"
-        assert _topics_from_kafka_producer_snippet(snippet) == ["events"]
-
-    def test_legacy_send_still_extracts(self):
-        snippet = '.send("legacy-topic", v)'
-        assert _topics_from_kafka_producer_snippet(snippet) == ["legacy-topic"]
-
-    def test_empty_or_none(self):
-        assert _topics_from_kafka_producer_snippet(None) == []
-        assert _topics_from_kafka_producer_snippet("") == []
 
 
 class TestClassifyArchitectureLayer:

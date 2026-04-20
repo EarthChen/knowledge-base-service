@@ -16,6 +16,31 @@ class TestExtractJavaAnnotationPrimaryArg:
         ann = "@MoaConsumer(interfaceClass=com.foo.SomeService.class)"
         assert extract_java_annotation_primary_arg(ann) == "SomeService"
 
+    def test_moa_consumer_service_uri(self) -> None:
+        ann = (
+            '@MoaConsumer(serviceUri = '
+            '"com.immomo.moaservice.ultron.user.io.interfaces.external.OperationListService")'
+        )
+        assert (
+            extract_java_annotation_primary_arg(ann)
+            == "com.immomo.moaservice.ultron.user.io.interfaces.external.OperationListService"
+        )
+
+    def test_moa_consumer_service_uri_before_protocol_string(self) -> None:
+        ann = '@MoaConsumer(protocol = "tcp", serviceUri = "com.example.api.SomeService")'
+        assert extract_java_annotation_primary_arg(ann) == "com.example.api.SomeService"
+
+    def test_moa_provider_uri(self) -> None:
+        ann = '@MoaProvider(uri = "com.immomo.moaservice.ultron.user.io.interfaces.external.OperationListService")'
+        assert (
+            extract_java_annotation_primary_arg(ann)
+            == "com.immomo.moaservice.ultron.user.io.interfaces.external.OperationListService"
+        )
+
+    def test_moa_provider_uri_with_timeout(self) -> None:
+        ann = '@MoaProvider(uri = "com.example.api.UserService", timeout = 3000)'
+        assert extract_java_annotation_primary_arg(ann) == "com.example.api.UserService"
+
     def test_moa_provider_interface_class(self) -> None:
         ann = "@MoaProvider(interfaceClass = com.bar.OtherApi.class)"
         assert extract_java_annotation_primary_arg(ann) == "OtherApi"

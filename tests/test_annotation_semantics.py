@@ -23,6 +23,7 @@ class TestLookupAnnotation:
         assert sem is not None
         assert sem.role == SemanticRole.RPC_CONSUMER
         assert sem.framework == "moa"
+        assert sem.target == "field"
 
     def test_lookup_dubbo_service(self):
         sem = lookup_annotation("@DubboService")
@@ -61,6 +62,18 @@ class TestLookupAnnotation:
         sem = lookup_annotation("@router.get")
         assert sem is not None
         assert sem.role == SemanticRole.HTTP_ENDPOINT
+
+    def test_lookup_mybatis_plus_table_name(self):
+        sem = lookup_annotation('@TableName("t_user")')
+        assert sem is not None
+        assert sem.role == SemanticRole.ENTITY
+        assert sem.framework == "mybatis-plus"
+        assert sem.target == "class"
+
+    def test_lookup_table_name_fqn(self):
+        sem = lookup_annotation("@com.baomidou.mybatisplus.annotation.TableName")
+        assert sem is not None
+        assert sem.role == SemanticRole.ENTITY
 
 
 class TestClassifyAnnotations:

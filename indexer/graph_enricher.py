@@ -34,12 +34,6 @@ _HTTP_ANNOTATION_PRIORITY: tuple[tuple[str, str], ...] = (
 
 _RPC_PROVIDER_NAMES = frozenset({"MoaProvider", "DubboService"})
 
-# Kafka producer call sites: first quoted literal in send/publish-style calls (best-effort).
-# Longer send* names before bare "send" so prefixes do not steal the match.
-_KAFKA_TOPIC_FROM_SNIPPET = re.compile(
-    r"(?:\.|\s)(?:sendSync|sendAsync|sendDefault|convertAndSend|send|publish)\s*\(\s*[\"']([^\"']+)[\"']",
-    re.IGNORECASE | re.DOTALL,
-)
 
 # FQN or simple @KafkaListener(...) occurrences in source (inheritance-based consumers).
 _KAFKA_LISTENER_ANNOTATION_IN_TEXT = re.compile(r"@(?:[\w.]+\.)?KafkaListener\b")
@@ -67,18 +61,6 @@ def _kafka_topic_module_node(topic: str) -> GraphNode:
         },
     )
 
-
-def _topics_from_kafka_producer_snippet(snippet: str | None) -> list[str]:
-    if not snippet or not isinstance(snippet, str):
-        return []
-    seen: set[str] = set()
-    out: list[str] = []
-    for m in _KAFKA_TOPIC_FROM_SNIPPET.finditer(snippet):
-        t = (m.group(1) or "").strip()
-        if t and t not in seen:
-            seen.add(t)
-            out.append(t)
-    return out
 
 
 def _parse_annotation_arg(annotation: str) -> str:
@@ -540,10 +522,14 @@ class GraphEnricher:
         return count
 
     async def _enrich_event_tracking(self) -> int:
-        """Kafka EVENT_CONSUMES / EVENT_PRODUCES edges to synthetic topic :Module nodes."""
+        """Kafka EVENT_CONSUMES edges to synthetic topic :Module nodes.
+
+        Producer detection is intentionally disabled because Kafka producers are
+        typically configured as Spring beans and cannot be reliably detected from
+        source code alone.
+        """
         count = 0
         try:
-            await self._idx.enrich_delete_all_event_produces_edges()
             await self._idx.enrich_delete_all_event_consumes_edges()
 
             res_consume = await self._idx.enrich_kafka_consumer_functions_with_topic()
@@ -570,63 +556,6 @@ class GraphEnricher:
                         topic=topic,
                         error=str(exc),
                     )
-
-            res_producers = await self._idx.enrich_kafka_producer_call_rows()
-            producer_uids: set[str] = set()
-            for row in res_producers.data:
-                u = row.get("uid")
-                if u:
-                    producer_uids.add(str(u))
-            for row in res_producers.data:
-                func_uid = row.get("uid")
-                if not func_uid:
-                    continue
-                topics = _topics_from_kafka_producer_snippet(row.get("snippet"))
-                for topic in topics:
-                    mod = _kafka_topic_module_node(topic)
-                    try:
-                        await self._store.upsert_node(mod)
-                        await self._store.upsert_edge(
-                            GraphEdge(
-                                edge_type=EdgeType.EVENT_PRODUCES,
-                                source_uid=func_uid,
-                                target_uid=mod.uid,
-                            ),
-                        )
-                        count += 1
-                    except Exception as exc:
-                        log.warning(
-                            "graph_enrich_event_produce_failed",
-                            uid=func_uid,
-                            topic=topic,
-                            error=str(exc),
-                        )
-
-            res_momo = await self._idx.enrich_kafka_momo_producer_functions()
-            for row in res_momo.data:
-                func_uid = row.get("uid")
-                if not func_uid or str(func_uid) in producer_uids:
-                    continue
-                topics = _topics_from_kafka_producer_snippet(row.get("snippet"))
-                for topic in topics:
-                    mod = _kafka_topic_module_node(topic)
-                    try:
-                        await self._store.upsert_node(mod)
-                        await self._store.upsert_edge(
-                            GraphEdge(
-                                edge_type=EdgeType.EVENT_PRODUCES,
-                                source_uid=func_uid,
-                                target_uid=mod.uid,
-                            ),
-                        )
-                        count += 1
-                    except Exception as exc:
-                        log.warning(
-                            "graph_enrich_event_produce_momo_failed",
-                            uid=func_uid,
-                            topic=topic,
-                            error=str(exc),
-                        )
         except Exception as exc:
             log.warning("graph_enrich_event_tracking_pass_error", error=str(exc))
         return count

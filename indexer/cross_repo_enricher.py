@@ -38,7 +38,7 @@ def _annotation_simple_name(raw: str) -> str:
 _RPC_PROVIDER_NAMES = frozenset({"MoaProvider", "DubboService"})
 _RPC_CONSUMER_NAMES = frozenset({"MoaConsumer", "DubboReference"})
 _DI_INJECT_NAMES = frozenset({"Autowired", "Inject", "Resource"})
-_ENTITY_ANNOTATION_NAMES = frozenset({"Entity", "Table", "Document", "MappedSuperclass"})
+_ENTITY_ANNOTATION_NAMES = frozenset({"Entity", "Table", "Document", "MappedSuperclass", "TableName"})
 
 
 class CrossRepoEnricher:
@@ -87,16 +87,19 @@ class CrossRepoEnricher:
                             if iface_key:
                                 break
 
-                if not iface_key:
-                    iface_key = name
+                provider_info = {"uid": uid, "repository": repo, "fqn": fqn, "name": name}
 
                 if iface_key:
-                    iface_to_provider[iface_key] = {
-                        "uid": uid,
-                        "repository": repo,
-                        "fqn": fqn,
-                        "name": name,
-                    }
+                    iface_to_provider[iface_key] = provider_info
+
+                interfaces = row.get("interfaces") or []
+                if isinstance(interfaces, list):
+                    for iface_name in interfaces:
+                        if iface_name:
+                            iface_to_provider[iface_name] = provider_info
+
+                if not iface_key and name:
+                    iface_to_provider[name] = provider_info
 
             consumers = await self._idx.cross_repo_rpc_consumers()
 
@@ -120,6 +123,12 @@ class CrossRepoEnricher:
                     continue
 
                 provider = iface_to_provider.get(target_iface)
+                if not provider:
+                    simple_name = (
+                        target_iface.rsplit(".", 1)[-1] if "." in target_iface else target_iface
+                    )
+                    if simple_name:
+                        provider = iface_to_provider.get(simple_name)
                 if not provider:
                     for key, prov in iface_to_provider.items():
                         if key.endswith(f".{target_iface}") or target_iface.endswith(f".{key}"):
@@ -300,7 +309,7 @@ class CrossRepoEnricher:
                 if isinstance(annotations, list):
                     for raw in annotations:
                         simple = _annotation_simple_name(raw)
-                        if simple == "Table":
+                        if simple in ("Table", "TableName"):
                             table_name = _parse_annotation_arg(raw)
                             if table_name:
                                 break

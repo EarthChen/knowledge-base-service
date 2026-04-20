@@ -35,7 +35,7 @@ class AnnotationSemantic:
 ANNOTATION_SEMANTICS: dict[str, AnnotationSemantic] = {
     # Moa RPC (highest priority)
     "MoaProvider": AnnotationSemantic(SemanticRole.RPC_PROVIDER, "class", "moa"),
-    "MoaConsumer": AnnotationSemantic(SemanticRole.RPC_CONSUMER, "method", "moa"),
+    "MoaConsumer": AnnotationSemantic(SemanticRole.RPC_CONSUMER, "field", "moa"),
     # Dubbo
     "DubboService": AnnotationSemantic(SemanticRole.RPC_PROVIDER, "class", "dubbo"),
     "DubboReference": AnnotationSemantic(SemanticRole.RPC_CONSUMER, "method", "dubbo"),
@@ -65,11 +65,12 @@ ANNOTATION_SEMANTICS: dict[str, AnnotationSemantic] = {
     "app.put": AnnotationSemantic(SemanticRole.HTTP_ENDPOINT, "method", "fastapi"),
     "app.delete": AnnotationSemantic(SemanticRole.HTTP_ENDPOINT, "method", "fastapi"),
     "app.patch": AnnotationSemantic(SemanticRole.HTTP_ENDPOINT, "method", "fastapi"),
-    # JPA / Spring Data Entity annotations
+    # JPA / Spring Data / MyBatis-Plus Entity annotations
     "Entity": AnnotationSemantic(SemanticRole.ENTITY, "class", "jpa"),
     "Table": AnnotationSemantic(SemanticRole.ENTITY, "class", "jpa"),
     "Document": AnnotationSemantic(SemanticRole.ENTITY, "class", "spring-data"),
     "MappedSuperclass": AnnotationSemantic(SemanticRole.ENTITY, "class", "jpa"),
+    "TableName": AnnotationSemantic(SemanticRole.ENTITY, "class", "mybatis-plus"),
     # Spring DI injection annotations
     "Autowired": AnnotationSemantic(SemanticRole.DI_INJECT, "field", "spring"),
     "Inject": AnnotationSemantic(SemanticRole.DI_INJECT, "field", "javax"),

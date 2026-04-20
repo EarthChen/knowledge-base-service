@@ -170,24 +170,6 @@ class IndexerStore:
         )
         return await self._store.execute_query(q)
 
-    async def enrich_kafka_momo_producer_functions(self) -> QueryResultWrapper:
-        """Functions in classes that implement ``MomoKafkaProducer`` (simple name on ``interfaces``)."""
-        q = (
-            "MATCH (c:Class)-[:CONTAINS]->(caller:Function) "
-            "WHERE coalesce(c.interfaces, []) IS NOT NULL AND 'MomoKafkaProducer' IN c.interfaces "
-            "RETURN DISTINCT caller.uid AS uid, caller.code_snippet AS snippet"
-        )
-        return await self._store.execute_query(q)
-
-    async def enrich_kafka_producer_call_rows(self) -> QueryResultWrapper:
-        q = (
-            "MATCH (caller:Function)-[:CALLS]->(callee:Function) "
-            "WHERE callee.name IN ['sendSync', 'sendAsync', 'send', 'sendDefault', 'convertAndSend', 'publish'] "
-            "MATCH (owner:Class)-[:CONTAINS]->(callee) "
-            "WHERE toLower(owner.name) CONTAINS 'kafka' OR toLower(owner.name) CONTAINS 'producer' "
-            "RETURN DISTINCT caller.uid AS uid, caller.code_snippet AS snippet"
-        )
-        return await self._store.execute_query(q)
 
     # --- indexer/cross_repo_enricher.py ---
     async def cross_repo_delete_edges(self) -> QueryResultWrapper:
@@ -198,7 +180,8 @@ class IndexerStore:
             "MATCH (c:Class) "
             "WHERE c.semantic_roles IS NOT NULL AND 'rpc_provider' IN c.semantic_roles "
             "RETURN c.uid AS uid, c.name AS name, c.rpc_interface AS rpc_interface, "
-            "c.repository AS repository, c.annotations AS annotations, c.fqn AS fqn"
+            "c.repository AS repository, c.annotations AS annotations, c.fqn AS fqn, "
+            "c.interfaces AS interfaces, c.base_classes AS base_classes"
         )
         return await self._store.execute_query(q)
 

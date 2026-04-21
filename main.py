@@ -70,6 +70,8 @@ _task_manager: IndexTaskManager | None = None
 _repo_registry: RepoRegistry | None = None
 _MAX_CONCURRENT_REINDEX = 1
 _reindex_sem = asyncio.Semaphore(_MAX_CONCURRENT_REINDEX)
+_MAX_CONCURRENT_INDEX = 2
+_index_sem = asyncio.Semaphore(_MAX_CONCURRENT_INDEX)
 _scheduler: SyncScheduler | None = None
 
 
@@ -751,7 +753,7 @@ async def trigger_index(
         business_id=business_id,
     )
 
-    asyncio.create_task(_run_index_task(task.task_id, req, business_id))
+    asyncio.create_task(_throttled_index_task(task.task_id, req, business_id))
 
     return {
         "task_id": task.task_id,
@@ -938,6 +940,11 @@ async def _run_enrich_task(task_id: str, req: EnrichRequest, business_id: str) -
     except Exception as exc:
         log.error("enrich_task_failed", task_id=task_id, error=str(exc))
         _task_manager.mark_failed(task_id, str(exc))
+
+
+async def _throttled_index_task(task_id: str, req: IndexRequest, business_id: str) -> None:
+    async with _index_sem:
+        await _run_index_task(task_id, req, business_id)
 
 
 async def _run_index_task(task_id: str, req: IndexRequest, business_id: str) -> None:
@@ -1327,6 +1334,7 @@ async def get_file_tree(
     store = svc.store
     cypher = (
         "MATCH (m:Module) WHERE m.repository = $repo "
+        "AND NOT coalesce(m.file, m.path) STARTS WITH '<import:' "
         "RETURN coalesce(m.file, m.path) AS file, m.name AS name, m.repository AS repository "
         "ORDER BY file"
     )

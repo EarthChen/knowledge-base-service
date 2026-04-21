@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   ReactFlow,
   Background,
@@ -222,7 +222,8 @@ function truncateDoc(s: string, max = 280): string {
 }
 
 export default function GraphExplorer() {
-  const [searchName, setSearchName] = useState("");
+  const [graphSearchParams] = useSearchParams();
+  const [searchName, setSearchName] = useState(() => graphSearchParams.get("q") ?? "");
   const [depth, setDepth] = useState(2);
   const [limit, setLimit] = useState(100);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);

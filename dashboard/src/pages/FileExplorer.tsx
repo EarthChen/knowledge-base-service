@@ -101,7 +101,7 @@ function TreeRows({
   node: FileTreeNode;
   depth: number;
   expanded: Set<string>;
-  onToggle: (path: string) => void;
+  onToggle: (path: string | string[]) => void;
   selectedPath: string | null;
   onSelectFile: (path: string, repo?: string) => void;
   filterActive: boolean;
@@ -125,6 +125,22 @@ function TreeRows({
   );
 }
 
+function compactDirChain(node: FileTreeNode): { label: string; leaf: FileTreeNode; intermediates: string[] } {
+  const parts: string[] = [node.name];
+  const midPaths: string[] = [];
+  let cur = node;
+  while (
+    cur.type === "directory" &&
+    cur.children?.length === 1 &&
+    cur.children[0].type === "directory"
+  ) {
+    midPaths.push(cur.path);
+    cur = cur.children[0];
+    parts.push(cur.name);
+  }
+  return { label: parts.join("/"), leaf: cur, intermediates: midPaths };
+}
+
 function TreeRow({
   node,
   depth,
@@ -137,23 +153,29 @@ function TreeRow({
   node: FileTreeNode;
   depth: number;
   expanded: Set<string>;
-  onToggle: (path: string) => void;
+  onToggle: (path: string | string[]) => void;
   selectedPath: string | null;
   onSelectFile: (path: string, repo?: string) => void;
   filterActive: boolean;
 }) {
   const pad = 8 + depth * 12;
   const isDir = node.type === "directory";
-  const isOpen = expanded.has(node.path);
   const selected = node.type === "file" && selectedPath === node.path;
 
   if (isDir) {
+    const { label, leaf, intermediates } = compactDirChain(node);
+    const isOpen = expanded.has(leaf.path) || intermediates.some((p) => expanded.has(p));
+
+    const handleToggle = () => {
+      onToggle([leaf.path, ...intermediates]);
+    };
+
     return (
       <div>
         <button
           type="button"
           style={{ paddingLeft: pad }}
-          onClick={() => onToggle(node.path)}
+          onClick={handleToggle}
           className="flex w-full items-center gap-1 rounded-md py-1 text-left text-sm text-gray-800 hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800"
         >
           <ChevronRight
@@ -165,11 +187,11 @@ function TreeRow({
           ) : (
             <Folder size={15} className="shrink-0 text-amber-600/90 dark:text-amber-400/90" />
           )}
-          <span className="min-w-0 truncate font-medium">{node.name}</span>
+          <span className="min-w-0 truncate font-medium">{label}</span>
         </button>
         {isOpen && (
           <TreeRows
-            node={node}
+            node={leaf}
             depth={depth + 1}
             expanded={expanded}
             onToggle={onToggle}
@@ -258,11 +280,16 @@ export default function FileExplorer() {
     return map;
   }, [entitiesData]);
 
-  const toggle = useCallback((path: string) => {
+  const toggle = useCallback((pathOrPaths: string | string[]) => {
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
+      const paths = Array.isArray(pathOrPaths) ? pathOrPaths : [pathOrPaths];
+      const primary = paths[0];
+      const shouldOpen = !next.has(primary);
+      for (const p of paths) {
+        if (shouldOpen) next.add(p);
+        else next.delete(p);
+      }
       return next;
     });
   }, []);
@@ -450,64 +477,64 @@ export default function FileExplorer() {
                   <p className="text-xs text-gray-500 dark:text-gray-400">{t.fileExplorer.noEntities}</p>
                 ) : (
                   <ul className="space-y-2">
-                    {entitiesData.entities.map((ent) => (
-                      <li key={`${ent.name}:${ent.start_line}:${ent.type}`}>
-                        <button
-                          type="button"
-                          onClick={() => setFocusedEntity(ent)}
-                          className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors dark:border-gray-600 ${
-                            focusedEntity?.name === ent.name && focusedEntity?.start_line === ent.start_line
-                              ? "border-sky-500 bg-sky-50 dark:border-sky-500 dark:bg-sky-950/40"
-                              : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700/40"
-                          }`}
-                        >
-                          <span className="font-medium text-gray-900 dark:text-gray-100">{ent.name}</span>
-                          <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
-                            L{ent.start_line}
-                            {ent.end_line != null ? `–${ent.end_line}` : ""}
-                          </span>
-                          <div className="truncate text-xs text-gray-500 dark:text-gray-500">{ent.type}</div>
-                        </button>
-                      </li>
-                    ))}
+                    {entitiesData.entities.map((ent) => {
+                      const isFocused = focusedEntity?.name === ent.name && focusedEntity?.start_line === ent.start_line;
+                      return (
+                        <li key={`${ent.name}:${ent.start_line}:${ent.type}`}>
+                          <button
+                            type="button"
+                            onClick={() => setFocusedEntity(ent)}
+                            className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors dark:border-gray-600 ${
+                              isFocused
+                                ? "border-sky-500 bg-sky-50 dark:border-sky-500 dark:bg-sky-950/40"
+                                : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700/40"
+                            }`}
+                          >
+                            <span className="font-medium text-gray-900 dark:text-gray-100">{ent.name}</span>
+                            <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                              L{ent.start_line}
+                              {ent.end_line != null ? `–${ent.end_line}` : ""}
+                            </span>
+                            <div className="truncate text-xs text-gray-500 dark:text-gray-500">{ent.type}</div>
+                          </button>
+                          {isFocused && (
+                            <div className="mt-1 rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-800/80">
+                              {ent.signature ? (
+                                <pre className="mb-2 max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-gray-700 dark:text-gray-300">
+                                  {ent.signature}
+                                </pre>
+                              ) : null}
+                              <div className="flex flex-col gap-1.5">
+                                <Link
+                                  to={`/explorer?q=${encodeURIComponent(ent.name)}`}
+                                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
+                                >
+                                  <Network size={14} />
+                                  {t.fileExplorer.viewInGraph}
+                                </Link>
+                                <Link
+                                  to={`/search?q=${encodeURIComponent(ent.name)}`}
+                                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+                                >
+                                  <Search size={14} />
+                                  {t.fileExplorer.searchRelated}
+                                </Link>
+                                {repoForContent ? (
+                                  <Link
+                                    to={`/wiki/${encodeURIComponent(repoForContent)}`}
+                                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+                                  >
+                                    <BookOpen size={14} />
+                                    {t.fileExplorer.viewWiki}
+                                  </Link>
+                                ) : null}
+                              </div>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
-                )}
-
-                {focusedEntity && (
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-800/80">
-                    <p className="font-semibold text-gray-900 dark:text-gray-100">{focusedEntity.name}</p>
-                    <p className="mt-1 text-gray-600 dark:text-gray-300">{focusedEntity.type}</p>
-                    {focusedEntity.signature ? (
-                      <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-gray-700 dark:text-gray-300">
-                        {focusedEntity.signature}
-                      </pre>
-                    ) : null}
-                    <div className="mt-3 flex flex-col gap-2">
-                      <Link
-                        to="/explorer"
-                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"
-                      >
-                        <Network size={14} />
-                        {t.fileExplorer.viewInGraph}
-                      </Link>
-                      <Link
-                        to={`/search?q=${encodeURIComponent(focusedEntity.name)}`}
-                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
-                      >
-                        <Search size={14} />
-                        {t.fileExplorer.searchRelated}
-                      </Link>
-                      {repoForContent ? (
-                        <Link
-                          to={`/wiki/${encodeURIComponent(repoForContent)}`}
-                          className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
-                        >
-                          <BookOpen size={14} />
-                          {t.fileExplorer.viewWiki}
-                        </Link>
-                      ) : null}
-                    </div>
-                  </div>
                 )}
               </aside>
             </div>

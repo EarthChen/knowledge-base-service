@@ -237,68 +237,80 @@ class IncrementalIndexer:
         batch_buffer: list[dict[str, str]] = []
         commit_sha = _try_git_head_sha(directory)
 
-        for fpath, nodes, edges in self._builder.iter_directory(directory):
-            try:
-                _stamp_repository_metadata(nodes, repository, commit_sha=commit_sha)
-                await self._store.batch_upsert(nodes, edges)
-                total_nodes += len(nodes)
-                total_edges += len(edges)
-                file_paths_for_embed.append(fpath)
+        _sentinel_sent = False
+        try:
+            for fpath, nodes, edges in self._builder.iter_directory(directory):
+                try:
+                    _stamp_repository_metadata(nodes, repository, commit_sha=commit_sha)
+                    await self._store.batch_upsert(nodes, edges)
+                    total_nodes += len(nodes)
+                    total_edges += len(edges)
+                    file_paths_for_embed.append(fpath)
 
-                for n in nodes:
-                    if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS):
-                        enrich_candidates += 1
-                        item = {
-                            "name": n.properties.get("name", ""),
-                            "signature": n.properties.get("signature", ""),
-                            "docstring": n.properties.get("docstring", ""),
-                            "code_snippet": n.properties.get("code_snippet", ""),
-                            "file": n.properties.get("file", ""),
-                            "entity_kind": (
-                                "function" if n.label == NodeLabel.FUNCTION else "class"
-                            ),
-                        }
-                        sr = n.properties.get("semantic_roles")
-                        if sr:
-                            item["semantic_roles"] = sr
-                        if is_trivial_enrichment_entity(item):
-                            enrich_skipped_trivial += 1
-                            continue
-                        if not run_llm_indexing_enrichment:
-                            continue
-                        if priority_classifier and not priority_classifier.is_core_entity(item):
-                            continue
-                        item = truncate_enrichment_item(item)
-                        enrich_refs.setdefault(item["name"], []).append((n.label, n.uid))
-                        batch_buffer.append(item)
-                        if len(batch_buffer) >= _ENRICH_BATCH_SIZE:
-                            await enrich_queue.put(batch_buffer)
-                            batch_buffer = []
+                    for n in nodes:
+                        if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS):
+                            enrich_candidates += 1
+                            item = {
+                                "name": n.properties.get("name", ""),
+                                "signature": n.properties.get("signature", ""),
+                                "docstring": n.properties.get("docstring", ""),
+                                "code_snippet": n.properties.get("code_snippet", ""),
+                                "file": n.properties.get("file", ""),
+                                "entity_kind": (
+                                    "function" if n.label == NodeLabel.FUNCTION else "class"
+                                ),
+                            }
+                            sr = n.properties.get("semantic_roles")
+                            if sr:
+                                item["semantic_roles"] = sr
+                            if is_trivial_enrichment_entity(item):
+                                enrich_skipped_trivial += 1
+                                continue
+                            if not run_llm_indexing_enrichment:
+                                continue
+                            if priority_classifier and not priority_classifier.is_core_entity(item):
+                                continue
+                            item = truncate_enrichment_item(item)
+                            enrich_refs.setdefault(item["name"], []).append((n.label, n.uid))
+                            batch_buffer.append(item)
+                            if len(batch_buffer) >= _ENRICH_BATCH_SIZE:
+                                await enrich_queue.put(batch_buffer)
+                                batch_buffer = []
 
-                processed += 1
-                if progress_callback:
-                    progress_callback(
-                        current_file=fpath,
-                        processed_files=processed,
-                        nodes=total_nodes,
-                        edges=total_edges,
-                    )
+                    processed += 1
+                    if progress_callback:
+                        progress_callback(
+                            current_file=fpath,
+                            processed_files=processed,
+                            nodes=total_nodes,
+                            edges=total_edges,
+                        )
 
-                report.record_file_success(fpath, nodes, edges)
-            except Exception as exc:
-                report.record_file_failure(fpath, str(exc))
-                report.duration_seconds = time.monotonic() - start_time
-                report.finalize()
-                self._last_report = report
-                log.info("index_quality_report", report=report.to_dict())
-                raise
+                    report.record_file_success(fpath, nodes, edges)
+                except Exception as exc:
+                    report.record_file_failure(fpath, str(exc))
+                    report.duration_seconds = time.monotonic() - start_time
+                    report.finalize()
+                    self._last_report = report
+                    log.info("index_quality_report", report=report.to_dict())
+                    raise
 
-        if batch_buffer:
-            await enrich_queue.put(batch_buffer)
-        await enrich_queue.put(None)
+            if batch_buffer:
+                await enrich_queue.put(batch_buffer)
+            await enrich_queue.put(None)
+            _sentinel_sent = True
+        finally:
+            if not _sentinel_sent:
+                try:
+                    await enrich_queue.put(None)
+                except Exception:
+                    pass
+                enrichment_task.cancel()
 
         try:
             await enrichment_task
+        except asyncio.CancelledError:
+            pass
         except Exception as exc:
             log.warning(
                 "llm_enrichment_failed_non_fatal",

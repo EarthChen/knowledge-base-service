@@ -386,6 +386,12 @@ class EmbeddingGenerator:
         self._backend: _EmbeddingBackend | None = None
         self._query_embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
         self._query_embedding_lock = threading.Lock()
+        self._encode_lock: asyncio.Lock | None = None
+
+    def _get_encode_lock(self) -> asyncio.Lock:
+        if self._encode_lock is None:
+            self._encode_lock = asyncio.Lock()
+        return self._encode_lock
 
     @classmethod
     def shared(cls, config: EmbeddingConfig) -> EmbeddingGenerator:
@@ -428,8 +434,9 @@ class EmbeddingGenerator:
         """Generate embeddings for a batch of texts."""
         if not texts:
             return []
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._encode_batch, texts, is_query)
+        async with self._get_encode_lock():
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self._encode_batch, texts, is_query)
 
     def _encode_batch(self, texts: list[str], is_query: bool = False) -> list[list[float]]:
         backend = self._get_backend()

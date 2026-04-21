@@ -50,6 +50,8 @@ def resolve_repo_clone_root(
     First tries ``{clone_base}/{repository}`` (local indexes and URL-aligned names). If that
     directory is missing and ``repo_registry`` maps this name to a ``git_url``, uses the
     same path as :meth:`GitManager._repo_local_path` so canonical names match clone layout.
+    Falls back to scanning subdirectories for a matching basename (handles
+    ``group/project`` clone layouts where the graph stores only ``project``).
     """
     repo = repository.strip()
     if not repo or ".." in Path(repo).parts or repo.startswith("/"):
@@ -66,12 +68,21 @@ def resolve_repo_clone_root(
             mgr = GitManager(git_cfg)
             cloned = mgr._repo_local_path(git_url).resolve()
             if cloned.is_dir():
-                # Under managed clone base (typical git clones).
                 if cloned.is_relative_to(base):
                     return cloned
-                # Directory-only indexes register an absolute path as git_url; trust registry.
                 if cloned.is_absolute():
                     return cloned
+
+    repo_basename = repo.rsplit("/", 1)[-1]
+    if base.is_dir():
+        for group_dir in sorted(base.iterdir()):
+            if not group_dir.is_dir():
+                continue
+            candidate = group_dir / repo_basename
+            if candidate.is_dir() and (candidate / ".git").is_dir():
+                resolved = candidate.resolve()
+                if resolved.is_relative_to(base):
+                    return resolved
 
     return None
 

@@ -82,6 +82,11 @@ class GraphQueryRepository:
                 where_base + "n.file STARTS WITH $dir_prefix " + set_clause,
                 {**base_params, "dir_prefix": dir_prefix},
             )
+            await self._store.execute_query(
+                "MATCH (n:Module) WHERE n.repository IS NULL AND n.path STARTS WITH $dir_prefix "
+                + set_clause,
+                {**base_params, "dir_prefix": dir_prefix},
+            )
 
         if file_prefix:
             fp = file_prefix.replace("\\", "/").strip().rstrip("/") + "/"

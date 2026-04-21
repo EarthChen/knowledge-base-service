@@ -7,6 +7,7 @@ Provides async-compatible connection management, schema initialization
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 from typing import Any
 
 from falkordb import FalkorDB, Graph
@@ -18,6 +19,9 @@ from redis_startup import await_with_busy_loading_retry, run_sync_with_busy_load
 from .schema import VECTOR_INDEX_CONFIGS, GraphEdge, GraphNode, NodeLabel
 
 log = get_logger(__name__)
+
+_graph_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="falkordb")
+_xref_lock = asyncio.Lock()
 
 
 def _cypher_escape(value: str) -> str:
@@ -140,7 +144,7 @@ class FalkorDBStore:
             for prop in ("uid", "name", "fqn"):
                 try:
                     await loop.run_in_executor(
-                        None,
+                        _graph_executor,
                         lambda lbl=label, p=prop: self._graph.query(  # type: ignore[union-attr]
                             f"CREATE INDEX FOR (n:{lbl}) ON (n.{p})"
                         ),
@@ -151,7 +155,7 @@ class FalkorDBStore:
         for idx_cfg in VECTOR_INDEX_CONFIGS:
             try:
                 await loop.run_in_executor(
-                    None,
+                    _graph_executor,
                     lambda cfg=idx_cfg: self._graph.query(  # type: ignore[union-attr]
                         f"CREATE VECTOR INDEX FOR (n:{cfg['label']}) "
                         f"ON (n.{cfg['attribute']}) "
@@ -177,7 +181,7 @@ class FalkorDBStore:
         )
 
         await loop.run_in_executor(
-            None, lambda: self._graph.query(query, params=props)  # type: ignore[union-attr]
+            _graph_executor, lambda: self._graph.query(query, params=props)  # type: ignore[union-attr]
         )
 
     async def set_node_embedding(self, uid: str, label: NodeLabel, embedding: list[float]) -> None:
@@ -188,7 +192,7 @@ class FalkorDBStore:
             f"SET n.embedding = vecf32([{vec_str}])"
         )
         await loop.run_in_executor(
-            None, lambda: self._graph.query(query, params={"uid": uid})  # type: ignore[union-attr]
+            _graph_executor, lambda: self._graph.query(query, params={"uid": uid})  # type: ignore[union-attr]
         )
 
     _ALLOWED_PROPERTIES = frozenset({
@@ -208,7 +212,7 @@ class FalkorDBStore:
         loop = asyncio.get_running_loop()
         query = f"MATCH (n:{label} {{uid: $uid}}) SET n.{prop} = $value"
         await loop.run_in_executor(
-            None,
+            _graph_executor,
             lambda: self._graph.query(  # type: ignore[union-attr]
                 query, params={"uid": uid, "value": value}
             ),
@@ -229,7 +233,7 @@ class FalkorDBStore:
         params.update(edge.properties)
 
         await loop.run_in_executor(
-            None, lambda: self._graph.query(query, params=params)  # type: ignore[union-attr]
+            _graph_executor, lambda: self._graph.query(query, params=params)  # type: ignore[union-attr]
         )
 
     async def batch_upsert(self, nodes: list[GraphNode], edges: list[GraphEdge]) -> None:
@@ -248,7 +252,7 @@ class FalkorDBStore:
         for lbl in embeddable_labels:
             cypher = f"MATCH (n:{lbl} {{file: $file}}) RETURN n"
             result = await loop.run_in_executor(
-                None,
+                _graph_executor,
                 lambda q=cypher: self._graph.query(q, params={"file": file_path}),  # type: ignore[union-attr]
             )
             for row in result.result_set or []:
@@ -270,7 +274,7 @@ class FalkorDBStore:
         """
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
-            None,
+            _graph_executor,
             lambda: self._graph.query(  # type: ignore[union-attr]
                 "MATCH (n) WHERE n.file = $file OR (n:Module AND n.path = $file) "
                 "DETACH DELETE n RETURN count(n) AS deleted",
@@ -284,7 +288,7 @@ class FalkorDBStore:
     async def execute_query(self, cypher: str, params: dict[str, Any] | None = None) -> QueryResultWrapper:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
-            None,
+            _graph_executor,
             lambda: self._graph.query(cypher, params=params or {})  # type: ignore[union-attr]
         )
         header = [col[1] if isinstance(col, (list, tuple)) else str(col) for col in (result.header or [])]
@@ -397,7 +401,7 @@ class FalkorDBStore:
             f"RETURN node, score ORDER BY score DESC LIMIT {k}"
         )
         result = await loop.run_in_executor(
-            None, lambda: self._graph.query(query)  # type: ignore[union-attr]
+            _graph_executor, lambda: self._graph.query(query)  # type: ignore[union-attr]
         )
         return [(row[0], row[1]) for row in result.result_set]
 
@@ -446,7 +450,7 @@ class FalkorDBStore:
             )
             try:
                 rows = await loop.run_in_executor(
-                    None,
+                    _graph_executor,
                     lambda: self._graph.query(fqn_q, params={"fqn": keyword, "k": k}),  # type: ignore[union-attr]
                 )
                 for row in rows.result_set or []:
@@ -479,7 +483,7 @@ class FalkorDBStore:
                     )
                     try:
                         rows = await loop.run_in_executor(
-                            None,
+                            _graph_executor,
                             lambda: self._graph.query(  # type: ignore[union-attr]
                                 combo_q, params={"method": method_name, "class_name": class_simple, "k": k},
                             ),
@@ -506,7 +510,7 @@ class FalkorDBStore:
         )
         try:
             rows = await loop.run_in_executor(
-                None,
+                _graph_executor,
                 lambda: self._graph.query(exact_q, params={"name": keyword, "k": k}),  # type: ignore[union-attr]
             )
             for row in rows.result_set or []:
@@ -535,7 +539,7 @@ class FalkorDBStore:
         )
         try:
             rows = await loop.run_in_executor(
-                None,
+                _graph_executor,
                 lambda: self._graph.query(  # type: ignore[union-attr]
                     fuzzy_q, params={"keyword": keyword, "k": k},
                 ),
@@ -560,77 +564,78 @@ class FalkorDBStore:
         Deletes stale auto-resolved edges first, then recreates from current data.
         This ensures renamed/deleted entities don't leave orphan edges.
         """
-        loop = asyncio.get_running_loop()
-        stats: dict[str, int] = {}
+        async with _xref_lock:
+            loop = asyncio.get_running_loop()
+            stats: dict[str, int] = {}
 
-        for edge_type in ("INHERITS", "IMPORTS", "REFERENCES"):
+            for edge_type in ("INHERITS", "IMPORTS", "REFERENCES"):
+                try:
+                    await loop.run_in_executor(
+                        _graph_executor,
+                        lambda et=edge_type: self._graph.query(  # type: ignore[union-attr]
+                            f"MATCH ()-[r:{et}]->() DELETE r"
+                        ),
+                    )
+                except Exception as exc:
+                    log.warning("stale_edge_cleanup_error", edge_type=edge_type, error=str(exc))
+
+            inherits_q = (
+                "MATCH (child:Class) "
+                "WHERE child.base_classes IS NOT NULL AND size(child.base_classes) > 0 "
+                "UNWIND child.base_classes AS base_name "
+                "MATCH (parent:Class {name: base_name}) "
+                "WHERE parent.uid <> child.uid "
+                "MERGE (child)-[:INHERITS]->(parent) "
+                "RETURN count(*) AS cnt"
+            )
             try:
-                await loop.run_in_executor(
-                    None,
-                    lambda et=edge_type: self._graph.query(  # type: ignore[union-attr]
-                        f"MATCH ()-[r:{et}]->() DELETE r"
-                    ),
+                result = await loop.run_in_executor(
+                    _graph_executor, lambda: self._graph.query(inherits_q)  # type: ignore[union-attr]
                 )
+                stats["inherits"] = result.result_set[0][0] if result.result_set else 0
             except Exception as exc:
-                log.warning("stale_edge_cleanup_error", edge_type=edge_type, error=str(exc))
+                log.warning("resolve_inherits_error", error=str(exc))
+                stats["inherits"] = 0
 
-        inherits_q = (
-            "MATCH (child:Class) "
-            "WHERE child.base_classes IS NOT NULL AND size(child.base_classes) > 0 "
-            "UNWIND child.base_classes AS base_name "
-            "MATCH (parent:Class {name: base_name}) "
-            "WHERE parent.uid <> child.uid "
-            "MERGE (child)-[:INHERITS]->(parent) "
-            "RETURN count(*) AS cnt"
-        )
-        try:
-            result = await loop.run_in_executor(
-                None, lambda: self._graph.query(inherits_q)  # type: ignore[union-attr]
+            imports_q = (
+                "MATCH (m:Module) "
+                "WHERE m.imports IS NOT NULL AND size(m.imports) > 0 "
+                "UNWIND m.imports AS imp "
+                "WITH m, imp, split(imp, '.') AS parts "
+                "WITH m, parts[size(parts)-1] AS mod_name "
+                "MATCH (target:Module {name: mod_name}) "
+                "WHERE target.uid <> m.uid "
+                "MERGE (m)-[:IMPORTS]->(target) "
+                "RETURN count(*) AS cnt"
             )
-            stats["inherits"] = result.result_set[0][0] if result.result_set else 0
-        except Exception as exc:
-            log.warning("resolve_inherits_error", error=str(exc))
-            stats["inherits"] = 0
+            try:
+                result = await loop.run_in_executor(
+                    _graph_executor, lambda: self._graph.query(imports_q)  # type: ignore[union-attr]
+                )
+                stats["imports"] = result.result_set[0][0] if result.result_set else 0
+            except Exception as exc:
+                log.warning("resolve_imports_error", error=str(exc))
+                stats["imports"] = 0
 
-        imports_q = (
-            "MATCH (m:Module) "
-            "WHERE m.imports IS NOT NULL AND size(m.imports) > 0 "
-            "UNWIND m.imports AS imp "
-            "WITH m, imp, split(imp, '.') AS parts "
-            "WITH m, parts[size(parts)-1] AS mod_name "
-            "MATCH (target:Module {name: mod_name}) "
-            "WHERE target.uid <> m.uid "
-            "MERGE (m)-[:IMPORTS]->(target) "
-            "RETURN count(*) AS cnt"
-        )
-        try:
-            result = await loop.run_in_executor(
-                None, lambda: self._graph.query(imports_q)  # type: ignore[union-attr]
-            )
-            stats["imports"] = result.result_set[0][0] if result.result_set else 0
-        except Exception as exc:
-            log.warning("resolve_imports_error", error=str(exc))
-            stats["imports"] = 0
+            try:
+                result = await loop.run_in_executor(
+                    _graph_executor,
+                    lambda: self._graph.query(REFERENCES_CROSS_FILE_CYPHER),  # type: ignore[union-attr]
+                )
+                stats["references"] = result.result_set[0][0] if result.result_set else 0
+            except Exception as exc:
+                log.warning("resolve_references_error", error=str(exc))
+                stats["references"] = 0
 
-        try:
-            result = await loop.run_in_executor(
-                None,
-                lambda: self._graph.query(REFERENCES_CROSS_FILE_CYPHER),  # type: ignore[union-attr]
-            )
-            stats["references"] = result.result_set[0][0] if result.result_set else 0
-        except Exception as exc:
-            log.warning("resolve_references_error", error=str(exc))
-            stats["references"] = 0
-
-        log.info("cross_file_edges_resolved", **stats)
-        return stats
+            log.info("cross_file_edges_resolved", **stats)
+            return stats
 
     async def close(self) -> None:
         log.info("falkordb_closing")
         if self._db is not None and self._owns_connection:
             try:
                 loop = asyncio.get_running_loop()
-                await loop.run_in_executor(None, self._db.connection.close)
+                await loop.run_in_executor(_graph_executor, self._db.connection.close)
             except Exception as exc:
                 log.warning("falkordb_close_error", error=str(exc))
         self._graph = None

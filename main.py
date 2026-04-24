@@ -77,6 +77,7 @@ _scheduler: SyncScheduler | None = None
 
 async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
     """Expose wiki HTTP route dependencies on ``app.state`` (default business graph)."""
+    from llm.base_provider import GatewayLLMProviderAdapter, LLMPortBridge
     from wiki.ask import WikiAskService
     from wiki.search import WikiSearchService
     from wiki.service import WikiService
@@ -87,14 +88,20 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
     async def repository_exists(repo: str) -> bool:
         kb_inner = await registry.get_service("default")
         queries = GraphQueryRepository(kb_inner.store)
-        # WikiPage nodes have no `file`; sample-file check alone false-negatives wiki-only repos.
         return await queries.get_repository_node_count(repo) > 0
+
+    def _wrap_llm(raw_llm: object) -> object | None:
+        if raw_llm is None:
+            return None
+        if hasattr(raw_llm, "generate"):
+            return raw_llm
+        return LLMPortBridge(GatewayLLMProviderAdapter(raw_llm))  # type: ignore[arg-type]
 
     async def wiki_service_factory() -> WikiService:
         kb_svc = await registry.get_service("default")
         return WikiService(
             graph=kb_svc.store,
-            llm=kb_svc.llm_provider,
+            llm=_wrap_llm(kb_svc.llm_provider),
             repository_exists=repository_exists,
             store=kb_svc.store,
             deferred_enrichment=kb_svc.wiki_deferred_enrichment,
@@ -114,7 +121,7 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
     if kb.llm_provider is not None:
         app.state.wiki_ask_service = WikiAskService(
             search=wiki_search,
-            llm=kb.llm_provider,
+            llm=_wrap_llm(kb.llm_provider),
             graph=kb.store,
         )
     else:

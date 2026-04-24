@@ -42,6 +42,8 @@ export function useDeepSearchStream() {
 
       const decoder = new TextDecoder();
       let buffer = "";
+      // event: and data: lines are often split across read() chunks (separate TCP packets).
+      let pendingEventType = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -51,17 +53,19 @@ export function useDeepSearchStream() {
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
 
-        let currentEventType = "";
         for (const line of lines) {
           if (line.startsWith("event: ")) {
-            currentEventType = line.slice(7).trim();
-          } else if (line.startsWith("data: ") && currentEventType) {
+            pendingEventType = line.slice(7).trim();
+          } else if (line.startsWith("data: ") && pendingEventType) {
+            const evType = pendingEventType;
             try {
               const data = JSON.parse(line.slice(6));
+              const status: StageEvent["status"] =
+                evType === "progress" || evType === "plan" ? "active" : "done";
               const event: StageEvent = {
-                type: currentEventType as StageEvent["type"],
+                type: evType as StageEvent["type"],
                 data,
-                status: "done",
+                status,
               };
 
               setState((prev) => {
@@ -69,17 +73,13 @@ export function useDeepSearchStream() {
                   s.status === "active" ? { ...s, status: "done" as const } : s,
                 );
 
-                if (currentEventType === "conclusion") {
+                if (evType === "conclusion") {
                   return {
                     ...prev,
-                    stages: [...updated, { ...event, status: "done" }],
+                    stages: [...updated, { ...event, status: "done" as const }],
                     conclusion: data,
                     isStreaming: false,
                   };
-                }
-
-                if (currentEventType === "progress" || currentEventType === "plan") {
-                  event.status = "active";
                 }
 
                 return {
@@ -88,7 +88,7 @@ export function useDeepSearchStream() {
                 };
               });
 
-              currentEventType = "";
+              pendingEventType = "";
             } catch {
               // Skip malformed JSON
             }

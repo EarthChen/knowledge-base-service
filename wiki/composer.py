@@ -281,11 +281,20 @@ class WikiComposer:
             f"{ctx_block}\n\n"
             "## Task\n"
             f"{lang_directive}\n\n"
-            f"Write a concise Overview for this {page_type.value.replace('_', ' ')} page.\n\n"
+            f"Write a detailed documentation page for this {page_type.value.replace('_', ' ')}.\n"
+            "Include:\n"
+            "1. A concise overview of this entity's purpose and responsibility\n"
+            "2. How its key methods/components work together (describe the workflow/process)\n"
+            "3. Its relationships with other modules (who calls it, what it depends on)\n"
+            "4. Any important design patterns or business logic\n\n"
             f"{entity}\n"
             f"{doc_section}"
         )
-        system = "You are a senior engineer writing internal documentation. Output plain prose only."
+        system = (
+            "You are a senior engineer writing internal technical documentation. "
+            "Focus on business logic and workflow understanding. "
+            "Use clear section headings (##). Output Markdown."
+        )
         return (await self._llm.generate(prompt, system=system)).strip()
 
     def _entity_digest(self, page_data: PageData, page_type: PageType) -> str:
@@ -303,11 +312,59 @@ class WikiComposer:
         fqn = n.properties.get("fqn")
         if isinstance(fqn, str):
             lines.append(f"- FQN: {fqn}")
+        sig = n.properties.get("signature")
+        if isinstance(sig, str) and sig:
+            lines.append(f"- Signature: {sig}")
+        doc = n.properties.get("docstring")
+        if isinstance(doc, str) and doc:
+            lines.append(f"- Docstring: {doc[:500]}")
+        bs = n.properties.get("business_summary")
+        if isinstance(bs, str) and bs:
+            lines.append(f"- Business summary: {bs}")
+
         lines.append(f"- Related edges: {len(page_data.edges)}")
+
         if page_type == PageType.MODULE_OVERVIEW:
-            lines.append(f"- Child classes/modules listed: {len(page_data.children)}")
+            lines.append(f"- Child classes/modules: {len(page_data.children)}")
+            for ch in page_data.children[:20]:
+                ch_name = ch.properties.get("name", ch.uid)
+                ch_sig = ch.properties.get("signature", "")
+                ch_bs = ch.properties.get("business_summary", "")
+                detail = f"  - [{ch.label.value}] {ch_name}"
+                if ch_sig:
+                    detail += f" | sig: {str(ch_sig)[:120]}"
+                if ch_bs:
+                    detail += f" | summary: {str(ch_bs)[:100]}"
+                lines.append(detail)
         else:
-            lines.append(f"- Methods listed: {len(page_data.methods)}")
+            lines.append(f"- Methods: {len(page_data.methods)}")
+            for m in page_data.methods[:30]:
+                m_name = m.properties.get("name", m.uid)
+                m_sig = m.properties.get("signature", "")
+                m_doc = m.properties.get("docstring", "")
+                m_bs = m.properties.get("business_summary", "")
+                detail = f"  - {m_name}"
+                if m_sig:
+                    detail += f" | sig: {str(m_sig)[:150]}"
+                if m_bs:
+                    detail += f" | summary: {str(m_bs)[:100]}"
+                elif m_doc:
+                    detail += f" | doc: {str(m_doc)[:100]}"
+                lines.append(detail)
+
+        calls_out = [e for e in page_data.edges if e.edge_type == EdgeType.CALLS and e.source_uid == n.uid]
+        calls_in = [e for e in page_data.edges if e.edge_type == EdgeType.CALLS and e.target_uid == n.uid]
+        inherits = [e for e in page_data.edges if e.edge_type == EdgeType.INHERITS]
+        if calls_out:
+            targets = [_display_name(e.target_uid) for e in calls_out[:10]]
+            lines.append(f"- Calls out to: {', '.join(targets)}")
+        if calls_in:
+            sources = [_display_name(e.source_uid) for e in calls_in[:10]]
+            lines.append(f"- Called by: {', '.join(sources)}")
+        if inherits:
+            parents = [_display_name(e.target_uid) for e in inherits[:5]]
+            lines.append(f"- Inherits from: {', '.join(parents)}")
+
         return "\n".join(lines)
 
     def _tier3_structural(self, page_data: PageData, page_type: PageType, language: str) -> str:

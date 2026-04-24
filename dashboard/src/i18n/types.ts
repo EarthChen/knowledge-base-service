@@ -536,6 +536,10 @@ export interface Translations {
     regenerate: string;
     regenerateStarted: string;
     regenerateStartedWithTask: string;
+    regenerateRunning: string;
+    regenerateComplete: string;
+    regenerateFailed: string;
+    regenerateTimeout: string;
     pagesHeading: string;
     expandAllFolders: string;
     searchWikiLabel: string;

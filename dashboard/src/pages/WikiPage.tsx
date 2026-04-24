@@ -20,7 +20,7 @@ import WikiLintPanel from "../components/wiki/WikiLintPanel";
 import WikiSidebar from "../components/wiki/WikiSidebar";
 import { useWikiPages } from "../hooks/useWikiPages";
 import { useWikiPage } from "../hooks/useWikiPage";
-import { wikiGenerate } from "../api/client";
+import { wikiGenerate, wikiTaskStatus } from "../api/client";
 import { useToast } from "../components/Toast";
 import { useI18n } from "../i18n/context";
 
@@ -104,11 +104,34 @@ export default function WikiPage() {
     try {
       const res = await wikiGenerate(repository, "repo", "structure", locale === "zh" ? "zh" : "en");
       const tid = res.task_id ? String(res.task_id) : "";
-      const msg = tid
-        ? t.wiki.regenerateStartedWithTask.replace("{taskId}", tid)
-        : t.wiki.regenerateStarted;
-      toast("success", msg);
-      await queryClient.invalidateQueries({ queryKey: ["wiki"] });
+      if (!tid) {
+        toast("success", t.wiki.regenerateStarted);
+        await queryClient.invalidateQueries({ queryKey: ["wiki"] });
+        return;
+      }
+      toast("info", t.wiki.regenerateRunning);
+      const maxAttempts = 45;
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const st = await wikiTaskStatus(tid);
+        if (st.status === "completed") {
+          toast("success", t.wiki.regenerateComplete);
+          await queryClient.invalidateQueries({ queryKey: ["wiki"] });
+          return;
+        }
+        if (st.status === "failed") {
+          const err = st.error;
+          const detail =
+            err && typeof err === "object" && "detail" in err
+              ? String((err as { detail?: unknown }).detail ?? err)
+              : err
+                ? JSON.stringify(err)
+                : "unknown";
+          toast("error", t.wiki.regenerateFailed.replace("{detail}", detail));
+          return;
+        }
+      }
+      toast("error", t.wiki.regenerateTimeout);
     } catch (e) {
       toast("error", e instanceof Error ? e.message : String(e));
     } finally {

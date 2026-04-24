@@ -87,8 +87,8 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
     async def repository_exists(repo: str) -> bool:
         kb_inner = await registry.get_service("default")
         queries = GraphQueryRepository(kb_inner.store)
-        sample = await queries.get_repository_sample_file(repo)
-        return sample is not None
+        # WikiPage nodes have no `file`; sample-file check alone false-negatives wiki-only repos.
+        return await queries.get_repository_node_count(repo) > 0
 
     async def wiki_service_factory() -> WikiService:
         kb_svc = await registry.get_service("default")

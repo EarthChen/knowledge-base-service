@@ -2,6 +2,7 @@ import type {
   EnrichRequest,
   GraphInsightsReport,
   TaskInfo,
+  WikiAsyncTask,
   WikiExportResult,
   WikiLintReport,
 } from "./types";
@@ -123,4 +124,8 @@ export async function wikiGenerate(
     method: "POST",
     body: JSON.stringify({ repository, scope, mode, language }),
   });
+}
+
+export async function wikiTaskStatus(taskId: string): Promise<WikiAsyncTask> {
+  return api<WikiAsyncTask>(`/wiki/tasks/${encodeURIComponent(taskId)}`);
 }

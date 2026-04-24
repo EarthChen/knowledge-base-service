@@ -193,8 +193,7 @@ class KnowledgeBaseService:
 
         async def _repository_exists(repo: str) -> bool:
             queries = GraphQueryRepository(self._store)
-            sample = await queries.get_repository_sample_file(repo)
-            return sample is not None
+            return await queries.get_repository_node_count(repo) > 0
 
         self._wiki_service = WikiService(
             graph=self._store,

@@ -145,6 +145,16 @@ export interface TaskInfo {
   directory?: string;
 }
 
+/** GET /api/v1/wiki/tasks/{id} — background full-repo wiki generation */
+export interface WikiAsyncTask {
+  task_id: string;
+  status: string;
+  repository?: string;
+  scope?: string;
+  result?: unknown;
+  error?: { error?: string; detail?: string };
+}
+
 export interface IndexTaskProgress {
   phase: string;
   total_files: number;

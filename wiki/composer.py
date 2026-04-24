@@ -105,7 +105,7 @@ class WikiComposer:
             if doc_entities:
                 doc_rows = await find_related_docs(self._wiki_store, doc_entities, limit=5)
                 related_docs_block = format_related_docs_for_prompt(doc_rows, max_chars_per_doc=3000)
-        if page_data.business_summary and page_data.business_summary.strip():
+        if config.mode != "full" and page_data.business_summary and page_data.business_summary.strip():
             tier = 1
             description = page_data.business_summary.strip()
         elif config.mode == "structure":

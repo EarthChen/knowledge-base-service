@@ -16,7 +16,7 @@ from config import FalkorDBConfig
 from log import get_logger
 from redis_startup import await_with_busy_loading_retry, run_sync_with_busy_loading_retry
 
-from .schema import VECTOR_INDEX_CONFIGS, GraphEdge, GraphNode, NodeLabel
+from .schema import VECTOR_INDEX_CONFIGS, EdgeType, GraphEdge, GraphNode, NodeLabel
 
 log = get_logger(__name__)
 
@@ -641,6 +641,184 @@ class FalkorDBStore:
         self._graph = None
         if self._owns_connection:
             self._db = None
+
+    # ── GraphQueryPort / DataCollectorPort protocol methods ────
+
+    def _row_to_graph_node(self, row_node: Any) -> GraphNode | None:
+        """Convert a FalkorDB result node into a ``GraphNode``."""
+        if row_node is None or not hasattr(row_node, "properties"):
+            return None
+        props = dict(row_node.properties)
+        uid = str(props.pop("uid", ""))
+        label_str: str = ""
+        if hasattr(row_node, "labels") and row_node.labels:
+            label_str = row_node.labels[0]
+        elif hasattr(row_node, "alias"):
+            label_str = str(row_node.alias)
+        if not label_str:
+            label_str = props.pop("__label", "Function")
+        try:
+            label = NodeLabel(label_str)
+        except ValueError:
+            label = NodeLabel.FUNCTION
+        return GraphNode(label=label, properties=props, uid=uid)
+
+    async def find_node_by_path(self, repository: str, path: str) -> GraphNode | None:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                "MATCH (n:Module {repository: $repo, path: $path}) RETURN n LIMIT 1",
+                params={"repo": repository, "path": path},
+            ),
+        )
+        if not result.result_set:
+            return None
+        return self._row_to_graph_node(result.result_set[0][0])
+
+    async def find_node_by_fqn(self, repository: str, fqn: str) -> GraphNode | None:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                "MATCH (n {repository: $repo}) WHERE n.fqn = $fqn RETURN n LIMIT 1",
+                params={"repo": repository, "fqn": fqn},
+            ),
+        )
+        if not result.result_set:
+            return None
+        return self._row_to_graph_node(result.result_set[0][0])
+
+    async def find_children(self, repository: str, parent_uid: str) -> list[GraphNode]:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                "MATCH (p {uid: $uid})-[:CONTAINS]->(c) "
+                "WHERE c.repository = $repo "
+                "RETURN c",
+                params={"uid": parent_uid, "repo": repository},
+            ),
+        )
+        nodes: list[GraphNode] = []
+        for row in result.result_set or []:
+            n = self._row_to_graph_node(row[0])
+            if n is not None:
+                nodes.append(n)
+        return nodes
+
+    async def find_top_level_modules(self, repository: str) -> list[GraphNode]:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                "MATCH (m:Module {repository: $repo}) "
+                "WHERE NOT ()-[:CONTAINS]->(m) "
+                "RETURN m",
+                params={"repo": repository},
+            ),
+        )
+        nodes: list[GraphNode] = []
+        for row in result.result_set or []:
+            n = self._row_to_graph_node(row[0])
+            if n is not None:
+                nodes.append(n)
+        return nodes
+
+    async def list_repository_modules(self, repository: str) -> list[GraphNode]:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                "MATCH (m:Module {repository: $repo}) RETURN m",
+                params={"repo": repository},
+            ),
+        )
+        nodes: list[GraphNode] = []
+        for row in result.result_set or []:
+            n = self._row_to_graph_node(row[0])
+            if n is not None:
+                nodes.append(n)
+        return nodes
+
+    async def find_module_import_edges(self, repository: str) -> list[GraphEdge]:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                "MATCH (a:Module {repository: $repo})-[r:IMPORTS]->(b:Module) "
+                "RETURN a.uid AS src, b.uid AS tgt, type(r) AS rtype",
+                params={"repo": repository},
+            ),
+        )
+        edges: list[GraphEdge] = []
+        for row in result.result_set or []:
+            edges.append(GraphEdge(
+                edge_type=EdgeType.IMPORTS,
+                source_uid=str(row[0]),
+                target_uid=str(row[1]),
+            ))
+        return edges
+
+    async def find_repository_calls_edges(self, repository: str) -> list[GraphEdge]:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                "MATCH (a {repository: $repo})-[r:CALLS]->(b) "
+                "RETURN a.uid AS src, b.uid AS tgt",
+                params={"repo": repository},
+            ),
+        )
+        edges: list[GraphEdge] = []
+        for row in result.result_set or []:
+            edges.append(GraphEdge(
+                edge_type=EdgeType.CALLS,
+                source_uid=str(row[0]),
+                target_uid=str(row[1]),
+            ))
+        return edges
+
+    async def find_edges(self, repository: str, node_uid: str) -> list[GraphEdge]:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                "MATCH (a {uid: $uid})-[r]->(b) "
+                "RETURN a.uid AS src, b.uid AS tgt, type(r) AS rtype "
+                "UNION "
+                "MATCH (a)-[r]->(b {uid: $uid}) "
+                "RETURN a.uid AS src, b.uid AS tgt, type(r) AS rtype",
+                params={"uid": node_uid},
+            ),
+        )
+        edges: list[GraphEdge] = []
+        seen: set[tuple[str, str, str]] = set()
+        for row in result.result_set or []:
+            src, tgt, rtype = str(row[0]), str(row[1]), str(row[2])
+            key = (src, tgt, rtype)
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                edge_type = EdgeType(rtype)
+            except ValueError:
+                continue
+            edges.append(GraphEdge(edge_type=edge_type, source_uid=src, target_uid=tgt))
+        return edges
+
+    async def find_node_by_uid(self, repository: str, uid: str) -> GraphNode | None:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                "MATCH (n {uid: $uid}) RETURN n LIMIT 1",
+                params={"uid": uid},
+            ),
+        )
+        if not result.result_set:
+            return None
+        return self._row_to_graph_node(result.result_set[0][0])
 
     @property
     def graph(self) -> Graph | None:

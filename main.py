@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from api.error_handler import register_exception_handlers
 from api.rate_limiter import install_rate_limiter
 from api.routes.provider_routes import provider_router
+from api.routes.settings_routes import settings_router
 from api.routes.webhook_routes import init_webhook_state, webhook_router
 from api.routes.wiki_routes import wiki_router
 from auth import (
@@ -2388,6 +2389,7 @@ def create_app() -> FastAPI:
     app.include_router(viewer_router)
     app.include_router(editor_router)
     app.include_router(admin_router)
+    app.include_router(settings_router)
 
     if _STATIC_DIR.is_dir():
         app.mount("/assets", StaticFiles(directory=_STATIC_DIR / "assets"), name="static-assets")

@@ -249,6 +249,15 @@ class WikiConfig(BaseModel):
     # Phase 2 SP5: claim supersession history
     supersession_tracking_enabled: bool = False
 
+    # Phase 3 (LLM Wiki v2 — Memory Evolution)
+    memory_tiers_enabled: bool = False
+
+    # Phase 3 SP7: forgetting curve + YAML schema lint
+    forgetting_enabled: bool = False
+    schema_validation_enabled: bool = False
+    schema_path: str = "wiki/schema.yaml"
+    forgetting_initial_stability: float = 7.0
+
 
 class GitConfig(BaseModel):
     """Git repository management for remote indexing.

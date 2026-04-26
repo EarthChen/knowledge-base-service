@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -566,8 +567,6 @@ class WikiLintService:
     async def _check_schema(self, repository: str) -> list[LintIssue]:
         if not self._lint_schema_enabled():
             return []
-        from pathlib import Path
-
         from wiki.schema_validator import SchemaValidator, resolve_wiki_schema_path
 
         raw_path = str(

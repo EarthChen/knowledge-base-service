@@ -1,6 +1,6 @@
 """Tests for knowledge base service configuration."""
 
-from config import EmbeddingConfig, FalkorDBConfig, Settings
+from config import EmbeddingConfig, FalkorDBConfig, Settings, WikiConfig
 
 
 class TestFalkorDBConfig:
@@ -44,3 +44,14 @@ class TestSettings:
         assert ".go" in settings.file_extensions["go"]
         assert ".ts" in settings.file_extensions["typescript"]
         assert ".tsx" in settings.file_extensions["typescript"]
+
+    def test_wiki_sp7_flags_defaults(self) -> None:
+        w = WikiConfig()
+        assert w.forgetting_enabled is False
+        assert w.schema_validation_enabled is False
+        assert w.schema_path == "wiki/schema.yaml"
+        assert w.forgetting_initial_stability == 7.0
+        settings = Settings(_env_file=None)
+        assert settings.wiki.schema_path == "wiki/schema.yaml"
+        assert settings.wiki.forgetting_enabled is False
+        assert settings.wiki.schema_validation_enabled is False

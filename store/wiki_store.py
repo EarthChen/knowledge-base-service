@@ -617,3 +617,80 @@ class WikiStore:
                 }
             )
         return rows
+
+    async def get_entity_coverage_stats(self, business_id: str) -> dict[str, int]:
+        """Count wiki pages by importance tier for coverage statistics."""
+        q = (
+            "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage) "
+            "RETURN wp.importance_tier AS tier, count(wp) AS cnt"
+        )
+        result = await self._store.execute_query(q, {"business_id": business_id})
+        stats = {
+            "total_entities": 0, "covered_entities": 0,
+            "core_total": 0, "core_covered": 0,
+            "standard_total": 0, "standard_covered": 0,
+        }
+        for row in result.data:
+            tier = str(row.get("tier") or "")
+            cnt = int(row.get("cnt", 0))
+            stats["total_entities"] += cnt
+            if tier == "core":
+                stats["core_total"] += cnt
+                stats["core_covered"] += cnt
+                stats["covered_entities"] += cnt
+            elif tier == "standard":
+                stats["standard_total"] += cnt
+                stats["standard_covered"] += cnt
+                stats["covered_entities"] += cnt
+        return stats
+
+    async def get_knowledge_gaps(
+        self, business_id: str, min_in_degree: int = 5
+    ) -> list[dict[str, Any]]:
+        """Find entities with high in-degree but weak/missing wiki documentation."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        q = (
+            "MATCH (ws:WikiSpace {business_id: $business_id})"
+            f"-[:HAS_CHILD*1..10]->(wp:WikiPage)-[:{_se}]->(e) "
+            "WHERE wp.importance_tier = 'skeleton' OR wp.importance_tier IS NULL "
+            "OPTIONAL MATCH (caller)-[:CALLS]->(e) "
+            "WITH e.name AS entity_name, wp.importance_tier AS wiki_tier, "
+            "count(DISTINCT caller) AS in_degree "
+            "WHERE in_degree >= $min_in_degree "
+            "RETURN entity_name, in_degree, wiki_tier "
+            "ORDER BY in_degree DESC"
+        )
+        result = await self._store.execute_query(
+            q, {"business_id": business_id, "min_in_degree": min_in_degree}
+        )
+        return [
+            {
+                "entity_name": str(r.get("entity_name") or ""),
+                "in_degree": int(r.get("in_degree", 0)),
+                "wiki_tier": r.get("wiki_tier"),
+            }
+            for r in result.data
+        ]
+
+    async def get_stale_wiki_pages(self, business_id: str) -> list[dict[str, Any]]:
+        """Find wiki pages whose source entities have been updated since generation."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        q = (
+            "MATCH (ws:WikiSpace {business_id: $business_id})"
+            f"-[:HAS_CHILD*1..10]->(wp:WikiPage)-[:{_se}]->(e) "
+            "WHERE e.commit_sha IS NOT NULL AND wp.content_hash IS NOT NULL "
+            "AND e.indexed_at > wp.generated_at "
+            "RETURN wp.path AS page_path, wp.title AS page_title, "
+            "e.commit_sha AS entity_commit, wp.generated_at AS page_generated_at "
+            "ORDER BY wp.path"
+        )
+        result = await self._store.execute_query(q, {"business_id": business_id})
+        return [
+            {
+                "page_path": str(r.get("page_path") or ""),
+                "page_title": str(r.get("page_title") or ""),
+                "entity_commit": str(r.get("entity_commit") or ""),
+                "page_generated_at": str(r.get("page_generated_at") or ""),
+            }
+            for r in result.data
+        ]

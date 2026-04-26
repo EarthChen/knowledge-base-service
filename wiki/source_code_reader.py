@@ -133,10 +133,12 @@ class SourceCodeReader:
         max_chars = max_tokens * 4
         if len(code) <= max_chars:
             return code
+        if max_chars < 120:
+            return code[:max_chars] + "\n... [truncated] ..."
         lines = code.splitlines()
         total_lines = len(lines)
         head_budget = int(max_chars * 0.6)
-        tail_budget = max_chars - head_budget - 80
+        tail_budget = max(0, max_chars - head_budget - 80)
 
         head_lines: list[str] = []
         head_chars = 0

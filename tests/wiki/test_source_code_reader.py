@@ -82,3 +82,11 @@ def test_truncate_code():
     truncated = reader.truncate_code(code, max_tokens=50)
     assert "[truncated" in truncated
     assert len(truncated) < len(code)
+
+
+def test_truncate_code_very_small_budget():
+    reader = SourceCodeReader(MagicMock())
+    code = "\n".join(f"line {i}" for i in range(100))
+    truncated = reader.truncate_code(code, max_tokens=5)
+    assert len(truncated) < 100
+    assert "truncated" in truncated

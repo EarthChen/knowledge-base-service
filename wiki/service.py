@@ -62,7 +62,9 @@ class WikiService:
         self._graph = graph
         self._planner = WikiStructurePlanner(graph)
         self._wiki_store = wiki_store
-        self._collector = WikiDataCollector(graph, wiki_store=wiki_store)
+        self._collector = WikiDataCollector(
+            graph, wiki_store=wiki_store, rag_enabled=get_settings().wiki.rag_enabled,
+        )
         self._llm = llm
         self._llm_factory = llm_factory
         self._exporter = WikiExporter()

@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from auth import Role, require_role
+from config import get_settings
 from log import get_logger
 from query.graph_query import GraphQueryService
 from store.graph_queries import GraphQueryRepository
@@ -122,6 +123,10 @@ class AnalyzeImpactFile(BaseModel):
 
 class AnalyzeImpactBody(BaseModel):
     changed_files: list[AnalyzeImpactFile]
+
+
+class ChunkIndexBody(BaseModel):
+    repository: str = Field(..., min_length=1)
 
 
 _QUICK_SCOPE = "repo"
@@ -821,6 +826,41 @@ async def wiki_get_tree(
             )
 
     return {"tree": nodes, "view_type": view, "business_id": business_id}
+
+
+@wiki_router.post("/chunks/index", response_model=None, dependencies=[Depends(require_role(Role.EDITOR))])
+async def wiki_chunk_index(
+    body: ChunkIndexBody,
+    request: Request,
+    svc: WikiService = Depends(get_wiki_service_dep),
+) -> JSONResponse:
+    """Trigger batch embedding generation for Chunk nodes (RAG indexing)."""
+    try:
+        await svc.ensure_repository(body.repository)
+    except WikiRepoNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "repo_not_found", "detail": str(exc)},
+        ) from exc
+
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
+        )
+
+    from store.wiki_store import WikiStore as _WikiStore
+    from wiki.chunk_indexer import CodeChunkIndexer
+
+    wiki_store_inst = _WikiStore(raw_store)
+    indexer = CodeChunkIndexer(
+        wiki_store_inst,
+        raw_store,
+        batch_size=get_settings().wiki.chunk_embedding_batch_size,
+    )
+    result = await indexer.index_all_chunks(body.repository)
+    return JSONResponse(content=result)
 
 
 @wiki_router.post("/{repository}/lint", response_model=None)

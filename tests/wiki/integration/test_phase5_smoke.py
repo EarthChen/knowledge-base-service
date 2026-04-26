@@ -6,6 +6,7 @@ def test_phase5_imports():
     from wiki import (
         WikiLinkConverter,
         BusinessWikiExporter,
+        ExportFile,
         ExportPlan,
         ObsidianExporter,
         MkDocsExporter,
@@ -14,6 +15,7 @@ def test_phase5_imports():
     )
     assert WikiLinkConverter is not None
     assert BusinessWikiExporter is not None
+    assert ExportFile is not None
     assert ExportPlan is not None
     assert ObsidianExporter is not None
     assert MkDocsExporter is not None

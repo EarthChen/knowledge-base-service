@@ -5,6 +5,7 @@ import { useWikiTree } from "../../hooks/useWikiTree";
 import { useI18n } from "../../i18n/context";
 import WikiCoverageCard from "./WikiCoverageCard";
 import { wikiHref } from "./wikiRouteHelpers";
+import { getErrorMessage } from "../../utils/errorUtils";
 
 type ViewType = "business_domain" | "code_structure";
 
@@ -12,10 +13,6 @@ type Props = {
   businessId: string;
   viewType: ViewType;
 };
-
-function getErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 export default function WikiLandingPage({ businessId, viewType }: Props) {
   const { t } = useI18n();

@@ -13,6 +13,7 @@ import { Link } from "react-router-dom";
 import { useI18n } from "../i18n/context";
 import type { Translations } from "../i18n/types";
 import { wikiHref, wikiSearchHref } from "../components/wiki/wikiRouteHelpers";
+import { getErrorMessage } from "../utils/errorUtils";
 
 type FileRow = { id: string; path: string; status: AnalyzeImpactFile["status"] };
 
@@ -228,7 +229,7 @@ export default function PrImpactPage() {
             )}
             {fetchPrMutation.isError && (
               <p className="mt-2 text-sm text-red-700 dark:text-red-300">
-                {(fetchPrMutation.error as Error)?.message ?? String(fetchPrMutation.error)}
+                {getErrorMessage(fetchPrMutation.error)}
               </p>
             )}
           </div>
@@ -343,7 +344,7 @@ export default function PrImpactPage() {
 
           {analyzeMutation.isError && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
-              {(analyzeMutation.error as Error)?.message ?? String(analyzeMutation.error)}
+              {getErrorMessage(analyzeMutation.error)}
             </div>
           )}
         </div>

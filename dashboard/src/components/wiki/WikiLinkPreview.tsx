@@ -18,17 +18,22 @@ export default function WikiLinkPreview({ path, businessId, wikiLinkParams, chil
   const [show, setShow] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const bid = businessId.trim() || "default";
-  const { data, isLoading } = useWikiPageByPath(bid, path);
+  const [shouldFetch, setShouldFetch] = useState(false);
+  const { data, isLoading } = useWikiPageByPath(bid, path, { enabled: shouldFetch });
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const handleMouseEnter = useCallback(() => {
-    timerRef.current = setTimeout(() => setShow(true), 300);
+    timerRef.current = setTimeout(() => {
+      setShouldFetch(true);
+      setShow(true);
+    }, 300);
   }, []);
 
   const handleMouseLeave = useCallback(() => {
     clearTimeout(timerRef.current);
     setShow(false);
+    setShouldFetch(false);
   }, []);
 
   const handleClick = useCallback(

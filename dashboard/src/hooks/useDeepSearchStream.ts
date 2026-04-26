@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import type { StageEvent } from "../components/DeepResearchTimeline";
 import { API_BASE, authHeaders } from "../api/client";
+import { getErrorMessage } from "../utils/errorUtils";
 
 type StreamState = {
   stages: StageEvent[];
@@ -98,11 +99,11 @@ export function useDeepSearchStream() {
 
       setState((prev) => ({ ...prev, isStreaming: false }));
     } catch (err) {
-      if ((err as Error).name !== "AbortError") {
+      if (!(err instanceof Error) || err.name !== "AbortError") {
         setState((prev) => ({
           ...prev,
           isStreaming: false,
-          error: (err as Error).message,
+          error: getErrorMessage(err),
         }));
       }
     }

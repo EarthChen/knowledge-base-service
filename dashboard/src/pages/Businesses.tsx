@@ -4,6 +4,7 @@ import { Building2, Plus, Trash2 } from "lucide-react";
 import { api } from "../api/client";
 import type { Business, BusinessesResponse } from "../api/types";
 import { useI18n } from "../i18n/context";
+import { getErrorMessage } from "../utils/errorUtils";
 import { useBusiness } from "../contexts/BusinessContext";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../components/Toast";
@@ -55,7 +56,7 @@ export default function Businesses() {
       setFormDesc("");
       setShowForm(false);
     } catch (err: unknown) {
-      toast("error", String((err as Error).message || t.businesses.createFailed));
+      toast("error", getErrorMessage(err) || t.businesses.createFailed);
     }
   };
 
@@ -69,7 +70,7 @@ export default function Businesses() {
         setCurrentBusiness("default");
       }
     } catch (err: unknown) {
-      toast("error", String((err as Error).message || t.businesses.deleteFailed));
+      toast("error", getErrorMessage(err) || t.businesses.deleteFailed);
     }
   };
 

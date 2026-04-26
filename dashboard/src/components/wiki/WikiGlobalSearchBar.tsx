@@ -5,6 +5,7 @@ import { useWikiGlobalSearch } from "../../hooks/useWikiGlobalSearch";
 import type { WikiSearchResult } from "../../hooks/wikiTypes";
 import { useI18n } from "../../i18n/context";
 import { wikiHref } from "./wikiRouteHelpers";
+import { getErrorMessage } from "../../utils/errorUtils";
 
 function repoFilterBody(repositories: string[] | null | undefined): string[] | null | undefined {
   if (repositories === undefined) return undefined;
@@ -154,7 +155,7 @@ export default function WikiGlobalSearchBar({
       )}
 
       {isError && (
-        <p className="mt-3 text-sm text-red-600 dark:text-red-400">{(error as Error).message}</p>
+        <p className="mt-3 text-sm text-red-600 dark:text-red-400">{getErrorMessage(error)}</p>
       )}
 
       {isSuccess && data && data.total === 0 && !isPending && (

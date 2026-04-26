@@ -14,6 +14,7 @@ import {
 import { useFileContent, useFileEntities, useFileTree, useRepositories } from "../api/hooks";
 import type { FileEntityItem, FileTreeNode } from "../api/types";
 import { useI18n } from "../i18n/context";
+import { getErrorMessage } from "../utils/errorUtils";
 
 const EXT_TO_LANG: Record<string, string> = {
   py: "python",
@@ -376,7 +377,7 @@ export default function FileExplorer() {
                 {t.fileExplorer.loadingTree}
               </div>
             ) : treeError ? (
-              <p className="p-3 text-sm text-red-600 dark:text-red-400">{(treeError as Error).message}</p>
+              <p className="p-3 text-sm text-red-600 dark:text-red-400">{getErrorMessage(treeError)}</p>
             ) : filteredTree ? (
               <TreeRows
                 node={filteredTree}
@@ -406,7 +407,7 @@ export default function FileExplorer() {
             </div>
           ) : contentError ? (
             <div className="p-6 text-sm text-red-600 dark:text-red-400">
-              {(contentError as Error).message}
+              {getErrorMessage(contentError)}
             </div>
           ) : content ? (
             <div className="flex min-h-0 flex-1 flex-col lg:flex-row">

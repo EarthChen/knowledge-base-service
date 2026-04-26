@@ -107,16 +107,20 @@ export default function WikiReferencesPanel({
       <button
         type="button"
         onClick={onToggle}
-        className="hidden shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white p-2 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800 lg:flex"
+        className="flex shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white p-2 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800 lg:shrink-0"
         title={t.wiki.referencesShowPanel}
+        aria-label={t.wiki.referencesShowPanel}
       >
-        <ChevronLeft size={16} className="text-gray-500" />
+        <ChevronLeft size={16} className="text-gray-500" aria-hidden />
       </button>
     );
   }
 
   return (
-    <aside className="hidden w-64 shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900 lg:flex">
+    <aside
+      className="flex max-h-[min(40vh,360px)] w-full shrink-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900 lg:max-h-[min(70vh,560px)] lg:w-64"
+      aria-label={t.wiki.referencesHeading}
+    >
       <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-700">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
           {t.wiki.referencesHeading}
@@ -131,7 +135,7 @@ export default function WikiReferencesPanel({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {!uid && (
           <p className="px-4 py-4 text-xs text-gray-500 dark:text-gray-400">{t.wiki.referencesNoPageId}</p>
         )}

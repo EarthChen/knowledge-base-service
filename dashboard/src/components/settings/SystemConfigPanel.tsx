@@ -14,6 +14,7 @@ import { useTestConnection, useUpdateSettings } from "../../hooks/useUpdateSetti
 import { getSettingCategory } from "../../hooks/settingsCategory";
 import type { SettingsResponse } from "../../hooks/settingsTypes";
 import { useI18n } from "../../i18n/context";
+import { getErrorMessage } from "../../utils/errorUtils";
 import { useToast } from "../Toast";
 import { SkeletonLine } from "../Skeleton";
 import SettingsCard from "./SettingsCard";
@@ -243,7 +244,7 @@ export default function SystemConfigPanel() {
       }
       toast("success", t.configSettings.saved);
     } catch (e) {
-      toast("error", (e as Error).message || t.configSettings.saveFailed);
+      toast("error", getErrorMessage(e) || t.configSettings.saveFailed);
     }
   }
 
@@ -256,7 +257,7 @@ export default function SystemConfigPanel() {
         toast("error", `${t.configSettings.connectionFailed}: ${r.message}`);
       }
     } catch (e) {
-      toast("error", (e as Error).message || t.configSettings.connectionFailed);
+      toast("error", getErrorMessage(e) || t.configSettings.connectionFailed);
     }
   }
 
@@ -273,7 +274,7 @@ export default function SystemConfigPanel() {
   if (error) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
-        {(error as Error).message}
+        {getErrorMessage(error)}
       </div>
     );
   }

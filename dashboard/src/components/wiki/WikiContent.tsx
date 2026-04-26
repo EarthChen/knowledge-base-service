@@ -22,6 +22,7 @@ import WikiVersionHistory from "./WikiVersionHistory";
 import TableOfContents from "./TableOfContents";
 import WikiBreadcrumbs from "./WikiBreadcrumbs";
 import { parseMarkdownHeadings } from "./headingUtils";
+import { getErrorMessage } from "../../utils/errorUtils";
 import { buildIdeHref, type EditorId } from "./editorLinks";
 import { EDITOR_PREF_KEY } from "./SourceLink";
 import { useAnalyzeImpact } from "../../api/hooks";
@@ -175,7 +176,7 @@ function CallChainSection({
 
           {analyzeMutation.isError && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
-              {(analyzeMutation.error as Error)?.message ?? String(analyzeMutation.error)}
+              {getErrorMessage(analyzeMutation.error)}
             </div>
           )}
 

@@ -28,6 +28,7 @@ import {
   useUpdateWebhookConfig,
 } from "../api/hooks";
 import { useI18n } from "../i18n/context";
+import { getErrorMessage } from "../utils/errorUtils";
 import { useToast } from "../components/Toast";
 import type { Locale } from "../i18n/types";
 import type { SyncSchedule, SyncScheduleRequest, WebhookConfig } from "../api/types";
@@ -144,7 +145,7 @@ export default function SettingsPage() {
       closeWebhookModal();
       refetchWebhook();
     } catch (err) {
-      toast("error", (err as Error).message);
+      toast("error", getErrorMessage(err));
     }
   }
 
@@ -204,7 +205,7 @@ export default function SettingsPage() {
       closeModal();
       refetchSchedules();
     } catch (err) {
-      toast("error", (err as Error).message);
+      toast("error", getErrorMessage(err));
     }
   }
 
@@ -220,7 +221,7 @@ export default function SettingsPage() {
       await upsert.mutateAsync(body);
       toast("success", t.sync.saveSuccess);
     } catch (err) {
-      toast("error", (err as Error).message);
+      toast("error", getErrorMessage(err));
     }
   }
 
@@ -232,7 +233,7 @@ export default function SettingsPage() {
       toast("success", t.sync.deleteSuccess);
       refetchSchedules();
     } catch (err) {
-      toast("error", (err as Error).message);
+      toast("error", getErrorMessage(err));
     }
   }
 
@@ -242,7 +243,7 @@ export default function SettingsPage() {
       toast("success", t.sync.triggerSuccess);
       refetchSchedules();
     } catch (err) {
-      toast("error", (err as Error).message || t.sync.triggerFailed);
+      toast("error", getErrorMessage(err) || t.sync.triggerFailed);
     }
   }
 
@@ -451,7 +452,7 @@ export default function SettingsPage() {
 
           {webhookError && (
             <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
-              {(webhookError as Error).message || t.webhook.loadFailed}
+              {getErrorMessage(webhookError) || t.webhook.loadFailed}
             </div>
           )}
 
@@ -596,7 +597,7 @@ export default function SettingsPage() {
 
         {isAdmin && schedulesError && (
           <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
-            {(schedulesError as Error).message || t.sync.loadFailed}
+            {getErrorMessage(schedulesError) || t.sync.loadFailed}
           </div>
         )}
 

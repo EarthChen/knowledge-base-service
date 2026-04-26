@@ -6,15 +6,14 @@ import { useWikiSearch } from "../../hooks/useWikiSearch";
 import { useI18n } from "../../i18n/context";
 import WikiSearchResults from "./WikiSearchResults";
 import { wikiHref } from "./wikiRouteHelpers";
+import { getErrorMessage } from "../../utils/errorUtils";
+
+const WIKI_SEARCH_RESULTS_LIST_ID = "wiki-search-results-listbox";
 
 type Props = {
   repository: string;
   linkParams?: Record<string, string>;
 };
-
-function getErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 export default function WikiSearchBar({ repository, linkParams }: Props) {
   const { t } = useI18n();
@@ -44,13 +43,17 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       mutate({ repository, query: raw });
-    }, 280);
+    }, 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [open, query, repository, mutate]);
 
   const close = useCallback(() => setOpen(false), []);
+
+  const listPopupOpen =
+    open && query.trim().length > 0 && (isPending || isError || isSuccess);
+  const hasResultOptions = Boolean(data?.results.length && query.trim());
 
   const onSelect = useCallback(
     (path: string) => {
@@ -100,6 +103,9 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t.wiki.searchPlaceholder}
               className="min-w-0 flex-1 border-0 bg-transparent py-3 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100"
+              role="combobox"
+              aria-expanded={listPopupOpen}
+              aria-controls={hasResultOptions ? WIKI_SEARCH_RESULTS_LIST_ID : undefined}
               aria-autocomplete="list"
             />
             {isPending ? (
@@ -111,7 +117,13 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
               {getErrorMessage(error)}
             </p>
           )}
-          {data && query.trim() && <WikiSearchResults results={data.results} onSelect={onSelect} />}
+          {data && query.trim() && (
+            <WikiSearchResults
+              listboxId={WIKI_SEARCH_RESULTS_LIST_ID}
+              results={data.results}
+              onSelect={onSelect}
+            />
+          )}
           {isSuccess && data && data.results.length === 0 && query.trim() && (
             <p className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
               {t.wiki.globalSearchNoResults}

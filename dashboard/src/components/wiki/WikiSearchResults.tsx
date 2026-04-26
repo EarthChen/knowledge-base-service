@@ -3,13 +3,18 @@ import type { WikiSearchResult } from "../../hooks/wikiTypes";
 type Props = {
   results: WikiSearchResult[];
   onSelect: (path: string) => void;
+  listboxId?: string;
 };
 
-export default function WikiSearchResults({ results, onSelect }: Props) {
+export default function WikiSearchResults({ results, onSelect, listboxId }: Props) {
   if (results.length === 0) return null;
 
   return (
-    <ul className="max-h-72 overflow-y-auto py-1" role="listbox">
+    <ul
+      id={listboxId}
+      className="max-h-72 overflow-y-auto py-1"
+      role="listbox"
+    >
       {results.map((r) => (
         <li key={`${r.page_path}:${r.title}`} role="option">
           <button

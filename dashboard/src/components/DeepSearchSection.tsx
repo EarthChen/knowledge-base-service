@@ -6,6 +6,7 @@ import JsonView from "./JsonView";
 import MarkdownRenderer from "./MarkdownRenderer";
 import DeepResearchTimeline from "./DeepResearchTimeline";
 import { useDeepSearchStream } from "../hooks/useDeepSearchStream";
+import { getErrorMessage } from "../utils/errorUtils";
 
 function conclusionMarkdownText(c: Record<string, unknown> | null): string {
   if (!c) return "";
@@ -142,7 +143,7 @@ export default function DeepSearchSection({ showTitle = true }: Props) {
 
       {!streamMode && deepSearch.error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
-          {(deepSearch.error as Error).message}
+          {getErrorMessage(deepSearch.error)}
         </div>
       )}
 

@@ -3,6 +3,7 @@ import { ChevronRight, FileText, Folder, FolderOpen, Loader2, Search, X } from "
 import { useDocuments, useDocument, useRepositories } from "../api/hooks";
 import type { DocumentItem } from "../api/types";
 import { useI18n } from "../i18n/context";
+import { getErrorMessage } from "../utils/errorUtils";
 import { SkeletonLine } from "../components/Skeleton";
 import MarkdownRenderer from "../components/MarkdownRenderer";
 
@@ -428,7 +429,7 @@ export default function Documents() {
             </div>
           ) : listError ? (
             <div className="p-3 text-sm text-red-600 dark:text-red-400">
-              {(listError as Error).message}
+              {getErrorMessage(listError)}
             </div>
           ) : (listData?.documents.length ?? 0) === 0 ? (
             <div className="p-3 text-sm text-gray-500 dark:text-gray-400">{t.search.noResults}</div>
@@ -460,7 +461,7 @@ export default function Documents() {
           </div>
         ) : detailError ? (
           <div className="p-6 text-sm text-red-600 dark:text-red-400">
-            {(detailError as Error).message}
+            {getErrorMessage(detailError)}
           </div>
         ) : detail ? (
           <div className="flex min-h-0 flex-1 flex-col lg:flex-row">

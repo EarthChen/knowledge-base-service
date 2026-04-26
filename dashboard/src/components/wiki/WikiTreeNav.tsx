@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ChevronDown,
@@ -13,6 +13,7 @@ import type { WikiTreeNode } from "../../hooks/wikiTypes";
 import { useWikiTree } from "../../hooks/useWikiTree";
 import { useI18n } from "../../i18n/context";
 import { wikiHref } from "./wikiRouteHelpers";
+import { getErrorMessage } from "../../utils/errorUtils";
 
 type ViewType = "business_domain" | "code_structure";
 
@@ -56,7 +57,7 @@ function collectAllKeys(nodes: WikiTreeNode[]): string[] {
   return out;
 }
 
-function TreeBranch({
+const TreeBranch = memo(function TreeBranch({
   nodes,
   depth,
   expanded,
@@ -73,6 +74,7 @@ function TreeBranch({
 }) {
   return (
     <ul
+      role={depth === 0 ? "tree" : "group"}
       className={
         depth === 0
           ? "space-y-0.5"
@@ -86,12 +88,11 @@ function TreeBranch({
         const pageLink = node.path ? wikiHref(node.path, linkParams) : null;
 
         return (
-          <li key={node.uid}>
+          <li key={node.uid} role="treeitem" aria-expanded={hasKids ? isOpen : undefined}>
             <div className="flex items-center gap-0.5">
               {hasKids ? (
                 <button
                   type="button"
-                  aria-expanded={isOpen}
                   onClick={() => toggle(node.uid)}
                   className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200"
                 >
@@ -166,11 +167,7 @@ function TreeBranch({
       })}
     </ul>
   );
-}
-
-function getErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
+});
 
 export default function WikiTreeNav({
   businessId,
@@ -225,9 +222,15 @@ export default function WikiTreeNav({
 
   return (
     <aside className="flex w-full shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900 lg:w-72">
-      <div className="flex border-b border-gray-100 dark:border-gray-700">
+      <div
+        className="flex border-b border-gray-100 dark:border-gray-700"
+        role="tablist"
+        aria-label={t.wiki.businessView + " / " + t.wiki.codeView}
+      >
         <button
           type="button"
+          role="tab"
+          aria-selected={viewType === "business_domain"}
           onClick={() => onViewChange("business_domain")}
           className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
             viewType === "business_domain"
@@ -242,6 +245,8 @@ export default function WikiTreeNav({
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={viewType === "code_structure"}
           onClick={() => onViewChange("code_structure")}
           className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${
             viewType === "code_structure"

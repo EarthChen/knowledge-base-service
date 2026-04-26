@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { getToken, getCurrentBusiness } from "../api/client";
+import { getErrorMessage } from "../utils/errorUtils";
 import type { WikiAskSource } from "./wikiTypes";
 
 const API_BASE = "/api/v1";
@@ -153,8 +154,8 @@ export function useWikiAsk(repository: string | undefined) {
         });
       } catch (e) {
         setIsStreaming(false);
-        if ((e as Error).name === "AbortError") return;
-        setError((e as Error).message || "Request failed");
+        if (e instanceof Error && e.name === "AbortError") return;
+        setError(getErrorMessage(e) || "Request failed");
         return;
       }
 
@@ -177,8 +178,8 @@ export function useWikiAsk(repository: string | undefined) {
           ac.signal,
         );
       } catch (e) {
-        if ((e as Error).name !== "AbortError") {
-          setError((e as Error).message || "Stream failed");
+        if (!(e instanceof Error) || e.name !== "AbortError") {
+          setError(getErrorMessage(e) || "Stream failed");
         }
       } finally {
         setIsStreaming(false);

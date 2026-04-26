@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { Zap, Brain, Clock, X, Download, BookOpen } from "lucide-react";
 import { useHybridSearch, useRepositories } from "../api/hooks";
 import { useI18n } from "../i18n/context";
+import { getErrorMessage } from "../utils/errorUtils";
 import { useSearchHistory } from "../hooks/useSearchHistory";
 import SearchResultCard from "../components/SearchResultCard";
 import SearchResultSkeleton from "../components/SearchResultSkeleton";
@@ -486,7 +487,7 @@ export default function SearchPage() {
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
-          {(error as Error).message}
+          {getErrorMessage(error)}
         </div>
       )}
 

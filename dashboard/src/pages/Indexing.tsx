@@ -19,6 +19,7 @@ import {
   useRepositories,
 } from "../api/hooks";
 import { useI18n } from "../i18n/context";
+import { getErrorMessage } from "../utils/errorUtils";
 import { useToast } from "../components/Toast";
 import JsonView from "../components/JsonView";
 import type { IndexTask } from "../api/types";
@@ -286,7 +287,7 @@ export default function Indexing() {
       }
       setEnrichModalOpen(false);
     } catch (err) {
-      toast("error", (err as Error).message || t.indexing.indexingFailed);
+      toast("error", getErrorMessage(err) || t.indexing.indexingFailed);
     }
   }
 
@@ -326,7 +327,7 @@ export default function Indexing() {
         toast("success", `${t.indexing.taskId}: ${res.task_id}`);
       }
     } catch (err) {
-      toast("error", (err as Error).message || t.indexing.indexingFailed);
+      toast("error", getErrorMessage(err) || t.indexing.indexingFailed);
     }
   }
 
@@ -388,7 +389,7 @@ export default function Indexing() {
         toast("success", t.indexing.uploadSuccess);
       }
     } catch (err) {
-      const msg = (err as Error).message || t.indexing.uploadError;
+      const msg = getErrorMessage(err) || t.indexing.uploadError;
       setUploadPhase("error");
       setUploadMessage(msg);
       toast("error", msg);

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   Chart as ChartJS,
   ArcElement,
@@ -9,6 +10,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { useWikiCoverage } from "../../hooks/useWikiCoverage";
 import { useIsDarkMode } from "../../hooks/useIsDarkMode";
 import { useI18n } from "../../i18n/context";
+import { getErrorMessage } from "../../utils/errorUtils";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
@@ -16,14 +18,43 @@ type Props = {
   businessId: string;
 };
 
-function getErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 export default function WikiCoverageCard({ businessId }: Props) {
   const { t } = useI18n();
   const isDark = useIsDarkMode();
   const q = useWikiCoverage(businessId);
+
+  const chartData = useMemo(() => {
+    const d = q.data;
+    if (!d) return null;
+    const covered = d.covered_entities ?? 0;
+    const total = d.total_entities ?? 0;
+    const uncovered = Math.max(0, total - covered);
+    return {
+      labels: [t.wiki.covered, t.wiki.uncovered],
+      datasets: [
+        {
+          data: [covered, uncovered || (total === 0 ? 1 : 0)],
+          backgroundColor: [
+            "rgba(14, 165, 233, 0.85)",
+            isDark ? "rgba(55, 65, 81, 0.6)" : "rgba(229, 231, 235, 0.85)",
+          ],
+          borderWidth: 0,
+        },
+      ],
+    };
+  }, [q.data, isDark, t.wiki.covered, t.wiki.uncovered]);
+
+  const chartOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "70%",
+      plugins: {
+        legend: { display: false },
+      },
+    }),
+    [],
+  );
 
   if (q.isLoading) {
     return (
@@ -43,29 +74,14 @@ export default function WikiCoverageCard({ businessId }: Props) {
   }
 
   const data = q.data;
-  if (!data) return null;
+  if (!data || !chartData) return null;
 
   const covered = data.covered_entities ?? 0;
   const total = data.total_entities ?? 0;
-  const uncovered = Math.max(0, total - covered);
   const corePct = Math.round((data.core_coverage ?? 0) * 100);
   const stdPct = Math.round((data.standard_coverage ?? 0) * 100);
   const stale = data.stale_page_count ?? 0;
   const gaps = data.knowledge_gap_count ?? 0;
-
-  const chartData = {
-    labels: [t.wiki.covered, t.wiki.uncovered],
-    datasets: [
-      {
-        data: [covered, uncovered || (total === 0 ? 1 : 0)],
-        backgroundColor: [
-          "rgba(14, 165, 233, 0.85)",
-          isDark ? "rgba(55, 65, 81, 0.6)" : "rgba(229, 231, 235, 0.85)",
-        ],
-        borderWidth: 0,
-      },
-    ],
-  };
 
   const overallPct = total > 0 ? Math.round((covered / total) * 100) : 0;
 
@@ -85,17 +101,7 @@ export default function WikiCoverageCard({ businessId }: Props) {
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 sm:items-center">
         <div className="relative mx-auto flex h-44 w-full max-w-[200px] items-center justify-center">
-          <Doughnut
-            data={chartData}
-            options={{
-              responsive: true,
-              maintainAspectRatio: false,
-              cutout: "70%",
-              plugins: {
-                legend: { display: false },
-              },
-            }}
-          />
+          <Doughnut data={chartData} options={chartOptions} />
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
             <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               {overallPct}%

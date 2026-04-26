@@ -1,6 +1,7 @@
 import { FolderGit2, Trash2, Loader2 } from "lucide-react";
 import { useRepositories, useDeleteRepository } from "../api/hooks";
 import { useI18n } from "../i18n/context";
+import { getErrorMessage } from "../utils/errorUtils";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../components/Toast";
 import { SkeletonLine } from "../components/Skeleton";
@@ -25,7 +26,7 @@ export default function Repositories() {
       );
       refetch();
     } catch (err) {
-      toast("error", (err as Error).message || t.repos.deleteFailed);
+      toast("error", getErrorMessage(err) || t.repos.deleteFailed);
     }
   }
 
@@ -44,7 +45,7 @@ export default function Repositories() {
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
-          {(error as Error).message}
+          {getErrorMessage(error)}
         </div>
       )}
 

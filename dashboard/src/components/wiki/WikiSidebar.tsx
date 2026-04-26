@@ -18,6 +18,7 @@ import {
 import { EDITOR_PREF_KEY } from "./SourceLink";
 import { useI18n } from "../../i18n/context";
 import { wikiHref } from "./wikiRouteHelpers";
+import { getErrorMessage } from "../../utils/errorUtils";
 
 type TreeNode = {
   segment: string;
@@ -297,7 +298,7 @@ export default function WikiSidebar({
         )}
         {search.isError && (
           <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-            {(search.error as Error).message}
+            {getErrorMessage(search.error)}
           </p>
         )}
       </div>

@@ -227,9 +227,16 @@ class WikiDataCollector:
 
         related_chunks = []
         if self._rag_enabled and self._wiki_store is not None:
+            from config import get_settings as _get_settings
             from wiki.chunk_retriever import ChunkRetriever
 
-            retriever = ChunkRetriever(self._wiki_store)
+            _wiki_cfg = _get_settings().wiki
+            retriever = ChunkRetriever(
+                self._wiki_store,
+                top_k=_wiki_cfg.rag_top_k,
+                min_score=_wiki_cfg.rag_min_score,
+                exclude_same_parent=_wiki_cfg.rag_exclude_same_parent,
+            )
             related_chunks = await retriever.retrieve(node, repository)
 
         return PageData(

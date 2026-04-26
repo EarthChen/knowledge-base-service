@@ -195,6 +195,8 @@ class KnowledgeBaseService:
             queries = GraphQueryRepository(self._store)
             return await queries.get_repository_node_count(repo) > 0
 
+        from store.wiki_store import WikiStore as _WikiStore
+
         self._wiki_service = WikiService(
             graph=self._store,
             llm=self._llm_provider,
@@ -202,6 +204,7 @@ class KnowledgeBaseService:
             store=self._store,
             deferred_enrichment=self._wiki_deferred_enrichment,
             flow_inferencer=self._wiki_flow_inferencer,
+            wiki_store=_WikiStore(self._store),
         )
         self._wiki_search = WikiSearchService(
             graph=self._store,

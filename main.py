@@ -99,6 +99,8 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
 
     async def wiki_service_factory() -> WikiService:
         kb_svc = await registry.get_service("default")
+        from store.wiki_store import WikiStore as _WikiStore
+
         return WikiService(
             graph=kb_svc.store,
             llm=_wrap_llm(kb_svc.llm_provider),
@@ -106,6 +108,7 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
             store=kb_svc.store,
             deferred_enrichment=kb_svc.wiki_deferred_enrichment,
             flow_inferencer=kb_svc.wiki_flow_inferencer,
+            wiki_store=_WikiStore(kb_svc.store),
         )
 
     app.state.wiki_service_factory = wiki_service_factory

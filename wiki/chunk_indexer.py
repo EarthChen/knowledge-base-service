@@ -43,11 +43,14 @@ class CodeChunkIndexer:
         indexed = 0
         skipped = 0
         errors = 0
-        offset = 0
 
         while True:
+            # Always offset=0: successfully embedded chunks drop out of the
+            # `WHERE c.embedding IS NULL` filter, so the next batch is
+            # automatically the "next page".  Only skip-only batches (all
+            # empty text) need a safety valve to avoid infinite loops.
             batch_result = await self._wiki_store.batch_get_chunks_for_embedding(
-                repository, self._batch_size, offset,
+                repository, self._batch_size, 0,
             )
             if not batch_result or not batch_result.result_set:
                 break
@@ -67,17 +70,19 @@ class CodeChunkIndexer:
                     text_str = text_str[: max_len * 4]
                 docs.append(doc_dict_for_embedding({"title": "", "content": text_str}))
 
-            if docs:
-                try:
-                    embeddings = await emb_gen.generate_for_docs(docs)
-                    for uid, embedding in zip(uids, embeddings, strict=True):
-                        await self._store.set_node_embedding(uid, NodeLabel.CHUNK, embedding)
-                        indexed += 1
-                except Exception:
-                    logger.warning("chunk_index_batch_error: offset=%d", offset, exc_info=True)
-                    errors += len(docs)
+            if not docs:
+                break
 
-            offset += self._batch_size
+            try:
+                embeddings = await emb_gen.generate_for_docs(docs)
+                for uid, embedding in zip(uids, embeddings, strict=True):
+                    await self._store.set_node_embedding(uid, NodeLabel.CHUNK, embedding)
+                    indexed += 1
+            except Exception:
+                logger.warning("chunk_index_batch_error: indexed=%d", indexed, exc_info=True)
+                errors += len(docs)
+                break
+
             if self._on_progress:
                 self._on_progress(indexed + skipped + errors, total)
 

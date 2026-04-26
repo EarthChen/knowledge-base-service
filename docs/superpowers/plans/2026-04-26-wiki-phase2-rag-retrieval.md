@@ -44,7 +44,7 @@
 **Files:**
 - Modify: `config.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/test_config_phase2.py
@@ -63,12 +63,12 @@ def test_wiki_chunk_embedding_config_defaults():
     assert s.wiki.chunk_embedding_max_length == 512
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd knowledge-base-service && uv run pytest tests/test_config_phase2.py -v`
 Expected: FAIL with `AttributeError`
 
-- [ ] **Step 3: Add Phase 2 config fields to WikiConfig**
+- [x] **Step 3: Add Phase 2 config fields to WikiConfig**
 
 在 `config.py` 的 `WikiConfig` 类中，在 Phase 1 字段之后添加：
 
@@ -82,16 +82,16 @@ Expected: FAIL with `AttributeError`
     chunk_embedding_max_length: int = 512
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add config.py tests/test_config_phase2.py
 git commit -m "feat(config): add Phase 2 RAG and chunk embedding config fields"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - 配置字段命名是否遵循项目既有风格
@@ -106,7 +106,7 @@ Review checklist:
 - Modify: `wiki/models.py`
 - Modify: `wiki/data_collector.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/wiki/test_phase2_models.py
@@ -137,9 +137,9 @@ def test_chunk_snippet_defaults():
     assert snippet.end_line == 0
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Add ChunkSnippet model and extend PageData**
+- [x] **Step 3: Add ChunkSnippet model and extend PageData**
 
 在 `wiki/models.py` 中添加：
 
@@ -163,16 +163,16 @@ class ChunkSnippet:
 
 需要在 `data_collector.py` 中 import `ChunkSnippet`。
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add wiki/models.py wiki/data_collector.py tests/wiki/test_phase2_models.py
 git commit -m "feat(wiki): add ChunkSnippet model and extend PageData with related_chunks"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - ChunkSnippet 字段是否覆盖检索所需信息
@@ -186,7 +186,7 @@ Review checklist:
 **Files:**
 - Modify: `store/wiki_store.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/store/test_wiki_store_vector.py
@@ -230,9 +230,9 @@ async def test_batch_get_chunks_for_embedding(mock_store):
     assert "LIMIT" in cypher
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Add vector search and batch query methods**
+- [x] **Step 3: Add vector search and batch query methods**
 
 在 `store/wiki_store.py` 的 WikiStore 类中，Phase 1 方法之后添加：
 
@@ -282,16 +282,16 @@ async def test_batch_get_chunks_for_embedding(mock_store):
         )
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add store/wiki_store.py tests/store/test_wiki_store_vector.py
 git commit -m "feat(wiki-store): add chunk vector search and embedding batch query methods"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - Cypher 向量查询语法（FalkorDB 的 `db.idx.vector.queryNodes` 用法）
@@ -306,7 +306,7 @@ Review checklist:
 - Create: `wiki/chunk_indexer.py`
 - Create: `tests/wiki/test_chunk_indexer.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/wiki/test_chunk_indexer.py
@@ -369,9 +369,9 @@ async def test_index_skips_empty_text(mock_wiki_store, mock_store):
     assert result["skipped"] >= 0
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Implement CodeChunkIndexer**
+- [x] **Step 3: Implement CodeChunkIndexer**
 
 ```python
 # wiki/chunk_indexer.py
@@ -468,16 +468,16 @@ class CodeChunkIndexer:
         return {"total": total, "indexed": indexed, "skipped": skipped, "errors": errors}
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add wiki/chunk_indexer.py tests/wiki/test_chunk_indexer.py
 git commit -m "feat(wiki): implement CodeChunkIndexer for batch Chunk embedding generation"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - 批量处理逻辑是否正确（offset 递增、空 batch 退出）
@@ -493,7 +493,7 @@ Review checklist:
 - Create: `wiki/chunk_retriever.py`
 - Create: `tests/wiki/test_chunk_retriever.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/wiki/test_chunk_retriever.py
@@ -563,9 +563,9 @@ async def test_retrieve_filters_by_min_score(mock_wiki_store):
     assert results[0].score >= 0.80
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Implement ChunkRetriever**
+- [x] **Step 3: Implement ChunkRetriever**
 
 ```python
 # wiki/chunk_retriever.py
@@ -670,16 +670,16 @@ class ChunkRetriever:
         return " ".join(parts)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add wiki/chunk_retriever.py tests/wiki/test_chunk_retriever.py
 git commit -m "feat(wiki): implement ChunkRetriever for semantic code chunk discovery"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - 查询文本构建是否合理（name + fqn + signature + docstring[:200]）
@@ -694,7 +694,7 @@ Review checklist:
 **Files:**
 - Modify: `wiki/data_collector.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/wiki/test_data_collector_rag.py
@@ -753,25 +753,25 @@ async def test_collect_without_rag_has_empty_chunks(mock_graph_port):
     assert page_data.related_chunks == []
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Integrate ChunkRetriever**
+- [x] **Step 3: Integrate ChunkRetriever**
 
 修改 `wiki/data_collector.py`:
 1. Add `rag_enabled` parameter to `WikiDataCollector.__init__`
 2. In `collect()`, after SourceCodeReader, create ChunkRetriever and call retrieve
 3. Pass `related_chunks` to PageData
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add wiki/data_collector.py tests/wiki/test_data_collector_rag.py
 git commit -m "feat(wiki): integrate ChunkRetriever into WikiDataCollector for RAG-enriched collection"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - 向后兼容性（rag_enabled=False 不改变现有行为）
@@ -785,7 +785,7 @@ Review checklist:
 **Files:**
 - Modify: `wiki/composer.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/wiki/test_composer_rag_digest.py
@@ -823,9 +823,9 @@ def test_entity_digest_includes_related_chunks():
     assert "use_foo" in digest
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Enhance _entity_digest**
+- [x] **Step 3: Enhance _entity_digest**
 
 在 `wiki/composer.py` 的 `_entity_digest` 方法中，在 code_snippets 块之后、return 之前添加：
 
@@ -837,16 +837,16 @@ def test_entity_digest_includes_related_chunks():
                 lines.append(f"```\n{chunk.text}\n```")
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add wiki/composer.py tests/wiki/test_composer_rag_digest.py
 git commit -m "feat(wiki): enhance _entity_digest to embed RAG-retrieved code chunks in LLM prompt"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - RAG chunks 在 prompt 中的位置（在精准代码之后）
@@ -861,7 +861,7 @@ Review checklist:
 - Modify: `wiki/service.py`
 - Modify: `api/routes/wiki_routes.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/wiki/test_chunk_index_api.py
@@ -883,9 +883,9 @@ async def test_wiki_service_accepts_rag_enabled():
     assert service._collector._rag_enabled is not None
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Integrate RAG into WikiService**
+- [x] **Step 3: Integrate RAG into WikiService**
 
 修改 `wiki/service.py`:
 1. Pass `rag_enabled` from config to WikiDataCollector
@@ -895,18 +895,18 @@ async def test_wiki_service_accepts_rag_enabled():
 1. Add `POST /api/v1/wiki/chunks/index` endpoint
 2. Background task to run CodeChunkIndexer
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Run full test suite**
+- [x] **Step 5: Run full test suite**
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add wiki/service.py api/routes/wiki_routes.py tests/wiki/test_chunk_index_api.py
 git commit -m "feat(wiki): integrate RAG into WikiService and add chunk indexing API endpoint"
 ```
 
-- [ ] **Step 7: Code Review**
+- [x] **Step 7: Code Review**
 
 Review checklist:
 - WikiService 对 ChunkRetriever 参数的传递
@@ -920,7 +920,7 @@ Review checklist:
 **Files:**
 - Modify: `wiki/__init__.py`
 
-- [ ] **Step 1: Update wiki/__init__.py exports**
+- [x] **Step 1: Update wiki/__init__.py exports**
 
 ```python
 from wiki.chunk_indexer import CodeChunkIndexer
@@ -928,18 +928,18 @@ from wiki.chunk_retriever import ChunkRetriever
 from wiki.models import ChunkSnippet
 ```
 
-- [ ] **Step 2: Run full test suite**
+- [x] **Step 2: Run full test suite**
 
 Run: `cd knowledge-base-service && uv run pytest tests/ -v --tb=short -q`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add wiki/__init__.py
 git commit -m "feat(wiki): export Phase 2 RAG components and complete integration validation"
 ```
 
-- [ ] **Step 4: Code Review**
+- [x] **Step 4: Code Review**
 
 Final review checklist:
 - 所有新组件正确导出

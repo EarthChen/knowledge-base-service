@@ -59,6 +59,7 @@ export interface Translations {
     diagramRendering: string;
     /** Hint on diagram preview hover */
     diagramClickToZoom: string;
+    retry: string;
   };
   sidebar: {
     service: string;
@@ -602,9 +603,17 @@ export interface Translations {
     tabHealth: string;
     tabInsights: string;
     tabExport: string;
+    tabRefGraph: string;
     businessView: string;
     codeView: string;
     coverageTitle: string;
+    qualityScoreTitle: string;
+    qualityFactorCoverage: string;
+    qualityFactorStaleness: string;
+    qualityFactorReferenceDensity: string;
+    qualityFactorAnnotations: string;
+    refGraphEmpty: string;
+    refGraphHint: string;
     covered: string;
     uncovered: string;
     coreLabel: string;

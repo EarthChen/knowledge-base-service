@@ -95,7 +95,9 @@ def _enforce_production_security(settings: Settings) -> None:
 async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
     """Expose wiki HTTP route dependencies on ``app.state`` (default business graph)."""
     from llm.base_provider import GatewayLLMProviderAdapter, LLMPortBridge
+    from store.wiki_store import WikiStore as _WikiStoreForMemory
     from wiki.ask import WikiAskService
+    from wiki.memory_loop import MemoryLoop
     from wiki.search import WikiSearchService
     from wiki.service import WikiService
 
@@ -138,11 +140,24 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
     )
     app.state.wiki_search_service = wiki_search
 
+    wiki_mem: MemoryLoop | None = None
+    if getattr(kb, "_embedding", None) is not None:
+
+        async def _embed_wiki_mem(text: str) -> list[float]:
+            out = await kb._embedding.generate([text], is_query=False)  # type: ignore[union-attr]
+            return out[0] if out else []
+
+        wiki_mem = MemoryLoop(
+            _WikiStoreForMemory(kb.store), _embed_wiki_mem, business_id="default",
+        )
+    app.state.wiki_memory_loop = wiki_mem
+
     if kb.llm_provider is not None:
         app.state.wiki_ask_service = WikiAskService(
             search=wiki_search,
             llm=_wrap_llm(kb.llm_provider),
             graph=kb.store,
+            memory_loop=wiki_mem,
         )
     else:
         app.state.wiki_ask_service = None

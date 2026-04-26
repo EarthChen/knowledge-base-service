@@ -92,3 +92,34 @@ class WikiCoverageStoreMixin:
             }
             for r in result.data
         ]
+
+    async def get_wiki_reference_and_enrichment_stats(self, business_id: str) -> dict[str, int]:
+        """Counts for quality score: WIKI_REFERENCES among business pages, and enriched wiki pages.
+
+        *enriched* — ``enrichment_level`` is non-empty (async enrichment / depth proxy).
+        """
+        q = (
+            "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(s:WikiPage) "
+            "MATCH (s)-[r:WIKI_REFERENCES]->(t:WikiPage) "
+            "MATCH (ws)-[:HAS_CHILD*1..10]->(t) "
+            "RETURN count(r) AS ref_count"
+        )
+        r1 = await self._store.execute_query(q, {"business_id": business_id})
+        ref_count = 0
+        if r1.data:
+            ref_count = int(r1.data[0].get("ref_count", 0) or 0)
+
+        q2 = (
+            "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage) "
+            "WITH count(wp) AS total, "
+            "sum(CASE WHEN coalesce(wp.enrichment_level, '') <> '' THEN 1 ELSE 0 END) AS enriched "
+            "RETURN total, enriched"
+        )
+        r2 = await self._store.execute_query(q2, {"business_id": business_id})
+        total = 0
+        enriched = 0
+        if r2.data:
+            total = int(r2.data[0].get("total", 0) or 0)
+            enriched = int(r2.data[0].get("enriched", 0) or 0)
+
+        return {"ref_edge_count": ref_count, "total_pages": total, "enriched_pages": enriched}

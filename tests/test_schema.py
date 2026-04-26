@@ -72,7 +72,7 @@ class TestGraphEdge:
 
 class TestVectorIndexConfigs:
     def test_configs_exist(self):
-        assert len(VECTOR_INDEX_CONFIGS) == 8
+        assert len(VECTOR_INDEX_CONFIGS) == 9
 
     def test_configs_cover_labels(self):
         labels = {c["label"] for c in VECTOR_INDEX_CONFIGS}
@@ -83,6 +83,7 @@ class TestVectorIndexConfigs:
         assert NodeLabel.BUSINESS_FLOW in labels
         assert NodeLabel.BUSINESS_CONCEPT in labels
         assert NodeLabel.WIKI_PAGE in labels
+        assert NodeLabel.WIKI_QA in labels
 
     def test_all_use_cosine(self):
         for cfg in VECTOR_INDEX_CONFIGS:

@@ -185,3 +185,24 @@ class WikiTreeStoreMixin:
             "ORDER BY r.relation_type, s.title"
         )
         return await self._store.execute_query(q, {"uid": page_uid})
+
+    async def get_business_wiki_references_graph(self, business_id: str) -> dict[str, Any]:
+        """All wiki pages under a business and cross-page :WIKI_REFERENCES with both ends in that tree."""
+        q_pages = (
+            "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage) "
+            "RETURN wp.uid AS uid, wp.title AS title, wp.path AS path, "
+            "wp.repository AS repository, coalesce(wp.importance_tier, '') AS importance_tier "
+            "ORDER BY wp.path"
+        )
+        pages = await self._store.execute_query(q_pages, {"business_id": business_id})
+        q_edges = (
+            "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(s:WikiPage) "
+            "MATCH (s)-[r:WIKI_REFERENCES]->(t:WikiPage) "
+            "MATCH (ws)-[:HAS_CHILD*1..10]->(t) "
+            "RETURN s.uid AS source_uid, t.uid AS target_uid, r.relation_type AS relation_type"
+        )
+        edges = await self._store.execute_query(q_edges, {"business_id": business_id})
+        return {
+            "pages": list(pages.data) if pages and pages.data else [],
+            "edges": list(edges.data) if edges and edges.data else [],
+        }

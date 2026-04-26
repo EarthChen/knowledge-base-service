@@ -24,6 +24,8 @@ from store.wiki_store import WikiStore
 from git_manager import normalize_repo_name
 from utils.git_utils import looks_like_git_url
 from wiki.ask import WikiAskService
+from wiki.memory_loop import MemoryLoop
+from wiki.quality_score import WikiQualityScorer
 from wiki.coverage_analyzer import WikiCoverageAnalyzer
 from wiki.cache import WikiCache
 from wiki.exporter import WikiExporter
@@ -129,6 +131,18 @@ class WikiAskBody(BaseModel):
     scope: str | None = None
     conversation_id: str | None = None
     mode: str = Field(default="hybrid", pattern="^(hybrid|graph|semantic|keyword)$")
+    record_memory: bool = False
+    business_id: str | None = Field(
+        default=None,
+        description="When set with record_memory, persists Q&A under this business id",
+    )
+
+
+class WikiQaRecordBody(BaseModel):
+    business_id: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1)
+    answer: str = Field(..., min_length=1)
+    source_pages: list[str] = Field(default_factory=list)
 
 
 class WikiLintBody(BaseModel):
@@ -223,6 +237,10 @@ async def get_wiki_ask_dep(request: Request) -> WikiAskService:
             },
         )
     return svc
+
+
+def get_wiki_memory_loop_dep(request: Request) -> MemoryLoop | None:
+    return getattr(request.app.state, "wiki_memory_loop", None)
 
 
 def get_graph_query_dep(request: Request) -> GraphQueryService:
@@ -1230,6 +1248,76 @@ async def wiki_coverage_report(
     return report.to_dict()
 
 
+@wiki_router.get("/quality-score", response_model=None)
+async def wiki_quality_score(
+    request: Request,
+    business_id: str = Query(default="default"),
+) -> dict[str, Any]:
+    """Aggregate quality score 0-100 (coverage, staleness, references, enrichment)."""
+    raw_store = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
+        )
+    ws = WikiStore(raw_store)
+    scorer = WikiQualityScorer(ws)
+    result = await scorer.compute_score(business_id)
+    return result.to_dict()
+
+
+@wiki_router.get("/references", response_model=None)
+async def wiki_business_references(
+    request: Request,
+    business_id: str = Query(..., min_length=1),
+) -> dict[str, Any]:
+    """Wiki reference network for a business: pages and WIKI_REFERENCES edges (both ends in space)."""
+    raw_store = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
+        )
+    ws = WikiStore(raw_store)
+    return await ws.get_business_wiki_references_graph(business_id)
+
+
+@wiki_router.get("/qa", response_model=None)
+async def wiki_list_qa(
+    request: Request,
+    business_id: str = Query(..., min_length=1),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=200),
+) -> dict[str, Any]:
+    """Paginated :WikiQA entries for a business."""
+    raw_store = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
+        )
+    ws = WikiStore(raw_store)
+    r = await ws.list_wiki_qa(business_id, skip, limit)
+    return {"items": r.data or [], "skip": skip, "limit": limit, "total": await ws.count_wiki_qa(business_id)}
+
+
+@wiki_router.post("/qa/record", response_model=None)
+async def wiki_record_qa(
+    body: WikiQaRecordBody,
+    mem: MemoryLoop | None = Depends(get_wiki_memory_loop_dep),
+) -> dict[str, Any]:
+    """Store a Q&A pair (e.g. after wiki ask) as :WikiQA with embedding."""
+    if mem is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "detail": "Wiki memory loop is not configured"},
+        )
+    uid = await mem.record(
+        body.question, body.answer, list(body.source_pages), business_id=body.business_id,
+    )
+    return {"ok": True, "uid": uid}
+
+
 @wiki_router.post("/{repository}/lint", response_model=None)
 async def wiki_lint(
     repository: str,
@@ -1328,6 +1416,8 @@ async def wiki_ask(
                 scope=body.scope,
                 conversation_id=body.conversation_id,
                 mode=body.mode,
+                record_memory=body.record_memory,
+                business_id=body.business_id,
             ):
                 event = str(ev.get("event", "message"))
                 payload = json.dumps(ev.get("data") or {})

@@ -21,7 +21,6 @@ import MobileTocBar from "./MobileTocBar";
 import SourceLocRow from "./SourceLocRow";
 import { useI18n } from "../../i18n/context";
 import { useToast } from "../Toast";
-import { wikiHref } from "./wikiRouteHelpers";
 
 type Props = {
   repository: string;

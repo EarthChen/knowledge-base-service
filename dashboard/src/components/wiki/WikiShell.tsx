@@ -3,6 +3,7 @@ import { Navigate, useSearchParams } from "react-router-dom";
 import {
   Activity,
   FileOutput,
+  GitBranch,
   LayoutGrid,
   Loader2,
   Network,
@@ -15,6 +16,8 @@ import GraphInsightsPanel from "./GraphInsightsPanel";
 import WikiContent from "./WikiContent";
 import WikiReferencesPanel from "./WikiReferencesPanel";
 import WikiCoverageCard from "./WikiCoverageCard";
+import WikiQualityScoreCard from "./WikiQualityScoreCard";
+import WikiReferenceGraph from "./WikiReferenceGraph";
 import WikiBusinessExportPanel from "./WikiBusinessExportPanel";
 import WikiLandingPage from "./WikiLandingPage";
 import WikiLintPanel from "./WikiLintPanel";
@@ -32,7 +35,7 @@ import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
 import WikiGenerationProgress from "./WikiGenerationProgress";
 import WikiUpdateNotification from "./WikiUpdateNotification";
 
-type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights";
+type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights" | "refgraph";
 
 export default function WikiShell() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -253,6 +256,11 @@ export default function WikiShell() {
               <Network size={14} className="text-violet-600 dark:text-violet-400" aria-hidden />,
             )}
             {tabBtn(
+              "refgraph",
+              t.wiki.tabRefGraph,
+              <GitBranch size={14} className="text-cyan-600 dark:text-cyan-400" aria-hidden />,
+            )}
+            {tabBtn(
               "export",
               t.wiki.tabExport,
               <FileOutput size={14} className="text-sky-600 dark:text-sky-400" aria-hidden />,
@@ -319,7 +327,19 @@ export default function WikiShell() {
           </>
         )}
 
-        {toolTab === "coverage" && <WikiCoverageCard businessId={businessId} />}
+        {toolTab === "coverage" && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <WikiCoverageCard businessId={businessId} />
+            <WikiQualityScoreCard businessId={businessId} />
+          </div>
+        )}
+
+        {toolTab === "refgraph" && (
+          <WikiReferenceGraph
+            businessId={businessId}
+            view={viewType === "code_structure" ? "code_structure" : "business_domain"}
+          />
+        )}
 
         {toolTab === "health" && (
           <WikiLintPanel repository={pageQuery.data?.context?.repository ?? businessId} />

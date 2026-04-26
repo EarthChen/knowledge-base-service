@@ -1041,10 +1041,9 @@ async def wiki_coverage_report(
 
     wiki_store = WikiStore(raw_store)
     analyzer = WikiCoverageAnalyzer(wiki_store)
-    report = await analyzer.analyze(business_id)
-
-    if not settings.wiki.stale_detection_enabled:
-        report.stale_pages = []
+    report = await analyzer.analyze(
+        business_id, include_stale=settings.wiki.stale_detection_enabled,
+    )
 
     return report.to_dict()
 

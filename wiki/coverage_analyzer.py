@@ -42,10 +42,16 @@ class WikiCoverageAnalyzer:
     def __init__(self, store: Any) -> None:
         self._store = store
 
-    async def analyze(self, business_id: str) -> CoverageReport:
+    async def analyze(
+        self, business_id: str, *, include_stale: bool = True,
+    ) -> CoverageReport:
         stats = await self._store.get_entity_coverage_stats(business_id)
         gaps_raw = await self._store.get_knowledge_gaps(business_id)
-        stale_raw = await self._store.get_stale_wiki_pages(business_id)
+        stale_raw = (
+            await self._store.get_stale_wiki_pages(business_id)
+            if include_stale
+            else []
+        )
 
         total = stats.get("total_entities", 0)
         core = stats.get("core_total", 0)

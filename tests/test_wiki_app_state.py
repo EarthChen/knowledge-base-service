@@ -7,7 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import FastAPI
 
-from main import wire_wiki_app_state
+from config import get_settings
+from wiki.bootstrap import bootstrap_wiki
 from wiki.service import WikiService
 
 
@@ -28,8 +29,9 @@ async def test_wire_wiki_app_state_sets_factory_and_services() -> None:
 
     registry = MagicMock()
     registry.get_service = AsyncMock(return_value=kb)
+    app.state.registry = registry
 
-    await wire_wiki_app_state(app, registry)
+    await bootstrap_wiki(app, get_settings())
 
     assert callable(app.state.wiki_service_factory)
     assert app.state.wiki_search_service is not None
@@ -53,8 +55,9 @@ async def test_wire_wiki_app_state_no_llm_skips_ask_service() -> None:
 
     registry = MagicMock()
     registry.get_service = AsyncMock(return_value=kb)
+    app.state.registry = registry
 
-    await wire_wiki_app_state(app, registry)
+    await bootstrap_wiki(app, get_settings())
 
     assert app.state.wiki_ask_service is None
     assert app.state.wiki_search_service is not None

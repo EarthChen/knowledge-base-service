@@ -11,8 +11,11 @@ from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from log import get_logger
 from store.wiki_store import WikiStore
 from wiki.search import SearchResponse, SearchResult
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -603,7 +606,7 @@ class WikiAskService:
                     question, full_text, pgs, business_id=business_id,
                 )
             except Exception:
-                pass
+                log.warning("memory_loop_record_failed", exc_info=True)
 
     async def ask(
         self,

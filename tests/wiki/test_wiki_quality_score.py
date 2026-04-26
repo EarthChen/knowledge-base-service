@@ -39,6 +39,36 @@ async def test_compute_score_weighted_100_scale() -> None:
 
 
 @pytest.mark.asyncio
+async def test_page_level_factors_use_total_pages_denominator() -> None:
+    """Staleness, reference density, and enrichment use total_pages; coverage uses total_entities."""
+    store = MagicMock()
+    store.get_entity_coverage_stats = AsyncMock(
+        return_value={
+            "total_entities": 20,
+            "covered_entities": 10,
+            "core_total": 2,
+            "standard_total": 5,
+            "skeleton_total": 13,
+        },
+    )
+    store.get_knowledge_gaps = AsyncMock(return_value=[])
+    store.get_stale_wiki_pages = AsyncMock(return_value=[])
+    store.get_wiki_reference_and_enrichment_stats = AsyncMock(
+        return_value={"ref_edge_count": 5, "total_pages": 10, "enriched_pages": 2},
+    )
+
+    r = await WikiQualityScorer(store).compute_score("biz")
+
+    cov = next(f for f in r.factors if f.name == "coverage")
+    assert abs(cov.score - 0.5) < 0.01  # 10/20 entities
+    ref = next(f for f in r.factors if f.name == "reference_density")
+    assert abs(ref.score - 0.5) < 0.01  # 5 ref edges / 10 pages, not / 20 entities
+    ann = next(f for f in r.factors if f.name == "annotation_density")
+    assert abs(ann.score - 0.2) < 0.01  # 2 enriched / 10 pages, not / 20 entities
+    assert r.details.get("total_pages") == 10
+
+
+@pytest.mark.asyncio
 async def test_empty_business_zeroes_gracefully() -> None:
     store = MagicMock()
     store.get_entity_coverage_stats = AsyncMock(

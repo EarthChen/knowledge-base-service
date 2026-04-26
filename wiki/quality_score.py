@@ -48,15 +48,17 @@ class WikiQualityScorer:
         report = await self._analyzer.analyze(business_id, include_stale=True)
         stats = await self._store.get_entity_coverage_stats(business_id)
         ref_stats = await self._store.get_wiki_reference_and_enrichment_stats(business_id)
+        total = int(stats.get("total_entities", 0) or 0)
+        total_pages = int(ref_stats.get("total_pages", total) or 0)
         details: dict[str, Any] = {
             "total_entities": stats.get("total_entities", 0),
+            "total_pages": total_pages,
             "covered_entities": stats.get("covered_entities", 0),
             "stale_page_count": len(report.stale_pages),
             "ref_edge_count": ref_stats.get("ref_edge_count", 0),
             "enriched_pages": ref_stats.get("enriched_pages", 0),
         }
 
-        total = int(stats.get("total_entities", 0) or 0)
         covered = int(stats.get("covered_entities", 0) or 0)
 
         if total == 0:
@@ -71,6 +73,7 @@ class WikiQualityScorer:
                 factors=zero_factors,
                 details={
                     "total_entities": 0,
+                    "total_pages": int(ref_stats.get("total_pages", 0) or 0),
                     "covered_entities": 0,
                     "stale_page_count": 0,
                     "ref_edge_count": 0,
@@ -80,20 +83,25 @@ class WikiQualityScorer:
 
         coverage_raw = (covered / total) if total > 0 else 0.0
 
+        page_denom = total_pages
         stale_n = len(report.stale_pages)
-        staleness_raw = 1.0 - (stale_n / total if total > 0 else 0.0)
+        if page_denom > 0:
+            staleness_raw = 1.0 - (stale_n / page_denom)
+        else:
+            # No wiki pages: nothing to flag as stale relative to page set
+            staleness_raw = 1.0
         staleness_raw = max(0.0, min(1.0, staleness_raw))
 
         ref_edges = int(ref_stats.get("ref_edge_count", 0) or 0)
-        if total > 0:
-            approx_per_page = ref_edges / total
+        if page_denom > 0:
+            approx_per_page = ref_edges / page_denom
         else:
             approx_per_page = 0.0
         # Treat ~1.0 outgoing+incoming refs per page (normalized) as "good" (score ~1.0)
-        ref_raw = min(1.0, approx_per_page / 1.0) if total > 0 else 0.0
+        ref_raw = min(1.0, approx_per_page / 1.0) if page_denom > 0 else 0.0
 
         enr = int(ref_stats.get("enriched_pages", 0) or 0)
-        annotation_raw = (enr / total) if total > 0 else 0.0
+        annotation_raw = (enr / page_denom) if page_denom > 0 else 0.0
 
         factors: list[QualityFactor] = [
             QualityFactor(name="coverage", weight=0.4, score=coverage_raw),

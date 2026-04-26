@@ -9,10 +9,6 @@ from typing import Any
 from store.falkordb_store import QueryResultWrapper
 
 
-def _cypher_vec_literal(vec: list[float]) -> str:
-    return ", ".join(str(v) for v in vec)
-
-
 class WikiQaStoreMixin:
     """WikiQA node CRUD and embedding-backed similarity search."""
 
@@ -30,11 +26,13 @@ class WikiQaStoreMixin:
         """Create a :WikiQA node with embedding. Returns the node uid."""
         uid = f"WikiQA:{business_id}:{uuid.uuid4().hex}"
         pages_json = json.dumps(source_pages, ensure_ascii=True)
-        vec_lit = _cypher_vec_literal(embedding)
+        # Pass embedding as a query parameter (same pattern as search_wiki_qa: vecf32($vec)).
+        # set_node_embedding uses string interpolation because that path only receives uid as a param;
+        # here the full vector is a single parameter list.
         q = (
-            f"CREATE (q:WikiQA {{uid: $uid, business_id: $business_id, question: $question, "
-            f"answer: $answer, source_pages: $source_pages, quality_score: $quality_score, created_at: $created_at, "
-            f"embedding: vecf32([{vec_lit}])}}) RETURN q.uid AS uid"
+            "CREATE (q:WikiQA {uid: $uid, business_id: $business_id, question: $question, "
+            "answer: $answer, source_pages: $source_pages, quality_score: $quality_score, created_at: $created_at, "
+            "embedding: vecf32($embedding)}) RETURN q.uid AS uid"
         )
         r = await self._store.execute_query(
             q,
@@ -46,6 +44,7 @@ class WikiQaStoreMixin:
                 "source_pages": pages_json,
                 "quality_score": float(quality_score),
                 "created_at": created_at,
+                "embedding": embedding,
             },
         )
         if r.data and r.data[0].get("uid"):

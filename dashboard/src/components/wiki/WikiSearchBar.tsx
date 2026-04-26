@@ -10,6 +10,10 @@ import { getErrorMessage } from "../../utils/errorUtils";
 
 const WIKI_SEARCH_RESULTS_LIST_ID = "wiki-search-results-listbox";
 
+const isMac =
+  typeof navigator !== "undefined" && /mac/i.test(navigator.platform || navigator.userAgent);
+const shortcutHint = isMac ? "⌘K" : "Ctrl+K";
+
 type Props = {
   repository: string;
   linkParams?: Record<string, string>;
@@ -25,7 +29,7 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if ((isMac ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setOpen((o) => !o);
       }
@@ -74,7 +78,7 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
         <Search size={14} aria-hidden />
         <span className="hidden sm:inline">{t.wiki.searchWikiLabel}</span>
         <kbd className="hidden rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[10px] text-gray-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400 sm:inline">
-          ⌘K
+          {shortcutHint}
         </kbd>
       </button>
     );

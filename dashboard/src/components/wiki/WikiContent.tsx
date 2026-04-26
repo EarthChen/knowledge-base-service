@@ -440,10 +440,13 @@ export default function WikiContent({
               <div className="min-w-0 flex-1">
                 {pageUid ? (
                   <WikiAnnotationLayer
-                    onAddAnnotation={({ start, end, comment }) => {
+                    annotations={annotationsQuery.data ?? []}
+                    highlightSourceKey={detail.content}
+                    onAddAnnotation={({ start, end, comment, selected_text }) => {
                       annotationsQuery.create.mutate({
                         text_range_start: start,
                         text_range_end: end,
+                        selected_text,
                         comment,
                         author: "viewer",
                       });

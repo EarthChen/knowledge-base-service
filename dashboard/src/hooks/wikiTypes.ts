@@ -149,6 +149,8 @@ export type WikiAnnotation = {
   page_uid: string;
   text_range_start: number;
   text_range_end: number;
+  /** Plain text that was selected when the annotation was created; used for robust re-highlighting. */
+  selected_text?: string | null;
   comment: string;
   author: string;
   created_at: string;

@@ -16,6 +16,7 @@ export function useWikiAnnotations(pageUid: string) {
     mutationFn: (body: {
       text_range_start: number;
       text_range_end: number;
+      selected_text?: string;
       comment: string;
       author: string;
     }) =>

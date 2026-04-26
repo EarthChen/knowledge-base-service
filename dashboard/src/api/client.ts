@@ -48,7 +48,16 @@ export async function api<T = unknown>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const url = path.startsWith("http") ? path : API_BASE + path;
+  let url: string;
+  if (path.startsWith("http")) {
+    const parsed = new URL(path, typeof window !== "undefined" ? window.location.href : undefined);
+    if (typeof window !== "undefined" && parsed.origin !== window.location.origin) {
+      throw new ApiError("Cross-origin API calls are not allowed", 0, null);
+    }
+    url = path;
+  } else {
+    url = API_BASE + path;
+  }
   const res = await fetch(url, {
     ...options,
     headers: { ...authHeaders(), ...(options.headers as Record<string, string>) },

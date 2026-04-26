@@ -49,6 +49,7 @@ describe("WikiAnnotationLayer", () => {
         comment: "note",
         start: 0,
         end: expect.any(Number),
+        selected_text: "Select this text",
       }),
     );
     expect(onAdd.mock.calls[0][0].end).toBeGreaterThan(0);

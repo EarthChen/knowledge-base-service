@@ -121,6 +121,7 @@ Replace in-memory `OrderedDict` with `aiosqlite`-backed store:
 ```
 Table: conversations
   conversation_id TEXT PRIMARY KEY,
+  business_id TEXT NOT NULL DEFAULT 'default',
   repository TEXT,
   scope TEXT,
   turns_json TEXT,
@@ -258,7 +259,7 @@ class ChangeDetector:
 Detection algorithm:
 1. Parse changed file paths from git diff.
 2. Query graph: `MATCH (e) WHERE e.file IN $files RETURN e.uid, e.name`.
-3. Expand 1-hop via CALLS/IMPORTS edges: `MATCH (e)-[:CALLS|IMPORTS*1]-(neighbor) WHERE e.uid IN $uids RETURN DISTINCT neighbor.uid`.
+3. Expand 1-hop via CALLS/IMPORTS/CONTAINS edges: `MATCH (e)-[:CALLS|IMPORTS|CONTAINS*1]-(neighbor) WHERE e.uid IN $uids RETURN DISTINCT neighbor.uid`.
 4. Find WikiPages linked via SOURCE_ENTITY: `MATCH (wp:WikiPage)-[:SOURCE_ENTITY]->(e) WHERE e.uid IN $all_uids RETURN wp.uid`.
 
 ### 5.2 Selective Regeneration
@@ -313,7 +314,11 @@ Extend `api/routes/webhook_routes.py`:
 - Call `ChangeDetector.detect_from_file_list()`.
 - Enqueue incremental generation task.
 
-### 5.5 API Endpoints
+### 5.5 Graceful Degradation
+
+If incremental detection fails (e.g., git diff unavailable, graph query timeout), the system falls back to full regeneration with a warning log. This ensures wiki updates never silently stop.
+
+### 5.6 API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -404,7 +409,7 @@ Regenerated after each wiki generation. Stored as a WikiPage with `page_type: "a
 ### 6.4 Test Plan
 
 - Unit test each MCP tool with mock data.
-- Integration test: MCP server responds to tool calls via stdio transport.
+- Integration test: MCP server responds to tool calls via stdio transport (local agent) and HTTP/SSE transport (remote access).
 - Test compact mode token budget enforcement.
 - Verify AGENTS.md generation includes all indexed repositories.
 
@@ -444,20 +449,25 @@ Integrated into `lifespan` alongside existing `SyncScheduler`.
 
 ### 7.3 Memory Loop Generation Injection
 
-Modify `WikiComposer.compose_page()`:
+Modify `WikiComposer.__init__()` to accept an optional `MemoryLoop` instance (injected by `WikiService._composer_for()` which already has access to the memory loop via `app.state.wiki_memory_loop`):
 
 ```python
-async def compose_page(self, page_data, page_type, config, parent_context=""):
-    # ... existing context building ...
+class WikiComposer:
+    def __init__(self, llm, context_builder, store=None, wiki_store=None,
+                 memory_loop: MemoryLoop | None = None):
+        ...
+        self._memory_loop = memory_loop
 
-    # Inject relevant Q&A memories
-    if self._memory_loop is not None:
-        enriched_context = await self._memory_loop.inject_into_generation(
-            context_str, business_id=config.repository
-        )
-        context_str = enriched_context
+    async def compose_page(self, page_data, page_type, config, parent_context=""):
+        # ... existing context building ...
 
-    # ... LLM generation ...
+        if self._memory_loop is not None:
+            enriched_context = await self._memory_loop.inject_into_generation(
+                context_str, business_id=config.repository
+            )
+            context_str = enriched_context
+
+        # ... LLM generation ...
 ```
 
 This closes the learning loop: User asks question → Answer recorded → Next generation incorporates the Q&A → Wiki proactively addresses common questions.
@@ -501,7 +511,7 @@ Add thumbs up/down buttons to WikiContent footer. Optional text feedback on "dow
 New module `wiki/concept_merger.py`:
 
 1. After all per-repo wiki pages are generated, run concept detection.
-2. Query: `MATCH (e1:WikiPage), (e2:WikiPage) WHERE e1.repository <> e2.repository` with embedding similarity > 0.9.
+2. Query: `MATCH (e1:WikiPage), (e2:WikiPage) WHERE e1.repository <> e2.repository` with embedding similarity above configurable threshold (default 0.9, via `Settings.wiki.concept_merge_similarity_threshold`).
 3. For matched pairs, generate a `ConceptPage` that synthesizes both descriptions.
 4. ConceptPage includes: unified definition, per-repo differences, cross-references.
 
@@ -625,3 +635,16 @@ class WikiSettings(BaseModel):
 | SP5 | Memory-enriched pages mention Q&A topics | Qualitative |
 | SP6 | Concept pages generated for cross-repo entities | > 0 |
 | SP6 | Deep research produces cited report | Qualitative |
+
+---
+
+## 11. Risks & Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Incremental ingest misses transitive dependencies | Stale wiki pages | 1-hop expansion + periodic full regeneration as safety net |
+| MCP server adds attack surface | Security | Require authentication on all MCP tools; reuse existing auth middleware |
+| Memory Loop injection increases LLM token cost | Higher cost per generation | Budget cap on injected memories (configurable `max_memories` parameter) |
+| ConversationStore SQLite under high concurrency | Write contention | WAL mode enabled; fallback to in-memory store under pressure |
+| Concept merging false positives | Incorrect knowledge consolidation | Configurable similarity threshold; admin review queue for merged concepts |
+| Deep research mode runaway LLM calls | Cost explosion | Hard cap on `max_rounds` (default 5); total token budget per research session |

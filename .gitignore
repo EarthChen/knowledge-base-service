@@ -12,6 +12,10 @@ build/
 *.egg
 uv.lock
 
+# Runtime data
+data/
+.coverage
+
 # Dashboard build output (rebuild via: cd dashboard && pnpm build)
 static/
 

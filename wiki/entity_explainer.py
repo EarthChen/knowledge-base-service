@@ -46,7 +46,7 @@ class EntityExplainer:
         wiki_q = (
             "MATCH (wp:WikiPage)-[:SOURCE_ENTITY]->(e {repository: $repo}) "
             "WHERE e.name = $name OR e.fqn = $name "
-            "RETURN wp.title AS title, wp.content AS content, wp.page_path AS page_path "
+            "RETURN wp.title AS title, wp.content AS content, wp.path AS page_path "
             "LIMIT 1"
         )
         wiki_result = await self._graph.execute_query(wiki_q, {"repo": repository, "name": entity_name})

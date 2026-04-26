@@ -10,7 +10,12 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
-from api.request_context import reset_current_request_id, set_current_request_id
+from api.request_context import (
+    reset_current_business,
+    reset_current_request_id,
+    set_current_business,
+    set_current_request_id,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -21,7 +26,9 @@ _SKIP_REQUEST_LOG_PATHS = frozenset({"/api/health", "/api/v1/health"})
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get("x-request-id", str(uuid.uuid4())[:8])
+        biz_id = request.headers.get("x-business-id", "default")
         rid_token = set_current_request_id(request_id)
+        biz_token = set_current_business(biz_id)
         start = time.monotonic()
 
         try:
@@ -52,4 +59,5 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             )
             raise
         finally:
+            reset_current_business(biz_token)
             reset_current_request_id(rid_token)

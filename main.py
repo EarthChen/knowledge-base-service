@@ -187,7 +187,10 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
 
     from wiki.deep_research import DeepResearchService
 
-    app.state.wiki_deep_research_service = DeepResearchService(ask_service=app.state.wiki_ask_service)
+    app.state.wiki_deep_research_service = DeepResearchService(
+        ask_service=app.state.wiki_ask_service,
+        llm=_wrap_llm(kb.llm_provider) if kb.llm_provider else None,
+    )
 
     app.state.graph_query_service = kb.graph_query
 

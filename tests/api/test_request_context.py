@@ -1,5 +1,10 @@
 import asyncio
+
 import pytest
+from fastapi import FastAPI
+from starlette.testclient import TestClient
+
+from api.middleware.request_logging import RequestLoggingMiddleware
 from api.request_context import (
     get_current_business,
     get_current_request_id,
@@ -58,3 +63,29 @@ async def test_request_id_isolated_across_tasks():
 
     await asyncio.gather(worker("rid-a"), worker("rid-b"))
     assert set(results) == {"rid-a", "rid-b"}
+
+
+@pytest.fixture
+def context_middleware_app() -> FastAPI:
+    app = FastAPI()
+    app.add_middleware(RequestLoggingMiddleware)
+
+    @app.get("/_ctx_business")
+    async def _ctx_business() -> dict[str, str]:
+        return {"business_id": get_current_business()}
+
+    return app
+
+
+def test_middleware_sets_business_id_from_header(context_middleware_app: FastAPI) -> None:
+    client = TestClient(context_middleware_app)
+    r = client.get("/_ctx_business", headers={"X-Business-Id": "acme-corp"})
+    assert r.status_code == 200
+    assert r.json() == {"business_id": "acme-corp"}
+
+
+def test_middleware_default_business_id(context_middleware_app: FastAPI) -> None:
+    client = TestClient(context_middleware_app)
+    r = client.get("/_ctx_business")
+    assert r.status_code == 200
+    assert r.json() == {"business_id": "default"}

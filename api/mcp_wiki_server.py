@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from api.exceptions import KbError
 from log import get_logger
 
 log = get_logger(__name__)
@@ -95,9 +96,11 @@ class MCPWikiServer:
             return {"error": f"Unknown tool: {tool_name}"}
         try:
             return await handler(arguments)
-        except Exception as exc:
-            log.warning("mcp_tool_call_failed", tool=tool_name, error=str(exc))
-            return {"error": str(exc)}
+        except KbError as exc:
+            return {"error": exc.message}
+        except Exception:
+            log.warning("mcp_tool_call_failed", tool=tool_name, exc_info=True)
+            return {"error": "Internal tool error"}
 
     async def _handle_wiki_search(self, args: dict[str, Any]) -> dict[str, Any]:
         if self._search is None:
@@ -139,7 +142,29 @@ class MCPWikiServer:
         return {"path": path, "pages": pages}
 
     async def _handle_wiki_qa(self, args: dict[str, Any]) -> dict[str, Any]:
-        return {"status": "not_implemented", "question": args.get("question", "")}
+        if self._ask is None:
+            return {"error": "Q&A service not configured"}
+        question = str(args.get("question", ""))
+        repository = str(args.get("repository", ""))
+        business_id = str(args.get("business_id", "default"))
+        scope = args.get("scope")
+        if scope is not None:
+            scope = str(scope) if scope else None
+        full_text = ""
+        conversation_id = ""
+        async for ev in self._ask.ask_stream(
+            repository=repository,
+            question=question,
+            scope=scope,
+            business_id=business_id,
+        ):
+            et = ev.get("event")
+            data = ev.get("data") or {}
+            if et == "wiki-answer":
+                full_text = str(data.get("content", ""))
+            elif et == "wiki-answer-complete":
+                conversation_id = str(data.get("conversation_id", ""))
+        return {"answer": full_text, "conversation_id": conversation_id}
 
     async def _handle_wiki_impact(self, args: dict[str, Any]) -> dict[str, Any]:
         if self._change_detector is None:

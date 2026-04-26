@@ -1,6 +1,15 @@
+import inspect
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from wiki.entity_explainer import EntityExplainer
+
+
+def test_wiki_query_uses_correct_path_property():
+    """Verify Cypher references wp.path, not wp.page_path."""
+    source = inspect.getsource(EntityExplainer.explain)
+    assert "wp.path" in source
+    assert "wp.page_path" not in source
 
 
 @pytest.mark.asyncio

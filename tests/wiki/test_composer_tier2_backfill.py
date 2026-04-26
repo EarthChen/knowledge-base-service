@@ -77,7 +77,7 @@ async def test_tier1_no_backfill() -> None:
         store=None,
         wiki_store=wiki_store,
     )
-    cfg = WikiConfig(repository="repo1", mode="full", format="json", language="en")
+    cfg = WikiConfig(repository="repo1", mode="structure", format="json", language="en")
     page = await composer.compose_page(
         _page_data(summary="Already have summary", uid="class:2"),
         PageType.CLASS_DETAIL,

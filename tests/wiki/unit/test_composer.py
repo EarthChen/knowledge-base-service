@@ -69,7 +69,7 @@ class TestFallbackTiers:
             methods=[],
         )
         composer = WikiComposer(llm=llm, context_builder=WikiContextBuilder())
-        cfg = WikiConfig(repository="demo", mode="full")
+        cfg = WikiConfig(repository="demo", mode="structure")
         page = await composer.compose_page(pd, PageType.CLASS_DETAIL, cfg)
         assert summ in page.content
         assert page.metadata.fallback_tier == 1
@@ -352,7 +352,7 @@ class TestComposerCoverageGaps:
         await composer.compose_page(pd, PageType.MODULE_OVERVIEW, cfg)
         prompt = llm.generate.call_args[0][0]
         assert "- Path: projects/api" in prompt
-        assert "Child classes/modules listed: 1" in prompt
+        assert "Child classes/modules: 1" in prompt
 
     async def test_tier2_entity_digest_class_includes_fqn_and_methods_count(self) -> None:
         cls = GraphNode(
@@ -383,7 +383,7 @@ class TestComposerCoverageGaps:
         await composer.compose_page(pd, PageType.CLASS_DETAIL, cfg)
         prompt = llm.generate.call_args[0][0]
         assert "- FQN: pkg.Thing" in prompt
-        assert "Methods listed: 1" in prompt
+        assert "Methods: 1" in prompt
 
     async def test_tier3_zh_module_template(self) -> None:
         mod = _module_node("mod:zh", "svc/", "svc")

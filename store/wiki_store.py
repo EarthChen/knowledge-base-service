@@ -505,3 +505,65 @@ class WikiStore:
             "ORDER BY r.relation_type, s.title"
         )
         return await self._store.execute_query(q, {"uid": page_uid})
+
+    async def find_source_entity_mappings(
+        self, repository: str | None = None
+    ) -> list[dict[str, str]]:
+        """WikiPage ↔ code entity rows for pages linked via SOURCE_ENTITY."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        q = f"MATCH (wp:WikiPage)-[:{_se}]->(e) "
+        params: dict[str, Any] = {}
+        if repository is not None:
+            q += "WHERE wp.repository = $repository "
+            params["repository"] = repository
+        q += (
+            "RETURN wp.uid AS wiki_uid, e.uid AS entity_uid, "
+            "coalesce(wp.path, '') AS path, coalesce(wp.repository, '') AS repository"
+        )
+        result = await self._store.execute_query(q, params or None)
+        rows: list[dict[str, str]] = []
+        for row in result.data:
+            rows.append(
+                {
+                    "wiki_uid": str(row.get("wiki_uid") or ""),
+                    "entity_uid": str(row.get("entity_uid") or ""),
+                    "path": str(row.get("path") or ""),
+                    "repository": str(row.get("repository") or ""),
+                }
+            )
+        return rows
+
+    async def find_code_entity_relationships(
+        self, entity_uids: list[str] | None = None
+    ) -> list[dict[str, str]]:
+        """CALLS / INHERITS / IMPORTS / CROSS_REPO_CALLS between entities that have WikiPages."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        rel_types = "|".join(
+            (
+                EdgeType.CALLS.value,
+                EdgeType.INHERITS.value,
+                EdgeType.IMPORTS.value,
+                EdgeType.CROSS_REPO_CALLS.value,
+            )
+        )
+        q = (
+            f"MATCH (wp1:WikiPage)-[:{_se}]->(src) "
+            f"MATCH (wp2:WikiPage)-[:{_se}]->(tgt) "
+            f"MATCH (src)-[r:{rel_types}]->(tgt) "
+        )
+        params: dict[str, Any] = {}
+        if entity_uids:
+            q += "WHERE src.uid IN $entity_uids AND tgt.uid IN $entity_uids "
+            params["entity_uids"] = entity_uids
+        q += "RETURN src.uid AS source_uid, tgt.uid AS target_uid, type(r) AS rel_type"
+        result = await self._store.execute_query(q, params or None)
+        rows: list[dict[str, str]] = []
+        for row in result.data:
+            rows.append(
+                {
+                    "source_uid": str(row.get("source_uid") or ""),
+                    "target_uid": str(row.get("target_uid") or ""),
+                    "rel_type": str(row.get("rel_type") or ""),
+                }
+            )
+        return rows

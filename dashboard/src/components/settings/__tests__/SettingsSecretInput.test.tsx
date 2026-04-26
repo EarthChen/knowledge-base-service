@@ -1,12 +1,18 @@
+import type { ReactElement } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { TestI18nProvider } from "../../../i18n/context";
 import SettingsSecretInput from "../SettingsSecretInput";
+
+function renderSecretInput(ui: ReactElement) {
+  return render(<TestI18nProvider>{ui}</TestI18nProvider>);
+}
 
 describe("SettingsSecretInput", () => {
   it("renders with password type by default", () => {
     const onChange = vi.fn();
-    render(
+    renderSecretInput(
       <SettingsSecretInput label="API key" value="secret123" onChange={onChange} />,
     );
 
@@ -18,7 +24,7 @@ describe("SettingsSecretInput", () => {
   it("toggles visibility on eye icon click", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    render(<SettingsSecretInput label="Token" value="x" onChange={onChange} />);
+    renderSecretInput(<SettingsSecretInput label="Token" value="x" onChange={onChange} />);
 
     const input = screen.getByDisplayValue("x");
     expect(input).toHaveAttribute("type", "password");
@@ -35,7 +41,7 @@ describe("SettingsSecretInput", () => {
   it("calls onChange", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const { container } = render(
+    const { container } = renderSecretInput(
       <SettingsSecretInput label="Secret" value="" onChange={onChange} />,
     );
 

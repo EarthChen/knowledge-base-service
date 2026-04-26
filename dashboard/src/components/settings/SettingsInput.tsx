@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 type Props = {
   label: string;
   value: string;
@@ -17,14 +19,18 @@ export default function SettingsInput({
   source,
   description,
 }: Props) {
+  const id = useId();
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-gray-600 dark:text-gray-400">{label}</label>
+        <label htmlFor={id} className="text-xs font-medium text-gray-600 dark:text-gray-400">
+          {label}
+        </label>
         {source && <span className="text-[10px] text-gray-400">{source}</span>}
       </div>
       {description && <p className="text-xs text-gray-400 dark:text-gray-500">{description}</p>}
       <input
+        id={id}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}

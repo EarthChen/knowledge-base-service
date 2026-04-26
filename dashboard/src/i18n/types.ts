@@ -479,9 +479,44 @@ export interface Translations {
     connectionFailed: string;
     resetToDefault: string;
     unsavedChanges: string;
-    sourceDb: string;
-    sourceEnv: string;
-    sourceDefault: string;
+    fields: {
+      // Field labels (key suffix / common keys)
+      fieldTreeEnabled: string;
+      fieldDualViewEnabled: string;
+      fieldCrossReferenceEnabled: string;
+      fieldCoverageReportEnabled: string;
+      fieldStaleDetectionEnabled: string;
+      fieldSuggestedQuestionsEnabled: string;
+      fieldKnowledgeInjectionEnabled: string;
+      fieldCrossRepoDomainEnabled: string;
+      fieldAutoUpdateOnIndex: string;
+      fieldCodeBudgetEnabled: string;
+      fieldRagEnabled: string;
+      fieldEnrichmentEnabled: string;
+      fieldCotEnabled: string;
+      fieldGitPublishEnabled: string;
+      fieldLlmEnabled: string;
+      fieldRequireAuth: string;
+      fieldUseFp16: string;
+      // Enum / option labels
+      optionIncremental: string;
+      optionFull: string;
+      optionManual: string;
+      optionAutomatic: string;
+      optionDisabled: string;
+      optionCoreOnly: string;
+      optionBusinessDomain: string;
+      optionCodeStructure: string;
+      optionOriginal: string;
+      optionKebab: string;
+      // Source badges
+      fieldSourceDb: string;
+      fieldSourceEnv: string;
+      fieldSourceDefault: string;
+      // Secret visibility (a11y)
+      ariaShowSecret: string;
+      ariaHideSecret: string;
+    };
   };
   webhook: {
     title: string;

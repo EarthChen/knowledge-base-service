@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
+import { useI18n } from "../../i18n/context";
 
 type Props = {
   label: string;
@@ -10,15 +11,20 @@ type Props = {
 };
 
 export default function SettingsSecretInput({ label, value, onChange, placeholder, source }: Props) {
+  const { t } = useI18n();
+  const id = useId();
   const [show, setShow] = useState(false);
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-gray-600 dark:text-gray-400">{label}</label>
+        <label htmlFor={id} className="text-xs font-medium text-gray-600 dark:text-gray-400">
+          {label}
+        </label>
         {source && <span className="text-[10px] text-gray-400">{source}</span>}
       </div>
       <div className="relative">
         <input
+          id={id}
           type={show ? "text" : "password"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -28,6 +34,7 @@ export default function SettingsSecretInput({ label, value, onChange, placeholde
         />
         <button
           type="button"
+          aria-label={show ? t.configSettings.fields.ariaHideSecret : t.configSettings.fields.ariaShowSecret}
           onClick={() => setShow(!show)}
           className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
         >

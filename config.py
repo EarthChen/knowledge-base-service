@@ -173,6 +173,30 @@ class WikiConfig(BaseModel):
     cot_generation_model: str = ""
     auto_update_on_index: bool = False
 
+    tree_enabled: bool = True
+    dual_view_enabled: bool = True
+    cross_reference_enabled: bool = True
+    cross_reference_min_confidence: float = 0.5
+    cross_repo_domain_enabled: bool = False
+    knowledge_injection_enabled: bool = True
+
+    git_publish_enabled: bool = False
+    git_publish_mode: str = "incremental"
+    git_publish_trigger: str = "manual"
+    git_publish_schedule: str = "0 2 * * *"
+    git_remote_url: str = ""
+    git_branch: str = "main"
+    git_author_name: str = "KBS Wiki Bot"
+    git_author_email: str = "wiki-bot@company.com"
+    git_token: str = ""
+    export_default_view: str = "business_domain"
+    export_min_tier: str = "standard"
+    export_dir_naming: str = "original"
+
+    coverage_report_enabled: bool = True
+    stale_detection_enabled: bool = True
+    suggested_questions_enabled: bool = True
+
 
 class GitConfig(BaseModel):
     """Git repository management for remote indexing.

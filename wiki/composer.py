@@ -371,6 +371,12 @@ class WikiComposer:
                 lines.append(f"```\n{snippet.source}\n```")
                 lines.append(f"- File: {snippet.file_path}:{snippet.start_line}-{snippet.end_line}")
 
+        if page_data.related_chunks:
+            lines.append(f"\n### Related Code (semantic, {len(page_data.related_chunks)} chunks)")
+            for chunk in page_data.related_chunks[:5]:
+                lines.append(f"From `{chunk.parent_name}` ({chunk.file_path}:{chunk.start_line}-{chunk.end_line}, score={chunk.score:.2f}):")
+                lines.append(f"```\n{chunk.text}\n```")
+
         return "\n".join(lines)
 
     def _tier3_structural(self, page_data: PageData, page_type: PageType, language: str) -> str:

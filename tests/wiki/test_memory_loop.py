@@ -71,3 +71,42 @@ async def test_inject_into_generation_appends_block() -> None:
     text = await ml.inject_into_generation("Page about auth", "my-repo")
     assert "Previous Q&A Knowledge" in text
     assert "What is X?" in text
+
+
+@pytest.mark.asyncio
+async def test_get_relevant_memories_skips_expired_when_tiers_enabled() -> None:
+    base = MagicMock()
+    base.execute_query = AsyncMock(
+        return_value=MagicMock(
+            data=[
+                {
+                    "question": "Q1",
+                    "answer": "A1",
+                    "source_pages": "[]",
+                    "quality_score": 0.9,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "memory_status": "expired",
+                    "tier": 1,
+                    "similarity": 0.99,
+                },
+                {
+                    "question": "Q2",
+                    "answer": "A2",
+                    "source_pages": "[]",
+                    "quality_score": 0.5,
+                    "created_at": "2026-01-02T00:00:00Z",
+                    "memory_status": "active",
+                    "tier": 2,
+                    "similarity": 0.5,
+                },
+            ],
+        ),
+    )
+
+    async def embed(_: str) -> list[float]:
+        return [1.0]
+
+    ml = MemoryLoop(WikiStore(base), embed, memory_tiers_enabled=True)
+    out = await ml.get_relevant_memories("t", limit=5)
+    assert len(out) == 1
+    assert out[0].question == "Q2"

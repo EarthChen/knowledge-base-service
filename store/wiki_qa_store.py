@@ -32,6 +32,8 @@ class WikiQaStoreMixin:
         q = (
             "CREATE (q:WikiQA {uid: $uid, business_id: $business_id, question: $question, "
             "answer: $answer, source_pages: $source_pages, quality_score: $quality_score, created_at: $created_at, "
+            "tier: $tier, memory_status: $memory_status, access_count: $access_count, "
+            "confirmation_count: $confirmation_count, confidence: $confidence, "
             "embedding: vecf32($embedding)}) RETURN q.uid AS uid"
         )
         r = await self._store.execute_query(
@@ -44,6 +46,11 @@ class WikiQaStoreMixin:
                 "source_pages": pages_json,
                 "quality_score": float(quality_score),
                 "created_at": created_at,
+                "tier": 0,
+                "memory_status": "active",
+                "access_count": 0,
+                "confirmation_count": 0,
+                "confidence": 0.0,
                 "embedding": embedding,
             },
         )
@@ -60,7 +67,10 @@ class WikiQaStoreMixin:
             "WHERE q.business_id = $business_id "
             "RETURN q.uid AS uid, q.question AS question, q.answer AS answer, "
             "q.source_pages AS source_pages, q.quality_score AS quality_score, "
-            "q.created_at AS created_at, score AS similarity "
+            "q.created_at AS created_at, coalesce(q.tier, 1) AS tier, "
+            "coalesce(q.memory_status, 'active') AS memory_status, "
+            "coalesce(q.confidence, 0.0) AS confidence, "
+            "score AS similarity "
             "ORDER BY score DESC LIMIT $limit"
         )
         return await self._store.execute_query(
@@ -71,7 +81,9 @@ class WikiQaStoreMixin:
         q = (
             "MATCH (q:WikiQA {business_id: $business_id}) "
             "RETURN q.uid AS uid, q.question AS question, q.answer AS answer, "
-            "q.source_pages AS source_pages, q.quality_score AS quality_score, q.created_at AS created_at "
+            "q.source_pages AS source_pages, q.quality_score AS quality_score, q.created_at AS created_at, "
+            "coalesce(q.tier, 1) AS tier, coalesce(q.memory_status, 'active') AS memory_status, "
+            "coalesce(q.confidence, 0.0) AS confidence "
             "ORDER BY q.created_at DESC "
             "SKIP $skip LIMIT $limit"
         )

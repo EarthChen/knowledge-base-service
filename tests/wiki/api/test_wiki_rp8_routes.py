@@ -57,7 +57,7 @@ def test_get_references_shape(client_references: TestClient) -> None:
     assert body["pages"][0]["uid"] == "p1"
 
 
-@patch("api.routes.wiki_routes.WikiQualityScorer", autospec=True)
+@patch("api.routes.wiki_page_routes.WikiQualityScorer", autospec=True)
 def test_get_quality_score(mock_scorer: MagicMock) -> None:
     inst = mock_scorer.return_value
     inst.compute_score = AsyncMock(

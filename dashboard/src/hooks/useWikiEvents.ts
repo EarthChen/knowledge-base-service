@@ -33,6 +33,7 @@ export function useWikiEvents(businessId: string, onEvent: (event: WikiEvent) =>
       es.onmessage = (e) => {
         try {
           const event = JSON.parse(e.data) as WikiEvent;
+          if (event.business_id?.trim() !== businessId.trim()) return;
           onEventRef.current(event);
         } catch {
           /* ignore malformed events */

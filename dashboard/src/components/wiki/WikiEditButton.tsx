@@ -17,7 +17,9 @@ function buildEditUrl(remote: string, branch: string, filePath: string): string 
       const pathPart = rest.slice(colon + 1);
       base = `https://${host}/${pathPart}`;
     }
-    return `${base}/blob/${branch}/${filePath}`;
+    const url = new URL(`${base}/blob/${branch}/${filePath}`);
+    if (url.protocol !== "https:") return null;
+    return url.href;
   } catch {
     return null;
   }

@@ -288,7 +288,7 @@ export default function WikiShell() {
         {toolTab === "page" && pagePath && (
           <>
             <WikiContent
-              repository=""
+              repository={pageQuery.data?.context?.repository ?? businessId}
               businessId={businessId}
               pagePath={pagePath}
               detail={pageQuery.data}

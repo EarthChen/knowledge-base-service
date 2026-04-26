@@ -111,6 +111,12 @@ class WikiLintService:
             return False
         return bool(getattr(c, "forgetting_enabled", False))
 
+    def _lint_schema_enabled(self) -> bool:
+        c = self._wiki_config
+        if c is None:
+            return False
+        return bool(getattr(c, "schema_validation_enabled", False))
+
     async def lint(self, repository: str, *, scope: str = "all") -> LintReport:
         conf_n = 0
         if self._lint_confidence_enabled():
@@ -133,6 +139,7 @@ class WikiLintService:
             self._check_outdated_content(repository),
             self._check_contradictions(repository),
             self._check_forgetting(repository),
+            self._check_schema(repository),
         )
         issues = [issue for group in checks for issue in group]
         issues = self._filter_by_scope(issues, scope)
@@ -554,4 +561,36 @@ class WikiLintService:
                     ),
                 )
         self._forgetting_status_updates = n_updates
+        return found
+
+    async def _check_schema(self, repository: str) -> list[LintIssue]:
+        if not self._lint_schema_enabled():
+            return []
+        from pathlib import Path
+
+        from wiki.schema_validator import SchemaValidator, resolve_wiki_schema_path
+
+        raw_path = str(
+            getattr(self._wiki_config, "schema_path", "wiki/schema.yaml") or "wiki/schema.yaml",
+        )
+        sp: Path = resolve_wiki_schema_path(raw_path)
+        if not sp.exists():
+            log.warning("schema_path_missing", path=str(sp))
+            return []
+        try:
+            validator = SchemaValidator.from_yaml_path(sp)
+        except Exception as ex:  # noqa: BLE001 — surface load errors without failing lint
+            log.warning("schema_yaml_load_failed", path=str(sp), err=str(ex))
+            return []
+        found: list[LintIssue] = []
+        for p in await self._wiki_pages_for_repo(repository):
+            for err in validator.validate_page(dict(p)):
+                found.append(
+                    LintIssue(
+                        severity="error",
+                        category="schema",
+                        message=f"Schema: {err}",
+                        page_path=str(p.get("path") or "") or None,
+                    ),
+                )
         return found

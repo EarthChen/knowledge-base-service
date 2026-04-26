@@ -47,6 +47,7 @@ async def test_lint_forgetting_sets_archived_on_stale_page() -> None:
         "_check_coverage_gaps",
         "_check_outdated_content",
         "_check_contradictions",
+        "_check_schema",
     ):
         setattr(svc, name, AsyncMock(return_value=[]))
 
@@ -85,6 +86,7 @@ async def test_lint_forgetting_skips_when_flag_off() -> None:
         "_check_coverage_gaps",
         "_check_outdated_content",
         "_check_contradictions",
+        "_check_schema",
     ):
         setattr(svc, name, AsyncMock(return_value=[]))
     report = await svc.lint("r1", scope="all")

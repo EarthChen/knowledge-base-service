@@ -213,6 +213,13 @@ class WikiConfig(BaseModel):
     chunk_embedding_batch_size: int = 64
     chunk_embedding_max_length: int = 512
 
+    # Phase 3: Tiered generation + enrichment
+    enrichment_enabled: bool = True
+    enrichment_round1_enabled: bool = True
+    enrichment_round2_enabled: bool = True
+    business_domain_enabled: bool = False
+    business_domain_infrastructure_label: str = "__infrastructure__"
+
 
 class GitConfig(BaseModel):
     """Git repository management for remote indexing.

@@ -36,6 +36,12 @@ class ImportanceTier(StrEnum):
     SKELETON = "skeleton"
 
 
+class EnrichmentLevel(StrEnum):
+    BASE = "base"
+    ENRICHED = "enriched"
+    ENCYCLOPEDIA = "encyclopedia"
+
+
 @dataclass
 class CodeSnippet:
     source: str
@@ -191,6 +197,7 @@ class WikiPageMetadata:
     generation_mode: str = "structure"
     fallback_tier: int | None = None
     generated_at: str | None = None
+    enrichment_level: str | None = None
 
 
 @dataclass
@@ -222,6 +229,7 @@ class WikiPage:
                 "generation_mode": self.metadata.generation_mode,
                 "fallback_tier": self.metadata.fallback_tier,
                 "generated_at": self.metadata.generated_at,
+                "enrichment_level": self.metadata.enrichment_level,
             },
         }
 
@@ -257,6 +265,7 @@ class WikiPage:
                 generation_mode=data["metadata"].get("generation_mode", "structure"),
                 fallback_tier=data["metadata"].get("fallback_tier"),
                 generated_at=data["metadata"].get("generated_at"),
+                enrichment_level=data["metadata"].get("enrichment_level"),
             ),
             method_locations=[
                 SourceLocation(

@@ -1,0 +1,567 @@
+"""Wiki page–oriented Cypher (search, CRUD, chunks, ask, entity link queries)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from store.falkordb_store import QueryResultWrapper
+from store.schema import EdgeType, NodeLabel
+from store.wiki_store_common import SOURCE_DOC_EDGE, _wiki_node_properties
+
+
+class WikiPageStoreMixin:
+    """Page CRUD, search, and related query helpers. Expects ``self._store: _GraphQueryPort``."""
+
+    async def update_node_property(
+        self, label: NodeLabel, uid: str, prop: str, value: object
+    ) -> None:
+        """Persist a whitelisted node property via the underlying FalkorDB store."""
+        updater = getattr(self._store, "update_node_property", None)
+        if updater is None:
+            raise AttributeError("Base graph store does not implement update_node_property")
+        await updater(label, uid, prop, value)
+
+    # --- wiki/search.py ---
+    async def neighbor_names(self, name: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (n)-[:CALLS|INHERITS|IMPORTS]->(m) "
+            "WHERE n.name = $name "
+            "RETURN DISTINCT m.name AS neighbor LIMIT 5"
+        )
+        return await self._store.execute_query(q, {"name": name})
+
+    async def graph_path_search(self, repository: str, terms: list[str], limit: int) -> QueryResultWrapper:
+        q = (
+            "UNWIND $terms AS term "
+            "MATCH (seed)-[:CALLS|INHERITS|IMPORTS*1..3]-(related) "
+            "WHERE (seed:Function OR seed:Class OR seed:Module) "
+            "AND (seed.name = term OR seed.fqn = term OR seed.fqn ENDS WITH term) "
+            "MATCH (wp:WikiPage) "
+            "WHERE wp.repository = $repository "
+            "AND (wp.title CONTAINS related.name OR wp.content CONTAINS related.name) "
+            "RETURN DISTINCT wp.path AS page_path, wp.title AS title, "
+            "left(wp.content, 240) AS snippet "
+            "LIMIT $limit"
+        )
+        return await self._store.execute_query(
+            q, {"repository": repository, "terms": terms, "limit": limit},
+        )
+
+    async def fulltext_wiki_search(self, text: str, repository: str, limit: int) -> QueryResultWrapper:
+        q = (
+            "CALL db.idx.fulltext.queryNodes('WikiPage', $text) YIELD node, score "
+            "WHERE node.repository = $repository "
+            "RETURN node, score LIMIT $limit"
+        )
+        return await self._store.execute_query(
+            q, {"text": text, "repository": repository, "limit": limit},
+        )
+
+    async def vector_wiki_search(self, k: int, vec: list[float], repository: str, limit: int) -> QueryResultWrapper:
+        q = (
+            "CALL db.idx.vector.queryNodes('WikiPage', 'embedding', $k, vecf32($vec)) "
+            "YIELD node, score "
+            "WHERE node.repository = $repository "
+            "RETURN node, score LIMIT $limit"
+        )
+        return await self._store.execute_query(
+            q, {"k": k, "vec": vec, "repository": repository, "limit": limit},
+        )
+
+    async def ensure_wiki_fulltext_index(self) -> QueryResultWrapper:
+        return await self._store.execute_query(
+            "CALL db.idx.fulltext.createNodeIndex('WikiPage', 'content', 'title')",
+        )
+
+    # --- wiki/lint.py ---
+    async def list_wiki_pages_for_repo(self, repository: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (wp:WikiPage {repository: $repository}) "
+            "RETURN wp.path AS path, wp.title AS title, wp.content AS content, "
+            "coalesce(wp.generated_at, '') AS generated_at, "
+            "coalesce(wp.referenced_entity_uids, []) AS referenced_entity_uids"
+        )
+        return await self._store.execute_query(q, {"repository": repository})
+
+    async def lint_stale_entity_refs(self, repository: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (wp:WikiPage {repository: $repository}) "
+            "UNWIND coalesce(wp.referenced_entity_uids, []) AS uid "
+            "OPTIONAL MATCH (n) WHERE n.uid = uid "
+            "WITH wp, uid, n WHERE n IS NULL AND uid <> '' "
+            "RETURN DISTINCT wp.path AS page_path, uid AS stale_uid"
+        )
+        return await self._store.execute_query(q, {"repository": repository})
+
+    async def count_wiki_pages_for_repository(self, repository: str) -> QueryResultWrapper:
+        q = "MATCH (wp:WikiPage {repository: $repository}) RETURN count(wp) AS cnt"
+        return await self._store.execute_query(q, {"repository": repository})
+
+    async def entity_uid_by_fqn(self, repository: str, fqn: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (n) WHERE n.repository = $repository AND n.fqn = $fqn "
+            "RETURN n.uid AS uid LIMIT 1"
+        )
+        return await self._store.execute_query(q, {"repository": repository, "fqn": fqn})
+
+    async def wiki_orphan_in_degrees(self, repository: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (wp:WikiPage {repository: $repository}) "
+            "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp) "
+            "WITH wp, count(src) AS in_degree "
+            "RETURN wp.path AS path, in_degree"
+        )
+        return await self._store.execute_query(q, {"repository": repository})
+
+    async def lint_coverage_gaps(self, repository: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (c:Class) "
+            "WHERE c.repository = $repository "
+            "AND ("
+            " 'service' IN coalesce(c.semantic_roles, []) OR "
+            " 'http_controller' IN coalesce(c.semantic_roles, []) OR "
+            " 'repository' IN coalesce(c.semantic_roles, [])"
+            ") "
+            "OPTIONAL MATCH (wp:WikiPage {repository: $repository}) "
+            "WHERE wp.title = c.name OR wp.path ENDS WITH '/' + c.name + '.md' OR wp.path ENDS WITH c.name + '.md' "
+            "WITH c, wp WHERE wp IS NULL "
+            "RETURN coalesce(c.name, '') AS name, coalesce(c.fqn, '') AS fqn"
+        )
+        return await self._store.execute_query(q, {"repository": repository})
+
+    # --- wiki/kb_wiki_pipeline.py ---
+    async def get_wiki_page_repo_overview(self, repo: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (wp:WikiPage {repository: $repo, page_type: 'repo_overview'}) "
+            "RETURN wp LIMIT 1"
+        )
+        return await self._store.execute_query(q, {"repo": repo})
+
+    async def get_wiki_page_module(self, repo: str, slug: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (wp:WikiPage {repository: $repo}) "
+            "WHERE wp.page_type = 'module_overview' AND wp.path CONTAINS $slug "
+            "RETURN wp LIMIT 1"
+        )
+        return await self._store.execute_query(q, {"repo": repo, "slug": slug})
+
+    async def get_wiki_page_class(self, repo: str, name: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (wp:WikiPage {repository: $repo}) "
+            "WHERE wp.page_type = 'class_detail' AND (wp.title = $name OR wp.path CONTAINS $name) "
+            "RETURN wp LIMIT 1"
+        )
+        return await self._store.execute_query(q, {"repo": repo, "name": name})
+
+    async def list_wiki_pages_all(self, repo: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (wp:WikiPage {repository: $repo}) "
+            "RETURN wp.path AS path, wp.title AS title, wp.page_type AS page_type "
+            "ORDER BY wp.path"
+        )
+        return await self._store.execute_query(q, {"repo": repo})
+
+    async def list_wiki_pages_paginated(
+        self, repository: str, skip: int = 0, limit: int = 50,
+    ) -> tuple[QueryResultWrapper, int]:
+        count_q = "MATCH (wp:WikiPage {repository: $repo}) RETURN count(wp) AS total"
+        count_result = await self._store.execute_query(count_q, {"repo": repository})
+        total = int(count_result.data[0]["total"]) if count_result.data else 0
+        q = (
+            "MATCH (wp:WikiPage {repository: $repo}) "
+            "RETURN wp.path AS path, wp.title AS title, wp.page_type AS page_type "
+            "ORDER BY wp.path "
+            "SKIP $skip "
+            "LIMIT $limit"
+        )
+        result = await self._store.execute_query(
+            q, {"repo": repository, "skip": skip, "limit": limit},
+        )
+        return result, total
+
+    async def list_wiki_pages_module_prefix(self, repo: str, prefix: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (wp:WikiPage {repository: $repo}) "
+            "WHERE wp.path STARTS WITH $prefix "
+            "RETURN wp.path AS path, wp.title AS title, wp.page_type AS page_type "
+            "ORDER BY wp.path"
+        )
+        return await self._store.execute_query(q, {"repo": repo, "prefix": prefix})
+
+    async def list_wiki_pages_class_contains(self, repo: str, name: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (wp:WikiPage {repository: $repo}) "
+            "WHERE wp.path CONTAINS $name "
+            "RETURN wp.path AS path, wp.title AS title, wp.page_type AS page_type "
+            "ORDER BY wp.path"
+        )
+        return await self._store.execute_query(q, {"repo": repo, "name": name})
+
+    # --- wiki/doc_wiki_fusion.py ---
+    async def find_related_docs_entities(self, entities: list[str], limit: int) -> QueryResultWrapper:
+        q = (
+            "MATCH (d:Document)-[:REFERENCES]->(e) "
+            "WHERE e.name IN $entities OR e.fqn IN $entities "
+            "RETURN DISTINCT d.file AS file, d.content AS content "
+            "LIMIT $limit"
+        )
+        return await self._store.execute_query(q, {"entities": entities, "limit": limit})
+
+    async def merge_source_doc_edges_batch(
+        self,
+        repository: str,
+        path: str,
+        docs: list[str],
+    ) -> QueryResultWrapper:
+        q = (
+            "UNWIND $docs AS doc_file "
+            "MATCH (wp:WikiPage {repository: $repository, path: $path}) "
+            "MATCH (d:Document) "
+            "WHERE d.file = doc_file AND d.repository = $repository "
+            f"MERGE (wp)-[:{SOURCE_DOC_EDGE}]->(d) "
+            "RETURN count(*) AS cnt"
+        )
+        return await self._store.execute_query(
+            q, {"repository": repository, "path": path, "docs": docs},
+        )
+
+    # --- wiki/ask.py (GraphEnhancedContextCollector) ---
+    async def ask_query_wiki_pages(self, repository: str, paths: list[str]) -> QueryResultWrapper:
+        q = (
+            "MATCH (wp:WikiPage) "
+            "WHERE wp.repository = $repository AND wp.path IN $paths "
+            "RETURN wp.path AS page_path, wp.title AS title, wp.content AS content "
+            "ORDER BY wp.path"
+        )
+        return await self._store.execute_query(q, {"repository": repository, "paths": paths})
+
+    async def ask_query_one_hop(self, names: list[str]) -> QueryResultWrapper:
+        q = (
+            "MATCH (n)-[r:CALLS|INHERITS|IMPORTS]-(m) "
+            "WHERE n.name IN $names "
+            "RETURN type(r) AS rel_type, n.name AS from_name, m.name AS to_name LIMIT 25"
+        )
+        return await self._store.execute_query(q, {"names": names})
+
+    async def ask_query_flow_callees(self, names: list[str]) -> QueryResultWrapper:
+        q = (
+            "MATCH (n) WHERE n.name IN $names "
+            "MATCH path = (n)-[:CALLS*2..3]->(m) "
+            "RETURN [x IN nodes(path) | coalesce(x.name, x.fqn, '')] AS chain LIMIT 15"
+        )
+        return await self._store.execute_query(q, {"names": names})
+
+    async def ask_query_relation_paths(self, names: list[str]) -> QueryResultWrapper:
+        q = (
+            "MATCH (seed) WHERE seed.name IN $names AND (seed:Function OR seed:Class OR seed:Module) "
+            "WITH collect(DISTINCT seed) AS seeds "
+            "WHERE size(seeds) >= 2 "
+            "WITH seeds[0] AS seed_a, seeds[-1] AS seed_b "
+            "MATCH p = shortestPath((seed_a)-[:CALLS|INHERITS|IMPORTS*1..4]-(seed_b)) "
+            "RETURN length(p) AS len, [x IN nodes(p) | coalesce(x.name, x.fqn, '')] AS path LIMIT 5"
+        )
+        return await self._store.execute_query(q, {"names": names})
+
+    async def ask_query_impact_callers(self, names: list[str]) -> QueryResultWrapper:
+        q = (
+            "MATCH (n) WHERE n.name IN $names "
+            "MATCH path = (caller)-[:CALLS*1..3]->(n) "
+            "RETURN DISTINCT caller.name AS caller LIMIT 25"
+        )
+        return await self._store.execute_query(q, {"names": names})
+
+    async def ask_query_signatures(self, names: list[str]) -> QueryResultWrapper:
+        q = (
+            "MATCH (n) WHERE n.name IN $names AND (n:Function OR n:Class OR n:Method) "
+            "RETURN n.name AS name, coalesce(n.signature, '') AS signature, "
+            "coalesce(n.docstring, '') AS docstring LIMIT 20"
+        )
+        return await self._store.execute_query(q, {"names": names})
+
+    async def ask_query_module_overview(self, repository: str, names: list[str]) -> QueryResultWrapper:
+        q = (
+            "MATCH (m:Module)-[:CONTAINS|DECLARED_IN*0..3]-(n) "
+            "WHERE n.name IN $names AND m.repository = $repository "
+            "RETURN coalesce(m.name, m.path, '') AS module, "
+            "coalesce(m.summary, m.overview, '') AS overview LIMIT 8"
+        )
+        return await self._store.execute_query(
+            q, {"repository": repository, "names": names},
+        )
+
+    # --- api/routes/wiki_routes.py ---
+    async def list_all_wiki_pages(self, repository: str) -> QueryResultWrapper:
+        return await self.list_wiki_pages_all(repository)
+
+    async def get_wiki_page_detail(self, repository: str, path: str) -> QueryResultWrapper:
+        q = "MATCH (wp:WikiPage {repository: $repo, path: $path}) RETURN wp LIMIT 1"
+        return await self._store.execute_query(q, {"repo": repository, "path": path})
+
+    async def get_page_by_path(self, business_id: str, path: str) -> QueryResultWrapper:
+        """Load one wiki page under a business WikiSpace by path, with aggregated SOURCE_ENTITY rows."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        q = (
+            "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage {path: $path}) "
+            f"OPTIONAL MATCH (wp)-[:{_se}]->(se) "
+            "WITH wp, collect(DISTINCT {file_path: coalesce(se.file, se.file_path, ''), "
+            "start_line: coalesce(se.start_line, 0), end_line: coalesce(se.end_line, 0), "
+            "fqn: coalesce(se.fqn, ''), repository: coalesce(se.repository, '')}) AS sources "
+            "RETURN wp.path AS path, wp.title AS title, wp.content AS content, "
+            "wp.page_type AS page_type, wp.importance_tier AS importance_tier, "
+            "wp.repository AS repository, wp.uid AS uid, "
+            "coalesce(wp.generated_at, '') AS generated_at, "
+            "sources "
+            "LIMIT 1"
+        )
+        return await self._store.execute_query(q, {"business_id": business_id, "path": path})
+
+    async def get_page_stale_source_count(self, wiki_page_uid: str) -> int:
+        """Count source entities indexed after the wiki page was generated (staleness heuristic)."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        q = (
+            f"MATCH (wp:WikiPage {{uid: $uid}})-[:{_se}]->(e) "
+            "WHERE e.indexed_at > wp.generated_at "
+            "RETURN count(e) AS stale_count LIMIT 1"
+        )
+        result = await self._store.execute_query(q, {"uid": wiki_page_uid})
+        if result.data:
+            return int(result.data[0].get("stale_count", 0))
+        return 0
+
+    # --- Phase 1: Code-aware queries ---
+
+    async def find_chunks_by_parent_uid(self, parent_uid: str) -> QueryResultWrapper:
+        """Find all Chunk nodes linked to a parent via PART_OF edge, ordered by chunk_index."""
+        q = (
+            "MATCH (c:Chunk)-[:PART_OF]->(p) "
+            "WHERE p.uid = $parent_uid "
+            "RETURN c.text AS text, c.file AS file, "
+            "c.start_line AS start_line, c.end_line AS end_line, "
+            "coalesce(c.chunk_index, 0) AS chunk_index "
+            "ORDER BY chunk_index"
+        )
+        return await self._store.execute_query(q, {"parent_uid": parent_uid})
+
+    async def score_all_entities(self, repository: str) -> QueryResultWrapper:
+        """Single Cypher query to get degree data for all MODULE/CLASS nodes in a repository."""
+        q = (
+            "MATCH (n) WHERE n.repository = $repo AND (n:Module OR n:Class) "
+            "OPTIONAL MATCH (n)<-[in_e]-() "
+            "OPTIONAL MATCH (n)-[out_e]->() "
+            "OPTIONAL MATCH (n)-[:CONTAINS]->(child) "
+            "OPTIONAL MATCH (sub)-[:INHERITS]->(n) "
+            "RETURN n.uid AS uid, labels(n)[0] AS label, "
+            "coalesce(n.start_line, 0) AS start_line, "
+            "coalesce(n.end_line, 0) AS end_line, "
+            "count(DISTINCT in_e) AS in_degree, "
+            "count(DISTINCT out_e) AS out_degree, "
+            "count(DISTINCT child) AS children_count, "
+            "count(DISTINCT sub) AS subclass_count"
+        )
+        return await self._store.execute_query(q, {"repo": repository})
+
+    # --- Phase 2: Chunk vector retrieval ---
+
+    async def vector_search_chunks(
+        self, k: int, vec: list[float], repository: str, limit: int
+    ) -> QueryResultWrapper:
+        """Semantic search over Chunk embeddings."""
+        q = (
+            "CALL db.idx.vector.queryNodes('Chunk', 'embedding', $k, vecf32($vec)) "
+            "YIELD node, score "
+            "WHERE node.repository = $repository "
+            "RETURN node.text AS text, node.file AS file, "
+            "node.start_line AS start_line, node.end_line AS end_line, "
+            "node.parent_uid AS parent_uid, node.parent_name AS parent_name, "
+            "score "
+            "ORDER BY score DESC LIMIT $limit"
+        )
+        return await self._store.execute_query(
+            q, {"k": k, "vec": vec, "repository": repository, "limit": limit},
+        )
+
+    async def count_chunks_without_embedding(self, repository: str) -> QueryResultWrapper:
+        """Count Chunk nodes that lack an embedding vector."""
+        q = (
+            "MATCH (c:Chunk {repository: $repo}) "
+            "WHERE c.embedding IS NULL "
+            "RETURN count(c) AS cnt"
+        )
+        return await self._store.execute_query(q, {"repo": repository})
+
+    async def batch_get_chunks_for_embedding(
+        self, repository: str, batch_size: int, offset: int
+    ) -> QueryResultWrapper:
+        """Fetch a batch of Chunk nodes without embeddings for indexing."""
+        q = (
+            "MATCH (c:Chunk {repository: $repo}) "
+            "WHERE c.embedding IS NULL "
+            "RETURN c.uid AS uid, c.text AS text "
+            "ORDER BY c.uid "
+            "SKIP $offset LIMIT $limit"
+        )
+        return await self._store.execute_query(
+            q, {"repo": repository, "offset": offset, "limit": batch_size},
+        )
+
+    async def list_indexed_repositories(self) -> list[dict[str, Any]]:
+        """List all repositories that have indexed modules."""
+        q = (
+            "MATCH (m:Module) WHERE m.repository IS NOT NULL "
+            "RETURN m.repository AS repository, count(m) AS module_count "
+            "ORDER BY module_count DESC"
+        )
+        result = await self._store.execute_query(q)
+        rows = []
+        for row in getattr(result, "raw", []) or []:
+            rows.append({"repository": str(row[0]), "module_count": int(row[1])})
+        return rows
+    async def get_suggested_questions_context(self, page_uid: str) -> dict[str, Any] | None:
+        """Load wiki page and SOURCE_ENTITY graph (callers / callees) for question suggestions.
+
+        Returns ``None`` if no :WikiPage exists for ``page_uid``. When no SOURCE_ENTITY is
+        linked, returns a context using the page title and repository with empty graph lists.
+        """
+        q_wp = "MATCH (wp:WikiPage {uid: $uid}) RETURN wp AS wp LIMIT 1"
+        r_wp = await self._store.execute_query(q_wp, {"uid": page_uid})
+        if not r_wp.data:
+            return None
+        props = _wiki_node_properties(r_wp.data[0].get("wp"))
+        title = str(props.get("title") or "")
+        repo = str(props.get("repository") or "")
+
+        _se = EdgeType.SOURCE_ENTITY.value
+        q_ent = (
+            f"MATCH (wp:WikiPage {{uid: $uid}})-[:{_se}]->(e) "
+            "RETURN e.uid AS e_uid, coalesce(e.name, '') AS e_name, coalesce(e.repository, '') AS e_repo "
+            "LIMIT 1"
+        )
+        r_ent = await self._store.execute_query(q_ent, {"uid": page_uid})
+        if not r_ent.data or not r_ent.data[0].get("e_uid"):
+            return {
+                "page_uid": page_uid,
+                "entity_name": title or "Unknown",
+                "domain": repo,
+                "callers": [],
+                "callees": [],
+                "cross_domain_callers": [],
+            }
+        row = r_ent.data[0]
+        e_uid = str(row.get("e_uid") or "")
+        e_name = str(row.get("e_name") or "") or title
+        e_repo = str(row.get("e_repo") or "") or repo
+
+        q_mod = (
+            "MATCH (e) WHERE e.uid = $e_uid "
+            "OPTIONAL MATCH (mod:Module)-[:CONTAINS|DECLARED_IN*0..3]-(e) "
+            "RETURN coalesce(mod.name, mod.path, '') AS domain LIMIT 1"
+        )
+        r_mod = await self._store.execute_query(q_mod, {"e_uid": e_uid})
+        domain = e_repo
+        if r_mod.data:
+            d = str(r_mod.data[0].get("domain") or "").strip()
+            if d:
+                domain = d
+
+        q_call = (
+            "MATCH (e) WHERE e.uid = $e_uid "
+            "MATCH (caller)-[:CALLS]->(e) "
+            "RETURN DISTINCT caller.name AS name, coalesce(caller.repository, '') AS repository"
+        )
+        r_call = await self._store.execute_query(q_call, {"e_uid": e_uid})
+        callers: list[str] = []
+        cross: list[str] = []
+        for crow in r_call.data or []:
+            nm = str(crow.get("name") or "").strip()
+            if not nm:
+                continue
+            cr = str(crow.get("repository") or "").strip()
+            if e_repo and cr and cr != e_repo:
+                cross.append(nm)
+            callers.append(nm)
+        callers = list(dict.fromkeys(callers))
+        cross = list(dict.fromkeys(cross))
+
+        q_callee = (
+            "MATCH (e) WHERE e.uid = $e_uid "
+            "MATCH (e)-[:CALLS]->(callee) "
+            "RETURN DISTINCT callee.name AS name"
+        )
+        r_cal = await self._store.execute_query(q_callee, {"e_uid": e_uid})
+        callee_names = [
+            str(x.get("name") or "").strip()
+            for x in (r_cal.data or [])
+            if x.get("name")
+        ]
+        callees = [n for n in dict.fromkeys(callee_names) if n]
+
+        return {
+            "page_uid": page_uid,
+            "entity_name": e_name,
+            "domain": domain,
+            "callers": callers,
+            "callees": callees,
+            "cross_domain_callers": cross,
+        }
+
+    async def find_source_entity_mappings(
+        self, repository: str | None = None
+    ) -> list[dict[str, str]]:
+        """WikiPage ↔ code entity rows for pages linked via SOURCE_ENTITY."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        q = f"MATCH (wp:WikiPage)-[:{_se}]->(e) "
+        params: dict[str, Any] = {}
+        if repository is not None:
+            q += "WHERE wp.repository = $repository "
+            params["repository"] = repository
+        q += (
+            "RETURN wp.uid AS wiki_uid, e.uid AS entity_uid, "
+            "coalesce(wp.path, '') AS path, coalesce(wp.repository, '') AS repository"
+        )
+        result = await self._store.execute_query(q, params or None)
+        rows: list[dict[str, str]] = []
+        for row in result.data:
+            rows.append(
+                {
+                    "wiki_uid": str(row.get("wiki_uid") or ""),
+                    "entity_uid": str(row.get("entity_uid") or ""),
+                    "path": str(row.get("path") or ""),
+                    "repository": str(row.get("repository") or ""),
+                }
+            )
+        return rows
+
+    async def find_code_entity_relationships(
+        self, entity_uids: list[str] | None = None
+    ) -> list[dict[str, str]]:
+        """CALLS / INHERITS / IMPORTS / CROSS_REPO_CALLS between entities that have WikiPages."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        rel_types = "|".join(
+            (
+                EdgeType.CALLS.value,
+                EdgeType.INHERITS.value,
+                EdgeType.IMPORTS.value,
+                EdgeType.CROSS_REPO_CALLS.value,
+            )
+        )
+        q = (
+            f"MATCH (wp1:WikiPage)-[:{_se}]->(src) "
+            f"MATCH (wp2:WikiPage)-[:{_se}]->(tgt) "
+            f"MATCH (src)-[r:{rel_types}]->(tgt) "
+        )
+        params: dict[str, Any] = {}
+        if entity_uids:
+            q += "WHERE src.uid IN $entity_uids AND tgt.uid IN $entity_uids "
+            params["entity_uids"] = entity_uids
+        q += "RETURN src.uid AS source_uid, tgt.uid AS target_uid, type(r) AS rel_type"
+        result = await self._store.execute_query(q, params or None)
+        rows: list[dict[str, str]] = []
+        for row in result.data:
+            rows.append(
+                {
+                    "source_uid": str(row.get("source_uid") or ""),
+                    "target_uid": str(row.get("target_uid") or ""),
+                    "rel_type": str(row.get("rel_type") or ""),
+                }
+            )
+        return rows

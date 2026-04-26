@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import os
 import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 from log import get_logger
 
@@ -116,16 +118,38 @@ class GitPublisher:
                 log.warning("Failed to read annotation file: %s", ann_file, exc_info=True)
         return annotations
 
-    def _auth_url(self) -> str:
+    def _https_remote_without_userinfo(self) -> str:
+        """Return HTTPS URL without embedded userinfo (auth is via ``_git_extra_config``)."""
+        p = urlparse(self._remote_url)
+        if p.scheme != "https" or (p.username is None and p.password is None):
+            return self._remote_url
+        log.warning(
+            "git_remote_url_had_userinfo",
+            detail="Userinfo in URL is ignored for clone/push; using Authorization header instead of embedding credentials.",
+        )
+        host = p.hostname or ""
+        if p.port:
+            netloc = f"{host}:{p.port}"
+        else:
+            netloc = host
+        return urlunparse((p.scheme, netloc, p.path, p.params, p.query, p.fragment))
+
+    def _git_extra_config(self) -> list[str]:
+        """``git -c`` options so HTTPS token is not embedded in the remote URL (Privoxy-safe pattern)."""
+        if not (self._git_token and self._remote_url.startswith("https://")):
+            return []
+        raw = base64.b64encode(f"oauth2:{self._git_token}".encode()).decode("ascii")
+        return ["-c", f"http.extraheader=Authorization: Basic {raw}"]
+
+    def _clone_url(self) -> str:
         if self._git_token and self._remote_url.startswith("https://"):
-            parts = self._remote_url.split("://", 1)
-            return f"{parts[0]}://oauth2:{self._git_token}@{parts[1]}"
+            return self._https_remote_without_userinfo()
         return self._remote_url
 
     def _build_git_env(self) -> dict[str, str]:
         env = os.environ.copy()
         if self._ssh_key_path:
-            env["GIT_SSH_COMMAND"] = f"ssh -i {self._ssh_key_path} -o StrictHostKeyChecking=no"
+            env["GIT_SSH_COMMAND"] = f"ssh -i {self._ssh_key_path} -o StrictHostKeyChecking=accept-new"
         env["GIT_AUTHOR_NAME"] = self._author_name
         env["GIT_AUTHOR_EMAIL"] = self._author_email
         env["GIT_COMMITTER_NAME"] = self._author_name
@@ -167,7 +191,7 @@ class GitPublisher:
         env = self._build_git_env()
 
         await self._run_git(
-            ["clone", "--depth=1", "-b", self._branch, self._auth_url(), work_dir],
+            ["clone", "--depth=1", "-b", self._branch, self._clone_url(), work_dir],
             env=env,
         )
 
@@ -235,14 +259,15 @@ class GitPublisher:
                 pass
         return hashes
 
-    @staticmethod
     async def _run_git(
+        self,
         args: list[str],
         cwd: str | None = None,
         env: dict[str, str] | None = None,
     ) -> str:
+        prefix = self._git_extra_config()
         proc = await asyncio.create_subprocess_exec(
-            "git", *args,
+            "git", *prefix, *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,

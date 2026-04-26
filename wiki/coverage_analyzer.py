@@ -11,10 +11,10 @@ class CoverageReport:
     """Wiki page tier distribution report."""
 
     total_entities: int
-    """Total indexed entities across all repositories."""
+    """Total wiki pages (all importance tiers), same count source as ``WikiStore.get_entity_coverage_stats``."""
 
     covered_entities: int
-    """Entities that have non-skeleton wiki pages (core + standard tier)."""
+    """Wiki pages at core or standard tier (non-skeleton); matches store ``covered_entities``."""
 
     core_coverage: float
     """Ratio of core-tier wiki pages to total wiki pages (0.0–1.0)."""

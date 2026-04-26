@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from config import WikiConfig
 from store.wiki_store import WikiStore
 from wiki.cache import WikiCache
 from wiki.models import WikiPage, parse_scope
@@ -84,11 +85,16 @@ class WikiLintService:
         wiki_cache: WikiCache | None = None,
         repo_registry: Any | None = None,
         wiki_store: WikiStore | None = None,
+        *,
+        wiki_config: WikiConfig | None = None,
+        contradiction_detector: Any | None = None,
     ) -> None:
         self._store = store
         self._wiki_store = wiki_store or WikiStore(store)
         self._cache = wiki_cache
         self._repo_registry = repo_registry
+        self._wiki_config = wiki_config
+        self._contradiction_detector = contradiction_detector
 
     async def lint(self, repository: str, *, scope: str = "all") -> LintReport:
         checks = await asyncio.gather(
@@ -97,6 +103,7 @@ class WikiLintService:
             self._check_broken_links(repository),
             self._check_coverage_gaps(repository),
             self._check_outdated_content(repository),
+            self._check_contradictions(repository),
         )
         issues = [issue for group in checks for issue in group]
         issues = self._filter_by_scope(issues, scope)
@@ -370,3 +377,40 @@ class WikiLintService:
                     ),
                 )
         return issues
+
+    async def _check_contradictions(self, repository: str) -> list[LintIssue]:
+        if self._wiki_config is None or not getattr(
+            self._wiki_config,
+            "contradiction_detection_enabled",
+            False,
+        ):
+            return []
+        if self._contradiction_detector is None:
+            return []
+        pages = await self._wiki_pages_for_repo(repository)
+        records = await self._contradiction_detector.detect(pages, repository)
+        found: list[LintIssue] = []
+        for rec in records:
+            a, b = sorted([rec.page_uid_a, rec.page_uid_b])
+            uid = f"WikiContradiction:{a}|{b}"
+            try:
+                await self._wiki_store.upsert_wiki_contradiction(
+                    uid=uid,
+                    page_uid_a=rec.page_uid_a,
+                    page_uid_b=rec.page_uid_b,
+                    description=rec.description,
+                    severity=rec.severity,
+                    status="detected",
+                )
+            except Exception:
+                pass
+            found.append(
+                LintIssue(
+                    severity="warning",
+                    category="contradiction",
+                    message=rec.description,
+                    page_path=None,
+                    entity_name=rec.page_uid_a,
+                ),
+            )
+        return found

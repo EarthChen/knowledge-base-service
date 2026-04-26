@@ -138,10 +138,50 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     async def wiki_lint_service_factory() -> WikiLintService:
         kb = await kb_state.registry.get_service("default")
+        settings = get_settings()
+        det = None
+        if getattr(settings.wiki, "contradiction_detection_enabled", False) and kb.llm_provider is not None:
+            from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
+            from llm.base_provider import GatewayLLMProviderAdapter, LLMPortBridge
+            from wiki.contradiction_detector import ContradictionDetector
+
+            emb = EmbeddingGenerator.shared(config=settings.embedding)
+            sim_threshold = getattr(
+                settings.wiki,
+                "contradiction_similarity_threshold",
+                0.75,
+            )
+
+            async def _embed_wiki_text(title: str, content: str) -> list[float]:
+                item = doc_dict_for_embedding(
+                    {
+                        "title": title,
+                        "content": content[:3000],
+                        "section": "",
+                        "heading_context": "",
+                    },
+                )
+                out = await emb.generate_for_docs([item])
+                return out[0] if out else []
+
+            raw_llm = kb.llm_provider
+            llm = (
+                raw_llm
+                if hasattr(raw_llm, "generate")
+                else LLMPortBridge(GatewayLLMProviderAdapter(raw_llm))  # type: ignore[arg-type]
+            )
+            det = ContradictionDetector(
+                graph=kb.store,
+                embedding_fn=_embed_wiki_text,
+                llm=llm,  # type: ignore[arg-type]
+                similarity_threshold=sim_threshold,
+            )
         return WikiLintService(
             kb.store,
             wiki_cache=getattr(app.state, "wiki_cache", None),
             repo_registry=kb_state.repo_registry,
+            wiki_config=settings.wiki,
+            contradiction_detector=det,
         )
 
     app.state.wiki_lint_service_factory = wiki_lint_service_factory

@@ -38,6 +38,13 @@ class TestToMarkdown:
         assert "[X](" in result
         assert "[Y](" in result
 
+    def test_root_overview_maps_to_readme(self):
+        conv = WikiLinkConverter()
+        content = "See [[/_overview]]."
+        result = conv.to_markdown(content, current_path="/domain/page")
+        assert "README.md" in result
+        assert "[[" not in result
+
     def test_deeply_nested_path(self):
         conv = WikiLinkConverter()
         content = "See [[/用户管理/注册流程/UserController]]."
@@ -66,6 +73,12 @@ class TestToObsidian:
         content = "Plain text."
         result = conv.to_obsidian(content)
         assert result == content
+
+    def test_unicode_path(self):
+        conv = WikiLinkConverter()
+        content = "See [[/用户管理/UserService]]."
+        result = conv.to_obsidian(content)
+        assert "[[用户管理/UserService]]" in result
 
 
 class TestExtractWikilinks:

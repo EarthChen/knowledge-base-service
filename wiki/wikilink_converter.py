@@ -48,8 +48,10 @@ class WikiLinkConverter:
         """Compute relative markdown file path from one wiki path to another."""
         from_dir = os.path.dirname(from_path.strip("/"))
         to_clean = to_path.strip("/")
-        if to_clean.endswith("/_overview"):
-            to_file = to_clean.replace("/_overview", "/README.md")
+        if to_clean == "_overview":
+            to_file = "README.md"
+        elif to_clean.endswith("/_overview"):
+            to_file = to_clean[: -len("/_overview")] + "/README.md"
         else:
             to_file = to_clean + ".md"
         rel = os.path.relpath(to_file, start=from_dir or ".")

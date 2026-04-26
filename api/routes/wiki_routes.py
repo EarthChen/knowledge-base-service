@@ -406,7 +406,8 @@ def _invalid_scope_detail(exc: ValueError) -> str:
     msg = str(exc)
     if "Invalid scope" in msg:
         return "Scope must be 'repo', 'module:<path>', or 'class:<fqn>'"
-    return msg
+    log.warning("wiki invalid scope", error=msg)
+    return "Invalid scope"
 
 
 async def _run_wiki_task(
@@ -433,13 +434,18 @@ async def _run_wiki_task(
             rec["status"] = "completed"
     except WikiRepoNotFoundError as exc:
         rec["status"] = "failed"
-        rec["error"] = {"error": "repo_not_found", "detail": str(exc)}
+        rec["error"] = {
+            "error": "repo_not_found",
+            "detail": f"Repository '{exc.repository}' is not indexed.",
+        }
     except WikiScopeError as exc:
+        log.warning("wiki task scope error", error=str(exc))
         rec["status"] = "failed"
-        rec["error"] = {"error": "scope_not_found", "detail": str(exc)}
-    except Exception as exc:  # noqa: BLE001 — surface as failed task
+        rec["error"] = {"error": "scope_not_found", "detail": "The requested wiki scope could not be found."}
+    except Exception:  # noqa: BLE001 — surface as failed task
+        log.exception("wiki generation task failed")
         rec["status"] = "failed"
-        rec["error"] = {"error": "generation_failed", "detail": str(exc)}
+        rec["error"] = {"error": "generation_failed", "detail": "Wiki generation failed."}
 
 
 async def _run_wiki_quick_task(
@@ -477,13 +483,18 @@ async def _run_wiki_quick_task(
             rec["status"] = "completed"
     except WikiRepoNotFoundError as exc:
         rec["status"] = "failed"
-        rec["error"] = {"error": "repo_not_found", "detail": str(exc)}
+        rec["error"] = {
+            "error": "repo_not_found",
+            "detail": f"Repository '{exc.repository}' is not indexed.",
+        }
     except WikiScopeError as exc:
+        log.warning("wiki quick task scope error", error=str(exc))
         rec["status"] = "failed"
-        rec["error"] = {"error": "scope_not_found", "detail": str(exc)}
-    except Exception as exc:  # noqa: BLE001
+        rec["error"] = {"error": "scope_not_found", "detail": "The requested wiki scope could not be found."}
+    except Exception:  # noqa: BLE001
+        log.exception("wiki quick generation task failed")
         rec["status"] = "failed"
-        rec["error"] = {"error": "generation_failed", "detail": str(exc)}
+        rec["error"] = {"error": "generation_failed", "detail": "Wiki generation failed."}
 
 
 @wiki_router.post("/generate", response_model=None)
@@ -530,10 +541,21 @@ async def wiki_generate(
                         payload = json.dumps(ev["complete"])
                         yield f"event: wiki-complete\ndata: {payload}\n\n"
             except WikiRepoNotFoundError as exc:
-                err = json.dumps({"error": "repo_not_found", "detail": str(exc)})
+                err = json.dumps(
+                    {
+                        "error": "repo_not_found",
+                        "detail": f"Repository '{exc.repository}' is not indexed.",
+                    }
+                )
                 yield f"event: error\ndata: {err}\n\n"
             except WikiScopeError as exc:
-                err = json.dumps({"error": "scope_not_found", "detail": str(exc)})
+                log.warning("wiki sse scope error", error=str(exc))
+                err = json.dumps(
+                    {
+                        "error": "scope_not_found",
+                        "detail": "The requested wiki scope could not be found.",
+                    }
+                )
                 yield f"event: error\ndata: {err}\n\n"
             except ValueError as exc:
                 err = json.dumps({"error": "invalid_scope", "detail": _invalid_scope_detail(exc)})
@@ -582,9 +604,13 @@ async def wiki_generate(
             },
         ) from exc
     except WikiScopeError as exc:
+        log.warning("wiki generate scope error", error=str(exc))
         raise HTTPException(
             status_code=404,
-            detail={"error": "scope_not_found", "detail": str(exc)},
+            detail={
+                "error": "scope_not_found",
+                "detail": "The requested wiki scope could not be found.",
+            },
         ) from exc
 
     return result
@@ -683,9 +709,13 @@ async def wiki_quick(
             },
         ) from exc
     except WikiScopeError as exc:
+        log.warning("wiki quick scope error", error=str(exc))
         raise HTTPException(
             status_code=404,
-            detail={"error": "scope_not_found", "detail": str(exc)},
+            detail={
+                "error": "scope_not_found",
+                "detail": "The requested wiki scope could not be found.",
+            },
         ) from exc
 
     pages_models = [_wiki_page_from_export_dict(p, repo) for p in result["pages"]]
@@ -756,9 +786,9 @@ async def wiki_search_global(
                 scope=None,
             )
             return repo, resp, None
-        except Exception as exc:  # noqa: BLE001 — aggregate per-repo failures
-            log.warning("wiki_global_search_repo_failed", repository=repo, error=str(exc))
-            return repo, None, str(exc)
+        except Exception:  # noqa: BLE001 — aggregate per-repo failures
+            log.warning("wiki_global_search_repo_failed", repository=repo, exc_info=True)
+            return repo, None, "Search temporarily unavailable for this repository."
 
     raw = await asyncio.gather(*[_search_repo(r) for r in repo_names])
 
@@ -820,20 +850,7 @@ async def wiki_get_page_by_path(
         raise HTTPException(status_code=503, detail="Wiki store unavailable")
 
     store = WikiStore(raw_store)
-    q = (
-        "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage {path: $path}) "
-        "OPTIONAL MATCH (wp)-[:SOURCE_ENTITY]->(se) "
-        "WITH wp, collect(DISTINCT {file_path: coalesce(se.file, se.file_path, ''), "
-        "start_line: coalesce(se.start_line, 0), end_line: coalesce(se.end_line, 0), "
-        "fqn: coalesce(se.fqn, ''), repository: coalesce(se.repository, '')}) AS sources "
-        "RETURN wp.path AS path, wp.title AS title, wp.content AS content, "
-        "wp.page_type AS page_type, wp.importance_tier AS importance_tier, "
-        "wp.repository AS repository, wp.uid AS uid, "
-        "coalesce(wp.generated_at, '') AS generated_at, "
-        "sources "
-        "LIMIT 1"
-    )
-    result = await store._store.execute_query(q, {"business_id": business_id, "path": path})
+    result = await store.get_page_by_path(business_id, path)
     if not result.data:
         raise HTTPException(status_code=404, detail=f"Wiki page not found: {path}")
 
@@ -848,13 +865,8 @@ async def wiki_get_page_by_path(
     page_uid = str(row.get("uid") or "")
     settings = get_settings()
     if page_uid and settings.wiki.stale_detection_enabled:
-        stale_q = (
-            "MATCH (wp:WikiPage {uid: $uid})-[:SOURCE_ENTITY]->(e) "
-            "WHERE e.indexed_at > wp.generated_at "
-            "RETURN count(e) AS stale_count LIMIT 1"
-        )
-        stale_result = await store._store.execute_query(stale_q, {"uid": page_uid})
-        if stale_result.data and int(stale_result.data[0].get("stale_count", 0)) > 0:
+        stale_count = await store.get_page_stale_source_count(page_uid)
+        if stale_count > 0:
             is_stale = "true"
 
     return {
@@ -935,7 +947,14 @@ async def generate_business_wiki(
             llm_provider=body.llm_provider,
         )
     except WikiScopeError as exc:
-        raise HTTPException(status_code=400, detail={"error": "scope_error", "detail": str(exc)}) from exc
+        log.warning("business wiki generate scope error", error=str(exc))
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "scope_error",
+                "detail": "Invalid wiki scope or business configuration.",
+            },
+        ) from exc
     return result
 
 
@@ -1074,7 +1093,12 @@ async def wiki_chunk_index(
     except WikiRepoNotFoundError as exc:
         raise HTTPException(
             status_code=404,
-            detail={"error": "repo_not_found", "detail": str(exc)},
+            detail={
+                "error": "repo_not_found",
+                "detail": (
+                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
+                ),
+            },
         ) from exc
 
     raw_store: Any = getattr(request.app.state, "wiki_store", None)
@@ -1228,8 +1252,11 @@ async def wiki_ask(
                 event = str(ev.get("event", "message"))
                 payload = json.dumps(ev.get("data") or {})
                 yield f"event: {event}\ndata: {payload}\n\n"
-        except Exception as exc:
-            err = json.dumps({"error": "ask_failed", "detail": str(exc)})
+        except Exception:
+            log.exception("wiki ask stream failed")
+            err = json.dumps(
+                {"error": "ask_failed", "detail": "The question could not be answered. Please try again."}
+            )
             yield f"event: error\ndata: {err}\n\n"
 
     return StreamingResponse(sse(), media_type="text/event-stream")

@@ -292,6 +292,37 @@ class WikiStore:
         q = "MATCH (wp:WikiPage {repository: $repo, path: $path}) RETURN wp LIMIT 1"
         return await self._store.execute_query(q, {"repo": repository, "path": path})
 
+    async def get_page_by_path(self, business_id: str, path: str) -> QueryResultWrapper:
+        """Load one wiki page under a business WikiSpace by path, with aggregated SOURCE_ENTITY rows."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        q = (
+            "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage {path: $path}) "
+            f"OPTIONAL MATCH (wp)-[:{_se}]->(se) "
+            "WITH wp, collect(DISTINCT {file_path: coalesce(se.file, se.file_path, ''), "
+            "start_line: coalesce(se.start_line, 0), end_line: coalesce(se.end_line, 0), "
+            "fqn: coalesce(se.fqn, ''), repository: coalesce(se.repository, '')}) AS sources "
+            "RETURN wp.path AS path, wp.title AS title, wp.content AS content, "
+            "wp.page_type AS page_type, wp.importance_tier AS importance_tier, "
+            "wp.repository AS repository, wp.uid AS uid, "
+            "coalesce(wp.generated_at, '') AS generated_at, "
+            "sources "
+            "LIMIT 1"
+        )
+        return await self._store.execute_query(q, {"business_id": business_id, "path": path})
+
+    async def get_page_stale_source_count(self, wiki_page_uid: str) -> int:
+        """Count source entities indexed after the wiki page was generated (staleness heuristic)."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        q = (
+            f"MATCH (wp:WikiPage {{uid: $uid}})-[:{_se}]->(e) "
+            "WHERE e.indexed_at > wp.generated_at "
+            "RETURN count(e) AS stale_count LIMIT 1"
+        )
+        result = await self._store.execute_query(q, {"uid": wiki_page_uid})
+        if result.data:
+            return int(result.data[0].get("stale_count", 0))
+        return 0
+
     # --- Phase 1: Code-aware queries ---
 
     async def find_chunks_by_parent_uid(self, parent_uid: str) -> QueryResultWrapper:

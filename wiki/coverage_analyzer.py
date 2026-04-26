@@ -8,16 +8,29 @@ from typing import Any
 
 @dataclass
 class CoverageReport:
-    """Coverage analysis result for a business wiki."""
+    """Wiki page tier distribution report."""
+
     total_entities: int
+    """Total indexed entities across all repositories."""
+
     covered_entities: int
+    """Entities that have non-skeleton wiki pages (core + standard tier)."""
+
     core_coverage: float
+    """Ratio of core-tier wiki pages to total wiki pages (0.0–1.0)."""
+
     standard_coverage: float
+    """Ratio of wiki pages at core or standard tier to total wiki pages (0.0–1.0)."""
+
     stale_pages: list[dict[str, Any]] = field(default_factory=list)
+    """Pages whose source entities changed after wiki generation."""
+
     knowledge_gaps: list[dict[str, Any]] = field(default_factory=list)
+    """Entities with weak documentation relative to graph importance (skeleton tier, high coupling)."""
 
     @property
     def coverage_percentage(self) -> float:
+        """Percentage of non-skeleton pages vs. total wiki pages (0–100 scale)."""
         if self.total_entities == 0:
             return 0.0
         return round(self.covered_entities / self.total_entities * 100, 1)

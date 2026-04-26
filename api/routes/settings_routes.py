@@ -20,9 +20,18 @@ settings_router = APIRouter(
     dependencies=[Depends(require_settings_admin)],
 )
 
+_settings_store: SettingsStore | None = None
+
+
+def _get_store() -> SettingsStore:
+    global _settings_store
+    if _settings_store is None:
+        _settings_store = SettingsStore()
+    return _settings_store
+
 
 def _get_service() -> SettingsService:
-    return SettingsService(SettingsStore())
+    return SettingsService(_get_store())
 
 
 class SettingUpdateItem(BaseModel):

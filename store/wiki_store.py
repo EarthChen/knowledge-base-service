@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from store.wiki_contradiction_store import WikiContradictionStoreMixin
 from store.wiki_coverage_store import WikiCoverageStoreMixin
 from store.wiki_page_store import WikiPageStoreMixin
 from store.wiki_qa_store import WikiQaStoreMixin
@@ -12,7 +13,11 @@ from store.wiki_tree_store import WikiTreeStoreMixin
 
 
 class WikiStore(
-    WikiPageStoreMixin, WikiTreeStoreMixin, WikiCoverageStoreMixin, WikiQaStoreMixin,
+    WikiPageStoreMixin,
+    WikiTreeStoreMixin,
+    WikiCoverageStoreMixin,
+    WikiQaStoreMixin,
+    WikiContradictionStoreMixin,
 ):
     """Wiki-related graph queries — facade over feature mixins."""
 

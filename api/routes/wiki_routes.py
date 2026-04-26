@@ -10,7 +10,7 @@ from dataclasses import asdict
 from typing import Annotated, Any
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -790,6 +790,37 @@ async def wiki_search_global(
         "repositories_searched": repo_names,
         "partial_errors": partial_errors,
     }
+
+
+@wiki_router.get("/tree")
+async def wiki_get_tree(
+    request: Request,
+    business_id: str = Query(default="default"),
+    view: str = Query(default="business_domain"),
+) -> dict[str, Any]:
+    """Return the wiki tree structure for the given business and view type."""
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        return {"tree": [], "view_type": view, "business_id": business_id}
+
+    store = WikiStore(raw_store)
+    result = await store.get_wiki_tree(business_id, view)
+    nodes: list[dict[str, Any]] = []
+    if result and result.result_set:
+        for row in result.result_set:
+            nodes.append(
+                {
+                    "uid": row[0],
+                    "title": row[1],
+                    "label": row[2],
+                    "depth": row[3],
+                    "sort_order": row[4],
+                    "path": row[5],
+                    "page_type": row[6],
+                }
+            )
+
+    return {"tree": nodes, "view_type": view, "business_id": business_id}
 
 
 @wiki_router.post("/{repository}/lint", response_model=None)

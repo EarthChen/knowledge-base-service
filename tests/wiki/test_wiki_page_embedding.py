@@ -9,6 +9,7 @@ import pytest
 from store.schema import NodeLabel
 from wiki.models import PageType, WikiPage, WikiPageMetadata, WikiStructure, WikiStructureNode
 from wiki.search import WikiSearchService
+from tests.wiki_config_inject import wiki_service_injection
 from wiki.service import WikiService
 
 
@@ -41,7 +42,10 @@ async def test_persist_pages_to_graph_generates_embeddings_after_persist(
     monkeypatch.setattr("indexer.embedding_generator.EmbeddingGenerator.shared", fake_shared)
 
     graph = AsyncMock()
-    svc = WikiService(graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store)
+    svc = WikiService(
+        graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store,
+        **wiki_service_injection(),
+    )
 
     await svc._persist_pages_to_graph("r1", [_overview_page()])
 
@@ -66,7 +70,10 @@ async def test_persist_pages_skips_embeddings_when_persist_fails(monkeypatch: py
     monkeypatch.setattr("indexer.embedding_generator.EmbeddingGenerator.shared", lambda **_k: fake_gen)
 
     graph = AsyncMock()
-    svc = WikiService(graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store)
+    svc = WikiService(
+        graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store,
+        **wiki_service_injection(),
+    )
 
     await svc._persist_pages_to_graph("r1", [_overview_page()])
 

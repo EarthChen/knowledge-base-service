@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from tests.wiki_config_inject import inject_wiki_embedding
 from wiki.service import WikiService
 
 
@@ -54,19 +55,19 @@ async def test_generate_business_wiki_calls_reference_generator():
     )
     mock_wiki_store.add_wiki_reference_edge = AsyncMock()
 
+    _, emb = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         wiki_store=mock_wiki_store,
+        wiki_config=_mock_wiki_cfg(),
+        embedding_config=emb,
     )
 
-    with patch("wiki.service.get_settings") as mock_settings:
-        mock_settings.return_value.wiki = _mock_wiki_cfg()
-
-        result = await svc.generate_business_wiki("biz")
-        assert result["references_count"] >= 1
-        mock_wiki_store.add_wiki_reference_edge.assert_awaited()
+    result = await svc.generate_business_wiki("biz")
+    assert result["references_count"] >= 1
+    mock_wiki_store.add_wiki_reference_edge.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -84,11 +85,14 @@ async def test_reference_generation_failure_does_not_crash():
     mock_wiki_store.upsert_wiki_section = AsyncMock()
     mock_wiki_store.add_has_child_edge = AsyncMock()
 
+    _, emb = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         wiki_store=mock_wiki_store,
+        wiki_config=_mock_wiki_cfg(),
+        embedding_config=emb,
     )
 
     mock_gen_cls = MagicMock()
@@ -96,15 +100,13 @@ async def test_reference_generation_failure_does_not_crash():
     mock_inst.generate = AsyncMock(side_effect=RuntimeError("reference generation failed"))
     mock_gen_cls.return_value = mock_inst
 
-    with patch("wiki.service.get_settings") as mock_settings, patch(
+    with patch(
         "wiki.reference_generator.WikiReferenceGenerator",
         mock_gen_cls,
     ):
-        mock_settings.return_value.wiki = _mock_wiki_cfg()
-
         result = await svc.generate_business_wiki("biz-ref-fail")
-        assert "pages_count" in result
-        assert result.get("references_count", 0) == 0
+    assert "pages_count" in result
+    assert result.get("references_count", 0) == 0
 
 
 @pytest.mark.asyncio
@@ -115,15 +117,15 @@ async def test_generate_business_wiki_empty_repos_skips_references():
     mock_wiki_store = AsyncMock()
     mock_wiki_store.list_indexed_repositories = AsyncMock(return_value=[])
 
+    _, emb = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         wiki_store=mock_wiki_store,
+        wiki_config=_mock_wiki_cfg(),
+        embedding_config=emb,
     )
 
-    with patch("wiki.service.get_settings") as mock_settings:
-        mock_settings.return_value.wiki = _mock_wiki_cfg()
-
-        result = await svc.generate_business_wiki("empty-biz")
-        assert "pages_count" in result
+    result = await svc.generate_business_wiki("empty-biz")
+    assert "pages_count" in result

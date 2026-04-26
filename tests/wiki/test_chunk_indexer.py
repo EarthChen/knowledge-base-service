@@ -1,5 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from tests.wiki_config_inject import inject_wiki_embedding
 from wiki.chunk_indexer import CodeChunkIndexer
 
 @pytest.fixture
@@ -24,7 +26,10 @@ def mock_store():
 
 @pytest.mark.asyncio
 async def test_index_counts_first(mock_wiki_store, mock_store):
-    indexer = CodeChunkIndexer(mock_wiki_store, mock_store, batch_size=64)
+    w, e = inject_wiki_embedding()
+    indexer = CodeChunkIndexer(
+        mock_wiki_store, mock_store, e, w.chunk_embedding_max_length, batch_size=64,
+    )
     mock_wiki_store.batch_get_chunks_for_embedding.side_effect = [
         MagicMock(result_set=[["uid1", "code"]]),
         MagicMock(result_set=[]),
@@ -45,12 +50,15 @@ async def test_index_skips_empty_text(mock_wiki_store, mock_store):
         MagicMock(result_set=[["uid1", ""], ["uid2", None]]),
         MagicMock(result_set=[]),
     ]
-    indexer = CodeChunkIndexer(mock_wiki_store, mock_store, batch_size=64)
+    w, e = inject_wiki_embedding()
+    indexer = CodeChunkIndexer(
+        mock_wiki_store, mock_store, e, w.chunk_embedding_max_length, batch_size=64,
+    )
     with patch("wiki.chunk_indexer.EmbeddingGenerator") as MockEmbGen:
         mock_emb_gen = MagicMock()
         mock_emb_gen.generate_for_docs = AsyncMock(return_value=[])
         MockEmbGen.shared.return_value = mock_emb_gen
-        
+
         result = await indexer.index_all_chunks("my-repo")
-    
+
     assert result["skipped"] >= 0

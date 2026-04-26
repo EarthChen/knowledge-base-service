@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path
+from fastapi import APIRouter, Body, Depends, Path
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from api.exceptions import KbClientError, KbNotFound
 from auth import Role, require_role
 from services.settings_service import SettingsService
 from store.settings_store import SettingsStore
@@ -67,7 +68,7 @@ async def get_category_settings(
 ) -> dict[str, Any]:
     items = await service.get_category(category)
     if not items:
-        raise HTTPException(status_code=404, detail=f"Category '{category}' not found or empty")
+        raise KbNotFound(f"Category '{category}' not found or empty")
     return {"category": category, "settings": items}
 
 
@@ -79,7 +80,7 @@ async def update_settings_batch(
     try:
         await service.update_settings([s.model_dump() for s in body.settings])
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise KbClientError(str(e)) from e
     return {
         "status": "ok",
         "updated": str(len(body.settings)),
@@ -97,7 +98,7 @@ async def update_single_setting(
     try:
         await service.update_settings([{"key": key, "value": value, "category": category}])
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise KbClientError(str(e)) from e
     return {"status": "ok", "key": key}
 
 
@@ -108,7 +109,7 @@ async def delete_setting(
 ) -> dict[str, Any]:
     deleted = await service.delete_setting(key)
     if not deleted:
-        raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
+        raise KbNotFound(f"Setting '{key}' not found")
     return {"status": "ok", "key": key}
 
 
@@ -142,4 +143,4 @@ async def test_connection(
                 "message": "LLM test not yet implemented",
             },
         )
-    raise HTTPException(status_code=400, detail=f"Unknown target: {body.target}")
+    raise KbClientError(f"Unknown target: {body.target}")

@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from store.schema import GraphNode, NodeLabel
+from tests.wiki_config_inject import inject_wiki_embedding
 from wiki.data_collector import WikiDataCollector
 
 
@@ -24,7 +25,8 @@ def mock_wiki_store():
 
 @pytest.mark.asyncio
 async def test_collect_includes_code_snippets(mock_graph_port, mock_wiki_store):
-    collector = WikiDataCollector(mock_graph_port, wiki_store=mock_wiki_store)
+    w, e = inject_wiki_embedding()
+    collector = WikiDataCollector(mock_graph_port, w, e, wiki_store=mock_wiki_store)
     node = GraphNode(
         label=NodeLabel.CLASS,
         uid="Class:f.py:Foo:1",
@@ -40,7 +42,8 @@ async def test_collect_includes_code_snippets(mock_graph_port, mock_wiki_store):
 @pytest.mark.asyncio
 async def test_collect_without_wiki_store_has_empty_snippets(mock_graph_port):
     """When wiki_store is None (backward compatible), code_snippets is empty."""
-    collector = WikiDataCollector(mock_graph_port)
+    w, e = inject_wiki_embedding()
+    collector = WikiDataCollector(mock_graph_port, w, e)
     node = GraphNode(
         label=NodeLabel.CLASS,
         uid="Class:f.py:Foo:1",

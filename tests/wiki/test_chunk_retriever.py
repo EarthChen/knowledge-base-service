@@ -1,5 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from tests.wiki_config_inject import inject_wiki_embedding
 from wiki.chunk_retriever import ChunkRetriever
 from wiki.models import ChunkSnippet
 from store.schema import GraphNode, NodeLabel
@@ -29,7 +31,8 @@ async def test_retrieve_returns_chunk_snippets(mock_wiki_store):
         mock_emb_gen.generate_for_docs = AsyncMock(return_value=[[0.1] * 1024])
         MockEmbGen.shared.return_value = mock_emb_gen
 
-        retriever = ChunkRetriever(mock_wiki_store)
+        _, emb = inject_wiki_embedding()
+        retriever = ChunkRetriever(mock_wiki_store, emb)
         node = _make_node()
         results = await retriever.retrieve(node, "my-repo")
 
@@ -45,7 +48,8 @@ async def test_retrieve_excludes_same_parent(mock_wiki_store):
         mock_emb_gen.generate_for_docs = AsyncMock(return_value=[[0.1] * 1024])
         MockEmbGen.shared.return_value = mock_emb_gen
 
-        retriever = ChunkRetriever(mock_wiki_store, exclude_same_parent=True)
+        _, emb = inject_wiki_embedding()
+        retriever = ChunkRetriever(mock_wiki_store, emb, exclude_same_parent=True)
         node = _make_node(uid="Class:main.py:Main:1")
         results = await retriever.retrieve(node, "my-repo")
 
@@ -60,7 +64,8 @@ async def test_retrieve_filters_by_min_score(mock_wiki_store):
         mock_emb_gen.generate_for_docs = AsyncMock(return_value=[[0.1] * 1024])
         MockEmbGen.shared.return_value = mock_emb_gen
 
-        retriever = ChunkRetriever(mock_wiki_store, min_score=0.80)
+        _, emb = inject_wiki_embedding()
+        retriever = ChunkRetriever(mock_wiki_store, emb, min_score=0.80)
         node = _make_node()
         results = await retriever.retrieve(node, "my-repo")
 

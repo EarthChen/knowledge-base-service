@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import Depends, Header, HTTPException, Query
+from fastapi import Depends, Header, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 import api.kb_state as kb_state
+from api.exceptions import KbClientError, KbNotFound
 from api.routes import kb_routers
 from api.routes.kb_dependencies import get_effective_business_id, get_service
 from auth import Role, TokenInfo, require_role
@@ -103,7 +104,7 @@ async def build_review_context(
             base_branch=req.base_branch,
         )
     except (ValueError, RuntimeError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise KbClientError(str(exc)) from exc
     return ctx.to_dict()
 
 
@@ -160,16 +161,10 @@ async def check_consistency(
     settings = get_settings()
     resolved = resolve_repo_clone_root(repository, settings.git, kb_state.repo_registry)
     if resolved is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Repository '{repository}' not found on disk",
-        )
+        raise KbNotFound(f"Repository '{repository}' not found on disk")
     base_path = Path(settings.git.clone_base_path).resolve()
     if not resolved.is_relative_to(base_path):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Repository path escapes clone base: {repository}",
-        )
+        raise KbClientError(f"Repository path escapes clone base: {repository}")
 
     analysis = AnalysisService(svc.store)
     report = await analysis.verify_consistency(str(resolved), repository=repository)
@@ -361,7 +356,7 @@ async def get_code_snippet(
     queries = GraphQueryRepository(svc.store)
     data = await queries.get_code_snippet(node_uid)
     if not data:
-        raise HTTPException(status_code=404, detail="Node not found")
+        raise KbNotFound("Node not found")
     return data
 
 

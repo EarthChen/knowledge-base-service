@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
+import ErrorBoundary from "../ErrorBoundary";
 import {
   Activity,
   FileOutput,
@@ -10,30 +19,45 @@ import {
   PieChart,
   RefreshCw,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import AskPanel from "./AskPanel";
-import GraphInsightsPanel from "./GraphInsightsPanel";
 import WikiContent from "./WikiContent";
 import WikiReferencesPanel from "./WikiReferencesPanel";
 import WikiCoverageCard from "./WikiCoverageCard";
 import WikiQualityScoreCard from "./WikiQualityScoreCard";
-import WikiReferenceGraph from "./WikiReferenceGraph";
-import WikiBusinessExportPanel from "./WikiBusinessExportPanel";
 import WikiLandingPage from "./WikiLandingPage";
-import WikiLintPanel from "./WikiLintPanel";
-import { getErrorMessage } from "../../utils/errorUtils";
 import WikiSearchBar from "./WikiSearchBar";
 import WikiTreeNav from "./WikiTreeNav";
 import { parseWikiSearchParams, wikiSearchHref } from "./wikiRouteHelpers";
-import { businessWikiGenerate, wikiTaskStatus } from "../../api/client";
-import { useToast } from "../Toast";
 import { useBusiness } from "../../contexts/BusinessContext";
 import { useI18n } from "../../i18n/context";
 import type { WikiEvent, WikiEventType } from "../../hooks/wikiTypes";
 import { useWikiEvents } from "../../hooks/useWikiEvents";
 import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
+import { useWikiRegenerate } from "../../hooks/useWikiRegenerate";
 import WikiGenerationProgress from "./WikiGenerationProgress";
 import WikiUpdateNotification from "./WikiUpdateNotification";
+
+const WikiReferenceGraph = lazy(() => import("./WikiReferenceGraph"));
+const GraphInsightsPanel = lazy(() => import("./GraphInsightsPanel"));
+const WikiBusinessExportPanel = lazy(() => import("./WikiBusinessExportPanel"));
+const WikiLintPanel = lazy(() => import("./WikiLintPanel"));
+
+const wikiToolSuspenseFallback = (
+  <div className="animate-pulse rounded-xl border p-8 text-center text-sm text-gray-400">Loading...</div>
+);
+
+/** All wiki query keys use `["wiki", <segment>, businessId, ...]` — invalidate everything for this business. */
+function invalidateWikiQueriesForBusiness(queryClient: QueryClient, businessId: string) {
+  const b = businessId.trim();
+  if (!b) return Promise.resolve();
+  return queryClient.invalidateQueries({
+    predicate: (q) => {
+      const k = q.queryKey as unknown[];
+      return k[0] === "wiki" && k[2] === b;
+    },
+  });
+}
 
 type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights" | "refgraph";
 
@@ -75,11 +99,10 @@ export default function WikiShell() {
 
   const pageQuery = useWikiPageByPath(businessId, pagePath || undefined);
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
+  const { regenerate: handleRegenerateWiki, isPending: regeneratePending } = useWikiRegenerate(businessId);
   const [updateNotification, setUpdateNotification] = useState<string | null>(null);
   const [generationStatus, setGenerationStatus] = useState<WikiEventType | null>(null);
-  const [regeneratePending, setRegeneratePending] = useState(false);
   const [refsPanelOpen, setRefsPanelOpen] = useState(() => {
     try {
       return localStorage.getItem("kb_wiki_refs_panel") !== "closed";
@@ -111,11 +134,11 @@ export default function WikiShell() {
       ) {
         setGenerationStatus(event.type);
         if (event.type === "wiki:generation_completed") {
-          queryClient.invalidateQueries({ queryKey: ["wiki"] });
+          void invalidateWikiQueriesForBusiness(queryClient, businessId);
         }
       }
     },
-    [queryClient],
+    [queryClient, businessId],
   );
 
   useWikiEvents(businessId.trim(), handleWikiEvent);
@@ -138,48 +161,6 @@ export default function WikiShell() {
   const pendingQuery = searchParams.get("q") ?? "";
   if (pendingQuery.trim()) {
     return <Navigate to={wikiSearchHref(pendingQuery.trim())} replace />;
-  }
-
-  async function handleRegenerateWiki() {
-    if (!businessId.trim() || regeneratePending) return;
-    setRegeneratePending(true);
-    try {
-      const lang = locale === "zh" ? "zh" : "en";
-      const res = await businessWikiGenerate(businessId.trim(), lang);
-      const tid = res.task_id ? String(res.task_id) : "";
-      if (!tid) {
-        toast("success", t.wiki.regenerateStarted);
-        await queryClient.invalidateQueries({ queryKey: ["wiki"] });
-        return;
-      }
-      toast("info", t.wiki.regenerateRunning);
-      const maxAttempts = 45;
-      for (let i = 0; i < maxAttempts; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const st = await wikiTaskStatus(tid);
-        if (st.status === "completed") {
-          toast("success", t.wiki.regenerateComplete);
-          await queryClient.invalidateQueries({ queryKey: ["wiki"] });
-          return;
-        }
-        if (st.status === "failed") {
-          const err = st.error;
-          const detail =
-            err && typeof err === "object" && "detail" in err
-              ? String((err as { detail?: unknown }).detail ?? err)
-              : err
-                ? JSON.stringify(err)
-                : t.common.unknown;
-          toast("error", t.wiki.regenerateFailed.replace("{detail}", detail));
-          return;
-        }
-      }
-      toast("error", t.wiki.regenerateTimeout);
-    } catch (e) {
-      toast("error", getErrorMessage(e, t.common.unexpectedError));
-    } finally {
-      setRegeneratePending(false);
-    }
   }
 
   const setToolTab = useCallback(
@@ -209,6 +190,10 @@ export default function WikiShell() {
       <button
         key={id}
         type="button"
+        role="tab"
+        id={`wiki-tab-${id}`}
+        aria-selected={toolTab === id}
+        aria-controls={`wiki-panel-${id}`}
         onClick={() => setToolTab(id)}
         className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
           toolTab === id
@@ -224,6 +209,7 @@ export default function WikiShell() {
   );
 
   return (
+    <ErrorBoundary fallbackLabel="Wiki failed to render">
     <div className="flex min-h-[min(70vh,860px)] flex-col gap-4 lg:flex-row lg:items-stretch">
       <WikiTreeNav
         businessId={businessId}
@@ -234,7 +220,7 @@ export default function WikiShell() {
 
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Wiki tools">
             {tabBtn(
               "page",
               t.wiki.tabPage,
@@ -272,6 +258,7 @@ export default function WikiShell() {
               type="button"
               onClick={handleRegenerateWiki}
               disabled={regeneratePending}
+              aria-busy={regeneratePending}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-200 dark:hover:bg-amber-950"
             >
               {regeneratePending ? (
@@ -288,7 +275,7 @@ export default function WikiShell() {
           <WikiUpdateNotification
             pagePath={updateNotification}
             onRefresh={() => {
-              queryClient.invalidateQueries({ queryKey: ["wiki"] });
+              void invalidateWikiQueriesForBusiness(queryClient, businessId);
               setUpdateNotification(null);
             }}
             onDismiss={() => setUpdateNotification(null)}
@@ -297,11 +284,13 @@ export default function WikiShell() {
         <WikiGenerationProgress status={generationStatus} />
 
         {toolTab === "page" && !pagePath && (
-          <WikiLandingPage businessId={businessId} viewType={viewType} />
+          <div role="tabpanel" id="wiki-panel-page" aria-labelledby="wiki-tab-page">
+            <WikiLandingPage businessId={businessId} viewType={viewType} />
+          </div>
         )}
 
         {toolTab === "page" && pagePath && (
-          <>
+          <div role="tabpanel" id="wiki-panel-page" aria-labelledby="wiki-tab-page">
             <WikiContent
               repository={pageQuery.data?.context?.repository ?? businessId}
               businessId={businessId}
@@ -324,36 +313,57 @@ export default function WikiShell() {
               }}
             />
             <AskPanel repository={businessId} />
-          </>
+          </div>
         )}
 
         {toolTab === "coverage" && (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <WikiCoverageCard businessId={businessId} />
-            <WikiQualityScoreCard businessId={businessId} />
+          <div role="tabpanel" id="wiki-panel-coverage" aria-labelledby="wiki-tab-coverage">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <WikiCoverageCard businessId={businessId} />
+              <WikiQualityScoreCard businessId={businessId} />
+            </div>
           </div>
         )}
 
         {toolTab === "refgraph" && (
-          <WikiReferenceGraph
-            businessId={businessId}
-            view={viewType === "code_structure" ? "code_structure" : "business_domain"}
-          />
+          <div role="tabpanel" id="wiki-panel-refgraph" aria-labelledby="wiki-tab-refgraph">
+            <Suspense fallback={wikiToolSuspenseFallback}>
+              <WikiReferenceGraph
+                businessId={businessId}
+                view={viewType === "code_structure" ? "code_structure" : "business_domain"}
+              />
+            </Suspense>
+          </div>
         )}
 
         {toolTab === "health" && (
-          <WikiLintPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+          <div role="tabpanel" id="wiki-panel-health" aria-labelledby="wiki-tab-health">
+            <Suspense fallback={wikiToolSuspenseFallback}>
+              <WikiLintPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+            </Suspense>
+          </div>
         )}
 
         {toolTab === "insights" && (
-          <GraphInsightsPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+          <div role="tabpanel" id="wiki-panel-insights" aria-labelledby="wiki-tab-insights">
+            <Suspense fallback={wikiToolSuspenseFallback}>
+              <GraphInsightsPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+            </Suspense>
+          </div>
         )}
 
-        {toolTab === "export" && <WikiBusinessExportPanel key={businessId} />}
+        {toolTab === "export" && (
+          <div role="tabpanel" id="wiki-panel-export" aria-labelledby="wiki-tab-export">
+            <Suspense fallback={wikiToolSuspenseFallback}>
+              <WikiBusinessExportPanel key={businessId} />
+            </Suspense>
+          </div>
+        )}
       </div>
 
       {toolTab === "page" && pagePath && pageQuery.data && (
         <WikiReferencesPanel
+          businessId={businessId}
           pageUid={pageQuery.data.context?.uid ?? ""}
           pagePath={pageQuery.data.path}
           repository={pageQuery.data.context?.repository ?? ""}
@@ -363,5 +373,6 @@ export default function WikiShell() {
         />
       )}
     </div>
+    </ErrorBoundary>
   );
 }

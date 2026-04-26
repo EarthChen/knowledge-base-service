@@ -4,13 +4,18 @@ import { useWikiVersions } from "../../hooks/useWikiVersions";
 import { useI18n } from "../../i18n/context";
 
 interface WikiVersionHistoryProps {
+  businessId: string;
   pageUid: string;
   onSelectVersions: (from: number, to: number) => void;
 }
 
-export default function WikiVersionHistory({ pageUid, onSelectVersions }: WikiVersionHistoryProps) {
+export default function WikiVersionHistory({
+  businessId,
+  pageUid,
+  onSelectVersions,
+}: WikiVersionHistoryProps) {
   const { t } = useI18n();
-  const { data: versions, isLoading } = useWikiVersions(pageUid);
+  const { data: versions, isLoading } = useWikiVersions(businessId, pageUid);
 
   if (isLoading) {
     return (

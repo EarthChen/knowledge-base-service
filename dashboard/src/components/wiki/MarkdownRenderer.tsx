@@ -59,7 +59,33 @@ const sanitizeSchema = {
   },
 };
 
-function MarkdownAnchor({ href, children, className, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
+function MarkdownAnchor({
+  href,
+  children,
+  className,
+  onDocLink,
+  ...props
+}: AnchorHTMLAttributes<HTMLAnchorElement> & { onDocLink?: (filePath: string) => void }) {
+  if (onDocLink && href) {
+    const isExternal = href.startsWith("http://") || href.startsWith("https://") || href.startsWith("mailto:");
+    const isDocLink =
+      !isExternal && (href.endsWith(".md") || href.endsWith(".rst") || href.endsWith(".txt"));
+    if (isDocLink) {
+      return (
+        <a
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            onDocLink(href);
+          }}
+          className={`font-medium text-sky-700 underline decoration-sky-300 underline-offset-2 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300 ${className ?? ""}`}
+          {...props}
+        >
+          {children}
+        </a>
+      );
+    }
+  }
   if (href) {
     const SAFE_SCHEMES = /^(https?:|mailto:|#|\/|source:\/\/)/i;
     if (!SAFE_SCHEMES.test(href)) {
@@ -120,13 +146,21 @@ const MarkdownPre: Components["pre"] = ({ children }) => (
 
 type Props = {
   content: string;
-  businessId: string;
+  businessId?: string;
   wikiLinkParams?: Record<string, string>;
   /** When provided (e.g. from parent TOC), avoids a second `parseMarkdownHeadings` pass. */
   headings?: ParsedHeading[];
+  /** Resolve relative .md / .rst / .txt links (e.g. knowledge documents tree). */
+  onDocLink?: (filePath: string) => void;
 };
 
-export default function MarkdownRenderer({ content, businessId, wikiLinkParams, headings }: Props) {
+export default function MarkdownRenderer({
+  content,
+  businessId = "",
+  wikiLinkParams,
+  headings,
+  onDocLink,
+}: Props) {
   const headingIds = useMemo(() => (headings ?? parseMarkdownHeadings(content)).map((h) => h.id), [content, headings]);
 
   const processedContent = useMemo(() => replaceWikilinksWithHtml(content), [content]);
@@ -154,7 +188,9 @@ export default function MarkdownRenderer({ content, businessId, wikiLinkParams, 
     );
 
     return {
-      a: MarkdownAnchor as Components["a"],
+      a: (({ node: _node, ...props }) => (
+        <MarkdownAnchor {...props} onDocLink={onDocLink} />
+      )) as Components["a"],
       code: MarkdownCode,
       pre: MarkdownPre,
       h1: H1,
@@ -176,7 +212,7 @@ export default function MarkdownRenderer({ content, businessId, wikiLinkParams, 
         );
       },
     };
-  }, [headingIds, businessId, wikiLinkParams]);
+  }, [headingIds, businessId, wikiLinkParams, onDocLink]);
 
   return (
     <article className="prose prose-slate dark:prose-invert max-w-none prose-headings:scroll-mt-24 prose-a:text-sky-700 prose-pre:bg-transparent prose-pre:p-0 dark:prose-a:text-sky-400">

@@ -12,6 +12,7 @@ from fastapi import Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 import api.kb_state as kb_state
+from api.exceptions import KbError
 from api.routes import kb_routers
 from api.routes.kb_dependencies import get_effective_business_id, get_service
 from api.routes.kb_schemas import (
@@ -74,7 +75,7 @@ async def search_architecture(
         }
     except Exception as exc:
         log.error("search_architecture_failed", layer=layer, error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise KbError(str(exc)) from exc
 
 
 @viewer_router.get("/quality/{entity_uid:path}")
@@ -101,7 +102,7 @@ async def get_code_quality(
         raise
     except Exception as exc:
         log.error("code_quality_failed", entity_uid=entity_uid, error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise KbError(str(exc)) from exc
 
 
 @viewer_router.post("/graph")

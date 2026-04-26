@@ -10,6 +10,8 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 import auth as auth_module
+from tests.wiki_config_inject import wiki_service_injection
+from api.error_handler import register_exception_handlers
 from api.routes.wiki_routes import (
     WikiTaskRegistry,
     get_task_registry_dep,
@@ -24,19 +26,13 @@ def _open_access_no_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(auth_module, "_token_registry", {})
 
 
-def _detail_error(resp: Any) -> str:
-    body = resp.json().get("detail")
-    if isinstance(body, dict):
-        return str(body.get("error", "") or "")
-    return ""
-
-
 def _make_analyze_app(
     *,
     mock_wiki: Any | None = None,
     graph_query_service: Any | None = None,
 ) -> tuple[FastAPI, TestClient, Any]:
     app = FastAPI()
+    register_exception_handlers(app)
     app.state.wiki_tasks = WikiTaskRegistry()
     app.state.graph_query_service = graph_query_service
 
@@ -176,7 +172,7 @@ class TestAnalyzeImpactApi:
             },
         )
         assert r.status_code == 404
-        assert _detail_error(r) == "repo_not_found"
+        assert r.json()["error"]["code"] == "kb_not_found"
         mock_graph.analyze_pr_impact.assert_not_called()
 
     def test_graph_service_unconfigured_503(self) -> None:
@@ -194,7 +190,7 @@ class TestAnalyzeImpactApi:
             },
         )
         assert r.status_code == 503
-        assert _detail_error(r) == "service_unavailable"
+        assert r.json()["error"]["code"] == "kb_service_unavailable"
 
     def test_graph_analyze_raises_503(self) -> None:
         mock_graph = MagicMock()
@@ -214,10 +210,9 @@ class TestAnalyzeImpactApi:
             },
         )
         assert r.status_code == 503
-        detail = r.json().get("detail")
-        assert isinstance(detail, dict)
-        assert detail.get("error") == "graph_query_failed"
-        assert detail.get("detail") == "graph_query_failed"
+        err = r.json().get("error") or {}
+        assert err.get("code") == "kb_service_unavailable"
+        assert err.get("message") == "graph_query_failed"
 
 
 class TestAnalyzeImpactIntegrationWikiService:
@@ -234,6 +229,7 @@ class TestAnalyzeImpactIntegrationWikiService:
             graph=MagicMock(),
             llm=None,
             repository_exists=AsyncMock(return_value=True),
+            **wiki_service_injection(),
         )
 
         _, client, _ = _make_analyze_app(mock_wiki=svc, graph_query_service=mock_graph)

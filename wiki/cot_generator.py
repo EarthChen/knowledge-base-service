@@ -158,20 +158,12 @@ class CoTWikiGenerator:
         analysis_model: str = "",
         generation_model: str = "",
         *,
-        cot_enabled: bool | None = None,
+        cot_enabled: bool = False,
     ) -> None:
         self._llm = llm_provider
         self._analysis_model = analysis_model or None
         self._generation_model = generation_model or None
-        if cot_enabled is None:
-            try:
-                from config import get_settings
-
-                self._cot_enabled = bool(get_settings().wiki.cot_enabled)
-            except Exception:
-                self._cot_enabled = False
-        else:
-            self._cot_enabled = bool(cot_enabled)
+        self._cot_enabled = bool(cot_enabled)
 
     async def generate_with_cot(
         self,

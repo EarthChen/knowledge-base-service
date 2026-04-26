@@ -1,8 +1,21 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from store.schema import GraphNode, NodeLabel
+from tests.wiki_config_inject import inject_wiki_embedding
 from wiki.service import WikiService
+
+
+def _biz_wiki_mock():
+    m = MagicMock()
+    m.cross_repo_domain_enabled = True
+    m.business_domain_enabled = True
+    m.business_domain_infrastructure_label = "__infrastructure__"
+    m.enrichment_enabled = False
+    m.code_budget_enabled = False
+    m.rag_enabled = False
+    m.business_wiki_batch_threshold = 100
+    return m
 
 
 def _mock_graph():
@@ -47,32 +60,23 @@ async def test_generate_business_wiki_returns_result():
         ],
     )
 
+    _, emb = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,
         llm=llm,
         repository_exists=AsyncMock(return_value=True),
         store=mock_store,
         wiki_store=mock_wiki_store,
+        wiki_config=_biz_wiki_mock(),
+        embedding_config=emb,
     )
 
-    with patch("wiki.service.get_settings") as mock_settings:
-        mock_wiki_cfg = MagicMock()
-        mock_wiki_cfg.cross_repo_domain_enabled = True
-        mock_wiki_cfg.business_domain_enabled = True
-        mock_wiki_cfg.business_domain_infrastructure_label = "__infrastructure__"
-        mock_wiki_cfg.enrichment_enabled = False
-        mock_wiki_cfg.code_budget_enabled = False
-        mock_wiki_cfg.rag_enabled = False
-        mock_wiki_cfg.business_wiki_batch_threshold = 100
-        mock_settings.return_value.wiki = mock_wiki_cfg
-        mock_settings.return_value.embedding = MagicMock()
-
-        result = await svc.generate_business_wiki(
-            business_id="test-biz",
-            language="en",
-        )
-        assert "domains" in result
-        assert "pages_count" in result
+    result = await svc.generate_business_wiki(
+        business_id="test-biz",
+        language="en",
+    )
+    assert "domains" in result
+    assert "pages_count" in result
 
 
 @pytest.mark.asyncio
@@ -89,30 +93,22 @@ async def test_generate_business_wiki_without_llm():
     mock_wiki_store.find_source_entity_mappings = AsyncMock(return_value=[])
     mock_wiki_store.find_code_entity_relationships = AsyncMock(return_value=[])
 
+    _, emb = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         wiki_store=mock_wiki_store,
+        wiki_config=_biz_wiki_mock(),
+        embedding_config=emb,
     )
 
-    with patch("wiki.service.get_settings") as mock_settings:
-        mock_wiki_cfg = MagicMock()
-        mock_wiki_cfg.cross_repo_domain_enabled = True
-        mock_wiki_cfg.business_domain_enabled = True
-        mock_wiki_cfg.business_domain_infrastructure_label = "__infrastructure__"
-        mock_wiki_cfg.enrichment_enabled = False
-        mock_wiki_cfg.code_budget_enabled = False
-        mock_wiki_cfg.rag_enabled = False
-        mock_wiki_cfg.business_wiki_batch_threshold = 100
-        mock_settings.return_value.wiki = mock_wiki_cfg
-
-        result = await svc.generate_business_wiki(
-            business_id="biz",
-            language="en",
-        )
-        assert isinstance(result.get("domains"), list)
-        assert isinstance(result.get("pages_count"), int)
+    result = await svc.generate_business_wiki(
+        business_id="biz",
+        language="en",
+    )
+    assert isinstance(result.get("domains"), list)
+    assert isinstance(result.get("pages_count"), int)
 
 
 @pytest.mark.asyncio
@@ -122,18 +118,16 @@ async def test_generate_business_wiki_empty_repos():
     mock_wiki_store = AsyncMock()
     mock_wiki_store.list_indexed_repositories = AsyncMock(return_value=[])
 
+    w, e = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         wiki_store=mock_wiki_store,
+        wiki_config=w,
+        embedding_config=e,
     )
 
-    with patch("wiki.service.get_settings") as mock_settings:
-        mock_wiki_cfg = MagicMock()
-        mock_wiki_cfg.rag_enabled = False
-        mock_settings.return_value.wiki = mock_wiki_cfg
-
-        result = await svc.generate_business_wiki(business_id="empty-biz")
-        assert result["domains"] == []
-        assert result["pages_count"] == 0
+    result = await svc.generate_business_wiki(business_id="empty-biz")
+    assert result["domains"] == []
+    assert result["pages_count"] == 0

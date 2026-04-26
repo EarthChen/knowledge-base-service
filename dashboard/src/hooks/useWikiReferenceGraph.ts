@@ -33,7 +33,7 @@ export function useWikiReferenceGraph(
   businessId: string,
 ): WikiReferenceGraphResult {
   const q = useQuery<WikiRefGraphResponse>({
-    queryKey: ["wiki", "references", "graph", businessId],
+    queryKey: ["wiki", "references", businessId, "graph"],
     queryFn: () =>
       api<WikiRefGraphResponse>(`/wiki/references?business_id=${encodeURIComponent(businessId)}`),
     enabled: !!businessId,

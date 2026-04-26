@@ -3,7 +3,7 @@ import { Brain, Loader2 } from "lucide-react";
 import { useDeepSearch } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import JsonView from "./JsonView";
-import MarkdownRenderer from "./MarkdownRenderer";
+import MarkdownRenderer from "./wiki/MarkdownRenderer";
 import DeepResearchTimeline from "./DeepResearchTimeline";
 import { useDeepSearchStream } from "../hooks/useDeepSearchStream";
 import { getErrorMessage } from "../utils/errorUtils";

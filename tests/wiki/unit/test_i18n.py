@@ -12,6 +12,7 @@ from wiki.composer import WikiComposer
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import PageData
 from wiki.models import PageType, SourceLocation, WikiConfig, WikiStructure, WikiStructureNode
+from tests.wiki_config_inject import wiki_service_injection
 from wiki.service import WikiService
 
 
@@ -196,7 +197,9 @@ class TestServiceLanguagePropagation:
             captured["config"] = config
             return [], False
 
-        svc = WikiService(graph=AsyncMock(), llm=None, repository_exists=AsyncMock(return_value=True))
+        svc = WikiService(
+            graph=AsyncMock(), llm=None, repository_exists=AsyncMock(return_value=True), **wiki_service_injection(),
+        )
         svc._planner.plan = AsyncMock(return_value=structure)
         svc._compose_all_pages = fake_compose_all  # type: ignore[method-assign]
 

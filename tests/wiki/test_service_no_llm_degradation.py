@@ -19,6 +19,7 @@ from wiki.models import (
     WikiStructure,
     WikiStructureNode,
 )
+from tests.wiki_config_inject import wiki_service_injection
 from wiki.service import WikiService
 
 
@@ -41,6 +42,7 @@ async def test_no_llm_pages_get_base_enrichment() -> None:
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
+        **wiki_service_injection(),
     )
     structure = WikiStructure(
         repository="test-repo",
@@ -102,6 +104,7 @@ async def test_no_llm_enrichment_pipeline_not_instantiated(monkeypatch: pytest.M
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
+        **wiki_service_injection(),
     )
     structure = WikiStructure(
         repository="test-repo",

@@ -5,7 +5,7 @@ import type { DocumentItem } from "../api/types";
 import { useI18n } from "../i18n/context";
 import { getErrorMessage } from "../utils/errorUtils";
 import { SkeletonLine } from "../components/Skeleton";
-import MarkdownRenderer from "../components/MarkdownRenderer";
+import MarkdownRenderer from "../components/wiki/MarkdownRenderer";
 
 interface TreeNode {
   dirs: Record<string, TreeNode>;

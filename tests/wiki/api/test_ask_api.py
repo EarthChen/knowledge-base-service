@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 import auth as auth_module
+from api.error_handler import register_exception_handlers
 from api.routes.wiki_routes import (
     WikiTaskRegistry,
     get_task_registry_dep,
@@ -26,6 +27,7 @@ def _open_access_no_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _make_ask_app(mock_ask: Any | None = None) -> tuple[FastAPI, TestClient, Any]:
     app = FastAPI()
+    register_exception_handlers(app)
     app.state.wiki_tasks = WikiTaskRegistry()
 
     svc = mock_ask if mock_ask is not None else MagicMock()
@@ -146,6 +148,7 @@ class TestWikiAsk:
 
     def test_ask_service_unavailable(self) -> None:
         app = FastAPI()
+        register_exception_handlers(app)
         app.state.wiki_tasks = WikiTaskRegistry()
 
         async def override_wiki() -> Any:
@@ -165,6 +168,4 @@ class TestWikiAsk:
             json={"repository": "my-repo", "question": "x"},
         )
         assert r.status_code == 503
-        detail = r.json().get("detail")
-        assert isinstance(detail, dict)
-        assert detail.get("error") == "service_unavailable"
+        assert r.json()["error"]["code"] == "kb_service_unavailable"

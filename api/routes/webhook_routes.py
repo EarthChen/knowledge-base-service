@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from api.exceptions import KbClientError, KbServiceUnavailable
 from wiki.webhook.debounce import PushDebouncer
 from wiki.webhook.dispatcher import EventDispatcher, IncrementalUpdatePort
 from wiki.webhook.receiver import WebhookReceiver
@@ -125,11 +126,11 @@ async def update_webhook_config(
 async def receive_webhook(provider: str, request: Request) -> JSONResponse:
     """Receive and queue a webhook from GitHub/GitLab/Gitea."""
     if provider not in _VALID_PROVIDERS:
-        raise HTTPException(status_code=400, detail="Unknown webhook provider")
+        raise KbClientError("Unknown webhook provider")
 
     cfg: dict[str, Any] = getattr(request.app.state, "webhook_config", None) or default_webhook_config()
     if not cfg.get("enabled", False):
-        raise HTTPException(status_code=503, detail="Webhooks are disabled")
+        raise KbServiceUnavailable("Webhooks are disabled")
 
     payload_bytes = await request.body()
     secret = _provider_secret(cfg, provider)
@@ -144,7 +145,7 @@ async def receive_webhook(provider: str, request: Request) -> JSONResponse:
 
     dispatcher: EventDispatcher | None = getattr(request.app.state, "webhook_dispatcher", None)
     if dispatcher is None:
-        raise HTTPException(status_code=503, detail="Webhook dispatcher not initialized")
+        raise KbServiceUnavailable("Webhook dispatcher not initialized")
 
     result = await dispatcher.dispatch(event)
     if result.get("status") == "queued":

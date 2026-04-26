@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import re
 import threading
 import time
@@ -12,6 +13,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from log import get_logger
+from store.conversation_store import SqliteConversationStore
 from store.wiki_store import WikiStore
 from wiki.search import SearchResponse, SearchResult
 
@@ -465,30 +467,36 @@ class WikiAskService:
         self,
         search: SearchPort,
         llm: LLMPort,
-        conversation_store: ConversationStore | None = None,
+        conversation_store: ConversationStore | SqliteConversationStore | None = None,
         graph: GraphPort | None = None,
         wiki_store: WikiStore | None = None,
         memory_loop: MemoryLoopPort | None = None,
     ) -> None:
         self._search = search
         self._llm = llm
-        self._store = conversation_store or ConversationStore()
+        self._store: ConversationStore | SqliteConversationStore = conversation_store or ConversationStore()
         self._wiki_store = wiki_store or (WikiStore(graph) if graph is not None else None)
         self._memory_loop = memory_loop
 
-    def _resolve_conversation(
+    async def _resolve_conversation(
         self,
         repository: str,
         scope: str | None,
         conversation_id: str | None,
     ) -> ConversationHistory:
         if conversation_id:
-            existing = self._store.get(conversation_id)
+            result = self._store.get(conversation_id)
+            if inspect.isawaitable(result):
+                result = await result
+            existing = result
             if existing is not None and existing.repository == repository:
                 if scope is not None:
                     existing.scope = scope
                 return existing
-        return self._store.create(repository, scope)
+        result = self._store.create(repository, scope)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
 
     def _build_messages(
         self,
@@ -532,7 +540,7 @@ class WikiAskService:
         If ``record_memory`` is true and ``business_id`` is set, persists Q&A via memory loop
         (when configured).
         """
-        history = self._resolve_conversation(repository, scope, conversation_id)
+        history = await self._resolve_conversation(repository, scope, conversation_id)
         prior_turns = list(history.turns)
 
         search_resp = await self._search.search(
@@ -591,7 +599,9 @@ class WikiAskService:
 
         history.turns.append(ConversationTurn(role="user", content=question))
         history.turns.append(ConversationTurn(role="assistant", content=full_text))
-        self._store.save(history)
+        save_result = self._store.save(history)
+        if inspect.isawaitable(save_result):
+            await save_result
 
         if (
             record_memory

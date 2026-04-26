@@ -13,6 +13,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
+from api.error_handler import register_exception_handlers
 from api.routes.webhook_routes import init_webhook_state, webhook_router
 
 
@@ -39,6 +40,7 @@ def webhook_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(auth, "_token_registry", {})
 
     app = FastAPI()
+    register_exception_handlers(app)
     updater = AsyncMock()
     cfg = {
         "enabled": True,

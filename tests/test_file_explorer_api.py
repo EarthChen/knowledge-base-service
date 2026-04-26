@@ -9,6 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.error_handler import register_exception_handlers
 from main import _build_file_tree, _get_service, viewer_router
 
 
@@ -73,6 +74,7 @@ def test_build_file_tree_repository_param_on_files() -> None:
 @pytest.fixture()
 def viewer_client() -> TestClient:
     app = FastAPI()
+    register_exception_handlers(app)
     app.include_router(viewer_router)
     mock_svc = MagicMock()
     mock_svc.store = MagicMock()

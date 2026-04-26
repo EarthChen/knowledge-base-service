@@ -19,6 +19,7 @@ from wiki.models import (
     WikiStructure,
     WikiStructureNode,
 )
+from tests.wiki_config_inject import inject_wiki_embedding, wiki_service_injection
 from wiki.service import WikiService
 
 
@@ -46,6 +47,7 @@ async def test_compose_all_pages_sets_base_enrichment() -> None:
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
+        **wiki_service_injection(),
     )
     structure = WikiStructure(
         repository="test-repo",
@@ -73,14 +75,24 @@ async def test_compose_all_pages_sets_base_enrichment() -> None:
 
 
 @pytest.mark.asyncio
-async def test_compose_all_pages_runs_enrichment_when_llm_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_compose_all_pages_runs_enrichment_when_llm_configured() -> None:
     graph = _mock_graph()
     llm = AsyncMock()
     llm.generate = AsyncMock(return_value="## Extra\nEnriched block.")
+    w, e = inject_wiki_embedding()
+    wiki = w.model_copy(
+        update={
+            "enrichment_enabled": True,
+            "enrichment_round1_enabled": True,
+            "enrichment_round2_enabled": True,
+        },
+    )
     svc = WikiService(
         graph=graph,
         llm=llm,
         repository_exists=AsyncMock(return_value=True),
+        wiki_config=wiki,
+        embedding_config=e,
     )
     structure = WikiStructure(
         repository="test-repo",
@@ -101,12 +113,6 @@ async def test_compose_all_pages_runs_enrichment_when_llm_configured(monkeypatch
     )
     config = WikiConfig(repository="test-repo", mode="structure", format="json")
     composer = WikiComposer(llm=llm, context_builder=WikiContextBuilder(llm), store=graph)
-
-    fake_settings = MagicMock()
-    fake_settings.wiki.enrichment_enabled = True
-    fake_settings.wiki.enrichment_round1_enabled = True
-    fake_settings.wiki.enrichment_round2_enabled = True
-    monkeypatch.setattr("wiki.service.get_settings", lambda: fake_settings)
 
     tiers = {"Module:test:TestModule": ImportanceTier.STANDARD}
     pages, _ = await svc._compose_all_pages(
@@ -121,17 +127,25 @@ async def test_compose_all_pages_runs_enrichment_when_llm_configured(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_compose_all_pages_skips_enrichment_without_importance_tiers(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_compose_all_pages_skips_enrichment_without_importance_tiers() -> None:
     """Without ImportanceScorer tier data, enrichment must not run (avoids STANDARD default for all)."""
     graph = _mock_graph()
     llm = AsyncMock()
     llm.generate = AsyncMock(return_value="## Extra\nShould not run.")
+    w, e = inject_wiki_embedding()
+    wiki = w.model_copy(
+        update={
+            "enrichment_enabled": True,
+            "enrichment_round1_enabled": True,
+            "enrichment_round2_enabled": True,
+        },
+    )
     svc = WikiService(
         graph=graph,
         llm=llm,
         repository_exists=AsyncMock(return_value=True),
+        wiki_config=wiki,
+        embedding_config=e,
     )
     structure = WikiStructure(
         repository="test-repo",
@@ -152,12 +166,6 @@ async def test_compose_all_pages_skips_enrichment_without_importance_tiers(
     )
     config = WikiConfig(repository="test-repo", mode="structure", format="json")
     composer = WikiComposer(llm=llm, context_builder=WikiContextBuilder(llm), store=graph)
-
-    fake_settings = MagicMock()
-    fake_settings.wiki.enrichment_enabled = True
-    fake_settings.wiki.enrichment_round1_enabled = True
-    fake_settings.wiki.enrichment_round2_enabled = True
-    monkeypatch.setattr("wiki.service.get_settings", lambda: fake_settings)
 
     pages, _ = await svc._compose_all_pages(
         "test-repo", structure, config, composer, importance_tiers=None, llm_provider=None,
@@ -182,6 +190,7 @@ async def test_persist_pages_includes_enrichment_level(monkeypatch: pytest.Monke
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         store=store,
+        **wiki_service_injection(),
     )
     page = WikiPage(
         path="a.md",

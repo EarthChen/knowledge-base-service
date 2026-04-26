@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from wiki.models import PageType, WikiPage, WikiPageMetadata, WikiStructure, WikiStructureNode
+from tests.wiki_config_inject import wiki_service_injection
 from wiki.service import WikiService
 
 
@@ -38,6 +39,7 @@ async def test_generate_calls_deferred_enrichment() -> None:
         repository_exists=AsyncMock(return_value=True),
         store=store,
         deferred_enrichment=deferred,
+        **wiki_service_injection(),
     )
 
     root = WikiStructureNode(
@@ -82,6 +84,7 @@ async def test_generate_calls_enrich_before_compose() -> None:
         repository_exists=AsyncMock(return_value=True),
         store=store,
         deferred_enrichment=deferred,
+        **wiki_service_injection(),
     )
 
     root = WikiStructureNode(
@@ -116,6 +119,7 @@ async def test_generate_without_deferred() -> None:
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         store=store,
+        **wiki_service_injection(),
     )
 
     root = WikiStructureNode(

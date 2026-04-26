@@ -13,6 +13,7 @@ from httpx import ASGITransport, AsyncClient
 import api.routes.settings_routes as settings_routes_module
 import services.settings_crypto as settings_crypto
 import services.settings_service as settings_service_module
+from api.error_handler import register_exception_handlers
 from auth import Role, TokenInfo
 from config import get_settings
 
@@ -45,6 +46,7 @@ def app(tmp_path: Path) -> FastAPI:
         return SettingsService(SettingsStore(db_path))
 
     application = FastAPI()
+    register_exception_handlers(application)
     application.include_router(settings_routes_module.settings_router)
     application.dependency_overrides[settings_routes_module._get_service] = _get_service
 
@@ -141,7 +143,7 @@ class TestUpdateSettings:
             },
         )
         assert resp.status_code == 400
-        assert "Unknown setting key" in resp.json().get("detail", "")
+        assert "Unknown setting key" in (resp.json().get("error") or {}).get("message", "")
 
 
 class TestDeleteSetting:

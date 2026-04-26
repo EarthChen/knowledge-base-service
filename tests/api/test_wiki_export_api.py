@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 import auth as auth_module
+from api.error_handler import register_exception_handlers
 from api.routes.wiki_routes import WikiTaskRegistry, get_task_registry_dep, get_wiki_cache_dep, get_wiki_service_dep, wiki_router
 from wiki.cache import WikiCache
 from wiki.models import PageType, WikiPage, WikiPageMetadata
@@ -36,6 +37,7 @@ def _page(path: str, content: str = "C") -> WikiPage:
 @pytest.fixture
 def export_client(tmp_path: Path) -> tuple[TestClient, WikiCache, Path]:
     app = FastAPI()
+    register_exception_handlers(app)
     app.state.wiki_tasks = WikiTaskRegistry()
     cache = WikiCache()
     cache.put("myrepo", "repo", "structure", 1, [_page("api.md", "API body")])
@@ -95,6 +97,7 @@ def test_post_wiki_export_execute_returns_200(export_client: tuple[TestClient, W
 
 def test_export_preview_repo_not_found(tmp_path: Path) -> None:
     app = FastAPI()
+    register_exception_handlers(app)
     app.state.wiki_tasks = WikiTaskRegistry()
     mock_wiki = MagicMock()
     mock_wiki.ensure_repository = AsyncMock(side_effect=WikiRepoNotFoundError("missing"))

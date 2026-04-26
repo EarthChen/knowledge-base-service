@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header
 
 import api.kb_state as kb_state
+from api.exceptions import KbNotFound, KbServiceUnavailable
 from auth import (
     TokenInfo,
     resolve_business_id,
@@ -28,8 +29,8 @@ async def get_service(
     business_id: str = Depends(get_effective_business_id),
 ) -> KnowledgeBaseService:
     if kb_state.registry is None:
-        raise HTTPException(status_code=503, detail="Service not ready")
+        raise KbServiceUnavailable("Service not ready")
     try:
         return await kb_state.registry.get_service(business_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise KbNotFound(str(exc)) from exc

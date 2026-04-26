@@ -95,11 +95,20 @@ def _enforce_production_security(settings: Settings) -> None:
 async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
     """Expose wiki HTTP route dependencies on ``app.state`` (default business graph)."""
     from llm.base_provider import GatewayLLMProviderAdapter, LLMPortBridge
+    from store.conversation_store import SqliteConversationStore
     from store.wiki_store import WikiStore as _WikiStoreForMemory
     from wiki.ask import WikiAskService
     from wiki.memory_loop import MemoryLoop
     from wiki.search import WikiSearchService
     from wiki.service import WikiService
+
+    settings = get_settings()
+    conv_dir = Path(settings.git.clone_base_path).resolve().parent
+    conv_dir.mkdir(parents=True, exist_ok=True)
+    conv_store_path = str(conv_dir / "conversations.db")
+    conv_store = SqliteConversationStore(db_path=conv_store_path)
+    await conv_store.initialize()
+    app.state.conversation_store = conv_store
 
     kb = await registry.get_service("default")
     app.state.wiki_store = kb.store
@@ -158,6 +167,7 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
             llm=_wrap_llm(kb.llm_provider),
             graph=kb.store,
             memory_loop=wiki_mem,
+            conversation_store=conv_store,
         )
     else:
         app.state.wiki_ask_service = None
@@ -225,6 +235,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     log.info("kb_service_stopping")
+    conv_store = getattr(app.state, "conversation_store", None)
+    if conv_store is not None:
+        await conv_store.close()
     if kb_state.scheduler:
         await kb_state.scheduler.stop()
     if kb_state.registry:

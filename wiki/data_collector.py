@@ -188,9 +188,15 @@ class PageData:
 class WikiDataCollector:
     """Loads prioritized graph context for one wiki page."""
 
-    def __init__(self, graph_port: DataCollectorPort, wiki_store: Any = None) -> None:
+    def __init__(
+        self,
+        graph_port: DataCollectorPort,
+        wiki_store: Any = None,
+        rag_enabled: bool = False,
+    ) -> None:
         self._graph = graph_port
         self._wiki_store = wiki_store
+        self._rag_enabled = rag_enabled
 
     async def collect(self, repository: str, node: GraphNode, code_budget: int = 8000) -> PageData:
         raw_edges = await self._graph.find_edges(repository, node.uid)
@@ -219,6 +225,13 @@ class WikiDataCollector:
             reader = SourceCodeReader(self._wiki_store)
             code_snippets = await reader.read(node, budget_tokens=code_budget)
 
+        related_chunks = []
+        if self._rag_enabled and self._wiki_store is not None:
+            from wiki.chunk_retriever import ChunkRetriever
+
+            retriever = ChunkRetriever(self._wiki_store)
+            related_chunks = await retriever.retrieve(node, repository)
+
         return PageData(
             node=node,
             edges=edges,
@@ -228,4 +241,5 @@ class WikiDataCollector:
             business_summary=business_summary,
             methods=methods,
             code_snippets=code_snippets,
+            related_chunks=related_chunks,
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict
@@ -21,7 +22,10 @@ from query.graph_query import GraphQueryService
 from store.graph_queries import GraphQueryRepository
 from store.wiki_store import WikiStore
 from git_manager import normalize_repo_name
+from utils.git_utils import looks_like_git_url
 from wiki.ask import WikiAskService
+from wiki.memory_loop import MemoryLoop
+from wiki.quality_score import WikiQualityScorer
 from wiki.coverage_analyzer import WikiCoverageAnalyzer
 from wiki.cache import WikiCache
 from wiki.exporter import WikiExporter
@@ -40,16 +44,39 @@ from wiki.models import (
 from wiki.lint import WikiLintService
 from wiki.search import SearchResponse, WikiSearchService
 from wiki.service import WikiRepoNotFoundError, WikiService
+from wiki.suggested_questions import PageContext, SuggestedQuestionsGenerator
 from wiki.structure_planner import WikiScopeError
 
 log = get_logger(__name__)
 
+WIKI_TASK_TTL_SEC = 30 * 60
+
+_GLOBAL_SEARCH_MAX_REPOS = 50
+_GLOBAL_SEARCH_CONCURRENCY = 10
+
 
 class WikiTaskRegistry:
-    """In-memory wiki generation tasks."""
+    """In-memory wiki generation tasks. Entries expire after WIKI_TASK_TTL_SEC for bounded memory use."""
 
     def __init__(self) -> None:
         self.tasks: dict[str, dict[str, Any]] = {}
+        self._created: dict[str, float] = {}
+
+    def _prune(self) -> None:
+        now = time.monotonic()
+        removed = [tid for tid, ts in self._created.items() if now - ts > WIKI_TASK_TTL_SEC]
+        for tid in removed:
+            self.tasks.pop(tid, None)
+            self._created.pop(tid, None)
+
+    def put_task(self, task_id: str, record: dict[str, Any]) -> None:
+        self._prune()
+        self.tasks[task_id] = record
+        self._created[task_id] = time.monotonic()
+
+    def get_task(self, task_id: str) -> dict[str, Any] | None:
+        self._prune()
+        return self.tasks.get(task_id)
 
 
 class WikiGenerateBody(BaseModel):
@@ -104,6 +131,18 @@ class WikiAskBody(BaseModel):
     scope: str | None = None
     conversation_id: str | None = None
     mode: str = Field(default="hybrid", pattern="^(hybrid|graph|semantic|keyword)$")
+    record_memory: bool = False
+    business_id: str | None = Field(
+        default=None,
+        description="When set with record_memory, persists Q&A under this business id",
+    )
+
+
+class WikiQaRecordBody(BaseModel):
+    business_id: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1)
+    answer: str = Field(..., min_length=1)
+    source_pages: list[str] = Field(default_factory=list)
 
 
 class WikiLintBody(BaseModel):
@@ -200,6 +239,10 @@ async def get_wiki_ask_dep(request: Request) -> WikiAskService:
     return svc
 
 
+def get_wiki_memory_loop_dep(request: Request) -> MemoryLoop | None:
+    return getattr(request.app.state, "wiki_memory_loop", None)
+
+
 def get_graph_query_dep(request: Request) -> GraphQueryService:
     """Resolve graph query service; use with ``Depends`` when the graph is required for every request."""
     gq = getattr(request.app.state, "graph_query_service", None)
@@ -258,12 +301,6 @@ async def get_wiki_lint_service_dep(request: Request) -> WikiLintService:
     if asyncio.iscoroutine(out):
         return await out
     return out  # type: ignore[no-any-return]
-
-
-def _looks_like_git_url(value: str) -> bool:
-    if value.startswith(("http://", "https://", "git@", "ssh://")):
-        return True
-    return value.endswith(".git")
 
 
 async def _maybe_call(fn: Callable[..., Any], *args: Any) -> Any:
@@ -571,12 +608,15 @@ async def wiki_generate(
 
     if scope_param.scope_type == "repo":
         task_id = f"wiki-{uuid.uuid4().hex}"
-        registry.tasks[task_id] = {
-            "task_id": task_id,
-            "status": "pending",
-            "repository": body.repository,
-            "scope": body.scope,
-        }
+        registry.put_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "pending",
+                "repository": body.repository,
+                "scope": body.scope,
+            },
+        )
         asyncio.create_task(_run_wiki_task(task_id, svc, body, registry, sem))
         return JSONResponse(
             status_code=202,
@@ -626,7 +666,7 @@ async def wiki_quick(
     cache: WikiCache = Depends(get_wiki_cache_dep),
 ) -> JSONResponse | dict[str, Any]:
     git_url = body.git_url.strip()
-    if not _looks_like_git_url(git_url):
+    if not looks_like_git_url(git_url):
         raise HTTPException(
             status_code=400,
             detail={
@@ -653,13 +693,16 @@ async def wiki_quick(
 
     if not indexed:
         task_id = f"wiki-quick-{uuid.uuid4().hex}"
-        registry.tasks[task_id] = {
-            "task_id": task_id,
-            "status": "pending",
-            "git_url": git_url,
-            "branch": body.branch,
-            "mode": body.mode,
-        }
+        registry.put_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "pending",
+                "git_url": git_url,
+                "branch": body.branch,
+                "mode": body.mode,
+            },
+        )
         bg_fn = getattr(request.app.state, "wiki_quick_background", None)
         asyncio.create_task(
             _run_wiki_quick_task(
@@ -728,10 +771,36 @@ async def wiki_task_status(
     task_id: str,
     registry: WikiTaskRegistry = Depends(get_task_registry_dep),
 ) -> dict[str, Any]:
-    rec = registry.tasks.get(task_id)
+    rec = registry.get_task(task_id)
     if rec is None:
         raise HTTPException(status_code=404, detail={"error": "task_not_found"})
     return rec
+
+
+@wiki_router.get(
+    "/events",
+    response_model=None,
+)
+async def wiki_events_stream(
+    business_id: str = Query(..., min_length=1),
+) -> StreamingResponse:
+    """SSE of wiki events for a business. EventSource may pass the API token as ``token`` (no header)."""
+    log.debug("wiki_events_subscribe", business_id=business_id)
+
+    async def events() -> Any:
+        yield ": stream-open\n\n"
+        while True:
+            await asyncio.sleep(60.0)
+            yield ": keepalive\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @wiki_router.post("/search", response_model=None)
@@ -772,23 +841,26 @@ async def wiki_search_global(
             "partial_errors": [],
         }
 
+    repo_names = repo_names[:_GLOBAL_SEARCH_MAX_REPOS]
     n = len(repo_names)
     per_repo_limit = max(5, min(40, (body.limit * 2 + n - 1) // n))
+    sem = asyncio.Semaphore(_GLOBAL_SEARCH_CONCURRENCY)
 
     async def _search_repo(repo: str) -> tuple[str, SearchResponse | None, str | None]:
-        try:
-            resp = await search_svc.search(
-                repository=repo,
-                query=body.query,
-                mode=body.mode,
-                limit=per_repo_limit,
-                min_score=body.min_score,
-                scope=None,
-            )
-            return repo, resp, None
-        except Exception:  # noqa: BLE001 — aggregate per-repo failures
-            log.warning("wiki_global_search_repo_failed", repository=repo, exc_info=True)
-            return repo, None, "Search temporarily unavailable for this repository."
+        async with sem:
+            try:
+                resp = await search_svc.search(
+                    repository=repo,
+                    query=body.query,
+                    mode=body.mode,
+                    limit=per_repo_limit,
+                    min_score=body.min_score,
+                    scope=None,
+                )
+                return repo, resp, None
+            except Exception:  # noqa: BLE001 — aggregate per-repo failures
+                log.warning("wiki_global_search_repo_failed", repository=repo, exc_info=True)
+                return repo, None, "Search temporarily unavailable for this repository."
 
     raw = await asyncio.gather(*[_search_repo(r) for r in repo_names])
 
@@ -1081,6 +1153,32 @@ async def get_page_references(
     }
 
 
+@wiki_router.get("/pages/{page_uid:path}/questions", response_model=None)
+async def get_page_suggested_questions(
+    page_uid: str,
+    store: Any = Depends(get_wiki_store_dep),
+) -> dict[str, Any]:
+    """Graph-aware exploration questions for a wiki page (SOURCE_ENTITY + CALLS)."""
+    decoded = unquote(page_uid)
+    ws = WikiStore(store)
+    raw = await ws.get_suggested_questions_context(decoded)
+    if raw is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "page_not_found", "detail": f"No wiki page for uid {decoded!r}"},
+        )
+    ctx = PageContext(
+        entity_name=raw["entity_name"],
+        domain=raw["domain"],
+        callers=raw["callers"],
+        callees=raw["callees"],
+        cross_domain_callers=raw["cross_domain_callers"],
+    )
+    gen = SuggestedQuestionsGenerator()
+    questions = gen.generate(ctx)
+    return {"questions": questions, "page_uid": raw["page_uid"]}
+
+
 @wiki_router.post("/chunks/index", response_model=None, dependencies=[Depends(require_role(Role.EDITOR))])
 async def wiki_chunk_index(
     body: ChunkIndexBody,
@@ -1148,6 +1246,76 @@ async def wiki_coverage_report(
     )
 
     return report.to_dict()
+
+
+@wiki_router.get("/quality-score", response_model=None)
+async def wiki_quality_score(
+    request: Request,
+    business_id: str = Query(default="default"),
+) -> dict[str, Any]:
+    """Aggregate quality score 0-100 (coverage, staleness, references, enrichment)."""
+    raw_store = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
+        )
+    ws = WikiStore(raw_store)
+    scorer = WikiQualityScorer(ws)
+    result = await scorer.compute_score(business_id)
+    return result.to_dict()
+
+
+@wiki_router.get("/references", response_model=None)
+async def wiki_business_references(
+    request: Request,
+    business_id: str = Query(..., min_length=1),
+) -> dict[str, Any]:
+    """Wiki reference network for a business: pages and WIKI_REFERENCES edges (both ends in space)."""
+    raw_store = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
+        )
+    ws = WikiStore(raw_store)
+    return await ws.get_business_wiki_references_graph(business_id)
+
+
+@wiki_router.get("/qa", response_model=None)
+async def wiki_list_qa(
+    request: Request,
+    business_id: str = Query(..., min_length=1),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=200),
+) -> dict[str, Any]:
+    """Paginated :WikiQA entries for a business."""
+    raw_store = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
+        )
+    ws = WikiStore(raw_store)
+    r = await ws.list_wiki_qa(business_id, skip, limit)
+    return {"items": r.data or [], "skip": skip, "limit": limit, "total": await ws.count_wiki_qa(business_id)}
+
+
+@wiki_router.post("/qa/record", response_model=None)
+async def wiki_record_qa(
+    body: WikiQaRecordBody,
+    mem: MemoryLoop | None = Depends(get_wiki_memory_loop_dep),
+) -> dict[str, Any]:
+    """Store a Q&A pair (e.g. after wiki ask) as :WikiQA with embedding."""
+    if mem is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "detail": "Wiki memory loop is not configured"},
+        )
+    uid = await mem.record(
+        body.question, body.answer, list(body.source_pages), business_id=body.business_id,
+    )
+    return {"ok": True, "uid": uid}
 
 
 @wiki_router.post("/{repository}/lint", response_model=None)
@@ -1248,6 +1416,8 @@ async def wiki_ask(
                 scope=body.scope,
                 conversation_id=body.conversation_id,
                 mode=body.mode,
+                record_memory=body.record_memory,
+                business_id=body.business_id,
             ):
                 event = str(ev.get("event", "message"))
                 payload = json.dumps(ev.get("data") or {})
@@ -1369,11 +1539,15 @@ async def wiki_enrich_trigger(
 async def wiki_list_pages(
     repository: str,
     scope: str | None = None,
+    skip: int = Query(0, ge=0, description="Offset for paginated page listing"),
+    limit: int = Query(50, ge=1, le=200, description="Max page rows per request"),
     store: Any = Depends(get_wiki_store_dep),
 ) -> dict[str, Any]:
     # ``scope`` is kept for OpenAPI/backward compatibility; listing reads all persisted pages.
     _ = scope
-    result = await WikiStore(store).list_all_wiki_pages(repository)
+    result, total = await WikiStore(store).list_wiki_pages_paginated(
+        repository, skip=skip, limit=limit,
+    )
     pages = [
         {
             "path": r["path"],
@@ -1382,7 +1556,7 @@ async def wiki_list_pages(
         }
         for r in result.data
     ]
-    return {"pages": pages, "total": len(pages)}
+    return {"pages": pages, "total": total}
 
 
 @wiki_router.get("/{repository}/pages/{wiki_page_path:path}", response_model=None)

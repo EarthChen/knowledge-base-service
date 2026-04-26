@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Search } from "lucide-react";
 import FocusTrap from "../FocusTrap";
 import { useWikiSearch } from "../../hooks/useWikiSearch";
 import { useI18n } from "../../i18n/context";
-import WikiSearchResults from "./WikiSearchResults";
+import WikiSearchResults, { wikiSearchOptionId } from "./WikiSearchResults";
 import { wikiHref } from "./wikiRouteHelpers";
 import { getErrorMessage } from "../../utils/errorUtils";
 
@@ -24,11 +24,12 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
   const { mutate, isPending, isError, error, isSuccess, data } = useWikiSearch();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
       if ((isMac ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setOpen((o) => !o);
@@ -53,6 +54,14 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
     };
   }, [open, query, repository, mutate]);
 
+  useEffect(() => {
+    if (!data?.results?.length) {
+      setActiveIndex(-1);
+      return;
+    }
+    setActiveIndex((i) => (i >= 0 && i < data.results.length ? i : 0));
+  }, [data?.results]);
+
   const close = useCallback(() => setOpen(false), []);
 
   const listPopupOpen =
@@ -66,6 +75,36 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
       setQuery("");
     },
     [navigate, linkParams],
+  );
+
+  const resultCount = data?.results.length ?? 0;
+  const canNavigateResults = hasResultOptions && resultCount > 0;
+
+  const onSearchKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (!canNavigateResults) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setActiveIndex((i) => {
+          const next = i < 0 ? 0 : i + 1;
+          return next >= resultCount ? 0 : next;
+        });
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActiveIndex((i) => {
+          const next = i < 0 ? resultCount - 1 : i - 1;
+          return next < 0 ? resultCount - 1 : next;
+        });
+        return;
+      }
+      if (e.key === "Enter" && activeIndex >= 0 && data?.results[activeIndex]) {
+        e.preventDefault();
+        onSelect(data.results[activeIndex].page_path);
+      }
+    },
+    [canNavigateResults, resultCount, activeIndex, data?.results, onSelect],
   );
 
   if (!open) {
@@ -105,12 +144,18 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onSearchKeyDown}
               placeholder={t.wiki.searchPlaceholder}
               className="min-w-0 flex-1 border-0 bg-transparent py-3 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100"
               role="combobox"
               aria-expanded={listPopupOpen}
               aria-controls={hasResultOptions ? WIKI_SEARCH_RESULTS_LIST_ID : undefined}
               aria-autocomplete="list"
+              aria-activedescendant={
+                hasResultOptions && activeIndex >= 0
+                  ? wikiSearchOptionId(WIKI_SEARCH_RESULTS_LIST_ID, activeIndex)
+                  : undefined
+              }
             />
             {isPending ? (
               <Loader2 className="size-4 shrink-0 animate-spin text-gray-400" aria-hidden />
@@ -118,7 +163,7 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
           </div>
           {isError && (
             <p className="px-3 py-2 text-sm text-red-600 dark:text-red-400">
-              {getErrorMessage(error)}
+              {getErrorMessage(error, t.common.unexpectedError)}
             </p>
           )}
           {data && query.trim() && (
@@ -126,6 +171,7 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
               listboxId={WIKI_SEARCH_RESULTS_LIST_ID}
               results={data.results}
               onSelect={onSelect}
+              activeIndex={activeIndex}
             />
           )}
           {isSuccess && data && data.results.length === 0 && query.trim() && (

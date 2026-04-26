@@ -3,6 +3,7 @@ import { Navigate, useSearchParams } from "react-router-dom";
 import {
   Activity,
   FileOutput,
+  GitBranch,
   LayoutGrid,
   Loader2,
   Network,
@@ -15,9 +16,12 @@ import GraphInsightsPanel from "./GraphInsightsPanel";
 import WikiContent from "./WikiContent";
 import WikiReferencesPanel from "./WikiReferencesPanel";
 import WikiCoverageCard from "./WikiCoverageCard";
+import WikiQualityScoreCard from "./WikiQualityScoreCard";
+import WikiReferenceGraph from "./WikiReferenceGraph";
 import WikiBusinessExportPanel from "./WikiBusinessExportPanel";
 import WikiLandingPage from "./WikiLandingPage";
 import WikiLintPanel from "./WikiLintPanel";
+import { getErrorMessage } from "../../utils/errorUtils";
 import WikiSearchBar from "./WikiSearchBar";
 import WikiTreeNav from "./WikiTreeNav";
 import { parseWikiSearchParams, wikiSearchHref } from "./wikiRouteHelpers";
@@ -31,7 +35,7 @@ import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
 import WikiGenerationProgress from "./WikiGenerationProgress";
 import WikiUpdateNotification from "./WikiUpdateNotification";
 
-type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights";
+type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights" | "refgraph";
 
 export default function WikiShell() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -165,30 +169,33 @@ export default function WikiShell() {
               ? String((err as { detail?: unknown }).detail ?? err)
               : err
                 ? JSON.stringify(err)
-                : "unknown";
+                : t.common.unknown;
           toast("error", t.wiki.regenerateFailed.replace("{detail}", detail));
           return;
         }
       }
       toast("error", t.wiki.regenerateTimeout);
     } catch (e) {
-      toast("error", e instanceof Error ? e.message : String(e));
+      toast("error", getErrorMessage(e, t.common.unexpectedError));
     } finally {
       setRegeneratePending(false);
     }
   }
 
-  const setToolTab = (tab: typeof toolTab) => {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (tab === "page") next.delete("tool");
-        else next.set("tool", tab);
-        return next;
-      },
-      { replace: true },
-    );
-  };
+  const setToolTab = useCallback(
+    (tab: WikiToolTab) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (tab === "page") next.delete("tool");
+          else next.set("tool", tab);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   const contentError =
     pagePath && pageQuery.isError
@@ -197,20 +204,23 @@ export default function WikiShell() {
         : new Error(String(pageQuery.error))
       : null;
 
-  const tabBtn = (id: WikiToolTab, label: string, icon: ReactNode) => (
-    <button
-      key={id}
-      type="button"
-      onClick={() => setToolTab(id)}
-      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-        toolTab === id
-          ? "bg-sky-100 text-sky-800 ring-1 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800"
-          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
-      }`}
-    >
-      {icon}
-      {label}
-    </button>
+  const tabBtn = useCallback(
+    (id: WikiToolTab, label: string, icon: ReactNode) => (
+      <button
+        key={id}
+        type="button"
+        onClick={() => setToolTab(id)}
+        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+          toolTab === id
+            ? "bg-sky-100 text-sky-800 ring-1 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800"
+            : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+        }`}
+      >
+        {icon}
+        {label}
+      </button>
+    ),
+    [setToolTab, toolTab],
   );
 
   return (
@@ -244,6 +254,11 @@ export default function WikiShell() {
               "insights",
               t.wiki.tabInsights,
               <Network size={14} className="text-violet-600 dark:text-violet-400" aria-hidden />,
+            )}
+            {tabBtn(
+              "refgraph",
+              t.wiki.tabRefGraph,
+              <GitBranch size={14} className="text-cyan-600 dark:text-cyan-400" aria-hidden />,
             )}
             {tabBtn(
               "export",
@@ -312,7 +327,19 @@ export default function WikiShell() {
           </>
         )}
 
-        {toolTab === "coverage" && <WikiCoverageCard businessId={businessId} />}
+        {toolTab === "coverage" && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <WikiCoverageCard businessId={businessId} />
+            <WikiQualityScoreCard businessId={businessId} />
+          </div>
+        )}
+
+        {toolTab === "refgraph" && (
+          <WikiReferenceGraph
+            businessId={businessId}
+            view={viewType === "code_structure" ? "code_structure" : "business_domain"}
+          />
+        )}
 
         {toolTab === "health" && (
           <WikiLintPanel repository={pageQuery.data?.context?.repository ?? businessId} />

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { X } from "lucide-react";
 import FocusTrap from "../FocusTrap";
 import { useI18n } from "../../i18n/context";
@@ -17,6 +17,7 @@ interface GitPushConfigDialogProps {
 
 export default function GitPushConfigDialog({ open, onClose, onConfirm }: GitPushConfigDialogProps) {
   const { t } = useI18n();
+  const titleId = useId();
   const [remoteUrl, setRemoteUrl] = useState("");
   const [branch, setBranch] = useState("main");
   const [prefix, setPrefix] = useState("docs(wiki): ");
@@ -26,9 +27,16 @@ export default function GitPushConfigDialog({ open, onClose, onConfirm }: GitPus
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 dark:bg-black/50">
       <FocusTrap onEscape={onClose}>
-        <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-gray-900">
+        <div
+          className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-gray-900"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+        >
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t.wiki.gitPushTitle}</h3>
+            <h3 id={titleId} className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {t.wiki.gitPushTitle}
+            </h3>
             <button
               type="button"
               onClick={onClose}

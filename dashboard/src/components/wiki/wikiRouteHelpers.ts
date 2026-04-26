@@ -15,7 +15,7 @@ export function wikiSearchHref(query: string): string {
 }
 
 const VIEW_TYPES = new Set(["business_domain", "code_structure"]);
-const TOOL_TABS = new Set(["page", "coverage", "export", "health", "insights"]);
+const TOOL_TABS = new Set(["page", "coverage", "export", "health", "insights", "refgraph"]);
 
 export function parseWikiSearchParams(search: URLSearchParams) {
   const rawView = search.get("view");
@@ -24,9 +24,9 @@ export function parseWikiSearchParams(search: URLSearchParams) {
       ? (rawView as "business_domain" | "code_structure")
       : "business_domain";
   const rawTool = search.get("tool");
-  const toolTab: "page" | "coverage" | "export" | "health" | "insights" =
+  const toolTab: "page" | "coverage" | "export" | "health" | "insights" | "refgraph" =
     rawTool && TOOL_TABS.has(rawTool)
-      ? (rawTool as "page" | "coverage" | "export" | "health" | "insights")
+      ? (rawTool as "page" | "coverage" | "export" | "health" | "insights" | "refgraph")
       : "page";
   return {
     path: search.get("path") || null,

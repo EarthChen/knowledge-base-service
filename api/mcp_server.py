@@ -36,6 +36,7 @@ from query.hybrid_query import HybridQueryService
 from store.falkordb_store import FalkorDBStore
 from store.schema import NodeLabel
 from store.traversal_store import TraversalStore
+from utils.git_utils import looks_like_git_url
 from wiki.mcp_tools import WIKI_MCP_TOOLS_MANIFEST, WikiMCPHandler
 
 log = get_logger(__name__)
@@ -240,18 +241,6 @@ def _format_get_document_mcp(result_rows: list[dict[str, Any]]) -> dict[str, Any
         "repository": repo,
         "sections": sections,
     }
-
-
-def _looks_like_git_url(value: str) -> bool:
-    """Heuristic: detect if a string is a git URL rather than a local path.
-
-    NOTE: duplicated in main.py — keep in sync or move to a shared util module.
-    """
-    if value.startswith(("http://", "https://", "git@", "ssh://")):
-        return True
-    if value.endswith(".git"):
-        return True
-    return False
 
 
 MCP_TOOLS_MANIFEST = [
@@ -1187,7 +1176,7 @@ class KnowledgeBaseMCPHandler:
         repo_path = (arguments.get("repo_path") or "").strip()
         base_branch = arguments.get("base_branch")
         repo_url = (arguments.get("repo_url") or "").strip()
-        if repo_url and not _looks_like_git_url(repo_url):
+        if repo_url and not looks_like_git_url(repo_url):
             return _mcp_error("invalid_params", "repo_url does not look like a valid git remote URL")
 
         has_diff = bool(str(diff_text).strip())
@@ -1529,7 +1518,7 @@ class KnowledgeBaseMCPHandler:
         repository = args.get("repository")
 
         if git_url:
-            if not _looks_like_git_url(git_url):
+            if not looks_like_git_url(git_url):
                 return _mcp_error("invalid_params", "git_url must be an https, ssh, git@, or .git remote URL")
 
             from pathlib import Path as _Path

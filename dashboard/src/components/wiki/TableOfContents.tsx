@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n/context";
-import { parseMarkdownHeadings } from "./headingUtils";
+import { parseMarkdownHeadings, type ParsedHeading } from "./headingUtils";
 
 type Props = {
   content: string;
+  /** When provided (e.g. from parent), skips parsing `content` again. */
+  parsedHeadings?: ParsedHeading[];
 };
 
-export default function TableOfContents({ content }: Props) {
+export default function TableOfContents({ content, parsedHeadings }: Props) {
   const { t } = useI18n();
-  const items = useMemo(() => parseMarkdownHeadings(content), [content]);
+  const items = useMemo(
+    () => parsedHeadings ?? parseMarkdownHeadings(content),
+    [content, parsedHeadings],
+  );
   const [activeId, setActiveId] = useState<string | null>(null);
   const highlightId = activeId ?? items[0]?.id ?? null;
 

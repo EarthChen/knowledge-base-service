@@ -155,7 +155,7 @@ export default function WikiGlobalSearchBar({
       )}
 
       {isError && (
-        <p className="mt-3 text-sm text-red-600 dark:text-red-400">{getErrorMessage(error)}</p>
+        <p className="mt-3 text-sm text-red-600 dark:text-red-400">{getErrorMessage(error, t.common.unexpectedError)}</p>
       )}
 
       {isSuccess && data && data.total === 0 && !isPending && (

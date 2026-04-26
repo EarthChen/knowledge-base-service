@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { API_BASE } from "../api/client";
+import { API_BASE, getToken } from "../api/client";
 import type { WikiEvent } from "./wikiTypes";
 
 export function useWikiEvents(businessId: string, onEvent: (event: WikiEvent) => void) {
@@ -23,7 +23,10 @@ export function useWikiEvents(businessId: string, onEvent: (event: WikiEvent) =>
       }
       source?.close();
 
-      const url = `${API_BASE}/wiki/events?business_id=${encodeURIComponent(businessId)}`;
+      const params = new URLSearchParams({ business_id: businessId });
+      const t = getToken();
+      if (t) params.set("token", t);
+      const url = `${API_BASE}/wiki/events?${params.toString()}`;
       const es = new EventSource(url);
 
       es.onopen = () => {

@@ -190,15 +190,19 @@ class TestPublishNoRemote:
 
 
 class TestAuthUrl:
-    def test_https_token_injection(self):
+    def test_https_token_uses_clean_url_not_embedded_in_remote(self):
         pub = GitPublisher(
             remote_url="https://github.com/org/wiki.git",
             branch="main",
             git_token="my-token",
         )
-        url = pub._auth_url()
-        assert "oauth2:my-token@" in url
-        assert url.startswith("https://")
+        url = pub._clone_url()
+        assert "oauth2:" not in url
+        assert "@" not in url.replace("https://", "").split("/")[0]
+        assert url == "https://github.com/org/wiki.git"
+        extra = pub._git_extra_config()
+        assert len(extra) == 2
+        assert "http.extraheader=Authorization" in extra[1]
 
     def test_ssh_url_unchanged(self):
         pub = GitPublisher(
@@ -206,7 +210,7 @@ class TestAuthUrl:
             branch="main",
             git_token="my-token",
         )
-        url = pub._auth_url()
+        url = pub._clone_url()
         assert url == "git@github.com:org/wiki.git"
 
     def test_no_token_returns_original(self):
@@ -214,5 +218,5 @@ class TestAuthUrl:
             remote_url="https://github.com/org/wiki.git",
             branch="main",
         )
-        url = pub._auth_url()
+        url = pub._clone_url()
         assert url == "https://github.com/org/wiki.git"

@@ -200,6 +200,27 @@ class FalkorDBStore:
             _graph_executor, lambda: self._graph.query(query, params={"uid": uid})  # type: ignore[union-attr]
         )
 
+    async def batch_set_node_embeddings(
+        self,
+        items: list[tuple[str, NodeLabel, list[float]]],
+        *,
+        concurrency: int = 5,
+    ) -> None:
+        """Set embeddings for many nodes with bounded parallel ``set_node_embedding`` calls.
+
+        FalkorDB/RedisGraph cannot efficiently pass vector params through UNWIND; use
+        limited concurrency instead of a single Cypher UNWIND.
+        """
+        if not items:
+            return
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _one(uid: str, label: NodeLabel, emb: list[float]) -> None:
+            async with sem:
+                await self.set_node_embedding(uid, label, emb)
+
+        await asyncio.gather(*[_one(u, lb, e) for u, lb, e in items])
+
     _ALLOWED_PROPERTIES = frozenset({
         "business_summary", "description", "embedding", "fqn",
         "confidence_score", "category", "source", "aliases",

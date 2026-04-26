@@ -26,7 +26,7 @@ export default function Repositories() {
       );
       refetch();
     } catch (err) {
-      toast("error", getErrorMessage(err) || t.repos.deleteFailed);
+      toast("error", getErrorMessage(err, t.common.unexpectedError) || t.repos.deleteFailed);
     }
   }
 
@@ -45,7 +45,7 @@ export default function Repositories() {
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
-          {getErrorMessage(error)}
+          {getErrorMessage(error, t.common.unexpectedError)}
         </div>
       )}
 

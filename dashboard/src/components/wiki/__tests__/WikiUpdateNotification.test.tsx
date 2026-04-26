@@ -20,6 +20,14 @@ describe("WikiUpdateNotification", () => {
     expect(onRefresh).toHaveBeenCalled();
   });
 
+  it("uses role=alert and aria-live=assertive for updates", () => {
+    renderWithI18n(
+      <WikiUpdateNotification pagePath="a/b" onRefresh={vi.fn()} onDismiss={vi.fn()} />,
+    );
+    const el = screen.getByRole("alert");
+    expect(el).toHaveAttribute("aria-live", "assertive");
+  });
+
   it("calls onDismiss", () => {
     const onDismiss = vi.fn();
     renderWithI18n(

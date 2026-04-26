@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 
 from config import Settings, get_settings
 from log import get_logger
@@ -177,7 +177,14 @@ def resolve_business_id(
 def require_role(minimum: Role):
     """FastAPI dependency factory: require at least ``minimum`` role."""
 
-    def _check(authorization: str | None = Header(default=None)) -> TokenInfo | None:
+    def _check(
+        request: Request,
+        authorization: str | None = Header(default=None),
+    ) -> TokenInfo | None:
+        if not authorization:
+            token_q = request.query_params.get("token")
+            if token_q:
+                authorization = f"Bearer {token_q}"
         info = resolve_token(authorization)
         if info is None:
             if get_settings().require_auth:

@@ -11,6 +11,7 @@ Node types:
   - WikiPage(uid, repository, path, title, content, page_type, generated_at; optional embedding)
   - WikiSpace(uid, business_id, title, description)
   - WikiSection(uid, title, description, section_type, sort_order)
+  - WikiQA(uid, business_id, question, answer, source_pages, quality_score, created_at; embedding)
   - Chunk(text, parent_uid, parent_label, parent_name, chunk_index, file, start_line,
           end_line, repository, indexed_at; embedding)
 
@@ -57,6 +58,7 @@ class NodeLabel(StrEnum):
     WIKI_PAGE = "WikiPage"
     WIKI_SPACE = "WikiSpace"
     WIKI_SECTION = "WikiSection"
+    WIKI_QA = "WikiQA"
     CHUNK = "Chunk"
 
 
@@ -114,5 +116,6 @@ VECTOR_INDEX_CONFIGS = [
     {"label": NodeLabel.BUSINESS_CONCEPT, "attribute": "embedding", "similarity": "cosine"},
     {"label": NodeLabel.MODULE, "attribute": "embedding", "similarity": "cosine"},
     {"label": NodeLabel.WIKI_PAGE, "attribute": "embedding", "similarity": "cosine"},
+    {"label": NodeLabel.WIKI_QA, "attribute": "embedding", "similarity": "cosine"},
     {"label": NodeLabel.CHUNK, "attribute": "embedding", "similarity": "cosine"},
 ]

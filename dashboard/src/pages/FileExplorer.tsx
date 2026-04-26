@@ -377,7 +377,7 @@ export default function FileExplorer() {
                 {t.fileExplorer.loadingTree}
               </div>
             ) : treeError ? (
-              <p className="p-3 text-sm text-red-600 dark:text-red-400">{getErrorMessage(treeError)}</p>
+              <p className="p-3 text-sm text-red-600 dark:text-red-400">{getErrorMessage(treeError, t.common.unexpectedError)}</p>
             ) : filteredTree ? (
               <TreeRows
                 node={filteredTree}
@@ -407,7 +407,7 @@ export default function FileExplorer() {
             </div>
           ) : contentError ? (
             <div className="p-6 text-sm text-red-600 dark:text-red-400">
-              {getErrorMessage(contentError)}
+              {getErrorMessage(contentError, t.common.unexpectedError)}
             </div>
           ) : content ? (
             <div className="flex min-h-0 flex-1 flex-col lg:flex-row">

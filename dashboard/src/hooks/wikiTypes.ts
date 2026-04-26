@@ -124,6 +124,37 @@ export type WikiCoverageResponse = {
   knowledge_gap_count: number;
 };
 
+export type WikiRefGraphPage = {
+  uid: string;
+  title: string;
+  path: string;
+  repository: string;
+  importance_tier: string;
+};
+
+export type WikiRefGraphEdge = {
+  source_uid: string;
+  target_uid: string;
+  relation_type: string;
+};
+
+export type WikiRefGraphResponse = {
+  pages: WikiRefGraphPage[];
+  edges: WikiRefGraphEdge[];
+};
+
+export type WikiQualityFactor = {
+  name: string;
+  weight: number;
+  score: number;
+};
+
+export type WikiQualityScoreResponse = {
+  score: number;
+  factors: WikiQualityFactor[];
+  details: Record<string, number | string>;
+};
+
 export type BusinessWikiExportBody = {
   business_id: string;
   format: "markdown" | "zip" | "git" | "obsidian" | "mkdocs";

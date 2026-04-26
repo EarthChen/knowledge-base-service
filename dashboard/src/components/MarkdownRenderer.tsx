@@ -112,6 +112,7 @@ function DiagramModal({ svg, onClose }: { svg: string; onClose: () => void }) {
 }
 
 function MermaidBlock({ code }: { code: string }) {
+  const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
@@ -146,7 +147,7 @@ function MermaidBlock({ code }: { code: string }) {
   if (!svg) {
     return (
       <div className="flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50 p-6 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-400">
-        Rendering diagram…
+        {t.common.diagramRendering}
       </div>
     );
   }
@@ -160,7 +161,7 @@ function MermaidBlock({ code }: { code: string }) {
       >
         <div dangerouslySetInnerHTML={{ __html: svg }} />
         <div className="absolute right-2 top-2 rounded-md bg-gray-700/90 px-2 py-1 text-xs text-gray-100 opacity-0 transition-opacity group-hover:opacity-100">
-          Click to zoom
+          {t.common.diagramClickToZoom}
         </div>
       </div>
       {modalOpen && <DiagramModal svg={svg} onClose={() => setModalOpen(false)} />}

@@ -143,7 +143,7 @@ export default function DeepSearchSection({ showTitle = true }: Props) {
 
       {!streamMode && deepSearch.error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
-          {getErrorMessage(deepSearch.error)}
+          {getErrorMessage(deepSearch.error, t.common.unexpectedError)}
         </div>
       )}
 

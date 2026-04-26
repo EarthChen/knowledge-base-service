@@ -12,10 +12,6 @@
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 目录结构、`uv` / `pnpm`、测试、新增语言与 MCP 工具 |
 | [ONBOARDING.md](ONBOARDING.md) | 产品导览、首次索引、搜索技巧、MCP 设置 |
 | [wiki-generation-architecture.md](wiki-generation-architecture.md) | Wiki 生成栈、Phase 0–6 扩展、搜索、Webhook、定时器 |
-| [superpowers/specs/2026-04-24-wiki-enhancement-design.md](superpowers/specs/2026-04-24-wiki-enhancement-design.md) | Wiki 增强总体设计（Phase 0–6 能力边界与演进） |
-| [superpowers/specs/2026-04-26-wiki-tree-architecture-design.md](superpowers/specs/2026-04-26-wiki-tree-architecture-design.md) | Wiki 树元模型、视图类型与树 API 架构 |
-| [superpowers/specs/2026-04-26-wiki-frontend-redesign.md](superpowers/specs/2026-04-26-wiki-frontend-redesign.md) | Wiki 前端改版与交互规划 |
-| [superpowers/specs/2026-04-26-settings-dashboard-design.md](superpowers/specs/2026-04-26-settings-dashboard-design.md) | Settings Dashboard 配置管理设计 |
 
 ## 技术栈概览
 

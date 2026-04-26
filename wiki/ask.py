@@ -11,8 +11,11 @@ from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from log import get_logger
 from store.wiki_store import WikiStore
 from wiki.search import SearchResponse, SearchResult
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -70,6 +73,20 @@ class LLMPort(Protocol):
 @runtime_checkable
 class GraphPort(Protocol):
     async def execute_query(self, cypher: str, params: dict | None = None) -> Any: ...
+
+
+@runtime_checkable
+class MemoryLoopPort(Protocol):
+    """Optional wiki Q&A memory (R-Phase 8)."""
+
+    async def record(
+        self,
+        question: str,
+        answer: str,
+        source_pages: list[str],
+        *,
+        business_id: str | None = None,
+    ) -> str: ...
 
 
 def detect_question_type(question: str) -> str:
@@ -451,11 +468,13 @@ class WikiAskService:
         conversation_store: ConversationStore | None = None,
         graph: GraphPort | None = None,
         wiki_store: WikiStore | None = None,
+        memory_loop: MemoryLoopPort | None = None,
     ) -> None:
         self._search = search
         self._llm = llm
         self._store = conversation_store or ConversationStore()
         self._wiki_store = wiki_store or (WikiStore(graph) if graph is not None else None)
+        self._memory_loop = memory_loop
 
     def _resolve_conversation(
         self,
@@ -504,8 +523,15 @@ class WikiAskService:
         scope: str | None = None,
         conversation_id: str | None = None,
         mode: str = "hybrid",
+        *,
+        record_memory: bool = False,
+        business_id: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        """SSE-style streaming ask."""
+        """SSE-style streaming ask.
+
+        If ``record_memory`` is true and ``business_id`` is set, persists Q&A via memory loop
+        (when configured).
+        """
         history = self._resolve_conversation(repository, scope, conversation_id)
         prior_turns = list(history.turns)
 
@@ -567,6 +593,21 @@ class WikiAskService:
         history.turns.append(ConversationTurn(role="assistant", content=full_text))
         self._store.save(history)
 
+        if (
+            record_memory
+            and business_id
+            and self._memory_loop is not None
+            and full_text
+            and full_text != error_out
+        ):
+            try:
+                pgs = [s.wiki_page for s in sources if s.wiki_page]
+                await self._memory_loop.record(
+                    question, full_text, pgs, business_id=business_id,
+                )
+            except Exception:
+                log.warning("memory_loop_record_failed", exc_info=True)
+
     async def ask(
         self,
         repository: str,
@@ -574,6 +615,9 @@ class WikiAskService:
         scope: str | None = None,
         conversation_id: str | None = None,
         mode: str = "hybrid",
+        *,
+        record_memory: bool = False,
+        business_id: str | None = None,
     ) -> AskResponse:
         """Full (non-streaming) ask with source references."""
         content = ""
@@ -587,6 +631,8 @@ class WikiAskService:
             scope=scope,
             conversation_id=conversation_id,
             mode=mode,
+            record_memory=record_memory,
+            business_id=business_id,
         ):
             et = ev.get("event")
             data = ev.get("data") or {}

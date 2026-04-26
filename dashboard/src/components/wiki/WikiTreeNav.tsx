@@ -72,6 +72,7 @@ const TreeBranch = memo(function TreeBranch({
   activePath: string;
   linkParams: Record<string, string>;
 }) {
+  const { t } = useI18n();
   return (
     <ul
       role={depth === 0 ? "tree" : "group"}
@@ -94,6 +95,7 @@ const TreeBranch = memo(function TreeBranch({
                 <button
                   type="button"
                   onClick={() => toggle(node.uid)}
+                  aria-label={isOpen ? t.wiki.treeNavCollapse : t.wiki.treeNavExpand}
                   className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-200"
                 >
                   {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -282,7 +284,7 @@ export default function WikiTreeNav({
         )}
         {treeQuery.isError && (
           <p className="px-2 py-3 text-sm text-red-600 dark:text-red-400">
-            {getErrorMessage(treeQuery.error)}
+            {getErrorMessage(treeQuery.error, t.common.unexpectedError)}
           </p>
         )}
         {!treeQuery.isLoading && !treeQuery.isError && nodes.length === 0 && (

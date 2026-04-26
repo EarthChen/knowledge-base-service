@@ -6,11 +6,11 @@ import zh from "./zh";
 const MESSAGES: Record<Locale, Translations> = { en, zh };
 const STORAGE_KEY = "kb_locale";
 
-function detectLocale(): Locale {
+export function detectLocale(): Locale {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved === "en" || saved === "zh") return saved;
   const lang = navigator.language.toLowerCase();
-  return lang.startsWith("en") ? "en" : "zh";
+  return lang.startsWith("zh") ? "zh" : "en";
 }
 
 interface I18nContextType {

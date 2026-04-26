@@ -53,6 +53,8 @@ async def test_persist_source_entity_single_unwind_query(monkeypatch: pytest.Mon
     emb_gen = MagicMock()
     emb_gen.generate_for_docs = AsyncMock(side_effect=fake_emb)
     monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_k: emb_gen)
+    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
 
     graph = AsyncMock()
     svc = WikiService(
@@ -294,6 +296,8 @@ async def test_persist_source_entity_skips_unwind_when_no_entity_uid(monkeypatch
     emb_gen = MagicMock()
     emb_gen.generate_for_docs = AsyncMock(side_effect=fake_emb)
     monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_k: emb_gen)
+    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
 
     graph = AsyncMock()
     svc = WikiService(

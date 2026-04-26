@@ -14,6 +14,8 @@ from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
 from store.schema import GraphNode, NodeLabel
 from wiki.composer import WikiComposer
+from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
+from wiki.confidence_scorer import DEFAULT_WEIGHTS, ConfidenceScorer
 from wiki.deferred_enrichment import DeferredEnrichmentService
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
@@ -112,6 +114,9 @@ class WikiService:
             provider = self._llm_factory.get_provider(llm_provider)
             return LLMPortBridge(provider)
         return self._llm
+
+    def _confidence_scoring_enabled(self) -> bool:
+        return getattr(self._wiki_cfg, "confidence_scoring_enabled", True)
 
     async def _ensure_repo(self, repository: str) -> None:
         if not await self._repository_exists(repository):
@@ -835,6 +840,26 @@ class WikiService:
                 await self._store.execute_query(batch_q, {"pairs": pairs})
             except Exception as exc:
                 log.warning("source_entity_batch_failed", repository=repository, error=str(exc))
+
+        if self._confidence_scoring_enabled() and self._store is not None:
+            try:
+                scorer = ConfidenceScorer(DEFAULT_WEIGHTS)
+                scores: list[tuple[str, float]] = []
+                for pd in page_dicts:
+                    uid = f"WikiPage:{repository}:{pd['path']}"
+                    gen_at = str(pd.get("generated_at", "") or ts)
+                    inputs = await gather_confidence_inputs(
+                        self._store,
+                        uid,
+                        repository,
+                        gen_at,
+                    )
+                    scores.append((pd["path"], scorer.compute(inputs)))
+                await set_wiki_page_confidence_scores(
+                    self._store, scores, repository=repository,
+                )
+            except Exception as exc:
+                log.warning("wiki_confidence_persist_failed", repository=repository, error=str(exc))
 
         try:
             emb_gen = EmbeddingGenerator.shared(config=self._embedding_cfg)

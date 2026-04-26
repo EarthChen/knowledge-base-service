@@ -100,6 +100,7 @@ async def test_domain_tree_persisted_to_store():
     mock_wiki_cfg.code_budget_enabled = False
     mock_wiki_cfg.rag_enabled = False
     mock_wiki_cfg.business_wiki_batch_threshold = 100
+    mock_wiki_cfg.confidence_scoring_enabled = False
     _, emb = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,
@@ -142,6 +143,7 @@ async def test_code_structure_view_tree():
     mock_wiki_cfg.code_budget_enabled = False
     mock_wiki_cfg.rag_enabled = False
     mock_wiki_cfg.business_wiki_batch_threshold = 100
+    mock_wiki_cfg.confidence_scoring_enabled = False
     _, emb = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,
@@ -197,6 +199,7 @@ async def test_domain_and_repo_same_name_distinct_section_uids():
     mock_wiki_cfg.code_budget_enabled = False
     mock_wiki_cfg.rag_enabled = False
     mock_wiki_cfg.business_wiki_batch_threshold = 100
+    mock_wiki_cfg.confidence_scoring_enabled = False
     _, emb = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,

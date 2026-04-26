@@ -78,6 +78,8 @@ async def test_wiki_service_generate_calls_persist_wiki_pages(monkeypatch: pytes
     fake_gen = MagicMock()
     fake_gen.generate_for_docs = AsyncMock(return_value=[[0.01, 0.02]])
     monkeypatch.setattr("indexer.embedding_generator.EmbeddingGenerator.shared", lambda **_k: fake_gen)
+    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
     graph = AsyncMock()
     svc = WikiService(
         graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store,

@@ -384,6 +384,7 @@ class FalkorDBStore:
                     if page.get("enrichment_level") is None
                     else str(page.get("enrichment_level")),
                     "repositories": page.get("repositories", [repository]),
+                    "confidence_score": page.get("confidence_score"),
                 }
             )
         cypher = (
@@ -399,7 +400,8 @@ class FalkorDBStore:
             "w.content_hash = page.content_hash, "
             "w.importance_tier = page.importance_tier, "
             "w.enrichment_level = page.enrichment_level, "
-            "w.repositories = page.repositories "
+            "w.repositories = page.repositories, "
+            "w.confidence_score = coalesce(page.confidence_score, w.confidence_score) "
             "RETURN count(*) AS cnt"
         )
         result = await self.execute_query(cypher, {"batch": batch})

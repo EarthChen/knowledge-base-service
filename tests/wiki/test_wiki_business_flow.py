@@ -25,7 +25,9 @@ def _overview_page() -> WikiPage:
 
 
 @pytest.mark.asyncio
-async def test_generate_creates_business_flows() -> None:
+async def test_generate_creates_business_flows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
     flow_inferencer = MagicMock()
     flow_inferencer._business_flow_enabled = True
     flow_inferencer.find_entry_points = AsyncMock(
@@ -98,7 +100,9 @@ async def test_generate_creates_business_flows() -> None:
 
 
 @pytest.mark.asyncio
-async def test_generate_skips_flows_when_disabled() -> None:
+async def test_generate_skips_flows_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
     flow_inferencer = MagicMock()
     flow_inferencer._business_flow_enabled = False
     flow_inferencer.find_entry_points = AsyncMock(return_value=[{"uid": "x"}])
@@ -136,7 +140,9 @@ async def test_generate_skips_flows_when_disabled() -> None:
 
 
 @pytest.mark.asyncio
-async def test_generate_without_flow_inferencer() -> None:
+async def test_generate_without_flow_inferencer(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
     store = MagicMock()
     store.persist_wiki_pages = AsyncMock()
 

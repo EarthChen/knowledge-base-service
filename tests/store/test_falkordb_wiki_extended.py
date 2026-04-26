@@ -33,3 +33,4 @@ async def test_persist_wiki_pages_includes_new_fields():
     assert "w.content_hash" in cypher
     assert "w.importance_tier" in cypher
     assert "w.repositories" in cypher
+    assert "w.confidence_score" in cypher

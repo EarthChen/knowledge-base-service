@@ -183,6 +183,8 @@ async def test_persist_pages_includes_enrichment_level(monkeypatch: pytest.Monke
     fake_gen = MagicMock()
     fake_gen.generate_for_docs = AsyncMock(return_value=[[0.01]])
     monkeypatch.setattr("indexer.embedding_generator.EmbeddingGenerator.shared", lambda **_k: fake_gen)
+    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
 
     graph = AsyncMock()
     svc = WikiService(

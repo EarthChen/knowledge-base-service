@@ -40,6 +40,8 @@ async def test_persist_pages_to_graph_generates_embeddings_after_persist(
         return fake_gen
 
     monkeypatch.setattr("indexer.embedding_generator.EmbeddingGenerator.shared", fake_shared)
+    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
 
     graph = AsyncMock()
     svc = WikiService(
@@ -68,6 +70,8 @@ async def test_persist_pages_skips_embeddings_when_persist_fails(monkeypatch: py
     fake_gen.generate_for_docs = AsyncMock(return_value=[[0.1]])
 
     monkeypatch.setattr("indexer.embedding_generator.EmbeddingGenerator.shared", lambda **_k: fake_gen)
+    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
 
     graph = AsyncMock()
     svc = WikiService(

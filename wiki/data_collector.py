@@ -191,7 +191,7 @@ class WikiDataCollector:
         self._graph = graph_port
         self._wiki_store = wiki_store
 
-    async def collect(self, repository: str, node: GraphNode) -> PageData:
+    async def collect(self, repository: str, node: GraphNode, code_budget: int = 8000) -> PageData:
         raw_edges = await self._graph.find_edges(repository, node.uid)
         prioritized = _prioritize_edges(node.uid, raw_edges)
         edges = _annotate_neighbor_tiers(node.uid, raw_edges, prioritized)
@@ -216,7 +216,7 @@ class WikiDataCollector:
             from wiki.source_code_reader import SourceCodeReader
 
             reader = SourceCodeReader(self._wiki_store)
-            code_snippets = await reader.read(node)
+            code_snippets = await reader.read(node, budget_tokens=code_budget)
 
         return PageData(
             node=node,

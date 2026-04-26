@@ -304,8 +304,9 @@ class WikiService:
                         yield p
                 return
             graph_node = await self._resolve_structure_node(repository, node)
-            page_data = await self._collector.collect(repository, graph_node)
             tier = _importance_tiers.get(graph_node.uid)
+            code_budget = self._budget_for_tier(tier)
+            page_data = await self._collector.collect(repository, graph_node, code_budget=code_budget)
             if tier is not None:
                 page_data.importance_tier = tier
             page = await composer.compose_page(
@@ -367,8 +368,9 @@ class WikiService:
                 pages.append(self._make_repo_overview_page(repository, structure, config))
             else:
                 graph_node = await self._resolve_structure_node(repository, node)
-                page_data = await self._collector.collect(repository, graph_node)
                 tier = tiers.get(graph_node.uid)
+                code_budget = self._budget_for_tier(tier)
+                page_data = await self._collector.collect(repository, graph_node, code_budget=code_budget)
                 if tier is not None:
                     page_data.importance_tier = tier
                 page = await composer.compose_page(

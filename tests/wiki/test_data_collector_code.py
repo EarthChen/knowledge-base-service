@@ -30,7 +30,7 @@ async def test_collect_includes_code_snippets(mock_graph_port, mock_wiki_store):
         uid="Class:f.py:Foo:1",
         properties={"name": "Foo", "file": "src/foo.py", "start_line": 1, "end_line": 50},
     )
-    page_data = await collector.collect("my-repo", node)
+    page_data = await collector.collect("my-repo", node, code_budget=8000)
 
     assert hasattr(page_data, "code_snippets")
     assert len(page_data.code_snippets) > 0

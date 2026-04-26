@@ -223,19 +223,19 @@ class WikiConfig(BaseModel):
     # Phase 4: Cross-repo business-level wiki
     business_wiki_batch_threshold: int = 100
 
-    mcp_server_enabled: bool = False
+    mcp_server_enabled: bool = True
 
     lint_scheduler_enabled: bool = False
     lint_scheduler_interval_hours: int = 6
     feedback_enabled: bool = True
     auto_heal_enabled: bool = False
 
-    deep_research_enabled: bool = False
-    concept_merging_enabled: bool = False
+    deep_research_enabled: bool = True
+    concept_merging_enabled: bool = True
     concept_merge_similarity_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
 
     # Phase 2 SP3: confidence scoring
-    confidence_scoring_enabled: bool = False
+    confidence_scoring_enabled: bool = True
     confidence_weight_w1: float = 0.30
     confidence_weight_w2: float = 0.25
     confidence_weight_w3: float = 0.25
@@ -243,18 +243,18 @@ class WikiConfig(BaseModel):
     confidence_weight_w5: float = 1.0
 
     # Phase 2 SP4: contradiction detection
-    contradiction_detection_enabled: bool = False
+    contradiction_detection_enabled: bool = True
     contradiction_similarity_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
 
     # Phase 2 SP5: claim supersession history
     supersession_tracking_enabled: bool = False
 
     # Phase 3 (LLM Wiki v2 — Memory Evolution)
-    memory_tiers_enabled: bool = False
+    memory_tiers_enabled: bool = True
 
     # Phase 3 SP7: forgetting curve + YAML schema lint
-    forgetting_enabled: bool = False
-    schema_validation_enabled: bool = False
+    forgetting_enabled: bool = True
+    schema_validation_enabled: bool = True
     schema_path: str = "wiki/schema.yaml"
     forgetting_initial_stability: float = 7.0
 

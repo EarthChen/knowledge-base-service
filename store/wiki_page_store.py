@@ -108,6 +108,19 @@ class WikiPageStoreMixin:
         )
         return await self._store.execute_query(q, {"repository": repository, "fqn": fqn})
 
+    async def delete_broken_wiki_references(self, repository: str) -> int:
+        """Delete WIKI_REFERENCES edges that point to missing or uid-less nodes."""
+        q = (
+            "MATCH (wp:WikiPage {repository: $repo})-[r:WIKI_REFERENCES]->(target) "
+            "WHERE target IS NULL OR NOT EXISTS(target.uid) "
+            "DELETE r RETURN count(r) AS cnt"
+        )
+        result = await self._store.execute_query(q, {"repo": repository})
+        rows = getattr(result, "data", []) or []
+        if rows and isinstance(rows[0], dict):
+            return rows[0].get("cnt", 0)
+        return 0
+
     async def wiki_orphan_in_degrees(self, repository: str) -> QueryResultWrapper:
         q = (
             "MATCH (wp:WikiPage {repository: $repository}) "

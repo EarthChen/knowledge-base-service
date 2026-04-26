@@ -1,60 +1,38 @@
-"""Auto-heal actions for wiki quality maintenance."""
+"""Auto-heal actions for wiki quality maintenance.
+
+Only safe, non-destructive repairs are performed automatically:
+- Broken reference cleanup (dangling WIKI_REFERENCES edges)
+
+Page-level operations (stale marking, orphan deprecation) are intentionally
+excluded from automatic healing — they should only be triggered manually
+during explicit maintenance windows.
+"""
 from __future__ import annotations
 
-import time
 from typing import Any, Protocol, runtime_checkable
+
+from log import get_logger
+
+log = get_logger(__name__)
 
 
 @runtime_checkable
-class _GraphPort(Protocol):
-    async def execute_query(self, cypher: str, params: dict | None = None) -> Any: ...
+class _WikiStorePort(Protocol):
+    async def delete_broken_wiki_references(self, repository: str) -> int: ...
 
 
 class AutoHealer:
-    def __init__(self, graph: _GraphPort) -> None:
-        self._graph = graph
-
-    async def heal_stale_pages(self, repository: str, max_age_days: int = 30) -> dict[str, Any]:
-        cutoff = time.time() - max_age_days * 86400
-        q = (
-            "MATCH (wp:WikiPage {repository: $repo}) "
-            "WHERE wp.generated_at < $cutoff "
-            "SET wp.stale = true "
-            "RETURN count(wp) AS cnt"
-        )
-        result = await self._graph.execute_query(q, {"repo": repository, "cutoff": cutoff})
-        rows = getattr(result, "data", []) or []
-        cnt = rows[0].get("cnt", 0) if rows and isinstance(rows[0], dict) else 0
-        return {"pages_marked": cnt}
+    def __init__(self, wiki_store: _WikiStorePort) -> None:
+        self._store = wiki_store
 
     async def remove_broken_references(self, repository: str) -> dict[str, Any]:
-        q = (
-            "MATCH (wp:WikiPage {repository: $repo})-[r:WIKI_REFERENCES]->(target) "
-            "WHERE target IS NULL OR NOT EXISTS(target.uid) "
-            "DELETE r RETURN count(r) AS cnt"
-        )
         try:
-            result = await self._graph.execute_query(q, {"repo": repository})
-            rows = getattr(result, "data", []) or []
-            cnt = rows[0].get("cnt", 0) if rows and isinstance(rows[0], dict) else 0
+            cnt = await self._store.delete_broken_wiki_references(repository)
         except Exception:
+            log.warning("auto_heal_broken_refs_failed", repository=repository, exc_info=True)
             cnt = 0
         return {"refs_removed": cnt}
 
-    async def deprecate_orphan_pages(self, repository: str) -> dict[str, Any]:
-        q = (
-            "MATCH (wp:WikiPage {repository: $repo}) "
-            "WHERE NOT (wp)-[:SOURCE_ENTITY]->() "
-            "SET wp.deprecated = true "
-            "RETURN count(wp) AS cnt"
-        )
-        result = await self._graph.execute_query(q, {"repo": repository})
-        rows = getattr(result, "data", []) or []
-        cnt = rows[0].get("cnt", 0) if rows and isinstance(rows[0], dict) else 0
-        return {"pages_deprecated": cnt}
-
     async def run_all(self, repository: str) -> dict[str, Any]:
-        stale = await self.heal_stale_pages(repository)
         refs = await self.remove_broken_references(repository)
-        orphans = await self.deprecate_orphan_pages(repository)
-        return {**stale, **refs, **orphans}
+        return {**refs}

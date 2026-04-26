@@ -25,9 +25,9 @@ from api.routes.kb_schemas import (
 )
 from config import get_settings
 from log import get_logger
-from repo_registry import RepoRegistry
-from scheduler import SyncScheduleConfig, SyncScheduler
-from service import KnowledgeBaseService
+from services.kb_service import KnowledgeBaseService
+from services.repo_registry import RepoRegistry
+from services.scheduler import SyncScheduleConfig, SyncScheduler
 from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 from utils.git_utils import looks_like_git_url
 
@@ -217,7 +217,7 @@ async def sync_repository(
     queries = GraphQueryRepository(svc.store)
 
     if req.git_url:
-        from git_manager import GitManager
+        from services.git_manager import GitManager
 
         if kb_state.repo_registry is None:
             raise KbServiceUnavailable("Repository registry not initialized")

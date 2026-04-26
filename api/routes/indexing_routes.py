@@ -29,7 +29,7 @@ from api.routes.kb_schemas import (
     IndexRequest,
     ReindexAllRequest,
 )
-from service import KnowledgeBaseService
+from services.kb_service import KnowledgeBaseService
 from store.graph_queries import GraphQueryRepository
 from utils.git_utils import looks_like_git_url
 from log import get_logger

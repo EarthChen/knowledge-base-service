@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from config import GitConfig
-from git_manager import resolve_repo_clone_root
-from repo_registry import RepoRegistry
+from services.git_manager import resolve_repo_clone_root
+from services.repo_registry import RepoRegistry
 
 
 def test_resolve_direct_name_under_clone_base(tmp_path: Path) -> None:

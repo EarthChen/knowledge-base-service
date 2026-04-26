@@ -5,8 +5,8 @@ from __future__ import annotations
 from config import WikiConfig
 
 
-def test_confidence_scoring_default_off() -> None:
-    assert WikiConfig().confidence_scoring_enabled is False
+def test_confidence_scoring_default_on() -> None:
+    assert WikiConfig().confidence_scoring_enabled is True
 
 
 def test_confidence_weights_match_spec_defaults() -> None:

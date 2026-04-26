@@ -7,8 +7,8 @@ from typing import Any
 
 import api.kb_state as kb_state
 from log import get_logger
-from repo_registry import RepoRegistry
-from service import KnowledgeBaseService
+from services.kb_service import KnowledgeBaseService
+from services.repo_registry import RepoRegistry
 from store.graph_queries import GraphQueryRepository
 
 from api.routes.kb_schemas import EnrichRequest, IndexRequest
@@ -26,7 +26,7 @@ async def resolve_canonical_repository_for_git(
 
     Returns ``(canonical_name, user_visible_warning_or_none)``.
     """
-    from git_manager import normalize_repo_name
+    from services.git_manager import normalize_repo_name
 
     requested_stripped = requested_name.strip() if requested_name else None
     candidate = requested_stripped or normalize_repo_name(git_url)
@@ -138,7 +138,7 @@ async def run_index_task(task_id: str, req: IndexRequest, business_id: str) -> N
 
         if req.git_url:
             from config import get_settings
-            from git_manager import GitManager
+            from services.git_manager import GitManager
 
             git_cfg = get_settings().git
             if not git_cfg.gitlab_url and not git_cfg.gitlab_token:

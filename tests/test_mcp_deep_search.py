@@ -137,7 +137,7 @@ async def test_rag_index_git_url_clones_and_indexes() -> None:
     settings_mock.git = MagicMock()
     settings_mock.git.clone_base_path = "/tmp/cloned"
 
-    with patch("git_manager.GitManager", return_value=git_instance):
+    with patch("services.git_manager.GitManager", return_value=git_instance):
         with patch("config.get_settings", return_value=settings_mock):
             h = KnowledgeBaseMCPHandler(
                 hybrid_svc=MagicMock(),
@@ -178,7 +178,7 @@ async def test_rag_index_git_clone_failure_structured() -> None:
     git_instance = MagicMock()
     git_instance.ensure_repo = AsyncMock(return_value=clone_result)
 
-    with patch("git_manager.GitManager", return_value=git_instance):
+    with patch("services.git_manager.GitManager", return_value=git_instance):
         with patch("config.get_settings", return_value=MagicMock(git=MagicMock())):
             h = KnowledgeBaseMCPHandler(
                 hybrid_svc=MagicMock(),

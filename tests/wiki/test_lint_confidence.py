@@ -24,6 +24,8 @@ async def test_lint_includes_confidence_recalibrated_count_when_flag_on(
 
     wiki_store = MagicMock()
     wiki_store.list_wiki_pages_for_repo = AsyncMock(side_effect=_empty_list)
+    wiki_store.list_wiki_qa = AsyncMock(return_value=MagicMock(data=[]))
+    wiki_store.update_wiki_qa_memory = AsyncMock()
 
     cfg = WikiConfig().model_copy(update={"confidence_scoring_enabled": True})
 
@@ -68,9 +70,14 @@ async def test_lint_includes_confidence_recalibrated_count_when_flag_on(
 async def test_lint_skips_confidence_recal_when_flag_off() -> None:
     store = MagicMock()
     store.execute_query = AsyncMock()
-    cfg = WikiConfig()
+    wiki_store = MagicMock()
+    wiki_store.list_wiki_pages_for_repo = AsyncMock(return_value=MagicMock(data=[]))
+    wiki_store.list_wiki_qa = AsyncMock(return_value=MagicMock(data=[]))
+    wiki_store.update_wiki_qa_memory = AsyncMock()
+    cfg = WikiConfig(confidence_scoring_enabled=False)
     svc = WikiLintService(
         store,
+        wiki_store=wiki_store,
         wiki_config=cfg,
     )
     for m in (

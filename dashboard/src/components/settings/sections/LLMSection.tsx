@@ -82,6 +82,18 @@ export default function LLMSection({
         onChange={(v) => onChange("llm.enrichment_strategy", v)}
         source={sourceBadge("llm.enrichment_strategy", meta, t)}
       />
+      <SettingsToggle
+        label={configFieldLabel("llm.concept_extraction_enabled", t)}
+        checked={boolVal("llm.concept_extraction_enabled")}
+        onChange={(v) => onChange("llm.concept_extraction_enabled", v ? "true" : "false")}
+        source={sourceBadge("llm.concept_extraction_enabled", meta, t)}
+      />
+      <SettingsToggle
+        label={configFieldLabel("llm.business_flow_enabled", t)}
+        checked={boolVal("llm.business_flow_enabled")}
+        onChange={(v) => onChange("llm.business_flow_enabled", v ? "true" : "false")}
+        source={sourceBadge("llm.business_flow_enabled", meta, t)}
+      />
       <div>
         <button
           type="button"

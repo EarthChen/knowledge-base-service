@@ -5,36 +5,33 @@ from wiki.auto_healer import AutoHealer
 
 
 @pytest.mark.asyncio
-async def test_heals_stale_pages() -> None:
-    mock_graph = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.data = [{"uid": "stale-page-1", "path": "auth.md"}]
-    mock_graph.execute_query = AsyncMock(return_value=mock_result)
-
-    healer = AutoHealer(mock_graph)
-    result = await healer.heal_stale_pages("test-repo", max_age_days=30)
-    assert "pages_marked" in result
-
-
-@pytest.mark.asyncio
 async def test_removes_broken_refs() -> None:
-    mock_graph = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.data = []
-    mock_graph.execute_query = AsyncMock(return_value=mock_result)
+    mock_store = MagicMock()
+    mock_store.delete_broken_wiki_references = AsyncMock(return_value=3)
 
-    healer = AutoHealer(mock_graph)
+    healer = AutoHealer(mock_store)
     result = await healer.remove_broken_references("test-repo")
-    assert "refs_removed" in result
+    assert result["refs_removed"] == 3
+    mock_store.delete_broken_wiki_references.assert_awaited_once_with("test-repo")
 
 
 @pytest.mark.asyncio
-async def test_deprecate_orphans() -> None:
-    mock_graph = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.data = []
-    mock_graph.execute_query = AsyncMock(return_value=mock_result)
+async def test_removes_broken_refs_returns_zero_on_error() -> None:
+    mock_store = MagicMock()
+    mock_store.delete_broken_wiki_references = AsyncMock(side_effect=RuntimeError("db error"))
 
-    healer = AutoHealer(mock_graph)
-    result = await healer.deprecate_orphan_pages("test-repo")
-    assert "pages_deprecated" in result
+    healer = AutoHealer(mock_store)
+    result = await healer.remove_broken_references("test-repo")
+    assert result["refs_removed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_run_all_only_cleans_refs() -> None:
+    mock_store = MagicMock()
+    mock_store.delete_broken_wiki_references = AsyncMock(return_value=1)
+
+    healer = AutoHealer(mock_store)
+    result = await healer.run_all("test-repo")
+    assert result["refs_removed"] == 1
+    assert "pages_marked" not in result
+    assert "pages_deprecated" not in result

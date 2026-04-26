@@ -27,7 +27,7 @@ from api.routes.kb_schemas import (
     ReviewContextRequest,
     SmartContextRequest,
 )
-from service import KnowledgeBaseService
+from services.kb_service import KnowledgeBaseService
 from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 from utils.git_utils import looks_like_git_url
 from log import get_logger
@@ -155,7 +155,7 @@ async def check_consistency(
     svc: KnowledgeBaseService = Depends(get_service),
 ) -> dict[str, Any]:
     """Check index consistency for a repository."""
-    from git_manager import resolve_repo_clone_root
+    from services.git_manager import resolve_repo_clone_root
     from query.analysis_service import AnalysisService
 
     settings = get_settings()

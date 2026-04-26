@@ -11,7 +11,7 @@ from auth import (
     resolve_business_id,
     resolve_token,
 )
-from service import KnowledgeBaseService
+from services.kb_service import KnowledgeBaseService
 
 
 def resolve_token_header(authorization: str | None = Header(default=None)) -> TokenInfo | None:

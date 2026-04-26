@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 
 from indexer.task_manager import IndexTaskManager
-from repo_registry import RepoRegistry
-from scheduler import SyncScheduler
-from service_registry import ServiceRegistry
+from services.repo_registry import RepoRegistry
+from services.scheduler import SyncScheduler
+from services.service_registry import ServiceRegistry
 
 # Populated in main.lifespan; read by API dependencies and background tasks.
 MAX_CONCURRENT_REINDEX = 1

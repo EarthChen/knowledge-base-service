@@ -107,7 +107,7 @@ def _resolve_repo_base_path(repository: str, repo_registry: Any | None = None) -
     and the same on-disk path as indexing.
     """
     from config import get_settings
-    from git_manager import resolve_repo_clone_root
+    from services.git_manager import resolve_repo_clone_root
 
     return resolve_repo_clone_root(repository, get_settings().git, repo_registry)
 
@@ -1050,7 +1050,7 @@ class KnowledgeBaseMCPHandler:
         from pathlib import Path
 
         from config import get_settings
-        from git_manager import resolve_repo_clone_root
+        from services.git_manager import resolve_repo_clone_root
         from query.analysis_service import AnalysisService
 
         repository = arguments.get("repository", "")
@@ -1524,7 +1524,7 @@ class KnowledgeBaseMCPHandler:
             from pathlib import Path as _Path
 
             from config import get_settings
-            from git_manager import GitManager
+            from services.git_manager import GitManager
 
             branch_arg = args.get("branch")
             branch = str(branch_arg).strip() if branch_arg not in (None, "") else None

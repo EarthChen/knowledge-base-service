@@ -114,6 +114,76 @@ export default function WikiGenerationSection({ values, meta, onChange, t }: Sec
         onChange={(v) => onChange("wiki.business_wiki_batch_threshold", v)}
         source={sourceBadge("wiki.business_wiki_batch_threshold", meta, t)}
       />
+      <SettingsInput
+        label={configFieldLabel("wiki.lint_scheduler_interval_hours", t)}
+        type="number"
+        value={values["wiki.lint_scheduler_interval_hours"] ?? ""}
+        onChange={(v) => onChange("wiki.lint_scheduler_interval_hours", v)}
+        source={sourceBadge("wiki.lint_scheduler_interval_hours", meta, t)}
+      />
+      <SettingsInput
+        label={configFieldLabel("wiki.concept_merge_similarity_threshold", t)}
+        type="number"
+        value={values["wiki.concept_merge_similarity_threshold"] ?? ""}
+        onChange={(v) => onChange("wiki.concept_merge_similarity_threshold", v)}
+        source={sourceBadge("wiki.concept_merge_similarity_threshold", meta, t)}
+      />
+      <SettingsInput
+        label={configFieldLabel("wiki.confidence_weight_w1", t)}
+        type="number"
+        value={values["wiki.confidence_weight_w1"] ?? ""}
+        onChange={(v) => onChange("wiki.confidence_weight_w1", v)}
+        source={sourceBadge("wiki.confidence_weight_w1", meta, t)}
+      />
+      <SettingsInput
+        label={configFieldLabel("wiki.confidence_weight_w2", t)}
+        type="number"
+        value={values["wiki.confidence_weight_w2"] ?? ""}
+        onChange={(v) => onChange("wiki.confidence_weight_w2", v)}
+        source={sourceBadge("wiki.confidence_weight_w2", meta, t)}
+      />
+      <SettingsInput
+        label={configFieldLabel("wiki.confidence_weight_w3", t)}
+        type="number"
+        value={values["wiki.confidence_weight_w3"] ?? ""}
+        onChange={(v) => onChange("wiki.confidence_weight_w3", v)}
+        source={sourceBadge("wiki.confidence_weight_w3", meta, t)}
+      />
+      <SettingsInput
+        label={configFieldLabel("wiki.confidence_weight_w4", t)}
+        type="number"
+        value={values["wiki.confidence_weight_w4"] ?? ""}
+        onChange={(v) => onChange("wiki.confidence_weight_w4", v)}
+        source={sourceBadge("wiki.confidence_weight_w4", meta, t)}
+      />
+      <SettingsInput
+        label={configFieldLabel("wiki.confidence_weight_w5", t)}
+        type="number"
+        value={values["wiki.confidence_weight_w5"] ?? ""}
+        onChange={(v) => onChange("wiki.confidence_weight_w5", v)}
+        source={sourceBadge("wiki.confidence_weight_w5", meta, t)}
+      />
+      <SettingsInput
+        label={configFieldLabel("wiki.contradiction_similarity_threshold", t)}
+        type="number"
+        value={values["wiki.contradiction_similarity_threshold"] ?? ""}
+        onChange={(v) => onChange("wiki.contradiction_similarity_threshold", v)}
+        source={sourceBadge("wiki.contradiction_similarity_threshold", meta, t)}
+      />
+      <SettingsInput
+        label={configFieldLabel("wiki.schema_path", t)}
+        type="text"
+        value={values["wiki.schema_path"] ?? ""}
+        onChange={(v) => onChange("wiki.schema_path", v)}
+        source={sourceBadge("wiki.schema_path", meta, t)}
+      />
+      <SettingsInput
+        label={configFieldLabel("wiki.forgetting_initial_stability", t)}
+        type="number"
+        value={values["wiki.forgetting_initial_stability"] ?? ""}
+        onChange={(v) => onChange("wiki.forgetting_initial_stability", v)}
+        source={sourceBadge("wiki.forgetting_initial_stability", meta, t)}
+      />
     </SettingsCard>
   );
 }

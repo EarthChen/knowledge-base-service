@@ -21,7 +21,7 @@ from api.routes.repository_path_utils import (
     infer_section_levels,
     relative_file_path,
 )
-from service import KnowledgeBaseService
+from services.kb_service import KnowledgeBaseService
 from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 from utils.git_utils import looks_like_git_url
 from log import get_logger

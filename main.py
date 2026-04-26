@@ -39,9 +39,9 @@ from auth import get_auth_mode
 from config import Settings, get_settings
 from indexer.task_manager import IndexTaskManager
 from log import get_logger, setup_logging
-from repo_registry import RepoRegistry
-from scheduler import SyncScheduler
-from service_registry import ServiceRegistry
+from services.repo_registry import RepoRegistry
+from services.scheduler import SyncScheduler
+from services.service_registry import ServiceRegistry
 from wiki.bootstrap import bootstrap_wiki, teardown_wiki
 
 # Backward-compatible names for tests and external imports

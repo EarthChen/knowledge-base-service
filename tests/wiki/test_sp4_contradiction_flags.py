@@ -3,8 +3,8 @@
 from config import WikiConfig
 
 
-def test_contradiction_detection_default_off() -> None:
-    assert WikiConfig().contradiction_detection_enabled is False
+def test_contradiction_detection_default_on() -> None:
+    assert WikiConfig().contradiction_detection_enabled is True
 
 
 def test_contradiction_similarity_default() -> None:

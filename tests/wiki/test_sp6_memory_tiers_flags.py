@@ -5,11 +5,11 @@ from __future__ import annotations
 from config import WikiConfig
 
 
-def test_memory_tiers_enabled_defaults_false() -> None:
-    assert WikiConfig().memory_tiers_enabled is False
+def test_memory_tiers_enabled_defaults_true() -> None:
+    assert WikiConfig().memory_tiers_enabled is True
 
 
-def test_memory_tiers_enabled_can_enable() -> None:
+def test_memory_tiers_enabled_can_disable() -> None:
     c = WikiConfig()
-    c2 = c.model_copy(update={"memory_tiers_enabled": True})
-    assert c2.memory_tiers_enabled is True
+    c2 = c.model_copy(update={"memory_tiers_enabled": False})
+    assert c2.memory_tiers_enabled is False

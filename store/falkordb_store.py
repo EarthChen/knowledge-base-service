@@ -14,7 +14,7 @@ from falkordb import FalkorDB, Graph
 
 from config import FalkorDBConfig
 from log import get_logger
-from redis_startup import await_with_busy_loading_retry, run_sync_with_busy_loading_retry
+from services.redis_startup import await_with_busy_loading_retry, run_sync_with_busy_loading_retry
 
 from .schema import VECTOR_INDEX_CONFIGS, EdgeType, GraphEdge, GraphNode, NodeLabel
 

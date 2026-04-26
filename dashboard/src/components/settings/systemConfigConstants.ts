@@ -10,6 +10,19 @@ export const WIKI_FEATURES_KEYS = [
   "wiki.knowledge_injection_enabled",
   "wiki.cross_repo_domain_enabled",
   "wiki.auto_update_on_index",
+  "wiki.mcp_server_enabled",
+  "wiki.feedback_enabled",
+  "wiki.lint_scheduler_enabled",
+  "wiki.auto_heal_enabled",
+  "wiki.deep_research_enabled",
+  "wiki.concept_merging_enabled",
+  "wiki.business_domain_enabled",
+  "wiki.confidence_scoring_enabled",
+  "wiki.contradiction_detection_enabled",
+  "wiki.supersession_tracking_enabled",
+  "wiki.memory_tiers_enabled",
+  "wiki.forgetting_enabled",
+  "wiki.schema_validation_enabled",
 ] as const;
 
 export const WIKI_GENERATION_KEYS = [
@@ -29,6 +42,16 @@ export const WIKI_GENERATION_KEYS = [
   "wiki.cot_analysis_model",
   "wiki.cot_generation_model",
   "wiki.business_wiki_batch_threshold",
+  "wiki.lint_scheduler_interval_hours",
+  "wiki.concept_merge_similarity_threshold",
+  "wiki.confidence_weight_w1",
+  "wiki.confidence_weight_w2",
+  "wiki.confidence_weight_w3",
+  "wiki.confidence_weight_w4",
+  "wiki.confidence_weight_w5",
+  "wiki.contradiction_similarity_threshold",
+  "wiki.schema_path",
+  "wiki.forgetting_initial_stability",
 ] as const;
 
 export const WIKI_GIT_KEYS = [
@@ -56,6 +79,8 @@ export const LLM_KEYS = [
   "llm.retry_count",
   "llm.temperature",
   "llm.enrichment_strategy",
+  "llm.concept_extraction_enabled",
+  "llm.business_flow_enabled",
 ] as const;
 
 export const STORAGE_KEYS_LIST = [
@@ -98,6 +123,8 @@ export const BOOL_KEYS = new Set<string>([
   "wiki.cot_enabled",
   "wiki.git_publish_enabled",
   "llm.enabled",
+  "llm.concept_extraction_enabled",
+  "llm.business_flow_enabled",
   "embedding.use_fp16",
   "require_auth",
 ]);

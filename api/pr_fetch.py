@@ -8,7 +8,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 
-from git_manager import normalize_repo_name
+from services.git_manager import normalize_repo_name
 
 _ALLOWED = frozenset({"added", "modified", "removed", "renamed"})
 

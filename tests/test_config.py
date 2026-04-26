@@ -47,11 +47,11 @@ class TestSettings:
 
     def test_wiki_sp7_flags_defaults(self) -> None:
         w = WikiConfig()
-        assert w.forgetting_enabled is False
-        assert w.schema_validation_enabled is False
+        assert w.forgetting_enabled is True
+        assert w.schema_validation_enabled is True
         assert w.schema_path == "wiki/schema.yaml"
         assert w.forgetting_initial_stability == 7.0
         settings = Settings(_env_file=None)
         assert settings.wiki.schema_path == "wiki/schema.yaml"
-        assert settings.wiki.forgetting_enabled is False
-        assert settings.wiki.schema_validation_enabled is False
+        assert settings.wiki.forgetting_enabled is True
+        assert settings.wiki.schema_validation_enabled is True

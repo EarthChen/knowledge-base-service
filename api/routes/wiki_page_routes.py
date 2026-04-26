@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from api.exceptions import KbNotFound, KbServiceUnavailable
 from auth import Role, require_role
-from git_manager import normalize_repo_name
+from services.git_manager import normalize_repo_name
 from store.wiki_store import WikiStore
 from wiki.coverage_analyzer import WikiCoverageAnalyzer
 from wiki.quality_score import WikiQualityScorer

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from repo_registry import RepoRegistry
+from services.repo_registry import RepoRegistry
 
 # Disallow characters that are unsafe or meaningless for parameterized class-name search.
 _ARCHITECTURE_CLASS_SEARCH_DISALLOWED = re.compile(r'[`"\';\\#\x00-\x1f]')

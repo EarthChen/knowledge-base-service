@@ -1411,11 +1411,36 @@ async def wiki_research(
     research_svc: DeepResearchService = Depends(get_wiki_deep_research_dep),
 ) -> dict[str, Any]:
     """Multi-step deep research over the wiki (sub-questions + synthesis)."""
+    settings = get_settings()
+    if not settings.wiki.deep_research_enabled:
+        raise KbNotFound("Deep research is disabled")
     return await research_svc.research(
         question=body.question,
         repository=body.repository,
         business_id=body.business_id,
     )
+
+
+@wiki_router.get("/merge-candidates", response_model=None)
+async def wiki_merge_candidates(
+    request: Request,
+    business_id: str = Query(..., min_length=1),
+) -> dict[str, Any]:
+    """List cross-repository merge candidate pairs (embedding similarity)."""
+    settings = get_settings()
+    if not settings.wiki.concept_merging_enabled:
+        raise KbNotFound("Concept merging is disabled")
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise KbServiceUnavailable("Graph store not configured")
+    from wiki.concept_merger import ConceptMerger
+
+    merger = ConceptMerger(
+        raw_store,
+        similarity_threshold=settings.wiki.concept_merge_similarity_threshold,
+    )
+    candidates = await merger.find_candidates(business_id)
+    return {"candidates": [asdict(c) for c in candidates]}
 
 
 @wiki_router.post("/{repository}/analyze-impact", response_model=None)

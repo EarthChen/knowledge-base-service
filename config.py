@@ -230,6 +230,10 @@ class WikiConfig(BaseModel):
     feedback_enabled: bool = True
     auto_heal_enabled: bool = False
 
+    deep_research_enabled: bool = False
+    concept_merging_enabled: bool = False
+    concept_merge_similarity_threshold: float = 0.9
+
 
 class GitConfig(BaseModel):
     """Git repository management for remote indexing.

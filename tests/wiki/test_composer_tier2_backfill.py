@@ -39,6 +39,7 @@ async def test_tier2_backfills_summary() -> None:
     )
     wiki_store = MagicMock()
     wiki_store.find_related_docs_entities = AsyncMock(return_value=MagicMock(data=[]))
+    wiki_store.list_wiki_pages_all = AsyncMock(return_value=MagicMock(data=[]))
     wiki_store.update_node_property = AsyncMock()
 
     composer = WikiComposer(
@@ -69,6 +70,7 @@ async def test_tier1_no_backfill() -> None:
     llm.generate = AsyncMock(return_value="should not run")
     wiki_store = MagicMock()
     wiki_store.find_related_docs_entities = AsyncMock(return_value=MagicMock(data=[]))
+    wiki_store.list_wiki_pages_all = AsyncMock(return_value=MagicMock(data=[]))
     wiki_store.update_node_property = AsyncMock()
 
     composer = WikiComposer(

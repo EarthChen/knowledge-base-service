@@ -24,6 +24,7 @@ dependencies = [
     "tenacity>=8.2",
     "json-repair>=0.30.0",
     "jieba>=0.42.1",
+    "cryptography>=47.0.0",
 ]
 
 [project.optional-dependencies]
@@ -38,7 +39,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["indexer", "store", "query", "api", "llm"]
+packages = ["indexer", "store", "query", "api", "llm", "services"]
 py-modules = ["main", "config", "log", "service", "redis_startup"]
 
 [tool.ruff]

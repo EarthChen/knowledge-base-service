@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 from wiki.models import CodeSnippet, ImportanceTier, SourceLocation
@@ -187,8 +187,9 @@ class PageData:
 class WikiDataCollector:
     """Loads prioritized graph context for one wiki page."""
 
-    def __init__(self, graph_port: DataCollectorPort) -> None:
+    def __init__(self, graph_port: DataCollectorPort, wiki_store: Any = None) -> None:
         self._graph = graph_port
+        self._wiki_store = wiki_store
 
     async def collect(self, repository: str, node: GraphNode) -> PageData:
         raw_edges = await self._graph.find_edges(repository, node.uid)
@@ -210,6 +211,13 @@ class WikiDataCollector:
         summary_raw = node.properties.get("business_summary")
         business_summary = summary_raw if isinstance(summary_raw, str) else None
 
+        code_snippets = []
+        if self._wiki_store is not None:
+            from wiki.source_code_reader import SourceCodeReader
+
+            reader = SourceCodeReader(self._wiki_store)
+            code_snippets = await reader.read(node)
+
         return PageData(
             node=node,
             edges=edges,
@@ -218,4 +226,5 @@ class WikiDataCollector:
             method_locations=method_locations,
             business_summary=business_summary,
             methods=methods,
+            code_snippets=code_snippets,
         )

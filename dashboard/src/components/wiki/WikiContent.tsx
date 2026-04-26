@@ -11,6 +11,7 @@ import WikiDiffViewer from "./WikiDiffViewer";
 import WikiEditButton from "./WikiEditButton";
 import WikiStaleAlert from "./WikiStaleAlert";
 import WikiSuggestedQuestions from "./WikiSuggestedQuestions";
+import WikiPageFeedback from "./WikiPageFeedback";
 import WikiVersionBadge from "./WikiVersionBadge";
 import WikiVersionHistory from "./WikiVersionHistory";
 import TableOfContents from "./TableOfContents";
@@ -319,6 +320,11 @@ export default function WikiContent({
               questions={parseSuggestedQuestions(detail.context?.suggested_questions)}
               onAskQuestion={onAskQuestion}
             />
+            {pageUid ? (
+              <div className="mt-6">
+                <WikiPageFeedback pageUid={pageUid} businessId={businessId} />
+              </div>
+            ) : null}
           </>
         )}
 

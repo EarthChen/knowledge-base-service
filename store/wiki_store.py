@@ -294,6 +294,8 @@ class WikiStore:
 
     # --- Wiki tree structure CRUD ---
 
+    _TREE_ALLOWED_LABELS = frozenset({"WikiSpace", "WikiSection", "WikiPage"})
+
     async def upsert_wiki_space(
         self, business_id: str, title: str, description: str
     ) -> QueryResultWrapper:
@@ -348,6 +350,10 @@ class WikiStore:
         view_type: str,
         sort_order: int,
     ) -> QueryResultWrapper:
+        if parent_label not in self._TREE_ALLOWED_LABELS:
+            raise ValueError(f"Invalid parent_label '{parent_label}': must be one of {sorted(self._TREE_ALLOWED_LABELS)}")
+        if child_label not in self._TREE_ALLOWED_LABELS:
+            raise ValueError(f"Invalid child_label '{child_label}': must be one of {sorted(self._TREE_ALLOWED_LABELS)}")
         q = (
             f"MATCH (p:{parent_label} {{uid: $parent_uid}}) "
             f"MATCH (c:{child_label} {{uid: $child_uid}}) "

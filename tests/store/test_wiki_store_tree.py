@@ -58,6 +58,30 @@ async def test_add_wiki_reference_edge(mock_store):
     assert "relation_type" in cypher
 
 @pytest.mark.asyncio
+async def test_add_has_child_edge_rejects_invalid_parent_label(mock_store):
+    with pytest.raises(ValueError, match="Invalid parent_label"):
+        await mock_store.add_has_child_edge(
+            parent_uid="ws:default",
+            parent_label="MaliciousLabel",
+            child_uid="wsec:x",
+            child_label="WikiSection",
+            view_type="business_domain",
+            sort_order=0,
+        )
+
+@pytest.mark.asyncio
+async def test_add_has_child_edge_rejects_invalid_child_label(mock_store):
+    with pytest.raises(ValueError, match="Invalid child_label"):
+        await mock_store.add_has_child_edge(
+            parent_uid="ws:default",
+            parent_label="WikiSpace",
+            child_uid="wsec:x",
+            child_label="DROP_TABLE",
+            view_type="business_domain",
+            sort_order=0,
+        )
+
+@pytest.mark.asyncio
 async def test_get_wiki_tree(mock_store):
     await mock_store.get_wiki_tree("default", "business_domain")
     call_args = mock_store._store.execute_query.call_args

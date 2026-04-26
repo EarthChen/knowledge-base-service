@@ -602,6 +602,8 @@ const en: Translations = {
     regenerateTimeout: "Wiki regeneration is taking longer than expected. You can check task status via the API.",
     pagesHeading: "Wiki pages",
     expandAllFolders: "Expand all folders",
+    treeNavExpand: "Expand",
+    treeNavCollapse: "Collapse",
     searchWikiLabel: "Search wiki",
     searchPlaceholder: "Search wiki…",
     loadingPages: "Loading pages…",

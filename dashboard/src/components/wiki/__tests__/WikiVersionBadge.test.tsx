@@ -15,4 +15,10 @@ describe("WikiVersionBadge", () => {
     fireEvent.click(screen.getByRole("button"));
     expect(handler).toHaveBeenCalled();
   });
+
+  it("renders a span, not a button, when onClick is omitted", () => {
+    renderWithI18n(<WikiVersionBadge version={2} generatedAt="2026-01-01" />);
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByText(/v2/)).toBeInTheDocument();
+  });
 });

@@ -4,9 +4,15 @@ type Props = {
   results: WikiSearchResult[];
   onSelect: (path: string) => void;
   listboxId?: string;
+  activeIndex: number;
 };
 
-export default function WikiSearchResults({ results, onSelect, listboxId }: Props) {
+export function wikiSearchOptionId(listboxId: string | undefined, index: number): string {
+  const base = listboxId ?? "wiki-search-listbox";
+  return `${base}-opt-${index}`;
+}
+
+export default function WikiSearchResults({ results, onSelect, listboxId, activeIndex }: Props) {
   if (results.length === 0) return null;
 
   return (
@@ -15,10 +21,16 @@ export default function WikiSearchResults({ results, onSelect, listboxId }: Prop
       className="max-h-72 overflow-y-auto py-1"
       role="listbox"
     >
-      {results.map((r) => (
-        <li key={`${r.page_path}:${r.title}`} role="option">
+      {results.map((r, index) => (
+        <li
+          key={`${r.page_path}:${r.title}`}
+          id={wikiSearchOptionId(listboxId, index)}
+          role="option"
+          aria-selected={activeIndex === index}
+        >
           <button
             type="button"
+            tabIndex={-1}
             onClick={() => onSelect(r.page_path)}
             className="flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm transition-colors hover:bg-sky-50 dark:hover:bg-sky-950/50"
           >

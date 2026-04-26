@@ -611,6 +611,8 @@ export interface Translations {
     regenerateTimeout: string;
     pagesHeading: string;
     expandAllFolders: string;
+    treeNavExpand: string;
+    treeNavCollapse: string;
     searchWikiLabel: string;
     searchPlaceholder: string;
     loadingPages: string;

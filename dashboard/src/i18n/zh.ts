@@ -595,6 +595,8 @@ const zh: Translations = {
     regenerateTimeout: "重新生成 Wiki 等待超时。可通过 API 查询任务状态。",
     pagesHeading: "Wiki 页面",
     expandAllFolders: "展开全部文件夹",
+    treeNavExpand: "展开",
+    treeNavCollapse: "折叠",
     searchWikiLabel: "搜索 Wiki",
     searchPlaceholder: "搜索 Wiki…",
     loadingPages: "正在加载页面…",

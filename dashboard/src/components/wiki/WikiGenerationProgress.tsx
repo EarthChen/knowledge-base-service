@@ -16,6 +16,8 @@ export default function WikiGenerationProgress({ status }: WikiGenerationProgres
 
   return (
     <div
+      role="status"
+      aria-live="polite"
       className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm ${
         isFailed
           ? "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"

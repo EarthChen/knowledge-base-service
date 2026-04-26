@@ -22,6 +22,7 @@ from store.graph_queries import GraphQueryRepository
 from store.wiki_store import WikiStore
 from git_manager import normalize_repo_name
 from wiki.ask import WikiAskService
+from wiki.coverage_analyzer import WikiCoverageAnalyzer
 from wiki.cache import WikiCache
 from wiki.exporter import WikiExporter
 from wiki.wiki_docs_exporter import WikiDocsExporter, export_result_to_dict
@@ -1016,6 +1017,36 @@ async def wiki_chunk_index(
     )
     result = await indexer.index_all_chunks(body.repository)
     return JSONResponse(content=result)
+
+
+@wiki_router.get("/coverage-report", response_model=None)
+async def wiki_coverage_report(
+    request: Request,
+    business_id: str = Query(default="default"),
+) -> dict[str, Any]:
+    """Return wiki documentation coverage analysis for a business."""
+    settings = get_settings()
+    if not settings.wiki.coverage_report_enabled:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "feature_disabled", "detail": "Coverage report is disabled"},
+        )
+
+    raw_store = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
+        )
+
+    wiki_store = WikiStore(raw_store)
+    analyzer = WikiCoverageAnalyzer(wiki_store)
+    report = await analyzer.analyze(business_id)
+
+    if not settings.wiki.stale_detection_enabled:
+        report.stale_pages = []
+
+    return report.to_dict()
 
 
 @wiki_router.post("/{repository}/lint", response_model=None)

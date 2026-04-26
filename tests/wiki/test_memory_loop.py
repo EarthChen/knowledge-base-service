@@ -68,7 +68,6 @@ async def test_inject_into_generation_appends_block() -> None:
         return [1.0]
 
     ml = MemoryLoop(WikiStore(base), embed)
-    text = await ml.inject_into_generation("Page about auth", business_id="b")
-    assert "Page about auth" in text
-    assert "Relevant past Q&A" in text
+    text = await ml.inject_into_generation("Page about auth", "my-repo")
+    assert "Previous Q&A Knowledge" in text
     assert "What is X?" in text

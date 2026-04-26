@@ -114,23 +114,16 @@ class MemoryLoop:
             )
         return out
 
-    async def inject_into_generation(
-        self,
-        page_context: str,
-        *,
-        business_id: str | None = None,
-        max_memories: int = 5,
-    ) -> str:
-        """Append related Q&A snippets to a wiki generation context string."""
-        ctx = (page_context or "").strip()
-        if not ctx:
+    async def inject_into_generation(self, entity_name: str, repository: str) -> str:
+        """Retrieve relevant Q&A memories and format for wiki generation context."""
+        _ = repository  # reserved for future repository-scoped memory filtering
+        memories = await self.get_relevant_memories(entity_name, limit=5)
+        if not memories:
             return ""
-        # Use start of page context as the retrieval query (title / outline).
-        topic = ctx[:1500] if len(ctx) > 1500 else ctx
-        mems = await self.get_relevant_memories(topic, limit=max_memories, business_id=business_id)
-        if not mems:
-            return ctx
-        lines: list[str] = [ctx, "", "## Relevant past Q&A (memory loop)", ""]
-        for i, m in enumerate(mems, 1):
-            lines.append(f"### {i}. Q: {m.question}\nA: {m.answer[:1200]}\n")
-        return "\n".join(lines).strip()
+        parts: list[str] = ["## Previous Q&A Knowledge"]
+        for m in memories:
+            q = m.question
+            a = m.answer
+            if q and a:
+                parts.append(f"**Q:** {q}\n**A:** {a[:500]}")
+        return "\n\n".join(parts)

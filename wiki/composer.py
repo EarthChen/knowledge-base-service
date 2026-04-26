@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import quote
 
 from log import get_logger
 from store.schema import EdgeType, GraphNode, NodeLabel
@@ -14,6 +15,7 @@ from wiki.data_collector import PageData
 from wiki.diagram_gen import generate_call_flowchart, generate_class_diagram, generate_dependency_graph
 from wiki.memory_loop import MemoryLoop
 from wiki.models import PageType, SourceLocation, WikiConfig, WikiDiagram, WikiPage, WikiPageMetadata
+from wiki.wikilink_resolver import resolve_wikilinks
 
 log = get_logger(__name__)
 
@@ -154,6 +156,8 @@ class WikiComposer:
             description = self._tier3_structural(page_data, page_type, eff_lang)
 
         content = self._markdown_body(title, page_data, page_type, description)
+        entity_index = await self._wikilink_entity_index(config.repository)
+        content = resolve_wikilinks(content, entity_index)
         diagrams = self._build_diagrams(page_data, page_type)
         meta = WikiPageMetadata(
             node_count=self._estimate_node_count(page_data),
@@ -257,6 +261,24 @@ class WikiComposer:
             metadata=meta_ov,
         )
         return index_page, overview_page
+
+    async def _wikilink_entity_index(self, repository: str) -> dict[str, str]:
+        """Map WikiPage title -> in-app wiki URL for [[wikilink]] resolution."""
+        if self._wiki_store is None:
+            return {}
+        result = await self._wiki_store.list_wiki_pages_all(repository)
+        rows = getattr(result, "data", None) or []
+        index: dict[str, str] = {}
+        for row in rows:
+            title = row.get("title")
+            path = row.get("path")
+            if not title or not path:
+                continue
+            t = str(title).strip()
+            if not t:
+                continue
+            index[t] = f"/wiki?path={quote(str(path), safe='')}"
+        return index
 
     def _estimate_node_count(self, page_data: PageData) -> int:
         return 1 + len(page_data.children) + len(page_data.methods)

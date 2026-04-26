@@ -49,6 +49,41 @@ flowchart TB
 
 Wiki 行为的功能开关位于 `config.py` 的 **`WIKI__*`**（`WikiConfig`）。LLM 路由使用 `LLMProviderFactory` 和 OpenAI 兼容的 **LLM__** 配置。
 
+## Phase 0–6 能力扩展（后端）
+
+在既有「结构规划 → 数据收集 → 组合」流水线之上，实现分阶段增强：**元模型与树 API**、**代码感知与重要性**、**Chunk 级 RAG**、**百科式分层异步丰富化**、**跨仓业务 Wiki 与交叉引用**、**多格式导出与 Git 推送**、**覆盖率与探索问题**。架构总览见 [ARCHITECTURE.md](ARCHITECTURE.md) § Wiki 生成管道；细节以设计规格为准：[2026-04-24-wiki-enhancement-design.md](superpowers/specs/2026-04-24-wiki-enhancement-design.md)、[2026-04-26-wiki-tree-architecture-design.md](superpowers/specs/2026-04-26-wiki-tree-architecture-design.md)。
+
+| 阶段 | 要点 |
+|------|------|
+| **Phase 0** | `WikiSpace` / `WikiSection`、`HAS_CHILD` + `view_type`（`business_domain` / `code_structure`）；`WikiPage` 扩展 `path`、`version`、`importance_tier`、`content_hash`、`repositories`；**`GET /wiki/tree`** |
+| **Phase 1** | `SourceCodeReader`；`ImportanceScorer`（core/standard/skeleton）；按 tier 的 token 预算 |
+| **Phase 2** | `CodeChunkIndexer`、`ChunkRetriever`；**`POST /wiki/chunks/index`** |
+| **Phase 3** | `TieredPromptBuilder`、`AsyncEnrichmentPipeline`（base→enriched→encyclopedia）、`BusinessDomainPlanner`、`EnrichmentLevel` |
+| **Phase 4** | `CrossRepoBusinessDomainPlanner`、`WikiReferenceGenerator`、`DomainOverviewComposer`、`WikiService.generate_business_wiki()`；**`POST /wiki/business/generate`**、**`GET /pages/{uid}/references`**；MCP：`wiki_get_tree`、`wiki_get_related`、`wiki_get_domain_overview` |
+| **Phase 5** | `WikiLinkConverter`、`BusinessWikiExporter`、`ObsidianExporter`、`MkDocsExporter`、`GitPublisher`；**`POST /wiki/export`**（markdown/zip/git/obsidian/mkdocs 等） |
+| **Phase 6** | `WikiCoverageAnalyzer`、`SuggestedQuestionsGenerator`；**`GET /wiki/coverage-report`** |
+
+```mermaid
+flowchart TB
+  subgraph meta [Phase 0 元模型]
+    WS[WikiSpace / WikiSection]
+    VT[view_type 边]
+  end
+  subgraph aware [Phase 1–2]
+    SCR[SourceCodeReader]
+    RAG[CodeChunkIndexer + ChunkRetriever]
+  end
+  subgraph gen [Phase 3–4]
+    TIER[Tiered + Async 丰富化]
+    XREPO[跨仓域与交叉引用]
+  end
+  subgraph ship [Phase 5–6]
+    EXP[导出 / Git]
+    QA[覆盖率报告]
+  end
+  meta --> aware --> gen --> ship
+```
+
 ### 延迟 Enrichment 流程
 
 当 `LLM__ENRICHMENT_STRATEGY=disabled`（默认）时，索引阶段不调用 LLM。Wiki 生成前由 `DeferredEnrichmentService`（`wiki/deferred_enrichment.py`）批量补全缺少 `business_summary` 的实体，随后推理 BusinessFlow 节点，最后刷新受影响实体的 embedding。流程：
@@ -106,6 +141,6 @@ sequenceDiagram
 
 ## MCP 工具（Wiki）
 
-四个 Wiki 工具注册在 **`WIKI_MCP_TOOLS_MANIFEST`** 中：**`get_wiki_page`**、**`list_wiki_pages`**、**`search_wiki`**、**`wiki_export`**。HTTP 组合目录通过 **`GET /api/v1/mcp/tools`** 获取 — 以此为工具名称和 Schema 的权威来源。**`wiki_export`** 至少需要 **Editor** 角色。
+核心 Wiki 工具注册在 **`WIKI_MCP_TOOLS_MANIFEST`** 中：**`get_wiki_page`**、**`list_wiki_pages`**、**`search_wiki`**、**`wiki_export`**。Phase 4 起增加树与域相关能力：**`wiki_get_tree`**、**`wiki_get_related`**、**`wiki_get_domain_overview`**（与上述工具一并以便 Agent 拉取业务视图、关联页与域总览）。HTTP 组合目录通过 **`GET /api/v1/mcp/tools`** 获取 — 以此为工具名称和 Schema 的权威来源。**`wiki_export`** 至少需要 **Editor** 角色。
 
 跨功能分析工具中结合 Wiki 与变更影响分析的，参见 **`analyze_changes`** 的 `impact_scope` 和 `wiki_pr_impact` 模式，详见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)。

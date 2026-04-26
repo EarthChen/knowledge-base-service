@@ -108,14 +108,14 @@ flowchart TB
 
 ### NodeLabel（`store/schema.py`）
 
-`Function`、`Class`、`Module`、`Document`、`BusinessFlow`、`BusinessConcept`、`WikiPage`、`Chunk`。
+`Function`、`Class`、`Module`、`Document`、`BusinessFlow`、`BusinessConcept`、`WikiPage`、`WikiSpace`、`WikiSection`、`Chunk`。
 
 ### EdgeType
 
 | 边类型 | 典型用途 |
 |--------|----------|
 | `CALLS`、`INHERITS`、`IMPORTS`、`CONTAINS`、`USES_TYPE`、`REFERENCES` | 代码结构 |
-| `IMPLEMENTS`、`RELATES_TO`、`PART_OF`、`CONCEPT_IN` | 业务/块层次 |
+| `IMPLEMENTS`、`RELATES_TO`、`PART_OF`、`CONCEPT_IN`、`HAS_CHILD`（Wiki 树，`view_type`） | 业务/块层次 / Wiki 层级 |
 | `PROVIDES_RPC`、`CONSUMES_RPC`、`CROSS_REPO_CALLS` | RPC / 多仓库 |
 | `DEPENDS_ON`、`ACCESSES_TABLE`、`EVENT_PRODUCES`、`EVENT_CONSUMES` | 依赖注入 / 数据 / Kafka |
 | `SOURCE_DOC` | Wiki 来源溯源 |
@@ -125,3 +125,76 @@ flowchart TB
 - **技术栈**：React + **Vite**（`dashboard/`）、TypeScript、Tailwind、React Router。
 - **交付方式**：生产构建输出至 `static/`；FastAPI 挂载 `/assets` 并对 SPA 路由回退至 `index.html`（`search`、`deep-search`、`graph`、`explorer`、`files`（文件浏览器）、`repositories`、`indexing`、`settings`、`businesses`、`documents`、`sync`）。
 - **懒加载**：基于路由的代码分割减小初始 JS 体积；重型可视化组件（图表、图形）仅在导航到对应页面时加载。
+
+## Wiki 生成管道（Phase 0–6）
+
+本节概括 **Wiki 元模型重置**、**代码感知 → RAG → 分层生成 → 跨仓业务 Wiki**、**导出与 Git 推送**、**质量保障** 的后端能力。详细设计与 API 契约见 [superpowers/specs/2026-04-24-wiki-enhancement-design.md](superpowers/specs/2026-04-24-wiki-enhancement-design.md)、[superpowers/specs/2026-04-26-wiki-tree-architecture-design.md](superpowers/specs/2026-04-26-wiki-tree-architecture-design.md)；前端规划见 [superpowers/specs/2026-04-26-wiki-frontend-redesign.md](superpowers/specs/2026-04-26-wiki-frontend-redesign.md)。更细的 Wiki 栈说明见 [wiki-generation-architecture.md](wiki-generation-architecture.md)。
+
+### Wiki 数据模型（FalkorDB）
+
+| 概念 | 说明 |
+|------|------|
+| **WikiSpace** | Wiki 树空间的根层容器节点 |
+| **WikiSection** | 树中的章节/分组节点 |
+| **HAS_CHILD** | 父子边；携带 `view_type`：`business_domain`（业务域视图）或 `code_structure`（代码结构视图） |
+| **WikiPage**（扩展字段） | `path`、`version`、`importance_tier`、`content_hash`、`repositories` 等，用于版本、重要性分层与多仓归属 |
+
+业务侧树查询：**`GET /wiki/tree?business_id=&view=`**（按业务与视图类型拉取 Wiki 树）。
+
+### 端到端流水线
+
+```mermaid
+flowchart LR
+  subgraph P0 [Phase 0 元模型]
+    T[Wiki 树 API]
+  end
+  subgraph P1 [Phase 1 代码感知]
+    SCR[SourceCodeReader]
+    IS[ImportanceScorer]
+    TB[按 tier 的 token 预算]
+  end
+  subgraph P2 [Phase 2 RAG]
+    IDX[CodeChunkIndexer]
+    RET[ChunkRetriever]
+  end
+  subgraph P3 [Phase 3 分层生成]
+    TPB[TieredPromptBuilder]
+    AEP[AsyncEnrichmentPipeline]
+    BDP[BusinessDomainPlanner]
+  end
+  subgraph P4 [Phase 4 跨仓业务 Wiki]
+    CRB[CrossRepoBusinessDomainPlanner]
+    WRG[WikiReferenceGenerator]
+    DOC[DomainOverviewComposer]
+    WS[WikiService.generate_business_wiki]
+  end
+  subgraph P5 [Phase 5 导出]
+    WLC[WikiLinkConverter]
+    BWE[BusinessWikiExporter]
+    OE[ObsidianExporter]
+    ME[MkDocsExporter]
+    GP[GitPublisher]
+  end
+  subgraph P6 [Phase 6 质量]
+    WCA[WikiCoverageAnalyzer]
+    SQG[SuggestedQuestionsGenerator]
+  end
+
+  T --> SCR --> IS --> TB
+  TB --> IDX --> RET
+  RET --> TPB --> AEP
+  BDP --> AEP
+  AEP --> CRB --> WRG --> DOC --> WS
+  WS --> WLC --> BWE
+  BWE --> OE
+  BWE --> ME
+  BWE --> GP
+  WS --> WCA --> SQG
+```
+
+- **Phase 1**：`SourceCodeReader` 从 `Chunk.text`、文件或签名回退读取源码；`ImportanceScorer` 基于图做 **core / standard / skeleton** 重要性；各 tier 有 **token 预算**。
+- **Phase 2**：`CodeChunkIndexer` 批量为 `Chunk` 生成嵌入；`ChunkRetriever` 语义检索代码块；**`POST /wiki/chunks/index`** 触发索引。
+- **Phase 3**：`TieredPromptBuilder` 按重要性 tier 选用不同提示；`AsyncEnrichmentPipeline` 异步推进 **base → enriched → encyclopedia**；`BusinessDomainPlanner` 用 LLM 做模块到业务域分类；全程可跟踪 **EnrichmentLevel**。
+- **Phase 4**：跨仓域规划、从代码图自动生成交叉引用、域总览页组合；**`WikiService.generate_business_wiki()`**；**`POST /wiki/business/generate`**；**`GET /pages/{uid}/references`**。MCP 扩展：**`wiki_get_tree`**、**`wiki_get_related`**、**`wiki_get_domain_overview`**（与既有 Wiki MCP 工具并存，以服务端清单为准）。
+- **Phase 5**：`WikiLinkConverter` 将 `[[wikilink]]` 转为多种格式；`BusinessWikiExporter` 导出扁平文件树；`ObsidianExporter`（含 `.obsidian/`）、`MkDocsExporter`（含 `mkdocs.yml`）；`GitPublisher` 增量 Git 推送与注释回写；**`POST /wiki/export`**（`markdown` / `zip` / `git` / `obsidian` / `mkdocs` 等）。
+- **Phase 6**：`WikiCoverageAnalyzer` 覆盖率、知识缺口与陈旧检测；`SuggestedQuestionsGenerator` 模板化探索问题；**`GET /wiki/coverage-report`**。

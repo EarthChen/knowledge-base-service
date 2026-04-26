@@ -18,6 +18,7 @@ import WikiCoverageCard from "./WikiCoverageCard";
 import WikiBusinessExportPanel from "./WikiBusinessExportPanel";
 import WikiLandingPage from "./WikiLandingPage";
 import WikiLintPanel from "./WikiLintPanel";
+import { getErrorMessage } from "../../utils/errorUtils";
 import WikiSearchBar from "./WikiSearchBar";
 import WikiTreeNav from "./WikiTreeNav";
 import { parseWikiSearchParams, wikiSearchHref } from "./wikiRouteHelpers";
@@ -172,7 +173,7 @@ export default function WikiShell() {
       }
       toast("error", t.wiki.regenerateTimeout);
     } catch (e) {
-      toast("error", e instanceof Error ? e.message : String(e));
+      toast("error", getErrorMessage(e, t.common.unexpectedError));
     } finally {
       setRegeneratePending(false);
     }

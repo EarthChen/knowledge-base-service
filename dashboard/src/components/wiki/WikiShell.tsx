@@ -15,7 +15,7 @@ import GraphInsightsPanel from "./GraphInsightsPanel";
 import WikiContent from "./WikiContent";
 import WikiReferencesPanel from "./WikiReferencesPanel";
 import WikiCoverageCard from "./WikiCoverageCard";
-import WikiExportPanel from "./WikiExportPanel";
+import WikiBusinessExportPanel from "./WikiBusinessExportPanel";
 import WikiLandingPage from "./WikiLandingPage";
 import WikiLintPanel from "./WikiLintPanel";
 import WikiSearchBar from "./WikiSearchBar";
@@ -268,7 +268,7 @@ export default function WikiShell() {
 
         {toolTab === "insights" && <GraphInsightsPanel repository="" />}
 
-        {toolTab === "export" && <WikiExportPanel key={businessId} repository="" />}
+        {toolTab === "export" && <WikiBusinessExportPanel key={businessId} />}
       </div>
 
       {toolTab === "page" && pagePath && pageQuery.data && (

@@ -11,6 +11,7 @@ import {
 import type { WikiPageDetail, WikiSourceLocation } from "../../hooks/wikiTypes";
 import MarkdownRenderer from "./MarkdownRenderer";
 import WikiStaleAlert from "./WikiStaleAlert";
+import WikiSuggestedQuestions from "./WikiSuggestedQuestions";
 import TableOfContents from "./TableOfContents";
 import WikiBreadcrumbs from "./WikiBreadcrumbs";
 import { parseMarkdownHeadings } from "./headingUtils";
@@ -233,6 +234,16 @@ function formatGeneratedAt(iso: string | null | undefined, locale: string): stri
   }
 }
 
+function parseSuggestedQuestions(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function WikiContent({
   repository,
   businessId,
@@ -370,6 +381,8 @@ export default function WikiContent({
             {detail && (
               <CallChainSection repository={repository} detail={detail} wikiLinkParams={wikiLinkParams} />
             )}
+
+            <WikiSuggestedQuestions questions={parseSuggestedQuestions(detail.context?.suggested_questions)} />
           </>
         )}
 

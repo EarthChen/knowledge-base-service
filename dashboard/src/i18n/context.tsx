@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from "react";
 import type { Locale, Translations } from "./types";
 import en from "./en";
 import zh from "./zh";
@@ -46,4 +46,23 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
 export function useI18n() {
   return useContext(I18nContext);
+}
+
+/** For tests: stable locale without reading `localStorage` or `navigator`. */
+export function TestI18nProvider({
+  children,
+  locale = "en",
+}: {
+  children: React.ReactNode;
+  locale?: Locale;
+}) {
+  const value = useMemo<I18nContextType>(
+    () => ({
+      locale,
+      t: MESSAGES[locale],
+      setLocale: () => {},
+    }),
+    [locale],
+  );
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

@@ -29,6 +29,7 @@ from wiki.models import (
     parse_scope,
 )
 from wiki.structure_planner import WikiScopeError, WikiStructurePlanner
+from wiki.tree_builder import WikiTreeBuilder
 
 from log import get_logger
 
@@ -414,7 +415,8 @@ class WikiService:
         )
         domain_mapping = await planner.classify(business_id, all_modules)
 
-        space_uid = f"WikiSpace:{business_id}"
+        tree_builder = WikiTreeBuilder()
+        space_uid = tree_builder.generate_space_uid(business_id)
         await self._wiki_store.upsert_wiki_space(
             business_id=business_id,
             title=f"{business_id} Knowledge Base",
@@ -426,7 +428,7 @@ class WikiService:
         sort_idx = 0
 
         for domain_name, repo_module_pairs in domain_mapping.items():
-            section_uid = f"WikiSection:{business_id}:{domain_name}"
+            section_uid = tree_builder.generate_domain_section_uid(business_id, domain_name)
             await self._wiki_store.upsert_wiki_section(
                 uid=section_uid,
                 title=domain_name,
@@ -459,6 +461,28 @@ class WikiService:
                 domain_name, domain_modules, language=language,
             )
             all_pages.append(overview_page)
+
+        # Build code_structure view (repo-level sections)
+        code_sort_idx = 0
+        for repo_name in sorted(all_modules.keys()):
+            repo_section_uid = tree_builder.generate_repo_section_uid(business_id, repo_name)
+            await self._wiki_store.upsert_wiki_section(
+                uid=repo_section_uid,
+                title=repo_name,
+                description=f"Repository: {repo_name}",
+                section_type="code_module",
+                sort_order=code_sort_idx,
+                auto_generated=True,
+            )
+            await self._wiki_store.add_has_child_edge(
+                parent_uid=space_uid,
+                parent_label="WikiSpace",
+                child_uid=repo_section_uid,
+                child_label="WikiSection",
+                view_type="code_structure",
+                sort_order=code_sort_idx,
+            )
+            code_sort_idx += 1
 
         # Persist business domain overview pages (namespace: business_id)
         if all_pages:

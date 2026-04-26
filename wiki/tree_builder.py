@@ -1,4 +1,4 @@
-"""Builds and manages the wiki tree structure."""
+"""Utility for building wiki tree UIDs and detecting naming conflicts."""
 
 from __future__ import annotations
 
@@ -7,7 +7,37 @@ from collections import defaultdict
 
 
 class WikiTreeBuilder:
-    """Utility for generating wiki tree paths, UIDs, and detecting naming conflicts."""
+    """Helpers for constructing WikiSpace / WikiSection uid conventions."""
+
+    def generate_space_uid(self, business_id: str) -> str:
+        return f"WikiSpace:{business_id}"
+
+    def generate_section_uid(self, business_id: str, section_name: str) -> str:
+        return f"WikiSection:{business_id}:{section_name}"
+
+    def generate_domain_section_uid(self, business_id: str, domain_name: str) -> str:
+        return f"WikiSection:{business_id}:domain:{domain_name}"
+
+    def generate_repo_section_uid(self, business_id: str, repo_name: str) -> str:
+        return f"WikiSection:{business_id}:repo:{repo_name}"
+
+    def compute_content_hash(self, content: str) -> str:
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def detect_naming_conflicts(
+        self, pages: list[dict[str, str]]
+    ) -> dict[str, list[str]]:
+        name_repos: dict[str, set[str]] = defaultdict(set)
+        for p in pages:
+            name = p.get("entity_name", "")
+            repo = p.get("repository", "")
+            if name and repo:
+                name_repos[name].add(repo)
+        return {
+            name: sorted(repos)
+            for name, repos in name_repos.items()
+            if len(repos) > 1
+        }
 
     def generate_page_path(
         self,
@@ -32,28 +62,3 @@ class WikiTreeBuilder:
         if entity_name:
             parts.append(entity_name)
         return "/" + "/".join(parts)
-
-    def generate_section_uid(self, business_id: str, section_title: str) -> str:
-        return f"WikiSection:{business_id}:{section_title}"
-
-    def generate_space_uid(self, business_id: str) -> str:
-        return f"WikiSpace:{business_id}"
-
-    def detect_naming_conflicts(
-        self, pages: list[dict[str, str]]
-    ) -> dict[str, list[str]]:
-        name_to_repos: dict[str, list[str]] = defaultdict(list)
-        for page in pages:
-            entity_name = page.get("entity_name", "")
-            repo = page.get("repository", "")
-            if entity_name and repo:
-                name_to_repos[entity_name].append(repo)
-
-        return {
-            name: repos
-            for name, repos in name_to_repos.items()
-            if len(repos) > 1
-        }
-
-    def compute_content_hash(self, content: str) -> str:
-        return hashlib.sha256(content.encode("utf-8")).hexdigest()

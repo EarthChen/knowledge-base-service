@@ -39,6 +39,12 @@ def test_generate_section_uid():
     assert uid == "WikiSection:default:用户管理"
 
 
+def test_generate_domain_and_repo_section_uid():
+    builder = WikiTreeBuilder()
+    assert builder.generate_domain_section_uid("b", "Dom") == "WikiSection:b:domain:Dom"
+    assert builder.generate_repo_section_uid("b", "svc") == "WikiSection:b:repo:svc"
+
+
 def test_generate_space_uid():
     builder = WikiTreeBuilder()
     uid = builder.generate_space_uid("default")
@@ -64,6 +70,17 @@ def test_no_naming_conflict():
     ]
     conflicts = builder.detect_naming_conflicts(pages)
     assert len(conflicts) == 0
+
+
+def test_detect_naming_conflicts_dedupes_duplicate_repo_entries():
+    builder = WikiTreeBuilder()
+    pages = [
+        {"repository": "repo-a", "entity_name": "OrderService"},
+        {"repository": "repo-a", "entity_name": "OrderService"},
+        {"repository": "repo-b", "entity_name": "OrderService"},
+    ]
+    conflicts = builder.detect_naming_conflicts(pages)
+    assert conflicts == {"OrderService": ["repo-a", "repo-b"]}
 
 
 def test_content_hash():

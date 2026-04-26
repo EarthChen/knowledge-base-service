@@ -365,6 +365,12 @@ class WikiComposer:
             parents = [_display_name(e.target_uid) for e in inherits[:5]]
             lines.append(f"- Inherits from: {', '.join(parents)}")
 
+        if page_data.code_snippets:
+            lines.append(f"\n### Source Code ({page_data.code_snippets[0].origin})")
+            for snippet in page_data.code_snippets:
+                lines.append(f"```\n{snippet.source}\n```")
+                lines.append(f"- File: {snippet.file_path}:{snippet.start_line}-{snippet.end_line}")
+
         return "\n".join(lines)
 
     def _tier3_structural(self, page_data: PageData, page_type: PageType, language: str) -> str:

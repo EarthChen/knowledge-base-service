@@ -5,8 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from config import Settings, get_settings
+from log import get_logger
 from services.settings_crypto import decrypt_value, encrypt_value, mask_value
 from store.settings_store import SettingsStore
+
+log = get_logger(__name__)
 
 SENSITIVE_KEYS = frozenset({
     "falkordb.password",
@@ -60,6 +63,10 @@ def _flatten_settings(settings: Settings) -> dict[str, tuple[str, str]]:
     return result
 
 
+def get_valid_keys() -> frozenset[str]:
+    return frozenset(_flatten_settings(get_settings()).keys())
+
+
 class SettingsService:
     def __init__(self, store: SettingsStore) -> None:
         self._store = store
@@ -85,7 +92,8 @@ class SettingsService:
                     try:
                         raw_val = decrypt_value(raw_val)
                     except Exception:
-                        pass
+                        raw_val = ""
+                        log.warning("failed_to_decrypt_setting", key=key)
                 source = "db"
                 display_val = mask_value(raw_val) if is_sensitive else raw_val
             else:
@@ -108,9 +116,12 @@ class SettingsService:
 
     async def update_settings(self, updates: list[dict[str, str]]) -> None:
         """Update settings. Encrypts sensitive values before storage."""
+        valid = get_valid_keys()
         items = []
         for u in updates:
             key = u["key"]
+            if key not in valid:
+                raise ValueError(f"Unknown setting key: {key}")
             value = u["value"]
             category = u.get("category", "system")
             if key in SENSITIVE_KEYS:

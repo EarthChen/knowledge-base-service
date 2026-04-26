@@ -100,3 +100,11 @@ async def test_get_category(settings_service):
     merged = await settings_service.get_all_merged()
     system_cat = await settings_service.get_category("system")
     assert system_cat == merged.get("system", {})
+
+
+@pytest.mark.asyncio
+async def test_update_unknown_key_raises(settings_service):
+    with pytest.raises(ValueError, match="Unknown setting key"):
+        await settings_service.update_settings(
+            [{"key": "invalid.key.xyz", "value": "v", "category": "system"}],
+        )

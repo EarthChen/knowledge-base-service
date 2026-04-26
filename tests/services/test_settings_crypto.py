@@ -37,3 +37,12 @@ def test_mask_value_long(crypto_mod):
 def test_mask_value_medium(crypto_mod):
     s = "123456789"
     assert crypto_mod.mask_value(s) == "1234***6789"
+
+
+def test_invalid_env_key_raises(monkeypatch):
+    monkeypatch.setenv("SETTINGS_ENCRYPTION_KEY", "not-a-fernet-key")
+    import services.settings_crypto as mod
+
+    importlib.reload(mod)
+    with pytest.raises(ValueError, match="not a valid Fernet key"):
+        mod.encrypt_value("x")

@@ -13,6 +13,7 @@ from httpx import ASGITransport, AsyncClient
 import api.routes.settings_routes as settings_routes_module
 import services.settings_crypto as settings_crypto
 import services.settings_service as settings_service_module
+from auth import Role, TokenInfo
 from config import get_settings
 
 
@@ -46,6 +47,14 @@ def app(tmp_path: Path) -> FastAPI:
     application = FastAPI()
     application.include_router(settings_routes_module.settings_router)
     application.dependency_overrides[settings_routes_module._get_service] = _get_service
+
+    async def _admin_auth_override() -> TokenInfo | None:
+        """Treat requests as admin in this isolated app (env may have real API tokens)."""
+        return TokenInfo(role=Role.ADMIN)
+
+    application.dependency_overrides[
+        settings_routes_module.require_settings_admin
+    ] = _admin_auth_override
     return application
 
 
@@ -118,15 +127,28 @@ class TestUpdateSettings:
         assert host_setting.get("value") == "10.0.0.1"
         assert host_setting.get("source") == "db"
 
+    @pytest.mark.asyncio
+    async def test_batch_unknown_key_returns_400(self, client: AsyncClient) -> None:
+        resp = await client.put(
+            "/api/v1/settings",
+            json={
+                "settings": [
+                    {"key": "not.a.real.setting.key", "value": "x", "category": "system"},
+                ]
+            },
+        )
+        assert resp.status_code == 400
+        assert "Unknown setting key" in resp.json().get("detail", "")
+
 
 class TestDeleteSetting:
     @pytest.mark.asyncio
     async def test_delete_existing(self, client: AsyncClient) -> None:
         await client.put(
             "/api/v1/settings",
-            json={"settings": [{"key": "test.key", "value": "v", "category": "system"}]},
+            json={"settings": [{"key": "host", "value": "192.168.1.1", "category": "system"}]},
         )
-        resp = await client.delete("/api/v1/settings/test.key")
+        resp = await client.delete("/api/v1/settings/host")
         assert resp.status_code == 200
 
     @pytest.mark.asyncio

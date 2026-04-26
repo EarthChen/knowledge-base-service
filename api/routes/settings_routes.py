@@ -7,10 +7,17 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Path
 from pydantic import BaseModel
 
+from auth import Role, require_role
 from services.settings_service import SettingsService
 from store.settings_store import SettingsStore
 
-settings_router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
+require_settings_admin = require_role(Role.ADMIN)
+
+settings_router = APIRouter(
+    prefix="/api/v1/settings",
+    tags=["settings"],
+    dependencies=[Depends(require_settings_admin)],
+)
 
 
 def _get_service() -> SettingsService:
@@ -55,7 +62,10 @@ async def update_settings_batch(
     body: SettingsBatchUpdate,
     service: SettingsService = Depends(_get_service),
 ) -> dict[str, str]:
-    await service.update_settings([s.model_dump() for s in body.settings])
+    try:
+        await service.update_settings([s.model_dump() for s in body.settings])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return {"status": "ok", "updated": str(len(body.settings))}
 
 
@@ -66,7 +76,10 @@ async def update_single_setting(
     category: str = Body("system", embed=True),
     service: SettingsService = Depends(_get_service),
 ) -> dict[str, str]:
-    await service.update_settings([{"key": key, "value": value, "category": category}])
+    try:
+        await service.update_settings([{"key": key, "value": value, "category": category}])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return {"status": "ok", "key": key}
 
 

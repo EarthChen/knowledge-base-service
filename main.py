@@ -113,6 +113,10 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
     kb = await registry.get_service("default")
     app.state.wiki_store = kb.store
 
+    from store.wiki_feedback_store import WikiFeedbackStore
+
+    app.state.wiki_feedback_store = WikiFeedbackStore(kb.store)
+
     async def repository_exists(repo: str) -> bool:
         kb_inner = await registry.get_service("default")
         queries = GraphQueryRepository(kb_inner.store)

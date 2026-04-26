@@ -21,6 +21,7 @@ from config import get_settings
 from log import get_logger
 from query.graph_query import GraphQueryService
 from store.graph_queries import GraphQueryRepository
+from store.wiki_feedback_store import WikiFeedbackStore
 from store.wiki_store import WikiStore
 from git_manager import normalize_repo_name
 from utils.git_utils import looks_like_git_url
@@ -148,6 +149,12 @@ class WikiQaRecordBody(BaseModel):
 
 class WikiLintBody(BaseModel):
     scope: str = Field(default="all", description="Lint filter: 'all' or wiki scope (repo, module:..., class:...).")
+
+
+class WikiPageFeedbackBody(BaseModel):
+    rating: str = Field(..., pattern="^(up|down)$")
+    business_id: str = Field(default="default", min_length=1)
+    comment: str = ""
 
 
 class WikiExportPreviewBody(BaseModel):
@@ -281,6 +288,13 @@ async def get_wiki_lint_service_dep(request: Request) -> WikiLintService:
     if asyncio.iscoroutine(out):
         return await out
     return out  # type: ignore[no-any-return]
+
+
+def get_wiki_feedback_store_dep(request: Request) -> WikiFeedbackStore:
+    st = getattr(request.app.state, "wiki_feedback_store", None)
+    if st is None:
+        raise KbServiceUnavailable("Wiki feedback is not configured")
+    return st
 
 
 async def _maybe_call(fn: Callable[..., Any], *args: Any) -> Any:
@@ -1102,6 +1116,32 @@ async def get_page_suggested_questions(
     gen = SuggestedQuestionsGenerator()
     questions = gen.generate(ctx)
     return {"questions": questions, "page_uid": raw["page_uid"]}
+
+
+@wiki_router.post("/pages/{page_uid:path}/feedback", response_model=None)
+async def post_wiki_page_feedback(
+    page_uid: str,
+    body: WikiPageFeedbackBody,
+    fb: WikiFeedbackStore = Depends(get_wiki_feedback_store_dep),
+) -> dict[str, Any]:
+    """Thumbs up/down feedback for a wiki page (graph persistence)."""
+    decoded = unquote(page_uid)
+    uid = await fb.persist_feedback(
+        page_uid=decoded,
+        rating=body.rating,
+        comment=body.comment,
+    )
+    return {"uid": uid, "page_uid": decoded, "business_id": body.business_id}
+
+
+@wiki_router.get("/pages/{page_uid:path}/feedback/summary", response_model=None)
+async def get_wiki_page_feedback_summary(
+    page_uid: str,
+    fb: WikiFeedbackStore = Depends(get_wiki_feedback_store_dep),
+) -> dict[str, Any]:
+    """Aggregate up/down feedback counts for a wiki page."""
+    decoded = unquote(page_uid)
+    return await fb.get_feedback_summary(decoded)
 
 
 @wiki_router.post("/chunks/index", response_model=None, dependencies=[Depends(require_role(Role.EDITOR))])

@@ -8,6 +8,9 @@ Node types:
   - Module(name, path, language, description; optional indexed_at, repository, commit_sha)
   - Document(title, path, content_hash, section; optional indexed_at, repository, commit_sha)
   - BusinessFlow, BusinessConcept (business semantics)
+  - WikiPage(uid, repository, path, title, content, page_type, generated_at; optional embedding)
+  - WikiSpace(uid, business_id, title, description)
+  - WikiSection(uid, title, description, section_type, sort_order)
   - Chunk(text, parent_uid, parent_label, parent_name, chunk_index, file, start_line,
           end_line, repository, indexed_at; embedding)
 
@@ -19,6 +22,9 @@ Edge types:
   - USES_TYPE(function → type)
   - REFERENCES(doc → code_entity)
   - SOURCE_DOC(wiki page → document used as wiki context)
+  - HAS_CHILD(parent → child, for tree structure)
+  - WIKI_REFERENCES(source_page → target_page, cross-reference)
+  - SOURCE_ENTITY(wiki_page → code_entity)
   - IMPLEMENTS, RELATES_TO, PART_OF, CONCEPT_IN (business semantics; PART_OF also Chunk→parent)
   - PROVIDES_RPC(provider class → module)
   - CONSUMES_RPC(consumer function → module)
@@ -49,6 +55,8 @@ class NodeLabel(StrEnum):
     BUSINESS_FLOW = "BusinessFlow"
     BUSINESS_CONCEPT = "BusinessConcept"
     WIKI_PAGE = "WikiPage"
+    WIKI_SPACE = "WikiSpace"
+    WIKI_SECTION = "WikiSection"
     CHUNK = "Chunk"
 
 
@@ -71,6 +79,9 @@ class EdgeType(StrEnum):
     EVENT_PRODUCES = "EVENT_PRODUCES"
     EVENT_CONSUMES = "EVENT_CONSUMES"
     SOURCE_DOC = "SOURCE_DOC"
+    HAS_CHILD = "HAS_CHILD"
+    WIKI_REFERENCES = "WIKI_REFERENCES"
+    SOURCE_ENTITY = "SOURCE_ENTITY"
 
 
 @dataclass

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BookOpen,
@@ -9,9 +9,16 @@ import {
   Loader2,
 } from "lucide-react";
 import type { WikiPageDetail, WikiSourceLocation } from "../../hooks/wikiTypes";
+import { useWikiAnnotations } from "../../hooks/useWikiAnnotations";
 import MarkdownRenderer from "./MarkdownRenderer";
+import WikiAnnotationLayer from "./WikiAnnotationLayer";
+import WikiAnnotationSidebar from "./WikiAnnotationSidebar";
+import WikiDiffViewer from "./WikiDiffViewer";
+import WikiEditButton from "./WikiEditButton";
 import WikiStaleAlert from "./WikiStaleAlert";
 import WikiSuggestedQuestions from "./WikiSuggestedQuestions";
+import WikiVersionBadge from "./WikiVersionBadge";
+import WikiVersionHistory from "./WikiVersionHistory";
 import TableOfContents from "./TableOfContents";
 import WikiBreadcrumbs from "./WikiBreadcrumbs";
 import { parseMarkdownHeadings } from "./headingUtils";
@@ -245,6 +252,78 @@ function parseSuggestedQuestions(raw: string | undefined): string[] {
   }
 }
 
+function WikiMobileTocBar({ content, heading }: { content: string; heading: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="shrink-0 border-b border-gray-100 px-5 py-3 dark:border-gray-700 lg:hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50/90 px-3 py-2 text-left text-sm font-medium text-gray-800 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800/70 dark:text-gray-100 dark:hover:bg-gray-800"
+      >
+        {heading}
+        {open ? (
+          <ChevronUp size={18} className="shrink-0 text-gray-500 dark:text-gray-400" aria-hidden />
+        ) : (
+          <ChevronDown size={18} className="shrink-0 text-gray-500 dark:text-gray-400" aria-hidden />
+        )}
+      </button>
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="border-t border-gray-100 pt-3 dark:border-gray-700">
+            <TableOfContents content={content} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WikiVersionPicker({
+  pageUid,
+  version,
+  generatedAt,
+}: {
+  pageUid: string;
+  version: string;
+  generatedAt: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [diffVersions, setDiffVersions] = useState<{ from: number; to: number } | null>(null);
+
+  return (
+    <div className="relative inline-block align-middle">
+      <WikiVersionBadge
+        version={Number(version)}
+        generatedAt={generatedAt}
+        onClick={pageUid ? () => setOpen((o) => !o) : undefined}
+      />
+      {open && pageUid ? (
+        <div className="absolute left-0 top-full z-50 mt-2 max-h-[min(70vh,520px)] w-[min(calc(100vw-2rem),36rem)] overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+          <WikiVersionHistory
+            pageUid={pageUid}
+            onSelectVersions={(from, to) => setDiffVersions({ from, to })}
+          />
+          {diffVersions ? (
+            <div className="mt-4">
+              <WikiDiffViewer
+                pageUid={pageUid}
+                fromVersion={diffVersions.from}
+                toVersion={diffVersions.to}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function WikiContent({
   repository,
   businessId,
@@ -264,11 +343,8 @@ export default function WikiContent({
 
   const tocItems = detail?.content ? parseMarkdownHeadings(detail.content) : [];
   const showToc = tocItems.length >= 3;
-  const [mobileTocOpen, setMobileTocOpen] = useState(false);
-
-  useEffect(() => {
-    setMobileTocOpen(false);
-  }, [pagePath, repository]);
+  const pageUid = detail?.context?.uid?.trim() ?? "";
+  const annotationsQuery = useWikiAnnotations(pageUid);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
@@ -304,6 +380,21 @@ export default function WikiContent({
                 {detail.context.importance_tier}
               </span>
             )}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {detail?.context?.version ? (
+                <WikiVersionPicker
+                  key={`${pagePath}:${pageUid}`}
+                  pageUid={pageUid}
+                  version={detail.context.version}
+                  generatedAt={detail?.generated_at || ""}
+                />
+              ) : null}
+              <WikiEditButton
+                gitRemoteUrl={detail?.context?.git_remote_url}
+                branch={detail?.context?.git_branch}
+                exportPath={detail?.context?.export_path}
+              />
+            </div>
           </div>
         </div>
       </header>
@@ -315,34 +406,13 @@ export default function WikiContent({
       )}
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:items-start">
-        {showToc && detail?.content && (
-          <div className="shrink-0 border-b border-gray-100 px-5 py-3 dark:border-gray-700 lg:hidden">
-            <button
-              type="button"
-              onClick={() => setMobileTocOpen((o) => !o)}
-              aria-expanded={mobileTocOpen}
-              className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-200 bg-gray-50/90 px-3 py-2 text-left text-sm font-medium text-gray-800 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800/70 dark:text-gray-100 dark:hover:bg-gray-800"
-            >
-              {t.wiki.tocHeading}
-              {mobileTocOpen ? (
-                <ChevronUp size={18} className="shrink-0 text-gray-500 dark:text-gray-400" aria-hidden />
-              ) : (
-                <ChevronDown size={18} className="shrink-0 text-gray-500 dark:text-gray-400" aria-hidden />
-              )}
-            </button>
-            <div
-              className={`grid transition-[grid-template-rows] duration-200 ease-out ${
-                mobileTocOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-              }`}
-            >
-              <div className="min-h-0 overflow-hidden">
-                <div className="border-t border-gray-100 pt-3 dark:border-gray-700">
-                  <TableOfContents content={detail.content} />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {showToc && detail?.content ? (
+          <WikiMobileTocBar
+            key={`${pagePath}\0${repository}`}
+            content={detail.content}
+            heading={t.wiki.tocHeading}
+          />
+        ) : null}
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
         {isLoading && (
           <div className="animate-pulse space-y-3">
@@ -360,11 +430,46 @@ export default function WikiContent({
 
         {!isLoading && !error && detail && (
           <>
-            <MarkdownRenderer
-              content={detail.content}
-              businessId={businessId}
-              wikiLinkParams={wikiLinkParams}
-            />
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+              <div className="min-w-0 flex-1">
+                {pageUid ? (
+                  <WikiAnnotationLayer
+                    onAddAnnotation={({ start, end, comment }) => {
+                      annotationsQuery.create.mutate({
+                        text_range_start: start,
+                        text_range_end: end,
+                        comment,
+                        author: "viewer",
+                      });
+                    }}
+                  >
+                    <MarkdownRenderer
+                      content={detail.content}
+                      businessId={businessId}
+                      wikiLinkParams={wikiLinkParams}
+                    />
+                  </WikiAnnotationLayer>
+                ) : (
+                  <MarkdownRenderer
+                    content={detail.content}
+                    businessId={businessId}
+                    wikiLinkParams={wikiLinkParams}
+                  />
+                )}
+              </div>
+              {pageUid ? (
+                <aside className="shrink-0 rounded-xl border border-gray-100 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/40 lg:w-72">
+                  <h4 className="border-b border-gray-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:border-gray-800 dark:text-gray-400">
+                    Annotations
+                  </h4>
+                  <WikiAnnotationSidebar
+                    annotations={annotationsQuery.data ?? []}
+                    onDelete={(id) => annotationsQuery.remove.mutate(id)}
+                    isDeleting={annotationsQuery.remove.isPending}
+                  />
+                </aside>
+              ) : null}
+            </div>
 
             {(detail.source_locations?.length ?? 0) > 0 && (
               <section className="mt-10 border-t border-gray-100 pt-8">

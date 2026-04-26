@@ -1,0 +1,55 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import WikiAnnotationLayer from "../WikiAnnotationLayer";
+
+describe("WikiAnnotationLayer", () => {
+  beforeEach(() => {
+    window.getSelection()?.removeAllRanges();
+  });
+
+  afterEach(() => {
+    window.getSelection()?.removeAllRanges();
+  });
+
+  it("renders children", () => {
+    render(
+      <WikiAnnotationLayer onAddAnnotation={vi.fn()}>
+        <div data-testid="child">Hello world</div>
+      </WikiAnnotationLayer>,
+    );
+    expect(screen.getByTestId("child")).toBeInTheDocument();
+  });
+
+  it("calls onAddAnnotation when submitting after selection", () => {
+    const onAdd = vi.fn();
+    const { container } = render(
+      <WikiAnnotationLayer onAddAnnotation={onAdd}>
+        <p id="p">Select this text</p>
+      </WikiAnnotationLayer>,
+    );
+
+    const p = container.querySelector("#p")!;
+    const range = document.createRange();
+    range.selectNodeContents(p);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const layer = container.firstElementChild!;
+    fireEvent.mouseUp(layer);
+
+    expect(screen.getByPlaceholderText(/write a comment/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/write a comment/i), {
+      target: { value: "note" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+    expect(onAdd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        comment: "note",
+        start: 0,
+        end: expect.any(Number),
+      }),
+    );
+    expect(onAdd.mock.calls[0][0].end).toBeGreaterThan(0);
+  });
+});

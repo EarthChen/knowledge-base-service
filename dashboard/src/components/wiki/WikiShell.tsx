@@ -25,7 +25,11 @@ import { businessWikiGenerate, wikiTaskStatus } from "../../api/client";
 import { useToast } from "../Toast";
 import { useBusiness } from "../../contexts/BusinessContext";
 import { useI18n } from "../../i18n/context";
+import type { WikiEvent, WikiEventType } from "../../hooks/wikiTypes";
+import { useWikiEvents } from "../../hooks/useWikiEvents";
 import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
+import WikiGenerationProgress from "./WikiGenerationProgress";
+import WikiUpdateNotification from "./WikiUpdateNotification";
 
 type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights";
 
@@ -69,6 +73,8 @@ export default function WikiShell() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { locale, t } = useI18n();
+  const [updateNotification, setUpdateNotification] = useState<string | null>(null);
+  const [generationStatus, setGenerationStatus] = useState<WikiEventType | null>(null);
   const [regeneratePending, setRegeneratePending] = useState(false);
   const [refsPanelOpen, setRefsPanelOpen] = useState(() => {
     try {
@@ -89,6 +95,41 @@ export default function WikiShell() {
       return next;
     });
   }, []);
+
+  const handleWikiEvent = useCallback(
+    (event: WikiEvent) => {
+      if (event.type === "wiki:page_updated" && event.page_path) {
+        setUpdateNotification(event.page_path);
+      } else if (
+        event.type === "wiki:generation_started" ||
+        event.type === "wiki:generation_completed" ||
+        event.type === "wiki:generation_failed"
+      ) {
+        setGenerationStatus(event.type);
+        if (event.type === "wiki:generation_completed") {
+          queryClient.invalidateQueries({ queryKey: ["wiki"] });
+        }
+      }
+    },
+    [queryClient],
+  );
+
+  useWikiEvents(businessId.trim(), handleWikiEvent);
+
+  const setViewType = useCallback(
+    (v: typeof viewType) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (v === "business_domain") next.delete("view");
+          else next.set("view", v);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   const pendingQuery = searchParams.get("q") ?? "";
   if (pendingQuery.trim()) {
@@ -148,21 +189,6 @@ export default function WikiShell() {
       { replace: true },
     );
   };
-
-  const setViewType = useCallback(
-    (v: typeof viewType) => {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          if (v === "business_domain") next.delete("view");
-          else next.set("view", v);
-          return next;
-        },
-        { replace: true },
-      );
-    },
-    [setSearchParams],
-  );
 
   const contentError =
     pagePath && pageQuery.isError
@@ -242,6 +268,18 @@ export default function WikiShell() {
             </button>
           </div>
         </div>
+
+        {updateNotification && (
+          <WikiUpdateNotification
+            pagePath={updateNotification}
+            onRefresh={() => {
+              queryClient.invalidateQueries({ queryKey: ["wiki"] });
+              setUpdateNotification(null);
+            }}
+            onDismiss={() => setUpdateNotification(null)}
+          />
+        )}
+        <WikiGenerationProgress status={generationStatus} />
 
         {toolTab === "page" && !pagePath && (
           <WikiLandingPage businessId={businessId} viewType={viewType} />

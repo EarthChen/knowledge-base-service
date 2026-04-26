@@ -9,9 +9,12 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from config import WikiConfig
+from log import get_logger
 from store.wiki_store import WikiStore
 from wiki.cache import WikiCache
 from wiki.models import WikiPage, parse_scope
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -427,7 +430,13 @@ class WikiLintService:
                     status="detected",
                 )
             except Exception:
-                pass
+                log.warning(
+                    "contradiction_upsert_failed",
+                    page_uid_a=rec.page_uid_a,
+                    page_uid_b=rec.page_uid_b,
+                    exc_info=True,
+                )
+                continue
             found.append(
                 LintIssue(
                     severity="warning",

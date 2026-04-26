@@ -934,19 +934,19 @@ class WikiService:
                     old_claims = await extract_claims(self._llm, old_c, language) if old_c.strip() else []
                     new_claims = await extract_claims(self._llm, p.content, language)
                     pairs = ClaimTracker.find_supersedions(old_claims, new_claims)
-                    v = await self._wiki_store.next_claim_version(wiki_uid)
+                    next_v = await self._wiki_store.next_claim_version(wiki_uid)
                     by_text: dict[str, str] = {}
-                    for i, cl in enumerate(new_claims):
-                        cuid = f"WikiClaimHistory:{wiki_uid}:{v + i}"
-                        await self._wiki_store.create_wiki_claim_history(
-                            cuid,
+                    for cl in new_claims:
+                        proposed = f"WikiClaimHistory:{wiki_uid}:{next_v}"
+                        cuid = await self._wiki_store.find_or_create_wiki_claim(
                             wiki_uid,
                             cl.claim_text,
-                            v + i,
-                            superseded_by=None,
+                            next_v,
+                            new_claim_uid=proposed,
                             created_at=now_ts,
-                            superseded_at=None,
                         )
+                        if cuid == proposed:
+                            next_v += 1
                         by_text[cl.claim_text.strip()] = cuid
                     for pr in pairs:
                         old_u = await self._wiki_store.find_wiki_claim_by_text(

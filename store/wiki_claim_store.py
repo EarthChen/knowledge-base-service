@@ -79,20 +79,46 @@ class WikiClaimStoreMixin:
         page_uid: str,
         claim_text: str,
     ) -> str | None:
+        text = claim_text.strip()
         q = (
             "MATCH (p:WikiPage {uid: $page_uid})-[:HAS_CLAIM]->(h:WikiClaimHistory) "
-            "WHERE h.claim_text = $text AND h.superseded_by IS NULL "
+            "WHERE trim(h.claim_text) = $text AND h.superseded_by IS NULL "
             "RETURN h.uid AS uid LIMIT 1"
         )
         res = await self._store.execute_query(
             q,
-            {"page_uid": page_uid, "text": claim_text},
+            {"page_uid": page_uid, "text": text},
         )
         rows = getattr(res, "data", None) or []
         if not rows:
             return None
         u = rows[0].get("uid")
         return str(u) if u else None
+
+    async def find_or_create_wiki_claim(
+        self,
+        page_uid: str,
+        claim_text: str,
+        version: int,
+        *,
+        new_claim_uid: str,
+        created_at: int,
+    ) -> str:
+        """Return an existing active claim uid when text matches, else create and return new uid."""
+        text = claim_text.strip()
+        existing = await self.find_wiki_claim_by_text(page_uid, text)
+        if existing:
+            return existing
+        await self.create_wiki_claim_history(
+            new_claim_uid,
+            page_uid,
+            text,
+            version,
+            superseded_by=None,
+            created_at=created_at,
+            superseded_at=None,
+        )
+        return new_claim_uid
 
     async def next_claim_version(self, page_uid: str) -> int:
         q = (

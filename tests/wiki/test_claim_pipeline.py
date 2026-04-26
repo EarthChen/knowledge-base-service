@@ -46,7 +46,37 @@ async def test_supersession_creates_claim_history(monkeypatch: pytest.MonkeyPatc
     wiki_store = MagicMock()
     wiki_store.next_claim_version = AsyncMock(return_value=1)
     wiki_store.create_wiki_claim_history = AsyncMock()
-    wiki_store.find_wiki_claim_by_text = AsyncMock(return_value="old-uid")
+
+    async def _find_by_text(page_uid: str, text: str) -> str | None:
+        if (text or "").strip() == "X":
+            return "old-uid"
+        return None
+
+    async def _find_or_create(
+        page_uid: str,
+        claim_text: str,
+        version: int,
+        *,
+        new_claim_uid: str,
+        created_at: int,
+    ) -> str:
+        t = (claim_text or "").strip()
+        existing = await _find_by_text(page_uid, t)
+        if existing:
+            return existing
+        await wiki_store.create_wiki_claim_history(
+            new_claim_uid,
+            page_uid,
+            t,
+            version,
+            superseded_by=None,
+            created_at=created_at,
+            superseded_at=None,
+        )
+        return new_claim_uid
+
+    wiki_store.find_wiki_claim_by_text = AsyncMock(side_effect=_find_by_text)
+    wiki_store.find_or_create_wiki_claim = AsyncMock(side_effect=_find_or_create)
     wiki_store.set_wiki_claim_superseded = AsyncMock()
     wiki_store.set_wiki_page_supersedes = AsyncMock()
     mgen = MagicMock()

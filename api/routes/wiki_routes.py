@@ -47,6 +47,9 @@ log = get_logger(__name__)
 
 WIKI_TASK_TTL_SEC = 30 * 60
 
+_GLOBAL_SEARCH_MAX_REPOS = 50
+_GLOBAL_SEARCH_CONCURRENCY = 10
+
 
 class WikiTaskRegistry:
     """In-memory wiki generation tasks. Entries expire after WIKI_TASK_TTL_SEC for bounded memory use."""
@@ -824,23 +827,26 @@ async def wiki_search_global(
             "partial_errors": [],
         }
 
+    repo_names = repo_names[:_GLOBAL_SEARCH_MAX_REPOS]
     n = len(repo_names)
     per_repo_limit = max(5, min(40, (body.limit * 2 + n - 1) // n))
+    sem = asyncio.Semaphore(_GLOBAL_SEARCH_CONCURRENCY)
 
     async def _search_repo(repo: str) -> tuple[str, SearchResponse | None, str | None]:
-        try:
-            resp = await search_svc.search(
-                repository=repo,
-                query=body.query,
-                mode=body.mode,
-                limit=per_repo_limit,
-                min_score=body.min_score,
-                scope=None,
-            )
-            return repo, resp, None
-        except Exception:  # noqa: BLE001 — aggregate per-repo failures
-            log.warning("wiki_global_search_repo_failed", repository=repo, exc_info=True)
-            return repo, None, "Search temporarily unavailable for this repository."
+        async with sem:
+            try:
+                resp = await search_svc.search(
+                    repository=repo,
+                    query=body.query,
+                    mode=body.mode,
+                    limit=per_repo_limit,
+                    min_score=body.min_score,
+                    scope=None,
+                )
+                return repo, resp, None
+            except Exception:  # noqa: BLE001 — aggregate per-repo failures
+                log.warning("wiki_global_search_repo_failed", repository=repo, exc_info=True)
+                return repo, None, "Search temporarily unavailable for this repository."
 
     raw = await asyncio.gather(*[_search_repo(r) for r in repo_names])
 
@@ -1421,11 +1427,15 @@ async def wiki_enrich_trigger(
 async def wiki_list_pages(
     repository: str,
     scope: str | None = None,
+    skip: int = Query(0, ge=0, description="Offset for paginated page listing"),
+    limit: int = Query(50, ge=1, le=200, description="Max page rows per request"),
     store: Any = Depends(get_wiki_store_dep),
 ) -> dict[str, Any]:
     # ``scope`` is kept for OpenAPI/backward compatibility; listing reads all persisted pages.
     _ = scope
-    result = await WikiStore(store).list_all_wiki_pages(repository)
+    result, total = await WikiStore(store).list_wiki_pages_paginated(
+        repository, skip=skip, limit=limit,
+    )
     pages = [
         {
             "path": r["path"],
@@ -1434,7 +1444,7 @@ async def wiki_list_pages(
         }
         for r in result.data
     ]
-    return {"pages": pages, "total": len(pages)}
+    return {"pages": pages, "total": total}
 
 
 @wiki_router.get("/{repository}/pages/{wiki_page_path:path}", response_model=None)

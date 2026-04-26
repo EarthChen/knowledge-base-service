@@ -310,28 +310,35 @@ class TestWikiConcurrency:
 class TestWikiPagesGraphBacked:
     def test_list_pages_returns_persisted_rows(self) -> None:
         store = MagicMock()
-        store.execute_query = AsyncMock(
-            return_value=QueryResultWrapper(
-                data=[
-                    {
-                        "path": "README.md",
-                        "title": "Repo",
-                        "page_type": "repo_overview",
-                    },
-                    {
-                        "path": "modules/src_foo.md",
-                        "title": "Mod",
-                        "page_type": "module_overview",
-                    },
-                    {
-                        "path": "classes/Bar.md",
-                        "title": "Bar",
-                        "page_type": "class_detail",
-                    },
-                ],
-                raw=[],
-            )
-        )
+        _rows = [
+            {
+                "path": "README.md",
+                "title": "Repo",
+                "page_type": "repo_overview",
+            },
+            {
+                "path": "modules/src_foo.md",
+                "title": "Mod",
+                "page_type": "module_overview",
+            },
+            {
+                "path": "classes/Bar.md",
+                "title": "Bar",
+                "page_type": "class_detail",
+            },
+        ]
+
+        async def list_pages_cypher(
+            cypher: str, params: dict | None = None,
+        ) -> QueryResultWrapper:
+            p = params or {}
+            if "count(" in cypher and "total" in cypher.lower():
+                return QueryResultWrapper(data=[{"total": 3}], raw=[])
+            if "SKIP" in cypher.upper() and "LIMIT" in cypher.upper():
+                return QueryResultWrapper(data=_rows, raw=[])
+            return QueryResultWrapper(data=[], raw=[])
+
+        store.execute_query = AsyncMock(side_effect=list_pages_cypher)
         _, client, mock_svc = _make_app(wiki_store=store)
         r = client.get("/api/v1/wiki/my-repo/pages")
         assert r.status_code == 200
@@ -341,10 +348,32 @@ class TestWikiPagesGraphBacked:
         assert body["pages"][1]["scope"] == "module:src_foo"
         assert body["pages"][2]["scope"] == "class:Bar"
         mock_svc.generate.assert_not_called()
-        store.execute_query.assert_awaited_once()
-        cypher, params = store.execute_query.await_args.args
-        assert "WikiPage" in cypher
-        assert params == {"repo": "my-repo"}
+        assert store.execute_query.await_count == 2
+        all_params = [c.args[1] for c in store.execute_query.await_args_list if len(c.args) > 1]
+        assert any(p.get("skip") == 0 and p.get("limit") == 50 for p in all_params)
+
+    def test_list_pages_pagination_skip_limit(self) -> None:
+        store = MagicMock()
+
+        async def list_pages_paged(cypher: str, params: dict | None = None) -> QueryResultWrapper:
+            p = params or {}
+            if "count(" in cypher:
+                return QueryResultWrapper(data=[{"total": 99}], raw=[])
+            if "SKIP" in cypher.upper():
+                assert p.get("skip") == 3
+                assert p.get("limit") == 10
+                return QueryResultWrapper(
+                    data=[{"path": "only.md", "title": "One", "page_type": "module_overview"}],
+                    raw=[],
+                )
+            return QueryResultWrapper(data=[], raw=[])
+
+        store.execute_query = AsyncMock(side_effect=list_pages_paged)
+        _, client, _ = _make_app(wiki_store=store)
+        r = client.get("/api/v1/wiki/corp/pages?skip=3&limit=10")
+        assert r.status_code == 200
+        assert r.json()["total"] == 99
+        assert len(r.json()["pages"]) == 1
 
     def test_list_pages_503_when_store_missing(self) -> None:
         _, client, _ = _make_app(wiki_store=None)

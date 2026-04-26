@@ -174,6 +174,24 @@ class WikiStore:
         )
         return await self._store.execute_query(q, {"repo": repo})
 
+    async def list_wiki_pages_paginated(
+        self, repository: str, skip: int = 0, limit: int = 50,
+    ) -> tuple[QueryResultWrapper, int]:
+        count_q = "MATCH (wp:WikiPage {repository: $repo}) RETURN count(wp) AS total"
+        count_result = await self._store.execute_query(count_q, {"repo": repository})
+        total = int(count_result.data[0]["total"]) if count_result.data else 0
+        q = (
+            "MATCH (wp:WikiPage {repository: $repo}) "
+            "RETURN wp.path AS path, wp.title AS title, wp.page_type AS page_type "
+            "ORDER BY wp.path "
+            "SKIP $skip "
+            "LIMIT $limit"
+        )
+        result = await self._store.execute_query(
+            q, {"repo": repository, "skip": skip, "limit": limit},
+        )
+        return result, total
+
     async def list_wiki_pages_module_prefix(self, repo: str, prefix: str) -> QueryResultWrapper:
         q = (
             "MATCH (wp:WikiPage {repository: $repo}) "

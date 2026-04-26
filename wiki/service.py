@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
@@ -396,7 +397,14 @@ class WikiService:
 
         repos = await self._wiki_store.list_indexed_repositories()
         if not repos:
-            return {"business_id": business_id, "domains": [], "pages_count": 0, "references_count": 0, "repositories": []}
+            return {
+                "business_id": business_id,
+                "domains": [],
+                "pages_count": 0,
+                "references_count": 0,
+                "repositories": [],
+                "partial_errors": [],
+            }
 
         all_modules: dict[str, list[GraphNode]] = {}
         for r in repos:
@@ -489,6 +497,7 @@ class WikiService:
             await self._persist_pages_to_graph(business_id, all_pages)
 
         # Generate per-repo wiki pages (creates WikiPages + SOURCE_ENTITY edges)
+        partial_errors: list[dict[str, str]] = []
         for repo_name in all_modules:
             try:
                 await self.generate(
@@ -499,8 +508,9 @@ class WikiService:
                     language,
                     llm_provider,
                 )
-            except Exception:
+            except Exception as exc:
                 log.warning("business_wiki_repo_failed", repository=repo_name, exc_info=True)
+                partial_errors.append({"repository": repo_name, "error": str(exc)})
 
         ref_count = 0
         try:
@@ -521,6 +531,7 @@ class WikiService:
             "pages_count": len(all_pages),
             "references_count": ref_count,
             "repositories": [r["repository"] for r in repos],
+            "partial_errors": partial_errors,
         }
 
     def _find_module_node(
@@ -693,26 +704,25 @@ class WikiService:
             log.warning("wiki_page_persist_failed", repository=repository, error=str(exc))
             return
 
-        for pd in page_dicts:
-            entity_uid = pd.get("entity_uid")
-            if entity_uid:
-                wiki_uid = f"WikiPage:{repository}:{pd['path']}"
-                se_q = (
-                    "MATCH (wp:WikiPage {uid: $wiki_uid}) "
-                    "MATCH (e {uid: $entity_uid}) "
-                    "MERGE (wp)-[:SOURCE_ENTITY]->(e)"
-                )
-                try:
-                    await self._store.execute_query(
-                        se_q, {"wiki_uid": wiki_uid, "entity_uid": entity_uid},
-                    )
-                except Exception as exc:
-                    log.warning(
-                        "source_entity_edge_failed",
-                        wiki_uid=wiki_uid,
-                        entity_uid=entity_uid,
-                        error=str(exc),
-                    )
+        pairs: list[dict[str, str]] = [
+            {
+                "wiki_uid": f"WikiPage:{repository}:{pd['path']}",
+                "entity_uid": pd["entity_uid"],
+            }
+            for pd in page_dicts
+            if pd.get("entity_uid")
+        ]
+        if pairs:
+            batch_q = (
+                "UNWIND $pairs AS pair "
+                "MATCH (wp:WikiPage {uid: pair.wiki_uid}) "
+                "MATCH (e {uid: pair.entity_uid}) "
+                "MERGE (wp)-[:SOURCE_ENTITY]->(e)"
+            )
+            try:
+                await self._store.execute_query(batch_q, {"pairs": pairs})
+            except Exception as exc:
+                log.warning("source_entity_batch_failed", repository=repository, error=str(exc))
 
         try:
             emb_gen = EmbeddingGenerator.shared(config=get_settings().embedding)
@@ -723,9 +733,22 @@ class WikiService:
                 for d in page_dicts
             ]
             embeddings = await emb_gen.generate_for_docs(items)
-            for page_dict, embedding in zip(page_dicts, embeddings, strict=True):
-                uid = f"WikiPage:{repository}:{page_dict['path']}"
-                await self._store.set_node_embedding(uid, NodeLabel.WIKI_PAGE, embedding)
+            emb_items: list[tuple[str, NodeLabel, list[float]]] = [
+                (
+                    f"WikiPage:{repository}:{page_dict['path']}",
+                    NodeLabel.WIKI_PAGE,
+                    embedding,
+                )
+                for page_dict, embedding in zip(page_dicts, embeddings, strict=True)
+            ]
+            _batch = getattr(self._store, "batch_set_node_embeddings", None)
+            _f = getattr(_batch, "__func__", _batch) if _batch is not None else None
+            if _f is not None and inspect.iscoroutinefunction(_f):
+                await self._store.batch_set_node_embeddings(emb_items)
+            else:
+                for page_dict, embedding in zip(page_dicts, embeddings, strict=True):
+                    uid = f"WikiPage:{repository}:{page_dict['path']}"
+                    await self._store.set_node_embedding(uid, NodeLabel.WIKI_PAGE, embedding)
         except Exception as exc:
             log.warning("wiki_page_embedding_failed", repository=repository, error=str(exc))
 

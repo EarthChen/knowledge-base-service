@@ -197,6 +197,14 @@ class WikiConfig(BaseModel):
     stale_detection_enabled: bool = True
     suggested_questions_enabled: bool = True
 
+    # Phase 1: Code-aware generation
+    code_budget_enabled: bool = True
+    core_code_budget: int = 20000
+    standard_code_budget: int = 8000
+    skeleton_code_budget: int = 1000
+    importance_core_percentile: int = 80
+    importance_standard_percentile: int = 30
+
 
 class GitConfig(BaseModel):
     """Git repository management for remote indexing.

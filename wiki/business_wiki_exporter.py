@@ -8,6 +8,8 @@ from typing import Any
 
 from wiki.wikilink_converter import WikiLinkConverter
 
+_VALID_MIN_TIERS = frozenset({"skeleton", "standard", "core"})
+
 
 @dataclass
 class ExportFile:
@@ -51,6 +53,11 @@ class BusinessWikiExporter:
         min_tier: str = "standard",
     ) -> ExportPlan:
         """Build an export plan by querying the wiki tree and pages."""
+        if min_tier not in _VALID_MIN_TIERS:
+            raise ValueError(
+                f"Invalid min_tier '{min_tier}', must be one of {sorted(_VALID_MIN_TIERS)}"
+            )
+
         plan = ExportPlan(business_id=business_id, view=view)
         if self._store is None:
             return plan
@@ -65,7 +72,6 @@ class BusinessWikiExporter:
         pages = await self._store.get_wiki_pages_for_business(
             business_id, min_tier=min_tier
         )
-        plan.total_pages = len(pages)
 
         domain_names: list[str] = []
         for node in tree_nodes:
@@ -75,6 +81,7 @@ class BusinessWikiExporter:
         plan.domain_names = domain_names
 
         page_files = self._map_pages_to_files(pages)
+        plan.total_pages = len(page_files)
         plan.files.extend(page_files)
 
         readme = self.generate_readme(business_id, domain_names)
@@ -85,7 +92,7 @@ class BusinessWikiExporter:
         ))
 
         domain_index = self.generate_domain_index(
-            self._group_pages_by_domain(pages)
+            self._group_pages_by_domain(page_files)
         )
         plan.files.append(ExportFile(
             relative_path="_index/by-domain.md",
@@ -94,6 +101,18 @@ class BusinessWikiExporter:
         ))
 
         return plan
+
+    @staticmethod
+    def _wiki_path_to_rel(wiki_path: str, page_type: str) -> str:
+        """Map a wiki path to an exported relative file path."""
+        if page_type == "domain_overview" or wiki_path.endswith("/_overview"):
+            dir_part = (
+                wiki_path.rsplit("/_overview", 1)[0]
+                if "/_overview" in wiki_path
+                else wiki_path
+            )
+            return f"{dir_part}/README.md"
+        return f"{wiki_path}.md"
 
     def _map_pages_to_files(self, pages: list[dict[str, Any]]) -> list[ExportFile]:
         """Map WikiPage records to ExportFile instances."""
@@ -105,12 +124,7 @@ class BusinessWikiExporter:
             page_type = page.get("page_type", "")
             content = page.get("content", "")
 
-            if page_type == "domain_overview" or wiki_path.endswith("/_overview"):
-                dir_part = wiki_path.rsplit("/_overview", 1)[0] if "/_overview" in wiki_path else wiki_path
-                rel_path = f"{dir_part}/README.md"
-            else:
-                rel_path = f"{wiki_path}.md"
-
+            rel_path = self._wiki_path_to_rel(wiki_path, page_type)
             converted = self._convert_content(content, wiki_path)
             files.append(ExportFile(
                 relative_path=rel_path,
@@ -125,16 +139,19 @@ class BusinessWikiExporter:
             return self._link_converter.to_obsidian(content)
         return self._link_converter.to_markdown(content, current_path=f"/{current_path}")
 
-    def _group_pages_by_domain(self, pages: list[dict[str, Any]]) -> dict[str, list[str]]:
-        """Group page filenames by their top-level domain directory."""
+    @staticmethod
+    def _group_pages_by_domain(
+        page_files: list[ExportFile],
+    ) -> dict[str, list[str]]:
+        """Group exported file names by their top-level domain directory."""
         groups: dict[str, list[str]] = {}
-        for page in pages:
-            path = page.get("path", "").strip("/")
-            if not path:
+        for ef in page_files:
+            parts = ef.relative_path.split("/")
+            if len(parts) < 2:
+                groups.setdefault("uncategorized", []).append(ef.relative_path)
                 continue
-            parts = path.split("/")
-            domain = parts[0] if parts else "uncategorized"
-            filename = parts[-1] + ".md"
+            domain = parts[0]
+            filename = "/".join(parts[1:])
             groups.setdefault(domain, []).append(filename)
         return groups
 
@@ -166,11 +183,18 @@ class BusinessWikiExporter:
         return "\n".join(lines)
 
     async def export_to_directory(self, plan: ExportPlan, output_dir: str) -> list[str]:
-        """Write all files in the export plan to output_dir."""
+        """Write all files in the export plan to output_dir.
+
+        Raises ValueError if any file path attempts to escape ``output_dir``.
+        """
         created: list[str] = []
-        out = Path(output_dir)
+        out = Path(output_dir).resolve()
         for f in plan.files:
-            full = out / f.relative_path
+            full = (out / f.relative_path).resolve()
+            if not str(full).startswith(str(out)):
+                raise ValueError(
+                    f"Path traversal detected: '{f.relative_path}' escapes output directory"
+                )
             full.parent.mkdir(parents=True, exist_ok=True)
             full.write_text(f.content, encoding="utf-8")
             created.append(str(full))

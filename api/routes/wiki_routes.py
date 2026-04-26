@@ -844,6 +844,19 @@ async def wiki_get_page_by_path(
         if isinstance(s, dict) and s.get("file_path"):
             source_locations.append(s)
 
+    is_stale = "false"
+    page_uid = str(row.get("uid") or "")
+    settings = get_settings()
+    if page_uid and settings.wiki.stale_detection_enabled:
+        stale_q = (
+            "MATCH (wp:WikiPage {uid: $uid})-[:SOURCE_ENTITY]->(e) "
+            "WHERE e.indexed_at > wp.generated_at "
+            "RETURN count(e) AS stale_count LIMIT 1"
+        )
+        stale_result = await store._store.execute_query(stale_q, {"uid": page_uid})
+        if stale_result.data and int(stale_result.data[0].get("stale_count", 0)) > 0:
+            is_stale = "true"
+
     return {
         "path": str(row.get("path") or ""),
         "title": str(row.get("title") or ""),
@@ -855,7 +868,8 @@ async def wiki_get_page_by_path(
             "repository": str(row.get("repository") or ""),
             "page_type": str(row.get("page_type") or ""),
             "importance_tier": str(row.get("importance_tier") or ""),
-            "uid": str(row.get("uid") or ""),
+            "uid": page_uid,
+            "is_stale": is_stale,
         },
         "generated_at": str(row.get("generated_at") or "") or None,
     }

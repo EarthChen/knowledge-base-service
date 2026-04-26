@@ -1,0 +1,76 @@
+<h2>Wiki Dashboard 布局方案选择</h2>
+<p class="subtitle">选择一种最适合业务级 Wiki 的整体布局架构</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>三栏式布局（提案推荐）</h3>
+      <p><strong>左侧树状导航 + 中间页面内容 + 右侧引用面板</strong></p>
+      <p>与提案设计完全一致。左侧树支持双视角切换（业务域/代码结构），中间显示 Wiki 页面内容，右侧显示交叉引用（出向/入向）。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优势</h4>
+          <ul>
+            <li>信息密度最高，适合大屏</li>
+            <li>引用关系一目了然</li>
+            <li>与提案设计一致</li>
+          </ul>
+        </div>
+        <div class="cons"><h4>劣势</h4>
+          <ul>
+            <li>小屏体验需要额外处理</li>
+            <li>三栏同时显示可能拥挤</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>左侧导航 + 主内容区（引用内嵌）</h3>
+      <p><strong>左侧树状导航 + 中间页面内容（引用折叠在页面内）</strong></p>
+      <p>两栏布局，引用面板不独立存在，而是作为页面内容的一部分（类似 Notion 的反向链接区域），在内容底部或侧边 Tab 展示。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优势</h4>
+          <ul>
+            <li>布局更简洁，响应式友好</li>
+            <li>阅读体验好（内容区更宽）</li>
+            <li>与现有布局改动较小</li>
+          </ul>
+        </div>
+        <div class="cons"><h4>劣势</h4>
+          <ul>
+            <li>引用不够突出</li>
+            <li>需要滚动才能看到引用</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>自适应三栏（推荐）</h3>
+      <p><strong>大屏三栏 + 中屏两栏 + 小屏单栏，右侧引用面板可折叠</strong></p>
+      <p>综合 A 和 B 的优点。桌面端显示完整三栏，平板端引用面板折叠为可展开抽屉，手机端只显示内容+汉堡菜单。右侧面板有展开/收起按钮。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优势</h4>
+          <ul>
+            <li>各屏幕尺寸都有最佳体验</li>
+            <li>灵活性最高</li>
+            <li>用户可按需隐藏引用面板</li>
+          </ul>
+        </div>
+        <div class="cons"><h4>劣势</h4>
+          <ul>
+            <li>实现复杂度最高</li>
+            <li>需要更多的状态管理</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

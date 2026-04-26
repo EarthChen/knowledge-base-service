@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { FileText, Loader2 } from "lucide-react";
 import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
@@ -19,6 +19,8 @@ export default function WikiLinkPreview({ path, businessId, wikiLinkParams, chil
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const bid = businessId.trim() || "default";
   const { data, isLoading } = useWikiPageByPath(bid, path);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const handleMouseEnter = useCallback(() => {
     timerRef.current = setTimeout(() => setShow(true), 300);
@@ -66,13 +68,31 @@ export default function WikiLinkPreview({ path, businessId, wikiLinkParams, chil
                 <span className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
                   {data.title}
                 </span>
+                {data.context?.importance_tier && (
+                  <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                    data.context.importance_tier === "core"
+                      ? "bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300"
+                      : data.context.importance_tier === "standard"
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"
+                        : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                  }`}>
+                    {data.context.importance_tier}
+                  </span>
+                )}
               </span>
               {snippet && (
                 <span className="mt-2 block text-xs leading-relaxed text-gray-600 dark:text-gray-400">
                   {snippet}...
                 </span>
               )}
-              <span className="mt-2 block truncate font-mono text-[10px] text-gray-400">{path}</span>
+              <span className="mt-1.5 flex items-center gap-1.5">
+                {data.context?.repository && (
+                  <span className="truncate text-[10px] text-gray-500 dark:text-gray-400">
+                    {data.context.repository}
+                  </span>
+                )}
+                <span className="truncate font-mono text-[10px] text-gray-400">{path}</span>
+              </span>
             </>
           ) : (
             <span className="text-xs text-gray-500 dark:text-gray-400">{t.wiki.linkPreviewNotGenerated}</span>

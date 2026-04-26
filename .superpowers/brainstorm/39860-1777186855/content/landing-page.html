@@ -1,0 +1,49 @@
+<h2>Wiki 入口页面设计</h2>
+<p class="subtitle">当用户访问 /wiki 时看到什么？</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>业务总览仪表盘</h3>
+      <p>进入 /wiki 即显示业务级 Wiki 总览，包含：</p>
+      <ul>
+        <li>覆盖率概览卡片（饼图/环形图）</li>
+        <li>业务领域快速导航卡片（如"用户管理"、"订单处理"）</li>
+        <li>过时页面提醒列表</li>
+        <li>知识盲区列表</li>
+        <li>最近更新的页面</li>
+      </ul>
+      <p><em>适合：日常运维、管理视角</em></p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>直接进入树状浏览</h3>
+      <p>进入 /wiki 直接显示树状导航 + 业务线概览页面（WikiSpace 根节点内容），用户可以立即开始浏览。覆盖率和质量报告作为工具栏 Tab。</p>
+      <ul>
+        <li>左侧立即显示树状目录</li>
+        <li>中间显示"XX 业务线知识库"概览内容</li>
+        <li>覆盖率 = 顶部 Tab（类似现有 health/insights/export）</li>
+      </ul>
+      <p><em>适合：直接使用、快速查找</em></p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>混合入口（推荐）</h3>
+      <p>首次进入显示简洁概览（覆盖率 + 领域卡片），点击任一领域后进入树状浏览模式。概览作为"首页"节点存在于树中，可随时回到。</p>
+      <ul>
+        <li>入口页 = 精简仪表盘（覆盖率条 + 领域快捷入口）</li>
+        <li>点击领域后切换为树状浏览模式</li>
+        <li>树顶部有"返回首页"入口</li>
+        <li>工具栏保留 health/export Tab</li>
+      </ul>
+      <p><em>适合：兼顾概览与深度浏览</em></p>
+    </div>
+  </div>
+</div>

@@ -17,10 +17,18 @@ export function parseWikilinks(text: string): ParsedWikilink[] {
   return results;
 }
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 export function replaceWikilinksWithHtml(markdown: string): string {
   return markdown.replace(WIKILINK_RE, (_match, path: string, label?: string) => {
     const trimPath = path.trim();
     const trimLabel = label?.trim() || trimPath.split("/").pop() || trimPath;
-    return `<wikilink data-path="${encodeURIComponent(trimPath)}">${trimLabel}</wikilink>`;
+    return `<wikilink data-path="${encodeURIComponent(trimPath)}">${escapeHtml(trimLabel)}</wikilink>`;
   });
 }

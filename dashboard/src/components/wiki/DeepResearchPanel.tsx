@@ -16,11 +16,13 @@ export default function DeepResearchPanel({ businessId, repository }: Props) {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ResearchResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleResearch = useCallback(async () => {
     if (!query.trim() || loading) return;
     setLoading(true);
     setResult(null);
+    setError(null);
     try {
       const resp = await fetch("/api/v1/wiki/research", {
         method: "POST",
@@ -30,9 +32,25 @@ export default function DeepResearchPanel({ businessId, repository }: Props) {
       if (resp.ok) {
         const data = await resp.json();
         setResult(data);
+      } else {
+        let message = "Deep research is unavailable. It may be disabled on the server.";
+        try {
+          const data = (await resp.json()) as { detail?: unknown; message?: string };
+          const d = data?.detail;
+          if (typeof d === "string" && d.trim()) {
+            message = d;
+          } else if (typeof data?.message === "string" && data.message.trim()) {
+            message = data.message;
+          } else {
+            message = `Request failed (${resp.status}). ${message}`;
+          }
+        } catch {
+          message = `Request failed (${resp.status}). ${message}`;
+        }
+        setError(message);
       }
     } catch {
-      // non-critical
+      setError("Network error. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -59,6 +77,12 @@ export default function DeepResearchPanel({ businessId, repository }: Props) {
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
         </button>
       </div>
+
+      {error && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          {error}
+        </p>
+      )}
 
       {result && (
         <div className="space-y-4">

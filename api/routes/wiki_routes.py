@@ -933,17 +933,20 @@ async def wiki_business_flows(
     business_id: str = Query(..., min_length=1),
 ) -> dict[str, Any]:
     """Return BusinessFlow nodes (and optional edges) for business wiki visualization."""
-    _ = business_id  # graph scope is per service instance; param reserved for future multi-tenant filters
     raw_store: Any = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:
         raise KbServiceUnavailable("Graph store not configured")
     cypher = (
+        "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage) "
+        "WITH collect(DISTINCT wp.repository) AS raw_repos "
+        "WITH [r IN raw_repos WHERE r IS NOT NULL AND r <> ''] AS repos "
         "MATCH (bf:BusinessFlow) "
+        "WHERE bf.repository IN repos "
         "RETURN bf.uid AS uid, bf.name AS name, coalesce(bf.description, '') AS description, "
         "coalesce(bf.category, '') AS category, coalesce(bf.repository, '') AS repository "
         "LIMIT 200"
     )
-    result = await raw_store.execute_query(cypher, {})
+    result = await raw_store.execute_query(cypher, {"business_id": business_id})
     rows = getattr(result, "data", None) or []
     nodes: list[dict[str, Any]] = []
     for r in rows:

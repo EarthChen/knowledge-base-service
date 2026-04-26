@@ -232,7 +232,7 @@ class WikiConfig(BaseModel):
 
     deep_research_enabled: bool = False
     concept_merging_enabled: bool = False
-    concept_merge_similarity_threshold: float = 0.9
+    concept_merge_similarity_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
 
 
 class GitConfig(BaseModel):

@@ -22,6 +22,11 @@ async def test_finds_similar_entities_across_repos():
     candidates = await merger.find_candidates("biz-1")
     assert len(candidates) == 1
     assert candidates[0].similarity >= 0.9
+    q, params = mock_store.execute_query.call_args[0]
+    assert "WikiSpace" in q and "HAS_CHILD" in q
+    assert "a.business_id" not in q
+    assert "WikiSpace {business_id" in q
+    assert params.get("biz") == "biz-1" and "max_pages" in params
 
 
 @pytest.mark.asyncio
@@ -42,6 +47,8 @@ async def test_no_candidates_below_threshold():
     merger = ConceptMerger(mock_store, similarity_threshold=0.9)
     candidates = await merger.find_candidates("biz-1")
     assert len(candidates) == 0
+    q, _ = mock_store.execute_query.call_args[0]
+    assert "id(a)" not in q and "id(b)" not in q
 
 
 def test_merge_candidate_dataclass():

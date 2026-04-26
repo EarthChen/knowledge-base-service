@@ -8,6 +8,10 @@ from log import get_logger
 
 log = get_logger(__name__)
 
+# Cap pages before O(n²) pair expansion; final rows limited in Cypher.
+_MAX_PAGES_IN_SPACE = 200
+_TOP_SIMILARITY_ROWS = 50
+
 
 @dataclass
 class MergeCandidate:
@@ -24,19 +28,32 @@ class ConceptMerger:
         self._threshold = similarity_threshold
 
     async def find_candidates(self, business_id: str) -> list[MergeCandidate]:
-        """Find cross-repo WikiPage pairs with embedding similarity above threshold."""
+        """Find cross-repo WikiPage pairs with embedding similarity above threshold.
+
+        WikiPages are scoped by the business ``WikiSpace`` tree (``HAS_CHILD``), not
+        ``WikiPage.business_id``. Pairs are enumerated in-memory in the query via
+        index ranges (i < j) to avoid Cartesian self-joins and graph-internal ids.
+        """
         cypher = (
-            "MATCH (a:WikiPage), (b:WikiPage) "
-            "WHERE a.business_id = $biz AND b.business_id = $biz "
-            "AND a.repository <> b.repository "
-            "AND id(a) < id(b) "
-            "AND a.embedding IS NOT NULL AND b.embedding IS NOT NULL "
+            "MATCH (ws:WikiSpace {business_id: $biz})-[:HAS_CHILD*1..10]->(a:WikiPage) "
+            "WHERE a.embedding IS NOT NULL "
+            "WITH a ORDER BY a.uid "
+            "WITH collect(a) AS pages "
+            "WITH pages[0..$max_pages] AS pages "
+            "WITH pages WHERE size(pages) >= 2 "
+            "UNWIND range(0, size(pages) - 2) AS i "
+            "UNWIND range(i + 1, size(pages) - 1) AS j "
+            "WITH pages[i] AS a, pages[j] AS b "
+            "WHERE a.repository <> b.repository "
             "RETURN a.uid AS a_uid, b.uid AS b_uid, "
             "a.title AS a_title, b.title AS b_title, "
             "vec.cosine_similarity(a.embedding, b.embedding) AS similarity "
-            "ORDER BY similarity DESC LIMIT 50"
+            f"ORDER BY similarity DESC LIMIT {_TOP_SIMILARITY_ROWS}"
         )
-        result = await self._store.execute_query(cypher, {"biz": business_id})
+        result = await self._store.execute_query(
+            cypher,
+            {"biz": business_id, "max_pages": _MAX_PAGES_IN_SPACE},
+        )
         rows = getattr(result, "data", []) or []
         candidates = []
         for row in rows:

@@ -267,6 +267,60 @@ function useBusinessWikiExport() {
       apiClient.post('/wiki/export', body),
   });
 }
+
+// hooks/useWikiSearch.ts
+function useWikiSearch(query: string, businessId: string) {
+  return useQuery({
+    queryKey: ['wiki-search', query, businessId],
+    queryFn: () =>
+      apiClient.get(`/wiki/search?q=${query}&business_id=${businessId}&limit=20`),
+    enabled: query.length >= 2,
+  });
+}
+
+// hooks/useWikiAnnotations.ts
+function useWikiAnnotations(pageUid: string) {
+  const query = useQuery({
+    queryKey: ['wiki-annotations', pageUid],
+    queryFn: () => apiClient.get(`/wiki/pages/${pageUid}/annotations`),
+  });
+  const create = useMutation({
+    mutationFn: (body: Omit<WikiAnnotation, 'annotation_id' | 'created_at'>) =>
+      apiClient.post(`/wiki/pages/${pageUid}/annotations`, body),
+  });
+  const remove = useMutation({
+    mutationFn: (annotationId: string) =>
+      apiClient.delete(`/wiki/annotations/${annotationId}`),
+  });
+  return { ...query, create, remove };
+}
+
+// hooks/useWikiVersions.ts
+function useWikiVersions(pageUid: string) {
+  return useQuery({
+    queryKey: ['wiki-versions', pageUid],
+    queryFn: () => apiClient.get(`/wiki/pages/${pageUid}/versions`),
+  });
+}
+
+// hooks/useWikiDiff.ts
+function useWikiDiff(pageUid: string, fromVersion: number, toVersion: number) {
+  return useQuery({
+    queryKey: ['wiki-diff', pageUid, fromVersion, toVersion],
+    queryFn: () =>
+      apiClient.get(`/wiki/pages/${pageUid}/diff?from=${fromVersion}&to=${toVersion}`),
+    enabled: fromVersion > 0 && toVersion > 0,
+  });
+}
+
+// hooks/useWikiEvents.ts
+function useWikiEvents(businessId: string, onEvent: (event: WikiEvent) => void) {
+  useEffect(() => {
+    const source = new EventSource(`/api/v1/wiki/events?business_id=${businessId}`);
+    source.onmessage = (e) => onEvent(JSON.parse(e.data));
+    return () => source.close();
+  }, [businessId, onEvent]);
+}
 ```
 
 ## TypeScript 类型扩展
@@ -334,6 +388,59 @@ interface BusinessWikiExportBody {
     commit_message_prefix: string;
   };
 }
+
+// Phase 8~10 新增类型
+
+interface WikiSearchResult {
+  page_path: string;
+  page_title: string;
+  snippet: string;
+  highlight_ranges: Array<{ start: number; end: number }>;
+  score: number;
+}
+
+interface WikiAnnotation {
+  annotation_id: string;
+  page_uid: string;
+  text_range_start: number;
+  text_range_end: number;
+  comment: string;
+  author: string;
+  created_at: string;
+}
+
+interface WikiVersion {
+  version: number;
+  content_hash: string;
+  generated_at: string;
+  change_summary: string;
+}
+
+interface WikiDiff {
+  from_version: number;
+  to_version: number;
+  hunks: Array<{
+    old_start: number;
+    old_lines: number;
+    new_start: number;
+    new_lines: number;
+    content: string;
+  }>;
+}
+
+type WikiEventType =
+  | 'wiki:page_updated'
+  | 'wiki:generation_started'
+  | 'wiki:generation_completed'
+  | 'wiki:generation_failed';
+
+interface WikiEvent {
+  type: WikiEventType;
+  business_id: string;
+  page_path?: string;
+  timestamp: string;
+  payload?: Record<string, unknown>;
+}
 ```
 
 ## 数据流
@@ -352,21 +459,39 @@ interface BusinessWikiExportBody {
 
 视角切换: viewType 变更 → useWikiTree 重新查询 → 树重新渲染
 Wikilink 点击: 更新 URL ?path=xxx → WikiPageView 重新渲染
+
+搜索: Cmd+K → WikiSearchBar → useWikiSearch(query, businessId) → WikiSearchResults
+       → 点击结果 → 更新 URL ?path=xxx
+
+SSE 实时更新:
+  useWikiEvents(businessId) → EventSource
+    ├─ wiki:page_updated → WikiUpdateNotification toast → 用户点击刷新
+    ├─ wiki:generation_started → WikiGenerationProgress 显示进度
+    ├─ wiki:generation_completed → WikiGenerationProgress 完成 + 刷新树
+    └─ wiki:generation_failed → 错误 toast
+
+标注流: 用户选中文本 → WikiAnnotationLayer 弹出工具栏 → useWikiAnnotations.create
+        → WikiAnnotationSidebar 实时更新
+
+版本对比: WikiVersionBadge 点击 → WikiVersionHistory → 选择两个版本
+          → useWikiDiff(uid, v1, v2) → WikiDiffViewer
 ```
 
 ## 实施阶段
 
 ### FE-Phase 1: 基础设施
 - 新增 TypeScript 类型定义（wikiTypes.ts 扩展）
-- 新增 5 个 hooks（useWikiTree, useWikiReferences, useWikiCoverage, useBusinessWikiGenerate, useBusinessWikiExport）
+- 新增 11 个 hooks（useWikiTree, useWikiReferences, useWikiCoverage, useBusinessWikiGenerate, useBusinessWikiExport, useWikiSearch, useWikiAnnotations, useWikiVersions, useWikiDiff, useWikiEvents）
 - BusinessContext 增强（如有必要）
 - Wikilink 解析工具函数
 
-### FE-Phase 2: 树状导航
+### FE-Phase 2: 树状导航 + 全文搜索
 - WikiTreeNav 组件（替换 WikiSidebar 树逻辑）
 - 双视角 Tab 切换（业务域/代码结构）
 - 树节点展开/折叠 + 活跃节点高亮
-- 搜索集成
+- WikiSearchBar 组件（嵌入 WikiShell 顶栏，支持 Cmd+K 快捷键唤起）
+- WikiSearchResults 组件（搜索结果列表 + 关键词高亮 + 点击跳转 Wiki 页面）
+- useWikiSearch(query, businessId) Hook — 调用搜索 API 并按 wiki scope 过滤
 
 ### FE-Phase 3: 混合入口页
 - WikiLandingPage 组件
@@ -391,10 +516,37 @@ Wikilink 点击: 更新 URL ?path=xxx → WikiPageView 重新渲染
 - WikiBusinessExportPanel（多格式导出）
 - Git 推送配置对话框
 
-### FE-Phase 7: 测试
-- 组件单元测试（Vitest + React Testing Library）
+### FE-Phase 7: 测试（基础）
+- FE-Phase 1~6 组件单元测试（Vitest + React Testing Library）
 - Hook 测试（Mock API 响应）
-- E2E 测试（关键导航流程）
+- E2E 测试（关键导航流程：树浏览、搜索、引用面板、导出）
+
+### FE-Phase 8: Wiki 内容编辑与标注
+- WikiEditButton 组件 — 「Edit on GitHub/GitLab」按钮，链接到导出后的 Git 仓库对应文件
+  - 前提：FE-Phase 5 导出/Git push 完成后才可生成有效链接
+  - 自动拼接 URL：`{git_remote_url}/blob/{branch}/{export_path}`
+- WikiAnnotationLayer 组件 — 内容区域的标注叠加层，用户选中文本后弹出标注工具栏
+- WikiAnnotationSidebar 组件 — 侧边栏展示当前页面所有标注（类似 Google Docs 评论）
+- useWikiAnnotations(pageUid) Hook — 标注的 CRUD 操作
+
+### FE-Phase 9: Wiki 版本对比
+- WikiVersionBadge 组件 — 页面头部显示当前版本号 + 最后更新时间
+- WikiVersionHistory 组件 — 时间线形式展示版本列表
+- WikiDiffViewer 组件 — 左右对比 / 统一 diff 视图（基于 react-diff-viewer-continued）
+- useWikiVersions(pageUid) Hook — 获取版本历史列表
+- useWikiDiff(pageUid, fromVersion, toVersion) Hook — 获取两版本间的 diff
+
+### FE-Phase 10: SSE 实时更新通知
+- useWikiEvents(businessId) Hook — EventSource 监听 SSE 事件流
+- WikiUpdateNotification 组件 — toast / 顶部 banner 提示「Wiki 页面已更新，点击刷新」
+- WikiGenerationProgress 组件 — 后台生成时显示进度条 + 阶段信息
+- 事件类型：wiki:page_updated, wiki:generation_started, wiki:generation_completed, wiki:generation_failed
+
+### FE-Phase 11: 测试（扩展）
+- FE-Phase 8~10 组件单元测试
+- 标注 CRUD 集成测试
+- SSE 连接模拟测试
+- 版本对比 snapshot 测试
 
 ## 错误处理
 
@@ -402,6 +554,10 @@ Wikilink 点击: 更新 URL ?path=xxx → WikiPageView 重新渲染
 - **引用 API 失败**: 引用面板显示空状态提示，不影响内容阅读
 - **覆盖率 API 失败**: 隐藏覆盖率卡片，不影响导航
 - **Wikilink 目标不存在**: 渲染为灰色禁用链接 + tooltip 提示"页面尚未生成"
+- **搜索 API 失败**: 搜索结果区域显示"搜索暂不可用"，不影响树导航
+- **SSE 连接断开**: 自动重连（指数退避），静默恢复，不弹 toast
+- **标注 API 失败**: 标注操作显示 inline 错误提示，不影响内容阅读
+- **版本 API 失败**: 版本历史区域显示空状态，不影响当前版本内容
 
 ## 向后兼容
 
@@ -409,25 +565,51 @@ Wikilink 点击: 更新 URL ?path=xxx → WikiPageView 重新渲染
 
 ## 后端补充需求
 
-### 探索问题 API
+### 探索问题 API（FE-Phase 6 前置）
 
-当前 `SuggestedQuestionsGenerator` 是纯 Python 工具类，缺少 API 端点。前端需要一个端点来获取页面的探索问题。
+当前 `SuggestedQuestionsGenerator` 是纯 Python 工具类，缺少 API 端点。
 
 **需新增**: `GET /api/v1/wiki/pages/{page_uid}/suggested-questions`
 
-该端点调用 `SuggestedQuestionsGenerator.generate()` 并从图谱查询 `PageContext`（callers, callees, cross_domain_callers）。作为 FE-Phase 6 的前置工作。
+调用 `SuggestedQuestionsGenerator.generate()` 并从图谱查询 `PageContext`。
 
-### 页面过时状态
+### 页面过时状态（FE-Phase 4）
 
-当前 `WikiPage` 没有直接的 `is_stale` 属性，前端需要判断页面是否过时。两种方案:
-1. 前端从 coverage report 的 stale_pages 列表中匹配当前页面路径
-2. 后端在 `GET /wiki/{repo}/pages/{path}` 响应中增加 `is_stale` 字段
+前端从 coverage report 的 stale_pages 列表中匹配当前页面路径判断是否过时，无需后端修改。
 
-建议采用方案 1（无需后端修改），在 FE-Phase 4 中实现。
+### Wiki 全文搜索 API（FE-Phase 2 前置）
+
+**需新增**: `GET /api/v1/wiki/search?q={query}&business_id={id}&limit=20`
+
+复用现有 hybrid retrieval (RRF) 能力，增加 wiki scope 过滤，返回结果包含 page_path、标题、匹配片段和高亮位置。
+
+### 标注存储 API（FE-Phase 8 前置）
+
+**需新增**:
+- `POST /api/v1/wiki/pages/{page_uid}/annotations` — 创建标注
+- `GET /api/v1/wiki/pages/{page_uid}/annotations` — 获取页面所有标注
+- `DELETE /api/v1/wiki/annotations/{annotation_id}` — 删除标注
+
+标注数据模型：`WikiAnnotation` 节点（annotation_id, page_uid, text_range_start, text_range_end, comment, author, created_at）。
+
+### 版本历史 API（FE-Phase 9 前置）
+
+**需新增**:
+- `GET /api/v1/wiki/pages/{page_uid}/versions` — 获取版本历史列表
+- `GET /api/v1/wiki/pages/{page_uid}/diff?from={v1}&to={v2}` — 获取两版本间的 diff
+
+WikiPage 已有 version + content_hash 字段，后端需补充版本快照存储机制。
+
+### SSE 事件流端点（FE-Phase 10 前置）
+
+**需新增**: `GET /api/v1/wiki/events?business_id={id}`
+
+SSE 事件流端点，推送以下事件类型：
+- `wiki:page_updated` — 单页更新完成
+- `wiki:generation_started` — 开始批量生成
+- `wiki:generation_completed` — 批量生成完成
+- `wiki:generation_failed` — 生成失败
 
 ## 不在本提案范围内
 
-- Wiki 内容编辑功能（人工标注在 Git 仓库中操作）
-- Wiki 版本对比 UI（Graph Diff 可作为后续迭代）
-- 实时 SSE 推送 Wiki 更新通知
-- Wiki 内全文搜索优化（使用现有搜索能力）
+（无 — 原列出的四项功能已全部纳入上述 Phase 规划）

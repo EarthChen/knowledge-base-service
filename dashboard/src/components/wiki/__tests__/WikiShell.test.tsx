@@ -70,13 +70,13 @@ describe("WikiShell", () => {
     expect(screen.getByTestId("mock-tree")).toBeInTheDocument();
     expect(screen.getByTestId("mock-search")).toBeInTheDocument();
     expect(screen.getByTestId("mock-landing")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Page" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Page" })).toBeInTheDocument();
   });
 
   it("switches to coverage tool tab and shows coverage widgets", async () => {
     const user = userEvent.setup();
     renderShell("/wiki?business_id=b1");
-    await user.click(screen.getByRole("button", { name: "Wiki Coverage" }));
+    await user.click(screen.getByRole("tab", { name: "Wiki Coverage" }));
     expect(screen.queryByTestId("mock-landing")).not.toBeInTheDocument();
     expect(screen.getByTestId("mock-coverage")).toBeInTheDocument();
     expect(screen.getByTestId("mock-quality")).toBeInTheDocument();

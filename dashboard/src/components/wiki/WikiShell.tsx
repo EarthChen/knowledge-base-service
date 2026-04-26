@@ -235,6 +235,10 @@ export default function WikiShell() {
       <button
         key={id}
         type="button"
+        role="tab"
+        id={`wiki-tab-${id}`}
+        aria-selected={toolTab === id}
+        aria-controls={`wiki-panel-${id}`}
         onClick={() => setToolTab(id)}
         className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
           toolTab === id
@@ -261,7 +265,7 @@ export default function WikiShell() {
 
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Wiki tools">
             {tabBtn(
               "page",
               t.wiki.tabPage,
@@ -299,6 +303,7 @@ export default function WikiShell() {
               type="button"
               onClick={handleRegenerateWiki}
               disabled={regeneratePending}
+              aria-busy={regeneratePending}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-200 dark:hover:bg-amber-950"
             >
               {regeneratePending ? (
@@ -324,11 +329,13 @@ export default function WikiShell() {
         <WikiGenerationProgress status={generationStatus} />
 
         {toolTab === "page" && !pagePath && (
-          <WikiLandingPage businessId={businessId} viewType={viewType} />
+          <div role="tabpanel" id="wiki-panel-page" aria-labelledby="wiki-tab-page">
+            <WikiLandingPage businessId={businessId} viewType={viewType} />
+          </div>
         )}
 
         {toolTab === "page" && pagePath && (
-          <>
+          <div role="tabpanel" id="wiki-panel-page" aria-labelledby="wiki-tab-page">
             <WikiContent
               repository={pageQuery.data?.context?.repository ?? businessId}
               businessId={businessId}
@@ -351,41 +358,51 @@ export default function WikiShell() {
               }}
             />
             <AskPanel repository={businessId} />
-          </>
+          </div>
         )}
 
         {toolTab === "coverage" && (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <WikiCoverageCard businessId={businessId} />
-            <WikiQualityScoreCard businessId={businessId} />
+          <div role="tabpanel" id="wiki-panel-coverage" aria-labelledby="wiki-tab-coverage">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <WikiCoverageCard businessId={businessId} />
+              <WikiQualityScoreCard businessId={businessId} />
+            </div>
           </div>
         )}
 
         {toolTab === "refgraph" && (
-          <Suspense fallback={wikiToolSuspenseFallback}>
-            <WikiReferenceGraph
-              businessId={businessId}
-              view={viewType === "code_structure" ? "code_structure" : "business_domain"}
-            />
-          </Suspense>
+          <div role="tabpanel" id="wiki-panel-refgraph" aria-labelledby="wiki-tab-refgraph">
+            <Suspense fallback={wikiToolSuspenseFallback}>
+              <WikiReferenceGraph
+                businessId={businessId}
+                view={viewType === "code_structure" ? "code_structure" : "business_domain"}
+              />
+            </Suspense>
+          </div>
         )}
 
         {toolTab === "health" && (
-          <Suspense fallback={wikiToolSuspenseFallback}>
-            <WikiLintPanel repository={pageQuery.data?.context?.repository ?? businessId} />
-          </Suspense>
+          <div role="tabpanel" id="wiki-panel-health" aria-labelledby="wiki-tab-health">
+            <Suspense fallback={wikiToolSuspenseFallback}>
+              <WikiLintPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+            </Suspense>
+          </div>
         )}
 
         {toolTab === "insights" && (
-          <Suspense fallback={wikiToolSuspenseFallback}>
-            <GraphInsightsPanel repository={pageQuery.data?.context?.repository ?? businessId} />
-          </Suspense>
+          <div role="tabpanel" id="wiki-panel-insights" aria-labelledby="wiki-tab-insights">
+            <Suspense fallback={wikiToolSuspenseFallback}>
+              <GraphInsightsPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+            </Suspense>
+          </div>
         )}
 
         {toolTab === "export" && (
-          <Suspense fallback={wikiToolSuspenseFallback}>
-            <WikiBusinessExportPanel key={businessId} />
-          </Suspense>
+          <div role="tabpanel" id="wiki-panel-export" aria-labelledby="wiki-tab-export">
+            <Suspense fallback={wikiToolSuspenseFallback}>
+              <WikiBusinessExportPanel key={businessId} />
+            </Suspense>
+          </div>
         )}
       </div>
 

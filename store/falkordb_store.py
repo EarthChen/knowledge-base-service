@@ -351,6 +351,10 @@ class FalkorDBStore:
                     "content": page["content"],
                     "page_type": page["page_type"],
                     "generated_at": page["generated_at"],
+                    "version": page.get("version", 1),
+                    "content_hash": page.get("content_hash", ""),
+                    "importance_tier": page.get("importance_tier", ""),
+                    "repositories": page.get("repositories", [repository]),
                 }
             )
         cypher = (
@@ -361,7 +365,11 @@ class FalkorDBStore:
             "w.title = page.title, "
             "w.content = page.content, "
             "w.page_type = page.page_type, "
-            "w.generated_at = page.generated_at "
+            "w.generated_at = page.generated_at, "
+            "w.version = page.version, "
+            "w.content_hash = page.content_hash, "
+            "w.importance_tier = page.importance_tier, "
+            "w.repositories = page.repositories "
             "RETURN count(*) AS cnt"
         )
         result = await self.execute_query(cypher, {"batch": batch})

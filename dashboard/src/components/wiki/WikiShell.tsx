@@ -19,6 +19,7 @@ import {
   PieChart,
   RefreshCw,
   BookMarked,
+  Workflow,
 } from "lucide-react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import AskPanel from "./AskPanel";
@@ -44,6 +45,7 @@ const GraphInsightsPanel = lazy(() => import("./GraphInsightsPanel"));
 const WikiBusinessExportPanel = lazy(() => import("./WikiBusinessExportPanel"));
 const WikiLintPanel = lazy(() => import("./WikiLintPanel"));
 const DeepResearchPanel = lazy(() => import("./DeepResearchPanel"));
+const WikiBusinessFlowGraph = lazy(() => import("./WikiBusinessFlowGraph"));
 
 const wikiToolSuspenseFallback = (
   <div className="animate-pulse rounded-xl border p-8 text-center text-sm text-gray-400">Loading...</div>
@@ -61,7 +63,15 @@ function invalidateWikiQueriesForBusiness(queryClient: QueryClient, businessId: 
   });
 }
 
-type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights" | "refgraph" | "research";
+type WikiToolTab =
+  | "page"
+  | "coverage"
+  | "export"
+  | "health"
+  | "insights"
+  | "refgraph"
+  | "research"
+  | "flows";
 
 export default function WikiShell() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -254,6 +264,11 @@ export default function WikiShell() {
               <BookMarked size={14} className="text-indigo-600 dark:text-indigo-400" aria-hidden />,
             )}
             {tabBtn(
+              "flows",
+              t.wiki.tabFlows,
+              <Workflow size={14} className="text-teal-600 dark:text-teal-400" aria-hidden />,
+            )}
+            {tabBtn(
               "export",
               t.wiki.tabExport,
               <FileOutput size={14} className="text-sky-600 dark:text-sky-400" aria-hidden />,
@@ -374,6 +389,14 @@ export default function WikiShell() {
                 businessId={businessId}
                 repository={pageQuery.data?.context?.repository ?? businessId}
               />
+            </Suspense>
+          </div>
+        )}
+
+        {toolTab === "flows" && (
+          <div role="tabpanel" id="wiki-panel-flows" aria-labelledby="wiki-tab-flows">
+            <Suspense fallback={wikiToolSuspenseFallback}>
+              <WikiBusinessFlowGraph businessId={businessId} />
             </Suspense>
           </div>
         )}

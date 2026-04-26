@@ -584,6 +584,7 @@ const zh: Translations = {
     tabExport: "导出",
     tabRefGraph: "引用图",
     tabResearch: "深度研究",
+    tabFlows: "业务流",
     businessView: "业务视角",
     codeView: "代码视角",
     coverageTitle: "Wiki 覆盖率",

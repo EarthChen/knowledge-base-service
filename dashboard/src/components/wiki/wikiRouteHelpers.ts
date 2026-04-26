@@ -23,6 +23,7 @@ const TOOL_TABS = new Set([
   "insights",
   "refgraph",
   "research",
+  "flows",
 ]);
 
 export function parseWikiSearchParams(search: URLSearchParams) {
@@ -39,7 +40,8 @@ export function parseWikiSearchParams(search: URLSearchParams) {
     | "health"
     | "insights"
     | "refgraph"
-    | "research" =
+    | "research"
+    | "flows" =
     rawTool && TOOL_TABS.has(rawTool)
       ? (rawTool as
           | "page"
@@ -48,7 +50,8 @@ export function parseWikiSearchParams(search: URLSearchParams) {
           | "health"
           | "insights"
           | "refgraph"
-          | "research")
+          | "research"
+          | "flows")
       : "page";
   return {
     path: search.get("path") || null,

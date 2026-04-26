@@ -591,6 +591,7 @@ const en: Translations = {
     tabExport: "Export",
     tabRefGraph: "Reference graph",
     tabResearch: "Research",
+    tabFlows: "Flows",
     businessView: "Business",
     codeView: "Code",
     coverageTitle: "Wiki Coverage",

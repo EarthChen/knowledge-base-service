@@ -927,6 +927,40 @@ async def wiki_get_page_by_path(
     }
 
 
+@wiki_router.get("/flows", response_model=None)
+async def wiki_business_flows(
+    request: Request,
+    business_id: str = Query(..., min_length=1),
+) -> dict[str, Any]:
+    """Return BusinessFlow nodes (and optional edges) for business wiki visualization."""
+    _ = business_id  # graph scope is per service instance; param reserved for future multi-tenant filters
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise KbServiceUnavailable("Graph store not configured")
+    cypher = (
+        "MATCH (bf:BusinessFlow) "
+        "RETURN bf.uid AS uid, bf.name AS name, coalesce(bf.description, '') AS description, "
+        "coalesce(bf.category, '') AS category, coalesce(bf.repository, '') AS repository "
+        "LIMIT 200"
+    )
+    result = await raw_store.execute_query(cypher, {})
+    rows = getattr(result, "data", None) or []
+    nodes: list[dict[str, Any]] = []
+    for r in rows:
+        uid = str(r.get("uid") or "")
+        if not uid:
+            continue
+        nodes.append(
+            {
+                "uid": uid,
+                "title": str(r.get("name") or uid),
+                "description": str(r.get("description") or ""),
+                "type": "business_flow",
+            }
+        )
+    return {"nodes": nodes, "edges": []}
+
+
 @wiki_router.get("/tree")
 async def wiki_get_tree(
     request: Request,

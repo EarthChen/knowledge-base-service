@@ -18,6 +18,7 @@ from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
 from wiki.exporter import WikiExporter
 from wiki.models import (
+    ImportanceTier,
     PageType,
     WikiConfig,
     WikiPage,
@@ -56,10 +57,12 @@ class WikiService:
         store: Any | None = None,
         deferred_enrichment: DeferredEnrichmentService | None = None,
         flow_inferencer: BusinessFlowInferencer | None = None,
+        wiki_store: Any | None = None,
     ) -> None:
         self._graph = graph
         self._planner = WikiStructurePlanner(graph)
-        self._collector = WikiDataCollector(graph)
+        self._wiki_store = wiki_store
+        self._collector = WikiDataCollector(graph, wiki_store=wiki_store)
         self._llm = llm
         self._llm_factory = llm_factory
         self._exporter = WikiExporter()
@@ -70,7 +73,12 @@ class WikiService:
 
     def _composer_for(self, llm_provider: str | None) -> WikiComposer:
         llm_port = self._resolve_llm_port(llm_provider)
-        return WikiComposer(llm_port, WikiContextBuilder(llm_port), store=self._graph)
+        return WikiComposer(
+            llm_port,
+            WikiContextBuilder(llm_port),
+            store=self._graph,
+            wiki_store=self._wiki_store,
+        )
 
     def _resolve_llm_port(self, llm_provider: str | None) -> Any | None:
         if self._llm_factory is not None:
@@ -193,6 +201,22 @@ class WikiService:
         config = self._config_for(mode, format, repository, language)
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
+        _importance_tiers: dict[str, ImportanceTier] = {}
+        app_cfg = get_settings().wiki
+        if app_cfg.code_budget_enabled and self._wiki_store is not None:
+            from wiki.importance_scorer import ImportanceScorer
+
+            scorer = ImportanceScorer(
+                self._wiki_store,
+                core_percentile=app_cfg.importance_core_percentile,
+                standard_percentile=app_cfg.importance_standard_percentile,
+            )
+            _importance_tiers = await scorer.score_all(repository)
+            log.info(
+                "importance_scoring_complete",
+                repository=repository,
+                entities=len(_importance_tiers),
+            )
         composer = self._composer_for(llm_provider)
         if self._deferred_enrichment:
             enriched = await self._deferred_enrichment.enrich_remaining(repository)
@@ -204,7 +228,9 @@ class WikiService:
         if self._flow_inferencer:
             flows_created = await self._generate_business_flows(repository)
             log.info("business_flows_generated", repository=repository, count=flows_created)
-        pages, degraded = await self._compose_all_pages(repository, structure, config, composer)
+        pages, degraded = await self._compose_all_pages(
+            repository, structure, config, composer, _importance_tiers,
+        )
         await self._persist_pages_to_graph(repository, pages)
         if self._deferred_enrichment:
             refreshed = await self._deferred_enrichment.refresh_stale_embeddings(repository)
@@ -239,6 +265,22 @@ class WikiService:
         config = self._config_for(mode, format, repository, language)
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
+        _importance_tiers: dict[str, ImportanceTier] = {}
+        app_cfg = get_settings().wiki
+        if app_cfg.code_budget_enabled and self._wiki_store is not None:
+            from wiki.importance_scorer import ImportanceScorer
+
+            scorer = ImportanceScorer(
+                self._wiki_store,
+                core_percentile=app_cfg.importance_core_percentile,
+                standard_percentile=app_cfg.importance_standard_percentile,
+            )
+            _importance_tiers = await scorer.score_all(repository)
+            log.info(
+                "importance_scoring_complete",
+                repository=repository,
+                entities=len(_importance_tiers),
+            )
         composer = self._composer_for(llm_provider)
         if self._deferred_enrichment:
             enriched = await self._deferred_enrichment.enrich_remaining(repository)
@@ -263,6 +305,9 @@ class WikiService:
                 return
             graph_node = await self._resolve_structure_node(repository, node)
             page_data = await self._collector.collect(repository, graph_node)
+            tier = _importance_tiers.get(graph_node.uid)
+            if tier is not None:
+                page_data.importance_tier = tier
             page = await composer.compose_page(
                 page_data,
                 node.page_type,
@@ -293,15 +338,28 @@ class WikiService:
         bundle["degraded"] = degraded
         yield {"complete": bundle}
 
+    def _budget_for_tier(self, tier: ImportanceTier | None) -> int:
+        """Return the token budget for a given importance tier from app config."""
+        app_cfg = get_settings().wiki
+        if tier == ImportanceTier.CORE:
+            return app_cfg.core_code_budget
+        if tier == ImportanceTier.STANDARD:
+            return app_cfg.standard_code_budget
+        if tier == ImportanceTier.SKELETON:
+            return app_cfg.skeleton_code_budget
+        return app_cfg.standard_code_budget
+
     async def _compose_all_pages(
         self,
         repository: str,
         structure: WikiStructure,
         config: WikiConfig,
         composer: WikiComposer,
+        importance_tiers: dict[str, ImportanceTier] | None = None,
     ) -> tuple[list[WikiPage], bool]:
         pages: list[WikiPage] = []
         degraded = False
+        tiers = importance_tiers or {}
 
         async def walk(node: WikiStructureNode, parent_ctx: str = "") -> None:
             nonlocal degraded
@@ -310,6 +368,9 @@ class WikiService:
             else:
                 graph_node = await self._resolve_structure_node(repository, node)
                 page_data = await self._collector.collect(repository, graph_node)
+                tier = tiers.get(graph_node.uid)
+                if tier is not None:
+                    page_data.importance_tier = tier
                 page = await composer.compose_page(
                     page_data,
                     node.page_type,
@@ -375,6 +436,7 @@ class WikiService:
                 "content": p.content,
                 "page_type": p.page_type.value,
                 "generated_at": ts,
+                "importance_tier": getattr(p.metadata, "importance_tier", None),
             }
             for p in pages
         ]

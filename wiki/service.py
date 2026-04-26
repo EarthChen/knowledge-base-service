@@ -537,3 +537,43 @@ class WikiService:
                 await self._store.set_node_embedding(uid, NodeLabel.WIKI_PAGE, embedding)
         except Exception as exc:
             log.warning("wiki_page_embedding_failed", repository=repository, error=str(exc))
+
+    async def get_enrichment_status(self, repository: str) -> dict[str, Any]:
+        """Return enrichment level distribution for wiki pages."""
+        await self._ensure_repo(repository)
+        if self._store is None or not hasattr(self._store, "execute_query"):
+            return {
+                "repository": repository,
+                "total_pages": 0,
+                "base": 0,
+                "enriched": 0,
+                "encyclopedia": 0,
+            }
+        q = (
+            "MATCH (p:WikiPage {repository: $repo}) "
+            "RETURN p.enrichment_level AS level, count(p) AS cnt"
+        )
+        result = await self._store.execute_query(q, {"repo": repository})
+        counts: dict[str, int] = {"base": 0, "enriched": 0, "encyclopedia": 0}
+        total = 0
+        for row in getattr(result, "raw", []) or []:
+            level = str(row[0] or "base")
+            cnt = int(row[1])
+            counts[level] = counts.get(level, 0) + cnt
+            total += cnt
+        return {"repository": repository, "total_pages": total, **counts}
+
+    async def trigger_enrichment(self, repository: str) -> dict[str, Any]:
+        """Count pages at BASE level that could be enriched."""
+        await self._ensure_repo(repository)
+        if self._store is None or self._llm is None:
+            return {"queued": 0, "repository": repository, "reason": "LLM or store not available"}
+        q = (
+            "MATCH (p:WikiPage {repository: $repo}) "
+            "WHERE p.enrichment_level IS NULL OR p.enrichment_level = 'base' "
+            "RETURN count(p) AS cnt"
+        )
+        result = await self._store.execute_query(q, {"repo": repository})
+        rows = getattr(result, "raw", []) or []
+        queued = int(rows[0][0]) if rows else 0
+        return {"queued": queued, "repository": repository}

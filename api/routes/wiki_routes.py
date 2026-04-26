@@ -1028,6 +1028,53 @@ async def analyze_pr_impact(
         ) from exc
 
 
+@wiki_router.get("/{repository}/enrichment-status", response_model=None)
+async def wiki_enrichment_status(
+    repository: str,
+    wiki_svc: WikiService = Depends(get_wiki_service_dep),
+) -> dict[str, Any]:
+    """Return enrichment level counts for persisted wiki pages in the repository."""
+    repo = normalize_repo_name(repository)
+    try:
+        return await wiki_svc.get_enrichment_status(repo)
+    except WikiRepoNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "repo_not_found",
+                "detail": (
+                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
+                ),
+            },
+        ) from exc
+
+
+@wiki_router.post(
+    "/{repository}/enrich",
+    response_model=None,
+    status_code=202,
+    dependencies=[Depends(require_role(Role.EDITOR))],
+)
+async def wiki_enrich_trigger(
+    repository: str,
+    wiki_svc: WikiService = Depends(get_wiki_service_dep),
+) -> dict[str, Any]:
+    """Accept a request to enrich wiki pages currently at BASE level (async processing)."""
+    repo = normalize_repo_name(repository)
+    try:
+        return await wiki_svc.trigger_enrichment(repo)
+    except WikiRepoNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "repo_not_found",
+                "detail": (
+                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
+                ),
+            },
+        ) from exc
+
+
 @wiki_router.get("/{repository}/pages", response_model=None)
 async def wiki_list_pages(
     repository: str,

@@ -31,3 +31,4 @@ async def test_score_all_entities(mock_store):
     assert "in_deg" in cypher or "in_degree" in cypher
     assert "out_deg" in cypher or "out_degree" in cypher
     assert "children" in cypher
+    assert "subclass" in cypher

@@ -313,12 +313,14 @@ class WikiStore:
             "OPTIONAL MATCH (n)<-[in_e]-() "
             "OPTIONAL MATCH (n)-[out_e]->() "
             "OPTIONAL MATCH (n)-[:CONTAINS]->(child) "
+            "OPTIONAL MATCH (sub)-[:INHERITS]->(n) "
             "RETURN n.uid AS uid, labels(n)[0] AS label, "
             "coalesce(n.start_line, 0) AS start_line, "
             "coalesce(n.end_line, 0) AS end_line, "
             "count(DISTINCT in_e) AS in_degree, "
             "count(DISTINCT out_e) AS out_degree, "
-            "count(DISTINCT child) AS children_count"
+            "count(DISTINCT child) AS children_count, "
+            "count(DISTINCT sub) AS subclass_count"
         )
         return await self._store.execute_query(q, {"repo": repository})
 

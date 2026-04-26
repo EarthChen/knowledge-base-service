@@ -54,9 +54,9 @@ def test_classify_by_percentile():
 async def test_score_all(mock_wiki_store):
     result = MagicMock()
     result.result_set = [
-        ["uid1", "Class", 1, 100, 10, 5, 3],
-        ["uid2", "Module", 1, 500, 5, 2, 10],
-        ["uid3", "Class", 1, 20, 1, 1, 0],
+        ["uid1", "Class", 1, 100, 10, 5, 3, 1],
+        ["uid2", "Module", 1, 500, 5, 2, 10, 0],
+        ["uid3", "Class", 1, 20, 1, 1, 0, 0],
     ]
     mock_wiki_store.score_all_entities.return_value = result
 

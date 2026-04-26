@@ -285,8 +285,10 @@ class WikiService:
         affected: AffectedPageSet,
         language: str = "en",
     ) -> dict[str, Any]:
-        """Regenerate only affected wiki pages. Preserve unchanged pages."""
-        _ = language  # reserved for per-page i18n when regeneration composes content
+        """Regenerate only affected wiki pages. Falls back to full generate on failure."""
+
+        if not affected.page_uids:
+            return {"pages_regenerated": 0, "pages_total": 0, "trigger": affected.trigger}
 
         if self._store is None or not hasattr(self._store, "execute_query"):
             return {
@@ -296,54 +298,81 @@ class WikiService:
                 "errors": [],
             }
 
-        if not affected.page_uids:
-            return {"pages_regenerated": 0, "pages_total": 0, "trigger": affected.trigger}
+        try:
+            pages_regenerated = 0
+            errors: list[str] = []
 
-        pages_regenerated = 0
-        errors: list[str] = []
+            for page_uid in affected.page_uids:
+                try:
+                    # Fetch existing WikiPage
+                    page_q = (
+                        "MATCH (wp:WikiPage {uid: $uid, repository: $repo}) "
+                        "RETURN wp.path AS path, wp.title AS title, wp.repository AS repo"
+                    )
+                    result = await self._store.execute_query(
+                        page_q, {"uid": page_uid, "repo": repository},
+                    )
+                    rows = getattr(result, "data", []) or []
+                    if not rows:
+                        continue
 
-        for page_uid in affected.page_uids:
+                    row = rows[0] if isinstance(rows[0], dict) else {"path": rows[0][0], "title": rows[0][1]}
+
+                    page_path = row.get("path") or row.get("page_path", "")
+
+                    if not page_path:
+                        continue
+
+                    # Increment version
+                    version_q = (
+                        "MATCH (wp:WikiPage {uid: $uid, repository: $repo}) "
+                        "SET wp.version = COALESCE(wp.version, 1) + 1 "
+                        "RETURN wp.version AS v"
+                    )
+                    await self._store.execute_query(
+                        version_q, {"uid": page_uid, "repo": repository},
+                    )
+                    pages_regenerated += 1
+
+                except Exception as exc:
+                    log.warning("incremental_page_failed", page_uid=page_uid, error=str(exc))
+                    errors.append(page_uid)
+
+            return {
+                "pages_regenerated": pages_regenerated,
+                "pages_total": len(affected.page_uids),
+                "trigger": affected.trigger,
+                "errors": errors,
+            }
+        except Exception as exc:
+            log.warning(
+                "incremental_generation_failed_fallback_to_full",
+                repository=repository,
+                error=str(exc),
+            )
             try:
-                # Fetch existing WikiPage
-                page_q = (
-                    "MATCH (wp:WikiPage {uid: $uid, repository: $repo}) "
-                    "RETURN wp.path AS path, wp.title AS title, wp.repository AS repo"
+                await self.generate(
+                    repository,
+                    "repo",
+                    "structure",
+                    "json",
+                    language=language,
                 )
-                result = await self._store.execute_query(
-                    page_q, {"uid": page_uid, "repo": repository},
-                )
-                rows = getattr(result, "data", []) or []
-                if not rows:
-                    continue
-
-                row = rows[0] if isinstance(rows[0], dict) else {"path": rows[0][0], "title": rows[0][1]}
-
-                page_path = row.get("path") or row.get("page_path", "")
-
-                if not page_path:
-                    continue
-
-                # Increment version
-                version_q = (
-                    "MATCH (wp:WikiPage {uid: $uid, repository: $repo}) "
-                    "SET wp.version = COALESCE(wp.version, 1) + 1 "
-                    "RETURN wp.version AS v"
-                )
-                await self._store.execute_query(
-                    version_q, {"uid": page_uid, "repo": repository},
-                )
-                pages_regenerated += 1
-
-            except Exception as exc:
-                log.warning("incremental_page_failed", page_uid=page_uid, error=str(exc))
-                errors.append(page_uid)
-
-        return {
-            "pages_regenerated": pages_regenerated,
-            "pages_total": len(affected.page_uids),
-            "trigger": affected.trigger,
-            "errors": errors,
-        }
+                return {
+                    "pages_regenerated": -1,
+                    "pages_total": len(affected.page_uids),
+                    "trigger": affected.trigger,
+                    "fallback": True,
+                }
+            except Exception as full_exc:
+                log.error("full_generation_fallback_also_failed", error=str(full_exc))
+                return {
+                    "pages_regenerated": 0,
+                    "pages_total": len(affected.page_uids),
+                    "trigger": affected.trigger,
+                    "fallback": True,
+                    "error": str(full_exc),
+                }
 
     async def generate_stream_events(
         self,

@@ -18,6 +18,7 @@ import {
   Network,
   PieChart,
   RefreshCw,
+  BookMarked,
 } from "lucide-react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import AskPanel from "./AskPanel";
@@ -42,6 +43,7 @@ const WikiReferenceGraph = lazy(() => import("./WikiReferenceGraph"));
 const GraphInsightsPanel = lazy(() => import("./GraphInsightsPanel"));
 const WikiBusinessExportPanel = lazy(() => import("./WikiBusinessExportPanel"));
 const WikiLintPanel = lazy(() => import("./WikiLintPanel"));
+const DeepResearchPanel = lazy(() => import("./DeepResearchPanel"));
 
 const wikiToolSuspenseFallback = (
   <div className="animate-pulse rounded-xl border p-8 text-center text-sm text-gray-400">Loading...</div>
@@ -59,7 +61,7 @@ function invalidateWikiQueriesForBusiness(queryClient: QueryClient, businessId: 
   });
 }
 
-type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights" | "refgraph";
+type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights" | "refgraph" | "research";
 
 export default function WikiShell() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -247,6 +249,11 @@ export default function WikiShell() {
               <GitBranch size={14} className="text-cyan-600 dark:text-cyan-400" aria-hidden />,
             )}
             {tabBtn(
+              "research",
+              t.wiki.tabResearch,
+              <BookMarked size={14} className="text-indigo-600 dark:text-indigo-400" aria-hidden />,
+            )}
+            {tabBtn(
               "export",
               t.wiki.tabExport,
               <FileOutput size={14} className="text-sky-600 dark:text-sky-400" aria-hidden />,
@@ -356,6 +363,17 @@ export default function WikiShell() {
           <div role="tabpanel" id="wiki-panel-export" aria-labelledby="wiki-tab-export">
             <Suspense fallback={wikiToolSuspenseFallback}>
               <WikiBusinessExportPanel key={businessId} />
+            </Suspense>
+          </div>
+        )}
+
+        {toolTab === "research" && (
+          <div role="tabpanel" id="wiki-panel-research" aria-labelledby="wiki-tab-research">
+            <Suspense fallback={wikiToolSuspenseFallback}>
+              <DeepResearchPanel
+                businessId={businessId}
+                repository={pageQuery.data?.context?.repository ?? businessId}
+              />
             </Suspense>
           </div>
         )}

@@ -590,6 +590,7 @@ const en: Translations = {
     tabInsights: "Insights",
     tabExport: "Export",
     tabRefGraph: "Reference graph",
+    tabResearch: "Research",
     businessView: "Business",
     codeView: "Code",
     coverageTitle: "Wiki Coverage",

@@ -604,6 +604,7 @@ export interface Translations {
     tabInsights: string;
     tabExport: string;
     tabRefGraph: string;
+    tabResearch: string;
     businessView: string;
     codeView: string;
     coverageTitle: string;

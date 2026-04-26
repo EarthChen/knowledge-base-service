@@ -7,6 +7,7 @@ import WikiAnnotationLayer from "./WikiAnnotationLayer";
 import WikiAnnotationSidebar from "./WikiAnnotationSidebar";
 import WikiEditButton from "./WikiEditButton";
 import WikiStaleAlert from "./WikiStaleAlert";
+import { ContradictionAlert } from "./ContradictionAlert";
 import WikiSuggestedQuestions from "./WikiSuggestedQuestions";
 import WikiPageFeedback from "./WikiPageFeedback";
 import TableOfContents from "./TableOfContents";
@@ -132,6 +133,16 @@ export default function WikiContent({
           <WikiStaleAlert generatedAtLabel={generatedAt} isStale />
         </div>
       )}
+
+      {detail?.context?.unresolved_contradictions &&
+        Number(detail.context.unresolved_contradictions) > 0 && (
+          <div className="px-5 pt-3">
+            <ContradictionAlert
+              unresolvedCount={Number(detail.context.unresolved_contradictions)}
+              summary={detail.context.contradiction_summary}
+            />
+          </div>
+        )}
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:items-start">
         {showToc && detail?.content ? (

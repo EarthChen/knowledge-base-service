@@ -181,6 +181,23 @@ async def wiki_get_page_by_path(
         if stale_count > 0:
             is_stale = "true"
 
+    ctx: dict[str, str] = {
+        "repository": str(row.get("repository") or ""),
+        "page_type": str(row.get("page_type") or ""),
+        "importance_tier": str(row.get("importance_tier") or ""),
+        "uid": page_uid,
+        "is_stale": is_stale,
+    }
+    if page_uid and getattr(settings.wiki, "contradiction_detection_enabled", False):
+        c_rows = await store.list_wiki_contradictions_for_page(
+            page_uid,
+            include_resolved=False,
+        )
+        ctx["unresolved_contradictions"] = str(len(c_rows))
+        if c_rows:
+            d0 = c_rows[0].get("description") or ""
+            ctx["contradiction_summary"] = str(d0)[:500]
+
     return {
         "path": str(row.get("path") or ""),
         "title": str(row.get("title") or ""),
@@ -188,13 +205,7 @@ async def wiki_get_page_by_path(
         "diagrams": [],
         "source_locations": source_locations,
         "method_locations": [],
-        "context": {
-            "repository": str(row.get("repository") or ""),
-            "page_type": str(row.get("page_type") or ""),
-            "importance_tier": str(row.get("importance_tier") or ""),
-            "uid": page_uid,
-            "is_stale": is_stale,
-        },
+        "context": ctx,
         "generated_at": str(row.get("generated_at") or "") or None,
     }
 

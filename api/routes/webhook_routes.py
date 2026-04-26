@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 from typing import Annotated, Any
 
@@ -18,6 +19,18 @@ from wiki.webhook.receiver import WebhookReceiver
 webhook_router = APIRouter(prefix="/api/v1/hooks", tags=["webhooks"])
 
 _VALID_PROVIDERS = frozenset({"github", "gitlab", "gitea"})
+
+
+def _extract_files_from_push_payload(payload: dict[str, Any]) -> list[str]:
+    """Extract unique changed files from a GitHub/GitLab push webhook payload."""
+    files: set[str] = set()
+    for commit in payload.get("commits", []):
+        if not isinstance(commit, dict):
+            continue
+        files.update(commit.get("added", []) or [])
+        files.update(commit.get("modified", []) or [])
+        files.update(commit.get("removed", []) or [])
+    return sorted(files)
 
 
 def _mask_webhook_config_for_response(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -97,6 +110,14 @@ class WebhookConfigUpdate(BaseModel):
     providers: dict[str, Any] = Field(default_factory=dict)
 
 
+class WebhookWikiIngestBody(BaseModel):
+    repository: str = Field(..., min_length=1)
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Push webhook JSON body; files are taken from commits[].added/modified/removed.",
+    )
+
+
 @webhook_router.get("/config")
 async def get_webhook_config(
     request: Request,
@@ -120,6 +141,34 @@ async def update_webhook_config(
     request.app.state.webhook_config = updated
     apply_webhook_runtime(request.app)
     return _mask_webhook_config_for_response(updated)
+
+
+@webhook_router.post("/ingest/push")
+async def webhook_wiki_ingest_push(
+    request: Request,
+    body: WebhookWikiIngestBody,
+) -> dict[str, Any]:
+    """Incremental wiki ingest from a push-style payload (e.g. GitHub push ``commits``)."""
+    files = _extract_files_from_push_payload(body.payload)
+    if not files:
+        return {
+            "pages_regenerated": 0,
+            "pages_total": 0,
+            "trigger": "git_push",
+            "message": "No files in push payload",
+        }
+
+    detector = getattr(request.app.state, "change_detector", None)
+    factory = getattr(request.app.state, "wiki_service_factory", None)
+    if detector is None or factory is None:
+        raise KbServiceUnavailable("Incremental ingest not configured")
+
+    affected = await detector.detect_from_file_list(
+        body.repository, files, trigger="git_push",
+    )
+    out = factory()
+    service = await out if asyncio.iscoroutine(out) else out
+    return await service.generate_incremental(body.repository, affected)
 
 
 @webhook_router.post("/{provider}")

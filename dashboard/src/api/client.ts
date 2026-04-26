@@ -1,3 +1,4 @@
+import type { BusinessWikiExportBody, BusinessWikiExportResponse } from "../hooks/wikiTypes";
 import type {
   EnrichRequest,
   GraphInsightsReport,
@@ -128,4 +129,23 @@ export async function wikiGenerate(
 
 export async function wikiTaskStatus(taskId: string): Promise<WikiAsyncTask> {
   return api<WikiAsyncTask>(`/wiki/tasks/${encodeURIComponent(taskId)}`);
+}
+
+export async function businessWikiGenerate(
+  businessId: string,
+  language: string,
+): Promise<TaskInfo> {
+  return api<TaskInfo>("/wiki/business/generate", {
+    method: "POST",
+    body: JSON.stringify({ business_id: businessId, language }),
+  });
+}
+
+export async function businessWikiExport(
+  body: BusinessWikiExportBody,
+): Promise<BusinessWikiExportResponse> {
+  return api<BusinessWikiExportResponse>("/wiki/export", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }

@@ -26,7 +26,7 @@ export type WikiPageDetail = {
   diagrams: unknown[];
   source_locations: WikiSourceLocation[];
   method_locations: unknown[];
-  context: Record<string, string>;
+  context: Record<string, string> & { confidence_score?: string };
   /** ISO timestamp from page metadata when the server provides it. */
   generated_at?: string | null;
 };

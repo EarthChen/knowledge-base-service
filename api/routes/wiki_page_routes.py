@@ -188,6 +188,8 @@ async def wiki_get_page_by_path(
         "uid": page_uid,
         "is_stale": is_stale,
     }
+    if row.get("confidence_score") is not None:
+        ctx["confidence_score"] = str(row.get("confidence_score"))
     if page_uid and settings.wiki.contradiction_detection_enabled:
         c_rows = await store.list_wiki_contradictions_for_page(
             page_uid,
@@ -208,6 +210,22 @@ async def wiki_get_page_by_path(
         "context": ctx,
         "generated_at": str(row.get("generated_at") or "") or None,
     }
+
+
+@router.get("/pages/claim-history", response_model=None)
+async def wiki_list_claim_history(
+    request: Request,
+    page_uid: str = Query(..., min_length=1, description="WikiPage uid (URL-encoded)"),
+) -> dict[str, Any]:
+    """Return WikiClaimHistory rows for a page (see SP5 supersession)."""
+    if not getattr(get_route_settings().wiki, "supersession_tracking_enabled", False):
+        return {"items": []}
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise KbServiceUnavailable("Wiki store unavailable")
+    store = WikiStore(raw_store)
+    rows = await store.list_wiki_claims_for_page(page_uid)
+    return {"items": rows}
 
 
 @router.get("/flows", response_model=None)

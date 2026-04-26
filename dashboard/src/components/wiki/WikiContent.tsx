@@ -18,6 +18,7 @@ import WikiCallChainSection from "./WikiCallChainSection";
 import MobileTocBar from "./MobileTocBar";
 import WikiSourceLocRow from "./WikiSourceLocRow";
 import { WikiVersionPicker } from "./WikiVersionPicker";
+import { ConfidenceBadge } from "./ConfidenceBadge";
 import { useI18n } from "../../i18n/context";
 import { useToast } from "../Toast";
 
@@ -109,6 +110,12 @@ export default function WikiContent({
               </span>
             )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
+              {detail?.context?.confidence_score != null &&
+                String(detail.context.confidence_score).trim() !== "" && (
+                  <ConfidenceBadge
+                    score={Number(detail.context.confidence_score)}
+                  />
+                )}
               {detail?.context?.version ? (
                 <WikiVersionPicker
                   key={`${pagePath}:${pageUid}`}

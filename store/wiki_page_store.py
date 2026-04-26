@@ -310,6 +310,7 @@ class WikiPageStoreMixin:
             "wp.page_type AS page_type, wp.importance_tier AS importance_tier, "
             "wp.repository AS repository, wp.uid AS uid, "
             "coalesce(wp.generated_at, '') AS generated_at, "
+            "wp.confidence_score AS confidence_score, "
             "sources "
             "LIMIT 1"
         )

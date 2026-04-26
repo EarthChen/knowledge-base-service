@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict
@@ -44,12 +45,31 @@ from wiki.structure_planner import WikiScopeError
 
 log = get_logger(__name__)
 
+WIKI_TASK_TTL_SEC = 30 * 60
+
 
 class WikiTaskRegistry:
-    """In-memory wiki generation tasks."""
+    """In-memory wiki generation tasks. Entries expire after WIKI_TASK_TTL_SEC for bounded memory use."""
 
     def __init__(self) -> None:
         self.tasks: dict[str, dict[str, Any]] = {}
+        self._created: dict[str, float] = {}
+
+    def _prune(self) -> None:
+        now = time.monotonic()
+        removed = [tid for tid, ts in self._created.items() if now - ts > WIKI_TASK_TTL_SEC]
+        for tid in removed:
+            self.tasks.pop(tid, None)
+            self._created.pop(tid, None)
+
+    def put_task(self, task_id: str, record: dict[str, Any]) -> None:
+        self._prune()
+        self.tasks[task_id] = record
+        self._created[task_id] = time.monotonic()
+
+    def get_task(self, task_id: str) -> dict[str, Any] | None:
+        self._prune()
+        return self.tasks.get(task_id)
 
 
 class WikiGenerateBody(BaseModel):
@@ -571,12 +591,15 @@ async def wiki_generate(
 
     if scope_param.scope_type == "repo":
         task_id = f"wiki-{uuid.uuid4().hex}"
-        registry.tasks[task_id] = {
-            "task_id": task_id,
-            "status": "pending",
-            "repository": body.repository,
-            "scope": body.scope,
-        }
+        registry.put_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "pending",
+                "repository": body.repository,
+                "scope": body.scope,
+            },
+        )
         asyncio.create_task(_run_wiki_task(task_id, svc, body, registry, sem))
         return JSONResponse(
             status_code=202,
@@ -653,13 +676,16 @@ async def wiki_quick(
 
     if not indexed:
         task_id = f"wiki-quick-{uuid.uuid4().hex}"
-        registry.tasks[task_id] = {
-            "task_id": task_id,
-            "status": "pending",
-            "git_url": git_url,
-            "branch": body.branch,
-            "mode": body.mode,
-        }
+        registry.put_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "pending",
+                "git_url": git_url,
+                "branch": body.branch,
+                "mode": body.mode,
+            },
+        )
         bg_fn = getattr(request.app.state, "wiki_quick_background", None)
         asyncio.create_task(
             _run_wiki_quick_task(
@@ -728,10 +754,36 @@ async def wiki_task_status(
     task_id: str,
     registry: WikiTaskRegistry = Depends(get_task_registry_dep),
 ) -> dict[str, Any]:
-    rec = registry.tasks.get(task_id)
+    rec = registry.get_task(task_id)
     if rec is None:
         raise HTTPException(status_code=404, detail={"error": "task_not_found"})
     return rec
+
+
+@wiki_router.get(
+    "/events",
+    response_model=None,
+)
+async def wiki_events_stream(
+    business_id: str = Query(..., min_length=1),
+) -> StreamingResponse:
+    """SSE of wiki events for a business. EventSource may pass the API token as ``token`` (no header)."""
+    log.debug("wiki_events_subscribe", business_id=business_id)
+
+    async def events() -> Any:
+        yield ": stream-open\n\n"
+        while True:
+            await asyncio.sleep(60.0)
+            yield ": keepalive\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @wiki_router.post("/search", response_model=None)

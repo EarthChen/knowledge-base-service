@@ -8,6 +8,7 @@ import SourceLink from "./SourceLink";
 import { parseMarkdownHeadings } from "./headingUtils";
 import { replaceWikilinksWithHtml } from "./wikilinkParser";
 import WikiLinkPreview from "./WikiLinkPreview";
+import { getMermaid } from "./mermaidLoader";
 
 function MermaidBlock({ chart }: { chart: string }) {
   const id = useId().replace(/:/g, "");
@@ -19,17 +20,12 @@ function MermaidBlock({ chart }: { chart: string }) {
 
     let cancelled = false;
     void (async () => {
-      const mermaid = await import("mermaid");
+      const mermaid = await getMermaid();
       if (cancelled) return;
-      mermaid.default.initialize({
-        startOnLoad: false,
-        theme: "neutral",
-        securityLevel: "strict",
-      });
       el.removeAttribute("data-processed");
       el.textContent = chart;
       try {
-        await mermaid.default.run({ nodes: [el] });
+        await mermaid.run({ nodes: [el] });
       } catch {
         el.innerHTML =
           `<pre class="rounded-lg bg-red-50 p-3 text-xs text-red-800">Mermaid failed to render</pre>`;

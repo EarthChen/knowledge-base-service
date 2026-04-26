@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useMemo,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
@@ -75,19 +76,23 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
     }
   }, [data, currentBusiness, setCurrentBusiness, isBound]);
 
-  return (
-    <BusinessContext.Provider
-      value={{
-        currentBusiness,
-        setCurrentBusiness,
-        businesses: data?.businesses ?? [],
-        isLoading,
-        isBound,
-      }}
-    >
-      {children}
-    </BusinessContext.Provider>
+  const businesses = useMemo(
+    () => data?.businesses ?? [],
+    [data?.businesses],
   );
+
+  const value = useMemo(
+    () => ({
+      currentBusiness,
+      setCurrentBusiness,
+      businesses,
+      isLoading,
+      isBound,
+    }),
+    [currentBusiness, setCurrentBusiness, businesses, isLoading, isBound],
+  );
+
+  return <BusinessContext.Provider value={value}>{children}</BusinessContext.Provider>;
 }
 
 export function useBusiness() {

@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
 
 import auth
+
+
+def _req(params: dict[str, str] | None = None) -> object:
+    return SimpleNamespace(query_params=dict(params) if params else {})
 
 
 @pytest.fixture(autouse=True)
@@ -54,7 +60,7 @@ def test_require_role_blocks_when_require_auth_true_and_no_registry(
 
     dep = auth.require_role(auth.Role.VIEWER)
     with pytest.raises(HTTPException) as ei:
-        dep(None)
+        dep(_req(), None)
     assert ei.value.status_code == 403
 
     config_module.get_settings.cache_clear()
@@ -92,6 +98,6 @@ def test_require_role_allows_none_when_require_auth_false(
     config_module.get_settings.cache_clear()
 
     dep = auth.require_role(auth.Role.VIEWER)
-    assert dep(None) is None
+    assert dep(_req(), None) is None
 
     config_module.get_settings.cache_clear()

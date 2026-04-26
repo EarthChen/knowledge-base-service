@@ -19,7 +19,7 @@ class SuggestedQuestionsGenerator:
     """Generates exploration questions based on graph topology."""
 
     def __init__(self, max_questions: int = 5) -> None:
-        self._max = max_questions
+        self._max = max(0, max_questions)
 
     def generate(self, ctx: PageContext) -> list[str]:
         questions: list[str] = []

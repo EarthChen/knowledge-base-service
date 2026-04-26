@@ -619,30 +619,38 @@ class WikiStore:
         return rows
 
     async def get_entity_coverage_stats(self, business_id: str) -> dict[str, int]:
-        """Count wiki pages by importance tier for coverage statistics."""
+        """Count wiki pages by importance tier for coverage statistics.
+
+        Returns tier breakdown so the analyzer can compute meaningful ratios:
+        - ``total_entities``: all WikiPages
+        - ``covered_entities``: pages at core or standard tier (non-skeleton)
+        - ``core_total`` / ``standard_total`` / ``skeleton_total``: per-tier counts
+        """
         q = (
             "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage) "
             "RETURN wp.importance_tier AS tier, count(wp) AS cnt"
         )
         result = await self._store.execute_query(q, {"business_id": business_id})
-        stats = {
-            "total_entities": 0, "covered_entities": 0,
-            "core_total": 0, "core_covered": 0,
-            "standard_total": 0, "standard_covered": 0,
-        }
+        core = 0
+        standard = 0
+        skeleton = 0
         for row in result.data:
             tier = str(row.get("tier") or "")
             cnt = int(row.get("cnt", 0))
-            stats["total_entities"] += cnt
             if tier == "core":
-                stats["core_total"] += cnt
-                stats["core_covered"] += cnt
-                stats["covered_entities"] += cnt
+                core += cnt
             elif tier == "standard":
-                stats["standard_total"] += cnt
-                stats["standard_covered"] += cnt
-                stats["covered_entities"] += cnt
-        return stats
+                standard += cnt
+            else:
+                skeleton += cnt
+        total = core + standard + skeleton
+        return {
+            "total_entities": total,
+            "covered_entities": core + standard,
+            "core_total": core,
+            "standard_total": standard,
+            "skeleton_total": skeleton,
+        }
 
     async def get_knowledge_gaps(
         self, business_id: str, min_in_degree: int = 5

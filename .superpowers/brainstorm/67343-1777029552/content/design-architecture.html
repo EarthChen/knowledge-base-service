@@ -1,0 +1,93 @@
+<h2>设计方案 — 整体架构</h2>
+<p class="subtitle">Wiki 增强系统：三层代码感知 + 智能分层生成</p>
+
+<div class="mockup">
+  <div class="mockup-header">🏗️ 系统架构总览</div>
+  <div class="mockup-body" style="font-size: 13px; line-height: 1.7; padding: 16px;">
+
+    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+      <!-- Left column: data pipeline -->
+      <div style="flex: 1;">
+        <div style="text-align: center; padding: 6px; background: #374151; border-radius: 6px 6px 0 0; font-weight: bold; color: #7dd3fc;">📥 数据管道（索引时）</div>
+        <div style="border: 1px solid #374151; border-top: 0; border-radius: 0 0 6px 6px; padding: 10px;">
+          <div style="padding: 6px; background: #1e293b; border-radius: 4px; margin-bottom: 6px; border-left: 3px solid #34d399;">
+            <strong>CodeChunkIndexer</strong> <span style="color: #94a3b8; font-size: 11px;">[新增]</span><br>
+            <span style="color: #94a3b8;">源文件 → 切片 → CHUNK 节点 + embedding</span>
+          </div>
+          <div style="text-align: center; color: #4b5563;">↓ 存入 FalkorDB</div>
+          <div style="padding: 6px; background: #1e293b; border-radius: 4px; margin-top: 6px;">
+            <strong>FalkorDB</strong><br>
+            <span style="color: #34d399;">CHUNK(text, embedding, file, line)</span><br>
+            <span style="color: #7dd3fc;">MODULE/CLASS/FUNCTION(结构关系)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right column: generation pipeline -->
+      <div style="flex: 1.5;">
+        <div style="text-align: center; padding: 6px; background: #374151; border-radius: 6px 6px 0 0; font-weight: bold; color: #a78bfa;">📤 生成管道（Wiki 生成时）</div>
+        <div style="border: 1px solid #374151; border-top: 0; border-radius: 0 0 6px 6px; padding: 10px;">
+
+          <div style="padding: 6px; background: #1e293b; border-radius: 4px; margin-bottom: 6px; border-left: 3px solid #f59e0b;">
+            <strong>ImportanceScorer</strong> <span style="color: #94a3b8; font-size: 11px;">[新增]</span><br>
+            <span style="color: #94a3b8;">百分位排名 → core / standard / skeleton</span>
+          </div>
+
+          <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+            <div style="flex: 1; padding: 6px; background: #1e293b; border-radius: 4px; border-left: 3px solid #34d399;">
+              <strong>SourceCodeReader</strong> <span style="color: #94a3b8; font-size: 11px;">[新增]</span><br>
+              <span style="color: #94a3b8;">file/line → 精准代码</span>
+            </div>
+            <div style="flex: 1; padding: 6px; background: #1e293b; border-radius: 4px; border-left: 3px solid #7dd3fc;">
+              <strong>ChunkRetriever</strong> <span style="color: #94a3b8; font-size: 11px;">[新增]</span><br>
+              <span style="color: #94a3b8;">向量检索 → 相关代码</span>
+            </div>
+          </div>
+
+          <div style="text-align: center; color: #4b5563;">↓ 合并到</div>
+
+          <div style="padding: 6px; background: #1e293b; border-radius: 4px; margin: 6px 0; border-left: 3px solid #a78bfa;">
+            <strong>EnrichedContextAssembler</strong> <span style="color: #94a3b8; font-size: 11px;">[新增]</span><br>
+            <span style="color: #94a3b8;">图谱结构 + 精准代码 + 语义代码 + 文档 → 统一 Context</span>
+          </div>
+
+          <div style="text-align: center; color: #4b5563;">↓ 送入</div>
+
+          <div style="padding: 6px; background: #1e293b; border-radius: 4px; margin: 6px 0; border-left: 3px solid #f87171;">
+            <strong>TieredComposer</strong> <span style="color: #94a3b8; font-size: 11px;">[增强 WikiComposer]</span><br>
+            <span style="color: #94a3b8;">根据 importance_tier 选择生成策略：</span><br>
+            <span style="color: #34d399;">• core → 百科模式（多层 LLM）</span><br>
+            <span style="color: #7dd3fc;">• standard → 标准模式（单次 LLM）</span><br>
+            <span style="color: #94a3b8;">• skeleton → 骨架模式（模板，无 LLM）</span>
+          </div>
+
+          <div style="text-align: center; color: #4b5563;">↓ 输出</div>
+
+          <div style="display: flex; gap: 8px;">
+            <div style="flex: 1; padding: 6px; background: #0f172a; border-radius: 4px; text-align: center;">
+              <strong style="color: #34d399;">基础层</strong><br>
+              <span style="color: #94a3b8; font-size: 11px;">概述 + 结构 + 代码引用</span>
+            </div>
+            <div style="flex: 1; padding: 6px; background: #0f172a; border-radius: 4px; text-align: center;">
+              <strong style="color: #a78bfa;">丰富层</strong><br>
+              <span style="color: #94a3b8; font-size: 11px;">业务流程 + 设计模式</span>
+            </div>
+            <div style="flex: 1; padding: 6px; background: #0f172a; border-radius: 4px; text-align: center;">
+              <strong style="color: #f59e0b;">百科层</strong><br>
+              <span style="color: #94a3b8; font-size: 11px;">FAQ + 示例 + 性能</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding: 12px; background: #0f172a; border-radius: 6px; border: 1px solid #374151;">
+      <strong style="color: #f59e0b;">核心原则</strong>
+      <ul style="margin: 4px 0 0 0; padding-left: 16px; color: #94a3b8;">
+        <li><strong>不替换现有组件</strong> — 所有新增组件通过接口组合到现有 WikiService 中</li>
+        <li><strong>向后兼容</strong> — mode=structure 和现有 API 行为不变</li>
+        <li><strong>渐进交付</strong> — Phase 1/2/3 独立可用，无相互依赖</li>
+      </ul>
+    </div>
+  </div>
+</div>

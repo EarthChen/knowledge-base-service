@@ -47,16 +47,15 @@ class WikiCoverageAnalyzer:
         gaps_raw = await self._store.get_knowledge_gaps(business_id)
         stale_raw = await self._store.get_stale_wiki_pages(business_id)
 
-        core_total = stats.get("core_total", 0)
-        core_covered = stats.get("core_covered", 0)
-        standard_total = stats.get("standard_total", 0)
-        standard_covered = stats.get("standard_covered", 0)
+        total = stats.get("total_entities", 0)
+        core = stats.get("core_total", 0)
+        standard = stats.get("standard_total", 0)
 
-        core_coverage = core_covered / core_total if core_total > 0 else 0.0
-        standard_coverage = standard_covered / standard_total if standard_total > 0 else 0.0
+        core_coverage = core / total if total > 0 else 0.0
+        standard_coverage = (core + standard) / total if total > 0 else 0.0
 
         return CoverageReport(
-            total_entities=stats.get("total_entities", 0),
+            total_entities=total,
             covered_entities=stats.get("covered_entities", 0),
             core_coverage=round(core_coverage, 2),
             standard_coverage=round(standard_coverage, 2),

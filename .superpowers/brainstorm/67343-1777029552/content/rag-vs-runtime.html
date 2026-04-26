@@ -1,0 +1,105 @@
+<h2>方案对比：RAG 向量检索 vs 运行时源码读取</h2>
+<p class="subtitle">结合你的实际场景做决策</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">🔍 B) RAG 向量检索层</div>
+    <div class="mockup-body" style="font-size: 13px; line-height: 1.7;">
+      <div style="padding: 8px; background: #1e293b; border-radius: 6px; margin-bottom: 10px;">
+        <strong style="color: #34d399;">工作原理</strong><br>
+        索引时：源文件 → 切片(~200行) → Embedding → 向量库<br>
+        生成时：用实体名/FQN 检索 → Top-K 代码片段 → 送入 LLM
+      </div>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>✅ 优势</h4>
+          <ul>
+            <li><strong>语义检索</strong> — 可以找到"相关"而非"精确匹配"的代码</li>
+            <li><strong>跨文件关联</strong> — 一个实体能检索到多个相关文件片段</li>
+            <li><strong>不依赖本地文件</strong> — 索引后源码可以不在本地</li>
+            <li><strong>适合大型项目</strong> — 检索效率不受项目规模影响</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>❌ 劣势</h4>
+          <ul>
+            <li><strong>新增组件</strong> — 需要向量存储(但已有 embedding 能力)</li>
+            <li><strong>索引耗时</strong> — 全量索引需要计算大量 embedding</li>
+            <li><strong>可能过时</strong> — 向量索引与源码版本不同步</li>
+            <li><strong>实现复杂度高</strong> — 切片策略、检索排序需要调优</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">📂 C) 运行时源码读取</div>
+    <div class="mockup-body" style="font-size: 13px; line-height: 1.7;">
+      <div style="padding: 8px; background: #1e293b; border-radius: 6px; margin-bottom: 10px;">
+        <strong style="color: #7dd3fc;">工作原理</strong><br>
+        图节点已有：file, start_line, end_line<br>
+        生成时：读取 file[start:end] → 截取代码 → 送入 LLM
+      </div>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>✅ 优势</h4>
+          <ul>
+            <li><strong>零新增组件</strong> — 直接用现有图谱数据</li>
+            <li><strong>始终最新</strong> — 读的是当前文件，无同步问题</li>
+            <li><strong>精准定位</strong> — 图谱关系告诉你"该读哪个函数"</li>
+            <li><strong>实现简单</strong> — ~100行代码即可完成</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>❌ 劣势</h4>
+          <ul>
+            <li><strong>依赖本地文件</strong> — 源码必须在服务可达路径</li>
+            <li><strong>无语义检索</strong> — 只能读图谱明确指向的代码</li>
+            <li><strong>行号可能漂移</strong> — 代码修改后行号可能不准</li>
+            <li><strong>IO 开销</strong> — 大型页面需读多个文件</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 20px; padding: 16px; background: #1e293b; border-radius: 8px; border-left: 4px solid #f59e0b;">
+  <h3 style="margin-top: 0; color: #f59e0b;">💡 我的推荐：C 先行，B 后补</h3>
+  <p style="color: #94a3b8; margin-bottom: 0;">
+    <strong>阶段 1（本次实施）：运行时源码读取</strong><br>
+    • 你的服务和代码仓库在同一台机器上（开发机部署）<br>
+    • 图谱已经有精确的 file/line 信息<br>
+    • 实现快速（~100行），立刻能看到效果提升<br>
+    • 图谱的结构关系 + 精准代码读取 = 已经远超 "只看元数据" 的质量<br><br>
+    <strong>阶段 2（未来可选）：叠加 RAG 检索</strong><br>
+    • 当需要"跨文件语义关联"时再引入<br>
+    • 用向量检索补充图谱未覆盖的隐式关系
+  </p>
+</div>
+
+<h3>你的选择？</h3>
+<div class="options">
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>直接上 RAG 向量检索</h3>
+      <p>一步到位，功能最强大</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>运行时源码读取（推荐）</h3>
+      <p>快速见效，后续可叠加 RAG</p>
+    </div>
+  </div>
+  <div class="option" data-choice="bc" onclick="toggleSelect(this)">
+    <div class="letter">B+C</div>
+    <div class="content">
+      <h3>两者都做</h3>
+      <p>本次同时实现两种方式</p>
+    </div>
+  </div>
+</div>

@@ -93,6 +93,31 @@ class TestSuggestedQuestionsGenerator:
             assert "SpecificName" in q
 
 
+    def test_negative_max_questions_returns_empty(self):
+        gen = SuggestedQuestionsGenerator(max_questions=-1)
+        ctx = PageContext(
+            entity_name="Foo",
+            domain="D",
+            callers=["A", "B", "C"],
+            callees=["X"],
+            cross_domain_callers=["A"],
+        )
+        questions = gen.generate(ctx)
+        assert questions == []
+
+    def test_zero_max_questions_returns_empty(self):
+        gen = SuggestedQuestionsGenerator(max_questions=0)
+        ctx = PageContext(
+            entity_name="Foo",
+            domain="D",
+            callers=["A", "B", "C"],
+            callees=["X"],
+            cross_domain_callers=[],
+        )
+        questions = gen.generate(ctx)
+        assert questions == []
+
+
 class TestPageContext:
     def test_dataclass_fields(self):
         ctx = PageContext(

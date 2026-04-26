@@ -121,6 +121,20 @@ class WikiPageStoreMixin:
             return rows[0].get("cnt", 0)
         return 0
 
+    async def deprecate_orphan_wiki_pages(self, repository: str) -> int:
+        """Mark WikiPages with no SOURCE_ENTITY relationship as deprecated."""
+        q = (
+            "MATCH (wp:WikiPage {repository: $repo}) "
+            "WHERE NOT (wp)-[:SOURCE_ENTITY]->() "
+            "SET wp.deprecated = true "
+            "RETURN count(wp) AS cnt"
+        )
+        result = await self._store.execute_query(q, {"repo": repository})
+        rows = getattr(result, "data", []) or []
+        if rows and isinstance(rows[0], dict):
+            return rows[0].get("cnt", 0)
+        return 0
+
     async def wiki_orphan_in_degrees(self, repository: str) -> QueryResultWrapper:
         q = (
             "MATCH (wp:WikiPage {repository: $repository}) "

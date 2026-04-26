@@ -1,11 +1,11 @@
 """Auto-heal actions for wiki quality maintenance.
 
-Only safe, non-destructive repairs are performed automatically:
+Automatic repairs:
 - Broken reference cleanup (dangling WIKI_REFERENCES edges)
+- Orphan page deprecation (pages with no SOURCE_ENTITY link)
 
-Page-level operations (stale marking, orphan deprecation) are intentionally
-excluded from automatic healing — they should only be triggered manually
-during explicit maintenance windows.
+Stale page marking is excluded — stable, rarely-updated documentation
+should not be auto-flagged.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ log = get_logger(__name__)
 @runtime_checkable
 class _WikiStorePort(Protocol):
     async def delete_broken_wiki_references(self, repository: str) -> int: ...
+    async def deprecate_orphan_wiki_pages(self, repository: str) -> int: ...
 
 
 class AutoHealer:
@@ -33,6 +34,16 @@ class AutoHealer:
             cnt = 0
         return {"refs_removed": cnt}
 
+    async def deprecate_orphan_pages(self, repository: str) -> dict[str, Any]:
+        """Mark pages with no source entity link as deprecated."""
+        try:
+            cnt = await self._store.deprecate_orphan_wiki_pages(repository)
+        except Exception:
+            log.warning("auto_heal_orphan_deprecation_failed", repository=repository, exc_info=True)
+            cnt = 0
+        return {"pages_deprecated": cnt}
+
     async def run_all(self, repository: str) -> dict[str, Any]:
         refs = await self.remove_broken_references(repository)
-        return {**refs}
+        orphans = await self.deprecate_orphan_pages(repository)
+        return {**refs, **orphans}

@@ -185,6 +185,10 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
     else:
         app.state.wiki_ask_service = None
 
+    from wiki.deep_research import DeepResearchService
+
+    app.state.wiki_deep_research_service = DeepResearchService(ask_service=app.state.wiki_ask_service)
+
     app.state.graph_query_service = kb.graph_query
 
     if settings.wiki.mcp_server_enabled:

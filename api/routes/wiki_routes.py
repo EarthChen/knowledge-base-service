@@ -26,6 +26,7 @@ from store.wiki_store import WikiStore
 from git_manager import normalize_repo_name
 from utils.git_utils import looks_like_git_url
 from wiki.ask import WikiAskService
+from wiki.deep_research import DeepResearchService
 from wiki.memory_loop import MemoryLoop
 from wiki.quality_score import WikiQualityScorer
 from wiki.coverage_analyzer import WikiCoverageAnalyzer
@@ -140,6 +141,12 @@ class WikiAskBody(BaseModel):
     )
 
 
+class WikiResearchBody(BaseModel):
+    question: str = Field(..., min_length=1)
+    repository: str = Field(..., min_length=1)
+    business_id: str = Field(default="default", min_length=1)
+
+
 class WikiQaRecordBody(BaseModel):
     business_id: str = Field(..., min_length=1)
     question: str = Field(..., min_length=1)
@@ -235,6 +242,13 @@ async def get_wiki_ask_dep(request: Request) -> WikiAskService:
     svc = getattr(request.app.state, "wiki_ask_service", None)
     if svc is None:
         raise KbServiceUnavailable("Wiki ask is not configured")
+    return svc
+
+
+def get_wiki_deep_research_dep(request: Request) -> DeepResearchService:
+    svc = getattr(request.app.state, "wiki_deep_research_service", None)
+    if svc is None:
+        raise KbServiceUnavailable("Deep research is not configured")
     return svc
 
 
@@ -1355,6 +1369,19 @@ async def wiki_ask(
             yield f"event: error\ndata: {err}\n\n"
 
     return StreamingResponse(sse(), media_type="text/event-stream")
+
+
+@wiki_router.post("/research", response_model=None)
+async def wiki_research(
+    body: WikiResearchBody,
+    research_svc: DeepResearchService = Depends(get_wiki_deep_research_dep),
+) -> dict[str, Any]:
+    """Multi-step deep research over the wiki (sub-questions + synthesis)."""
+    return await research_svc.research(
+        question=body.question,
+        repository=body.repository,
+        business_id=body.business_id,
+    )
 
 
 @wiki_router.post("/{repository}/analyze-impact", response_model=None)

@@ -1,0 +1,13 @@
+version: "1.0"
+page_types:
+  entity:
+    required_fields: [title, content, type]
+    naming_pattern: "^[A-Z][a-zA-Z0-9_]+$"
+  overview:
+    required_fields: [title, content]
+  business_flow:
+    required_fields: [title, content, steps]
+conventions:
+  max_title_length: 100
+  max_content_length: 50000
+  required_sections: [description]

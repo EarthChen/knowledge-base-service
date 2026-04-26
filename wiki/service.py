@@ -404,6 +404,12 @@ class WikiService:
             round1_enabled=app_cfg.enrichment_round1_enabled,
             round2_enabled=app_cfg.enrichment_round2_enabled,
         )
+        if not page_tier_map:
+            log.info(
+                "enrichment_skipped_no_tiers",
+                reason="ImportanceScorer did not run; enrichment requires tier data",
+            )
+            return
         for page in pages:
             if page.page_type == PageType.REPO_OVERVIEW:
                 continue
@@ -557,23 +563,44 @@ class WikiService:
         counts: dict[str, int] = {"base": 0, "enriched": 0, "encyclopedia": 0}
         total = 0
         for row in getattr(result, "raw", []) or []:
-            level = str(row[0] or "base")
+            raw_level = row[0]
+            if raw_level is None or raw_level == "":
+                level = "base"
+            else:
+                level = str(raw_level)
             cnt = int(row[1])
             counts[level] = counts.get(level, 0) + cnt
             total += cnt
         return {"repository": repository, "total_pages": total, **counts}
 
     async def trigger_enrichment(self, repository: str) -> dict[str, Any]:
-        """Count pages at BASE level that could be enriched."""
+        """Dry-run: count wiki pages persisted at BASE that would be eligible for enrichment.
+
+        Does not enqueue or run enrichment; that happens during wiki generation when
+        importance tiers are available.
+        """
         await self._ensure_repo(repository)
-        if self._store is None or self._llm is None:
-            return {"queued": 0, "repository": repository, "reason": "LLM or store not available"}
+        llm_port = self._resolve_llm_port(None)
+        if self._store is None or llm_port is None:
+            return {
+                "eligible_pages": 0,
+                "repository": repository,
+                "reason": "LLM or store not available",
+            }
         q = (
             "MATCH (p:WikiPage {repository: $repo}) "
             "WHERE p.enrichment_level IS NULL OR p.enrichment_level = 'base' "
+            "OR p.enrichment_level = '' "
             "RETURN count(p) AS cnt"
         )
         result = await self._store.execute_query(q, {"repo": repository})
         rows = getattr(result, "raw", []) or []
-        queued = int(rows[0][0]) if rows else 0
-        return {"queued": queued, "repository": repository}
+        eligible_pages = int(rows[0][0]) if rows else 0
+        return {
+            "eligible_pages": eligible_pages,
+            "repository": repository,
+            "note": (
+                "Enrichment runs automatically during wiki generation. "
+                "This endpoint reports pages eligible for enrichment."
+            ),
+        }

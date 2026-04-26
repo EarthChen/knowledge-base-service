@@ -306,6 +306,7 @@ def _wiki_page_from_export_dict(data: dict[str, Any], repository: str) -> WikiPa
         generation_mode=str(meta_raw.get("generation_mode", "structure")),
         fallback_tier=meta_raw.get("fallback_tier"),
         generated_at=meta_raw.get("generated_at"),
+        enrichment_level=meta_raw.get("enrichment_level"),
     )
     return WikiPage(
         path=str(data["path"]),
@@ -1059,7 +1060,10 @@ async def wiki_enrich_trigger(
     repository: str,
     wiki_svc: WikiService = Depends(get_wiki_service_dep),
 ) -> dict[str, Any]:
-    """Accept a request to enrich wiki pages currently at BASE level (async processing)."""
+    """Dry-run estimate: how many persisted wiki pages are at BASE and eligible for enrichment.
+
+    Does not start async enrichment; enrichment runs during wiki generation when tiers exist.
+    """
     repo = normalize_repo_name(repository)
     try:
         return await wiki_svc.trigger_enrichment(repo)

@@ -66,7 +66,11 @@ def test_enrich_trigger_endpoint(app: FastAPI) -> None:
     client = TestClient(app)
     mock_svc = MagicMock()
     mock_svc.trigger_enrichment = AsyncMock(
-        return_value={"queued": 5, "repository": "test-repo"},
+        return_value={
+            "eligible_pages": 5,
+            "repository": "test-repo",
+            "note": "Enrichment runs automatically during wiki generation.",
+        },
     )
 
     async def override_wiki() -> MagicMock:
@@ -76,5 +80,5 @@ def test_enrich_trigger_endpoint(app: FastAPI) -> None:
 
     r = client.post("/api/v1/wiki/test-repo/enrich")
     assert r.status_code == 202
-    assert r.json()["queued"] == 5
+    assert r.json()["eligible_pages"] == 5
     mock_svc.trigger_enrichment.assert_awaited_once()

@@ -217,6 +217,7 @@ class WikiConfig(BaseModel):
     enrichment_enabled: bool = True
     enrichment_round1_enabled: bool = True
     enrichment_round2_enabled: bool = True
+    # Phase 3: Business domain (classification only; pipeline integration in Phase 4)
     business_domain_enabled: bool = False
     business_domain_infrastructure_label: str = "__infrastructure__"
 

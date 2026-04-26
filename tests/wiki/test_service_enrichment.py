@@ -121,6 +121,54 @@ async def test_compose_all_pages_runs_enrichment_when_llm_configured(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_compose_all_pages_skips_enrichment_without_importance_tiers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without ImportanceScorer tier data, enrichment must not run (avoids STANDARD default for all)."""
+    graph = _mock_graph()
+    llm = AsyncMock()
+    llm.generate = AsyncMock(return_value="## Extra\nShould not run.")
+    svc = WikiService(
+        graph=graph,
+        llm=llm,
+        repository_exists=AsyncMock(return_value=True),
+    )
+    structure = WikiStructure(
+        repository="test-repo",
+        root=WikiStructureNode(
+            path=".",
+            title="test-repo",
+            page_type=PageType.REPO_OVERVIEW,
+            children=[
+                WikiStructureNode(
+                    path="test_module",
+                    title="TestModule",
+                    page_type=PageType.MODULE_OVERVIEW,
+                    children=[],
+                ),
+            ],
+        ),
+        total_pages=2,
+    )
+    config = WikiConfig(repository="test-repo", mode="structure", format="json")
+    composer = WikiComposer(llm=llm, context_builder=WikiContextBuilder(llm), store=graph)
+
+    fake_settings = MagicMock()
+    fake_settings.wiki.enrichment_enabled = True
+    fake_settings.wiki.enrichment_round1_enabled = True
+    fake_settings.wiki.enrichment_round2_enabled = True
+    monkeypatch.setattr("wiki.service.get_settings", lambda: fake_settings)
+
+    pages, _ = await svc._compose_all_pages(
+        "test-repo", structure, config, composer, importance_tiers=None, llm_provider=None,
+    )
+    mod_page = next(p for p in pages if p.page_type == PageType.MODULE_OVERVIEW)
+    assert mod_page.metadata.enrichment_level == EnrichmentLevel.BASE
+    # structure mode does not call the LLM for compose; enrichment must not either
+    llm.generate.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_persist_pages_includes_enrichment_level(monkeypatch: pytest.MonkeyPatch) -> None:
     store = MagicMock()
     store.persist_wiki_pages = AsyncMock(return_value=1)

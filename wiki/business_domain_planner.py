@@ -6,10 +6,13 @@ import json
 import re
 from typing import TYPE_CHECKING
 
+from log import get_logger
 from store.schema import GraphNode
 
 if TYPE_CHECKING:
     from wiki.context import LLMPort
+
+log = get_logger(__name__)
 
 
 class BusinessDomainPlanner:
@@ -46,6 +49,11 @@ class BusinessDomainPlanner:
                 return self._all_infrastructure(names_in_order)
             return self._merge_llm_assignment(parsed, valid_names, names_in_order)
         except Exception:
+            log.warning(
+                "business_domain_classification_failed",
+                repository_id=repository_id,
+                exc_info=True,
+            )
             return self._all_infrastructure(names_in_order)
 
     def _all_infrastructure(self, names_in_order: list[str]) -> dict[str, list[str]]:

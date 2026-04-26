@@ -115,7 +115,12 @@ class MCPWikiServer:
         }
 
     async def _handle_wiki_explain(self, args: dict[str, Any]) -> dict[str, Any]:
-        return {"status": "not_implemented", "entity": args.get("entity", "")}
+        if self._wiki_store is None:
+            return {"error": "Wiki store not configured"}
+        from wiki.entity_explainer import EntityExplainer
+
+        explainer = EntityExplainer(self._wiki_store)
+        return await explainer.explain(args.get("repository", ""), args.get("entity", ""))
 
     async def _handle_wiki_navigate(self, args: dict[str, Any]) -> dict[str, Any]:
         return {"status": "not_implemented", "path": args.get("path", "/")}

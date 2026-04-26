@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from api.exceptions import KbError
+from api.error_handler import mcp_error_payload
 from log import get_logger
 
 log = get_logger(__name__)
@@ -90,17 +90,24 @@ class MCPWikiServer:
         self._change_detector = change_detector
 
     async def handle_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        """Route tool call to the appropriate handler."""
+        """Route tool call to the appropriate handler.
+
+        Errors are JSON-serializable objects aligned with HTTP ``ErrorResponse`` (public codes/messages only).
+        """
         handler = getattr(self, f"_handle_{tool_name}", None)
         if handler is None:
-            return {"error": f"Unknown tool: {tool_name}"}
+            return {
+                "error": {
+                    "code": "mcp_unknown_tool",
+                    "message": f"Unknown tool: {tool_name}",
+                    "http_status": 400,
+                }
+            }
         try:
             return await handler(arguments)
-        except KbError as exc:
-            return {"error": exc.message}
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 — use shared public error mapping
             log.warning("mcp_tool_call_failed", tool=tool_name, exc_info=True)
-            return {"error": "Internal tool error"}
+            return {"error": mcp_error_payload(exc)}
 
     async def _handle_wiki_search(self, args: dict[str, Any]) -> dict[str, Any]:
         if self._search is None:

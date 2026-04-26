@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -10,9 +11,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.responses import Response
 
-from log import get_logger
-
 from api.exceptions import KbError
+from log import get_logger
 
 log = get_logger(__name__)
 
@@ -62,6 +62,16 @@ def _public_error_for_exception(exc: BaseException) -> tuple[int, str, str]:
         return 404, "not_found", "Not found"
 
     return 500, "internal_error", "Internal server error"
+
+
+def mcp_error_payload(exc: BaseException) -> dict[str, Any]:
+    """Serializable MCP error (matches HTTP public mapping; safe messages for non-KbError)."""
+    status, code, _ = _public_error_for_exception(exc)
+    if isinstance(exc, KbError):
+        message = exc.message
+    else:
+        message = "Internal tool error"
+    return {"code": code, "message": message, "http_status": status}
 
 
 def _request_id(request: Request) -> str | None:

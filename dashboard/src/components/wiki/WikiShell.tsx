@@ -19,7 +19,7 @@ import {
   PieChart,
   RefreshCw,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import AskPanel from "./AskPanel";
 import WikiContent from "./WikiContent";
 import WikiReferencesPanel from "./WikiReferencesPanel";
@@ -48,6 +48,18 @@ const WikiLintPanel = lazy(() => import("./WikiLintPanel"));
 const wikiToolSuspenseFallback = (
   <div className="animate-pulse rounded-xl border p-8 text-center text-sm text-gray-400">Loading...</div>
 );
+
+/** All wiki query keys use `["wiki", <segment>, businessId, ...]` — invalidate everything for this business. */
+function invalidateWikiQueriesForBusiness(queryClient: QueryClient, businessId: string) {
+  const b = businessId.trim();
+  if (!b) return Promise.resolve();
+  return queryClient.invalidateQueries({
+    predicate: (q) => {
+      const k = q.queryKey as unknown[];
+      return k[0] === "wiki" && k[2] === b;
+    },
+  });
+}
 
 type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights" | "refgraph";
 
@@ -125,11 +137,11 @@ export default function WikiShell() {
       ) {
         setGenerationStatus(event.type);
         if (event.type === "wiki:generation_completed") {
-          queryClient.invalidateQueries({ queryKey: ["wiki"] });
+          void invalidateWikiQueriesForBusiness(queryClient, businessId);
         }
       }
     },
-    [queryClient],
+    [queryClient, businessId],
   );
 
   useWikiEvents(businessId.trim(), handleWikiEvent);
@@ -163,7 +175,7 @@ export default function WikiShell() {
       const tid = res.task_id ? String(res.task_id) : "";
       if (!tid) {
         toast("success", t.wiki.regenerateStarted);
-        await queryClient.invalidateQueries({ queryKey: ["wiki"] });
+        await invalidateWikiQueriesForBusiness(queryClient, businessId);
         return;
       }
       toast("info", t.wiki.regenerateRunning);
@@ -173,7 +185,7 @@ export default function WikiShell() {
         const st = await wikiTaskStatus(tid);
         if (st.status === "completed") {
           toast("success", t.wiki.regenerateComplete);
-          await queryClient.invalidateQueries({ queryKey: ["wiki"] });
+          await invalidateWikiQueriesForBusiness(queryClient, businessId);
           return;
         }
         if (st.status === "failed") {
@@ -303,7 +315,7 @@ export default function WikiShell() {
           <WikiUpdateNotification
             pagePath={updateNotification}
             onRefresh={() => {
-              queryClient.invalidateQueries({ queryKey: ["wiki"] });
+              void invalidateWikiQueriesForBusiness(queryClient, businessId);
               setUpdateNotification(null);
             }}
             onDismiss={() => setUpdateNotification(null)}
@@ -379,6 +391,7 @@ export default function WikiShell() {
 
       {toolTab === "page" && pagePath && pageQuery.data && (
         <WikiReferencesPanel
+          businessId={businessId}
           pageUid={pageQuery.data.context?.uid ?? ""}
           pagePath={pageQuery.data.path}
           repository={pageQuery.data.context?.repository ?? ""}

@@ -4,6 +4,7 @@ import { useWikiDiff } from "../../hooks/useWikiDiff";
 import { useI18n } from "../../i18n/context";
 
 interface WikiDiffViewerProps {
+  businessId: string;
   pageUid: string;
   fromVersion: number;
   toVersion: number;
@@ -34,13 +35,14 @@ function buildSidesFromHunks(
 }
 
 export default function WikiDiffViewer({
+  businessId,
   pageUid,
   fromVersion,
   toVersion,
   onClose,
 }: WikiDiffViewerProps) {
   const { t } = useI18n();
-  const { data, isLoading, isError } = useWikiDiff(pageUid, fromVersion, toVersion);
+  const { data, isLoading, isError } = useWikiDiff(businessId, pageUid, fromVersion, toVersion);
 
   if (isLoading) {
     return (

@@ -27,7 +27,7 @@ function renderPicker() {
   const client = new QueryClient();
   return renderWithI18n(
     <QueryClientProvider client={client}>
-      <WikiVersionPicker pageUid="uid-1" version="1" generatedAt="2026-01-01" />
+      <WikiVersionPicker businessId="biz-1" pageUid="uid-1" version="1" generatedAt="2026-01-01" />
     </QueryClientProvider>,
   );
 }

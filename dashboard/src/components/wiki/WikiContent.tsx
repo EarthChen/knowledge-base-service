@@ -54,10 +54,12 @@ function parseSuggestedQuestions(raw: string | undefined): string[] {
 }
 
 export function WikiVersionPicker({
+  businessId,
   pageUid,
   version,
   generatedAt,
 }: {
+  businessId: string;
   pageUid: string;
   version: string;
   generatedAt: string;
@@ -95,12 +97,14 @@ export function WikiVersionPicker({
               {t.wiki.versionHistoryTitle}
             </h4>
             <WikiVersionHistory
+              businessId={businessId}
               pageUid={pageUid}
               onSelectVersions={(from, to) => setDiffVersions({ from, to })}
             />
             {diffVersions ? (
               <div className="mt-4">
                 <WikiDiffViewer
+                  businessId={businessId}
                   pageUid={pageUid}
                   fromVersion={diffVersions.from}
                   toVersion={diffVersions.to}
@@ -136,7 +140,7 @@ export default function WikiContent({
   const tocItems: ParsedHeading[] = detail?.content ? parseMarkdownHeadings(detail.content) : [];
   const showToc = tocItems.length >= 3;
   const pageUid = detail?.context?.uid?.trim() ?? "";
-  const annotationsQuery = useWikiAnnotations(pageUid);
+  const annotationsQuery = useWikiAnnotations(businessId, pageUid);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
@@ -176,6 +180,7 @@ export default function WikiContent({
               {detail?.context?.version ? (
                 <WikiVersionPicker
                   key={`${pagePath}:${pageUid}`}
+                  businessId={businessId}
                   pageUid={pageUid}
                   version={detail.context.version}
                   generatedAt={detail?.generated_at || ""}

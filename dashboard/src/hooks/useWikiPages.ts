@@ -2,18 +2,18 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { WikiPagesResponse } from "./wikiTypes";
 
-export function wikiPagesQueryKey(repository: string) {
-  return ["wiki", "pages", repository] as const;
+export function wikiPagesQueryKey(businessId: string) {
+  return ["wiki", "pages", businessId] as const;
 }
 
-export function useWikiPages(repository: string | undefined) {
+export function useWikiPages(businessId: string | undefined) {
   return useQuery({
-    queryKey: wikiPagesQueryKey(repository ?? ""),
+    queryKey: wikiPagesQueryKey(businessId ?? ""),
     queryFn: () =>
       api<WikiPagesResponse>(
-        `/wiki/${encodeURIComponent(repository!)}/pages`,
+        `/wiki/${encodeURIComponent(businessId!)}/pages`,
         { method: "GET" },
       ),
-    enabled: Boolean(repository?.trim()),
+    enabled: Boolean(businessId?.trim()),
   });
 }

@@ -2,14 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { WikiAnnotation } from "./wikiTypes";
 
-export function useWikiAnnotations(pageUid: string) {
+export function useWikiAnnotations(businessId: string, pageUid: string) {
   const queryClient = useQueryClient();
-  const queryKey = ["wiki", "annotations", pageUid];
+  const queryKey = ["wiki", "annotations", businessId, pageUid];
 
   const query = useQuery<WikiAnnotation[]>({
     queryKey,
     queryFn: () => api<WikiAnnotation[]>(`/wiki/pages/${encodeURIComponent(pageUid)}/annotations`),
-    enabled: !!pageUid,
+    enabled: !!businessId.trim() && !!pageUid,
   });
 
   const create = useMutation({

@@ -70,6 +70,7 @@ function resolvePageUid(pageUid: string, pagePath: string, repository: string): 
 }
 
 interface WikiReferencesPanelProps {
+  businessId: string;
   /** Graph WikiPage uid when API provides it (by-path context.uid). */
   pageUid: string;
   pagePath: string;
@@ -80,6 +81,7 @@ interface WikiReferencesPanelProps {
 }
 
 export default function WikiReferencesPanel({
+  businessId,
   pageUid,
   pagePath,
   repository,
@@ -90,7 +92,7 @@ export default function WikiReferencesPanel({
   const { t } = useI18n();
   const navigate = useNavigate();
   const uid = resolvePageUid(pageUid, pagePath, repository);
-  const { data, isLoading, isError } = useWikiReferences(uid);
+  const { data, isLoading, isError } = useWikiReferences(businessId, uid);
 
   const outgoing = data?.outgoing ?? [];
   const incoming = data?.incoming ?? [];

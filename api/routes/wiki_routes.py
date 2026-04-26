@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 from store.graph_queries import GraphQueryRepository  # re-export: tests patch this on wiki_routes
 from auth import Role, require_role
 from api.routes.wiki_ask_routes import router as wiki_ask_router
+from api.routes.wiki_contradiction_routes import router as wiki_contradiction_router
 from api.routes.wiki_feedback_routes import router as wiki_feedback_router
 from api.routes.wiki_mcp_routes import router as wiki_mcp_tools_router
 from api.routes.wiki_page_routes import router as wiki_page_router
@@ -24,6 +25,7 @@ wiki_router = APIRouter(
     dependencies=[Depends(require_role(Role.VIEWER))],
 )
 wiki_router.include_router(wiki_task_router)
+wiki_router.include_router(wiki_contradiction_router)
 wiki_router.include_router(wiki_page_router)
 wiki_router.include_router(wiki_ask_router)
 wiki_router.include_router(wiki_feedback_router)

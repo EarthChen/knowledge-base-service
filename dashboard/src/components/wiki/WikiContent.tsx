@@ -18,6 +18,7 @@ import { EDITOR_PREF_KEY } from "./SourceLink";
 import { useAnalyzeImpact } from "../../api/hooks";
 import type { AnalyzeImpactResponse } from "../../api/types";
 import { useI18n } from "../../i18n/context";
+import { wikiHref } from "./wikiRouteHelpers";
 
 type Props = {
   repository: string;
@@ -25,6 +26,7 @@ type Props = {
   detail: WikiPageDetail | undefined;
   isLoading: boolean;
   error: Error | null;
+  wikiLinkParams?: Record<string, string>;
 };
 
 function readEditorPref(): EditorId {
@@ -35,16 +37,6 @@ function readEditorPref(): EditorId {
     /* ignore */
   }
   return "cursor";
-}
-
-function wikiHref(repository: string, path: string): string {
-  const er = encodeURIComponent(repository);
-  const ep = path
-    .split("/")
-    .filter(Boolean)
-    .map((s) => encodeURIComponent(s))
-    .join("/");
-  return `/wiki/${er}/${ep}`;
 }
 
 function SourceLocRow({ loc, repository }: { loc: WikiSourceLocation; repository: string }) {
@@ -82,9 +74,11 @@ function chainCardClass(level: string): string {
 function CallChainSection({
   repository,
   detail,
+  wikiLinkParams,
 }: {
   repository: string;
   detail: WikiPageDetail;
+  wikiLinkParams?: Record<string, string>;
 }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
@@ -189,7 +183,7 @@ function CallChainSection({
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0">
                           <Link
-                            to={wikiHref(repository, p.wiki_page_path)}
+                            to={wikiHref(p.wiki_page_path, wikiLinkParams)}
                             className="inline-block truncate font-mono text-sm font-medium text-sky-700 underline decoration-sky-200 dark:text-sky-400 dark:decoration-sky-800"
                           >
                             {p.wiki_page_path}
@@ -243,6 +237,7 @@ export default function WikiContent({
   detail,
   isLoading,
   error,
+  wikiLinkParams,
 }: Props) {
   const { locale, t } = useI18n();
   const title =
@@ -262,7 +257,7 @@ export default function WikiContent({
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
       <header className="border-b border-gray-100 px-5 py-4 dark:border-gray-700">
-        <WikiBreadcrumbs repository={repository} path={pagePath} />
+        <WikiBreadcrumbs repository={repository} path={pagePath} linkParams={wikiLinkParams} />
         <div className="mt-3 flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-400">
             <BookOpen size={20} aria-hidden />
@@ -346,7 +341,9 @@ export default function WikiContent({
               </section>
             )}
 
-            {detail && <CallChainSection repository={repository} detail={detail} />}
+            {detail && (
+              <CallChainSection repository={repository} detail={detail} wikiLinkParams={wikiLinkParams} />
+            )}
           </>
         )}
 

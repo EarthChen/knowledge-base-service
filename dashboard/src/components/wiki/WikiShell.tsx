@@ -1,0 +1,254 @@
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Navigate, useSearchParams } from "react-router-dom";
+import {
+  Activity,
+  FileOutput,
+  LayoutGrid,
+  Loader2,
+  Network,
+  PieChart,
+  RefreshCw,
+} from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import AskPanel from "./AskPanel";
+import GraphInsightsPanel from "./GraphInsightsPanel";
+import WikiContent from "./WikiContent";
+import WikiCoverageCard from "./WikiCoverageCard";
+import WikiExportPanel from "./WikiExportPanel";
+import WikiLandingPage from "./WikiLandingPage";
+import WikiLintPanel from "./WikiLintPanel";
+import WikiSearchBar from "./WikiSearchBar";
+import WikiTreeNav from "./WikiTreeNav";
+import { parseWikiSearchParams, wikiSearchHref } from "./wikiRouteHelpers";
+import { businessWikiGenerate, wikiTaskStatus } from "../../api/client";
+import { useToast } from "../Toast";
+import { useBusiness } from "../../contexts/BusinessContext";
+import { useI18n } from "../../i18n/context";
+import { useWikiPage } from "../../hooks/useWikiPage";
+
+type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights";
+
+export default function WikiShell() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const parsed = useMemo(() => parseWikiSearchParams(searchParams), [searchParams]);
+  const { currentBusiness } = useBusiness();
+  const businessId = parsed.businessId?.trim() || currentBusiness;
+
+  const pagePath = parsed.path?.trim() ?? "";
+  const viewType = parsed.viewType;
+  const toolTab = parsed.toolTab;
+
+  const focusAsk = searchParams.get("focus");
+  useEffect(() => {
+    if (focusAsk !== "ask") return;
+    const id = window.setTimeout(() => {
+      document.getElementById("wiki-ask-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("focus");
+          return next;
+        },
+        { replace: true },
+      );
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [focusAsk, setSearchParams]);
+
+  const wikiLinkParams = useMemo(
+    () =>
+      ({
+        business_id: businessId,
+        view: viewType,
+      }) as Record<string, string>,
+    [businessId, viewType],
+  );
+
+  const pageQuery = useWikiPage("", pagePath || undefined);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { locale, t } = useI18n();
+  const [regeneratePending, setRegeneratePending] = useState(false);
+
+  const pendingQuery = searchParams.get("q") ?? "";
+  if (pendingQuery.trim()) {
+    return <Navigate to={wikiSearchHref(pendingQuery.trim())} replace />;
+  }
+
+  async function handleRegenerateWiki() {
+    if (!businessId.trim() || regeneratePending) return;
+    setRegeneratePending(true);
+    try {
+      const lang = locale === "zh" ? "zh" : "en";
+      const res = await businessWikiGenerate(businessId.trim(), lang);
+      const tid = res.task_id ? String(res.task_id) : "";
+      if (!tid) {
+        toast("success", t.wiki.regenerateStarted);
+        await queryClient.invalidateQueries({ queryKey: ["wiki"] });
+        return;
+      }
+      toast("info", t.wiki.regenerateRunning);
+      const maxAttempts = 45;
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const st = await wikiTaskStatus(tid);
+        if (st.status === "completed") {
+          toast("success", t.wiki.regenerateComplete);
+          await queryClient.invalidateQueries({ queryKey: ["wiki"] });
+          return;
+        }
+        if (st.status === "failed") {
+          const err = st.error;
+          const detail =
+            err && typeof err === "object" && "detail" in err
+              ? String((err as { detail?: unknown }).detail ?? err)
+              : err
+                ? JSON.stringify(err)
+                : "unknown";
+          toast("error", t.wiki.regenerateFailed.replace("{detail}", detail));
+          return;
+        }
+      }
+      toast("error", t.wiki.regenerateTimeout);
+    } catch (e) {
+      toast("error", e instanceof Error ? e.message : String(e));
+    } finally {
+      setRegeneratePending(false);
+    }
+  }
+
+  const setToolTab = (tab: typeof toolTab) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (tab === "page") next.delete("tool");
+        else next.set("tool", tab);
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  const setViewType = useCallback(
+    (v: typeof viewType) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (v === "business_domain") next.delete("view");
+          else next.set("view", v);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const contentError =
+    pagePath && pageQuery.isError
+      ? pageQuery.error instanceof Error
+        ? pageQuery.error
+        : new Error(String(pageQuery.error))
+      : null;
+
+  const tabBtn = (id: WikiToolTab, label: string, icon: ReactNode) => (
+    <button
+      key={id}
+      type="button"
+      onClick={() => setToolTab(id)}
+      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+        toolTab === id
+          ? "bg-sky-100 text-sky-800 ring-1 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800"
+          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="flex min-h-[min(70vh,860px)] flex-col gap-4 lg:flex-row lg:items-stretch">
+      <WikiTreeNav
+        businessId={businessId}
+        viewType={viewType}
+        activePath={pagePath}
+        onViewChange={setViewType}
+      />
+
+      <div className="flex min-w-0 flex-1 flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+          <div className="flex flex-wrap gap-2">
+            {tabBtn(
+              "page",
+              t.wiki.tabPage,
+              <LayoutGrid size={14} className="text-sky-600 dark:text-sky-400" aria-hidden />,
+            )}
+            {tabBtn(
+              "coverage",
+              t.wiki.coverageTitle,
+              <PieChart size={14} className="text-sky-600 dark:text-sky-400" aria-hidden />,
+            )}
+            {tabBtn(
+              "health",
+              t.wiki.tabHealth,
+              <Activity size={14} className="text-emerald-600 dark:text-emerald-400" aria-hidden />,
+            )}
+            {tabBtn(
+              "insights",
+              t.wiki.tabInsights,
+              <Network size={14} className="text-violet-600 dark:text-violet-400" aria-hidden />,
+            )}
+            {tabBtn(
+              "export",
+              t.wiki.tabExport,
+              <FileOutput size={14} className="text-sky-600 dark:text-sky-400" aria-hidden />,
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <WikiSearchBar repository={businessId} linkParams={wikiLinkParams} />
+            <button
+              type="button"
+              onClick={handleRegenerateWiki}
+              disabled={regeneratePending}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-200 dark:hover:bg-amber-950"
+            >
+              {regeneratePending ? (
+                <Loader2 size={14} className="animate-spin" aria-hidden />
+              ) : (
+                <RefreshCw size={14} aria-hidden />
+              )}
+              {t.wiki.regenerate}
+            </button>
+          </div>
+        </div>
+
+        {toolTab === "page" && !pagePath && (
+          <WikiLandingPage businessId={businessId} viewType={viewType} />
+        )}
+
+        {toolTab === "page" && pagePath && (
+          <>
+            <WikiContent
+              repository=""
+              pagePath={pagePath}
+              detail={pageQuery.data}
+              isLoading={pageQuery.isLoading}
+              error={contentError}
+              wikiLinkParams={wikiLinkParams}
+            />
+            <AskPanel repository="" />
+          </>
+        )}
+
+        {toolTab === "coverage" && <WikiCoverageCard businessId={businessId} />}
+
+        {toolTab === "health" && <WikiLintPanel repository="" />}
+
+        {toolTab === "insights" && <GraphInsightsPanel repository="" />}
+
+        {toolTab === "export" && <WikiExportPanel key={businessId} repository="" />}
+      </div>
+    </div>
+  );
+}

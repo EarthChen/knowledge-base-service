@@ -15,6 +15,7 @@ import type { WikiAskSource } from "../../hooks/wikiTypes";
 import { useI18n } from "../../i18n/context";
 import { buildIdeHref, type EditorId } from "./editorLinks";
 import { EDITOR_PREF_KEY } from "./SourceLink";
+import { wikiHref } from "./wikiRouteHelpers";
 
 function readEditorPref(): EditorId {
   try {
@@ -32,16 +33,6 @@ function assistantTextFromMessages(messages: WikiConversationMessage[]): string 
     .map((m) => m.content.trim())
     .filter(Boolean);
   return parts.join("\n\n---\n\n");
-}
-
-function wikiHref(repository: string, path: string): string {
-  const er = encodeURIComponent(repository);
-  const ep = path
-    .split("/")
-    .filter(Boolean)
-    .map((s) => encodeURIComponent(s))
-    .join("/");
-  return `/wiki/${er}/${ep}`;
 }
 
 function formatAskHistoryTime(
@@ -87,7 +78,7 @@ function SourceRef({
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
         {s.wiki_page && (
           <Link
-            to={wikiHref(repository, s.wiki_page)}
+            to={wikiHref(s.wiki_page)}
             className="text-sky-700 underline decoration-sky-200 dark:text-sky-400 dark:decoration-sky-800"
           >
             {s.wiki_page}

@@ -4,16 +4,7 @@ import { Loader2, Search } from "lucide-react";
 import { useWikiGlobalSearch } from "../../hooks/useWikiGlobalSearch";
 import type { WikiSearchResult } from "../../hooks/wikiTypes";
 import { useI18n } from "../../i18n/context";
-
-function wikiHref(repository: string, path: string): string {
-  const er = encodeURIComponent(repository);
-  const ep = path
-    .split("/")
-    .filter(Boolean)
-    .map((s) => encodeURIComponent(s))
-    .join("/");
-  return `/wiki/${er}/${ep}`;
-}
+import { wikiHref } from "./wikiRouteHelpers";
 
 function repoFilterBody(repositories: string[] | null | undefined): string[] | null | undefined {
   if (repositories === undefined) return undefined;
@@ -181,7 +172,7 @@ export default function WikiGlobalSearchBar({
                 {hits.map((r: WikiSearchResult) => (
                   <li key={`${repository}:${r.page_path}`}>
                     <Link
-                      to={wikiHref(repository, r.page_path)}
+                      to={wikiHref(r.page_path)}
                       className="block rounded-lg border border-transparent px-3 py-2 transition-colors hover:border-sky-200 hover:bg-sky-50/60 dark:hover:border-sky-900 dark:hover:bg-sky-950/40"
                     >
                       <span className="font-medium text-gray-900 dark:text-gray-100">{r.title}</span>

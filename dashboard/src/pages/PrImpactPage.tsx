@@ -12,6 +12,7 @@ import type { AnalyzeImpactFile, AnalyzeImpactResponse, ImpactPage } from "../ap
 import { Link } from "react-router-dom";
 import { useI18n } from "../i18n/context";
 import type { Translations } from "../i18n/types";
+import { wikiHref, wikiSearchHref } from "../components/wiki/wikiRouteHelpers";
 
 type FileRow = { id: string; path: string; status: AnalyzeImpactFile["status"] };
 
@@ -74,22 +75,6 @@ function dotClass(level: string): string {
   if (l.includes("medium")) return "bg-amber-500";
   if (l.includes("low")) return "bg-emerald-500";
   return "bg-gray-400";
-}
-
-function wikiHref(repository: string, path: string): string {
-  const er = encodeURIComponent(repository);
-  const ep = path
-    .split("/")
-    .filter(Boolean)
-    .map((s) => encodeURIComponent(s))
-    .join("/");
-  return `/wiki/${er}/${ep}`;
-}
-
-function wikiEntitySearchHref(repository: string, entity: string): string {
-  const er = encodeURIComponent(repository);
-  const q = encodeURIComponent(entity);
-  return `/search?mode=wiki&q=${q}&repo=${er}`;
 }
 
 export default function PrImpactPage() {
@@ -408,7 +393,7 @@ export default function PrImpactPage() {
                       />
                       <div className="min-w-0 flex-1">
                         <Link
-                          to={wikiHref(repository.trim(), page.wiki_page_path)}
+                          to={wikiHref(page.wiki_page_path)}
                           className="inline-block font-mono text-sm font-semibold text-sky-700 hover:text-sky-900 hover:underline dark:text-sky-400 dark:hover:text-sky-300"
                         >
                           {page.wiki_page_path}
@@ -427,7 +412,7 @@ export default function PrImpactPage() {
                             {(page.affected_entities ?? []).map((entity) => (
                               <Link
                                 key={entity}
-                                to={wikiEntitySearchHref(repository.trim(), entity)}
+                                to={wikiSearchHref(entity)}
                                 className="rounded bg-white/80 px-1.5 py-0.5 font-mono text-xs text-sky-700 ring-1 ring-gray-200/60 hover:bg-sky-50 hover:ring-sky-200/80 dark:bg-gray-800/90 dark:text-sky-400 dark:ring-gray-600 dark:hover:bg-sky-950/50 dark:hover:ring-sky-700"
                               >
                                 {entity}

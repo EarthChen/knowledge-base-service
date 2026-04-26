@@ -1,20 +1,15 @@
 import { ChevronRight, Home } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useI18n } from "../../i18n/context";
-
-function wikiPageLink(repository: string, pathTo: string): string {
-  const encRepo = encodeURIComponent(repository);
-  const segments = pathTo.split("/").filter(Boolean);
-  const encPath = segments.map((s) => encodeURIComponent(s)).join("/");
-  return encPath ? `/wiki/${encRepo}/${encPath}` : `/wiki/${encRepo}`;
-}
+import { wikiHref } from "./wikiRouteHelpers";
 
 type Props = {
   repository: string;
   path: string;
+  linkParams?: Record<string, string>;
 };
 
-export default function WikiBreadcrumbs({ repository, path }: Props) {
+export default function WikiBreadcrumbs({ repository, path, linkParams }: Props) {
   const { t } = useI18n();
   const segments = path.split("/").filter(Boolean);
 
@@ -24,17 +19,14 @@ export default function WikiBreadcrumbs({ repository, path }: Props) {
       className="flex flex-wrap items-center gap-1 text-sm text-gray-600 dark:text-gray-400"
     >
       <Link
-        to={`/wiki/${encodeURIComponent(repository)}`}
+        to={wikiHref(undefined, linkParams)}
         className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium text-gray-700 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-100"
       >
         <Home size={14} aria-hidden />
-        {repository}
+        {repository.trim() ? repository : t.wiki.title}
       </Link>
       {segments.map((seg, i) => {
-        const to = wikiPageLink(
-          repository,
-          segments.slice(0, i + 1).join("/"),
-        );
+        const to = wikiHref(segments.slice(0, i + 1).join("/"), linkParams);
         const label = decodeURIComponent(seg);
         const last = i === segments.length - 1;
         return (

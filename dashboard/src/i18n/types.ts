@@ -533,6 +533,10 @@ export interface Translations {
     tabHealth: string;
     tabInsights: string;
     tabExport: string;
+    businessView: string;
+    codeView: string;
+    coverageTitle: string;
+    domainsHeading: string;
     regenerate: string;
     regenerateStarted: string;
     regenerateStartedWithTask: string;

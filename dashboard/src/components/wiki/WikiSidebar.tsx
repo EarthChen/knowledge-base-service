@@ -17,6 +17,7 @@ import {
 } from "./editorLinks";
 import { EDITOR_PREF_KEY } from "./SourceLink";
 import { useI18n } from "../../i18n/context";
+import { wikiHref } from "./wikiRouteHelpers";
 
 type TreeNode = {
   segment: string;
@@ -74,16 +75,6 @@ function buildTree(pages: WikiPageSummary[]): TreeNode[] {
   return toForest(root);
 }
 
-function wikiHref(repository: string, path: string): string {
-  const er = encodeURIComponent(repository);
-  const ep = path
-    .split("/")
-    .filter(Boolean)
-    .map((s) => encodeURIComponent(s))
-    .join("/");
-  return `/wiki/${er}/${ep}`;
-}
-
 function TreeSection({
   nodes,
   repository,
@@ -131,7 +122,7 @@ function TreeSection({
               )}
               {isLeaf ? (
                 <Link
-                  to={wikiHref(repository, node.fullPath)}
+                  to={wikiHref(node.fullPath)}
                   className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors ${
                     isActive
                       ? "bg-sky-50 font-medium text-sky-900 dark:bg-sky-950/60 dark:text-sky-100"
@@ -292,7 +283,7 @@ export default function WikiSidebar({
             {search.data.results.map((r) => (
               <li key={r.page_path}>
                 <Link
-                  to={wikiHref(repository, r.page_path)}
+                  to={wikiHref(r.page_path)}
                   className="block rounded-md px-2 py-1.5 hover:bg-white dark:hover:bg-gray-900"
                 >
                   <span className="font-medium text-gray-900 dark:text-gray-100">{r.title}</span>

@@ -1,26 +1,22 @@
-import { useEffect, useRef, useState } from "react";
 import ErrorBoundary from "../ErrorBoundary";
-import FocusTrap from "../FocusTrap";
-import { BookOpen, FolderOpen } from "lucide-react";
+import { BookOpen } from "lucide-react";
 import type { WikiPageDetail } from "../../hooks/wikiTypes";
 import { useWikiAnnotations } from "../../hooks/useWikiAnnotations";
 import MarkdownRenderer from "./MarkdownRenderer";
 import WikiAnnotationLayer from "./WikiAnnotationLayer";
 import WikiAnnotationSidebar from "./WikiAnnotationSidebar";
-import WikiDiffViewer from "./WikiDiffViewer";
 import WikiEditButton from "./WikiEditButton";
 import WikiStaleAlert from "./WikiStaleAlert";
 import WikiSuggestedQuestions from "./WikiSuggestedQuestions";
 import WikiPageFeedback from "./WikiPageFeedback";
-import WikiVersionBadge from "./WikiVersionBadge";
-import WikiVersionHistory from "./WikiVersionHistory";
 import TableOfContents from "./TableOfContents";
 import WikiBreadcrumbs from "./WikiBreadcrumbs";
 import { parseMarkdownHeadings, type ParsedHeading } from "./headingUtils";
 import { getErrorMessage } from "../../utils/errorUtils";
-import CallChainSection from "./CallChainSection";
+import WikiCallChainSection from "./WikiCallChainSection";
 import MobileTocBar from "./MobileTocBar";
-import SourceLocRow from "./SourceLocRow";
+import WikiSourceLocRow from "./WikiSourceLocRow";
+import { WikiVersionPicker } from "./WikiVersionPicker";
 import { useI18n } from "../../i18n/context";
 import { useToast } from "../Toast";
 
@@ -52,72 +48,6 @@ function parseSuggestedQuestions(raw: string | undefined): string[] {
   } catch {
     return [];
   }
-}
-
-export function WikiVersionPicker({
-  businessId,
-  pageUid,
-  version,
-  generatedAt,
-}: {
-  businessId: string;
-  pageUid: string;
-  version: string;
-  generatedAt: string;
-}) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const [diffVersions, setDiffVersions] = useState<{ from: number; to: number } | null>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open || !pageUid) return;
-    const id = setTimeout(() => {
-      if (popoverRef.current && !popoverRef.current.contains(document.activeElement as Node | null)) {
-        popoverRef.current.focus();
-      }
-    }, 0);
-    return () => clearTimeout(id);
-  }, [open, pageUid]);
-
-  return (
-    <div className="relative inline-block align-middle">
-      <WikiVersionBadge
-        version={Number(version)}
-        generatedAt={generatedAt}
-        onClick={pageUid ? () => setOpen((o) => !o) : undefined}
-      />
-      {open && pageUid ? (
-        <FocusTrap onEscape={() => setOpen(false)}>
-          <div
-            ref={popoverRef}
-            tabIndex={-1}
-            className="absolute left-0 top-full z-50 mt-2 max-h-[min(70vh,520px)] w-[min(calc(100vw-2rem),36rem)] overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 shadow-xl outline-none dark:border-gray-700 dark:bg-gray-900"
-          >
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
-              {t.wiki.versionHistoryTitle}
-            </h4>
-            <WikiVersionHistory
-              businessId={businessId}
-              pageUid={pageUid}
-              onSelectVersions={(from, to) => setDiffVersions({ from, to })}
-            />
-            {diffVersions ? (
-              <div className="mt-4">
-                <WikiDiffViewer
-                  businessId={businessId}
-                  pageUid={pageUid}
-                  fromVersion={diffVersions.from}
-                  toVersion={diffVersions.to}
-                  onClose={() => setDiffVersions(null)}
-                />
-              </div>
-            ) : null}
-          </div>
-        </FocusTrap>
-      ) : null}
-    </div>
-  );
 }
 
 export default function WikiContent({
@@ -298,22 +228,10 @@ export default function WikiContent({
               ) : null}
             </div>
 
-            {(detail.source_locations?.length ?? 0) > 0 && (
-              <section className="mt-10 border-t border-gray-100 pt-8">
-                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                  <FolderOpen size={16} aria-hidden />
-                  {t.wiki.sourceLocations}
-                </h3>
-                <ul className="space-y-2 rounded-lg border border-gray-100 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-gray-800/80">
-                  {detail.source_locations.map((loc, i) => (
-                    <SourceLocRow key={`${loc.file_path}-${loc.start_line}-${i}`} loc={loc} repository={repository} />
-                  ))}
-                </ul>
-              </section>
-            )}
+            <WikiSourceLocRow repository={repository} sourceLocations={detail.source_locations ?? []} />
 
             {detail && (
-              <CallChainSection repository={repository} detail={detail} wikiLinkParams={wikiLinkParams} />
+              <WikiCallChainSection repository={repository} detail={detail} wikiLinkParams={wikiLinkParams} />
             )}
 
             <WikiSuggestedQuestions

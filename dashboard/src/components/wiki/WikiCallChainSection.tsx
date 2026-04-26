@@ -22,7 +22,7 @@ function chainCardClass(level: string): string {
   return "border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/80";
 }
 
-export default function CallChainSection({
+export default function WikiCallChainSection({
   repository,
   detail,
   wikiLinkParams,

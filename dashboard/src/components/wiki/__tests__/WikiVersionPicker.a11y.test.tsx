@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WikiVersionPicker } from "../WikiContent";
+import { WikiVersionPicker } from "../WikiVersionPicker";
 import { renderWithI18n } from "../../../test/renderWithI18n";
 import { useWikiVersions } from "../../../hooks/useWikiVersions";
 

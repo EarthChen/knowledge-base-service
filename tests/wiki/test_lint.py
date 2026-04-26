@@ -72,7 +72,13 @@ async def test_empty_wiki_no_issues() -> None:
     svc = WikiLintService(ScriptedStore(script))
     report = await svc.lint("myrepo", scope="all")
     assert report.issues == []
-    assert report.stats == {"total": 0, "errors": 0, "warnings": 0, "info": 0}
+    assert report.stats == {
+        "total": 0,
+        "errors": 0,
+        "warnings": 0,
+        "info": 0,
+        "confidence_recalibrated": 0,
+    }
 
 
 @pytest.mark.asyncio

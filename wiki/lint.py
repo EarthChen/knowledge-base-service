@@ -96,7 +96,25 @@ class WikiLintService:
         self._wiki_config = wiki_config
         self._contradiction_detector = contradiction_detector
 
+    def _lint_confidence_enabled(self) -> bool:
+        c = self._wiki_config
+        if c is None:
+            return False
+        return bool(getattr(c, "confidence_scoring_enabled", False))
+
     async def lint(self, repository: str, *, scope: str = "all") -> LintReport:
+        conf_n = 0
+        if self._lint_confidence_enabled():
+            from wiki.confidence_inputs import recalculate_confidence_scores_for_repo
+            from wiki.confidence_scorer import DEFAULT_WEIGHTS, ConfidenceScorer
+
+            scorer = ConfidenceScorer(DEFAULT_WEIGHTS)
+            conf_n = await recalculate_confidence_scores_for_repo(
+                self._store,
+                repository,
+                wiki_store=self._wiki_store,
+                scorer=scorer,
+            )
         checks = await asyncio.gather(
             self._check_staleness(repository),
             self._check_orphans(repository),
@@ -107,7 +125,13 @@ class WikiLintService:
         )
         issues = [issue for group in checks for issue in group]
         issues = self._filter_by_scope(issues, scope)
-        stats = {"total": len(issues), "errors": 0, "warnings": 0, "info": 0}
+        stats: dict[str, int] = {
+            "total": len(issues),
+            "errors": 0,
+            "warnings": 0,
+            "info": 0,
+            "confidence_recalibrated": conf_n,
+        }
         for issue in issues:
             if issue.severity == "error":
                 stats["errors"] += 1

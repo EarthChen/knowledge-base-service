@@ -207,12 +207,14 @@ class WikiMCPHandler:
         store: Any | None = None,
         wiki_cache: Any | None = None,
         repo_registry: Any | None = None,
+        wiki_config: Any | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._graph = graph
         self._store = store
         self._wiki_cache = wiki_cache
         self._repo_registry = repo_registry
+        self._wiki_config = wiki_config
 
     @staticmethod
     def _mcp_error(code: str, message: str) -> dict[str, Any]:
@@ -447,6 +449,7 @@ class WikiMCPHandler:
                 self._store,
                 wiki_cache=self._wiki_cache,
                 repo_registry=self._repo_registry,
+                wiki_config=self._wiki_config,
             )
             report = await svc.lint(repository, scope=scope)
         except Exception:

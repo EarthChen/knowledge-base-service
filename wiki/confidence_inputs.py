@@ -8,7 +8,8 @@ from typing import Any, Protocol, runtime_checkable
 
 from store.schema import EdgeType
 from store.wiki_feedback_store import WikiFeedbackStore
-from wiki.confidence_scorer import ConfidenceInputs
+from store.wiki_store import WikiStore
+from wiki.confidence_scorer import ConfidenceInputs, ConfidenceScorer
 
 
 @runtime_checkable
@@ -120,3 +121,29 @@ async def set_wiki_page_confidence_scores(
         "SET w.confidence_score = row.score"
     )
     await store.execute_query(q, {"batch": batch})
+
+
+async def recalculate_confidence_scores_for_repo(
+    store: _GraphQueryPort,
+    repository: str,
+    *,
+    wiki_store: WikiStore,
+    scorer: ConfidenceScorer,
+    business_id: str = "default",
+) -> int:
+    """Recompute and persist confidence for every ``WikiPage`` in ``repository``."""
+    rows = await wiki_store.list_wiki_pages_for_repo(repository)
+    data = getattr(rows, "data", None) or []
+    path_scores: list[tuple[str, float]] = []
+    for r in data:
+        path = str(r.get("path", "") or "")
+        if not path:
+            continue
+        uid = f"WikiPage:{repository}:{path}"
+        gen_at = str(r.get("generated_at", "") or "")
+        inputs = await gather_confidence_inputs(
+            store, uid, repository, gen_at, business_id=business_id,
+        )
+        path_scores.append((path, scorer.compute(inputs)))
+    await set_wiki_page_confidence_scores(store, path_scores, repository=repository)
+    return len(path_scores)

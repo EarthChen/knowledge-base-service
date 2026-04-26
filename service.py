@@ -252,6 +252,7 @@ class KnowledgeBaseService:
                 graph=self._graph_query,
                 store=self._store,
                 wiki_cache=self._wiki_cache,
+                wiki_config=settings.wiki,
             ),
             deep_search_engine=self._deep_search,
             task_status_fn=self._index_task_status_lookup,

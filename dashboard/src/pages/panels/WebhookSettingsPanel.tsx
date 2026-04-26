@@ -96,7 +96,7 @@ export default function WebhookSettingsPanel() {
   if (!isAdmin) return null;
 
   return (
-    <>
+    <div>
       <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -315,6 +315,6 @@ export default function WebhookSettingsPanel() {
           </FocusTrap>
         </div>
       )}
-    </>
+    </div>
   );
 }

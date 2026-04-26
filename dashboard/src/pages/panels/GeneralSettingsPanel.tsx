@@ -23,7 +23,7 @@ export default function GeneralSettingsPanel() {
   }
 
   return (
-    <>
+    <div>
       <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <div className="flex items-center gap-2">
           <Globe size={16} className="text-gray-500 dark:text-gray-400" />
@@ -149,6 +149,6 @@ export default function GeneralSettingsPanel() {
           )}
         </div>
       </div>
-    </>
+    </div>
   );
 }

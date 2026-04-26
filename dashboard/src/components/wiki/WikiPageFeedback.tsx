@@ -5,17 +5,27 @@ type Props = { pageUid: string; businessId: string };
 
 export default function WikiPageFeedback({ pageUid, businessId }: Props) {
   const [sent, setSent] = useState<"up" | "down" | null>(null);
+  const [sending, setSending] = useState(false);
 
   const sendFeedback = async (rating: "up" | "down") => {
-    setSent(rating);
+    if (sending) return;
+    setSending(true);
     try {
-      await fetch(`/api/v1/wiki/pages/${encodeURIComponent(pageUid)}/feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rating, business_id: businessId }),
-      });
+      const response = await fetch(
+        `/api/v1/wiki/pages/${encodeURIComponent(pageUid)}/feedback`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rating, business_id: businessId }),
+        }
+      );
+      if (response.ok) {
+        setSent(rating);
+      }
     } catch {
       // Silently fail — feedback is non-critical
+    } finally {
+      setSending(false);
     }
   };
 
@@ -37,19 +47,21 @@ export default function WikiPageFeedback({ pageUid, businessId }: Props) {
       <span>Was this helpful?</span>
       <button
         type="button"
+        disabled={sending}
         onClick={() => void sendFeedback("up")}
         title="Helpful"
         aria-label="thumbs up"
-        className="rounded p-1 hover:bg-green-50 dark:hover:bg-green-950/40"
+        className="rounded p-1 hover:bg-green-50 disabled:opacity-50 dark:hover:bg-green-950/40"
       >
         <ThumbsUp className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
+        disabled={sending}
         onClick={() => void sendFeedback("down")}
         title="Not helpful"
         aria-label="thumbs down"
-        className="rounded p-1 hover:bg-red-50 dark:hover:bg-red-950/40"
+        className="rounded p-1 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950/40"
       >
         <ThumbsDown className="h-3.5 w-3.5" />
       </button>

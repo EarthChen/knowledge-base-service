@@ -154,7 +154,7 @@ class WikiLintBody(BaseModel):
 class WikiPageFeedbackBody(BaseModel):
     rating: str = Field(..., pattern="^(up|down)$")
     business_id: str = Field(default="default", min_length=1)
-    comment: str = ""
+    comment: str = Field(default="", max_length=2000)
 
 
 class WikiExportPreviewBody(BaseModel):
@@ -1130,6 +1130,7 @@ async def post_wiki_page_feedback(
         page_uid=decoded,
         rating=body.rating,
         comment=body.comment,
+        business_id=body.business_id,
     )
     return {"uid": uid, "page_uid": decoded, "business_id": body.business_id}
 
@@ -1137,11 +1138,12 @@ async def post_wiki_page_feedback(
 @wiki_router.get("/pages/{page_uid:path}/feedback/summary", response_model=None)
 async def get_wiki_page_feedback_summary(
     page_uid: str,
+    business_id: str = Query(default="default", min_length=1),
     fb: WikiFeedbackStore = Depends(get_wiki_feedback_store_dep),
 ) -> dict[str, Any]:
     """Aggregate up/down feedback counts for a wiki page."""
     decoded = unquote(page_uid)
-    return await fb.get_feedback_summary(decoded)
+    return await fb.get_feedback_summary(decoded, business_id=business_id)
 
 
 @wiki_router.post("/chunks/index", response_model=None, dependencies=[Depends(require_role(Role.EDITOR))])

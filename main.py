@@ -129,6 +129,18 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
             return raw_llm
         return LLMPortBridge(GatewayLLMProviderAdapter(raw_llm))  # type: ignore[arg-type]
 
+    wiki_mem: MemoryLoop | None = None
+    if getattr(kb, "_embedding", None) is not None:
+
+        async def _embed_wiki_mem(text: str) -> list[float]:
+            out = await kb._embedding.generate([text], is_query=False)  # type: ignore[union-attr]
+            return out[0] if out else []
+
+        wiki_mem = MemoryLoop(
+            _WikiStoreForMemory(kb.store), _embed_wiki_mem, business_id="default",
+        )
+    app.state.wiki_memory_loop = wiki_mem
+
     async def wiki_service_factory() -> WikiService:
         kb_svc = await registry.get_service("default")
         from store.wiki_store import WikiStore as _WikiStore
@@ -141,6 +153,7 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
             deferred_enrichment=kb_svc.wiki_deferred_enrichment,
             flow_inferencer=kb_svc.wiki_flow_inferencer,
             wiki_store=_WikiStore(kb_svc.store),
+            memory_loop=wiki_mem,
             wiki_config=settings.wiki,
             embedding_config=settings.embedding,
         )
@@ -160,18 +173,6 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
         embedding_gen=kb._embedding,
     )
     app.state.wiki_search_service = wiki_search
-
-    wiki_mem: MemoryLoop | None = None
-    if getattr(kb, "_embedding", None) is not None:
-
-        async def _embed_wiki_mem(text: str) -> list[float]:
-            out = await kb._embedding.generate([text], is_query=False)  # type: ignore[union-attr]
-            return out[0] if out else []
-
-        wiki_mem = MemoryLoop(
-            _WikiStoreForMemory(kb.store), _embed_wiki_mem, business_id="default",
-        )
-    app.state.wiki_memory_loop = wiki_mem
 
     if kb.llm_provider is not None:
         app.state.wiki_ask_service = WikiAskService(

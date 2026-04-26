@@ -18,7 +18,7 @@ class AutoHealer:
         cutoff = time.time() - max_age_days * 86400
         q = (
             "MATCH (wp:WikiPage {repository: $repo}) "
-            "WHERE wp.updated_at < $cutoff "
+            "WHERE wp.generated_at < $cutoff "
             "SET wp.stale = true "
             "RETURN count(wp) AS cnt"
         )
@@ -29,7 +29,7 @@ class AutoHealer:
 
     async def remove_broken_references(self, repository: str) -> dict[str, Any]:
         q = (
-            "MATCH (wp:WikiPage {repository: $repo})-[r:WIKI_REF]->(target) "
+            "MATCH (wp:WikiPage {repository: $repo})-[r:WIKI_REFERENCES]->(target) "
             "WHERE target IS NULL OR NOT EXISTS(target.uid) "
             "DELETE r RETURN count(r) AS cnt"
         )

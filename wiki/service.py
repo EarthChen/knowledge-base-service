@@ -18,6 +18,7 @@ from wiki.deferred_enrichment import DeferredEnrichmentService
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
 from wiki.exporter import WikiExporter
+from wiki.memory_loop import MemoryLoop
 from wiki.models import (
     EnrichmentLevel,
     ImportanceTier,
@@ -70,6 +71,7 @@ class WikiService:
         deferred_enrichment: DeferredEnrichmentService | None = None,
         flow_inferencer: BusinessFlowInferencer | None = None,
         wiki_store: Any | None = None,
+        memory_loop: MemoryLoop | None = None,
         *,
         wiki_config: WikiAppConfig,
         embedding_config: EmbeddingConfig,
@@ -93,6 +95,7 @@ class WikiService:
         self._store = store
         self._deferred_enrichment = deferred_enrichment
         self._flow_inferencer = flow_inferencer
+        self._memory_loop = memory_loop
 
     def _composer_for(self, llm_provider: str | None) -> WikiComposer:
         llm_port = self._resolve_llm_port(llm_provider)
@@ -101,6 +104,7 @@ class WikiService:
             WikiContextBuilder(llm_port),
             store=self._graph,
             wiki_store=self._wiki_store,
+            memory_loop=self._memory_loop,
         )
 
     def _resolve_llm_port(self, llm_provider: str | None) -> Any | None:

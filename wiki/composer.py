@@ -12,6 +12,7 @@ from wiki.context import LLMPort, WikiContextBuilder
 from wiki.doc_wiki_fusion import create_source_doc_edges, find_related_docs, format_related_docs_for_prompt
 from wiki.data_collector import PageData
 from wiki.diagram_gen import generate_call_flowchart, generate_class_diagram, generate_dependency_graph
+from wiki.memory_loop import MemoryLoop
 from wiki.models import PageType, SourceLocation, WikiConfig, WikiDiagram, WikiPage, WikiPageMetadata
 
 log = get_logger(__name__)
@@ -77,11 +78,13 @@ class WikiComposer:
         context_builder: WikiContextBuilder,
         store: Any | None = None,
         wiki_store: WikiStore | None = None,
+        memory_loop: MemoryLoop | None = None,
     ) -> None:
         self._llm = llm
         self._ctx = context_builder
         self._store = store
         self._wiki_store = wiki_store or (WikiStore(store) if store is not None else None)
+        self._memory_loop = memory_loop
 
     async def compose_page(
         self,
@@ -105,6 +108,12 @@ class WikiComposer:
             if doc_entities:
                 doc_rows = await find_related_docs(self._wiki_store, doc_entities, limit=5)
                 related_docs_block = format_related_docs_for_prompt(doc_rows, max_chars_per_doc=3000)
+        memory_block = ""
+        if self._memory_loop is not None:
+            try:
+                memory_block = await self._memory_loop.inject_into_generation(title, config.repository)
+            except Exception as exc:  # noqa: BLE001 — optional enrichment
+                log.warning("wiki_memory_inject_failed", error=str(exc))
         if config.mode != "full" and page_data.business_summary and page_data.business_summary.strip():
             tier = 1
             description = page_data.business_summary.strip()
@@ -120,6 +129,7 @@ class WikiComposer:
                 glossary,
                 config,
                 related_docs_block=related_docs_block,
+                memory_block=memory_block,
             )
             if self._wiki_store is not None and not (
                 page_data.business_summary and page_data.business_summary.strip()
@@ -260,6 +270,7 @@ class WikiComposer:
         config: WikiConfig,
         *,
         related_docs_block: str = "",
+        memory_block: str = "",
     ) -> str:
         assert self._llm is not None
         lang = _effective_wiki_language(config.language)
@@ -277,6 +288,7 @@ class WikiComposer:
             else "请用中文生成文档。"
         )
         doc_section = f"\n\n{related_docs_block}\n" if related_docs_block.strip() else ""
+        memory_section = f"\n\n{memory_block}\n" if memory_block.strip() else ""
         prompt = (
             f"{ctx_block}\n\n"
             "## Task\n"
@@ -289,6 +301,7 @@ class WikiComposer:
             "4. Any important design patterns or business logic\n\n"
             f"{entity}\n"
             f"{doc_section}"
+            f"{memory_section}"
         )
         system = (
             "You are a senior engineer writing internal technical documentation. "

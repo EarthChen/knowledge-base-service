@@ -143,6 +143,12 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
 
     app.state.wiki_service_factory = wiki_service_factory
 
+    from store.wiki_changelog import WikiChangeLogStore
+    from wiki.change_detector import ChangeDetector
+
+    app.state.change_detector = ChangeDetector(kb.store)
+    app.state.wiki_changelog_store = WikiChangeLogStore(kb.store)
+
     wiki_search = WikiSearchService(
         graph=kb.store,
         vector=kb.semantic_query,

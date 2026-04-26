@@ -176,6 +176,12 @@ class ChunkIndexBody(BaseModel):
     repository: str = Field(..., min_length=1)
 
 
+class IngestRequest(BaseModel):
+    repository: str
+    files: list[str] = []
+    git_ref: str | None = None
+
+
 _QUICK_SCOPE = "repo"
 _QUICK_FORMAT = "json"
 
@@ -1380,6 +1386,47 @@ async def wiki_enrich_trigger(
         raise KbNotFound(
             f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
         ) from exc
+
+
+@wiki_router.post("/ingest")
+async def wiki_ingest(req: IngestRequest, request: Request) -> dict[str, Any]:
+    """Trigger incremental wiki regeneration for changed files."""
+    if not req.files and not req.git_ref:
+        return {
+            "pages_regenerated": 0,
+            "pages_total": 0,
+            "trigger": "api",
+            "message": "No files specified",
+        }
+
+    detector = getattr(request.app.state, "change_detector", None)
+    factory = getattr(request.app.state, "wiki_service_factory", None)
+
+    if detector is None or factory is None:
+        raise KbServiceUnavailable("Incremental ingest not configured")
+
+    affected = await detector.detect_from_file_list(
+        req.repository, req.files, trigger="api"
+    )
+    out = factory()
+    service = await out if asyncio.iscoroutine(out) else out
+    result = await service.generate_incremental(req.repository, affected)
+    return result
+
+
+@wiki_router.get("/changelog")
+async def wiki_changelog(
+    repository: str,
+    request: Request,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Get wiki change audit trail."""
+    changelog_store = getattr(request.app.state, "wiki_changelog_store", None)
+    if changelog_store is None:
+        return {"changelogs": []}
+
+    logs = await changelog_store.list_changelogs(repository, limit=limit)
+    return {"changelogs": logs}
 
 
 @wiki_router.get("/{repository}/pages", response_model=None)

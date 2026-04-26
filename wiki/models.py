@@ -30,6 +30,21 @@ class DiagramType(StrEnum):
     DEPENDENCY_GRAPH = "dependencyGraph"
 
 
+class ImportanceTier(StrEnum):
+    CORE = "core"
+    STANDARD = "standard"
+    SKELETON = "skeleton"
+
+
+@dataclass
+class CodeSnippet:
+    source: str
+    file_path: str
+    start_line: int
+    end_line: int
+    origin: str  # "chunk" | "file" | "signature"
+
+
 _VALID_SCOPE_TYPES = frozenset({"repo", "module", "class", "business"})
 
 

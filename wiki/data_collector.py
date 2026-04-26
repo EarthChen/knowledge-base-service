@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
-from wiki.models import SourceLocation
+from wiki.models import CodeSnippet, ImportanceTier, SourceLocation
 from wiki.structure_planner import GraphQueryPort
 
 
@@ -180,6 +180,8 @@ class PageData:
     method_locations: list[SourceLocation]
     business_summary: str | None
     methods: list[GraphNode]
+    code_snippets: list[CodeSnippet] = field(default_factory=list)
+    importance_tier: ImportanceTier | None = None
 
 
 class WikiDataCollector:

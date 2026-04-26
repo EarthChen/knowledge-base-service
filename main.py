@@ -140,17 +140,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         kb = await kb_state.registry.get_service("default")
         settings = get_settings()
         det = None
-        if getattr(settings.wiki, "contradiction_detection_enabled", False) and kb.llm_provider is not None:
+        if settings.wiki.contradiction_detection_enabled and kb.llm_provider is not None:
             from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
             from llm.base_provider import GatewayLLMProviderAdapter, LLMPortBridge
             from wiki.contradiction_detector import ContradictionDetector
 
             emb = EmbeddingGenerator.shared(config=settings.embedding)
-            sim_threshold = getattr(
-                settings.wiki,
-                "contradiction_similarity_threshold",
-                0.75,
-            )
+            sim_threshold = settings.wiki.contradiction_similarity_threshold
 
             async def _embed_wiki_text(title: str, content: str) -> list[float]:
                 item = doc_dict_for_embedding(

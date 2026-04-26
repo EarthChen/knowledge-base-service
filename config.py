@@ -234,6 +234,10 @@ class WikiConfig(BaseModel):
     concept_merging_enabled: bool = False
     concept_merge_similarity_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
 
+    # Phase 2 SP4: contradiction detection
+    contradiction_detection_enabled: bool = False
+    contradiction_similarity_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
+
 
 class GitConfig(BaseModel):
     """Git repository management for remote indexing.

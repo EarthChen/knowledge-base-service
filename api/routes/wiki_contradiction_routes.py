@@ -21,7 +21,7 @@ async def list_wiki_contradictions(
     include_resolved: bool = Query(default=False),
 ) -> dict[str, Any]:
     """List contradiction records linked to a wiki page."""
-    if not getattr(get_settings().wiki, "contradiction_detection_enabled", False):
+    if not get_settings().wiki.contradiction_detection_enabled:
         return {"items": []}
     raw_store: Any = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:
@@ -43,7 +43,7 @@ async def acknowledge_contradiction(
     request: Request,
     uid: str,
 ) -> dict[str, Any]:
-    if not getattr(get_settings().wiki, "contradiction_detection_enabled", False):
+    if not get_settings().wiki.contradiction_detection_enabled:
         raise HTTPException(status_code=404, detail="Contradiction feature disabled")
     raw_store: Any = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:
@@ -65,7 +65,7 @@ async def resolve_contradiction(
     request: Request,
     uid: str,
 ) -> dict[str, Any]:
-    if not getattr(get_settings().wiki, "contradiction_detection_enabled", False):
+    if not get_settings().wiki.contradiction_detection_enabled:
         raise HTTPException(status_code=404, detail="Contradiction feature disabled")
     raw_store: Any = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:

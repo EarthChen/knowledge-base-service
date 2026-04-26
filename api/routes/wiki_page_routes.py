@@ -188,7 +188,7 @@ async def wiki_get_page_by_path(
         "uid": page_uid,
         "is_stale": is_stale,
     }
-    if page_uid and getattr(settings.wiki, "contradiction_detection_enabled", False):
+    if page_uid and settings.wiki.contradiction_detection_enabled:
         c_rows = await store.list_wiki_contradictions_for_page(
             page_uid,
             include_resolved=False,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path
@@ -43,7 +44,10 @@ async def get_all_settings(
     service: SettingsService = Depends(_get_service),
 ) -> dict[str, Any]:
     categories = await service.get_all_merged()
-    return {"categories": categories}
+    return {
+        "categories": categories,
+        "notice": "Changes take effect after service restart",
+    }
 
 
 @settings_router.get("/{category}")
@@ -61,12 +65,16 @@ async def get_category_settings(
 async def update_settings_batch(
     body: SettingsBatchUpdate,
     service: SettingsService = Depends(_get_service),
-) -> dict[str, str]:
+) -> dict[str, Any]:
     try:
         await service.update_settings([s.model_dump() for s in body.settings])
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return {"status": "ok", "updated": str(len(body.settings))}
+    return {
+        "status": "ok",
+        "updated": str(len(body.settings)),
+        "restart_required": True,
+    }
 
 
 @settings_router.put("/{key:path}")
@@ -107,8 +115,9 @@ async def test_connection(
         try:
             await store.connect()
             return {"status": "ok", "target": "falkordb", "message": "Connection successful"}
-        except Exception as e:
-            return {"status": "error", "target": "falkordb", "message": str(e)}
+        except Exception:
+            logging.getLogger(__name__).exception("FalkorDB connection test failed")
+            return {"status": "error", "target": "falkordb", "message": "Connection failed"}
         finally:
             await store.close()
     elif body.target == "llm":

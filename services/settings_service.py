@@ -13,6 +13,7 @@ log = get_logger(__name__)
 
 SENSITIVE_KEYS = frozenset({
     "falkordb.password",
+    "falkordb_password",
     "llm.api_key",
     "git.gitlab_token",
     "git.github_token",
@@ -27,6 +28,8 @@ def _flatten_settings(settings: Settings) -> dict[str, tuple[str, str]]:
 
     for k in ("host", "port", "log_level", "rate_limit_rpm", "require_auth"):
         result[k] = (str(getattr(settings, k, "")), "system")
+
+    result["falkordb_password"] = (str(settings.falkordb_password), "storage")
 
     config_map = {
         "falkordb": ("storage", settings.falkordb),
@@ -65,6 +68,11 @@ def _flatten_settings(settings: Settings) -> dict[str, tuple[str, str]]:
 
 def get_valid_keys() -> frozenset[str]:
     return frozenset(_flatten_settings(get_settings()).keys())
+
+
+def _build_key_category_map() -> dict[str, str]:
+    """Map each valid key to its correct category."""
+    return {key: cat for key, (_, cat) in _flatten_settings(get_settings()).items()}
 
 
 class SettingsService:
@@ -117,13 +125,14 @@ class SettingsService:
     async def update_settings(self, updates: list[dict[str, str]]) -> None:
         """Update settings. Encrypts sensitive values before storage."""
         valid = get_valid_keys()
+        key_to_category = _build_key_category_map()
         items = []
         for u in updates:
             key = u["key"]
             if key not in valid:
                 raise ValueError(f"Unknown setting key: {key}")
             value = u["value"]
-            category = u.get("category", "system")
+            category = key_to_category.get(key, "system")
             if key in SENSITIVE_KEYS:
                 value = encrypt_value(value)
             items.append({"key": key, "value": value, "category": category})

@@ -73,6 +73,7 @@ class TestGetSettings:
         assert resp.status_code == 200
         data = resp.json()
         assert "categories" in data
+        assert data.get("notice") == "Changes take effect after service restart"
         cats = data["categories"]
         assert isinstance(cats, dict)
 
@@ -101,7 +102,9 @@ class TestUpdateSettings:
             },
         )
         assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body.get("restart_required") is True
 
     @pytest.mark.asyncio
     async def test_single_update(self, client: AsyncClient) -> None:

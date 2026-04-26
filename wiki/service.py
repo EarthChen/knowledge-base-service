@@ -18,6 +18,7 @@ from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
 from wiki.exporter import WikiExporter
 from wiki.models import (
+    EnrichmentLevel,
     ImportanceTier,
     PageType,
     WikiConfig,
@@ -35,6 +36,14 @@ if TYPE_CHECKING:
     from indexer.business_flow_inferencer import BusinessFlowInferencer
 
 log = get_logger(__name__)
+
+
+def _enrichment_level_for_api(level: object | None) -> str | None:
+    if level is None:
+        return None
+    if isinstance(level, EnrichmentLevel):
+        return level.value
+    return str(level)
 
 
 class WikiRepoNotFoundError(Exception):
@@ -231,7 +240,12 @@ class WikiService:
             flows_created = await self._generate_business_flows(repository)
             log.info("business_flows_generated", repository=repository, count=flows_created)
         pages, degraded = await self._compose_all_pages(
-            repository, structure, config, composer, _importance_tiers,
+            repository,
+            structure,
+            config,
+            composer,
+            _importance_tiers,
+            llm_provider,
         )
         await self._persist_pages_to_graph(repository, pages)
         if self._deferred_enrichment:
@@ -296,13 +310,18 @@ class WikiService:
             log.info("business_flows_generated", repository=repository, count=flows_created)
 
         pages: list[WikiPage] = []
+        degraded = False
+        page_tier_map: dict[str, ImportanceTier] = {}
 
-        async def walk(node: WikiStructureNode, parent_ctx: str = "") -> AsyncIterator[WikiPage]:
+        async def walk_stream(
+            node: WikiStructureNode, parent_ctx: str = "",
+        ) -> AsyncIterator[WikiPage]:
             if node.page_type == PageType.REPO_OVERVIEW:
                 page = self._make_repo_overview_page(repository, structure, config)
+                page.metadata.enrichment_level = EnrichmentLevel.BASE
                 yield page
                 for ch in node.children:
-                    async for p in walk(ch, parent_ctx):
+                    async for p in walk_stream(ch, parent_ctx):
                         yield p
                 return
             graph_node = await self._resolve_structure_node(repository, node)
@@ -317,17 +336,30 @@ class WikiService:
                 config,
                 parent_context=parent_ctx,
             )
+            page.metadata.enrichment_level = EnrichmentLevel.BASE
+            if tier is not None:
+                page_tier_map[page.path] = tier
             yield page
             for ch in node.children:
-                async for p in walk(ch, parent_ctx):
+                async for p in walk_stream(ch, parent_ctx):
                     yield p
 
-        degraded = False
-        async for page in walk(structure.root):
+        async for page in walk_stream(structure.root):
             pages.append(page)
             if config.mode == "full" and page.metadata.fallback_tier == 3:
                 degraded = True
             yield {"page": page.to_dict()}
+
+        await self._enrich_pages_after_compose(pages, page_tier_map, config, llm_provider)
+        for page in pages:
+            if page.page_type == PageType.REPO_OVERVIEW:
+                continue
+            yield {
+                "enrichment": {
+                    "page_path": page.path,
+                    "level": _enrichment_level_for_api(page.metadata.enrichment_level),
+                }
+            }
 
         if self._deferred_enrichment:
             refreshed = await self._deferred_enrichment.refresh_stale_embeddings(repository)
@@ -352,6 +384,38 @@ class WikiService:
             return app_cfg.skeleton_code_budget
         return app_cfg.standard_code_budget
 
+    async def _enrich_pages_after_compose(
+        self,
+        pages: list[WikiPage],
+        page_tier_map: dict[str, ImportanceTier],
+        config: WikiConfig,
+        llm_provider: str | None = None,
+    ) -> None:
+        app_cfg = get_settings().wiki
+        if not app_cfg.enrichment_enabled:
+            return
+        llm_port = self._resolve_llm_port(llm_provider)
+        if llm_port is None:
+            return
+        from wiki.async_enrichment import AsyncEnrichmentPipeline
+
+        pipeline = AsyncEnrichmentPipeline(
+            llm_port,
+            round1_enabled=app_cfg.enrichment_round1_enabled,
+            round2_enabled=app_cfg.enrichment_round2_enabled,
+        )
+        for page in pages:
+            if page.page_type == PageType.REPO_OVERVIEW:
+                continue
+            tier = page_tier_map.get(page.path, ImportanceTier.STANDARD)
+            await pipeline.enrich_page(
+                page,
+                entity_name=page.title,
+                entity_label=page.page_type.value,
+                tier=tier,
+                language=config.language,
+            )
+
     async def _compose_all_pages(
         self,
         repository: str,
@@ -359,15 +423,19 @@ class WikiService:
         config: WikiConfig,
         composer: WikiComposer,
         importance_tiers: dict[str, ImportanceTier] | None = None,
+        llm_provider: str | None = None,
     ) -> tuple[list[WikiPage], bool]:
         pages: list[WikiPage] = []
         degraded = False
         tiers = importance_tiers or {}
+        page_tier_map: dict[str, ImportanceTier] = {}
 
         async def walk(node: WikiStructureNode, parent_ctx: str = "") -> None:
             nonlocal degraded
             if node.page_type == PageType.REPO_OVERVIEW:
-                pages.append(self._make_repo_overview_page(repository, structure, config))
+                page = self._make_repo_overview_page(repository, structure, config)
+                page.metadata.enrichment_level = EnrichmentLevel.BASE
+                pages.append(page)
             else:
                 graph_node = await self._resolve_structure_node(repository, node)
                 tier = tiers.get(graph_node.uid)
@@ -381,13 +449,17 @@ class WikiService:
                     config,
                     parent_context=parent_ctx,
                 )
+                page.metadata.enrichment_level = EnrichmentLevel.BASE
                 pages.append(page)
+                if tier is not None:
+                    page_tier_map[page.path] = tier
                 if config.mode == "full" and page.metadata.fallback_tier == 3:
                     degraded = True
             for ch in node.children:
                 await walk(ch, parent_ctx)
 
         await walk(structure.root)
+        await self._enrich_pages_after_compose(pages, page_tier_map, config, llm_provider)
         return pages, degraded
 
     async def _resolve_structure_node(self, repository: str, node: WikiStructureNode) -> GraphNode:
@@ -441,6 +513,7 @@ class WikiService:
                 "page_type": p.page_type.value,
                 "generated_at": ts,
                 "importance_tier": getattr(p.metadata, "importance_tier", None),
+                "enrichment_level": getattr(p.metadata, "enrichment_level", None),
             }
             for p in pages
         ]

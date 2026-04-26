@@ -127,7 +127,12 @@ class TestWikiGenerateSync:
         assert r.status_code == 404
         assert _detail_error(r) == "repo_not_found"
 
-    def test_generate_structure_mode(self) -> None:
+    def test_generate_structure_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            WikiService,
+            "_enrich_pages_after_compose",
+            AsyncMock(),
+        )
         llm = AsyncMock()
         graph = AsyncMock()
         mod = GraphNode(

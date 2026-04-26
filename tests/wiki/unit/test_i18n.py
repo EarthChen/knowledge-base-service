@@ -191,6 +191,7 @@ class TestServiceLanguagePropagation:
             config: WikiConfig,
             _composer: object,
             _importance_tiers: object = None,
+            _llm_provider: str | None = None,
         ) -> tuple[list, bool]:
             captured["config"] = config
             return [], False

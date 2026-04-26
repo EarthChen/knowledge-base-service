@@ -515,6 +515,9 @@ async def wiki_generate(
                     if "page" in ev:
                         payload = json.dumps(ev["page"])
                         yield f"event: wiki-page\ndata: {payload}\n\n"
+                    elif "enrichment" in ev:
+                        payload = json.dumps(ev["enrichment"])
+                        yield f"event: wiki-enrichment\ndata: {payload}\n\n"
                     elif "complete" in ev:
                         payload = json.dumps(ev["complete"])
                         yield f"event: wiki-complete\ndata: {payload}\n\n"

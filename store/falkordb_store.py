@@ -354,6 +354,9 @@ class FalkorDBStore:
                     "version": page.get("version", 1),
                     "content_hash": page.get("content_hash", ""),
                     "importance_tier": page.get("importance_tier", ""),
+                    "enrichment_level": ""
+                    if page.get("enrichment_level") is None
+                    else str(page.get("enrichment_level")),
                     "repositories": page.get("repositories", [repository]),
                 }
             )
@@ -369,6 +372,7 @@ class FalkorDBStore:
             "w.version = page.version, "
             "w.content_hash = page.content_hash, "
             "w.importance_tier = page.importance_tier, "
+            "w.enrichment_level = page.enrichment_level, "
             "w.repositories = page.repositories "
             "RETURN count(*) AS cnt"
         )

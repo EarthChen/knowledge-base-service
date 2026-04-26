@@ -112,6 +112,12 @@ class WikiLintService:
             return False
         return bool(getattr(c, "forgetting_enabled", False))
 
+    def _lint_memory_tiers_enabled(self) -> bool:
+        c = self._wiki_config
+        if c is None:
+            return False
+        return bool(getattr(c, "memory_tiers_enabled", False))
+
     def _lint_schema_enabled(self) -> bool:
         c = self._wiki_config
         if c is None:
@@ -132,6 +138,7 @@ class WikiLintService:
                 scorer=scorer,
             )
         self._forgetting_status_updates = 0
+        self._memory_tier_updates = 0
         checks = await asyncio.gather(
             self._check_staleness(repository),
             self._check_orphans(repository),
@@ -140,11 +147,13 @@ class WikiLintService:
             self._check_outdated_content(repository),
             self._check_contradictions(repository),
             self._check_forgetting(repository),
+            self._check_memory_promotions(repository),
             self._check_schema(repository),
         )
         issues = [issue for group in checks for issue in group]
         issues = self._filter_by_scope(issues, scope)
         forget_n = int(getattr(self, "_forgetting_status_updates", 0) or 0)
+        mem_tier_n = int(getattr(self, "_memory_tier_updates", 0) or 0)
         stats: dict[str, int] = {
             "total": len(issues),
             "errors": 0,
@@ -152,6 +161,7 @@ class WikiLintService:
             "info": 0,
             "confidence_recalibrated": conf_n,
             "memory_status_updated": forget_n,
+            "memory_tier_updates": mem_tier_n,
         }
         for issue in issues:
             if issue.severity == "error":
@@ -522,6 +532,9 @@ class WikiLintService:
                 new_status = "faded"
             else:
                 new_status = "active"
+            current_status = p.get("memory_status", "active")
+            if current_status == new_status:
+                continue
             updater = getattr(self._wiki_store, "update_node_property", None)
             if updater is None:
                 log.warning("forgetting_update_skipped_no_updater", uid=uid)
@@ -563,6 +576,61 @@ class WikiLintService:
                 )
         self._forgetting_status_updates = n_updates
         return found
+
+    async def _check_memory_promotions(self, repository: str) -> list[LintIssue]:
+        """Apply MemoryTierManager rules to :WikiQA nodes; persist via ``update_wiki_qa_memory``."""
+        if not self._lint_memory_tiers_enabled():
+            return []
+        from wiki.memory_tiers import MemoryNode, MemoryTierManager
+
+        # WikiQA is partitioned by business_id; MemoryLoop defaults to "default".
+        _ = repository
+        business_id = "default"
+        manager = MemoryTierManager()
+        page_size = 200
+        skip = 0
+        n_applied = 0
+        updater = getattr(self._wiki_store, "update_wiki_qa_memory", None)
+        if updater is None:
+            log.warning("memory_promotion_skipped_no_updater")
+            self._memory_tier_updates = 0
+            return []
+
+        while True:
+            res = await self._wiki_store.list_wiki_qa(business_id, skip, page_size)
+            rows = getattr(res, "data", None) or []
+            if not rows:
+                break
+            for raw in rows:
+                row = dict(raw)
+                before = MemoryNode.from_wiki_qa_row(row)
+                after = manager.apply_promotion_rules(before)
+                if (
+                    after.tier == before.tier
+                    and after.status == before.status
+                    and after.promoted_at == before.promoted_at
+                ):
+                    continue
+                try:
+                    kwargs: dict[str, Any] = {}
+                    if after.tier != before.tier:
+                        kwargs["tier"] = int(after.tier)
+                    if after.status != before.status:
+                        kwargs["memory_status"] = after.status
+                    if after.promoted_at != before.promoted_at:
+                        kwargs["promoted_at"] = after.promoted_at
+                    if not kwargs:
+                        continue
+                    await updater(uid=after.uid, **kwargs)
+                    n_applied += 1
+                except (TypeError, ValueError) as ex:
+                    log.warning("memory_promotion_update_failed", uid=after.uid, err=str(ex))
+                    continue
+            if len(rows) < page_size:
+                break
+            skip += page_size
+        self._memory_tier_updates = n_applied
+        return []
 
     async def _check_schema(self, repository: str) -> list[LintIssue]:
         if not self._lint_schema_enabled():

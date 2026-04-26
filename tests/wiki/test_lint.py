@@ -79,6 +79,7 @@ async def test_empty_wiki_no_issues() -> None:
         "info": 0,
         "confidence_recalibrated": 0,
         "memory_status_updated": 0,
+        "memory_tier_updates": 0,
     }
 
 

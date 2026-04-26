@@ -70,6 +70,14 @@ class MemoryNode:
             except (TypeError, ValueError):
                 tier = MemoryTier.EPISODIC
         uid = str(row.get("uid") or "")
+
+        def _opt_str(key: str) -> str | None:
+            v = row.get(key)
+            if v is None:
+                return None
+            s = str(v).strip()
+            return s or None
+
         return MemoryNode(
             uid=uid,
             tier=tier,
@@ -78,10 +86,10 @@ class MemoryNode:
             repository=str(row.get("repository") or ""),
             access_count=int(row.get("access_count") or 0),
             confirmation_count=int(row.get("confirmation_count") or 0),
-            last_accessed=row.get("last_accessed") if row.get("last_accessed") is not None else None,
+            last_accessed=_opt_str("last_accessed"),
             created_at=str(row.get("created_at") or ""),
-            promoted_at=row.get("promoted_at") if row.get("promoted_at") is not None else None,
-            stability_factor=float(row.get("stability_factor") or 7.0),
+            promoted_at=_opt_str("promoted_at"),
+            stability_factor=float(row.get("stability_factor") if row.get("stability_factor") is not None else 7.0),
             confidence=float(row.get("confidence") or 0.0),
             status=str(row.get("memory_status") or row.get("status") or "active"),
         )

@@ -168,3 +168,59 @@ class TestTestConnection:
             json={"target": "unknown_service"},
         )
         assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_falkordb_ok_returns_200(self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _OkFalkor:
+            def __init__(self, *_a: object, **_k: object) -> None:
+                pass
+
+            async def connect(self) -> None:
+                return
+
+            async def close(self) -> None:
+                return
+
+        monkeypatch.setattr("store.falkordb_store.FalkorDBStore", _OkFalkor)
+        resp = await client.post(
+            "/api/v1/settings/test-connection",
+            json={"target": "falkordb"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["target"] == "falkordb"
+
+    @pytest.mark.asyncio
+    async def test_falkordb_failure_returns_503(self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _BadFalkor:
+            def __init__(self, *_a: object, **_k: object) -> None:
+                pass
+
+            async def connect(self) -> None:
+                raise OSError("connection refused")
+
+            async def close(self) -> None:
+                return
+
+        monkeypatch.setattr("store.falkordb_store.FalkorDBStore", _BadFalkor)
+        resp = await client.post(
+            "/api/v1/settings/test-connection",
+            json={"target": "falkordb"},
+        )
+        assert resp.status_code == 503
+        data = resp.json()
+        assert data["status"] == "error"
+        assert data["target"] == "falkordb"
+        assert "message" in data
+
+    @pytest.mark.asyncio
+    async def test_llm_not_implemented_returns_501(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/v1/settings/test-connection",
+            json={"target": "llm"},
+        )
+        assert resp.status_code == 501
+        data = resp.json()
+        assert data["status"] == "error"
+        assert data["target"] == "llm"

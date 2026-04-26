@@ -19,6 +19,16 @@ class _GraphQueryPort(Protocol):
     async def execute_query(self, cypher: str, params: dict[str, Any] | None = None) -> Any: ...
 
 
+def _wiki_node_properties(raw: object) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if hasattr(raw, "properties"):
+        return dict(raw.properties)  # type: ignore[arg-type]
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
 class WikiStore:
     """Wiki-related graph queries."""
 
@@ -606,6 +616,94 @@ class WikiStore:
             "ORDER BY r.relation_type, s.title"
         )
         return await self._store.execute_query(q, {"uid": page_uid})
+
+    async def get_suggested_questions_context(self, page_uid: str) -> dict[str, Any] | None:
+        """Load wiki page and SOURCE_ENTITY graph (callers / callees) for question suggestions.
+
+        Returns ``None`` if no :WikiPage exists for ``page_uid``. When no SOURCE_ENTITY is
+        linked, returns a context using the page title and repository with empty graph lists.
+        """
+        q_wp = "MATCH (wp:WikiPage {uid: $uid}) RETURN wp AS wp LIMIT 1"
+        r_wp = await self._store.execute_query(q_wp, {"uid": page_uid})
+        if not r_wp.data:
+            return None
+        props = _wiki_node_properties(r_wp.data[0].get("wp"))
+        title = str(props.get("title") or "")
+        repo = str(props.get("repository") or "")
+
+        _se = EdgeType.SOURCE_ENTITY.value
+        q_ent = (
+            f"MATCH (wp:WikiPage {{uid: $uid}})-[:{_se}]->(e) "
+            "RETURN e.uid AS e_uid, coalesce(e.name, '') AS e_name, coalesce(e.repository, '') AS e_repo "
+            "LIMIT 1"
+        )
+        r_ent = await self._store.execute_query(q_ent, {"uid": page_uid})
+        if not r_ent.data or not r_ent.data[0].get("e_uid"):
+            return {
+                "page_uid": page_uid,
+                "entity_name": title or "Unknown",
+                "domain": repo,
+                "callers": [],
+                "callees": [],
+                "cross_domain_callers": [],
+            }
+        row = r_ent.data[0]
+        e_uid = str(row.get("e_uid") or "")
+        e_name = str(row.get("e_name") or "") or title
+        e_repo = str(row.get("e_repo") or "") or repo
+
+        q_mod = (
+            "MATCH (e) WHERE e.uid = $e_uid "
+            "OPTIONAL MATCH (mod:Module)-[:CONTAINS|DECLARED_IN*0..3]-(e) "
+            "RETURN coalesce(mod.name, mod.path, '') AS domain LIMIT 1"
+        )
+        r_mod = await self._store.execute_query(q_mod, {"e_uid": e_uid})
+        domain = e_repo
+        if r_mod.data:
+            d = str(r_mod.data[0].get("domain") or "").strip()
+            if d:
+                domain = d
+
+        q_call = (
+            "MATCH (e) WHERE e.uid = $e_uid "
+            "MATCH (caller)-[:CALLS]->(e) "
+            "RETURN DISTINCT caller.name AS name, coalesce(caller.repository, '') AS repository"
+        )
+        r_call = await self._store.execute_query(q_call, {"e_uid": e_uid})
+        callers: list[str] = []
+        cross: list[str] = []
+        for crow in r_call.data or []:
+            nm = str(crow.get("name") or "").strip()
+            if not nm:
+                continue
+            cr = str(crow.get("repository") or "").strip()
+            if e_repo and cr and cr != e_repo:
+                cross.append(nm)
+            callers.append(nm)
+        callers = list(dict.fromkeys(callers))
+        cross = list(dict.fromkeys(cross))
+
+        q_callee = (
+            "MATCH (e) WHERE e.uid = $e_uid "
+            "MATCH (e)-[:CALLS]->(callee) "
+            "RETURN DISTINCT callee.name AS name"
+        )
+        r_cal = await self._store.execute_query(q_callee, {"e_uid": e_uid})
+        callee_names = [
+            str(x.get("name") or "").strip()
+            for x in (r_cal.data or [])
+            if x.get("name")
+        ]
+        callees = [n for n in dict.fromkeys(callee_names) if n]
+
+        return {
+            "page_uid": page_uid,
+            "entity_name": e_name,
+            "domain": domain,
+            "callers": callers,
+            "callees": callees,
+            "cross_domain_callers": cross,
+        }
 
     async def find_source_entity_mappings(
         self, repository: str | None = None

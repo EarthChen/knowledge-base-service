@@ -39,6 +39,7 @@ from auth import (
     resolve_token,
 )
 from config import Settings, get_settings
+from utils.git_utils import looks_like_git_url
 
 
 def _startup_auth_gate(settings: Settings) -> None:
@@ -259,15 +260,6 @@ admin_router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_role(Ro
 public_router = APIRouter(prefix="/api/v1")
 
 
-def _looks_like_git_url(value: str) -> bool:
-    """Heuristic: detect if a string is a git URL rather than a local path."""
-    if value.startswith(("http://", "https://", "git@", "ssh://")):
-        return True
-    if value.endswith(".git"):
-        return True
-    return False
-
-
 _HYBRID_ENTITY_TYPE_TO_LABEL: dict[str, str] = {
     "function": "Function",
     "class": "Class",
@@ -474,7 +466,7 @@ class ReviewContextRequest(BaseModel):
                 "Provide either non-empty diff_text, or both branch and repo_path",
             )
         ru = (self.repo_url or "").strip()
-        if ru and not _looks_like_git_url(ru):
+        if ru and not looks_like_git_url(ru):
             raise ValueError("repo_url does not look like a valid git remote URL")
         return self
 
@@ -784,7 +776,7 @@ async def trigger_index(
             detail="Either 'directory' or 'git_url' must be provided",
         )
 
-    if not req.git_url and req.directory and _looks_like_git_url(req.directory):
+    if not req.git_url and req.directory and looks_like_git_url(req.directory):
         req = req.model_copy(update={"git_url": req.directory, "directory": ""})
 
     task = _task_manager.create_task(

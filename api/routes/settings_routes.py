@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from auth import Role, require_role
@@ -111,10 +112,10 @@ async def delete_setting(
     return {"status": "ok", "key": key}
 
 
-@settings_router.post("/test-connection")
+@settings_router.post("/test-connection", response_model=None)
 async def test_connection(
     body: TestConnectionRequest,
-) -> dict[str, Any]:
+) -> dict[str, Any] | JSONResponse:
     """Test connectivity to external services."""
     if body.target == "falkordb":
         from config import get_settings
@@ -126,10 +127,19 @@ async def test_connection(
             return {"status": "ok", "target": "falkordb", "message": "Connection successful"}
         except Exception:
             logging.getLogger(__name__).exception("FalkorDB connection test failed")
-            return {"status": "error", "target": "falkordb", "message": "Connection failed"}
+            return JSONResponse(
+                status_code=503,
+                content={"status": "error", "target": "falkordb", "message": "Connection failed"},
+            )
         finally:
             await store.close()
-    elif body.target == "llm":
-        return {"status": "ok", "target": "llm", "message": "LLM test not yet implemented"}
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown target: {body.target}")
+    if body.target == "llm":
+        return JSONResponse(
+            status_code=501,
+            content={
+                "status": "error",
+                "target": "llm",
+                "message": "LLM test not yet implemented",
+            },
+        )
+    raise HTTPException(status_code=400, detail=f"Unknown target: {body.target}")

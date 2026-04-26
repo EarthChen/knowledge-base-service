@@ -22,6 +22,7 @@ from query.graph_query import GraphQueryService
 from store.graph_queries import GraphQueryRepository
 from store.wiki_store import WikiStore
 from git_manager import normalize_repo_name
+from utils.git_utils import looks_like_git_url
 from wiki.ask import WikiAskService
 from wiki.coverage_analyzer import WikiCoverageAnalyzer
 from wiki.cache import WikiCache
@@ -41,6 +42,7 @@ from wiki.models import (
 from wiki.lint import WikiLintService
 from wiki.search import SearchResponse, WikiSearchService
 from wiki.service import WikiRepoNotFoundError, WikiService
+from wiki.suggested_questions import PageContext, SuggestedQuestionsGenerator
 from wiki.structure_planner import WikiScopeError
 
 log = get_logger(__name__)
@@ -281,12 +283,6 @@ async def get_wiki_lint_service_dep(request: Request) -> WikiLintService:
     if asyncio.iscoroutine(out):
         return await out
     return out  # type: ignore[no-any-return]
-
-
-def _looks_like_git_url(value: str) -> bool:
-    if value.startswith(("http://", "https://", "git@", "ssh://")):
-        return True
-    return value.endswith(".git")
 
 
 async def _maybe_call(fn: Callable[..., Any], *args: Any) -> Any:
@@ -652,7 +648,7 @@ async def wiki_quick(
     cache: WikiCache = Depends(get_wiki_cache_dep),
 ) -> JSONResponse | dict[str, Any]:
     git_url = body.git_url.strip()
-    if not _looks_like_git_url(git_url):
+    if not looks_like_git_url(git_url):
         raise HTTPException(
             status_code=400,
             detail={
@@ -1137,6 +1133,32 @@ async def get_page_references(
         "outgoing": outgoing.data if outgoing else [],
         "incoming": incoming.data if incoming else [],
     }
+
+
+@wiki_router.get("/pages/{page_uid:path}/questions", response_model=None)
+async def get_page_suggested_questions(
+    page_uid: str,
+    store: Any = Depends(get_wiki_store_dep),
+) -> dict[str, Any]:
+    """Graph-aware exploration questions for a wiki page (SOURCE_ENTITY + CALLS)."""
+    decoded = unquote(page_uid)
+    ws = WikiStore(store)
+    raw = await ws.get_suggested_questions_context(decoded)
+    if raw is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "page_not_found", "detail": f"No wiki page for uid {decoded!r}"},
+        )
+    ctx = PageContext(
+        entity_name=raw["entity_name"],
+        domain=raw["domain"],
+        callers=raw["callers"],
+        callees=raw["callees"],
+        cross_domain_callers=raw["cross_domain_callers"],
+    )
+    gen = SuggestedQuestionsGenerator()
+    questions = gen.generate(ctx)
+    return {"questions": questions, "page_uid": raw["page_uid"]}
 
 
 @wiki_router.post("/chunks/index", response_model=None, dependencies=[Depends(require_role(Role.EDITOR))])

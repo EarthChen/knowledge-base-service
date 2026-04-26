@@ -26,17 +26,15 @@ import WikiReferencesPanel from "./WikiReferencesPanel";
 import WikiCoverageCard from "./WikiCoverageCard";
 import WikiQualityScoreCard from "./WikiQualityScoreCard";
 import WikiLandingPage from "./WikiLandingPage";
-import { getErrorMessage } from "../../utils/errorUtils";
 import WikiSearchBar from "./WikiSearchBar";
 import WikiTreeNav from "./WikiTreeNav";
 import { parseWikiSearchParams, wikiSearchHref } from "./wikiRouteHelpers";
-import { businessWikiGenerate, wikiTaskStatus } from "../../api/client";
-import { useToast } from "../Toast";
 import { useBusiness } from "../../contexts/BusinessContext";
 import { useI18n } from "../../i18n/context";
 import type { WikiEvent, WikiEventType } from "../../hooks/wikiTypes";
 import { useWikiEvents } from "../../hooks/useWikiEvents";
 import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
+import { useWikiRegenerate } from "../../hooks/useWikiRegenerate";
 import WikiGenerationProgress from "./WikiGenerationProgress";
 import WikiUpdateNotification from "./WikiUpdateNotification";
 
@@ -101,11 +99,10 @@ export default function WikiShell() {
 
   const pageQuery = useWikiPageByPath(businessId, pagePath || undefined);
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
+  const { regenerate: handleRegenerateWiki, isPending: regeneratePending } = useWikiRegenerate(businessId);
   const [updateNotification, setUpdateNotification] = useState<string | null>(null);
   const [generationStatus, setGenerationStatus] = useState<WikiEventType | null>(null);
-  const [regeneratePending, setRegeneratePending] = useState(false);
   const [refsPanelOpen, setRefsPanelOpen] = useState(() => {
     try {
       return localStorage.getItem("kb_wiki_refs_panel") !== "closed";
@@ -164,48 +161,6 @@ export default function WikiShell() {
   const pendingQuery = searchParams.get("q") ?? "";
   if (pendingQuery.trim()) {
     return <Navigate to={wikiSearchHref(pendingQuery.trim())} replace />;
-  }
-
-  async function handleRegenerateWiki() {
-    if (!businessId.trim() || regeneratePending) return;
-    setRegeneratePending(true);
-    try {
-      const lang = locale === "zh" ? "zh" : "en";
-      const res = await businessWikiGenerate(businessId.trim(), lang);
-      const tid = res.task_id ? String(res.task_id) : "";
-      if (!tid) {
-        toast("success", t.wiki.regenerateStarted);
-        await invalidateWikiQueriesForBusiness(queryClient, businessId);
-        return;
-      }
-      toast("info", t.wiki.regenerateRunning);
-      const maxAttempts = 45;
-      for (let i = 0; i < maxAttempts; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const st = await wikiTaskStatus(tid);
-        if (st.status === "completed") {
-          toast("success", t.wiki.regenerateComplete);
-          await invalidateWikiQueriesForBusiness(queryClient, businessId);
-          return;
-        }
-        if (st.status === "failed") {
-          const err = st.error;
-          const detail =
-            err && typeof err === "object" && "detail" in err
-              ? String((err as { detail?: unknown }).detail ?? err)
-              : err
-                ? JSON.stringify(err)
-                : t.common.unknown;
-          toast("error", t.wiki.regenerateFailed.replace("{detail}", detail));
-          return;
-        }
-      }
-      toast("error", t.wiki.regenerateTimeout);
-    } catch (e) {
-      toast("error", getErrorMessage(e, t.common.unexpectedError));
-    } finally {
-      setRegeneratePending(false);
-    }
   }
 
   const setToolTab = useCallback(

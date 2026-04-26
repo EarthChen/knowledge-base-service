@@ -112,3 +112,23 @@ class TestMkDocsExportPlan:
         page_a = next(f for f in plan.files if "A.md" in f.relative_path)
         assert "[[" not in page_a.content
         assert "B" in page_a.content
+
+    @pytest.mark.asyncio
+    async def test_empty_tree_has_docs_stub(self):
+        """Empty tree should still produce a docs/README.md for valid MkDocs build."""
+        mock_store = AsyncMock()
+        mock_store.get_wiki_tree = AsyncMock(return_value=MagicMock(data=[]))
+        exporter = MkDocsExporter(mock_store)
+        plan = await exporter.build_export_plan("empty-biz")
+        paths = [f.relative_path for f in plan.files]
+        assert "mkdocs.yml" in paths
+        assert "docs/README.md" in paths
+
+    def test_yaml_special_chars_quoted(self):
+        """site_name with YAML metacharacters must be safely quoted."""
+        from wiki.mkdocs_exporter import _yaml_quote
+        exporter = MkDocsExporter(store=None)
+        yml = exporter.generate_mkdocs_yml("my:project#1", ["domain:A"])
+        assert "'my:project#1'" in yml
+        assert _yaml_quote("simple") == "simple"
+        assert _yaml_quote("has:colon") == "'has:colon'"

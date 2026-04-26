@@ -40,7 +40,7 @@
 **Files:**
 - Modify: `config.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/test_config_phase1.py
@@ -59,12 +59,12 @@ def test_wiki_importance_config_defaults():
     assert s.wiki.importance_standard_percentile == 30
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd knowledge-base-service && uv run pytest tests/test_config_phase1.py -v`
 Expected: FAIL with `AttributeError`
 
-- [ ] **Step 3: Add Phase 1 config fields to WikiConfig**
+- [x] **Step 3: Add Phase 1 config fields to WikiConfig**
 
 在 `config.py` 的 `WikiConfig` 类中，在 Phase 0 字段之后添加：
 
@@ -78,16 +78,16 @@ Expected: FAIL with `AttributeError`
     importance_standard_percentile: int = 30
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add config.py tests/test_config_phase1.py
 git commit -m "feat(config): add Phase 1 code budget and importance scoring config fields"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - 配置字段命名是否遵循项目既有风格
@@ -101,7 +101,7 @@ Review checklist:
 **Files:**
 - Modify: `wiki/models.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/wiki/test_phase1_models.py
@@ -136,12 +136,12 @@ def test_importance_tier_ordering():
     assert ImportanceTier.CORE in tiers
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd knowledge-base-service && uv run pytest tests/wiki/test_phase1_models.py -v`
 Expected: FAIL with `ImportError`
 
-- [ ] **Step 3: Add new models to wiki/models.py**
+- [x] **Step 3: Add new models to wiki/models.py**
 
 在 `wiki/models.py` 中添加：
 
@@ -177,16 +177,16 @@ class PageData:
     importance_tier: ImportanceTier | None = None
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add wiki/models.py tests/wiki/test_phase1_models.py
 git commit -m "feat(wiki): add CodeSnippet, ImportanceTier models and extend PageData"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - PageData 新增字段是否向后兼容（现有代码不传这些字段仍能正常工作）
@@ -200,7 +200,7 @@ Review checklist:
 **Files:**
 - Modify: `store/wiki_store.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/store/test_wiki_store_chunk.py
@@ -234,9 +234,9 @@ async def test_score_all_entities(mock_store):
     assert "children" in cypher
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Add Chunk query and scoring methods**
+- [x] **Step 3: Add Chunk query and scoring methods**
 
 在 `store/wiki_store.py` 的 WikiStore 类中添加：
 
@@ -272,16 +272,16 @@ async def test_score_all_entities(mock_store):
         return await self._store.execute_query(q, {"repo": repository})
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add store/wiki_store.py tests/store/test_wiki_store_chunk.py
 git commit -m "feat(wiki-store): add find_chunks_by_parent_uid and score_all_entities queries"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - Cypher 查询语法正确性
@@ -297,7 +297,7 @@ Review checklist:
 - Create: `wiki/source_code_reader.py`
 - Create: `tests/wiki/test_source_code_reader.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/wiki/test_source_code_reader.py
@@ -387,9 +387,9 @@ def test_truncate_code():
     assert len(truncated) < len(code)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Implement SourceCodeReader**
+- [x] **Step 3: Implement SourceCodeReader**
 
 ```python
 # wiki/source_code_reader.py
@@ -556,16 +556,16 @@ class SourceCodeReader:
         return "\n".join(head_lines) + marker + "\n".join(tail_lines)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add wiki/source_code_reader.py tests/wiki/test_source_code_reader.py
 git commit -m "feat(wiki): implement SourceCodeReader with chunk/file/signature fallback and token budget"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - Chunk 拼接逻辑是否正确处理多个 Chunk
@@ -581,7 +581,7 @@ Review checklist:
 - Create: `wiki/importance_scorer.py`
 - Create: `tests/wiki/test_importance_scorer.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/wiki/test_importance_scorer.py
@@ -640,9 +640,9 @@ async def test_score_all(mock_wiki_store):
     assert len(tiers) == 3
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Implement ImportanceScorer**
+- [x] **Step 3: Implement ImportanceScorer**
 
 ```python
 # wiki/importance_scorer.py
@@ -734,16 +734,16 @@ class ImportanceScorer:
         return result
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add wiki/importance_scorer.py tests/wiki/test_importance_scorer.py
 git commit -m "feat(wiki): implement ImportanceScorer with graph-based scoring and percentile classification"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - 评分公式是否与设计文档一致
@@ -758,7 +758,7 @@ Review checklist:
 **Files:**
 - Modify: `wiki/data_collector.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/wiki/test_data_collector_code.py
@@ -808,9 +808,9 @@ async def test_collect_without_wiki_store_has_empty_snippets(mock_graph_port):
     assert page_data.code_snippets == []
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Integrate SourceCodeReader into WikiDataCollector**
+- [x] **Step 3: Integrate SourceCodeReader into WikiDataCollector**
 
 修改 `wiki/data_collector.py`：
 
@@ -818,16 +818,16 @@ async def test_collect_without_wiki_store_has_empty_snippets(mock_graph_port):
 2. 在 `collect()` 中调用 SourceCodeReader 读取代码
 3. 将 code_snippets 传入 PageData
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add wiki/data_collector.py tests/wiki/test_data_collector_code.py
 git commit -m "feat(wiki): integrate SourceCodeReader into WikiDataCollector for code-aware collection"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - WikiDataCollector 的构造函数是否保持向后兼容（wiki_store=None）
@@ -841,7 +841,7 @@ Review checklist:
 **Files:**
 - Modify: `wiki/composer.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/wiki/test_composer_code_digest.py
@@ -879,9 +879,9 @@ def test_entity_digest_includes_code():
     assert "def bar" in digest
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Enhance _entity_digest**
+- [x] **Step 3: Enhance _entity_digest**
 
 在 `wiki/composer.py` 的 `_entity_digest` 方法末尾，在返回之前添加代码片段部分：
 
@@ -894,16 +894,16 @@ def test_entity_digest_includes_code():
             lines.append(f"- File: {snippet.file_path}:{snippet.start_line}-{snippet.end_line}")
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add wiki/composer.py tests/wiki/test_composer_code_digest.py
 git commit -m "feat(wiki): enhance _entity_digest to embed code snippets in LLM prompt"
 ```
 
-- [ ] **Step 6: Code Review**
+- [x] **Step 6: Code Review**
 
 Review checklist:
 - 代码片段在 prompt 中的位置是否合理（末尾 vs 中间）
@@ -918,7 +918,7 @@ Review checklist:
 **Files:**
 - Modify: `wiki/service.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 # tests/wiki/test_service_importance.py
@@ -936,7 +936,7 @@ async def test_generate_passes_importance_tier_to_persist():
     pass  # Placeholder — implementer fills in based on actual service.py
 ```
 
-- [ ] **Step 2-4: Integrate ImportanceScorer into WikiService.generate()**
+- [x] **Step 2-4: Integrate ImportanceScorer into WikiService.generate()**
 
 在 `wiki/service.py` 的 `generate()` 方法中：
 
@@ -944,11 +944,11 @@ async def test_generate_passes_importance_tier_to_persist():
 2. 将 tier 信息传递给 `WikiDataCollector` 和 `WikiComposer`
 3. 在 `_persist_pages_to_graph()` 中包含 `importance_tier`
 
-- [ ] **Step 5: Run full test suite**
+- [x] **Step 5: Run full test suite**
 
 Run: `cd knowledge-base-service && uv run pytest tests/ -v --tb=short -q`
 
-- [ ] **Step 6: Update wiki/__init__.py exports**
+- [x] **Step 6: Update wiki/__init__.py exports**
 
 ```python
 from wiki.source_code_reader import SourceCodeReader
@@ -956,14 +956,14 @@ from wiki.importance_scorer import ImportanceScorer
 from wiki.models import CodeSnippet, ImportanceTier
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add wiki/service.py wiki/__init__.py tests/wiki/test_service_importance.py
 git commit -m "feat(wiki): integrate ImportanceScorer into WikiService pipeline and export new components"
 ```
 
-- [ ] **Step 8: Code Review**
+- [x] **Step 8: Code Review**
 
 Review checklist:
 - ImportanceScorer 在 generate() 流程中的位置是否正确

@@ -342,7 +342,8 @@ function relationIcon(relType: string): string {
   return map[relType] || relType.slice(0, 3);
 }
 
-function ReferenceItem({ ref: r, onClick }: { ref: WikiReference; onClick: () => void }) {
+function ReferenceItem({ reference, onClick }: { reference: WikiReference; onClick: () => void }) {
+  const r = reference;
   return (
     <button
       type="button"
@@ -442,7 +443,7 @@ export default function WikiReferencesPanel({ pageUid, isOpen, onToggle }: WikiR
               {outgoing.map((r) => (
                 <ReferenceItem
                   key={r.target_uid}
-                  ref={r}
+                  reference={r}
                   onClick={() => navigate(wikiHref(r.target_path))}
                 />
               ))}
@@ -460,7 +461,7 @@ export default function WikiReferencesPanel({ pageUid, isOpen, onToggle }: WikiR
               {incoming.map((r) => (
                 <ReferenceItem
                   key={r.target_uid}
-                  ref={r}
+                  reference={r}
                   onClick={() => navigate(wikiHref(r.target_path))}
                 />
               ))}

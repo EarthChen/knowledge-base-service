@@ -12,6 +12,10 @@ type Props = {
   linkParams?: Record<string, string>;
 };
 
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export default function WikiSearchBar({ repository, linkParams }: Props) {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -104,7 +108,7 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
           </div>
           {isError && (
             <p className="px-3 py-2 text-sm text-red-600 dark:text-red-400">
-              {(error as Error).message}
+              {getErrorMessage(error)}
             </p>
           )}
           {data && query.trim() && <WikiSearchResults results={data.results} onSelect={onSelect} />}

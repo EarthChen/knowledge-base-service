@@ -808,6 +808,58 @@ async def wiki_search_global(
     }
 
 
+@wiki_router.get("/pages/by-path")
+async def wiki_get_page_by_path(
+    request: Request,
+    business_id: str = Query(default="default"),
+    path: str = Query(...),
+) -> dict[str, Any]:
+    """Fetch a wiki page by its path under a business space."""
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise HTTPException(status_code=503, detail="Wiki store unavailable")
+
+    store = WikiStore(raw_store)
+    q = (
+        "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage {path: $path}) "
+        "OPTIONAL MATCH (wp)-[:SOURCE_ENTITY]->(se) "
+        "WITH wp, collect(DISTINCT {file_path: coalesce(se.file, se.file_path, ''), "
+        "start_line: coalesce(se.start_line, 0), end_line: coalesce(se.end_line, 0), "
+        "fqn: coalesce(se.fqn, ''), repository: coalesce(se.repository, '')}) AS sources "
+        "RETURN wp.path AS path, wp.title AS title, wp.content AS content, "
+        "wp.page_type AS page_type, wp.importance_tier AS importance_tier, "
+        "wp.repository AS repository, wp.uid AS uid, "
+        "coalesce(wp.generated_at, '') AS generated_at, "
+        "sources "
+        "LIMIT 1"
+    )
+    result = await store._store.execute_query(q, {"business_id": business_id, "path": path})
+    if not result.data:
+        raise HTTPException(status_code=404, detail=f"Wiki page not found: {path}")
+
+    row = result.data[0]
+    sources_raw = row.get("sources") or []
+    source_locations: list[dict[str, Any]] = []
+    for s in sources_raw:
+        if isinstance(s, dict) and s.get("file_path"):
+            source_locations.append(s)
+
+    return {
+        "path": str(row.get("path") or ""),
+        "title": str(row.get("title") or ""),
+        "content": str(row.get("content") or ""),
+        "diagrams": [],
+        "source_locations": source_locations,
+        "method_locations": [],
+        "context": {
+            "repository": str(row.get("repository") or ""),
+            "page_type": str(row.get("page_type") or ""),
+            "importance_tier": str(row.get("importance_tier") or ""),
+        },
+        "generated_at": str(row.get("generated_at") or "") or None,
+    }
+
+
 @wiki_router.get("/tree")
 async def wiki_get_tree(
     request: Request,
@@ -821,10 +873,10 @@ async def wiki_get_tree(
 
     store = WikiStore(raw_store)
     result = await store.get_wiki_tree(business_id, view)
-    nodes: list[dict[str, Any]] = []
+    flat_nodes: list[dict[str, Any]] = []
     if result and result.result_set:
         for row in result.result_set:
-            nodes.append(
+            flat_nodes.append(
                 {
                     "uid": row[0],
                     "title": row[1],
@@ -833,10 +885,21 @@ async def wiki_get_tree(
                     "sort_order": row[4],
                     "path": row[5],
                     "page_type": row[6],
+                    "parent_uid": row[7] if len(row) > 7 else None,
+                    "children": [],
                 }
             )
 
-    return {"tree": nodes, "view_type": view, "business_id": business_id}
+    node_map: dict[str, dict[str, Any]] = {n["uid"]: n for n in flat_nodes}
+    roots: list[dict[str, Any]] = []
+    for n in flat_nodes:
+        parent_uid = n.pop("parent_uid", None)
+        if parent_uid and parent_uid in node_map:
+            node_map[parent_uid]["children"].append(n)
+        else:
+            roots.append(n)
+
+    return {"tree": roots, "view_type": view, "business_id": business_id}
 
 
 @wiki_router.post(

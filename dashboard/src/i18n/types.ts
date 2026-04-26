@@ -536,6 +536,12 @@ export interface Translations {
     businessView: string;
     codeView: string;
     coverageTitle: string;
+    covered: string;
+    uncovered: string;
+    coreLabel: string;
+    standardLabel: string;
+    staleLabel: string;
+    gapsLabel: string;
     domainsHeading: string;
     regenerate: string;
     regenerateStarted: string;

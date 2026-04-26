@@ -77,7 +77,7 @@ export type WikiTreeNode = {
 };
 
 export type WikiTreeResponse = {
-  nodes: WikiTreeNode[];
+  tree: WikiTreeNode[];
   business_id: string;
   view_type: string;
 };

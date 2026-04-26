@@ -13,10 +13,14 @@ type Props = {
   viewType: ViewType;
 };
 
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export default function WikiLandingPage({ businessId, viewType }: Props) {
   const { t } = useI18n();
   const treeQuery = useWikiTree(businessId, viewType);
-  const roots = treeQuery.data?.nodes ?? [];
+  const roots = treeQuery.data?.tree ?? [];
 
   const linkParams = useMemo(
     () =>
@@ -40,7 +44,7 @@ export default function WikiLandingPage({ businessId, viewType }: Props) {
         )}
         {treeQuery.isError && (
           <p className="text-sm text-red-600 dark:text-red-400">
-            {(treeQuery.error as Error).message}
+            {getErrorMessage(treeQuery.error)}
           </p>
         )}
         {!treeQuery.isLoading && !treeQuery.isError && roots.length === 0 && (

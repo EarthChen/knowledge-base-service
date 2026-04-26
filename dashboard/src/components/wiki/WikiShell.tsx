@@ -24,7 +24,7 @@ import { businessWikiGenerate, wikiTaskStatus } from "../../api/client";
 import { useToast } from "../Toast";
 import { useBusiness } from "../../contexts/BusinessContext";
 import { useI18n } from "../../i18n/context";
-import { useWikiPage } from "../../hooks/useWikiPage";
+import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
 
 type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights";
 
@@ -64,7 +64,7 @@ export default function WikiShell() {
     [businessId, viewType],
   );
 
-  const pageQuery = useWikiPage("", pagePath || undefined);
+  const pageQuery = useWikiPageByPath(businessId, pagePath || undefined);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { locale, t } = useI18n();

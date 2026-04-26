@@ -486,13 +486,15 @@ class WikiStore:
             "MATCH (ws:WikiSpace {business_id: $business_id}) "
             f"OPTIONAL MATCH path = (ws)-[:HAS_CHILD*1..{max_depth}]->(node) "
             "WHERE ALL(r IN relationships(path) WHERE r.view_type = $view_type) "
-            "WITH node, length(path) AS depth "
+            "WITH ws, node, length(path) AS depth, "
+            "CASE WHEN length(path) > 1 THEN nodes(path)[-2] ELSE ws END AS parent "
             "WHERE node IS NOT NULL "
             "RETURN node.uid AS uid, node.title AS title, "
             "labels(node)[0] AS label, depth, "
             "node.sort_order AS sort_order, "
             "coalesce(node.path, '') AS path, "
-            "coalesce(node.page_type, '') AS page_type "
+            "coalesce(node.page_type, '') AS page_type, "
+            "parent.uid AS parent_uid "
             "ORDER BY depth, sort_order"
         )
         return await self._store.execute_query(

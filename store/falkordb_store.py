@@ -86,6 +86,11 @@ class QueryResultWrapper:
     def __bool__(self) -> bool:
         return bool(self.raw)
 
+    @property
+    def result_set(self) -> list[list[Any]]:
+        """Alias for ``raw`` (FalkorDB positional rows); older callers use this name."""
+        return self.raw
+
 
 class FalkorDBStore:
     """Thin wrapper over FalkorDB for code knowledge graph operations."""

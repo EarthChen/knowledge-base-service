@@ -168,6 +168,10 @@ function TreeBranch({
   );
 }
 
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export default function WikiTreeNav({
   businessId,
   viewType,
@@ -177,8 +181,8 @@ export default function WikiTreeNav({
   const { t } = useI18n();
   const treeQuery = useWikiTree(businessId, viewType);
   const nodes = useMemo(
-    () => treeQuery.data?.nodes ?? EMPTY_TREE,
-    [treeQuery.data?.nodes],
+    () => treeQuery.data?.tree ?? EMPTY_TREE,
+    [treeQuery.data?.tree],
   );
 
   const linkParams = useMemo(
@@ -273,7 +277,7 @@ export default function WikiTreeNav({
         )}
         {treeQuery.isError && (
           <p className="px-2 py-3 text-sm text-red-600 dark:text-red-400">
-            {(treeQuery.error as Error).message}
+            {getErrorMessage(treeQuery.error)}
           </p>
         )}
         {!treeQuery.isLoading && !treeQuery.isError && nodes.length === 0 && (

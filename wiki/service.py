@@ -396,7 +396,7 @@ class WikiService:
 
         repos = await self._wiki_store.list_indexed_repositories()
         if not repos:
-            return {"business_id": business_id, "domains": [], "pages_count": 0}
+            return {"business_id": business_id, "domains": [], "pages_count": 0, "references_count": 0, "repositories": []}
 
         all_modules: dict[str, list[GraphNode]] = {}
         for r in repos:
@@ -502,10 +502,18 @@ class WikiService:
             except Exception:
                 log.warning("business_wiki_repo_failed", repository=repo_name, exc_info=True)
 
-        from wiki.reference_generator import WikiReferenceGenerator
+        ref_count = 0
+        try:
+            from wiki.reference_generator import WikiReferenceGenerator
 
-        ref_gen = WikiReferenceGenerator(self._wiki_store)
-        ref_count = await ref_gen.generate()
+            ref_gen = WikiReferenceGenerator(self._wiki_store)
+            ref_count = await ref_gen.generate()
+        except Exception:
+            log.warning(
+                "business_wiki_reference_generation_failed",
+                business_id=business_id,
+                exc_info=True,
+            )
 
         return {
             "business_id": business_id,

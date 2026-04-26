@@ -7,6 +7,7 @@ WikiPage, WikiStructure, WikiConfig, ScopeParam, SourceLocation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any
 
@@ -18,6 +19,9 @@ class PageType(StrEnum):
     ARCHITECTURE = "architecture"
     API_REFERENCE = "api_reference"
     DATA_FLOW = "data_flow"
+    DOMAIN_OVERVIEW = "domain_overview"
+    BUSINESS_FLOW = "business_flow"
+    INDEX = "index"
 
 
 class DiagramType(StrEnum):
@@ -26,7 +30,7 @@ class DiagramType(StrEnum):
     DEPENDENCY_GRAPH = "dependencyGraph"
 
 
-_VALID_SCOPE_TYPES = frozenset({"repo", "module", "class"})
+_VALID_SCOPE_TYPES = frozenset({"repo", "module", "class", "business"})
 
 
 @dataclass(frozen=True)
@@ -40,6 +44,7 @@ def parse_scope(raw: str) -> ScopeParam:
 
     Supported formats:
       - "repo"
+      - "business"
       - "module:<path>"
       - "class:<fqn>"
 
@@ -51,9 +56,12 @@ def parse_scope(raw: str) -> ScopeParam:
     if raw == "repo":
         return ScopeParam(scope_type="repo")
 
+    if raw == "business":
+        return ScopeParam(scope_type="business")
+
     if ":" not in raw:
         raise ValueError(
-            f"Invalid scope '{raw}': must be 'repo', 'module:<path>', or 'class:<fqn>'"
+            f"Invalid scope '{raw}': must be 'repo', 'business', 'module:<path>', or 'class:<fqn>'"
         )
 
     scope_type, _, value = raw.partition(":")
@@ -112,6 +120,33 @@ class WikiConfig:
             raise ValueError(f"Invalid format '{self.format}': must be 'json' or 'markdown'")
         if self.language not in ("en", "zh"):
             raise ValueError(f"Invalid language '{self.language}': must be 'en' or 'zh'")
+
+
+@dataclass
+class WikiSpaceNode:
+    uid: str
+    business_id: str
+    title: str
+    description: str
+    created_at: str = ""
+    updated_at: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.created_at:
+            self.created_at = datetime.now(timezone.utc).isoformat()
+        if not self.updated_at:
+            self.updated_at = self.created_at
+
+
+@dataclass
+class WikiSectionNode:
+    uid: str
+    title: str
+    description: str
+    section_type: str  # "business_domain" | "code_module" | "topic"
+    sort_order: int
+    icon: str | None = None
+    auto_generated: bool = True
 
 
 @dataclass

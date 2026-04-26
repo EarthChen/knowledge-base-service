@@ -30,6 +30,7 @@ type Props = {
   isLoading: boolean;
   error: Error | null;
   wikiLinkParams?: Record<string, string>;
+  onAskQuestion?: (question: string) => void;
 };
 
 function readEditorPref(): EditorId {
@@ -252,6 +253,7 @@ export default function WikiContent({
   isLoading,
   error,
   wikiLinkParams,
+  onAskQuestion,
 }: Props) {
   const { locale, t } = useI18n();
   const title =
@@ -382,7 +384,10 @@ export default function WikiContent({
               <CallChainSection repository={repository} detail={detail} wikiLinkParams={wikiLinkParams} />
             )}
 
-            <WikiSuggestedQuestions questions={parseSuggestedQuestions(detail.context?.suggested_questions)} />
+            <WikiSuggestedQuestions
+              questions={parseSuggestedQuestions(detail.context?.suggested_questions)}
+              onAskQuestion={onAskQuestion}
+            />
           </>
         )}
 

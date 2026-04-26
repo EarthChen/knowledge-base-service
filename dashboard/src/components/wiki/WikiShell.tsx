@@ -257,8 +257,20 @@ export default function WikiShell() {
               isLoading={pageQuery.isLoading}
               error={contentError}
               wikiLinkParams={wikiLinkParams}
+              onAskQuestion={(q) => {
+                const el = document.getElementById("wiki-ask-panel");
+                if (el) {
+                  el.scrollIntoView({ behavior: "smooth", block: "start" });
+                  const input = el.querySelector<HTMLTextAreaElement>("textarea");
+                  if (input) {
+                    input.value = q;
+                    input.dispatchEvent(new Event("input", { bubbles: true }));
+                    input.focus();
+                  }
+                }
+              }}
             />
-            <AskPanel repository="" />
+            <AskPanel repository={businessId} />
           </>
         )}
 

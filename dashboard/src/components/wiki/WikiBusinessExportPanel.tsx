@@ -142,8 +142,8 @@ export default function WikiBusinessExportPanel() {
             <p className="font-semibold">Export complete</p>
             <p className="mt-1 text-xs">
               {exportMutation.data.file_count} files exported ({exportMutation.data.format})
-              {exportMutation.data.download_url && (
-                <a href={exportMutation.data.download_url} className="ml-2 text-sky-600 underline">
+              {exportMutation.data.download_url && /^https?:\/\//i.test(exportMutation.data.download_url) && (
+                <a href={exportMutation.data.download_url} className="ml-2 text-sky-600 underline" rel="noopener noreferrer">
                   Download
                 </a>
               )}

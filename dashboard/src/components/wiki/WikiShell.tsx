@@ -179,17 +179,20 @@ export default function WikiShell() {
     }
   }
 
-  const setToolTab = (tab: typeof toolTab) => {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (tab === "page") next.delete("tool");
-        else next.set("tool", tab);
-        return next;
-      },
-      { replace: true },
-    );
-  };
+  const setToolTab = useCallback(
+    (tab: WikiToolTab) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (tab === "page") next.delete("tool");
+          else next.set("tool", tab);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   const contentError =
     pagePath && pageQuery.isError
@@ -198,20 +201,23 @@ export default function WikiShell() {
         : new Error(String(pageQuery.error))
       : null;
 
-  const tabBtn = (id: WikiToolTab, label: string, icon: ReactNode) => (
-    <button
-      key={id}
-      type="button"
-      onClick={() => setToolTab(id)}
-      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-        toolTab === id
-          ? "bg-sky-100 text-sky-800 ring-1 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800"
-          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
-      }`}
-    >
-      {icon}
-      {label}
-    </button>
+  const tabBtn = useCallback(
+    (id: WikiToolTab, label: string, icon: ReactNode) => (
+      <button
+        key={id}
+        type="button"
+        onClick={() => setToolTab(id)}
+        className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+          toolTab === id
+            ? "bg-sky-100 text-sky-800 ring-1 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-800"
+            : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100"
+        }`}
+      >
+        {icon}
+        {label}
+      </button>
+    ),
+    [setToolTab, toolTab],
   );
 
   return (

@@ -58,7 +58,10 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
             return out[0] if out else []
 
         wiki_mem = MemoryLoop(
-            _WikiStoreForMemory(kb.store), _embed_wiki_mem, business_id="default",
+            _WikiStoreForMemory(kb.store),
+            _embed_wiki_mem,
+            business_id="default",
+            memory_tiers_enabled=settings.wiki.memory_tiers_enabled,
         )
     app.state.wiki_memory_loop = wiki_mem
 

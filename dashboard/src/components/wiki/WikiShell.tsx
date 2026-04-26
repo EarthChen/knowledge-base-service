@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import ErrorBoundary from "../ErrorBoundary";
 import {
@@ -13,15 +21,11 @@ import {
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import AskPanel from "./AskPanel";
-import GraphInsightsPanel from "./GraphInsightsPanel";
 import WikiContent from "./WikiContent";
 import WikiReferencesPanel from "./WikiReferencesPanel";
 import WikiCoverageCard from "./WikiCoverageCard";
 import WikiQualityScoreCard from "./WikiQualityScoreCard";
-import WikiReferenceGraph from "./WikiReferenceGraph";
-import WikiBusinessExportPanel from "./WikiBusinessExportPanel";
 import WikiLandingPage from "./WikiLandingPage";
-import WikiLintPanel from "./WikiLintPanel";
 import { getErrorMessage } from "../../utils/errorUtils";
 import WikiSearchBar from "./WikiSearchBar";
 import WikiTreeNav from "./WikiTreeNav";
@@ -35,6 +39,15 @@ import { useWikiEvents } from "../../hooks/useWikiEvents";
 import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
 import WikiGenerationProgress from "./WikiGenerationProgress";
 import WikiUpdateNotification from "./WikiUpdateNotification";
+
+const WikiReferenceGraph = lazy(() => import("./WikiReferenceGraph"));
+const GraphInsightsPanel = lazy(() => import("./GraphInsightsPanel"));
+const WikiBusinessExportPanel = lazy(() => import("./WikiBusinessExportPanel"));
+const WikiLintPanel = lazy(() => import("./WikiLintPanel"));
+
+const wikiToolSuspenseFallback = (
+  <div className="animate-pulse rounded-xl border p-8 text-center text-sm text-gray-400">Loading...</div>
+);
 
 type WikiToolTab = "page" | "coverage" | "export" | "health" | "insights" | "refgraph";
 
@@ -337,21 +350,31 @@ export default function WikiShell() {
         )}
 
         {toolTab === "refgraph" && (
-          <WikiReferenceGraph
-            businessId={businessId}
-            view={viewType === "code_structure" ? "code_structure" : "business_domain"}
-          />
+          <Suspense fallback={wikiToolSuspenseFallback}>
+            <WikiReferenceGraph
+              businessId={businessId}
+              view={viewType === "code_structure" ? "code_structure" : "business_domain"}
+            />
+          </Suspense>
         )}
 
         {toolTab === "health" && (
-          <WikiLintPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+          <Suspense fallback={wikiToolSuspenseFallback}>
+            <WikiLintPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+          </Suspense>
         )}
 
         {toolTab === "insights" && (
-          <GraphInsightsPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+          <Suspense fallback={wikiToolSuspenseFallback}>
+            <GraphInsightsPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+          </Suspense>
         )}
 
-        {toolTab === "export" && <WikiBusinessExportPanel key={businessId} />}
+        {toolTab === "export" && (
+          <Suspense fallback={wikiToolSuspenseFallback}>
+            <WikiBusinessExportPanel key={businessId} />
+          </Suspense>
+        )}
       </div>
 
       {toolTab === "page" && pagePath && pageQuery.data && (

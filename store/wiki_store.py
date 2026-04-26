@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Protocol, runtime_checkable
 
 from store.falkordb_store import QueryResultWrapper
@@ -290,3 +291,135 @@ class WikiStore:
     async def get_wiki_page_detail(self, repository: str, path: str) -> QueryResultWrapper:
         q = "MATCH (wp:WikiPage {repository: $repo, path: $path}) RETURN wp LIMIT 1"
         return await self._store.execute_query(q, {"repo": repository, "path": path})
+
+    # --- Wiki tree structure CRUD ---
+
+    async def upsert_wiki_space(
+        self, business_id: str, title: str, description: str
+    ) -> QueryResultWrapper:
+        uid = f"WikiSpace:{business_id}"
+        q = (
+            "MERGE (ws:WikiSpace {uid: $uid}) "
+            "SET ws.business_id = $business_id, "
+            "ws.title = $title, "
+            "ws.description = $description, "
+            "ws.updated_at = $ts "
+            "ON CREATE SET ws.created_at = $ts "
+            "RETURN ws.uid AS uid"
+        )
+        ts = datetime.now(timezone.utc).isoformat()
+        return await self._store.execute_query(
+            q, {"uid": uid, "business_id": business_id, "title": title,
+                "description": description, "ts": ts},
+        )
+
+    async def upsert_wiki_section(
+        self,
+        uid: str,
+        title: str,
+        description: str,
+        section_type: str,
+        sort_order: int,
+        icon: str | None = None,
+        auto_generated: bool = True,
+    ) -> QueryResultWrapper:
+        q = (
+            "MERGE (ws:WikiSection {uid: $uid}) "
+            "SET ws.title = $title, "
+            "ws.description = $description, "
+            "ws.section_type = $section_type, "
+            "ws.sort_order = $sort_order, "
+            "ws.icon = $icon, "
+            "ws.auto_generated = $auto_generated "
+            "RETURN ws.uid AS uid"
+        )
+        return await self._store.execute_query(
+            q, {"uid": uid, "title": title, "description": description,
+                "section_type": section_type, "sort_order": sort_order,
+                "icon": icon or "", "auto_generated": auto_generated},
+        )
+
+    async def add_has_child_edge(
+        self,
+        parent_uid: str,
+        parent_label: str,
+        child_uid: str,
+        child_label: str,
+        view_type: str,
+        sort_order: int,
+    ) -> QueryResultWrapper:
+        q = (
+            f"MATCH (p:{parent_label} {{uid: $parent_uid}}) "
+            f"MATCH (c:{child_label} {{uid: $child_uid}}) "
+            "MERGE (p)-[r:HAS_CHILD {view_type: $view_type}]->(c) "
+            "SET r.sort_order = $sort_order "
+            "RETURN type(r) AS rel"
+        )
+        return await self._store.execute_query(
+            q, {"parent_uid": parent_uid, "child_uid": child_uid,
+                "view_type": view_type, "sort_order": sort_order},
+        )
+
+    async def add_wiki_reference_edge(
+        self,
+        source_uid: str,
+        target_uid: str,
+        relation_type: str,
+        context: str = "",
+        auto_generated: bool = True,
+        confidence: float = 1.0,
+    ) -> QueryResultWrapper:
+        q = (
+            "MATCH (s:WikiPage {uid: $source_uid}) "
+            "MATCH (t:WikiPage {uid: $target_uid}) "
+            "MERGE (s)-[r:WIKI_REFERENCES {relation_type: $relation_type}]->(t) "
+            "SET r.context = $context, "
+            "r.auto_generated = $auto_generated, "
+            "r.confidence = $confidence "
+            "RETURN type(r) AS rel"
+        )
+        return await self._store.execute_query(
+            q, {"source_uid": source_uid, "target_uid": target_uid,
+                "relation_type": relation_type, "context": context,
+                "auto_generated": auto_generated, "confidence": confidence},
+        )
+
+    async def get_wiki_tree(
+        self, business_id: str, view_type: str, max_depth: int = 5
+    ) -> QueryResultWrapper:
+        q = (
+            "MATCH (ws:WikiSpace {business_id: $business_id}) "
+            f"OPTIONAL MATCH path = (ws)-[:HAS_CHILD*1..{max_depth}]->(node) "
+            "WHERE ALL(r IN relationships(path) WHERE r.view_type = $view_type) "
+            "WITH node, length(path) AS depth "
+            "WHERE node IS NOT NULL "
+            "RETURN node.uid AS uid, node.title AS title, "
+            "labels(node)[0] AS label, depth, "
+            "node.sort_order AS sort_order, "
+            "coalesce(node.path, '') AS path, "
+            "coalesce(node.page_type, '') AS page_type "
+            "ORDER BY depth, sort_order"
+        )
+        return await self._store.execute_query(
+            q, {"business_id": business_id, "view_type": view_type},
+        )
+
+    async def get_wiki_page_references(self, page_uid: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (s:WikiPage {uid: $uid})-[r:WIKI_REFERENCES]->(t:WikiPage) "
+            "RETURN t.uid AS target_uid, t.title AS title, t.path AS path, "
+            "t.repository AS repository, "
+            "r.relation_type AS relation_type, r.context AS context "
+            "ORDER BY r.relation_type, t.title"
+        )
+        return await self._store.execute_query(q, {"uid": page_uid})
+
+    async def get_wiki_page_back_references(self, page_uid: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (s:WikiPage)-[r:WIKI_REFERENCES]->(t:WikiPage {uid: $uid}) "
+            "RETURN s.uid AS source_uid, s.title AS title, s.path AS path, "
+            "s.repository AS repository, "
+            "r.relation_type AS relation_type, r.context AS context "
+            "ORDER BY r.relation_type, s.title"
+        )
+        return await self._store.execute_query(q, {"uid": page_uid})

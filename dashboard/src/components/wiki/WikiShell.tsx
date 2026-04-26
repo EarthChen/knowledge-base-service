@@ -314,9 +314,13 @@ export default function WikiShell() {
 
         {toolTab === "coverage" && <WikiCoverageCard businessId={businessId} />}
 
-        {toolTab === "health" && <WikiLintPanel repository="" />}
+        {toolTab === "health" && (
+          <WikiLintPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+        )}
 
-        {toolTab === "insights" && <GraphInsightsPanel repository="" />}
+        {toolTab === "insights" && (
+          <GraphInsightsPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+        )}
 
         {toolTab === "export" && <WikiBusinessExportPanel key={businessId} />}
       </div>

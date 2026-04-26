@@ -1,7 +1,8 @@
-import { useEffect, useId, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, type AnchorHTMLAttributes, type ReactNode } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import SourceLink from "./SourceLink";
 import { parseMarkdownHeadings } from "./headingUtils";
@@ -49,7 +50,22 @@ function MermaidBlock({ chart }: { chart: string }) {
   );
 }
 
-const MarkdownAnchor: Components["a"] = ({ href, children, className }) => {
+const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames ?? []), "wikilink"],
+  attributes: {
+    ...defaultSchema.attributes,
+    wikilink: ["data-path", "data*"],
+  },
+};
+
+function MarkdownAnchor({ href, children, className, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
+  if (href) {
+    const SAFE_SCHEMES = /^(https?:|mailto:|#|\/|source:\/\/)/i;
+    if (!SAFE_SCHEMES.test(href)) {
+      return <span>{children}</span>;
+    }
+  }
   if (href?.startsWith("source://")) {
     return (
       <SourceLink href={href} className={className}>
@@ -63,11 +79,12 @@ const MarkdownAnchor: Components["a"] = ({ href, children, className }) => {
       className={`font-medium text-sky-700 underline decoration-sky-300 underline-offset-2 hover:text-sky-900 dark:text-sky-400 dark:hover:text-sky-300 ${className ?? ""}`}
       target="_blank"
       rel="noreferrer noopener"
+      {...props}
     >
       {children}
     </a>
   );
-};
+}
 
 const MarkdownCode: Components["code"] = ({
   className,
@@ -138,7 +155,7 @@ export default function MarkdownRenderer({ content, businessId, wikiLinkParams }
     );
 
     return {
-      a: MarkdownAnchor,
+      a: MarkdownAnchor as Components["a"],
       code: MarkdownCode,
       pre: MarkdownPre,
       h1: H1,
@@ -164,7 +181,11 @@ export default function MarkdownRenderer({ content, businessId, wikiLinkParams }
 
   return (
     <article className="prose prose-slate dark:prose-invert max-w-none prose-headings:scroll-mt-24 prose-a:text-sky-700 prose-pre:bg-transparent prose-pre:p-0 dark:prose-a:text-sky-400">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+        components={components}
+      >
         {processedContent}
       </ReactMarkdown>
     </article>

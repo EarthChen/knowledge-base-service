@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
   Bot,
@@ -176,35 +176,23 @@ function humanizeKey(key: string): string {
 export default function SystemConfigPanel() {
   const { t } = useI18n();
   const { toast } = useToast();
-  const { data, isLoading, error, refetch } = useAllSettings();
+  const { data, isLoading, error, refetch, dataUpdatedAt } = useAllSettings();
   const updateSettings = useUpdateSettings();
   const testConnection = useTestConnection();
-
-  const mergedFlat = useMemo(() => {
-    if (!data?.categories) return null;
-    return flattenCategories(data.categories);
-  }, [data]);
 
   const [values, setValues] = useState<Record<string, string>>({});
   const [baseline, setBaseline] = useState<Record<string, string>>({});
   const [meta, setMeta] = useState<Record<string, SettingMeta>>({});
-  const didInit = useRef(false);
+  const [syncedAt, setSyncedAt] = useState(0);
 
   useEffect(() => {
-    return () => {
-      didInit.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!mergedFlat) return;
-    if (!didInit.current) {
-      setValues(mergeKeys(mergedFlat.values));
-      setBaseline(mergeKeys(mergedFlat.values));
-      setMeta(mergedFlat.meta);
-      didInit.current = true;
-    }
-  }, [mergedFlat]);
+    if (!data?.categories || dataUpdatedAt === syncedAt) return;
+    const flat = flattenCategories(data.categories);
+    setValues(mergeKeys(flat.values));
+    setBaseline(mergeKeys(flat.values));
+    setMeta(flat.meta);
+    setSyncedAt(dataUpdatedAt);
+  }, [data, dataUpdatedAt, syncedAt]);
 
   const dirtyKeys = useMemo(
     () => Object.keys(values).filter((k) => values[k] !== baseline[k]),

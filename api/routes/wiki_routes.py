@@ -860,6 +860,112 @@ async def generate_business_wiki(
     return result
 
 
+class GitPushConfig(BaseModel):
+    remote_url: str = Field(..., min_length=1)
+    branch: str = Field(default="main")
+    commit_message_prefix: str = Field(default="docs(wiki):")
+
+
+class BusinessWikiExportBody(BaseModel):
+    business_id: str = Field(default="default", min_length=1)
+    format: str = Field(..., pattern="^(markdown|zip|git|obsidian|mkdocs)$")
+    view_type: str = Field(default="business_domain", pattern="^(business_domain|code_structure|both)$")
+    min_tier: str = Field(default="standard", pattern="^(core|standard|skeleton)$")
+    git_config: GitPushConfig | None = None
+
+
+@wiki_router.post(
+    "/export",
+    response_model=None,
+    dependencies=[Depends(require_role(Role.EDITOR))],
+)
+async def business_wiki_export(
+    body: BusinessWikiExportBody,
+    request: Request,
+) -> Any:
+    """Export business wiki in various formats (markdown, zip, git, obsidian, mkdocs)."""
+    from wiki.business_wiki_exporter import BusinessWikiExporter
+    from wiki.git_publisher import GitPublisher
+    from wiki.mkdocs_exporter import MkDocsExporter
+    from wiki.obsidian_exporter import ObsidianExporter
+
+    raw_store = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
+        )
+
+    wiki_store = WikiStore(raw_store)
+
+    if body.format == "git" and body.git_config is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "git_config_required", "detail": "git_config is required for git format"},
+        )
+
+    if body.format == "obsidian":
+        exporter: BusinessWikiExporter = ObsidianExporter(wiki_store)
+    elif body.format == "mkdocs":
+        exporter = MkDocsExporter(wiki_store)
+    else:
+        exporter = BusinessWikiExporter(wiki_store)
+
+    plan = await exporter.build_export_plan(
+        business_id=body.business_id,
+        view=body.view_type,
+        min_tier=body.min_tier,
+    )
+
+    if body.format == "git":
+        cfg = body.git_config
+        assert cfg is not None
+        settings = get_settings()
+        publisher = GitPublisher(
+            remote_url=cfg.remote_url,
+            branch=cfg.branch,
+            commit_message_prefix=cfg.commit_message_prefix,
+            author_name=settings.wiki.git_author_name,
+            author_email=settings.wiki.git_author_email,
+            git_token=settings.wiki.git_token,
+        )
+        file_map = {f.relative_path: f.content for f in plan.files}
+        result = await publisher.publish(file_map, trigger_info=body.business_id)
+        return {
+            "format": "git",
+            "business_id": body.business_id,
+            "success": result.success,
+            "files_added": result.files_added,
+            "files_modified": result.files_modified,
+            "files_deleted": result.files_deleted,
+            "commit_sha": result.commit_sha,
+            "annotations_found": result.annotations_found,
+            "error": result.error,
+        }
+
+    if body.format == "zip":
+        import io as _io
+        import zipfile as _zipfile
+
+        buf = _io.BytesIO()
+        with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as zf:
+            for f in plan.files:
+                zf.writestr(f.relative_path, f.content)
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={body.business_id}-wiki.zip"},
+        )
+
+    return {
+        "format": body.format,
+        "business_id": body.business_id,
+        "total_files": len(plan.files),
+        "files": [{"path": f.relative_path, "is_index": f.is_index} for f in plan.files],
+    }
+
+
 @wiki_router.get("/pages/{page_uid:path}/references", response_model=None)
 async def get_page_references(
     page_uid: str,

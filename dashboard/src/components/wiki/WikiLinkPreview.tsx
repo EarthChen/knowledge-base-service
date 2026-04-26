@@ -31,7 +31,19 @@ export default function WikiLinkPreview({ path, businessId, wikiLinkParams, chil
     }, 300);
   }, []);
 
+  const handleFocus = useCallback(() => {
+    clearTimeout(timerRef.current);
+    setShouldFetch(true);
+    setShow(true);
+  }, []);
+
   const handleMouseLeave = useCallback(() => {
+    clearTimeout(timerRef.current);
+    setShow(false);
+    setShouldFetch(false);
+  }, []);
+
+  const handleBlur = useCallback(() => {
     clearTimeout(timerRef.current);
     setShow(false);
     setShouldFetch(false);
@@ -56,8 +68,8 @@ export default function WikiLinkPreview({ path, businessId, wikiLinkParams, chil
       <a
         href={wikiHref(path, wikiLinkParams)}
         onClick={handleClick}
-        onFocus={handleMouseEnter}
-        onBlur={handleMouseLeave}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
         aria-describedby={show ? previewId : undefined}
         className="font-medium text-sky-700 underline decoration-sky-300/50 decoration-1 underline-offset-2 transition-colors hover:text-sky-900 hover:decoration-sky-400 dark:text-sky-400 dark:decoration-sky-700 dark:hover:text-sky-300"
       >

@@ -205,6 +205,14 @@ class WikiConfig(BaseModel):
     importance_core_percentile: int = 80
     importance_standard_percentile: int = 30
 
+    # Phase 2: RAG retrieval
+    rag_enabled: bool = True
+    rag_top_k: int = 5
+    rag_min_score: float = 0.3
+    rag_exclude_same_parent: bool = True
+    chunk_embedding_batch_size: int = 64
+    chunk_embedding_max_length: int = 512
+
 
 class GitConfig(BaseModel):
     """Git repository management for remote indexing.

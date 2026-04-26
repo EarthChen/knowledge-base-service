@@ -7,6 +7,7 @@ from typing import Any
 from store.wiki_claim_store import WikiClaimStoreMixin
 from store.wiki_contradiction_store import WikiContradictionStoreMixin
 from store.wiki_coverage_store import WikiCoverageStoreMixin
+from store.wiki_memory_store import WikiMemoryStoreMixin
 from store.wiki_page_store import WikiPageStoreMixin
 from store.wiki_qa_store import WikiQaStoreMixin
 from store.wiki_store_common import _GraphQueryPort
@@ -18,6 +19,7 @@ class WikiStore(
     WikiTreeStoreMixin,
     WikiCoverageStoreMixin,
     WikiQaStoreMixin,
+    WikiMemoryStoreMixin,
     WikiContradictionStoreMixin,
     WikiClaimStoreMixin,
 ):

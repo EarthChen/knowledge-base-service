@@ -5,9 +5,23 @@ Age windows for promotion use ``created_at`` (ISO-8601 UTC string), per Phase 3 
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
 from enum import IntEnum
 from typing import Any
+
+
+def _parse_iso(s: str) -> datetime:
+    s2 = s.replace("Z", "+00:00")
+    return datetime.fromisoformat(s2)
+
+
+def _iso_utc(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class MemoryTier(IntEnum):
@@ -71,3 +85,30 @@ class MemoryNode:
             confidence=float(row.get("confidence") or 0.0),
             status=str(row.get("memory_status") or row.get("status") or "active"),
         )
+
+
+@dataclass
+class MemoryTierManager:
+    """Promotion and expiration per design spec (Phase 3)."""
+
+    def apply_promotion_rules(self, node: MemoryNode, *, now: datetime | None = None) -> MemoryNode:
+        if now is None:
+            now = datetime.now(timezone.utc)
+        n = node
+        created = _parse_iso(n.created_at) if n.created_at else now
+        age = now - created
+
+        if n.tier == MemoryTier.WORKING:
+            if age > timedelta(hours=24):
+                if n.access_count >= 2:
+                    return replace(n, tier=MemoryTier.EPISODIC, promoted_at=_iso_utc(now), status="active")
+                return replace(n, status="expired")
+        elif n.tier == MemoryTier.EPISODIC:
+            if age > timedelta(days=7):
+                if n.confirmation_count >= 3:
+                    return replace(n, tier=MemoryTier.SEMANTIC, promoted_at=_iso_utc(now), status="active")
+                return replace(n, status="expired")
+        elif n.tier == MemoryTier.SEMANTIC:
+            if n.access_count >= 10 and n.confidence >= 0.8:
+                return replace(n, tier=MemoryTier.PROCEDURAL, promoted_at=_iso_utc(now), status="active")
+        return n

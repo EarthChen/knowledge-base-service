@@ -855,6 +855,7 @@ async def wiki_get_page_by_path(
             "repository": str(row.get("repository") or ""),
             "page_type": str(row.get("page_type") or ""),
             "importance_tier": str(row.get("importance_tier") or ""),
+            "uid": str(row.get("uid") or ""),
         },
         "generated_at": str(row.get("generated_at") or "") or None,
     }

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import type { WikiPageDetail, WikiSourceLocation } from "../../hooks/wikiTypes";
 import MarkdownRenderer from "./MarkdownRenderer";
+import WikiStaleAlert from "./WikiStaleAlert";
 import TableOfContents from "./TableOfContents";
 import WikiBreadcrumbs from "./WikiBreadcrumbs";
 import { parseMarkdownHeadings } from "./headingUtils";
@@ -22,6 +23,7 @@ import { wikiHref } from "./wikiRouteHelpers";
 
 type Props = {
   repository: string;
+  businessId: string;
   pagePath: string;
   detail: WikiPageDetail | undefined;
   isLoading: boolean;
@@ -233,6 +235,7 @@ function formatGeneratedAt(iso: string | null | undefined, locale: string): stri
 
 export default function WikiContent({
   repository,
+  businessId,
   pagePath,
   detail,
   isLoading,
@@ -275,9 +278,28 @@ export default function WikiContent({
                 <span className="font-mono text-gray-600 dark:text-gray-400">{generatedAt}</span>
               </p>
             )}
+            {detail?.context?.importance_tier && (
+              <span
+                className={`mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  detail.context.importance_tier === "core"
+                    ? "bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300"
+                    : detail.context.importance_tier === "standard"
+                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300"
+                      : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                }`}
+              >
+                {detail.context.importance_tier}
+              </span>
+            )}
           </div>
         </div>
       </header>
+
+      {detail?.generated_at && generatedAt && detail.context?.is_stale === "true" && (
+        <div className="px-5 pt-3">
+          <WikiStaleAlert generatedAtLabel={generatedAt} isStale />
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:items-start">
         {showToc && detail?.content && (
@@ -325,7 +347,11 @@ export default function WikiContent({
 
         {!isLoading && !error && detail && (
           <>
-            <MarkdownRenderer content={detail.content} />
+            <MarkdownRenderer
+              content={detail.content}
+              businessId={businessId}
+              wikiLinkParams={wikiLinkParams}
+            />
 
             {(detail.source_locations?.length ?? 0) > 0 && (
               <section className="mt-10 border-t border-gray-100 pt-8">

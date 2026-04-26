@@ -651,6 +651,16 @@ export interface Translations {
     callChainAffectedPages: string;
     callChainEmpty: string;
     callChainImpactLabel: string;
+    /** Use {date} for locale-formatted generated time */
+    staleWarning: string;
+    referencesHeading: string;
+    referencesShowPanel: string;
+    referencesOutgoing: string;
+    referencesIncoming: string;
+    referencesLoadError: string;
+    referencesEmpty: string;
+    referencesNoPageId: string;
+    linkPreviewNotGenerated: string;
     editorCursor: string;
     editorVscode: string;
     editorIdea: string;

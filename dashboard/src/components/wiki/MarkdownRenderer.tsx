@@ -1,10 +1,12 @@
-import { useEffect, useId, useMemo, useRef } from "react";
+import { useEffect, useId, useMemo, useRef, type ReactNode } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import SourceLink from "./SourceLink";
 import { parseMarkdownHeadings } from "./headingUtils";
+import { replaceWikilinksWithHtml } from "./wikilinkParser";
+import WikiLinkPreview from "./WikiLinkPreview";
 
 function MermaidBlock({ chart }: { chart: string }) {
   const id = useId().replace(/:/g, "");
@@ -101,13 +103,17 @@ const MarkdownPre: Components["pre"] = ({ children }) => (
 
 type Props = {
   content: string;
+  businessId: string;
+  wikiLinkParams?: Record<string, string>;
 };
 
-export default function MarkdownRenderer({ content }: Props) {
+export default function MarkdownRenderer({ content, businessId, wikiLinkParams }: Props) {
   const headingIds = useMemo(
     () => parseMarkdownHeadings(content).map((h) => h.id),
     [content],
   );
+
+  const processedContent = useMemo(() => replaceWikilinksWithHtml(content), [content]);
 
   const components = useMemo<Components>(() => {
     let headingIndex = 0;
@@ -138,13 +144,28 @@ export default function MarkdownRenderer({ content }: Props) {
       h1: H1,
       h2: H2,
       h3: H3,
+      wikilink: ({
+        "data-path": dataPath,
+        children,
+      }: {
+        "data-path"?: string;
+        children?: ReactNode;
+      }) => {
+        const path = dataPath ? decodeURIComponent(dataPath) : "";
+        if (!path) return <span>{children}</span>;
+        return (
+          <WikiLinkPreview path={path} businessId={businessId} wikiLinkParams={wikiLinkParams}>
+            {children}
+          </WikiLinkPreview>
+        );
+      },
     };
-  }, [headingIds]);
+  }, [headingIds, businessId, wikiLinkParams]);
 
   return (
     <article className="prose prose-slate dark:prose-invert max-w-none prose-headings:scroll-mt-24 prose-a:text-sky-700 prose-pre:bg-transparent prose-pre:p-0 dark:prose-a:text-sky-400">
       <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={components}>
-        {content}
+        {processedContent}
       </ReactMarkdown>
     </article>
   );

@@ -82,13 +82,15 @@ export type WikiTreeResponse = {
   view_type: string;
 };
 
+/** Row from GET /wiki/pages/{uid}/references (outgoing uses target_uid; incoming uses source_uid). */
 export type WikiReference = {
-  target_uid: string;
-  target_title: string;
-  target_path: string;
   relation_type: string;
   context: string;
   repository: string;
+  title: string;
+  path: string;
+  target_uid?: string;
+  source_uid?: string;
 };
 
 export type WikiReferencesResponse = {

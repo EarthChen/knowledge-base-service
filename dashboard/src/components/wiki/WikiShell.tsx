@@ -13,6 +13,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import AskPanel from "./AskPanel";
 import GraphInsightsPanel from "./GraphInsightsPanel";
 import WikiContent from "./WikiContent";
+import WikiReferencesPanel from "./WikiReferencesPanel";
 import WikiCoverageCard from "./WikiCoverageCard";
 import WikiExportPanel from "./WikiExportPanel";
 import WikiLandingPage from "./WikiLandingPage";
@@ -69,6 +70,25 @@ export default function WikiShell() {
   const { toast } = useToast();
   const { locale, t } = useI18n();
   const [regeneratePending, setRegeneratePending] = useState(false);
+  const [refsPanelOpen, setRefsPanelOpen] = useState(() => {
+    try {
+      return localStorage.getItem("kb_wiki_refs_panel") !== "closed";
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleRefsPanel = useCallback(() => {
+    setRefsPanelOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("kb_wiki_refs_panel", next ? "open" : "closed");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
 
   const pendingQuery = searchParams.get("q") ?? "";
   if (pendingQuery.trim()) {
@@ -231,6 +251,7 @@ export default function WikiShell() {
           <>
             <WikiContent
               repository=""
+              businessId={businessId}
               pagePath={pagePath}
               detail={pageQuery.data}
               isLoading={pageQuery.isLoading}
@@ -249,6 +270,17 @@ export default function WikiShell() {
 
         {toolTab === "export" && <WikiExportPanel key={businessId} repository="" />}
       </div>
+
+      {toolTab === "page" && pagePath && pageQuery.data && (
+        <WikiReferencesPanel
+          pageUid={pageQuery.data.context?.uid ?? ""}
+          pagePath={pageQuery.data.path}
+          repository={pageQuery.data.context?.repository ?? ""}
+          wikiLinkParams={wikiLinkParams}
+          isOpen={refsPanelOpen}
+          onToggle={toggleRefsPanel}
+        />
+      )}
     </div>
   );
 }

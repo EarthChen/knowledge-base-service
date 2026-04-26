@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -22,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.error_handler import register_exception_handlers
+from api.middleware.request_logging import RequestLoggingMiddleware
 from api.rate_limiter import install_rate_limiter
 from api.routes.provider_routes import provider_router
 from api.routes.settings_routes import settings_router
@@ -54,6 +56,7 @@ def _startup_auth_gate(settings: Settings) -> None:
                 "require_auth is enabled but no API tokens are configured. "
                 "Set API_TOKEN, API_TOKENS, or TOKENS_FILE before starting the service.",
             )
+
 from indexer.embedding_generator import doc_dict_for_embedding
 from indexer.incremental_indexer import _stamp_repository_metadata, _try_git_head_sha_for_file
 from indexer.task_manager import IndexTaskManager
@@ -65,6 +68,32 @@ from service_registry import ServiceRegistry
 from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 
 log = get_logger(__name__)
+
+
+def _enforce_production_security(settings: Settings) -> None:
+    """Fail-closed in production: require authentication."""
+    env = os.environ.get("KB_ENV", "development").lower()
+    if env != "production":
+        return
+    if not settings.require_auth:
+        log.critical(
+            "production_require_auth_disabled",
+            detail="KB_ENV=production but require_auth is false; refusing to start.",
+        )
+        raise RuntimeError(
+            "KB_ENV=production requires require_auth=true. "
+            "Set REQUIRE_AUTH=true and configure API tokens.",
+        )
+    if not settings.api_token and not settings.api_tokens and not Path(settings.tokens_file).exists():
+        log.critical(
+            "production_no_api_tokens",
+            detail="KB_ENV=production but no API tokens configured; refusing to start.",
+        )
+        raise RuntimeError(
+            "KB_ENV=production requires at least one API token. "
+            "Set API_TOKEN, API_TOKENS, or create tokens.yaml.",
+        )
+
 
 _registry: ServiceRegistry | None = None
 _task_manager: IndexTaskManager | None = None
@@ -141,6 +170,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     setup_logging(level=settings.log_level)
     log.info("kb_service_starting", host=settings.host, port=settings.port)
 
+    _enforce_production_security(settings)
     _startup_auth_gate(settings)
 
     _task_manager = IndexTaskManager()
@@ -2380,6 +2410,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+    app.add_middleware(RequestLoggingMiddleware)
     register_exception_handlers(app)
     install_rate_limiter(app)
     app.include_router(public_router)

@@ -218,7 +218,7 @@ async def wiki_list_claim_history(
     page_uid: str = Query(..., min_length=1, description="WikiPage uid (URL-encoded)"),
 ) -> dict[str, Any]:
     """Return WikiClaimHistory rows for a page (see SP5 supersession)."""
-    if not getattr(get_route_settings().wiki, "supersession_tracking_enabled", False):
+    if not get_route_settings().wiki.supersession_tracking_enabled:
         return {"items": []}
     raw_store: Any = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:

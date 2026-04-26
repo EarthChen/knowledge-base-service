@@ -78,7 +78,7 @@ async def test_supersession_creates_claim_history(monkeypatch: pytest.MonkeyPatc
         store=store,
         wiki_store=wiki_store,
         wiki_config=app_cfg,
-            embedding_config=EmbeddingConfig(),
+        embedding_config=EmbeddingConfig(),
     )
     await svc._persist_pages_to_graph("r1", [_page("a.md", "new body")], language="en")
     assert wiki_store.create_wiki_claim_history.await_count == 1

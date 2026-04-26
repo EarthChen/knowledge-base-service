@@ -8,6 +8,7 @@ import WikiAnnotationSidebar from "./WikiAnnotationSidebar";
 import WikiEditButton from "./WikiEditButton";
 import WikiStaleAlert from "./WikiStaleAlert";
 import { ContradictionAlert } from "./ContradictionAlert";
+import { ClaimHistoryPanel } from "./ClaimHistoryPanel";
 import WikiSuggestedQuestions from "./WikiSuggestedQuestions";
 import WikiPageFeedback from "./WikiPageFeedback";
 import TableOfContents from "./TableOfContents";
@@ -256,6 +257,7 @@ export default function WikiContent({
               questions={parseSuggestedQuestions(detail.context?.suggested_questions)}
               onAskQuestion={onAskQuestion}
             />
+            {pageUid ? <ClaimHistoryPanel pageUid={pageUid} /> : null}
             {pageUid ? (
               <div className="mt-6">
                 <WikiPageFeedback pageUid={pageUid} businessId={businessId} />

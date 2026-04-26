@@ -223,6 +223,8 @@ class WikiConfig(BaseModel):
     # Phase 4: Cross-repo business-level wiki
     business_wiki_batch_threshold: int = 100
 
+    mcp_server_enabled: bool = False
+
 
 class GitConfig(BaseModel):
     """Git repository management for remote indexing.

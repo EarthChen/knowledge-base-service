@@ -34,7 +34,7 @@ from api.routes.provider_routes import provider_router
 from api.routes.repository_path_utils import _build_file_tree
 from api.routes.settings_routes import settings_router
 from api.routes.webhook_routes import init_webhook_state, webhook_router
-from api.routes.wiki_routes import wiki_router
+from api.routes.wiki_routes import mcp_wiki_http_router, wiki_router
 from auth import get_auth_mode
 from config import Settings, get_settings
 from indexer.task_manager import IndexTaskManager
@@ -182,6 +182,17 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
 
     app.state.graph_query_service = kb.graph_query
 
+    if settings.wiki.mcp_server_enabled:
+        from api.mcp_wiki_server import MCPWikiServer
+
+        mcp_server = MCPWikiServer(
+            search_service=wiki_search,
+            wiki_store=app.state.wiki_store,
+            ask_service=app.state.wiki_ask_service,
+            change_detector=getattr(app.state, "change_detector", None),
+        )
+        app.state.mcp_wiki_server = mcp_server
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -284,6 +295,7 @@ def create_app() -> FastAPI:
     app.include_router(webhook_router)
     app.include_router(provider_router)
     app.include_router(wiki_router)
+    app.include_router(mcp_wiki_http_router)
     app.include_router(viewer_router)
     app.include_router(editor_router)
     app.include_router(admin_router)

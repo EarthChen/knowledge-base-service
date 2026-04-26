@@ -192,6 +192,12 @@ wiki_router = APIRouter(
     dependencies=[Depends(require_role(Role.VIEWER))],
 )
 
+mcp_wiki_http_router = APIRouter(
+    prefix="/api/v1/mcp",
+    tags=["mcp", "wiki"],
+    dependencies=[Depends(require_role(Role.VIEWER))],
+)
+
 
 async def get_wiki_service_dep(request: Request) -> WikiService:
     factory = getattr(request.app.state, "wiki_service_factory", None)
@@ -1477,3 +1483,26 @@ async def wiki_get_page_detail(
         "context": ctx,
         "generated_at": props.get("generated_at"),
     }
+
+
+@mcp_wiki_http_router.post("/tools/call")
+async def mcp_tool_call(request: Request) -> dict[str, Any]:
+    """MCP-compatible tool call endpoint."""
+    body = await request.json()
+    tool_name = body.get("name", "")
+    arguments = body.get("arguments", {})
+
+    mcp_server = getattr(request.app.state, "mcp_wiki_server", None)
+    if mcp_server is None:
+        raise KbServiceUnavailable("MCP server not configured")
+
+    result = await mcp_server.handle_tool_call(tool_name, arguments)
+    return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+
+@mcp_wiki_http_router.get("/tools/list")
+async def mcp_tool_list() -> dict[str, Any]:
+    """List available MCP tools."""
+    from api.mcp_wiki_server import TOOL_DEFINITIONS
+
+    return {"tools": TOOL_DEFINITIONS}

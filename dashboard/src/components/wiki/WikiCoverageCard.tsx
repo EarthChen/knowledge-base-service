@@ -68,7 +68,7 @@ export default function WikiCoverageCard({ businessId }: Props) {
   if (q.isError) {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50/80 p-4 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
-        {getErrorMessage(q.error)}
+        {getErrorMessage(q.error, t.common.unexpectedError)}
       </div>
     );
   }

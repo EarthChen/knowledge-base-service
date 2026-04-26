@@ -56,7 +56,7 @@ export default function Businesses() {
       setFormDesc("");
       setShowForm(false);
     } catch (err: unknown) {
-      toast("error", getErrorMessage(err) || t.businesses.createFailed);
+      toast("error", getErrorMessage(err, t.common.unexpectedError) || t.businesses.createFailed);
     }
   };
 
@@ -70,7 +70,7 @@ export default function Businesses() {
         setCurrentBusiness("default");
       }
     } catch (err: unknown) {
-      toast("error", getErrorMessage(err) || t.businesses.deleteFailed);
+      toast("error", getErrorMessage(err, t.common.unexpectedError) || t.businesses.deleteFailed);
     }
   };
 

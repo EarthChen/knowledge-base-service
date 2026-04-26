@@ -165,7 +165,7 @@ export default function WikiShell() {
               ? String((err as { detail?: unknown }).detail ?? err)
               : err
                 ? JSON.stringify(err)
-                : "unknown";
+                : t.common.unknown;
           toast("error", t.wiki.regenerateFailed.replace("{detail}", detail));
           return;
         }

@@ -4,13 +4,15 @@ import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import { useI18n } from "../../i18n/context";
 import SourceLink from "./SourceLink";
-import { parseMarkdownHeadings } from "./headingUtils";
+import { parseMarkdownHeadings, type ParsedHeading } from "./headingUtils";
 import { replaceWikilinksWithHtml } from "./wikilinkParser";
 import WikiLinkPreview from "./WikiLinkPreview";
 import { getMermaid } from "./mermaidLoader";
 
 function MermaidBlock({ chart }: { chart: string }) {
+  const { t } = useI18n();
   const id = useId().replace(/:/g, "");
   const ref = useRef<HTMLDivElement>(null);
 
@@ -27,15 +29,17 @@ function MermaidBlock({ chart }: { chart: string }) {
       try {
         await mermaid.run({ nodes: [el] });
       } catch {
-        el.innerHTML =
-          `<pre class="rounded-lg bg-red-50 p-3 text-xs text-red-800">Mermaid failed to render</pre>`;
+        const msg = t.common.mermaidRenderFailed;
+        el.innerHTML = `<pre class="rounded-lg bg-red-50 p-3 text-xs text-red-800"></pre>`;
+        const pre = el.querySelector("pre");
+        if (pre) pre.textContent = msg;
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [chart]);
+  }, [chart, t.common.mermaidRenderFailed]);
 
   return (
     <div
@@ -118,13 +122,12 @@ type Props = {
   content: string;
   businessId: string;
   wikiLinkParams?: Record<string, string>;
+  /** When provided (e.g. from parent TOC), avoids a second `parseMarkdownHeadings` pass. */
+  headings?: ParsedHeading[];
 };
 
-export default function MarkdownRenderer({ content, businessId, wikiLinkParams }: Props) {
-  const headingIds = useMemo(
-    () => parseMarkdownHeadings(content).map((h) => h.id),
-    [content],
-  );
+export default function MarkdownRenderer({ content, businessId, wikiLinkParams, headings }: Props) {
+  const headingIds = useMemo(() => (headings ?? parseMarkdownHeadings(content)).map((h) => h.id), [content, headings]);
 
   const processedContent = useMemo(() => replaceWikilinksWithHtml(content), [content]);
 

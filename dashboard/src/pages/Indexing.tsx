@@ -287,7 +287,7 @@ export default function Indexing() {
       }
       setEnrichModalOpen(false);
     } catch (err) {
-      toast("error", getErrorMessage(err) || t.indexing.indexingFailed);
+      toast("error", getErrorMessage(err, t.common.unexpectedError) || t.indexing.indexingFailed);
     }
   }
 
@@ -327,7 +327,7 @@ export default function Indexing() {
         toast("success", `${t.indexing.taskId}: ${res.task_id}`);
       }
     } catch (err) {
-      toast("error", getErrorMessage(err) || t.indexing.indexingFailed);
+      toast("error", getErrorMessage(err, t.common.unexpectedError) || t.indexing.indexingFailed);
     }
   }
 
@@ -389,7 +389,7 @@ export default function Indexing() {
         toast("success", t.indexing.uploadSuccess);
       }
     } catch (err) {
-      const msg = getErrorMessage(err) || t.indexing.uploadError;
+      const msg = getErrorMessage(err, t.common.unexpectedError) || t.indexing.uploadError;
       setUploadPhase("error");
       setUploadMessage(msg);
       toast("error", msg);

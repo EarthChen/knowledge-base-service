@@ -22,13 +22,14 @@ import WikiVersionBadge from "./WikiVersionBadge";
 import WikiVersionHistory from "./WikiVersionHistory";
 import TableOfContents from "./TableOfContents";
 import WikiBreadcrumbs from "./WikiBreadcrumbs";
-import { parseMarkdownHeadings } from "./headingUtils";
+import { parseMarkdownHeadings, type ParsedHeading } from "./headingUtils";
 import { getErrorMessage } from "../../utils/errorUtils";
 import { buildIdeHref, type EditorId } from "./editorLinks";
 import { EDITOR_PREF_KEY } from "./SourceLink";
 import { useAnalyzeImpact } from "../../api/hooks";
 import type { AnalyzeImpactResponse } from "../../api/types";
 import { useI18n } from "../../i18n/context";
+import { useToast } from "../Toast";
 import { wikiHref } from "./wikiRouteHelpers";
 
 type Props = {
@@ -177,7 +178,7 @@ function CallChainSection({
 
           {analyzeMutation.isError && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
-              {getErrorMessage(analyzeMutation.error)}
+              {getErrorMessage(analyzeMutation.error, t.common.unexpectedError)}
             </div>
           )}
 
@@ -254,7 +255,15 @@ function parseSuggestedQuestions(raw: string | undefined): string[] {
   }
 }
 
-function WikiMobileTocBar({ content, heading }: { content: string; heading: string }) {
+function WikiMobileTocBar({
+  content,
+  heading,
+  parsedHeadings,
+}: {
+  content: string;
+  heading: string;
+  parsedHeadings: ParsedHeading[];
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="shrink-0 border-b border-gray-100 px-5 py-3 dark:border-gray-700 lg:hidden">
@@ -278,7 +287,7 @@ function WikiMobileTocBar({ content, heading }: { content: string; heading: stri
       >
         <div className="min-h-0 overflow-hidden">
           <div className="border-t border-gray-100 pt-3 dark:border-gray-700">
-            <TableOfContents content={content} />
+            <TableOfContents content={content} parsedHeadings={parsedHeadings} />
           </div>
         </div>
       </div>
@@ -359,6 +368,7 @@ export default function WikiContent({
   onAskQuestion,
 }: Props) {
   const { locale, t } = useI18n();
+  const { toast } = useToast();
   const title =
     detail?.title ??
     (pagePath ? pagePath.split("/").pop() ?? pagePath : t.wiki.overviewTitle);
@@ -434,6 +444,7 @@ export default function WikiContent({
           <WikiMobileTocBar
             key={`${pagePath}\0${repository}`}
             content={detail.content}
+            parsedHeadings={tocItems}
             heading={t.wiki.tocHeading}
           />
         ) : null}
@@ -461,19 +472,30 @@ export default function WikiContent({
                     annotations={annotationsQuery.data ?? []}
                     highlightSourceKey={detail.content}
                     onAddAnnotation={({ start, end, comment, selected_text }) => {
-                      annotationsQuery.create.mutate({
-                        text_range_start: start,
-                        text_range_end: end,
-                        selected_text,
-                        comment,
-                        author: "viewer",
-                      });
+                      annotationsQuery.create.mutate(
+                        {
+                          text_range_start: start,
+                          text_range_end: end,
+                          selected_text,
+                          comment,
+                          author: "viewer",
+                        },
+                        {
+                          onError: (e) => {
+                            toast(
+                              "error",
+                              getErrorMessage(e, t.common.unexpectedError) || t.wiki.annotationSaveFailed,
+                            );
+                          },
+                        },
+                      );
                     }}
                   >
                     <MarkdownRenderer
                       content={detail.content}
                       businessId={businessId}
                       wikiLinkParams={wikiLinkParams}
+                      headings={tocItems}
                     />
                   </WikiAnnotationLayer>
                 ) : (
@@ -481,6 +503,7 @@ export default function WikiContent({
                     content={detail.content}
                     businessId={businessId}
                     wikiLinkParams={wikiLinkParams}
+                    headings={tocItems}
                   />
                 )}
               </div>
@@ -491,7 +514,16 @@ export default function WikiContent({
                   </h4>
                   <WikiAnnotationSidebar
                     annotations={annotationsQuery.data ?? []}
-                    onDelete={(id) => annotationsQuery.remove.mutate(id)}
+                    onDelete={(id) =>
+                      annotationsQuery.remove.mutate(id, {
+                        onError: (e) => {
+                          toast(
+                            "error",
+                            getErrorMessage(e, t.common.unexpectedError) || t.wiki.annotationDeleteFailed,
+                          );
+                        },
+                      })
+                    }
                     isDeleting={annotationsQuery.remove.isPending}
                   />
                 </aside>
@@ -534,7 +566,7 @@ export default function WikiContent({
 
         {showToc && detail?.content && (
           <aside className="hidden shrink-0 border-t border-gray-100 px-5 py-6 dark:border-gray-700 lg:block lg:w-56 lg:border-l lg:border-t-0 xl:w-60">
-            <TableOfContents content={detail.content} />
+            <TableOfContents content={detail.content} parsedHeadings={tocItems} />
           </aside>
         )}
       </div>

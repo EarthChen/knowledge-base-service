@@ -151,7 +151,7 @@ export default function SettingsPage() {
       closeWebhookModal();
       refetchWebhook();
     } catch (err) {
-      toast("error", getErrorMessage(err));
+      toast("error", getErrorMessage(err, t.common.unexpectedError));
     }
   }
 
@@ -211,7 +211,7 @@ export default function SettingsPage() {
       closeModal();
       refetchSchedules();
     } catch (err) {
-      toast("error", getErrorMessage(err));
+      toast("error", getErrorMessage(err, t.common.unexpectedError));
     }
   }
 
@@ -227,7 +227,7 @@ export default function SettingsPage() {
       await upsert.mutateAsync(body);
       toast("success", t.sync.saveSuccess);
     } catch (err) {
-      toast("error", getErrorMessage(err));
+      toast("error", getErrorMessage(err, t.common.unexpectedError));
     }
   }
 
@@ -239,7 +239,7 @@ export default function SettingsPage() {
       toast("success", t.sync.deleteSuccess);
       refetchSchedules();
     } catch (err) {
-      toast("error", getErrorMessage(err));
+      toast("error", getErrorMessage(err, t.common.unexpectedError));
     }
   }
 
@@ -249,7 +249,7 @@ export default function SettingsPage() {
       toast("success", t.sync.triggerSuccess);
       refetchSchedules();
     } catch (err) {
-      toast("error", getErrorMessage(err) || t.sync.triggerFailed);
+      toast("error", getErrorMessage(err, t.common.unexpectedError) || t.sync.triggerFailed);
     }
   }
 
@@ -482,7 +482,7 @@ export default function SettingsPage() {
 
           {webhookError && (
             <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
-              {getErrorMessage(webhookError) || t.webhook.loadFailed}
+              {getErrorMessage(webhookError, t.common.unexpectedError) || t.webhook.loadFailed}
             </div>
           )}
 
@@ -627,7 +627,7 @@ export default function SettingsPage() {
 
         {isAdmin && schedulesError && (
           <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
-            {getErrorMessage(schedulesError) || t.sync.loadFailed}
+            {getErrorMessage(schedulesError, t.common.unexpectedError) || t.sync.loadFailed}
           </div>
         )}
 

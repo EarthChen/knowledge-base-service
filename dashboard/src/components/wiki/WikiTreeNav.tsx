@@ -284,7 +284,7 @@ export default function WikiTreeNav({
         )}
         {treeQuery.isError && (
           <p className="px-2 py-3 text-sm text-red-600 dark:text-red-400">
-            {getErrorMessage(treeQuery.error)}
+            {getErrorMessage(treeQuery.error, t.common.unexpectedError)}
           </p>
         )}
         {!treeQuery.isLoading && !treeQuery.isError && nodes.length === 0 && (

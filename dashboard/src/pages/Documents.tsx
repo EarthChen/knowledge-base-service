@@ -429,7 +429,7 @@ export default function Documents() {
             </div>
           ) : listError ? (
             <div className="p-3 text-sm text-red-600 dark:text-red-400">
-              {getErrorMessage(listError)}
+              {getErrorMessage(listError, t.common.unexpectedError)}
             </div>
           ) : (listData?.documents.length ?? 0) === 0 ? (
             <div className="p-3 text-sm text-gray-500 dark:text-gray-400">{t.search.noResults}</div>
@@ -461,7 +461,7 @@ export default function Documents() {
           </div>
         ) : detailError ? (
           <div className="p-6 text-sm text-red-600 dark:text-red-400">
-            {getErrorMessage(detailError)}
+            {getErrorMessage(detailError, t.common.unexpectedError)}
           </div>
         ) : detail ? (
           <div className="flex min-h-0 flex-1 flex-col lg:flex-row">

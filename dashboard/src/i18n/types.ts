@@ -49,6 +49,16 @@ export interface Translations {
     sourceLinkOpenIn: string;
     setLocalRoot: string;
     setLocalRootHint: string;
+    /** Shown when error value is not an Error or string (log-only / edge cases) */
+    unexpectedError: string;
+    /** Short label for an unknown error detail in toasts */
+    unknown: string;
+    /** Mermaid diagram error in wiki markdown */
+    mermaidRenderFailed: string;
+    /** Placeholder while a Mermaid or diagram block is rendering */
+    diagramRendering: string;
+    /** Hint on diagram preview hover */
+    diagramClickToZoom: string;
   };
   sidebar: {
     service: string;
@@ -789,6 +799,10 @@ export interface Translations {
     suggestedQuestionsToggle: string;
     /** Use {version} */
     versionBadge: string;
+    askRequestFailed: string;
+    askStreamFailed: string;
+    annotationSaveFailed: string;
+    annotationDeleteFailed: string;
   };
   sync: {
     title: string;

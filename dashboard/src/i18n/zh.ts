@@ -48,6 +48,11 @@ const zh: Translations = {
     setLocalRoot: "设置根路径",
     setLocalRootHint:
       "请在 Wiki 工具栏填写本地克隆路径，以便 IDE 链接解析为绝对文件路径。",
+    unexpectedError: "发生意外错误",
+    unknown: "未知",
+    mermaidRenderFailed: "Mermaid 渲染失败",
+    diagramRendering: "正在渲染图表…",
+    diagramClickToZoom: "点击放大",
   },
   sidebar: {
     service: "服务状态：",
@@ -771,6 +776,10 @@ const zh: Translations = {
     suggestedQuestionsTitle: "延伸探索",
     suggestedQuestionsToggle: "显示推荐问题",
     versionBadge: "v{version}",
+    askRequestFailed: "请求失败",
+    askStreamFailed: "流式响应失败",
+    annotationSaveFailed: "无法保存批注",
+    annotationDeleteFailed: "无法删除批注",
   },
   sync: {
     title: "定时同步",

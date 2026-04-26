@@ -48,6 +48,11 @@ const en: Translations = {
     setLocalRoot: "set root",
     setLocalRootHint:
       "Set a local clone path in the wiki toolbar so IDE links resolve to absolute files.",
+    unexpectedError: "An unexpected error occurred",
+    unknown: "unknown",
+    mermaidRenderFailed: "Mermaid failed to render",
+    diagramRendering: "Rendering diagram…",
+    diagramClickToZoom: "Click to zoom",
   },
   sidebar: {
     service: "Service:",
@@ -783,6 +788,10 @@ const en: Translations = {
     suggestedQuestionsTitle: "Explore further",
     suggestedQuestionsToggle: "Show suggested questions",
     versionBadge: "v{version}",
+    askRequestFailed: "Request failed",
+    askStreamFailed: "Stream failed",
+    annotationSaveFailed: "Could not save annotation",
+    annotationDeleteFailed: "Could not delete annotation",
   },
   sync: {
     title: "Sync schedules",

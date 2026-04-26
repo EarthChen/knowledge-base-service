@@ -84,7 +84,7 @@ export default function Overview() {
   if (error) {
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400">
-        {t.overview.failedToLoadStats}: {getErrorMessage(error)}
+        {t.overview.failedToLoadStats}: {getErrorMessage(error, t.common.unexpectedError)}
       </div>
     );
   }
@@ -233,7 +233,7 @@ export default function Overview() {
 
         {healthError && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
-            {getErrorMessage(healthError)}
+            {getErrorMessage(healthError, t.common.unexpectedError)}
           </div>
         )}
 
@@ -375,7 +375,7 @@ export default function Overview() {
 
         {p2Error && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
-            {t.overview.failedToLoadStats}: {getErrorMessage(p2Error)}
+            {t.overview.failedToLoadStats}: {getErrorMessage(p2Error, t.common.unexpectedError)}
           </div>
         )}
 

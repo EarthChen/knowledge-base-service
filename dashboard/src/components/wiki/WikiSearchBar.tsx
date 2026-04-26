@@ -163,7 +163,7 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
           </div>
           {isError && (
             <p className="px-3 py-2 text-sm text-red-600 dark:text-red-400">
-              {getErrorMessage(error)}
+              {getErrorMessage(error, t.common.unexpectedError)}
             </p>
           )}
           {data && query.trim() && (

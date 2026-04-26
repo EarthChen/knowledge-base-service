@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { getToken, getCurrentBusiness } from "../api/client";
+import { useI18n } from "../i18n/context";
 import { getErrorMessage } from "../utils/errorUtils";
 import type { WikiAskSource } from "./wikiTypes";
 
@@ -110,6 +111,7 @@ async function consumeWikiAskStream(
 }
 
 export function useWikiAsk(repository: string | undefined) {
+  const { t } = useI18n();
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState<WikiAskSource[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
@@ -155,7 +157,7 @@ export function useWikiAsk(repository: string | undefined) {
       } catch (e) {
         setIsStreaming(false);
         if (e instanceof Error && e.name === "AbortError") return;
-        setError(getErrorMessage(e) || "Request failed");
+        setError(getErrorMessage(e, t.common.unexpectedError) || t.wiki.askRequestFailed);
         return;
       }
 
@@ -179,13 +181,13 @@ export function useWikiAsk(repository: string | undefined) {
         );
       } catch (e) {
         if (!(e instanceof Error) || e.name !== "AbortError") {
-          setError(getErrorMessage(e) || "Stream failed");
+          setError(getErrorMessage(e, t.common.unexpectedError) || t.wiki.askStreamFailed);
         }
       } finally {
         setIsStreaming(false);
       }
     },
-    [repository, conversationId],
+    [repository, conversationId, t],
   );
 
   const cancel = useCallback(() => {

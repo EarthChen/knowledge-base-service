@@ -41,7 +41,7 @@ export default function WikiLandingPage({ businessId, viewType }: Props) {
         )}
         {treeQuery.isError && (
           <p className="text-sm text-red-600 dark:text-red-400">
-            {getErrorMessage(treeQuery.error)}
+            {getErrorMessage(treeQuery.error, t.common.unexpectedError)}
           </p>
         )}
         {!treeQuery.isLoading && !treeQuery.isError && roots.length === 0 && (

@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import type { StageEvent } from "../components/DeepResearchTimeline";
 import { API_BASE, authHeaders } from "../api/client";
+import { useI18n } from "../i18n/context";
 import { getErrorMessage } from "../utils/errorUtils";
 
 type StreamState = {
@@ -11,6 +12,7 @@ type StreamState = {
 };
 
 export function useDeepSearchStream() {
+  const { t } = useI18n();
   const [state, setState] = useState<StreamState>({
     stages: [],
     conclusion: null,
@@ -103,11 +105,11 @@ export function useDeepSearchStream() {
         setState((prev) => ({
           ...prev,
           isStreaming: false,
-          error: getErrorMessage(err),
+          error: getErrorMessage(err, t.common.unexpectedError),
         }));
       }
     }
-  }, []);
+  }, [t]);
 
   const cancel = useCallback(() => {
     abortRef.current?.abort();

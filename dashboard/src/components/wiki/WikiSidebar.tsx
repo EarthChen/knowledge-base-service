@@ -298,7 +298,7 @@ export default function WikiSidebar({
         )}
         {search.isError && (
           <p className="mt-2 text-xs text-red-600 dark:text-red-400">
-            {getErrorMessage(search.error)}
+            {getErrorMessage(search.error, t.common.unexpectedError)}
           </p>
         )}
       </div>

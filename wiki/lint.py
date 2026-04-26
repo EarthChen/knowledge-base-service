@@ -106,9 +106,9 @@ class WikiLintService:
         conf_n = 0
         if self._lint_confidence_enabled():
             from wiki.confidence_inputs import recalculate_confidence_scores_for_repo
-            from wiki.confidence_scorer import DEFAULT_WEIGHTS, ConfidenceScorer
+            from wiki.confidence_scorer import confidence_scorer_from_wiki_app_config
 
-            scorer = ConfidenceScorer(DEFAULT_WEIGHTS)
+            scorer = confidence_scorer_from_wiki_app_config(self._wiki_config)
             conf_n = await recalculate_confidence_scores_for_repo(
                 self._store,
                 repository,

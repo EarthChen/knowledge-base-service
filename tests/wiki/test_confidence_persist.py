@@ -8,7 +8,7 @@ import pytest
 
 from wiki.confidence_scorer import ConfidenceInputs
 from wiki.models import PageType, WikiPage, WikiPageMetadata
-from tests.wiki_config_inject import wiki_service_injection
+from tests.wiki_config_inject import inject_wiki_embedding
 from wiki.service import WikiService
 
 
@@ -40,13 +40,16 @@ async def test_persist_graph_writes_confidence_after_source_entity_batch(
     fake_gen.generate_for_docs = AsyncMock(return_value=[[0.1, 0.2]])
     monkeypatch.setattr("indexer.embedding_generator.EmbeddingGenerator.shared", lambda **_k: fake_gen)
 
+    wcfg, emb = inject_wiki_embedding()
+    wiki_cfg = wcfg.model_copy(update={"confidence_scoring_enabled": True})
     graph = AsyncMock()
     svc = WikiService(
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         store=store,
-        **wiki_service_injection(),
+        wiki_config=wiki_cfg,
+        embedding_config=emb,
     )
 
     await svc._persist_pages_to_graph("r1", [_page()])

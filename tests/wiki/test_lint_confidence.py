@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from config import WikiConfig
 from wiki.lint import WikiLintService
 
 
@@ -24,8 +25,7 @@ async def test_lint_includes_confidence_recalibrated_count_when_flag_on(
     wiki_store = MagicMock()
     wiki_store.list_wiki_pages_for_repo = AsyncMock(side_effect=_empty_list)
 
-    cfg = MagicMock()
-    cfg.confidence_scoring_enabled = True
+    cfg = WikiConfig().model_copy(update={"confidence_scoring_enabled": True})
 
     async def _fake_recalc(
         _store: object,
@@ -66,8 +66,7 @@ async def test_lint_includes_confidence_recalibrated_count_when_flag_on(
 async def test_lint_skips_confidence_recal_when_flag_off() -> None:
     store = MagicMock()
     store.execute_query = AsyncMock()
-    cfg = MagicMock()
-    cfg.confidence_scoring_enabled = False
+    cfg = WikiConfig()
     svc = WikiLintService(
         store,
         wiki_config=cfg,

@@ -15,7 +15,7 @@ from llm.provider_factory import LLMProviderFactory
 from store.schema import GraphNode, NodeLabel
 from wiki.composer import WikiComposer
 from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
-from wiki.confidence_scorer import DEFAULT_WEIGHTS, ConfidenceScorer
+from wiki.confidence_scorer import confidence_scorer_from_wiki_app_config
 from wiki.deferred_enrichment import DeferredEnrichmentService
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
@@ -116,7 +116,7 @@ class WikiService:
         return self._llm
 
     def _confidence_scoring_enabled(self) -> bool:
-        return getattr(self._wiki_cfg, "confidence_scoring_enabled", True)
+        return bool(getattr(self._wiki_cfg, "confidence_scoring_enabled", False))
 
     async def _ensure_repo(self, repository: str) -> None:
         if not await self._repository_exists(repository):
@@ -268,7 +268,7 @@ class WikiService:
             _importance_tiers,
             llm_provider,
         )
-        await self._persist_pages_to_graph(repository, pages)
+        await self._persist_pages_to_graph(repository, pages, language=language)
         if self._deferred_enrichment:
             refreshed = await self._deferred_enrichment.refresh_stale_embeddings(repository)
             log.info(
@@ -608,7 +608,7 @@ class WikiService:
 
         # Persist business domain overview pages (namespace: business_id)
         if all_pages:
-            await self._persist_pages_to_graph(business_id, all_pages)
+            await self._persist_pages_to_graph(business_id, all_pages, language=language)
 
         # Generate per-repo wiki pages (creates WikiPages + SOURCE_ENTITY edges)
         partial_errors: list[dict[str, str]] = []
@@ -795,9 +795,36 @@ class WikiService:
             ),
         )
 
-    async def _persist_pages_to_graph(self, repository: str, pages: list[WikiPage]) -> None:
+    async def _persist_pages_to_graph(
+        self,
+        repository: str,
+        pages: list[WikiPage],
+        *,
+        language: str = "en",
+    ) -> None:
         if self._store is None or not hasattr(self._store, "persist_wiki_pages"):
             return
+        old_contents: dict[str, str] = {}
+        if (
+            self._wiki_cfg.supersession_tracking_enabled
+            and self._llm is not None
+            and self._wiki_store is not None
+        ):
+            for p in pages:
+                wuid = f"WikiPage:{repository}:{p.path}"
+                r = await self._store.execute_query(
+                    "MATCH (w:WikiPage {uid: $uid}) RETURN coalesce(w.content, '') AS c LIMIT 1",
+                    {"uid": wuid},
+                )
+                rows = getattr(r, "data", None) or []
+                if rows:
+                    r0 = rows[0]
+                    if isinstance(r0, dict):
+                        old_contents[p.path] = str(r0.get("c", "") or "")
+                    else:
+                        old_contents[p.path] = ""
+                else:
+                    old_contents[p.path] = ""
         ts = datetime.now(timezone.utc).isoformat()
         page_dicts = [
             {
@@ -843,7 +870,7 @@ class WikiService:
 
         if self._confidence_scoring_enabled() and self._store is not None:
             try:
-                scorer = ConfidenceScorer(DEFAULT_WEIGHTS)
+                scorer = confidence_scorer_from_wiki_app_config(self._wiki_cfg)
                 scores: list[tuple[str, float]] = []
                 for pd in page_dicts:
                     uid = f"WikiPage:{repository}:{pd['path']}"
@@ -888,6 +915,63 @@ class WikiService:
                     await self._store.set_node_embedding(uid, NodeLabel.WIKI_PAGE, embedding)
         except Exception as exc:
             log.warning("wiki_page_embedding_failed", repository=repository, error=str(exc))
+
+        if (
+            self._wiki_cfg.supersession_tracking_enabled
+            and self._llm is not None
+            and self._wiki_store is not None
+        ):
+            import time as _time
+
+            from wiki.claim_extractor import extract_claims
+            from wiki.claim_tracker import ClaimTracker
+
+            now_ts = int(_time.time())
+            for p in pages:
+                try:
+                    old_c = old_contents.get(p.path, "")
+                    wiki_uid = f"WikiPage:{repository}:{p.path}"
+                    old_claims = await extract_claims(self._llm, old_c, language) if old_c.strip() else []
+                    new_claims = await extract_claims(self._llm, p.content, language)
+                    pairs = ClaimTracker.find_supersedions(old_claims, new_claims)
+                    v = await self._wiki_store.next_claim_version(wiki_uid)
+                    by_text: dict[str, str] = {}
+                    for i, cl in enumerate(new_claims):
+                        cuid = f"WikiClaimHistory:{wiki_uid}:{v + i}"
+                        await self._wiki_store.create_wiki_claim_history(
+                            cuid,
+                            wiki_uid,
+                            cl.claim_text,
+                            v + i,
+                            superseded_by=None,
+                            created_at=now_ts,
+                            superseded_at=None,
+                        )
+                        by_text[cl.claim_text.strip()] = cuid
+                    for pr in pairs:
+                        old_u = await self._wiki_store.find_wiki_claim_by_text(
+                            wiki_uid, pr.old_claim_text,
+                        )
+                        nu = by_text.get(pr.new_claim_text.strip())
+                        if old_u and nu:
+                            await self._wiki_store.set_wiki_claim_superseded(
+                                old_u, nu, now_ts,
+                            )
+                    sup_list = [p.new_claim_text for p in pairs]
+                    if sup_list:
+                        import json as _json
+
+                        await self._wiki_store.set_wiki_page_supersedes(
+                            wiki_uid,
+                            _json.dumps(sup_list, ensure_ascii=False),
+                        )
+                except Exception as exc:
+                    log.warning(
+                        "wiki_claim_tracking_failed",
+                        repository=repository,
+                        path=p.path,
+                        error=str(exc),
+                    )
 
     async def get_enrichment_status(self, repository: str) -> dict[str, Any]:
         """Return enrichment level distribution for wiki pages."""

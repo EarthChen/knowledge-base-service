@@ -234,9 +234,20 @@ class WikiConfig(BaseModel):
     concept_merging_enabled: bool = False
     concept_merge_similarity_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
 
+    # Phase 2 SP3: confidence scoring
+    confidence_scoring_enabled: bool = False
+    confidence_weight_w1: float = 0.30
+    confidence_weight_w2: float = 0.25
+    confidence_weight_w3: float = 0.25
+    confidence_weight_w4: float = 0.20
+    confidence_weight_w5: float = 1.0
+
     # Phase 2 SP4: contradiction detection
     contradiction_detection_enabled: bool = False
     contradiction_similarity_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
+
+    # Phase 2 SP5: claim supersession history
+    supersession_tracking_enabled: bool = False
 
 
 class GitConfig(BaseModel):

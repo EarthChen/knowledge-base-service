@@ -46,3 +46,15 @@ class ConfidenceScorer:
             - self._w.w5 * penalty
         )
         return max(0.0, min(1.0, raw))
+
+
+def confidence_scorer_from_wiki_app_config(cfg: object) -> ConfidenceScorer:
+    """Build a :class:`ConfidenceScorer` from application :class:`config.WikiConfig` weights."""
+    w = WeightBundle(
+        float(getattr(cfg, "confidence_weight_w1", DEFAULT_WEIGHTS.w1)),
+        float(getattr(cfg, "confidence_weight_w2", DEFAULT_WEIGHTS.w2)),
+        float(getattr(cfg, "confidence_weight_w3", DEFAULT_WEIGHTS.w3)),
+        float(getattr(cfg, "confidence_weight_w4", DEFAULT_WEIGHTS.w4)),
+        float(getattr(cfg, "confidence_weight_w5", DEFAULT_WEIGHTS.w5)),
+    )
+    return ConfidenceScorer(w)

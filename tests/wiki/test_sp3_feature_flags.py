@@ -1,0 +1,18 @@
+"""SP3: confidence scoring feature flags on application WikiConfig."""
+
+from __future__ import annotations
+
+from config import WikiConfig
+
+
+def test_confidence_scoring_default_off() -> None:
+    assert WikiConfig().confidence_scoring_enabled is False
+
+
+def test_confidence_weights_match_spec_defaults() -> None:
+    c = WikiConfig()
+    assert c.confidence_weight_w1 == 0.30
+    assert c.confidence_weight_w2 == 0.25
+    assert c.confidence_weight_w3 == 0.25
+    assert c.confidence_weight_w4 == 0.20
+    assert c.confidence_weight_w5 == 1.0

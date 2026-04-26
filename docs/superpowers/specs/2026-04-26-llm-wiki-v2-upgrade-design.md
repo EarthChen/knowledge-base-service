@@ -62,6 +62,8 @@ Each Phase can be independently released. Phase 1 improves code quality to suppo
 
 Shared models (`WikiPageFeedbackBody`, `IngestRequest`, etc.) move to `api/models/wiki_models.py`.
 
+The in-memory task registry (currently in wiki_routes.py) moves to `wiki/task_registry.py` as a standalone module, accessible from all sub-route modules.
+
 #### Task 2: Extract wire_wiki_app_state → wiki/bootstrap.py
 
 ```python
@@ -137,7 +139,7 @@ where:
   reference_factor = min(inbound_ref_count / 5, 1.0)
   contradiction_penalty = contradiction_count * 0.15
 
-  w1=0.25, w2=0.2, w3=0.2, w4=0.15, w5=1.0
+  w1=0.30, w2=0.25, w3=0.25, w4=0.20, w5=1.0  (positive weights sum to 1.0)
 ```
 
 **Implementation Files**:
@@ -193,9 +195,11 @@ where:
 (WikiPage)-[:HAS_CLAIM]->(WikiClaimHistory)
 ```
 
+**Claim Extraction**: Claims are individual declarative sentences extracted from wiki content using LLM structured output (JSON array of `{claim_text, subject_entity}`). Each claim represents a factual assertion about an entity's behavior, interface, or purpose.
+
 **Generation Flow**:
-1. Before regenerating a WikiPage, snapshot current claims as `WikiClaimHistory`
-2. After regeneration, LLM compares old vs new content
+1. Before regenerating a WikiPage, extract current claims via LLM and snapshot as `WikiClaimHistory`
+2. After regeneration, extract new claims and compare with old claims using LLM
 3. Changed claims: old claim's `superseded_by` → new claim's uid
 4. WikiPage gains `supersedes: list[str]` for quick lookup
 
@@ -257,15 +261,16 @@ retention(t) = e^(-t / S)
 where S = stability_factor (increases with each access/confirmation)
 ```
 
+- Initial stability: `S = 7.0` (configurable via `WikiConfig.forgetting_initial_stability`)
 - Each access/confirmation: `S = S * 1.5`
 - Retention below 0.3: knowledge is "faded" (deprioritized in search/generation, not deleted)
 - Retention below 0.1: knowledge moves to "archived" status
 
-**Schema Layer**:
-- Create: `wiki/schema.md` template defining page structure conventions
-- Create: `wiki/schema_validator.py` validates pages against schema
-- Lint integrates schema validation
-- Users can customize schema per business/repository
+**Schema Layer** (YAML format):
+- Create: `wiki/schema.yaml` default template defining page structure conventions (required fields, naming patterns, page types)
+- Create: `wiki/schema_validator.py` parses YAML schema and validates WikiPage nodes against it
+- Lint integrates schema validation as an additional check
+- Users can customize schema per business/repository via `WikiConfig.schema_path`
 
 **Implementation Files**:
 - Create: `wiki/forgetting.py`
@@ -305,7 +310,15 @@ graph TD
 
 ---
 
-## 6. Risk Mitigation
+## 6. Data Migration
+
+- **Confidence scoring backfill**: Run as one-time lint pass; all existing WikiPages get initial `confidence_score` computed from current source/freshness/reference data.
+- **Memory tier migration**: Existing flat `MemoryLoop` entries are imported as Tier 1 (Episodic) nodes with `access_count=1`. Subsequent interactions trigger promotion logic.
+- **No destructive migration**: All new properties are additive (new fields/nodes). Existing data is never deleted or modified in schema-breaking ways.
+
+---
+
+## 7. Risk Mitigation
 
 | Risk | Mitigation |
 |------|-----------|
@@ -317,7 +330,7 @@ graph TD
 
 ---
 
-## 7. Feature Flags
+## 8. Feature Flags
 
 All new capabilities gated in `WikiConfig`:
 

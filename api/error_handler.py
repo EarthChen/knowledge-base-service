@@ -12,6 +12,8 @@ from starlette.responses import Response
 
 from log import get_logger
 
+from api.exceptions import KbError
+
 log = get_logger(__name__)
 
 
@@ -25,8 +27,25 @@ class ErrorResponse(BaseModel):
     error: ErrorBody
 
 
+def _pascal_to_snake_error_code(class_name: str) -> str:
+    out: list[str] = []
+    for i, ch in enumerate(class_name):
+        if ch.isupper() and i > 0:
+            prev = class_name[i - 1]
+            if prev.islower() or (
+                i + 1 < len(class_name) and class_name[i + 1].islower()
+            ):
+                out.append("_")
+        out.append(ch.lower())
+    return "".join(out)
+
+
 def _public_error_for_exception(exc: BaseException) -> tuple[int, str, str]:
     """Return (status_code, error_code, safe_message). Never leak exception strings."""
+    if isinstance(exc, KbError):
+        err_code = _pascal_to_snake_error_code(type(exc).__name__)
+        return exc.status_code, err_code, exc.message
+
     if isinstance(exc, ValueError):
         return 400, "bad_request", "Bad request"
 

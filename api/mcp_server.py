@@ -4,7 +4,7 @@ Exposes the knowledge base as MCP tools that can be injected into
 Cursor Agent sessions, enabling the agent to query the code knowledge graph.
 Indexing is handled through HTTP API endpoints, not through MCP tools.
 
-Tools exposed (15 total):
+Tools exposed (18 total):
   - rag_query, rag_graph: Hybrid search and graph queries
   - documents: List indexed docs or fetch one by uid
   - get_file_content, get_code_snippet, get_complete_context: On-disk file source and entity context
@@ -14,6 +14,7 @@ Tools exposed (15 total):
   - get_insights: Dashboard P2 stats and/or per-repo graph anomaly scan (type)
   - index_freshness: Repository index stamp and counts
   - get_wiki_page, list_wiki_pages, search_wiki, wiki_export: Wiki browse/search/export
+  - wiki_get_tree, wiki_get_related, wiki_get_domain_overview: Business wiki tree, cross-refs, domain overview
 """
 
 from __future__ import annotations
@@ -770,6 +771,9 @@ class KnowledgeBaseMCPHandler:
             "list_wiki_pages": self._wiki.handle_list_wiki_pages,
             "search_wiki": self._wiki.handle_search_wiki,
             "wiki_export": self._wiki.handle_wiki_export,
+            "wiki_get_tree": self._wiki.handle_wiki_get_tree,
+            "wiki_get_related": self._wiki.handle_wiki_get_related,
+            "wiki_get_domain_overview": self._wiki.handle_wiki_get_domain_overview,
         }
 
         handler = handlers.get(tool_name)

@@ -91,6 +91,12 @@ class WikiGlobalSearchBody(BaseModel):
     )
 
 
+class BusinessWikiGenerateBody(BaseModel):
+    business_id: str = Field(default="default", min_length=1)
+    language: str = Field(default="en", pattern="^(en|zh)$")
+    llm_provider: str | None = None
+
+
 class WikiAskBody(BaseModel):
     repository: str = Field(..., min_length=1)
     question: str = Field(..., min_length=1)
@@ -830,6 +836,45 @@ async def wiki_get_tree(
             )
 
     return {"tree": nodes, "view_type": view, "business_id": business_id}
+
+
+@wiki_router.post(
+    "/business/generate",
+    response_model=None,
+    status_code=202,
+    dependencies=[Depends(require_role(Role.EDITOR))],
+)
+async def generate_business_wiki(
+    body: BusinessWikiGenerateBody,
+    svc: WikiService = Depends(get_wiki_service_dep),
+) -> dict[str, Any]:
+    """Trigger cross-repo business-level wiki generation."""
+    try:
+        result = await svc.generate_business_wiki(
+            business_id=body.business_id,
+            language=body.language,
+            llm_provider=body.llm_provider,
+        )
+    except WikiScopeError as exc:
+        raise HTTPException(status_code=400, detail={"error": "scope_error", "detail": str(exc)}) from exc
+    return result
+
+
+@wiki_router.get("/pages/{page_uid:path}/references", response_model=None)
+async def get_page_references(
+    page_uid: str,
+    store: Any = Depends(get_wiki_store_dep),
+) -> dict[str, Any]:
+    """Get outgoing and incoming references for a wiki page."""
+    decoded = unquote(page_uid)
+    ws = WikiStore(store)
+    outgoing = await ws.get_wiki_page_references(decoded)
+    incoming = await ws.get_wiki_page_back_references(decoded)
+    return {
+        "page_uid": decoded,
+        "outgoing": outgoing.data if outgoing else [],
+        "incoming": incoming.data if incoming else [],
+    }
 
 
 @wiki_router.post("/chunks/index", response_model=None, dependencies=[Depends(require_role(Role.EDITOR))])

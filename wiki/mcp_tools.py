@@ -160,6 +160,40 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
             "required": ["repository", "target_dir"],
         },
     },
+    {
+        "name": "wiki_get_tree",
+        "description": "Get the wiki tree structure for a business, optionally filtered by view type (business_domain or code_structure).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "business_id": {"type": "string", "description": "Business ID", "default": "default"},
+                "view": {"type": "string", "enum": ["business_domain", "code_structure"], "default": "business_domain"},
+            },
+        },
+    },
+    {
+        "name": "wiki_get_related",
+        "description": "Get related wiki pages (outgoing and incoming cross-references) for a given page.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "page_uid": {"type": "string", "description": "WikiPage UID (e.g. WikiPage:repo:path)"},
+            },
+            "required": ["page_uid"],
+        },
+    },
+    {
+        "name": "wiki_get_domain_overview",
+        "description": "Get the domain overview page for a business domain.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain_name": {"type": "string", "description": "Business domain name"},
+                "business_id": {"type": "string", "description": "Business ID", "default": "default"},
+            },
+            "required": ["domain_name"],
+        },
+    },
 ]
 
 
@@ -501,3 +535,69 @@ class WikiMCPHandler:
             )
         except Exception as exc:
             return self._mcp_error("internal_error", str(exc))
+
+    async def handle_wiki_get_tree(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self._store is None:
+            return self._mcp_error("service_unavailable", "Store not configured")
+        business_id = str(arguments.get("business_id", "default")).strip()
+        view = str(arguments.get("view", "business_domain")).strip()
+        from store.wiki_store import WikiStore
+
+        ws = WikiStore(self._store)
+        result = await ws.get_wiki_tree(business_id, view)
+        nodes = []
+        if result and result.result_set:
+            for row in result.result_set:
+                nodes.append(
+                    {
+                        "uid": row[0],
+                        "title": row[1],
+                        "label": row[2],
+                        "depth": row[3],
+                        "sort_order": row[4],
+                        "path": row[5],
+                        "page_type": row[6],
+                    },
+                )
+        return {"business_id": business_id, "view": view, "nodes": nodes}
+
+    async def handle_wiki_get_related(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self._store is None:
+            return self._mcp_error("service_unavailable", "Store not configured")
+        page_uid = str(arguments.get("page_uid", "")).strip()
+        if not page_uid:
+            return self._mcp_error("invalid_params", "page_uid parameter is required")
+        from store.wiki_store import WikiStore
+
+        ws = WikiStore(self._store)
+        outgoing = await ws.get_wiki_page_references(page_uid)
+        incoming = await ws.get_wiki_page_back_references(page_uid)
+        return {
+            "page_uid": page_uid,
+            "outgoing": outgoing.data if outgoing else [],
+            "incoming": incoming.data if incoming else [],
+        }
+
+    async def handle_wiki_get_domain_overview(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self._store is None:
+            return self._mcp_error("service_unavailable", "Store not configured")
+        domain_name = str(arguments.get("domain_name", "")).strip()
+        if not domain_name:
+            return self._mcp_error("invalid_params", "domain_name parameter is required")
+        business_id = str(arguments.get("business_id", "default")).strip()
+        path = f"/{domain_name}/_overview"
+        from store.wiki_store import WikiStore
+
+        ws = WikiStore(self._store)
+        result = await ws.get_wiki_page_detail(business_id, path)
+        if not result.data:
+            return self._mcp_error("not_found", f"No domain overview page for '{domain_name}'")
+        row = result.data[0]
+        wp = row.get("wp")
+        props = dict(wp.properties) if hasattr(wp, "properties") else (wp if isinstance(wp, dict) else {})
+        return {
+            "domain_name": domain_name,
+            "business_id": business_id,
+            "content": props.get("content", ""),
+            "title": props.get("title", ""),
+        }

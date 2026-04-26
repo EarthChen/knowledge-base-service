@@ -139,6 +139,47 @@ class TestScanAnnotations:
         assert "domain/sub/Page" in annotations
 
 
+class TestAnnotationsPreservedInHashing:
+    def test_annotations_excluded_from_hash(self, tmp_path):
+        """*.annotations.md files must not appear in _hash_existing_files."""
+        wiki_page = tmp_path / "domain" / "Page.md"
+        wiki_page.parent.mkdir(parents=True)
+        wiki_page.write_text("# Page", encoding="utf-8")
+
+        ann_file = tmp_path / "domain" / "Page.annotations.md"
+        ann_file.write_text("## Custom note", encoding="utf-8")
+
+        pub = GitPublisher(remote_url="", branch="main")
+        hashes = pub._hash_existing_files(str(tmp_path))
+        assert "domain/Page.md" in hashes
+        assert "domain/Page.annotations.md" not in hashes
+
+    def test_annotations_not_deleted_during_detect(self, tmp_path):
+        """Annotation files must not be flagged as deleted in detect_changes."""
+        wiki_page = tmp_path / "domain" / "Page.md"
+        wiki_page.parent.mkdir(parents=True)
+        wiki_page.write_text("# Page", encoding="utf-8")
+
+        ann_file = tmp_path / "domain" / "Page.annotations.md"
+        ann_file.write_text("## Note", encoding="utf-8")
+
+        pub = GitPublisher(remote_url="", branch="main")
+        existing = pub._hash_existing_files(str(tmp_path))
+        new_files = {"domain/Page.md": "# Page updated"}
+        changes = pub.detect_changes(existing, new_files)
+        assert "domain/Page.annotations.md" not in changes["deleted"]
+
+
+class TestPublishResultAnnotations:
+    def test_result_contains_annotations_field(self):
+        result = PublishResult(
+            success=True, files_added=0, files_modified=0,
+            files_deleted=0, annotations={"path/Page": "# Note"},
+        )
+        assert result.annotations is not None
+        assert "path/Page" in result.annotations
+
+
 class TestPublishNoRemote:
     @pytest.mark.asyncio
     async def test_publish_without_remote_url_fails(self):

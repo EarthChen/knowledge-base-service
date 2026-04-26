@@ -25,6 +25,7 @@ class PublishResult:
     commit_sha: str | None = None
     error: str | None = None
     annotations_found: int = 0
+    annotations: dict[str, str] | None = None
 
 
 class GitPublisher:
@@ -178,6 +179,7 @@ class GitPublisher:
             return PublishResult(
                 success=True, files_added=0, files_modified=0,
                 files_deleted=0, annotations_found=len(annotations),
+                annotations=annotations or None,
             )
 
         for path, content in export_files.items():
@@ -214,14 +216,16 @@ class GitPublisher:
             files_deleted=len(changes["deleted"]),
             commit_sha=sha,
             annotations_found=len(annotations),
+            annotations=annotations or None,
         )
 
     @staticmethod
     def _hash_existing_files(repo_dir: str) -> dict[str, str]:
+        """Hash existing .md files, excluding .annotations.md sidecars and dotfiles."""
         hashes: dict[str, str] = {}
         root = Path(repo_dir)
         for f in root.rglob("*.md"):
-            if f.name.startswith("."):
+            if f.name.startswith(".") or f.name.endswith(".annotations.md"):
                 continue
             rel = str(f.relative_to(root)).replace(os.sep, "/")
             try:

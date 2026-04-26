@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 import auth as auth_module
+from api.error_handler import register_exception_handlers
 from api.routes.wiki_routes import (
     WikiTaskRegistry,
     get_task_registry_dep,
@@ -32,6 +33,7 @@ def _make_quick_app(
     quick_background: Any | None = None,
 ) -> tuple[FastAPI, TestClient]:
     app = FastAPI()
+    register_exception_handlers(app)
     app.state.wiki_tasks = WikiTaskRegistry()
     app.state.wiki_cache = wiki_cache or WikiCache(max_size=100)
 
@@ -82,9 +84,7 @@ class TestWikiQuick:
             json={"git_url": "not-a-valid-remote", "mode": "structure"},
         )
         assert r.status_code == 400
-        detail = r.json().get("detail")
-        assert isinstance(detail, dict)
-        assert detail.get("error") == "invalid_git_url"
+        assert r.json()["error"]["code"] == "kb_client_error"
 
     def test_quick_already_indexed(self) -> None:
         bundle = {

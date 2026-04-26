@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import auth as auth_module
+from api.error_handler import register_exception_handlers
 from api.routes.wiki_routes import wiki_router
 from store.falkordb_store import QueryResultWrapper
 
@@ -26,6 +27,7 @@ def _open_access_no_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
 def _make_app() -> FastAPI:
     """Create a minimal FastAPI app with the wiki router."""
     app = FastAPI()
+    register_exception_handlers(app)
     app.include_router(wiki_router)
     return app
 

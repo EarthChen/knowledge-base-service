@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import auth as auth_module
+from api.error_handler import register_exception_handlers
 from wiki.structure_planner import WikiScopeError
 
 
@@ -17,6 +18,7 @@ def app():
     from api.routes.wiki_routes import wiki_router
 
     app = FastAPI()
+    register_exception_handlers(app)
     app.include_router(wiki_router)
     return app
 
@@ -56,7 +58,7 @@ def test_generate_business_wiki_scope_error(app):
     )
     assert r.status_code == 400
     body = r.json()
-    assert body["detail"]["error"] == "scope_error"
+    assert body["error"]["code"] == "kb_client_error"
 
 
 def test_generate_business_wiki_service_unavailable(app):
@@ -69,7 +71,7 @@ def test_generate_business_wiki_service_unavailable(app):
         json={"business_id": "test", "language": "en"},
     )
     assert r.status_code == 503
-    assert r.json()["detail"]["error"] == "service_unavailable"
+    assert r.json()["error"]["code"] == "kb_service_unavailable"
 
 
 def test_wiki_page_references_endpoint(app):

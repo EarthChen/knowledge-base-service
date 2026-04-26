@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import auth as auth_module
+from api.error_handler import register_exception_handlers
 from store.wiki_store import WikiStore
 
 
@@ -22,6 +23,7 @@ def app() -> FastAPI:
     from api.routes.wiki_routes import wiki_router
 
     application = FastAPI()
+    register_exception_handlers(application)
     application.include_router(wiki_router)
     return application
 

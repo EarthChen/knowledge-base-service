@@ -11,10 +11,11 @@ from dataclasses import asdict
 from typing import Annotated, Any
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from api.exceptions import KbClientError, KbNotFound, KbServiceUnavailable
 from auth import Role, require_role
 from config import get_settings
 from log import get_logger
@@ -193,49 +194,28 @@ async def get_wiki_service_dep(request: Request) -> WikiService:
         if asyncio.iscoroutine(out):
             return await out
         return out  # type: ignore[no-any-return]
-    raise HTTPException(
-        status_code=503,
-        detail={
-            "error": "service_unavailable",
-            "detail": "Wiki generation is not configured",
-        },
-    )
+    raise KbServiceUnavailable("Wiki generation is not configured")
 
 
 def get_wiki_store_dep(request: Request) -> Any:
     """Get FalkorDB store for reading persisted WikiPage nodes."""
     store = getattr(request.app.state, "wiki_store", None)
     if store is None:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
-        )
+        raise KbServiceUnavailable("Graph store not configured")
     return store
 
 
 async def get_wiki_search_dep(request: Request) -> WikiSearchService:
     svc = getattr(request.app.state, "wiki_search_service", None)
     if svc is None:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "service_unavailable",
-                "detail": "Wiki search is not configured",
-            },
-        )
+        raise KbServiceUnavailable("Wiki search is not configured")
     return svc
 
 
 async def get_wiki_ask_dep(request: Request) -> WikiAskService:
     svc = getattr(request.app.state, "wiki_ask_service", None)
     if svc is None:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "service_unavailable",
-                "detail": "Wiki ask is not configured",
-            },
-        )
+        raise KbServiceUnavailable("Wiki ask is not configured")
     return svc
 
 
@@ -247,13 +227,7 @@ def get_graph_query_dep(request: Request) -> GraphQueryService:
     """Resolve graph query service; use with ``Depends`` when the graph is required for every request."""
     gq = getattr(request.app.state, "graph_query_service", None)
     if gq is None:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "service_unavailable",
-                "detail": "Graph query is not configured",
-            },
-        )
+        raise KbServiceUnavailable("Graph query is not configured")
     return gq
 
 
@@ -290,13 +264,7 @@ def get_wiki_docs_exporter_dep(cache: WikiCache = Depends(get_wiki_cache_dep)) -
 async def get_wiki_lint_service_dep(request: Request) -> WikiLintService:
     factory = getattr(request.app.state, "wiki_lint_service_factory", None)
     if not callable(factory):
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "service_unavailable",
-                "detail": "Wiki lint is not configured",
-            },
-        )
+        raise KbServiceUnavailable("Wiki lint is not configured")
     out = factory()
     if asyncio.iscoroutine(out):
         return await out
@@ -379,13 +347,7 @@ async def _indexed_repository_names(
 ) -> list[str]:
     registry = getattr(request.app.state, "registry", None)
     if registry is None:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "service_unavailable",
-                "detail": "Service registry is not configured",
-            },
-        )
+        raise KbServiceUnavailable("Service registry is not configured")
     kb = await registry.get_service("default")
     queries = GraphQueryRepository(kb.store)
     rows = await queries.list_repositories()
@@ -545,13 +507,7 @@ async def wiki_generate(
     try:
         scope_param = parse_scope(body.scope)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "invalid_scope",
-                "detail": _invalid_scope_detail(exc),
-            },
-        ) from exc
+        raise KbClientError(_invalid_scope_detail(exc)) from exc
 
     wants_stream = accept is not None and "text/event-stream" in accept.lower()
 
@@ -634,24 +590,12 @@ async def wiki_generate(
                 llm_provider=body.llm_provider,
             )
     except WikiRepoNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "repo_not_found",
-                "detail": (
-                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
-                ),
-            },
+        raise KbNotFound(
+            f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
         ) from exc
     except WikiScopeError as exc:
         log.warning("wiki generate scope error", error=str(exc))
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "scope_not_found",
-                "detail": "The requested wiki scope could not be found.",
-            },
-        ) from exc
+        raise KbNotFound("The requested wiki scope could not be found.") from exc
 
     return result
 
@@ -667,12 +611,8 @@ async def wiki_quick(
 ) -> JSONResponse | dict[str, Any]:
     git_url = body.git_url.strip()
     if not looks_like_git_url(git_url):
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "invalid_git_url",
-                "detail": "git_url must look like an https, ssh, git@, or .git remote URL",
-            },
+        raise KbClientError(
+            "git_url must look like an https, ssh, git@, or .git remote URL",
         )
 
     status_fn = getattr(request.app.state, "wiki_quick_repo_status", None)
@@ -741,25 +681,13 @@ async def wiki_quick(
                 llm_provider=body.llm_provider,
             )
     except WikiRepoNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "repo_not_found",
-                "detail": (
-                    f"Repository '{exc.repository}' not indexed. "
-                    "Use indexing API or wait for quick background indexing."
-                ),
-            },
+        raise KbNotFound(
+            f"Repository '{exc.repository}' not indexed. "
+            "Use indexing API or wait for quick background indexing."
         ) from exc
     except WikiScopeError as exc:
         log.warning("wiki quick scope error", error=str(exc))
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "scope_not_found",
-                "detail": "The requested wiki scope could not be found.",
-            },
-        ) from exc
+        raise KbNotFound("The requested wiki scope could not be found.") from exc
 
     pages_models = [_wiki_page_from_export_dict(p, repo) for p in result["pages"]]
     cache.put(repo, _QUICK_SCOPE, body.mode, gv, pages_models)
@@ -773,7 +701,7 @@ async def wiki_task_status(
 ) -> dict[str, Any]:
     rec = registry.get_task(task_id)
     if rec is None:
-        raise HTTPException(status_code=404, detail={"error": "task_not_found"})
+        raise KbNotFound("task_not_found")
     return rec
 
 
@@ -919,12 +847,12 @@ async def wiki_get_page_by_path(
     """Fetch a wiki page by its path under a business space."""
     raw_store: Any = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:
-        raise HTTPException(status_code=503, detail="Wiki store unavailable")
+        raise KbServiceUnavailable("Wiki store unavailable")
 
     store = WikiStore(raw_store)
     result = await store.get_page_by_path(business_id, path)
     if not result.data:
-        raise HTTPException(status_code=404, detail=f"Wiki page not found: {path}")
+        raise KbNotFound(f"Wiki page not found: {path}")
 
     row = result.data[0]
     sources_raw = row.get("sources") or []
@@ -1020,13 +948,7 @@ async def generate_business_wiki(
         )
     except WikiScopeError as exc:
         log.warning("business wiki generate scope error", error=str(exc))
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "scope_error",
-                "detail": "Invalid wiki scope or business configuration.",
-            },
-        ) from exc
+        raise KbClientError("Invalid wiki scope or business configuration.") from exc
     return result
 
 
@@ -1061,18 +983,12 @@ async def business_wiki_export(
 
     raw_store = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
-        )
+        raise KbServiceUnavailable("Graph store not configured")
 
     wiki_store = WikiStore(raw_store)
 
     if body.format == "git" and body.git_config is None:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "git_config_required", "detail": "git_config is required for git format"},
-        )
+        raise KbClientError("git_config is required for git format")
 
     if body.format == "obsidian":
         exporter: BusinessWikiExporter = ObsidianExporter(wiki_store)
@@ -1163,10 +1079,7 @@ async def get_page_suggested_questions(
     ws = WikiStore(store)
     raw = await ws.get_suggested_questions_context(decoded)
     if raw is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": "page_not_found", "detail": f"No wiki page for uid {decoded!r}"},
-        )
+        raise KbNotFound(f"No wiki page for uid {decoded!r}")
     ctx = PageContext(
         entity_name=raw["entity_name"],
         domain=raw["domain"],
@@ -1189,22 +1102,13 @@ async def wiki_chunk_index(
     try:
         await svc.ensure_repository(body.repository)
     except WikiRepoNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "repo_not_found",
-                "detail": (
-                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
-                ),
-            },
+        raise KbNotFound(
+            f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
         ) from exc
 
     raw_store: Any = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
-        )
+        raise KbServiceUnavailable("Graph store not configured")
 
     from store.wiki_store import WikiStore as _WikiStore
     from wiki.chunk_indexer import CodeChunkIndexer
@@ -1227,17 +1131,11 @@ async def wiki_coverage_report(
     """Return wiki documentation coverage analysis for a business."""
     settings = get_settings()
     if not settings.wiki.coverage_report_enabled:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": "feature_disabled", "detail": "Coverage report is disabled"},
-        )
+        raise KbNotFound("Coverage report is disabled")
 
     raw_store = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
-        )
+        raise KbServiceUnavailable("Graph store not configured")
 
     wiki_store = WikiStore(raw_store)
     analyzer = WikiCoverageAnalyzer(wiki_store)
@@ -1256,10 +1154,7 @@ async def wiki_quality_score(
     """Aggregate quality score 0-100 (coverage, staleness, references, enrichment)."""
     raw_store = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
-        )
+        raise KbServiceUnavailable("Graph store not configured")
     ws = WikiStore(raw_store)
     scorer = WikiQualityScorer(ws)
     result = await scorer.compute_score(business_id)
@@ -1274,10 +1169,7 @@ async def wiki_business_references(
     """Wiki reference network for a business: pages and WIKI_REFERENCES edges (both ends in space)."""
     raw_store = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
-        )
+        raise KbServiceUnavailable("Graph store not configured")
     ws = WikiStore(raw_store)
     return await ws.get_business_wiki_references_graph(business_id)
 
@@ -1292,10 +1184,7 @@ async def wiki_list_qa(
     """Paginated :WikiQA entries for a business."""
     raw_store = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "service_unavailable", "detail": "Graph store not configured"},
-        )
+        raise KbServiceUnavailable("Graph store not configured")
     ws = WikiStore(raw_store)
     r = await ws.list_wiki_qa(business_id, skip, limit)
     return {"items": r.data or [], "skip": skip, "limit": limit, "total": await ws.count_wiki_qa(business_id)}
@@ -1308,10 +1197,7 @@ async def wiki_record_qa(
 ) -> dict[str, Any]:
     """Store a Q&A pair (e.g. after wiki ask) as :WikiQA with embedding."""
     if mem is None:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "service_unavailable", "detail": "Wiki memory loop is not configured"},
-        )
+        raise KbServiceUnavailable("Wiki memory loop is not configured")
     uid = await mem.record(
         body.question, body.answer, list(body.source_pages), business_id=body.business_id,
     )
@@ -1329,14 +1215,8 @@ async def wiki_lint(
     try:
         await wiki_svc.ensure_repository(repository)
     except WikiRepoNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "repo_not_found",
-                "detail": (
-                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
-                ),
-            },
+        raise KbNotFound(
+            f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
         ) from exc
     scope = body.scope if body else "all"
     report = await lint_svc.lint(repository, scope=scope)
@@ -1358,14 +1238,8 @@ async def wiki_export_preview(
     try:
         await wiki_svc.ensure_repository(repository)
     except WikiRepoNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "repo_not_found",
-                "detail": (
-                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
-                ),
-            },
+        raise KbNotFound(
+            f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
         ) from exc
     result = await exporter.preview_export(
         repository,
@@ -1390,14 +1264,8 @@ async def wiki_export_execute(
     try:
         await wiki_svc.ensure_repository(repository)
     except WikiRepoNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "repo_not_found",
-                "detail": (
-                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
-                ),
-            },
+        raise KbNotFound(
+            f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
         ) from exc
     result = await exporter.execute_export(repository, body.target_dir, selected_files=body.selected_files)
     return export_result_to_dict(result)
@@ -1455,14 +1323,8 @@ async def analyze_pr_impact(
     try:
         await wiki_svc.ensure_repository(repository)
     except WikiRepoNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "repo_not_found",
-                "detail": (
-                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
-                ),
-            },
+        raise KbNotFound(
+            f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
         ) from exc
 
     changed_payload = [{"path": f.path, "status": f.status} for f in body.changed_files]
@@ -1476,13 +1338,7 @@ async def analyze_pr_impact(
             "analyze_pr_impact graph query failed",
             repository=repository,
         )
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "graph_query_failed",
-                "detail": "graph_query_failed",
-            },
-        ) from exc
+        raise KbServiceUnavailable("graph_query_failed") from exc
 
 
 @wiki_router.get("/{repository}/enrichment-status", response_model=None)
@@ -1495,14 +1351,8 @@ async def wiki_enrichment_status(
     try:
         return await wiki_svc.get_enrichment_status(repo)
     except WikiRepoNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "repo_not_found",
-                "detail": (
-                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
-                ),
-            },
+        raise KbNotFound(
+            f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
         ) from exc
 
 
@@ -1524,14 +1374,8 @@ async def wiki_enrich_trigger(
     try:
         return await wiki_svc.trigger_enrichment(repo)
     except WikiRepoNotFoundError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "repo_not_found",
-                "detail": (
-                    f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
-                ),
-            },
+        raise KbNotFound(
+            f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
         ) from exc
 
 
@@ -1568,13 +1412,7 @@ async def wiki_get_page_detail(
     decoded_path = unquote(wiki_page_path).lstrip("/")
     result = await WikiStore(store).get_wiki_page_detail(repository, decoded_path)
     if not result.data:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": "page_not_found",
-                "detail": f"No wiki page at path {decoded_path!r}",
-            },
-        )
+        raise KbNotFound(f"No wiki page at path {decoded_path!r}")
     row = result.data[0]
     wp = row.get("wp")
     props = dict(wp.properties) if hasattr(wp, "properties") else (wp if isinstance(wp, dict) else {})

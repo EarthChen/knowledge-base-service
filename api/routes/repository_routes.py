@@ -12,6 +12,7 @@ from fastapi import Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 import api.kb_state as kb_state
+from api.exceptions import KbClientError, KbNotFound, KbServiceUnavailable
 from api.routes import kb_routers
 from api.routes.kb_dependencies import get_effective_business_id, get_service
 from api.routes.kb_schemas import PrFetchRequest
@@ -58,7 +59,7 @@ async def get_knowledge_health_stats(
 ) -> dict[str, Any]:
     """Knowledge graph health: index coverage, staleness, orphans, totals."""
     if svc.store.graph is None:
-        raise HTTPException(status_code=503, detail="Graph store is not connected")
+        raise KbServiceUnavailable("Graph store is not connected")
     queries = GraphQueryRepository(svc.store)
     return await queries.get_knowledge_health_stats()
 
@@ -70,7 +71,7 @@ async def get_graph_insights(
 ) -> dict[str, Any]:
     """Return automated graph insights (isolation, cycles, layering, cohesion, bridges)."""
     if svc.store.graph is None:
-        raise HTTPException(status_code=503, detail="Graph store is not connected")
+        raise KbServiceUnavailable("Graph store is not connected")
     from query.graph_insights import GraphInsightsService
 
     insights_svc = GraphInsightsService(svc.store)
@@ -244,8 +245,9 @@ async def get_file_content(
     result = await svc.mcp_handler.handle_get_file_content(payload)
     if "error" in result:
         code = result["error"]["code"]
-        status = 404 if code == "not_found" else 400
-        raise HTTPException(status_code=status, detail=result["error"]["message"])
+        if code == "not_found":
+            raise KbNotFound(result["error"]["message"])
+        raise KbClientError(result["error"]["message"])
     return result
 
 
@@ -365,7 +367,7 @@ async def get_document(
     queries = GraphQueryRepository(svc.store)
     result = await queries.get_document(doc_uid)
     if not result.data:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise KbNotFound("Document not found")
 
     first = result.data[0]
     repo = first.get("repository")

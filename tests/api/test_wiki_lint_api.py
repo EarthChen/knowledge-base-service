@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 import auth as auth_module
+from api.error_handler import register_exception_handlers
 from api.routes.wiki_routes import (
     WikiTaskRegistry,
     get_task_registry_dep,
@@ -28,6 +29,7 @@ def _open_access_no_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def wiki_lint_client() -> tuple[TestClient, MagicMock]:
     app = FastAPI()
+    register_exception_handlers(app)
     app.state.wiki_tasks = WikiTaskRegistry()
 
     mock_wiki = MagicMock()
@@ -74,6 +76,7 @@ def test_post_wiki_lint_returns_200(wiki_lint_client: tuple[TestClient, MagicMoc
 
 def test_post_wiki_lint_missing_repo_returns_404() -> None:
     app = FastAPI()
+    register_exception_handlers(app)
     app.state.wiki_tasks = WikiTaskRegistry()
 
     mock_wiki = MagicMock()

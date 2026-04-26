@@ -13,6 +13,7 @@ from httpx import ASGITransport
 from starlette.testclient import TestClient
 
 import auth as auth_module
+from api.error_handler import register_exception_handlers
 from api.routes.wiki_routes import WikiTaskRegistry, get_task_registry_dep, get_wiki_service_dep, wiki_router
 from store.falkordb_store import QueryResultWrapper
 from store.schema import GraphNode, NodeLabel
@@ -26,15 +27,9 @@ def _open_access_no_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(auth_module, "_token_registry", {})
 
 
-def _detail_error(resp) -> str:
-    body = resp.json().get("detail")
-    if isinstance(body, dict):
-        return body.get("error", "")
-    if isinstance(body, list) and body:
-        item = body[0]
-        if isinstance(item, dict):
-            return str(item.get("ctx", {}).get("error") or "")
-    return ""
+def _err_code(resp) -> str:
+    err = resp.json().get("error") or {}
+    return str(err.get("code", ""))
 
 
 def _make_app(
@@ -43,6 +38,7 @@ def _make_app(
     wiki_store: Any | None = ...,
 ) -> tuple[FastAPI, TestClient, Any]:
     app = FastAPI()
+    register_exception_handlers(app)
     app.state.wiki_tasks = WikiTaskRegistry()
 
     svc = mock_wiki or MagicMock()
@@ -102,7 +98,7 @@ class TestWikiGenerateSync:
             },
         )
         assert r.status_code == 400
-        assert _detail_error(r) == "invalid_scope"
+        assert _err_code(r) == "kb_client_error"
         mock_svc.generate.assert_not_called()
 
     def test_generate_repo_not_found_404(self) -> None:
@@ -125,7 +121,7 @@ class TestWikiGenerateSync:
             },
         )
         assert r.status_code == 404
-        assert _detail_error(r) == "repo_not_found"
+        assert _err_code(r) == "kb_not_found"
 
     def test_generate_structure_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
@@ -263,7 +259,7 @@ class TestWikiTasks:
         _, client, _ = _make_app()
         r = client.get("/api/v1/wiki/tasks/wiki-does-not-exist")
         assert r.status_code == 404
-        assert _detail_error(r) == "task_not_found"
+        assert (r.json().get("error") or {}).get("message") == "task_not_found"
 
 
 class TestWikiConcurrency:
@@ -379,7 +375,7 @@ class TestWikiPagesGraphBacked:
         _, client, _ = _make_app(wiki_store=None)
         r = client.get("/api/v1/wiki/r1/pages")
         assert r.status_code == 503
-        assert r.json()["detail"]["error"] == "service_unavailable"
+        assert r.json()["error"]["code"] == "kb_service_unavailable"
 
     def test_get_page_detail_reads_graph(self) -> None:
         node = MagicMock()
@@ -438,7 +434,7 @@ class TestWikiPagesGraphBacked:
         _, client, _ = _make_app(wiki_store=store)
         r = client.get("/api/v1/wiki/r1/pages/missing.md")
         assert r.status_code == 404
-        assert r.json()["detail"]["error"] == "page_not_found"
+        assert r.json()["error"]["code"] == "kb_not_found"
 
     def test_get_page_detail_503_when_store_missing(self) -> None:
         _, client, _ = _make_app(wiki_store=None)

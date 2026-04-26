@@ -8,10 +8,11 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import Depends, Header, HTTPException, Query
+from fastapi import Depends, Header, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 import api.kb_state as kb_state
+from api.exceptions import KbClientError, KbError, KbNotFound, KbServiceUnavailable
 from api.routes import kb_routers
 from api.routes.kb_dependencies import get_effective_business_id, get_service
 from api.routes.kb_index_helpers import infer_repo_root, resolve_canonical_repository_for_git
@@ -41,7 +42,7 @@ public_router = kb_routers.public_router
 async def list_businesses() -> dict[str, Any]:
     """List all businesses."""
     if kb_state.registry is None:
-        raise HTTPException(status_code=503, detail="Service not ready")
+        raise KbServiceUnavailable("Service not ready")
     loop = asyncio.get_running_loop()
     businesses = await loop.run_in_executor(None, kb_state.registry.business_manager.list_businesses)
     return {"businesses": businesses, "total": len(businesses)}
@@ -51,7 +52,7 @@ async def list_businesses() -> dict[str, Any]:
 async def create_business(req: CreateBusinessRequest) -> dict[str, Any]:
     """Create a new business with its own isolated graph."""
     if kb_state.registry is None:
-        raise HTTPException(status_code=503, detail="Service not ready")
+        raise KbServiceUnavailable("Service not ready")
     loop = asyncio.get_running_loop()
     try:
         meta = await loop.run_in_executor(
@@ -59,7 +60,7 @@ async def create_business(req: CreateBusinessRequest) -> dict[str, Any]:
             lambda: kb_state.registry.business_manager.create_business(req.id, req.name, req.description),  # type: ignore[union-attr]
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise KbClientError(str(exc)) from exc
     return meta
 
 
@@ -67,11 +68,11 @@ async def create_business(req: CreateBusinessRequest) -> dict[str, Any]:
 async def get_business(business_id: str) -> dict[str, Any]:
     """Get business details."""
     if kb_state.registry is None:
-        raise HTTPException(status_code=503, detail="Service not ready")
+        raise KbServiceUnavailable("Service not ready")
     loop = asyncio.get_running_loop()
     meta = await loop.run_in_executor(None, kb_state.registry.business_manager.get_business, business_id)
     if meta is None:
-        raise HTTPException(status_code=404, detail=f"Business '{business_id}' not found")
+        raise KbNotFound(f"Business '{business_id}' not found")
     return meta
 
 
@@ -79,11 +80,11 @@ async def get_business(business_id: str) -> dict[str, Any]:
 async def delete_business(business_id: str) -> dict[str, Any]:
     """Delete a business and all its graph data."""
     if kb_state.registry is None:
-        raise HTTPException(status_code=503, detail="Service not ready")
+        raise KbServiceUnavailable("Service not ready")
     try:
         await kb_state.registry.remove_service(business_id)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise KbClientError(str(exc)) from exc
     return {"deleted": business_id}
 
 
@@ -103,7 +104,7 @@ def _schedule_to_response(cfg: SyncScheduleConfig) -> SyncScheduleResponse:
 
 def _require_scheduler() -> SyncScheduler:
     if kb_state.scheduler is None:
-        raise HTTPException(status_code=503, detail="Scheduler not ready")
+        raise KbServiceUnavailable("Scheduler not ready")
     return kb_state.scheduler
 
 
@@ -145,7 +146,7 @@ async def delete_sync_schedule(
     """Remove a sync schedule."""
     ok = await sched.remove_schedule(repo)
     if not ok:
-        raise HTTPException(status_code=404, detail=f"No schedule for repository '{repo}'")
+        raise KbNotFound(f"No schedule for repository '{repo}'")
     return {"deleted": repo}
 
 
@@ -158,7 +159,7 @@ async def trigger_sync_schedule_now(
     try:
         return await sched.trigger_sync_now(repo)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise KbNotFound(str(exc)) from exc
 
 
 async def _git_rev_parse(repo_dir: str, ref: str = "HEAD") -> str | None:
@@ -219,15 +220,12 @@ async def sync_repository(
         from git_manager import GitManager
 
         if kb_state.repo_registry is None:
-            raise HTTPException(status_code=503, detail="Repository registry not initialized")
+            raise KbServiceUnavailable("Repository registry not initialized")
 
         mgr = GitManager(get_settings().git)
         result = await mgr.ensure_repo(req.git_url, branch=req.branch)
         if result["status"] in ("clone_failed", "pull_failed"):
-            raise HTTPException(
-                status_code=500,
-                detail=f"Git operation failed: {result.get('detail', '')}",
-            )
+            raise KbError(f"Git operation failed: {result.get('detail', '')}")
 
         repo_name, name_warn = await resolve_canonical_repository_for_git(
             req.git_url,
@@ -273,7 +271,7 @@ async def sync_repository(
     if not repo_dir:
         sample_file = await queries.get_repository_sample_file(req.repository)
         if sample_file is None:
-            raise HTTPException(status_code=404, detail=f"Repository '{req.repository}' not found in index")
+            raise KbNotFound(f"Repository '{req.repository}' not found in index")
 
         sample_file = sample_file or ""
         repo_dir = None
@@ -281,12 +279,9 @@ async def sync_repository(
             repo_dir = infer_repo_root(sample_file, req.repository)
 
     if not repo_dir or not Path(repo_dir).is_dir():
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Repository directory not found. "
-                "Provide 'directory' or 'git_url' in request."
-            ),
+        raise KbError(
+            "Repository directory not found. "
+            "Provide 'directory' or 'git_url' in request.",
         )
 
     pre_pull_head = await _git_rev_parse(repo_dir, "HEAD")

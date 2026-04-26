@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import Depends, HTTPException
 
 import api.kb_state as kb_state
+from api.exceptions import KbNotFound, KbServiceUnavailable
 from api.routes import kb_routers
 from api.routes.kb_dependencies import get_effective_business_id, get_service
 from indexer.embedding_generator import doc_dict_for_embedding
@@ -43,7 +44,7 @@ public_router = kb_routers.public_router
 @viewer_router.get("/index/tasks")
 async def list_index_tasks() -> dict[str, Any]:
     if kb_state.task_manager is None:
-        raise HTTPException(status_code=503, detail="Service not ready")
+        raise KbServiceUnavailable("Service not ready")
     tasks = kb_state.task_manager.list_tasks()
     return {"tasks": [t.to_dict() for t in tasks], "total": len(tasks)}
 
@@ -51,10 +52,10 @@ async def list_index_tasks() -> dict[str, Any]:
 @viewer_router.get("/index/tasks/{task_id}")
 async def get_index_task(task_id: str) -> dict[str, Any]:
     if kb_state.task_manager is None:
-        raise HTTPException(status_code=503, detail="Service not ready")
+        raise KbServiceUnavailable("Service not ready")
     task = kb_state.task_manager.get_task(task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise KbNotFound("Task not found")
     return task.to_dict()
 
 
@@ -64,7 +65,7 @@ async def trigger_index(
     business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
     if kb_state.task_manager is None or kb_state.registry is None:
-        raise HTTPException(status_code=503, detail="Service not ready")
+        raise KbServiceUnavailable("Service not ready")
 
     if not req.directory and not req.git_url:
         raise HTTPException(
@@ -100,7 +101,7 @@ async def reindex_all_repositories(
 ) -> dict[str, Any]:
     """Queue a full re-index for each repository (same semantics as POST /index with mode=full)."""
     if kb_state.task_manager is None or kb_state.registry is None:
-        raise HTTPException(status_code=503, detail="Service not ready")
+        raise KbServiceUnavailable("Service not ready")
 
     svc = await kb_state.registry.get_service(business_id)
     queries = GraphQueryRepository(svc.store)
@@ -208,7 +209,7 @@ async def trigger_enrich(
 ) -> dict[str, Any]:
     """对已入库实体异步执行 LLM 业务摘要补全，可通过任务接口查询进度。"""
     if kb_state.task_manager is None or kb_state.registry is None:
-        raise HTTPException(status_code=503, detail="服务未就绪")
+        raise KbServiceUnavailable("服务未就绪")
 
     task = kb_state.task_manager.create_task(
         mode="enrich",

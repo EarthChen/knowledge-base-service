@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import auth as auth_module
+from api.error_handler import register_exception_handlers
 from api.routes.wiki_routes import wiki_router
 from store.falkordb_store import QueryResultWrapper
 
@@ -25,6 +26,7 @@ def _create_test_app(
 ):
     """Create a FastAPI test app with mocked dependencies."""
     app = FastAPI()
+    register_exception_handlers(app)
     app.include_router(wiki_router)
     app.state.wiki_store = wiki_store
 

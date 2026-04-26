@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 import auth as auth_module
+from api.error_handler import register_exception_handlers
 from main import _get_service, viewer_router
 from store.falkordb_store import QueryResultWrapper
 
@@ -20,6 +21,7 @@ def _open_access_no_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _make_client(mock_svc: MagicMock) -> TestClient:
     app = FastAPI()
+    register_exception_handlers(app)
     app.include_router(viewer_router)
 
     async def override_get_service():
@@ -69,4 +71,5 @@ class TestGraphInsightsApi:
         client = _make_client(mock_svc)
         r = client.get("/api/v1/graph/insights/my-repo")
         assert r.status_code == 503
-        assert "graph" in r.json()["detail"].lower() or "store" in r.json()["detail"].lower()
+        msg = (r.json().get("error") or {}).get("message", "").lower()
+        assert "graph" in msg or "store" in msg

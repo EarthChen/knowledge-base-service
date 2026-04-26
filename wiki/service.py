@@ -713,6 +713,9 @@ class WikiService:
             if pd.get("entity_uid")
         ]
         if pairs:
+            # One batched UNWIND+MERGE for all SOURCE_ENTITY edges. If this query fails, we log a
+            # single batch error only — we do not fall back to per-pair MERGEs (per-edge failures
+            # are not reported separately) to keep persistence fast under large page batches.
             batch_q = (
                 "UNWIND $pairs AS pair "
                 "MATCH (wp:WikiPage {uid: pair.wiki_uid}) "

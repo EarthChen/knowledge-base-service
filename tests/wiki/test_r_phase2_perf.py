@@ -10,7 +10,12 @@ import pytest
 from httpx import ASGITransport
 
 import auth as auth_module
-from api.routes.wiki_routes import get_wiki_search_dep, get_wiki_service_dep, wiki_router
+from api.routes.wiki_routes import (
+    _GLOBAL_SEARCH_CONCURRENCY,
+    get_wiki_search_dep,
+    get_wiki_service_dep,
+    wiki_router,
+)
 from fastapi import FastAPI
 from store.falkordb_store import FalkorDBStore, QueryResultWrapper
 from store.schema import GraphNode, NodeLabel
@@ -208,6 +213,112 @@ async def test_wiki_search_global_caps_repositories() -> None:
         assert len(search_calls) == 50
         data = r.json()
         assert len(data.get("repositories_searched", [])) == 50
+
+
+@pytest.mark.asyncio
+async def test_wiki_search_global_semaphore_limited_concurrency() -> None:
+    """Global search should not exceed ``_GLOBAL_SEARCH_CONCURRENCY`` parallel per-repo searches."""
+    n_repos = 25
+    repos = [f"repo{i}" for i in range(n_repos)]
+    reg = MagicMock()
+    kb = MagicMock()
+    kb.store = MagicMock()
+    queries = MagicMock()
+    rows = [{"repository": n} for n in repos]
+    queries.list_repositories = AsyncMock(return_value=rows)
+    reg.get_service = AsyncMock(return_value=kb)
+
+    concurrent = 0
+    max_c = 0
+    lock = asyncio.Lock()
+
+    async def search_side_effect(*, repository: str, **_: object) -> SearchResponse:
+        nonlocal concurrent, max_c
+        async with lock:
+            concurrent += 1
+            max_c = max(max_c, concurrent)
+        await asyncio.sleep(0.02)
+        async with lock:
+            concurrent -= 1
+        return SearchResponse(
+            results=[],
+            query_expansion={},
+            total=0,
+        )
+
+    mock_search = MagicMock()
+    mock_search.search = AsyncMock(side_effect=search_side_effect)
+    with patch("api.routes.wiki_routes.GraphQueryRepository", return_value=queries):
+        app = _make_wiki_routes_app(
+            app_state={
+                "registry": reg,
+                "wiki_search_service": mock_search,
+            },
+        )
+        app.dependency_overrides[get_wiki_search_dep] = lambda: mock_search
+
+        transport = ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post(
+                "/api/v1/wiki/search/global",
+                json={"query": "hello", "limit": 10},
+            )
+    assert r.status_code == 200
+    assert max_c <= _GLOBAL_SEARCH_CONCURRENCY
+    assert mock_search.search.await_count == n_repos
+
+
+@pytest.mark.asyncio
+async def test_persist_source_entity_skips_unwind_when_no_entity_uid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When no page has entity_uid, persist_wiki_pages runs but UNWIND SOURCE_ENTITY is not called."""
+    store = MagicMock()
+    se_calls: list[tuple[str, dict]] = []
+
+    async def capture_se(cypher: str, params: dict | None = None) -> QueryResultWrapper:
+        p = params or {}
+        if "SOURCE_ENTITY" in cypher:
+            se_calls.append((cypher, p))
+        return QueryResultWrapper(data=[], raw=[])
+
+    store.persist_wiki_pages = AsyncMock()
+    store.execute_query = AsyncMock(side_effect=capture_se)
+    store.batch_set_node_embeddings = AsyncMock()
+
+    async def fake_emb(_items: list) -> list[list[float]]:
+        return [[0.1, 0.2] for _ in _items]
+
+    emb_gen = MagicMock()
+    emb_gen.generate_for_docs = AsyncMock(side_effect=fake_emb)
+    monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_k: emb_gen)
+
+    graph = AsyncMock()
+    svc = WikiService(graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store)
+
+    p1 = WikiPage(
+        path="a.md",
+        title="A",
+        page_type=PageType.MODULE_OVERVIEW,
+        content="x",
+        diagrams=[],
+        source_locations=[],
+        metadata=WikiPageMetadata(node_count=0, edge_count=0),
+    )
+    p2 = WikiPage(
+        path="b.md",
+        title="B",
+        page_type=PageType.CLASS_DETAIL,
+        content="y",
+        diagrams=[],
+        source_locations=[],
+        metadata=WikiPageMetadata(node_count=0, edge_count=0),
+    )
+
+    await svc._persist_pages_to_graph("myrepo", [p1, p2])
+
+    store.persist_wiki_pages.assert_awaited_once()
+    assert se_calls == []
+    store.execute_query.assert_not_awaited()
+    store.batch_set_node_embeddings.assert_awaited_once()
 
 
 @pytest.mark.asyncio

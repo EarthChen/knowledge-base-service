@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
+import ErrorBoundary from "../ErrorBoundary";
 import {
   Activity,
   FileOutput,
@@ -224,6 +225,7 @@ export default function WikiShell() {
   );
 
   return (
+    <ErrorBoundary fallbackLabel="Wiki failed to render">
     <div className="flex min-h-[min(70vh,860px)] flex-col gap-4 lg:flex-row lg:items-stretch">
       <WikiTreeNav
         businessId={businessId}
@@ -363,5 +365,6 @@ export default function WikiShell() {
         />
       )}
     </div>
+    </ErrorBoundary>
   );
 }

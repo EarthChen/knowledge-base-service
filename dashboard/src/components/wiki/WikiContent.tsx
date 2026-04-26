@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import ErrorBoundary from "../ErrorBoundary";
 import FocusTrap from "../FocusTrap";
 import { BookOpen, FolderOpen } from "lucide-react";
 import type { WikiPageDetail } from "../../hooks/wikiTypes";
@@ -248,20 +249,24 @@ export default function WikiContent({
                       );
                     }}
                   >
+                    <ErrorBoundary fallbackLabel="Content rendering error">
+                      <MarkdownRenderer
+                        content={detail.content}
+                        businessId={businessId}
+                        wikiLinkParams={wikiLinkParams}
+                        headings={tocItems}
+                      />
+                    </ErrorBoundary>
+                  </WikiAnnotationLayer>
+                ) : (
+                  <ErrorBoundary fallbackLabel="Content rendering error">
                     <MarkdownRenderer
                       content={detail.content}
                       businessId={businessId}
                       wikiLinkParams={wikiLinkParams}
                       headings={tocItems}
                     />
-                  </WikiAnnotationLayer>
-                ) : (
-                  <MarkdownRenderer
-                    content={detail.content}
-                    businessId={businessId}
-                    wikiLinkParams={wikiLinkParams}
-                    headings={tocItems}
-                  />
+                  </ErrorBoundary>
                 )}
               </div>
               {pageUid ? (

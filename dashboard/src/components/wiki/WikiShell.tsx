@@ -47,9 +47,13 @@ const WikiLintPanel = lazy(() => import("./WikiLintPanel"));
 const DeepResearchPanel = lazy(() => import("./DeepResearchPanel"));
 const WikiBusinessFlowGraph = lazy(() => import("./WikiBusinessFlowGraph"));
 
-const wikiToolSuspenseFallback = (
-  <div className="animate-pulse rounded-xl border p-8 text-center text-sm text-gray-400">Loading...</div>
-);
+/** Used as Suspense fallback for lazy wiki tool panels. Exported for i18n tests. */
+export function WikiToolSuspenseFallback() {
+  const { t } = useI18n();
+  return (
+    <div className="animate-pulse rounded-xl border p-8 text-center text-sm text-gray-400">{t.common.loading}</div>
+  );
+}
 
 /** All wiki query keys use `["wiki", <segment>, businessId, ...]` — invalidate everything for this business. */
 function invalidateWikiQueriesForBusiness(queryClient: QueryClient, businessId: string) {
@@ -349,7 +353,7 @@ export default function WikiShell() {
 
         {toolTab === "refgraph" && (
           <div role="tabpanel" id="wiki-panel-refgraph" aria-labelledby="wiki-tab-refgraph">
-            <Suspense fallback={wikiToolSuspenseFallback}>
+            <Suspense fallback={<WikiToolSuspenseFallback />}>
               <WikiReferenceGraph
                 businessId={businessId}
                 view={viewType === "code_structure" ? "code_structure" : "business_domain"}
@@ -360,7 +364,7 @@ export default function WikiShell() {
 
         {toolTab === "health" && (
           <div role="tabpanel" id="wiki-panel-health" aria-labelledby="wiki-tab-health">
-            <Suspense fallback={wikiToolSuspenseFallback}>
+            <Suspense fallback={<WikiToolSuspenseFallback />}>
               <WikiLintPanel repository={pageQuery.data?.context?.repository ?? businessId} />
             </Suspense>
           </div>
@@ -368,7 +372,7 @@ export default function WikiShell() {
 
         {toolTab === "insights" && (
           <div role="tabpanel" id="wiki-panel-insights" aria-labelledby="wiki-tab-insights">
-            <Suspense fallback={wikiToolSuspenseFallback}>
+            <Suspense fallback={<WikiToolSuspenseFallback />}>
               <GraphInsightsPanel repository={pageQuery.data?.context?.repository ?? businessId} />
             </Suspense>
           </div>
@@ -376,7 +380,7 @@ export default function WikiShell() {
 
         {toolTab === "export" && (
           <div role="tabpanel" id="wiki-panel-export" aria-labelledby="wiki-tab-export">
-            <Suspense fallback={wikiToolSuspenseFallback}>
+            <Suspense fallback={<WikiToolSuspenseFallback />}>
               <WikiBusinessExportPanel key={businessId} />
             </Suspense>
           </div>
@@ -384,7 +388,7 @@ export default function WikiShell() {
 
         {toolTab === "research" && (
           <div role="tabpanel" id="wiki-panel-research" aria-labelledby="wiki-tab-research">
-            <Suspense fallback={wikiToolSuspenseFallback}>
+            <Suspense fallback={<WikiToolSuspenseFallback />}>
               <DeepResearchPanel
                 businessId={businessId}
                 repository={pageQuery.data?.context?.repository ?? businessId}
@@ -395,7 +399,7 @@ export default function WikiShell() {
 
         {toolTab === "flows" && (
           <div role="tabpanel" id="wiki-panel-flows" aria-labelledby="wiki-tab-flows">
-            <Suspense fallback={wikiToolSuspenseFallback}>
+            <Suspense fallback={<WikiToolSuspenseFallback />}>
               <WikiBusinessFlowGraph businessId={businessId} />
             </Suspense>
           </div>

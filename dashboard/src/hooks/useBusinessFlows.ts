@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { api } from "../api/client";
 
 type FlowNode = {
   uid: string;
@@ -16,11 +17,10 @@ type FlowEdge = {
 export function useBusinessFlows(businessId: string) {
   return useQuery({
     queryKey: ["wiki", "business-flows", businessId],
-    queryFn: async () => {
-      const resp = await fetch(`/api/v1/wiki/flows?business_id=${encodeURIComponent(businessId)}`);
-      if (!resp.ok) return { nodes: [], edges: [] };
-      return resp.json() as Promise<{ nodes: FlowNode[]; edges: FlowEdge[] }>;
-    },
+    queryFn: () =>
+      api<{ nodes: FlowNode[]; edges: FlowEdge[] }>(
+        `/wiki/flows?business_id=${encodeURIComponent(businessId)}`,
+      ),
     enabled: !!businessId.trim(),
   });
 }

@@ -3,7 +3,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import WikiShell from "../WikiShell";
+import WikiShell, { WikiToolSuspenseFallback } from "../WikiShell";
 import { renderWithI18n } from "../../../test/renderWithI18n";
 import { ToastProvider } from "../../Toast";
 
@@ -87,5 +87,10 @@ describe("WikiShell", () => {
     renderShell("/wiki?business_id=b1");
     await user.click(screen.getByRole("button", { name: "Regenerate" }));
     expect(generateMock).toHaveBeenCalledWith("b1", "en");
+  });
+
+  it("wiki tool Suspense fallback uses i18n loading string", () => {
+    renderWithI18n(<WikiToolSuspenseFallback />);
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
   });
 });

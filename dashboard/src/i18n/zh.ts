@@ -641,6 +641,13 @@ const zh: Translations = {
     askV2Footnote:
       "Ask v2：上下文由图增强搜索提供，包含调用链与模块上下文",
     deepResearchScopeNote: "深度研究搜索范围为整个知识库（可能跨多个仓库）",
+    deepResearchPlaceholder: "提出深度研究问题…",
+    deepResearchStart: "开始研究",
+    deepResearchSynthesis: "综合",
+    deepResearchFinding: "发现",
+    deepResearchError: "研究失败",
+    deepResearchNetworkError: "网络错误，请检查连接后重试。",
+    flowsLoadFailed: "无法加载业务流：{message}",
     graphInsightsTitle: "图洞察",
     graphInsightsLoading: "加载中…",
     graphInsightsIntroBefore: "架构信号来自",

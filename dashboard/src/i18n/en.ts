@@ -650,6 +650,13 @@ const en: Translations = {
       "Ask v2: Context enhanced by graph search including call chains and module context",
     deepResearchScopeNote:
       "Deep Research searches the entire knowledge base (may span multiple repos)",
+    deepResearchPlaceholder: "Ask a deep research question…",
+    deepResearchStart: "Start research",
+    deepResearchSynthesis: "Synthesis",
+    deepResearchFinding: "Finding",
+    deepResearchError: "Research failed",
+    deepResearchNetworkError: "Network error. Check your connection and try again.",
+    flowsLoadFailed: "Failed to load flows: {message}",
     graphInsightsTitle: "Graph insights",
     graphInsightsLoading: "Loading…",
     graphInsightsIntroBefore: "Architecture signals from",

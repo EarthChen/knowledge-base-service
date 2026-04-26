@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
+import { api } from "../../api/client";
 
 type Props = { pageUid: string; businessId: string };
 
@@ -11,17 +12,11 @@ export default function WikiPageFeedback({ pageUid, businessId }: Props) {
     if (sending) return;
     setSending(true);
     try {
-      const response = await fetch(
-        `/api/v1/wiki/pages/${encodeURIComponent(pageUid)}/feedback`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rating, business_id: businessId }),
-        }
-      );
-      if (response.ok) {
-        setSent(rating);
-      }
+      await api(`/wiki/pages/${encodeURIComponent(pageUid)}/feedback`, {
+        method: "POST",
+        body: JSON.stringify({ rating, business_id: businessId }),
+      });
+      setSent(rating);
     } catch {
       // Silently fail — feedback is non-critical
     } finally {

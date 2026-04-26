@@ -661,6 +661,15 @@ export interface Translations {
     askEndpointHelpAfter: string;
     askV2Footnote: string;
     deepResearchScopeNote: string;
+    /** Wiki tab — deep research panel */
+    deepResearchPlaceholder: string;
+    deepResearchStart: string;
+    deepResearchSynthesis: string;
+    deepResearchFinding: string;
+    deepResearchError: string;
+    deepResearchNetworkError: string;
+    /** Wiki tab — business flow graph */
+    flowsLoadFailed: string;
     graphInsightsTitle: string;
     graphInsightsLoading: string;
     graphInsightsIntroBefore: string;

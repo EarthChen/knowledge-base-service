@@ -2,11 +2,13 @@ import { useMemo } from "react";
 import { ReactFlow, Background, Controls, type Node, type Edge, ReactFlowProvider } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useBusinessFlows } from "../../hooks/useBusinessFlows";
+import { useI18n } from "../../i18n/context";
 
 type Props = { businessId: string };
 
 function FlowInner({ businessId }: Props) {
-  const { data, isLoading } = useBusinessFlows(businessId);
+  const { t } = useI18n();
+  const { data, isLoading, error } = useBusinessFlows(businessId);
 
   const nodes: Node[] = useMemo(() => {
     if (!data?.nodes) return [];
@@ -36,6 +38,18 @@ function FlowInner({ businessId }: Props) {
         className="flex h-64 items-center justify-center text-sm text-gray-400"
       >
         Loading flows...
+      </div>
+    );
+  }
+
+  if (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      <div
+        data-testid="flow-graph-container"
+        className="flex h-64 items-center justify-center text-sm text-red-600 dark:text-red-400"
+      >
+        {t.wiki.flowsLoadFailed.replace("{message}", message)}
       </div>
     );
   }

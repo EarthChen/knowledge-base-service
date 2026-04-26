@@ -459,6 +459,30 @@ export interface Translations {
     scheduledRegenStatus: string;
     scheduledRegenTip: string;
   };
+  configSettings: {
+    tabGeneral: string;
+    tabSystemConfig: string;
+    wikiFeaturesTitle: string;
+    wikiGenerationTitle: string;
+    wikiGitTitle: string;
+    llmTitle: string;
+    storageTitle: string;
+    embeddingTitle: string;
+    systemTitle: string;
+    saveChanges: string;
+    saving: string;
+    saved: string;
+    saveFailed: string;
+    testConnection: string;
+    testing: string;
+    connectionOk: string;
+    connectionFailed: string;
+    resetToDefault: string;
+    unsavedChanges: string;
+    sourceDb: string;
+    sourceEnv: string;
+    sourceDefault: string;
+  };
   webhook: {
     title: string;
     editConfig: string;

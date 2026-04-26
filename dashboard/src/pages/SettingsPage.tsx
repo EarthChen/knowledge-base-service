@@ -33,6 +33,7 @@ import type { Locale } from "../i18n/types";
 import type { SyncSchedule, SyncScheduleRequest, WebhookConfig } from "../api/types";
 import { useAuth } from "../contexts/AuthContext";
 import { SkeletonLine } from "../components/Skeleton";
+import SystemConfigPanel from "../components/settings/SystemConfigPanel";
 
 const LOCALE_OPTIONS: { value: Locale }[] = [{ value: "en" }, { value: "zh" }];
 
@@ -43,6 +44,7 @@ function schedulePath(repo: string) {
 const WEBHOOK_PROVIDERS = ["github", "gitlab", "gitea"] as const;
 
 export default function SettingsPage() {
+  const [activeTab, setActiveTab] = useState<"general" | "system">("general");
   const [tokenValue, setTokenValue] = useState(getToken());
   const [showToken, setShowToken] = useState(false);
   const { data: health, refetch } = useHealth();
@@ -271,6 +273,37 @@ export default function SettingsPage() {
         <Settings size={20} /> {t.settings.title}
       </h2>
 
+      <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
+        <button
+          type="button"
+          onClick={() => setActiveTab("general")}
+          className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === "general"
+              ? "border-sky-600 text-sky-700 dark:border-sky-400 dark:text-sky-300"
+              : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+          }`}
+        >
+          {t.configSettings.tabGeneral}
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("system")}
+          className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === "system"
+              ? "border-sky-600 text-sky-700 dark:border-sky-400 dark:text-sky-300"
+              : "border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+          }`}
+        >
+          {t.configSettings.tabSystemConfig}
+        </button>
+      </div>
+
+      {activeTab === "system" ? (
+        <SystemConfigPanel />
+      ) : null}
+
+      {activeTab === "general" ? (
+        <>
       <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
         <div className="flex items-center gap-2">
           <Globe size={16} className="text-gray-500 dark:text-gray-400" />
@@ -897,6 +930,8 @@ export default function SettingsPage() {
           </FocusTrap>
         </div>
       )}
+        </>
+      ) : null}
     </div>
   );
 }

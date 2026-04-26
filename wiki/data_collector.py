@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
-from wiki.models import CodeSnippet, ImportanceTier, SourceLocation
+from wiki.models import ChunkSnippet, CodeSnippet, ImportanceTier, SourceLocation
 from wiki.structure_planner import GraphQueryPort
 
 
@@ -182,6 +182,7 @@ class PageData:
     methods: list[GraphNode]
     code_snippets: list[CodeSnippet] = field(default_factory=list)
     importance_tier: ImportanceTier | None = None
+    related_chunks: list[ChunkSnippet] = field(default_factory=list)
 
 
 class WikiDataCollector:

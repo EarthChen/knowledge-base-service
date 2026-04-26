@@ -45,6 +45,19 @@ class CodeSnippet:
     origin: str  # "chunk" | "file" | "signature"
 
 
+@dataclass
+class ChunkSnippet:
+    """A semantically retrieved code chunk for RAG context enrichment."""
+
+    text: str
+    file_path: str
+    score: float
+    parent_name: str
+    parent_uid: str = ""
+    start_line: int = 0
+    end_line: int = 0
+
+
 _VALID_SCOPE_TYPES = frozenset({"repo", "module", "class", "business"})
 
 

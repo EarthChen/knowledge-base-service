@@ -499,6 +499,43 @@ class WikiStore:
             q, {"business_id": business_id, "view_type": view_type},
         )
 
+    async def get_wiki_pages_for_business(
+        self, business_id: str, min_tier: str = "skeleton"
+    ) -> list[dict[str, Any]]:
+        """Return all WikiPages under a business's WikiSpace tree."""
+        tier_filter = ""
+        if min_tier == "standard":
+            tier_filter = "AND wp.importance_tier IN ['core', 'standard'] "
+        elif min_tier == "core":
+            tier_filter = "AND wp.importance_tier = 'core' "
+
+        q = (
+            "MATCH (ws:WikiSpace {business_id: $business_id}) "
+            "MATCH (ws)-[:HAS_CHILD*1..10]->(wp:WikiPage) "
+            f"{tier_filter}"
+            "RETURN wp.uid AS uid, wp.title AS title, wp.path AS path, "
+            "wp.content AS content, wp.page_type AS page_type, "
+            "wp.repository AS repository, wp.importance_tier AS importance_tier, "
+            "coalesce(wp.content_hash, '') AS content_hash "
+            "ORDER BY wp.path"
+        )
+        result = await self._store.execute_query(
+            q, {"business_id": business_id}
+        )
+        rows: list[dict[str, Any]] = []
+        for row in result.data:
+            rows.append({
+                "uid": str(row.get("uid") or ""),
+                "title": str(row.get("title") or ""),
+                "path": str(row.get("path") or ""),
+                "content": str(row.get("content") or ""),
+                "page_type": str(row.get("page_type") or ""),
+                "repository": str(row.get("repository") or ""),
+                "importance_tier": str(row.get("importance_tier") or ""),
+                "content_hash": str(row.get("content_hash") or ""),
+            })
+        return rows
+
     async def get_wiki_page_references(self, page_uid: str) -> QueryResultWrapper:
         q = (
             "MATCH (s:WikiPage {uid: $uid})-[r:WIKI_REFERENCES]->(t:WikiPage) "

@@ -10,9 +10,10 @@ knowledge-base-service/
 ├── service.py              # KnowledgeBaseService 组合
 ├── service_registry.py     # 多租户图服务
 ├── api/
-│   ├── mcp_server.py       # MCP 清单 + KnowledgeBaseMCPHandler
+│   ├── mcp_server.py       # 主 MCP 清单 + KnowledgeBaseMCPHandler
+│   ├── mcp_wiki_server.py  # 可选：Wiki 专用五工具（与主清单分路由）
 │   ├── rate_limiter.py     # 令牌桶中间件
-│   └── routes/             # Wiki、Webhook、Provider 辅助路由
+│   └── routes/             # wiki_*（ingest、feedback、contradiction、mcp tools）、webhook 等
 ├── indexer/                # Tree-sitter → 图、增量索引、嵌入、Import 解析、配置文件解析（config_indexer.py）
 ├── store/                  # FalkorDB 存储层（所有 Cypher 查询集中在此）
 │   ├── falkordb_store.py   #   基础 CRUD、连接管理、Schema
@@ -24,7 +25,7 @@ knowledge-base-service/
 │   └── graph_queries.py    #   仓库管理、文档、架构层次
 ├── query/                  # 服务编排层（不含 Cypher，调用 store 层）；含 nl_cypher.py（NL→Cypher）
 ├── search/                 # RRF 融合辅助
-├── wiki/                   # Wiki 管道、MCP Wiki 工具、Webhook、调度器
+├── wiki/                   # 生成/检索/问答应、Ingest、lint、质量与记忆（见下）
 ├── llm/                    # OpenAI 兼容提供者
 ├── dashboard/              # React + Vite SPA（构建 → ../static）；含 pages/FileExplorer.tsx（文件树 + 源码查看）
 ├── tests/
@@ -33,6 +34,8 @@ knowledge-base-service/
 ├── Dockerfile
 └── README.md
 ```
+
+**`wiki/` 模块补充**：核心管线 `service.py`、`composer.py`、`search.py`、`ask.py`；增量与自动化 `incremental.py`、`change_detector.py`；v2 能力 `deep_research.py`、`memory_loop.py`、`memory_tiers.py`；质量 `confidence_scorer.py`、`confidence_inputs.py`、`lint.py`、`lint_scheduler.py`、`auto_healer.py`；Agent 文档 `agents_md_generator.py`；主 MCP 合并清单见 `mcp_tools.py`。图侧扩展含 `store/wiki_changelog.py`、`store/wiki_feedback_store.py`、`store/wiki_memory_store.py`、`store/wiki_qa_store.py` 等（以 `store/` 实际文件为准）。
 
 ## 开发环境搭建
 
@@ -86,12 +89,14 @@ uv run python -m pytest
 
 ## 新增 MCP 工具
 
-1. 在 `api/mcp_server.py` 的 `MCP_TOOLS_MANIFEST` 中追加清单条目（Wiki 相关工具则在 `wiki/mcp_tools.py` 的 `WIKI_MCP_TOOLS_MANIFEST`）。
-2. 若工具需要高于 Viewer 的权限，在 `MCP_TOOL_MIN_ROLE` 中添加（`Role.EDITOR` 或 `Role.ADMIN`）。
-3. 在 `KnowledgeBaseMCPHandler` 上实现异步处理方法（或委托给 `WikiMCPHandler`）。
-4. 在 `handle_tool_call` 内部的 `handlers` 字典中注册工具名。
-5. HTTP `POST /api/v1/mcp/tool` 通过已有路由自动可用；工具列表通过 `get_tools_manifest` 暴露。
-6. 在 `tests/test_mcp_*.py` 下添加测试。
+**主服务清单**（`GET /api/v1/mcp/tools` / `POST /api/v1/mcp/tool`）：
+
+1. 在 `api/mcp_server.py` 的 `MCP_TOOLS_MANIFEST` 中追加条目；Wiki 管线工具在 `wiki/mcp_tools.py` 的 `WIKI_MCP_TOOLS_MANIFEST` 末尾合并。
+2. 若工具需要高于 Viewer 的权限，在 `MCP_TOOL_MIN_ROLE` 中声明。
+3. 在 `KnowledgeBaseMCPHandler` 或 `WikiMCPHandler` 上实现处理函数并在 `handle_tool_call` 的 `handlers` 中注册。
+4. 在 `tests/test_mcp_*.py` 中覆盖。
+
+**Wiki 专用五工具**（`WIKI__MCP_SERVER_ENABLED`）：清单与路由在 `api/mcp_wiki_server.py`、`api/routes/wiki_mcp_routes.py`（`POST /api/v1/mcp/tools/call` 的请求体使用 `name` + `arguments`）；测试见 `tests/api/test_mcp_wiki_server.py`。
 
 ## 代码规范
 

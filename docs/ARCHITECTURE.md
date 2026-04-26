@@ -53,7 +53,14 @@ flowchart TB
 | **Tree-sitter** | 按文件 AST 捕获；每种语言的查询规则驱动 `CodeGraphBuilder` |
 | **嵌入**（Embeddings） | `EmbeddingConfig`：默认 `BAAI/bge-m3`，在多种节点标签上建立向量索引（参见 `store/schema.py` 中的 `VECTOR_INDEX_CONFIGS`） |
 | **LLM**（可选） | OpenAI 兼容 API，用于深度搜索、可选索引丰富化（`LLMConfig`） |
-| **MCP 处理器**（`api/mcp_server.py`） | 混合/图/索引/Wiki；**`get_file_content`** 读检出源文件；NL→Cypher 仅供 Dashboard UI 使用（`query/nl_cypher.py`，不暴露为 MCP 工具） |
+| **MCP 处理器**（`api/mcp_server.py`） | 混合/图/索引/Wiki（与 `wiki/mcp_tools.py` 合并清单）；**`get_file_content`** 读检出源文件；NL→Cypher 仅供 Dashboard UI 使用（`query/nl_cypher.py`，不暴露为 MCP 工具） |
+| **Wiki MCP 子服务**（`api/mcp_wiki_server.py`） | 可选；`WIKI__MCP_SERVER_ENABLED` 为 true 时注册 `mcp_wiki_server`，HTTP：`GET /api/v1/mcp/tools/list`、`POST /api/v1/mcp/tools/call`（五工具，见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)） |
+| **增量 Ingest** | `POST /api/v1/wiki/ingest` 按文件列表触发增量再生成；`GET /api/v1/wiki/changelog` 查仓库变更记录；`POST /api/v1/hooks/ingest/push` 在 Webhook 链路上触发自动 Ingest（与 `wiki/bootstrap` 中 `ChangeDetector` / `WikiChangeLogStore` 协同） |
+| **Lint 与自愈** | `wiki/lint.py`（`WikiLintService`）含质量 lint、可选**置信度重算**、**模式校验**；`wiki/lint_scheduler.py` 在 `WIKI__LINT_SCHEDULER_ENABLED` 下周期性跑 lint；`wiki/auto_healer.py` 在 `WIKI__AUTO_HEAL_ENABLED` 下做陈旧页标记、断链清理、孤儿页降级等 |
+| **知识质量引擎** | `wiki/confidence_scorer.py` + `confidence_inputs.py`：页级 `confidence_score`（0.0–1.0）；矛盾检测与 LLM 裁决图持久化；主张/版本/替代关系（`supersession`）与 `GET /api/v1/wiki/pages/claim-history` |
+| **记忆演化** | `wiki/memory_loop.py` 将问答沉淀为可检索记忆并注入生成上下文；`wiki/memory_tiers.py` 实现 Working→Episodic→Semantic→Procedural 分层与提升；`WIKI__FORGETTING_ENABLED` 时按保留曲线缓释优先级（不删节点） |
+| **深度研究与合并** | `wiki/deep_research.py`：`POST /api/v1/wiki/research` 多轮分解；概念合并候选在 `WIKI__CONCEPT_MERGING_ENABLED` 时经 `GET /api/v1/wiki/merge-candidates` 等暴露 |
+| **AGENTS.md** | `wiki/agents_md_generator.py` 从 Wiki 元数据生成供 AI Agent 阅读的结构化 Markdown（与导出/生成管线配合） |
 
 ## 索引管道
 
@@ -198,3 +205,18 @@ flowchart LR
 - **Phase 4**：跨仓域规划、从代码图自动生成交叉引用、域总览页组合；**`WikiService.generate_business_wiki()`**；**`POST /wiki/business/generate`**；**`GET /pages/{uid}/references`**。MCP 扩展：**`wiki_get_tree`**、**`wiki_get_related`**、**`wiki_get_domain_overview`**（与既有 Wiki MCP 工具并存，以服务端清单为准）。
 - **Phase 5**：`WikiLinkConverter` 将 `[[wikilink]]` 转为多种格式；`BusinessWikiExporter` 导出扁平文件树；`ObsidianExporter`（含 `.obsidian/`）、`MkDocsExporter`（含 `mkdocs.yml`）；`GitPublisher` 增量 Git 推送与注释回写；**`POST /wiki/export`**（`markdown` / `zip` / `git` / `obsidian` / `mkdocs` 等）。
 - **Phase 6**：`WikiCoverageAnalyzer` 覆盖率、知识缺口与陈旧检测；`SuggestedQuestionsGenerator` 模板化探索问题；**`GET /wiki/coverage-report`**。
+
+## SP3–SP6 与 LLM Wiki v2 扩展（概览）
+
+以下能力与 Phase 0–6 **正交**：通过 `WikiConfig`（环境前缀 `WIKI__`）与独立 HTTP/MCP 面启用；细节见 [wiki-generation-architecture.md](wiki-generation-architecture.md) 与 [DEPLOYMENT.md](DEPLOYMENT.md)。
+
+| 子系统 | 职责摘要 |
+|--------|----------|
+| **增量 Ingest** | 推代码后按路径增量再生成、changelog 可观测；与 Git Webhook 的 `/hooks/ingest/push` 集成 |
+| **MCP Wiki 五工具** | `wiki_search` / `wiki_explain` / `wiki_navigate` / `wiki_qa` / `wiki_impact`；与主清单分离，需 `WIKI__MCP_SERVER_ENABLED` |
+| **内联 Wikilink** | 正文 `[[EntityName]]` 在组合/导出时解析为 Markdown 链向已有 Wiki 页或占位 |
+| **业务流图** | `GET /api/v1/wiki/flows?business_id=` 提供节点（及预留边）供仪表盘 **xyflow** 渲染 |
+| **用户反馈** | `POST/GET .../pages/{page_uid}/feedback`；纳入置信度与质量信号（见 `WIKI__FEEDBACK_ENABLED`） |
+| **质量引擎（v2）** | 页级置信度、跨页矛盾（列表与 `acknowledge`/`resolve`）、主张历史与替代追踪 |
+| **记忆层 + 遗忘** | 四层记忆、晋升规则；Ebbinghaus 式稳定性降低检索权重而非删除 |
+| **Schema 校验** | `WIKI__SCHEMA_VALIDATION_ENABLED` 时用 `WIKI__SCHEMA_PATH`（默认 `wiki/schema.yaml`）在 lint 中校验页结构 |

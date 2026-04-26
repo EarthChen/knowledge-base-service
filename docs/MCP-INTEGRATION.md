@@ -1,27 +1,33 @@
 # MCP 集成
 
-服务通过 HTTP 暴露 **MCP 风格**的工具契约：
+服务通过 HTTP 暴露 **两种** MCP 风格契约（可并存）：
 
-- **列出工具**：`GET /api/v1/mcp/tools` — 返回与 `api/mcp_server.py` 中 `MCP_TOOLS_MANIFEST` 相同的清单（11 个基础工具 + 4 个 Wiki 工具 = **15 个**）。
-- **调用工具**：`POST /api/v1/mcp/tool`，请求体为 JSON `{"tool_name": "...", "arguments": { ... }}`（参见 `main.py` 中的 `MCPToolCallRequest`）。
+| 表面 | 列出 | 调用 | 工具数 |
+|------|------|------|--------|
+| **主服务 MCP** | `GET /api/v1/mcp/tools` | `POST /api/v1/mcp/tool`，体为 `{"tool_name":"...","arguments":{...}}` | **18**（`MCP_TOOLS_MANIFEST` 11 个 + `WIKI_MCP_TOOLS_MANIFEST` 7 个） |
+| **Wiki 专用 MCP** | `GET /api/v1/mcp/tools/list` | `POST /api/v1/mcp/tools/call`，体为 `{"name":"...","arguments":{...}}` | **5**；仅当 `WIKI__MCP_SERVER_ENABLED=true` 且已 `bootstrap_wiki` 时可用 |
 
-认证使用 `Authorization: Bearer <token>` 请求头（需配置 Token）。工具级角色检查在 `KnowledgeBaseMCPHandler.handle_tool_call` 中通过 `MCP_TOOL_MIN_ROLE` 实施。
+> 主清单在 `api/mcp_server.py` 末尾与 `wiki/mcp_tools.py` 的 `WIKI_MCP_TOOLS_MANIFEST` 合并；五工具定义在 `api/mcp_wiki_server.py` 的 `TOOL_DEFINITIONS`。
+
+认证使用 `Authorization: Bearer <token>`。主 MCP 工具级角色在 `KnowledgeBaseMCPHandler.handle_tool_call` 经 `MCP_TOOL_MIN_ROLE` 校验；Wiki 五工具与主路由相同，默认 **Viewer**（以服务端实现为准）。
 
 ## 角色模型
 
 | 角色 | HTTP / 含义 | MCP |
 |------|-------------|-----|
-| **VIEWER** | 只读 API 路由 | 除需要 Editor 的工具外，可调用所有工具 |
+| **VIEWER** | 只读 API 路由 | 除需要 Editor 的工具外，可调用主清单与 Wiki 五工具（若已启用） |
 | **EDITOR** | 索引、写操作 | `wiki_export`（最低要求）；索引通过 HTTP API 触发，不暴露为 MCP 工具 |
-| **ADMIN** | 业务管理、同步计划、破坏性操作 | MCP 无额外工具；用于 HTTP 管理路由 |
+| **ADMIN** | 业务管理、同步计划、破坏性操作 | MCP 无额外管理专用工具；用于 HTTP 管理路由 |
 
-**需要 Editor（或更高角色）的 MCP 工具：** `wiki_export`。其余所有工具仅需 **Viewer**。
+**需要 Editor（或更高角色）的 MCP 工具：** `wiki_export`。其余主清单与五工具在实现上为 **Viewer** 即可。
 
-## 工具参考（15 个工具）
+## 工具参考
 
-以下 **inputSchema** 与 `api/mcp_server.py` 和 `wiki/mcp_tools.py` 中 `MCP_TOOLS_MANIFEST` / `WIKI_MCP_TOOLS_MANIFEST` 嵌入的 JSON Schema 一致。
+### A. 主服务 MCP（18 个工具）
 
-### 1. `rag_query`
+第 1–11 为图谱/检索类，第 12–18 为 Wiki 管线类（`wiki/mcp_tools.py`）。
+
+#### 1. `rag_query`
 
 | | |
 |--|--|
@@ -57,7 +63,7 @@
 }
 ```
 
-### 2. `rag_graph`
+#### 2. `rag_graph`
 
 | | |
 |--|--|
@@ -93,7 +99,7 @@
 }
 ```
 
-### 3. `documents`
+#### 3. `documents`
 
 | | |
 |--|--|
@@ -101,7 +107,7 @@
 | **最低角色** | Viewer |
 | **参数** | `uid`（可选）、`repository`（列表时可选过滤）。 |
 
-### 4. `get_code_snippet`
+#### 4. `get_code_snippet`
 
 | | |
 |--|--|
@@ -109,7 +115,7 @@
 | **最低角色** | Viewer |
 | **参数** | `node_uid`（**必填**）。 |
 
-### 5. `get_file_content`
+#### 5. `get_file_content`
 
 | | |
 |--|--|
@@ -126,7 +132,7 @@
 
 路径经规范化后须落在仓库根内；检出路径异常时拒绝。二进制文件（内容探测含 `\x00`）拒绝读取。单次读取上限 **512KB**，超出截断并在响应中带 `truncated: true` 警告。
 
-### 6. `analyze_code`
+#### 6. `analyze_code`
 
 | | |
 |--|--|
@@ -134,7 +140,7 @@
 | **最低角色** | Viewer |
 | **参数** | `mode`：`quality` \| `consistency`（默认 `quality`）。quality 模式：`entity_uid`，可选 `entity_type`。consistency 模式：`repository`。 |
 
-### 7. `search_architecture`
+#### 7. `search_architecture`
 
 | | |
 |--|--|
@@ -142,7 +148,7 @@
 | **最低角色** | Viewer |
 | **参数** | `mode`：`layers` \| `endpoints`。`layers` 模式：`layer`（**必填**，枚举：presentation、business、data_access、rpc、messaging、infrastructure、model、unknown），可选 `repository`、`limit`、`offset`、`search`。`endpoints` 模式：可选 `repository`。 |
 
-### 8. `analyze_changes`
+#### 8. `analyze_changes`
 
 | | |
 |--|--|
@@ -150,7 +156,7 @@
 | **最低角色** | Viewer |
 | **参数** | `mode`（**必填**）。各模式特定参数：参见清单（diff/branch/repo_path、`changed_functions`、`node_name`、`changed_files` 等）。 |
 
-### 9. `get_complete_context`
+#### 9. `get_complete_context`
 
 | | |
 |--|--|
@@ -158,7 +164,7 @@
 | **最低角色** | Viewer |
 | **参数** | `entity_name`（**必填**），可选 `repository`、`max_tokens`（默认 8000）。 |
 
-### 10. `get_insights`
+#### 10. `get_insights`
 
 | | |
 |--|--|
@@ -166,7 +172,7 @@
 | **最低角色** | Viewer |
 | **参数** | `type`：`dashboard` \| `graph` \| `all`（默认 `dashboard`），`repository`（`graph` / `all` 必填）。 |
 
-### 11. `index_freshness`
+#### 11. `index_freshness`
 
 | | |
 |--|--|
@@ -174,7 +180,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）。 |
 
-### 12. `get_wiki_page`
+#### 12. `get_wiki_page`
 
 | | |
 |--|--|
@@ -182,7 +188,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）、`scope`（**必填**，如 `module:path` 或 `class:fqn`）。 |
 
-### 13. `list_wiki_pages`
+#### 13. `list_wiki_pages`
 
 | | |
 |--|--|
@@ -190,7 +196,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**），可选 `scope` 子树过滤。 |
 
-### 14. `search_wiki`
+#### 14. `search_wiki`
 
 | | |
 |--|--|
@@ -198,7 +204,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）、`query`（**必填**）、`mode`（`hybrid` 默认 / `graph` / `semantic` / `keyword`）、`limit`、`min_score`，可选 `scope`。 |
 
-### 15. `wiki_export`
+#### 15. `wiki_export`
 
 | | |
 |--|--|
@@ -206,13 +212,51 @@
 | **最低角色** | **Editor** |
 | **参数** | `repository`（**必填**）、`target_dir`（**必填**），可选 `selected_files`（路径数组）。 |
 
+#### 16. `wiki_get_tree`
+
+| | |
+|--|--|
+| **描述** | 按业务与视图拉取 Wiki 树（`business_domain` / `code_structure`），与 `GET /api/v1/wiki/tree` 同数据源。 |
+| **最低角色** | Viewer |
+| **参数** | `business_id`（默认 `default`）、`view`（枚举，默认 `business_domain`）。 |
+
+#### 17. `wiki_get_related`
+
+| | |
+|--|--|
+| **描述** | 某 Wiki 页的出链与反向交叉引用。 |
+| **最低角色** | Viewer |
+| **参数** | `page_uid`（**必填**，如 `WikiPage:repo:path`）。 |
+
+#### 18. `wiki_get_domain_overview`
+
+| | |
+|--|--|
+| **描述** | 指定业务域的域总览页内容/元数据。 |
+| **最低角色** | Viewer |
+| **参数** | `domain_name`（**必填**）、`business_id`（默认 `default`）。 |
+
+### B. Wiki 专用 MCP（5 个工具，`WIKI__MCP_SERVER_ENABLED=true`）
+
+**列出**：`GET /api/v1/mcp/tools/list` → `{"tools":[...]}`。**调用**：`POST /api/v1/mcp/tools/call`，体为 `{"name":"<工具名>","arguments":{...}}`；成功响应包在 `content[0].text` 的 JSON 字符串中（与 MCP 内容块约定一致）。
+
+| 工具 | 作用 | 主要参数（摘录） |
+|------|------|------------------|
+| `wiki_search` | Wiki/知识混合检索 | `query`（必填），`repository` 可选，`limit` 默认 5 |
+| `wiki_explain` | 针对某实体生成结构化说明 | `entity`、`repository`（均必填） |
+| `wiki_navigate` | 浏览 Wiki 树 | `repository`（必填），`path` 默认 `/` |
+| `wiki_qa` | 基于 wiki 的问答 | `question`、`repository`（均必填） |
+| `wiki_impact` | 文件变更对 Wiki/实体的影响 | `files`（路径数组）、`repository`（均必填） |
+
+> 五工具由 `MCPWikiServer` 将请求委托给 `WikiSearchService` / `WikiStore` / `WikiAskService` / `ChangeDetector`；未启用时上述端点返回 503（`MCP server not configured`）。
+
 ---
 
 ## Agent 集成模式
 
-1. **发现** — 认证后调用 `GET /api/v1/mcp/tools` 缓存工具清单（名称和 Schema）。
-2. **搜索后深入** — `rag_query` → 选取 `uid` → `get_code_snippet`，需要全文时用 **`get_file_content`**（路径 + 可选行范围）；图谱关系探索可用 **`rag_graph`**（`find_entity` / `call_chain` / `raw_cypher` / `blast_radius`）。
-3. **Wiki** — `list_wiki_pages` → `get_wiki_page` 或 `search_wiki`；使用 Editor Token 通过 `wiki_export` 导出。
+1. **发现** — 主 MCP：`GET /api/v1/mcp/tools`；若启用 Wiki MCP，再调 `GET /api/v1/mcp/tools/list` 合并本地缓存。
+2. **搜索后深入** — `rag_query` → 选取 `uid` → `get_code_snippet`；长文件用 **`get_file_content`**；图关系用 **`rag_graph`**。启用五工具时可用 **`wiki_search`** / **`wiki_explain`** 替代或补充主清单中的 `search_wiki` / 页面拉取组合。
+3. **Wiki 管线** — `list_wiki_pages` → `get_wiki_page` 或 `search_wiki`；或五工具 path：`wiki_navigate` → `wiki_qa`；导出仍需 **`wiki_export`**（Editor）或 HTTP `POST /api/v1/wiki/export`。
 
 > **注意**：索引操作（全量 / 增量）通过 Dashboard 或 HTTP API 端点触发，不暴露为 MCP 工具。
 

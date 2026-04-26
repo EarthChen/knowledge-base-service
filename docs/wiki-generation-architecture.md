@@ -1,12 +1,13 @@
 # Wiki 生成架构
 
-本文档描述**生成式 Wiki 页面**如何融入 Knowledge Base Service：从**索引代码图**和**嵌入**中获取输入，经过**组合管道**，自动化（Webhook、调度器），以及**混合 Wiki 搜索**与产品其他部分的关系。
+本文档描述**生成式 Wiki 页面**如何融入 Knowledge Base Service：从**索引代码图**和**嵌入**中获取输入，经过**组合管道**；在 **SP3–SP6** 起支持 **HTTP 增量子系统**、**双 MCP 面**、**质量与记忆（LLM Wiki v2）**；并说明自动化（Webhook、**Lint 调度**、**AutoHealer**）与 **混合 Wiki 搜索** 的关系。
 
 ## 目标
 
-- 将**索引属性图**（Tree-sitter → FalkorDB + 向量）转化为 **Markdown**（适当时包含 **Mermaid** 图表）和**稳定的源码位置交叉链接**。
-- 支持**增量再生成**、多种 **LLM 后端**（OpenAI 兼容），以及**仪表盘**浏览。
-- 暴露 **MCP 工具**（`get_wiki_page`、`list_wiki_pages`、`search_wiki`、`wiki_export`）与 HTTP Wiki 路由并行提供。
+- 将**索引属性图**（Tree-sitter → FalkorDB + 向量）转化为 **Markdown**（**Mermaid**、**`[[Wikilink]]` → 可点击 Markdown 链接**）和**稳定源码位置交叉链接**。
+- 支持**全量/增量**再生成、**Ingest+changelog** 可观测、多种 **LLM 后端**（OpenAI 兼容）与**仪表盘**浏览。
+- 暴露主 **MCP**（`mcp_server.py` + `wiki/mcp_tools.py` 共 18 个工具）与 **可选的 Wiki 专用 MCP 五工具**（`/api/v1/mcp/tools/*`）；与完整 HTTP `/api/v1/wiki/*` 面并行（详见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)）。
+- **LLM Wiki v2**：页级**置信度**、**跨页矛盾**、**主张/替代**、**记忆分层 + 遗忘**、**YAML 模式校验**（见下文专节）。
 
 ## 分层管道
 
@@ -105,7 +106,7 @@ sequenceDiagram
   participant Vec as 嵌入路径
   participant FTS as 全文路径
 
-  C->>S: POST /wiki/search
+  C->>S: POST /api/v1/wiki/search
   par 并行检索
     S->>G: 结构化 / 邻域扩展
     S->>Vec: 向量相似
@@ -121,10 +122,37 @@ sequenceDiagram
 
 可选 LLM 索引功能（**概念提取**、**业务流推断**）在 `LLMConfig` 中默认**关闭**；需要时显式启用。
 
-## 自动化（Webhook 和定时计划）
+## 增量 Ingest、Changelog 与自动 Ingest
 
-- **Webhook**：`api/routes/webhook_routes.py`，路径 `/api/v1/hooks/{provider}`，包含签名验证和推送防抖处理。
-- **调度器**：`wiki/scheduler/` 协调定期再生成，与 **`TaskLock`** 协作确保 Webhook 触发和定时任务不会并发损坏同一导出。
+- **`POST /api/v1/wiki/ingest`**：按变更文件集合触发**增量**再生成/修补（与 `ChangeDetector`、任务锁配合，避免全库重写）。
+- **`GET /api/v1/wiki/changelog?repository=...`**：读 `WikiChangeLogStore` 中的近期变更记录，便于排障与审计。
+- **`POST /api/v1/hooks/ingest/push`**：接收类 GitHub `push` 的载荷，在 Webhook 已启用时**自动**触发与 Ingest 等价的处理链。
+
+开关与图可用性以运行时 `bootstrap_wiki` 与存储为准；若未配置，路由返回 503/空表（与测试一致）。
+
+## 深度研究、反馈与 Q&A 记忆
+
+- **深度研究**：`POST /api/v1/wiki/research`（`WIKI__DEEP_RESEARCH_ENABLED`）在 `wiki/deep_research.py` 中做多轮子问题分解与综合，依赖 `LLM__ENABLED` 与 Ask 服务。
+- **用户反馈**：`POST /api/v1/wiki/pages/{page_uid}/feedback`、**`GET .../feedback/summary`** 写入/汇总图上的反馈，供**置信度**子分数使用（`wiki/confidence_inputs.py`）。
+- **Memory Loop**：`wiki/memory_loop.py` 对问答做嵌入检索与注入；生成管线在组稿时**拼接相关记忆**到上下文中。若启用 **`WIKI__MEMORY_TIERS_ENABLED`**，由 `wiki/memory_tiers.py` 维护 **Working → Episodic → Semantic → Procedural** 晋升规则；**`WIKI__FORGETTING_ENABLED`** 时依访问与稳定性**降低**低优先记忆的排序权重（Ebbinghaus 风格，**不物理删除**节点）。初值与 **`WIKI__FORGETTING_INITIAL_STABILITY`** 对齐 `WikiConfig`。
+- **概念合并**：`WIKI__CONCEPT_MERGING_ENABLED` 时，跨仓库实体经嵌入相似度与阈值 **`WIKI__CONCEPT_MERGE_SIMILARITY_THRESHOLD`** 产出候选，HTTP **`GET /api/v1/wiki/merge-candidates`**（详见路由实现）。
+- **内联 `[[Wikilink]]` 与 AGENTS.md**：组合器/链接器将 `[[EntityName]]` 解析为指向已有 `WikiPage` 的 Markdown 链接；`wiki/agents_md_generator.py` 从元数据生成 **AGENTS 风格**说明文档，供仓库内 Agent 与导出物阅读。
+
+**业务流图**：`GET /api/v1/wiki/flows?business_id=...` 返回 `BusinessFlow` 节点列表；仪表盘以 **@xyflow/react** 作图，与 Phase 4 的流推理数据一致。
+
+## LLM Wiki v2：质量、矛盾与主张
+
+- **置信度（0.0–1.0）**：`WIKI__CONFIDENCE_SCORING_ENABLED` 时，在生成后及 lint 中由 `wiki/confidence_scorer.py` 依来源覆盖、**新鲜度**、**用户反馈**、**交叉引用**、**矛盾罚分**等加权（权重 **`WIKI__CONFIDENCE_WEIGHT_W1`–`W5`**）计算，回写 `WikiPage.confidence_score`。
+- **矛盾检测**：`WIKI__CONTRADICTION_DETECTION_ENABLED` 时跨页发现陈述冲突，经 LLM **judge** 后持久化；**`GET /api/v1/wiki/contradictions?...`** 列出与页关联的记录，**`PATCH /api/v1/wiki/contradictions/{uid}/acknowledge|resolve`**（Editor）做工作流状态迁移。
+- **主张 / 替代 / 版本**：`WIKI__SUPERSESSION_TRACKING_ENABLED` 时维护主张链与**替代**关系；**`GET /api/v1/wiki/pages/claim-history`** 拉取与页相关的主张与版本记录（`store/wiki_claim_store` 等）。
+- **模式校验**：`WIKI__SCHEMA_VALIDATION_ENABLED` 时，`WikiLintService` 用 **`WIKI__SCHEMA_PATH`** 指向的 YAML 校验生成页**区块结构**，与 `WIKI__STALE_DETECTION_ENABLED` 等 lint 门组合使用。
+
+## 自动化（Webhook、Wiki 调度、Lint 调度、AutoHealer）
+
+- **通用 Webhook**：`api/routes/webhook_routes.py`，**`/api/v1/hooks/{provider}`** 等，签名与防抖；另见 **`/api/v1/hooks/ingest/push`**（上文）。
+- **Wiki 调度器**：`wiki/scheduler/` 协调定期**再生成/导出**计划，与 **`TaskLock`** 互斥，避免与 Ingest/Webhook 并发写同一树。
+- **LintScheduler**（`wiki/lint_scheduler.py`）：`WIKI__LINT_SCHEDULER_ENABLED=true` 时按 **`WIKI__LINT_SCHEDULER_INTERVAL_HOURS`** 周期调用 `WikiLintService`（可含**置信度重算**、**模式校验**、**矛盾**相关后处理，视功能开关而定）。
+- **AutoHealer**（`wiki/auto_healer.py`）：`WIKI__AUTO_HEAL_ENABLED` 时由 lint 或调度触发，执行**陈旧页打标**、**断链清理**、**孤儿页**降级等图内修复，均通过已有 Store 与 Cypher 完成。
 
 ## 相关模块
 
@@ -132,15 +160,21 @@ sequenceDiagram
 |--------|------|
 | 模型 / 作用域 | `wiki/models.py`、`wiki/context.py` |
 | 延迟 Enrichment | `wiki/deferred_enrichment.py` |
-| 规划 / 组合 | `wiki/structure_planner.py`、`wiki/data_collector.py`、`wiki/composer.py`、`wiki/diagram_gen.py` |
+| 规划 / 组合 / 内链 | `wiki/structure_planner.py`、`wiki/data_collector.py`、`wiki/composer.py`、`wiki/diagram_gen.py`、链接转换相关模块 |
 | 仓库级 / 增量 | `wiki/repo_composer.py`、`wiki/incremental.py`、`wiki/disk_exporter.py`、`wiki/persistent_cache.py` |
-| 搜索 / 问答 | `wiki/search.py`、`wiki/ask.py` |
-| MCP Wiki 接口 | `wiki/mcp_tools.py`（清单在 `api/mcp_server.py` 中合并） |
-| HTTP 路由 | `api/routes/wiki_routes.py`、`api/routes/provider_routes.py` |
-| 仪表盘 | `dashboard/src/pages/`（Wiki 相关视图） |
+| 搜索 / 问答 / 深度研究 | `wiki/search.py`、`wiki/ask.py`、`wiki/deep_research.py` |
+| 质量 v2 | `wiki/confidence_scorer.py`、`wiki/confidence_inputs.py`、`store/wiki_contradiction_store.py`、`store/wiki_claim_store.py` |
+| 记忆与遗忘 | `wiki/memory_loop.py`、`wiki/memory_tiers.py`、`store/wiki_qa_store.py`、`store/wiki_memory_store.py` |
+| Lint / 自愈 / 调度 | `wiki/lint.py`、`wiki/lint_scheduler.py`、`wiki/auto_healer.py` |
+| 变更与 Ingest | `wiki/change_detector.py`、`store/wiki_changelog.py` |
+| Agent 文档 | `wiki/agents_md_generator.py` |
+| MCP | `wiki/mcp_tools.py` + `api/mcp_server.py`；可选 **`api/mcp_wiki_server.py`** |
+| HTTP 路由 | `api/routes/wiki_routes.py`（聚合）、`api/routes/wiki_*_routes.py`、`api/routes/provider_routes.py` |
+| 仪表盘 | `dashboard/src/pages/`（含 Wiki、**业务流/xyflow** 视图） |
 
-## MCP 工具（Wiki）
+## MCP 与 HTTP 的权威来源
 
-核心 Wiki 工具注册在 **`WIKI_MCP_TOOLS_MANIFEST`** 中：**`get_wiki_page`**、**`list_wiki_pages`**、**`search_wiki`**、**`wiki_export`**。Phase 4 起增加树与域相关能力：**`wiki_get_tree`**、**`wiki_get_related`**、**`wiki_get_domain_overview`**（与上述工具一并以便 Agent 拉取业务视图、关联页与域总览）。HTTP 组合目录通过 **`GET /api/v1/mcp/tools`** 获取 — 以此为工具名称和 Schema 的权威来源。**`wiki_export`** 至少需要 **Editor** 角色。
+- 主服务 **18 个** MCP 工具（含 7 个 `WIKI_MCP_*`）见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md) § A；**`GET /api/v1/mcp/tools`** 为唯一合并清单。
+- 可选 **5 个** Wiki 工具（`wiki_search` 等）见同文档 § B；**`WIKI__MCP_SERVER_ENABLED`**，端点 **`/api/v1/mcp/tools/list`** / **`/api/v1/mcp/tools/call`**。
 
-跨功能分析工具中结合 Wiki 与变更影响分析的，参见 **`analyze_changes`** 的 `impact_scope` 和 `wiki_pr_impact` 模式，详见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)。
+跨功能分析另见主 MCP 的 **`analyze_changes`**（`wiki_pr_impact` 等）。

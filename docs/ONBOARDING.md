@@ -22,6 +22,23 @@
 
 界面是 **React + Vite** SPA：重型图表和图形代码仅在打开对应路由时加载。
 
+## 功能速查（SP3–SP6 与 LLM Wiki v2）
+
+以下均为 **Viewer 默认可调** 的只读能力（写操作与索引需 **Editor** 或配置要求见各文档）。环境开关统一为 `WIKI__*` / `LLM__*`，见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+
+| 目标 | 入口 |
+|------|--------|
+| 增量 Ingest 与变更可观测 | `POST /api/v1/wiki/ingest`、`GET /api/v1/wiki/changelog`；Git 侧可配 `POST /api/v1/hooks/ingest/push` |
+| Wiki 内搜索 / 全局 Wiki 搜索 | `POST /api/v1/wiki/search`、`POST /api/v1/wiki/search/global`（参数见 OpenAPI） |
+| 问答应与深度研究 | `POST /api/v1/wiki/ask`（流式等）；`POST /api/v1/wiki/research`（需 `WIKI__DEEP_RESEARCH_ENABLED`） |
+| 业务流可视化（数据 + 前端 xyflow） | `GET /api/v1/wiki/flows?business_id=<id>`，仪表盘在 Wiki 相关视图中使用 |
+| 页级质量与矛盾 | `GET /api/v1/wiki/quality-score`；`GET /api/v1/wiki/contradictions?...`（矛盾检测需 `WIKI__CONTRADICTION_DETECTION_ENABLED`） |
+| 主张 / 版本历史 | `GET /api/v1/wiki/pages/claim-history?page_uid=...`（需 `WIKI__SUPERSESSION_TRACKING_ENABLED`） |
+| 用户反馈 | `POST /api/v1/wiki/pages/{page_uid}/feedback`、`GET .../feedback/summary` |
+| 概念合并候选 | `GET /api/v1/wiki/merge-candidates?business_id=...`（需 `WIKI__CONCEPT_MERGING_ENABLED`） |
+| 主 MCP 与 Wiki 五工具 | 主服务：`GET /api/v1/mcp/tools`；独立 Wiki MCP（需 `WIKI__MCP_SERVER_ENABLED`）：`GET /api/v1/mcp/tools/list` — 详见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md) |
+| AI 用 AGENTS 文档 | 由 `wiki/agents_md_generator` 在生成/导出侧产出，与其它 Wiki 页一并浏览或经 MCP 拉取 |
+
 ## 文件浏览器
 
 在导航进入 **文件浏览器**，先选仓库，再按树形结构打开源文件。右侧面板展示高亮源码；解析出的函数/类等实体在行旁显示，可从快捷入口前往图谱、混合搜索或 Wiki。**须已完成该仓库索引**，且服务端能解析到检出路径（与同仓库其它能力一致）。
@@ -77,9 +94,9 @@
 ## 与 AI Agent 集成（MCP）
 
 1. **Token** — 创建 `viewer` 或 `editor` Token（`tokens.yaml` 或 `API_TOKENS`）。
-2. **列出工具** — `GET /api/v1/mcp/tools`，带 `Authorization: Bearer <token>`。
-3. **调用** — `POST /api/v1/mcp/tool`，请求体 `{"tool_name":"rag_query","arguments":{...}}`。
-4. **租户** — 使用多租户图时，通过无绑定 Admin Token 传入 `X-Business-Id: your-tenant`。
+2. **主清单** — `GET /api/v1/mcp/tools`（**18** 个工具：11 个图谱/检索 + 7 个 Wiki 管线）+ `POST /api/v1/mcp/tool`，请求体 `{"tool_name":"...","arguments":{...}}`。
+3. **Wiki 五工具**（可选）— 设置 `WIKI__MCP_SERVER_ENABLED=true` 后：`GET /api/v1/mcp/tools/list`，调用 `POST /api/v1/mcp/tools/call`，JSON 体为 `{"name":"<tool>","arguments":{...}}`（与主路由字段名不同，见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)）。
+4. **租户** — 多租户图时通过 `X-Business-Id: your-tenant` 选择图（与 Token 能力一致时）。
 
 完整工具列表和 Schema：[MCP-INTEGRATION.md](MCP-INTEGRATION.md)。
 

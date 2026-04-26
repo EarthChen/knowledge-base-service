@@ -74,12 +74,43 @@
 
 ### Wiki 功能开关（`WIKI__*`）
 
+以下由 `config.py` 中 `WikiConfig` 定义；与既有 Phase 1–4、导出、覆盖率等开关并列，未重复列出者仍以代码为准。
+
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `WIKI__COT_ENABLED` | `false` | 链式思维风格开关 |
 | `WIKI__COT_ANALYSIS_MODEL` | `""` | 分析模型覆盖 |
 | `WIKI__COT_GENERATION_MODEL` | `""` | 生成模型覆盖 |
 | `WIKI__AUTO_UPDATE_ON_INDEX` | `false` | 索引后自动刷新 Wiki |
+| `WIKI__MCP_SERVER_ENABLED` | `false` | 为 true 时启用独立 Wiki MCP：`GET /api/v1/mcp/tools/list`、`POST /api/v1/mcp/tools/call`（五工具） |
+| `WIKI__LINT_SCHEDULER_ENABLED` | `false` | 为 true 时启动后台 `LintScheduler`，按间隔周期跑 Wiki lint |
+| `WIKI__LINT_SCHEDULER_INTERVAL_HOURS` | `6` | 调度周期间隔（小时） |
+| `WIKI__FEEDBACK_ENABLED` | `true` | 用户反馈与置信度输入相关逻辑的总开关（`WikiConfig`；与 `GET/POST .../feedback` 及 `confidence_inputs` 的联动以当前代码为准） |
+| `WIKI__AUTO_HEAL_ENABLED` | `false` | 为 true 时允许 `AutoHealer` 在 lint/调度中执行陈旧页标记、断链清理、孤儿页降级等 |
+| `WIKI__DEEP_RESEARCH_ENABLED` | `false` | 为 true 时开放 `POST /api/v1/wiki/research`（多轮研究管线） |
+| `WIKI__CONCEPT_MERGING_ENABLED` | `false` | 为 true 时启用跨仓实体相似与合并候选（如 `GET /api/v1/wiki/merge-candidates`） |
+| `WIKI__CONCEPT_MERGE_SIMILARITY_THRESHOLD` | `0.9` | 概念合并相似度阈值（0.0–1.0） |
+| `WIKI__CONFIDENCE_SCORING_ENABLED` | `false` | 为 true 时计算并回写 `WikiPage.confidence_score`（0.0–1.0，来源/新鲜度/反馈等综合） |
+| `WIKI__CONTRADICTION_DETECTION_ENABLED` | `false` | 为 true 时启用跨页矛盾检测、列表与状态流转 API |
+| `WIKI__SUPERSESSION_TRACKING_ENABLED` | `false` | 为 true 时持久化主张/版本/替代并开放 `GET /api/v1/wiki/pages/claim-history` |
+| `WIKI__MEMORY_TIERS_ENABLED` | `false` | 为 true 时启用四层记忆模型与 `WikiQA` 上的分层晋升逻辑 |
+| `WIKI__FORGETTING_ENABLED` | `false` | 为 true 时按保留曲线降低低稳定性记忆的检索优先级（不删除图节点） |
+| `WIKI__SCHEMA_VALIDATION_ENABLED` | `false` | 为 true 时在 lint 中按 YAML 校验 Wiki 页结构 |
+| `WIKI__SCHEMA_PATH` | `wiki/schema.yaml` | 结构定义文件路径（相对仓库工作目录或部署约定根） |
+| `WIKI__FORGETTING_INITIAL_STABILITY` | `7.0` | 遗忘曲线初始稳定性参数（天尺度，与实现一致） |
+
+**可选权重与矛盾调参**（与 `WikiConfig` 一致）：`WIKI__CONFIDENCE_WEIGHT_W1` … `WIKI__CONFIDENCE_WEIGHT_W5`（默认约 0.30 / 0.25 / 0.25 / 0.20，**W5 默认 1.0** 为惩罚系数用途）、`WIKI__CONTRADICTION_SIMILARITY_THRESHOLD`（默认 `0.75`）。生产环境请结合 `LLM__ENABLED` 与具体 Provider 再开启深度研究、矛盾裁决等能力。
+
+**配置示例**（开发机启用 Wiki MCP、周期 lint、置信度与矛盾检测）：
+
+```bash
+WIKI__MCP_SERVER_ENABLED=true
+WIKI__LINT_SCHEDULER_ENABLED=true
+WIKI__LINT_SCHEDULER_INTERVAL_HOURS=6
+WIKI__CONFIDENCE_SCORING_ENABLED=true
+WIKI__CONTRADICTION_DETECTION_ENABLED=true
+LLM__ENABLED=true
+```
 
 ### 混合搜索（`HYBRID_SEARCH__*`）
 

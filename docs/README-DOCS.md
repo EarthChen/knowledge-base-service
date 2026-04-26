@@ -12,6 +12,7 @@
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 目录结构、`uv` / `pnpm`、测试、新增语言与 MCP 工具 |
 | [ONBOARDING.md](ONBOARDING.md) | 产品导览、首次索引、搜索技巧、MCP 设置 |
 | [wiki-generation-architecture.md](wiki-generation-architecture.md) | Wiki 生成栈、Phase 0–6 扩展、搜索、Webhook、定时器 |
+| [superpowers/specs/2026-04-26-llm-wiki-full-upgrade-design.md](superpowers/specs/2026-04-26-llm-wiki-full-upgrade-design.md) | LLM Wiki 全面升级设计（SP1-SP6：架构加固、增量 Ingest、Agent/MCP、质量闭环、知识编译） |
 
 ## 技术栈概览
 

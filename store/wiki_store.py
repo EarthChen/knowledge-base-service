@@ -292,6 +292,36 @@ class WikiStore:
         q = "MATCH (wp:WikiPage {repository: $repo, path: $path}) RETURN wp LIMIT 1"
         return await self._store.execute_query(q, {"repo": repository, "path": path})
 
+    # --- Phase 1: Code-aware queries ---
+
+    async def find_chunks_by_parent_uid(self, parent_uid: str) -> QueryResultWrapper:
+        """Find all Chunk nodes linked to a parent via PART_OF edge, ordered by chunk_index."""
+        q = (
+            "MATCH (c:Chunk)-[:PART_OF]->(p) "
+            "WHERE p.uid = $parent_uid "
+            "RETURN c.text AS text, c.file AS file, "
+            "c.start_line AS start_line, c.end_line AS end_line, "
+            "coalesce(c.chunk_index, 0) AS chunk_index "
+            "ORDER BY chunk_index"
+        )
+        return await self._store.execute_query(q, {"parent_uid": parent_uid})
+
+    async def score_all_entities(self, repository: str) -> QueryResultWrapper:
+        """Single Cypher query to get degree data for all MODULE/CLASS nodes in a repository."""
+        q = (
+            "MATCH (n) WHERE n.repository = $repo AND (n:Module OR n:Class) "
+            "OPTIONAL MATCH (n)<-[in_e]-() "
+            "OPTIONAL MATCH (n)-[out_e]->() "
+            "OPTIONAL MATCH (n)-[:CONTAINS]->(child) "
+            "RETURN n.uid AS uid, labels(n)[0] AS label, "
+            "coalesce(n.start_line, 0) AS start_line, "
+            "coalesce(n.end_line, 0) AS end_line, "
+            "count(DISTINCT in_e) AS in_degree, "
+            "count(DISTINCT out_e) AS out_degree, "
+            "count(DISTINCT child) AS children_count"
+        )
+        return await self._store.execute_query(q, {"repo": repository})
+
     # --- Wiki tree structure CRUD ---
 
     _TREE_ALLOWED_LABELS = frozenset({"WikiSpace", "WikiSection", "WikiPage"})

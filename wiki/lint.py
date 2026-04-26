@@ -105,6 +105,12 @@ class WikiLintService:
             return False
         return bool(getattr(c, "confidence_scoring_enabled", False))
 
+    def _lint_forgetting_enabled(self) -> bool:
+        c = self._wiki_config
+        if c is None:
+            return False
+        return bool(getattr(c, "forgetting_enabled", False))
+
     async def lint(self, repository: str, *, scope: str = "all") -> LintReport:
         conf_n = 0
         if self._lint_confidence_enabled():
@@ -118,6 +124,7 @@ class WikiLintService:
                 wiki_store=self._wiki_store,
                 scorer=scorer,
             )
+        self._forgetting_status_updates = 0
         checks = await asyncio.gather(
             self._check_staleness(repository),
             self._check_orphans(repository),
@@ -125,15 +132,18 @@ class WikiLintService:
             self._check_coverage_gaps(repository),
             self._check_outdated_content(repository),
             self._check_contradictions(repository),
+            self._check_forgetting(repository),
         )
         issues = [issue for group in checks for issue in group]
         issues = self._filter_by_scope(issues, scope)
+        forget_n = int(getattr(self, "_forgetting_status_updates", 0) or 0)
         stats: dict[str, int] = {
             "total": len(issues),
             "errors": 0,
             "warnings": 0,
             "info": 0,
             "confidence_recalibrated": conf_n,
+            "memory_status_updated": forget_n,
         }
         for issue in issues:
             if issue.severity == "error":
@@ -189,17 +199,26 @@ class WikiLintService:
 
     def _pages_from_cache(self, repository: str) -> list[dict[str, Any]]:
         assert self._cache is not None
-        return [self._wiki_page_to_row(p) for p in self._cache.list_pages_for_repository(repository)]
+        out: list[dict[str, Any]] = []
+        for p in self._cache.list_pages_for_repository(repository):
+            row = self._wiki_page_to_row(p)
+            row["uid"] = f"WikiPage:{repository}:{p.path}"
+            out.append(row)
+        return out
 
     @staticmethod
     def _wiki_page_to_row(p: WikiPage) -> dict[str, Any]:
         ga = p.metadata.generated_at
         return {
+            "uid": "",
             "path": p.path,
             "title": p.title,
             "content": p.content,
+            "page_type": p.page_type.value,
             "generated_at": ga or "",
             "referenced_entity_uids": [],
+            "stability_factor": None,
+            "last_accessed": "",
         }
 
     async def _check_staleness(self, repository: str) -> list[LintIssue]:
@@ -446,4 +465,93 @@ class WikiLintService:
                     entity_name=rec.page_uid_a,
                 ),
             )
+        return found
+
+    async def _check_forgetting(self, repository: str) -> list[LintIssue]:
+        """Ebbinghaus retention: set ``memory_status`` on WikiPage; never delete nodes."""
+        if not self._lint_forgetting_enabled():
+            return []
+        from store.schema import NodeLabel
+        from wiki.forgetting import ARCHIVE_THRESHOLD, FADE_THRESHOLD, compute_retention
+
+        initial_s = float(
+            getattr(self._wiki_config, "forgetting_initial_stability", 7.0) or 7.0,
+        )
+        now = datetime.now(timezone.utc)
+        pages = await self._wiki_pages_for_repo(repository)
+        found: list[LintIssue] = []
+        n_updates = 0
+        for p in pages:
+            uid = str(p.get("uid") or "").strip()
+            if not uid:
+                path = str(p.get("path") or "")
+                if repository and path:
+                    uid = f"WikiPage:{repository}:{path}"
+            if not uid:
+                continue
+            raw_last = str(p.get("last_accessed") or "").strip()
+            raw_gen = str(p.get("generated_at") or "").strip()
+            anchor_s = raw_last or raw_gen
+            if not anchor_s:
+                continue
+            try:
+                anchor = datetime.fromisoformat(anchor_s.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if anchor.tzinfo is None:
+                anchor = anchor.replace(tzinfo=timezone.utc)
+            elapsed_days = (now - anchor).total_seconds() / 86400.0
+            sf_raw = p.get("stability_factor")
+            try:
+                s_val = float(sf_raw) if sf_raw is not None else 0.0
+            except (TypeError, ValueError):
+                s_val = 0.0
+            stability = initial_s if s_val <= 0 else s_val
+            r = compute_retention(elapsed_days, stability)
+            if r < ARCHIVE_THRESHOLD:
+                new_status = "archived"
+            elif r < FADE_THRESHOLD:
+                new_status = "faded"
+            else:
+                new_status = "active"
+            updater = getattr(self._wiki_store, "update_node_property", None)
+            if updater is None:
+                log.warning("forgetting_update_skipped_no_updater", uid=uid)
+                continue
+            try:
+                await updater(
+                    NodeLabel.WIKI_PAGE,
+                    uid,
+                    "memory_status",
+                    new_status,
+                )
+            except (ValueError, TypeError) as ex:
+                log.warning("forgetting_status_update_failed", uid=uid, err=str(ex))
+                continue
+            n_updates += 1
+            if new_status == "faded":
+                found.append(
+                    LintIssue(
+                        severity="info",
+                        category="memory_retention",
+                        message=(
+                            f"Forgetting: retention {r:.3f} < {FADE_THRESHOLD} "
+                            f"— page marked memory_status=faded (deprioritized in search)"
+                        ),
+                        page_path=str(p.get("path") or "") or None,
+                    ),
+                )
+            elif new_status == "archived":
+                found.append(
+                    LintIssue(
+                        severity="warning",
+                        category="memory_retention",
+                        message=(
+                            f"Forgetting: retention {r:.3f} < {ARCHIVE_THRESHOLD} "
+                            f"— page marked memory_status=archived (deprioritized in search)"
+                        ),
+                        page_path=str(p.get("path") or "") or None,
+                    ),
+                )
+        self._forgetting_status_updates = n_updates
         return found

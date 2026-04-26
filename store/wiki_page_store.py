@@ -77,9 +77,13 @@ class WikiPageStoreMixin:
     async def list_wiki_pages_for_repo(self, repository: str) -> QueryResultWrapper:
         q = (
             "MATCH (wp:WikiPage {repository: $repository}) "
-            "RETURN wp.path AS path, wp.title AS title, wp.content AS content, "
+            "RETURN coalesce(wp.uid, '') AS uid, wp.path AS path, "
+            "wp.title AS title, wp.content AS content, "
+            "coalesce(wp.page_type, '') AS page_type, "
             "coalesce(wp.generated_at, '') AS generated_at, "
-            "coalesce(wp.referenced_entity_uids, []) AS referenced_entity_uids"
+            "coalesce(wp.referenced_entity_uids, []) AS referenced_entity_uids, "
+            "wp.stability_factor AS stability_factor, "
+            "coalesce(wp.last_accessed, '') AS last_accessed"
         )
         return await self._store.execute_query(q, {"repository": repository})
 

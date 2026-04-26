@@ -55,6 +55,7 @@ async def test_lint_includes_confidence_recalibrated_count_when_flag_on(
         "_check_coverage_gaps",
         "_check_outdated_content",
         "_check_contradictions",
+        "_check_forgetting",
     ):
         monkeypatch.setattr(svc, name, AsyncMock(return_value=[]))
 
@@ -78,6 +79,7 @@ async def test_lint_skips_confidence_recal_when_flag_off() -> None:
         "_check_coverage_gaps",
         "_check_outdated_content",
         "_check_contradictions",
+        "_check_forgetting",
     ):
         setattr(svc, m, AsyncMock(return_value=[]))
     report = await svc.lint("r1", scope="all")

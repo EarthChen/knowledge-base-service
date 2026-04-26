@@ -224,6 +224,7 @@ class FalkorDBStore:
     _ALLOWED_PROPERTIES = frozenset({
         "business_summary", "description", "embedding", "fqn",
         "confidence_score", "category", "source", "aliases",
+        "memory_status", "stability_factor", "last_accessed",
     })
 
     async def update_node_property(

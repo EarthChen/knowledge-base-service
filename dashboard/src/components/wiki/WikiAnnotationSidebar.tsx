@@ -1,5 +1,6 @@
 import { Trash2 } from "lucide-react";
 import type { WikiAnnotation } from "../../hooks/wikiTypes";
+import { useI18n } from "../../i18n/context";
 
 interface WikiAnnotationSidebarProps {
   annotations: WikiAnnotation[];
@@ -12,10 +13,11 @@ export default function WikiAnnotationSidebar({
   onDelete,
   isDeleting,
 }: WikiAnnotationSidebarProps) {
+  const { t } = useI18n();
   if (annotations.length === 0) {
     return (
       <p className="px-4 py-6 text-center text-xs text-gray-500 dark:text-gray-400">
-        No annotations yet. Select text to add one.
+        {t.wiki.annotationsEmpty}
       </p>
     );
   }
@@ -36,6 +38,7 @@ export default function WikiAnnotationSidebar({
               type="button"
               onClick={() => onDelete(a.annotation_id)}
               disabled={isDeleting}
+              aria-label={t.wiki.annotationDelete}
               className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950 dark:hover:text-red-400"
             >
               <Trash2 size={12} />

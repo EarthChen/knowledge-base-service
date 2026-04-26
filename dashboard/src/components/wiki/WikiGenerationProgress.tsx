@@ -1,11 +1,13 @@
 import { Loader2, CheckCircle, XCircle } from "lucide-react";
 import type { WikiEventType } from "../../hooks/wikiTypes";
+import { useI18n } from "../../i18n/context";
 
 interface WikiGenerationProgressProps {
   status: WikiEventType | null;
 }
 
 export default function WikiGenerationProgress({ status }: WikiGenerationProgressProps) {
+  const { t } = useI18n();
   if (!status) return null;
 
   const isRunning = status === "wiki:generation_started";
@@ -26,9 +28,9 @@ export default function WikiGenerationProgress({ status }: WikiGenerationProgres
       {isDone && <CheckCircle size={16} />}
       {isFailed && <XCircle size={16} />}
       <span>
-        {isRunning && "Wiki generation in progress..."}
-        {isDone && "Wiki generation completed"}
-        {isFailed && "Wiki generation failed"}
+        {isRunning && `${t.wiki.generationLabel} ${t.wiki.generationInProgress}`}
+        {isDone && `${t.wiki.generationLabel} ${t.wiki.generationCompleted}`}
+        {isFailed && `${t.wiki.generationLabel} ${t.wiki.generationFailed}`}
       </span>
     </div>
   );

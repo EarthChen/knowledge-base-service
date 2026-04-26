@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent } from "@testing-library/react";
 import WikiAnnotationLayer from "../WikiAnnotationLayer";
+import { renderWithI18n } from "../../../test/renderWithI18n";
 
 describe("WikiAnnotationLayer", () => {
   beforeEach(() => {
@@ -12,7 +13,7 @@ describe("WikiAnnotationLayer", () => {
   });
 
   it("renders children", () => {
-    render(
+    renderWithI18n(
       <WikiAnnotationLayer onAddAnnotation={vi.fn()}>
         <div data-testid="child">Hello world</div>
       </WikiAnnotationLayer>,
@@ -22,7 +23,7 @@ describe("WikiAnnotationLayer", () => {
 
   it("calls onAddAnnotation when submitting after selection", () => {
     const onAdd = vi.fn();
-    const { container } = render(
+    const { container } = renderWithI18n(
       <WikiAnnotationLayer onAddAnnotation={onAdd}>
         <p id="p">Select this text</p>
       </WikiAnnotationLayer>,

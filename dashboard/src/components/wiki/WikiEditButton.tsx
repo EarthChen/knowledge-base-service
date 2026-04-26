@@ -1,4 +1,5 @@
 import { ExternalLink } from "lucide-react";
+import { useI18n } from "../../i18n/context";
 
 interface WikiEditButtonProps {
   gitRemoteUrl?: string;
@@ -26,6 +27,7 @@ function buildEditUrl(remote: string, branch: string, filePath: string): string 
 }
 
 export default function WikiEditButton({ gitRemoteUrl, branch, exportPath }: WikiEditButtonProps) {
+  const { t } = useI18n();
   if (!gitRemoteUrl || !exportPath) return null;
 
   const editUrl = buildEditUrl(gitRemoteUrl, branch || "main", exportPath);
@@ -39,7 +41,7 @@ export default function WikiEditButton({ gitRemoteUrl, branch, exportPath }: Wik
       className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-100"
     >
       <ExternalLink size={12} />
-      Edit on Git
+      {t.wiki.editOnGit}
     </a>
   );
 }

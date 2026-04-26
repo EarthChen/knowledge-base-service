@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { MessageSquarePlus } from "lucide-react";
+import { useI18n } from "../../i18n/context";
 
 export interface WikiAnnotationRangePayload {
   start: number;
@@ -13,6 +14,7 @@ interface WikiAnnotationLayerProps {
 }
 
 export default function WikiAnnotationLayer({ children, onAddAnnotation }: WikiAnnotationLayerProps) {
+  const { t } = useI18n();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [showInput, setShowInput] = useState(false);
   const [comment, setComment] = useState("");
@@ -65,12 +67,12 @@ export default function WikiAnnotationLayer({ children, onAddAnnotation }: WikiA
         <div className="absolute right-0 top-0 z-40 w-72 rounded-xl border border-gray-200 bg-white p-3 shadow-lg dark:border-gray-700 dark:bg-gray-900">
           <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 dark:text-gray-300">
             <MessageSquarePlus size={14} />
-            Add annotation
+            {t.wiki.annotationAdd}
           </div>
           <textarea
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            placeholder="Write a comment..."
+            placeholder={t.wiki.annotationCommentPlaceholder}
             rows={3}
             className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-sky-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
           />
@@ -80,7 +82,7 @@ export default function WikiAnnotationLayer({ children, onAddAnnotation }: WikiA
               onClick={handleCancel}
               className="rounded px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
             >
-              Cancel
+              {t.wiki.annotationCancel}
             </button>
             <button
               type="button"
@@ -88,7 +90,7 @@ export default function WikiAnnotationLayer({ children, onAddAnnotation }: WikiA
               disabled={!comment.trim()}
               className="rounded bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
             >
-              Add
+              {t.wiki.annotationSubmit}
             </button>
           </div>
         </div>

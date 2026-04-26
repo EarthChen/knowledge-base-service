@@ -293,6 +293,7 @@ function WikiVersionPicker({
   version: string;
   generatedAt: string;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [diffVersions, setDiffVersions] = useState<{ from: number; to: number } | null>(null);
 
@@ -305,6 +306,9 @@ function WikiVersionPicker({
       />
       {open && pageUid ? (
         <div className="absolute left-0 top-full z-50 mt-2 max-h-[min(70vh,520px)] w-[min(calc(100vw-2rem),36rem)] overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+            {t.wiki.versionHistoryTitle}
+          </h4>
           <WikiVersionHistory
             pageUid={pageUid}
             onSelectVersions={(from, to) => setDiffVersions({ from, to })}
@@ -315,6 +319,7 @@ function WikiVersionPicker({
                 pageUid={pageUid}
                 fromVersion={diffVersions.from}
                 toVersion={diffVersions.to}
+                onClose={() => setDiffVersions(null)}
               />
             </div>
           ) : null}
@@ -460,7 +465,7 @@ export default function WikiContent({
               {pageUid ? (
                 <aside className="shrink-0 rounded-xl border border-gray-100 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/40 lg:w-72">
                   <h4 className="border-b border-gray-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:border-gray-800 dark:text-gray-400">
-                    Annotations
+                    {t.wiki.annotationsTitle}
                   </h4>
                   <WikiAnnotationSidebar
                     annotations={annotationsQuery.data ?? []}

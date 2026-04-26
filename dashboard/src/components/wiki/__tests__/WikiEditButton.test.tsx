@@ -1,20 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import WikiEditButton from "../WikiEditButton";
+import { renderWithI18n } from "../../../test/renderWithI18n";
 
 describe("WikiEditButton", () => {
   it("renders nothing without gitRemoteUrl", () => {
-    const { container } = render(<WikiEditButton />);
+    const { container } = renderWithI18n(<WikiEditButton />);
     expect(container.firstChild).toBeNull();
   });
 
   it("renders nothing without exportPath", () => {
-    const { container } = render(<WikiEditButton gitRemoteUrl="https://github.com/org/repo.git" />);
+    const { container } = renderWithI18n(<WikiEditButton gitRemoteUrl="https://github.com/org/repo.git" />);
     expect(container.firstChild).toBeNull();
   });
 
   it("renders link with correct URL", () => {
-    render(
+    renderWithI18n(
       <WikiEditButton
         gitRemoteUrl="https://github.com/org/repo.git"
         branch="main"
@@ -26,7 +27,7 @@ describe("WikiEditButton", () => {
   });
 
   it("handles git@ URLs", () => {
-    render(
+    renderWithI18n(
       <WikiEditButton
         gitRemoteUrl="git@github.com:org/repo.git"
         branch="dev"

@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { screen, fireEvent } from "@testing-library/react";
 import WikiUpdateNotification from "../WikiUpdateNotification";
+import { renderWithI18n } from "../../../test/renderWithI18n";
 
 describe("WikiUpdateNotification", () => {
   it("shows page name", () => {
-    render(
+    renderWithI18n(
       <WikiUpdateNotification pagePath="user/auth" onRefresh={vi.fn()} onDismiss={vi.fn()} />,
     );
     expect(screen.getByText("auth")).toBeInTheDocument();
@@ -12,7 +13,7 @@ describe("WikiUpdateNotification", () => {
 
   it("calls onRefresh", () => {
     const onRefresh = vi.fn();
-    render(
+    renderWithI18n(
       <WikiUpdateNotification pagePath="a/b" onRefresh={onRefresh} onDismiss={vi.fn()} />,
     );
     fireEvent.click(screen.getByText(/refresh/i));
@@ -21,7 +22,7 @@ describe("WikiUpdateNotification", () => {
 
   it("calls onDismiss", () => {
     const onDismiss = vi.fn();
-    render(
+    renderWithI18n(
       <WikiUpdateNotification pagePath="a/b" onRefresh={vi.fn()} onDismiss={onDismiss} />,
     );
     const buttons = screen.getAllByRole("button");

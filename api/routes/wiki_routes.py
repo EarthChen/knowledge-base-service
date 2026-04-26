@@ -1114,10 +1114,13 @@ async def wiki_chunk_index(
     from wiki.chunk_indexer import CodeChunkIndexer
 
     wiki_store_inst = _WikiStore(raw_store)
+    s = get_settings()
     indexer = CodeChunkIndexer(
         wiki_store_inst,
         raw_store,
-        batch_size=get_settings().wiki.chunk_embedding_batch_size,
+        embedding_config=s.embedding,
+        chunk_embedding_max_length=s.wiki.chunk_embedding_max_length,
+        batch_size=s.wiki.chunk_embedding_batch_size,
     )
     result = await indexer.index_all_chunks(body.repository)
     return JSONResponse(content=result)

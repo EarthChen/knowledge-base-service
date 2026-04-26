@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from store.schema import GraphNode, NodeLabel
+from tests.wiki_config_inject import inject_wiki_embedding
 from wiki.data_collector import WikiDataCollector
 
 
@@ -48,8 +49,9 @@ async def test_collect_includes_related_chunks(mock_graph_port, mock_wiki_store)
         )
         MockRetriever.return_value = mock_retriever_instance
 
+        w, e = inject_wiki_embedding()
         collector = WikiDataCollector(
-            mock_graph_port, wiki_store=mock_wiki_store, rag_enabled=True
+            mock_graph_port, w, e, wiki_store=mock_wiki_store, rag_enabled=True,
         )
         node = GraphNode(
             label=NodeLabel.CLASS,
@@ -69,7 +71,8 @@ async def test_collect_includes_related_chunks(mock_graph_port, mock_wiki_store)
 
 @pytest.mark.asyncio
 async def test_collect_without_rag_has_empty_chunks(mock_graph_port):
-    collector = WikiDataCollector(mock_graph_port)
+    w, e = inject_wiki_embedding()
+    collector = WikiDataCollector(mock_graph_port, w, e, rag_enabled=False)
     node = GraphNode(
         label=NodeLabel.CLASS,
         uid="Class:f.py:Foo:1",

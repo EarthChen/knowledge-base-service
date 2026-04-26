@@ -6,6 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from config import EmbeddingConfig, WikiConfig as AppWikiConfig
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 from wiki.models import ChunkSnippet, CodeSnippet, ImportanceTier, SourceLocation
 from wiki.structure_planner import GraphQueryPort
@@ -191,10 +192,14 @@ class WikiDataCollector:
     def __init__(
         self,
         graph_port: DataCollectorPort,
+        wiki_config: AppWikiConfig,
+        embedding_config: EmbeddingConfig,
         wiki_store: Any = None,
         rag_enabled: bool = False,
     ) -> None:
         self._graph = graph_port
+        self._wiki_cfg = wiki_config
+        self._embedding_cfg = embedding_config
         self._wiki_store = wiki_store
         self._rag_enabled = rag_enabled
 
@@ -227,15 +232,14 @@ class WikiDataCollector:
 
         related_chunks = []
         if self._rag_enabled and self._wiki_store is not None:
-            from config import get_settings as _get_settings
             from wiki.chunk_retriever import ChunkRetriever
 
-            _wiki_cfg = _get_settings().wiki
             retriever = ChunkRetriever(
                 self._wiki_store,
-                top_k=_wiki_cfg.rag_top_k,
-                min_score=_wiki_cfg.rag_min_score,
-                exclude_same_parent=_wiki_cfg.rag_exclude_same_parent,
+                self._embedding_cfg,
+                top_k=self._wiki_cfg.rag_top_k,
+                min_score=self._wiki_cfg.rag_min_score,
+                exclude_same_parent=self._wiki_cfg.rag_exclude_same_parent,
             )
             related_chunks = await retriever.retrieve(node, repository)
 

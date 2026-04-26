@@ -13,6 +13,7 @@ from httpx import ASGITransport
 from starlette.testclient import TestClient
 
 import auth as auth_module
+from tests.wiki_config_inject import wiki_service_injection
 from api.error_handler import register_exception_handlers
 from api.routes.wiki_routes import WikiTaskRegistry, get_task_registry_dep, get_wiki_service_dep, wiki_router
 from store.falkordb_store import QueryResultWrapper
@@ -146,7 +147,9 @@ class TestWikiGenerateSync:
         graph.find_module_import_edges = AsyncMock(return_value=[])
         graph.find_repository_calls_edges = AsyncMock(return_value=[])
 
-        svc = WikiService(graph=graph, llm=llm, repository_exists=AsyncMock(return_value=True))
+        svc = WikiService(
+            graph=graph, llm=llm, repository_exists=AsyncMock(return_value=True), **wiki_service_injection(),
+        )
         root = WikiStructureNode(
             path="src/m.py",
             title="m",

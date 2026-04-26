@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from wiki.models import PageType, WikiPage, WikiPageMetadata, WikiStructure, WikiStructureNode
+from tests.wiki_config_inject import wiki_service_injection
 from wiki.service import WikiService
 
 
@@ -70,6 +71,7 @@ async def test_generate_creates_business_flows() -> None:
         store=store,
         deferred_enrichment=None,
         flow_inferencer=flow_inferencer,
+        **wiki_service_injection(),
     )
 
     root = WikiStructureNode(
@@ -113,6 +115,7 @@ async def test_generate_skips_flows_when_disabled() -> None:
         repository_exists=AsyncMock(return_value=True),
         store=store,
         flow_inferencer=flow_inferencer,
+        **wiki_service_injection(),
     )
 
     root = WikiStructureNode(
@@ -144,6 +147,7 @@ async def test_generate_without_flow_inferencer() -> None:
         repository_exists=AsyncMock(return_value=True),
         store=store,
         flow_inferencer=None,
+        **wiki_service_injection(),
     )
 
     root = WikiStructureNode(
@@ -184,6 +188,7 @@ async def test_build_call_chain_traverses_calls() -> None:
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         store=store,
+        **wiki_service_injection(),
     )
     ep = {"uid": "fn-a", "name": "a", "business_summary": "sa", "file": "a.py"}
     chain = await svc._build_call_chain(ep)
@@ -210,6 +215,7 @@ async def test_persist_flow_creates_business_flow_node() -> None:
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         store=store,
+        **wiki_service_injection(),
     )
     flow = {
         "flow_name": "notify",

@@ -10,6 +10,7 @@ import pytest
 from httpx import ASGITransport
 
 import auth as auth_module
+from tests.wiki_config_inject import inject_wiki_embedding, wiki_service_injection
 from api.routes.wiki_routes import (
     _GLOBAL_SEARCH_CONCURRENCY,
     get_wiki_search_dep,
@@ -54,7 +55,10 @@ async def test_persist_source_entity_single_unwind_query(monkeypatch: pytest.Mon
     monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_k: emb_gen)
 
     graph = AsyncMock()
-    svc = WikiService(graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store)
+    svc = WikiService(
+        graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store,
+        **wiki_service_injection(),
+    )
 
     p1 = WikiPage(
         path="a.md",
@@ -292,7 +296,10 @@ async def test_persist_source_entity_skips_unwind_when_no_entity_uid(monkeypatch
     monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_k: emb_gen)
 
     graph = AsyncMock()
-    svc = WikiService(graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store)
+    svc = WikiService(
+        graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store,
+        **wiki_service_injection(),
+    )
 
     p1 = WikiPage(
         path="a.md",
@@ -367,30 +374,30 @@ async def test_generate_business_wiki_partial_errors_on_repo_failure() -> None:
         metadata=WikiPageMetadata(node_count=0, edge_count=0),
     )
 
+    mock_wiki_cfg = MagicMock()
+    mock_wiki_cfg.cross_repo_domain_enabled = True
+    mock_wiki_cfg.business_domain_enabled = True
+    mock_wiki_cfg.business_domain_infrastructure_label = "__infrastructure__"
+    mock_wiki_cfg.enrichment_enabled = False
+    mock_wiki_cfg.code_budget_enabled = False
+    mock_wiki_cfg.rag_enabled = False
+    mock_wiki_cfg.business_wiki_batch_threshold = 100
+
+    _, emb = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         wiki_store=mock_wiki_store,
+        wiki_config=mock_wiki_cfg,
+        embedding_config=emb,
     )
 
     with (
-        patch("wiki.service.get_settings") as mock_settings,
         patch("wiki.cross_repo_domain_planner.CrossRepoBusinessDomainPlanner") as Planner,
         patch("wiki.domain_overview_composer.DomainOverviewComposer") as Comp,
         patch("wiki.reference_generator.WikiReferenceGenerator") as RefGen,
     ):
-        mock_wiki_cfg = MagicMock()
-        mock_wiki_cfg.cross_repo_domain_enabled = True
-        mock_wiki_cfg.business_domain_enabled = True
-        mock_wiki_cfg.business_domain_infrastructure_label = "__infrastructure__"
-        mock_wiki_cfg.enrichment_enabled = False
-        mock_wiki_cfg.code_budget_enabled = False
-        mock_wiki_cfg.rag_enabled = False
-        mock_wiki_cfg.business_wiki_batch_threshold = 100
-        mock_settings.return_value.wiki = mock_wiki_cfg
-        mock_settings.return_value.embedding = MagicMock()
-
         Planner.return_value.classify = AsyncMock(
             return_value={"__infrastructure__": [("r-ok", "mod"), ("r-fail", "mod")]},
         )

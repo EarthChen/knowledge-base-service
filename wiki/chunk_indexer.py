@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from config import get_settings
+from config import EmbeddingConfig
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from store.schema import NodeLabel
 
@@ -19,11 +19,15 @@ class CodeChunkIndexer:
         self,
         wiki_store: Any,
         store: Any,
+        embedding_config: EmbeddingConfig,
+        chunk_embedding_max_length: int,
         batch_size: int = 64,
         on_progress: Callable[[int, int], None] | None = None,
     ) -> None:
         self._wiki_store = wiki_store
         self._store = store
+        self._embedding_config = embedding_config
+        self._chunk_embedding_max_length = chunk_embedding_max_length
         self._batch_size = batch_size
         self._on_progress = on_progress
 
@@ -39,7 +43,7 @@ class CodeChunkIndexer:
 
         logger.info("chunk_index_start: repo=%s total=%d", repository, total)
 
-        emb_gen = EmbeddingGenerator.shared(config=get_settings().embedding)
+        emb_gen = EmbeddingGenerator.shared(config=self._embedding_config)
         indexed = 0
         skipped = 0
         errors = 0
@@ -65,7 +69,7 @@ class CodeChunkIndexer:
                     continue
                 uids.append(str(uid))
                 text_str = str(text)
-                max_len = get_settings().wiki.chunk_embedding_max_length
+                max_len = self._chunk_embedding_max_length
                 if len(text_str) > max_len * 4:
                     text_str = text_str[: max_len * 4]
                 docs.append(doc_dict_for_embedding({"title": "", "content": text_str}))

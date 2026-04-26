@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 import auth as auth_module
+from tests.wiki_config_inject import wiki_service_injection
 from api.error_handler import register_exception_handlers
 from api.routes.wiki_routes import (
     WikiTaskRegistry,
@@ -228,6 +229,7 @@ class TestAnalyzeImpactIntegrationWikiService:
             graph=MagicMock(),
             llm=None,
             repository_exists=AsyncMock(return_value=True),
+            **wiki_service_injection(),
         )
 
         _, client, _ = _make_analyze_app(mock_wiki=svc, graph_query_service=mock_graph)

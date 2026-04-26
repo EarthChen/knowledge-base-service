@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from config import get_settings
+from config import EmbeddingConfig, WikiConfig as WikiAppConfig
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
@@ -69,12 +69,21 @@ class WikiService:
         deferred_enrichment: DeferredEnrichmentService | None = None,
         flow_inferencer: BusinessFlowInferencer | None = None,
         wiki_store: Any | None = None,
+        *,
+        wiki_config: WikiAppConfig,
+        embedding_config: EmbeddingConfig,
     ) -> None:
         self._graph = graph
         self._planner = WikiStructurePlanner(graph)
         self._wiki_store = wiki_store
+        self._wiki_cfg = wiki_config
+        self._embedding_cfg = embedding_config
         self._collector = WikiDataCollector(
-            graph, wiki_store=wiki_store, rag_enabled=get_settings().wiki.rag_enabled,
+            graph,
+            wiki_config=wiki_config,
+            embedding_config=embedding_config,
+            wiki_store=wiki_store,
+            rag_enabled=wiki_config.rag_enabled,
         )
         self._llm = llm
         self._llm_factory = llm_factory
@@ -215,7 +224,7 @@ class WikiService:
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
         _importance_tiers: dict[str, ImportanceTier] = {}
-        app_cfg = get_settings().wiki
+        app_cfg = self._wiki_cfg
         if app_cfg.code_budget_enabled and self._wiki_store is not None:
             from wiki.importance_scorer import ImportanceScorer
 
@@ -284,7 +293,7 @@ class WikiService:
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
         _importance_tiers: dict[str, ImportanceTier] = {}
-        app_cfg = get_settings().wiki
+        app_cfg = self._wiki_cfg
         if app_cfg.code_budget_enabled and self._wiki_store is not None:
             from wiki.importance_scorer import ImportanceScorer
 
@@ -390,7 +399,7 @@ class WikiService:
         5. Generate domain overview pages (DomainOverviewComposer)
         6. Generate cross-references (WikiReferenceGenerator)
         """
-        app_cfg = get_settings().wiki
+        app_cfg = self._wiki_cfg
 
         if self._wiki_store is None:
             raise WikiScopeError("WikiStore required for business-level wiki generation")
@@ -548,7 +557,7 @@ class WikiService:
 
     def _budget_for_tier(self, tier: ImportanceTier | None) -> int:
         """Return the token budget for a given importance tier from app config."""
-        app_cfg = get_settings().wiki
+        app_cfg = self._wiki_cfg
         if tier == ImportanceTier.CORE:
             return app_cfg.core_code_budget
         if tier == ImportanceTier.STANDARD:
@@ -564,7 +573,7 @@ class WikiService:
         config: WikiConfig,
         llm_provider: str | None = None,
     ) -> None:
-        app_cfg = get_settings().wiki
+        app_cfg = self._wiki_cfg
         if not app_cfg.enrichment_enabled:
             return
         llm_port = self._resolve_llm_port(llm_provider)
@@ -728,7 +737,7 @@ class WikiService:
                 log.warning("source_entity_batch_failed", repository=repository, error=str(exc))
 
         try:
-            emb_gen = EmbeddingGenerator.shared(config=get_settings().embedding)
+            emb_gen = EmbeddingGenerator.shared(config=self._embedding_cfg)
             items = [
                 doc_dict_for_embedding(
                     {"title": d["title"], "content": d["content"][:3000]},

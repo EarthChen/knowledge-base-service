@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from config import get_settings
+from config import EmbeddingConfig
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from store.schema import GraphNode
 from wiki.models import ChunkSnippet
@@ -19,11 +19,13 @@ class ChunkRetriever:
     def __init__(
         self,
         wiki_store: Any,
+        embedding_config: EmbeddingConfig,
         top_k: int = 5,
         min_score: float = 0.3,
         exclude_same_parent: bool = True,
     ) -> None:
         self._store = wiki_store
+        self._embedding_config = embedding_config
         self._top_k = top_k
         self._min_score = min_score
         self._exclude_same_parent = exclude_same_parent
@@ -38,7 +40,7 @@ class ChunkRetriever:
         if not query_text:
             return []
 
-        emb_gen = EmbeddingGenerator.shared(config=get_settings().embedding)
+        emb_gen = EmbeddingGenerator.shared(config=self._embedding_config)
         query_docs = [doc_dict_for_embedding({"title": "", "content": query_text})]
         embeddings = await emb_gen.generate_for_docs(query_docs)
         if not embeddings or not embeddings[0]:

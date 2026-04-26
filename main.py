@@ -137,6 +137,8 @@ async def wire_wiki_app_state(app: FastAPI, registry: ServiceRegistry) -> None:
             deferred_enrichment=kb_svc.wiki_deferred_enrichment,
             flow_inferencer=kb_svc.wiki_flow_inferencer,
             wiki_store=_WikiStore(kb_svc.store),
+            wiki_config=settings.wiki,
+            embedding_config=settings.embedding,
         )
 
     app.state.wiki_service_factory = wiki_service_factory

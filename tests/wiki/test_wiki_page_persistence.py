@@ -8,6 +8,7 @@ import pytest
 
 from store.falkordb_store import FalkorDBStore, QueryResultWrapper
 from wiki.models import PageType, WikiPage, WikiPageMetadata, WikiStructure, WikiStructureNode
+from tests.wiki_config_inject import wiki_service_injection
 from wiki.service import WikiService
 
 
@@ -78,7 +79,10 @@ async def test_wiki_service_generate_calls_persist_wiki_pages(monkeypatch: pytes
     fake_gen.generate_for_docs = AsyncMock(return_value=[[0.01, 0.02]])
     monkeypatch.setattr("indexer.embedding_generator.EmbeddingGenerator.shared", lambda **_k: fake_gen)
     graph = AsyncMock()
-    svc = WikiService(graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store)
+    svc = WikiService(
+        graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store,
+        **wiki_service_injection(),
+    )
 
     root = WikiStructureNode(
         path="README.md",
@@ -109,7 +113,10 @@ async def test_wiki_service_persist_failure_does_not_fail_generate(monkeypatch: 
     store = MagicMock()
     store.persist_wiki_pages = AsyncMock(side_effect=RuntimeError("graph down"))
     graph = AsyncMock()
-    svc = WikiService(graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store)
+    svc = WikiService(
+        graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store,
+        **wiki_service_injection(),
+    )
 
     root = WikiStructureNode(
         path="README.md",

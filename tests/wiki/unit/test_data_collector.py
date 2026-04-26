@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
+from tests.wiki_config_inject import inject_wiki_embedding
 from wiki.data_collector import DataCollectorPort, PageData, WikiDataCollector
 from wiki.models import SourceLocation
 
@@ -55,6 +56,11 @@ def _module_node(uid: str, path: str, name: str) -> GraphNode:
     )
 
 
+def _wdc(graph: DataCollectorPort) -> WikiDataCollector:
+    w, e = inject_wiki_embedding()
+    return WikiDataCollector(graph, w, e)
+
+
 def _edge(
     et: EdgeType,
     src: str,
@@ -94,7 +100,7 @@ class TestCollectClassData:
         )
         graph.find_children = AsyncMock(return_value=[m1, m2])
 
-        collector = WikiDataCollector(graph)
+        collector = _wdc(graph)
         page: PageData = await collector.collect("repo-a", cls)
 
         assert page.node == cls
@@ -121,7 +127,7 @@ class TestCollectModuleData:
         )
         graph.find_children = AsyncMock(return_value=[c1, f1])
 
-        collector = WikiDataCollector(graph)
+        collector = _wdc(graph)
         page = await collector.collect("repo-b", mod)
 
         assert page.node == mod
@@ -150,7 +156,7 @@ class TestEdgePrioritization:
         )
         graph.find_children = AsyncMock(return_value=[])
 
-        collector = WikiDataCollector(graph)
+        collector = _wdc(graph)
         page = await collector.collect("r", center)
 
         types_order = [e.edge_type for e in page.edges]
@@ -201,7 +207,7 @@ class TestNeighborTruncation:
         graph.find_edges = AsyncMock(return_value=edges)
         graph.find_children = AsyncMock(return_value=[])
 
-        collector = WikiDataCollector(graph)
+        collector = _wdc(graph)
         page = await collector.collect("r", center)
 
         tiers = [
@@ -240,7 +246,7 @@ class TestMethodGrouping:
         )
         graph.find_children = AsyncMock(return_value=methods)
 
-        collector = WikiDataCollector(graph)
+        collector = _wdc(graph)
         page = await collector.collect("r", cls)
 
         assert len(page.methods) == 30
@@ -256,7 +262,7 @@ class TestEmptyNode:
         graph.find_edges = AsyncMock(return_value=[])
         graph.find_children = AsyncMock(return_value=[])
 
-        collector = WikiDataCollector(graph)
+        collector = _wdc(graph)
         page = await collector.collect("r", cls)
 
         assert page.edges == []
@@ -280,7 +286,7 @@ class TestSourceLocation:
         graph.find_edges = AsyncMock(return_value=[])
         graph.find_children = AsyncMock(return_value=[])
 
-        collector = WikiDataCollector(graph)
+        collector = _wdc(graph)
         page = await collector.collect("repo-x", cls)
 
         expected = SourceLocation(
@@ -305,7 +311,7 @@ class TestMethodLocations:
         )
         graph.find_children = AsyncMock(return_value=[m_a, m_b])
 
-        collector = WikiDataCollector(graph)
+        collector = _wdc(graph)
         page = await collector.collect("repo-y", cls)
 
         by_fqn = {loc.fqn: loc for loc in page.method_locations}
@@ -329,7 +335,7 @@ class TestBusinessSummary:
         graph.find_edges = AsyncMock(return_value=[])
         graph.find_children = AsyncMock(return_value=[])
 
-        collector = WikiDataCollector(graph)
+        collector = _wdc(graph)
         page = await collector.collect("r", cls)
 
         assert page.business_summary == "Handles checkout."
@@ -341,7 +347,7 @@ class TestBusinessSummary:
         graph.find_edges = AsyncMock(return_value=[])
         graph.find_children = AsyncMock(return_value=[])
 
-        collector = WikiDataCollector(graph)
+        collector = _wdc(graph)
         page = await collector.collect("r", cls)
 
         assert page.business_summary is None

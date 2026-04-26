@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
+from tests.wiki_config_inject import inject_wiki_embedding, wiki_service_injection
 from llm.base_provider import BaseLLMProvider, GatewayLLMProviderAdapter, LLMPortBridge
 from llm.provider_factory import LLMProviderFactory, ProviderConfig
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
@@ -27,6 +28,11 @@ from wiki.search import SearchResponse, SearchResult, WikiSearchService
 from wiki.service import WikiService
 
 REPO = "demo-repo"
+
+
+def _collector(graph: AsyncMock) -> WikiDataCollector:
+    w, e = inject_wiki_embedding()
+    return WikiDataCollector(graph, w, e)
 
 
 def _module(uid: str, path: str) -> GraphNode:
@@ -163,7 +169,7 @@ def _make_full_graph(
 
 
 def _repo_composer_from_graph(graph: AsyncMock, llm_port: Any | None = None) -> WikiRepoComposer:
-    collector = WikiDataCollector(graph)
+    collector = _collector(graph)
     llm = llm_port
     composer = WikiComposer(llm, WikiContextBuilder(llm))
     return WikiRepoComposer(
@@ -229,7 +235,7 @@ async def test_incremental_update_invalidates_cache(tmp_path: Path, wiki_config:
     pc.put(REPO, "repo", wiki_config.mode, 99, [dummy])
     assert pc.get(REPO, "repo", wiki_config.mode, 99) is not None
 
-    collector = WikiDataCollector(graph)
+    collector = _collector(graph)
     composer = WikiComposer(None, WikiContextBuilder(None))
     updater = WikiIncrementalUpdater(graph, composer, collector, WikiContextBuilder(None), pc)
 
@@ -260,7 +266,10 @@ async def test_provider_factory_with_wiki_service() -> None:
     graph.find_top_level_modules = AsyncMock(return_value=[])
     graph.list_repository_modules = AsyncMock(return_value=[])
 
-    svc = WikiService(graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), llm_factory=factory)
+    svc = WikiService(
+        graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), llm_factory=factory,
+        **wiki_service_injection(),
+    )
     bundle = await svc.generate(
         REPO,
         "module:pkg/a",
@@ -281,7 +290,7 @@ async def test_incremental_preserves_unchanged(wiki_config: WikiConfig) -> None:
     b_path = "modules/pkg_b.md"
     assert b_path in by_path
 
-    collector = WikiDataCollector(graph)
+    collector = _collector(graph)
     composer = WikiComposer(None, WikiContextBuilder(None))
     cache = WikiCache()
     updater = WikiIncrementalUpdater(graph, composer, collector, WikiContextBuilder(None), cache)
@@ -325,7 +334,7 @@ async def test_incremental_after_full_compose(wiki_config: WikiConfig) -> None:
     rc = _repo_composer_from_graph(graph)
     await rc.compose_repo_wiki(REPO, wiki_config)
 
-    collector = WikiDataCollector(graph)
+    collector = _collector(graph)
     composer = WikiComposer(None, WikiContextBuilder(None))
     updater = WikiIncrementalUpdater(graph, composer, collector, WikiContextBuilder(None), WikiCache())
 
@@ -375,7 +384,7 @@ async def test_provider_bridge_with_composer(wiki_config: WikiConfig) -> None:
     graph.find_node_by_uid = AsyncMock(return_value=None)
     graph.find_children = AsyncMock(return_value=[])
 
-    collector = WikiDataCollector(graph)
+    collector = _collector(graph)
 
     async def collect(_repo: str, node: GraphNode) -> PageData:
         return _page_data(_repo, node)
@@ -438,7 +447,7 @@ async def test_p1_wiki_generate_still_works() -> None:
     graph.find_top_level_modules = AsyncMock(return_value=[])
     graph.list_repository_modules = AsyncMock(return_value=[])
 
-    svc = WikiService(graph=graph, llm=None, repository_exists=AsyncMock(return_value=True))
+    svc = WikiService(graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), **wiki_service_injection())
     bundle = await svc.generate(REPO, "module:pkg/a", mode="structure", format="json")
     assert bundle["pages"]
     assert not bundle.get("degraded", True)

@@ -205,6 +205,8 @@ class KnowledgeBaseService:
             deferred_enrichment=self._wiki_deferred_enrichment,
             flow_inferencer=self._wiki_flow_inferencer,
             wiki_store=_WikiStore(self._store),
+            wiki_config=settings.wiki,
+            embedding_config=settings.embedding,
         )
         self._wiki_search = WikiSearchService(
             graph=self._store,

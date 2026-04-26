@@ -3,6 +3,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+from tests.wiki_config_inject import wiki_service_injection
+
 
 @pytest.mark.asyncio
 async def test_wiki_service_creates_collector_with_wiki_store():
@@ -21,6 +23,7 @@ async def test_wiki_service_creates_collector_with_wiki_store():
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         wiki_store=wiki_store,
+        **wiki_service_injection(),
     )
 
     assert service._collector._wiki_store is wiki_store

@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from store.schema import GraphNode, NodeLabel
+from tests.wiki_config_inject import inject_wiki_embedding
 from wiki.service import WikiService
 from wiki.tree_builder import WikiTreeBuilder
 
@@ -91,27 +92,26 @@ async def test_domain_tree_persisted_to_store():
     mock_store.execute_query = AsyncMock()
     mock_store.set_node_embedding = AsyncMock()
 
+    mock_wiki_cfg = MagicMock()
+    mock_wiki_cfg.cross_repo_domain_enabled = True
+    mock_wiki_cfg.business_domain_enabled = True
+    mock_wiki_cfg.business_domain_infrastructure_label = "__infrastructure__"
+    mock_wiki_cfg.enrichment_enabled = False
+    mock_wiki_cfg.code_budget_enabled = False
+    mock_wiki_cfg.rag_enabled = False
+    mock_wiki_cfg.business_wiki_batch_threshold = 100
+    _, emb = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         store=mock_store,
         wiki_store=mock_wiki_store,
+        wiki_config=mock_wiki_cfg,
+        embedding_config=emb,
     )
 
-    with patch("wiki.service.get_settings") as mock_settings:
-        mock_wiki_cfg = MagicMock()
-        mock_wiki_cfg.cross_repo_domain_enabled = True
-        mock_wiki_cfg.business_domain_enabled = True
-        mock_wiki_cfg.business_domain_infrastructure_label = "__infrastructure__"
-        mock_wiki_cfg.enrichment_enabled = False
-        mock_wiki_cfg.code_budget_enabled = False
-        mock_wiki_cfg.rag_enabled = False
-        mock_wiki_cfg.business_wiki_batch_threshold = 100
-        mock_settings.return_value.wiki = mock_wiki_cfg
-        mock_settings.return_value.embedding = MagicMock()
-
-        await svc.generate_business_wiki("biz-x", language="en")
+    await svc.generate_business_wiki("biz-x", language="en")
 
     mock_wiki_store.upsert_wiki_space.assert_awaited()
     mock_wiki_store.upsert_wiki_section.assert_awaited()
@@ -134,27 +134,26 @@ async def test_code_structure_view_tree():
     mock_store.execute_query = AsyncMock()
     mock_store.set_node_embedding = AsyncMock()
 
+    mock_wiki_cfg = MagicMock()
+    mock_wiki_cfg.cross_repo_domain_enabled = True
+    mock_wiki_cfg.business_domain_enabled = True
+    mock_wiki_cfg.business_domain_infrastructure_label = "__infrastructure__"
+    mock_wiki_cfg.enrichment_enabled = False
+    mock_wiki_cfg.code_budget_enabled = False
+    mock_wiki_cfg.rag_enabled = False
+    mock_wiki_cfg.business_wiki_batch_threshold = 100
+    _, emb = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         store=mock_store,
         wiki_store=mock_wiki_store,
+        wiki_config=mock_wiki_cfg,
+        embedding_config=emb,
     )
 
-    with patch("wiki.service.get_settings") as mock_settings:
-        mock_wiki_cfg = MagicMock()
-        mock_wiki_cfg.cross_repo_domain_enabled = True
-        mock_wiki_cfg.business_domain_enabled = True
-        mock_wiki_cfg.business_domain_infrastructure_label = "__infrastructure__"
-        mock_wiki_cfg.enrichment_enabled = False
-        mock_wiki_cfg.code_budget_enabled = False
-        mock_wiki_cfg.rag_enabled = False
-        mock_wiki_cfg.business_wiki_batch_threshold = 100
-        mock_settings.return_value.wiki = mock_wiki_cfg
-        mock_settings.return_value.embedding = MagicMock()
-
-        await svc.generate_business_wiki("biz-tree", language="en")
+    await svc.generate_business_wiki("biz-tree", language="en")
 
     code_edges = [
         c
@@ -190,12 +189,23 @@ async def test_domain_and_repo_same_name_distinct_section_uids():
     mock_store.execute_query = AsyncMock()
     mock_store.set_node_embedding = AsyncMock()
 
+    mock_wiki_cfg = MagicMock()
+    mock_wiki_cfg.cross_repo_domain_enabled = True
+    mock_wiki_cfg.business_domain_enabled = True
+    mock_wiki_cfg.business_domain_infrastructure_label = "__infrastructure__"
+    mock_wiki_cfg.enrichment_enabled = False
+    mock_wiki_cfg.code_budget_enabled = False
+    mock_wiki_cfg.rag_enabled = False
+    mock_wiki_cfg.business_wiki_batch_threshold = 100
+    _, emb = inject_wiki_embedding()
     svc = WikiService(
         graph=graph,
         llm=None,
         repository_exists=AsyncMock(return_value=True),
         store=mock_store,
         wiki_store=mock_wiki_store,
+        wiki_config=mock_wiki_cfg,
+        embedding_config=emb,
     )
 
     planner_inst = MagicMock()
@@ -203,21 +213,10 @@ async def test_domain_and_repo_same_name_distinct_section_uids():
         return_value={shared: [(shared, "core")]},
     )
 
-    with patch("wiki.service.get_settings") as mock_settings, patch(
+    with patch(
         "wiki.cross_repo_domain_planner.CrossRepoBusinessDomainPlanner",
         return_value=planner_inst,
     ):
-        mock_wiki_cfg = MagicMock()
-        mock_wiki_cfg.cross_repo_domain_enabled = True
-        mock_wiki_cfg.business_domain_enabled = True
-        mock_wiki_cfg.business_domain_infrastructure_label = "__infrastructure__"
-        mock_wiki_cfg.enrichment_enabled = False
-        mock_wiki_cfg.code_budget_enabled = False
-        mock_wiki_cfg.rag_enabled = False
-        mock_wiki_cfg.business_wiki_batch_threshold = 100
-        mock_settings.return_value.wiki = mock_wiki_cfg
-        mock_settings.return_value.embedding = MagicMock()
-
         await svc.generate_business_wiki("biz-collision", language="en")
 
     tb = WikiTreeBuilder()

@@ -17,7 +17,7 @@ def test_get_returns_none_for_expired_task(monkeypatch: pytest.MonkeyPatch) -> N
     def fake_mono() -> float:
         return clock[0]
 
-    monkeypatch.setattr("api.routes.wiki_routes.time.monotonic", fake_mono)
+    monkeypatch.setattr("wiki.task_registry.time.monotonic", fake_mono)
 
     reg = WikiTaskRegistry()
     reg.put_task("t1", {"task_id": "t1", "status": "pending"})
@@ -33,7 +33,7 @@ def test_prune_runs_on_put(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_mono() -> float:
         return clock[0]
 
-    monkeypatch.setattr("api.routes.wiki_routes.time.monotonic", fake_mono)
+    monkeypatch.setattr("wiki.task_registry.time.monotonic", fake_mono)
 
     reg = WikiTaskRegistry()
     reg.put_task("stale", {"task_id": "stale", "status": "pending"})

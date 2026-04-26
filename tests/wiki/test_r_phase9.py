@@ -113,11 +113,11 @@ async def test_wiki_search_global_merges_many_repos_by_score() -> None:
 def test_wiki_task_registry_lifecycle() -> None:
     """put_task → get_task; after TTL, get_task returns None (prune)."""
     reg = WikiTaskRegistry()
-    with patch("api.routes.wiki_routes.time.monotonic", return_value=0.0):
+    with patch("wiki.task_registry.time.monotonic", return_value=0.0):
         reg.put_task("t1", {"status": "pending"})
-    with patch("api.routes.wiki_routes.time.monotonic", return_value=0.0):
+    with patch("wiki.task_registry.time.monotonic", return_value=0.0):
         assert reg.get_task("t1") == {"status": "pending"}
-    with patch("api.routes.wiki_routes.time.monotonic", return_value=float(WIKI_TASK_TTL_SEC + 1)):
+    with patch("wiki.task_registry.time.monotonic", return_value=float(WIKI_TASK_TTL_SEC + 1)):
         assert reg.get_task("t1") is None
 
 

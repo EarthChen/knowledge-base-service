@@ -220,6 +220,8 @@ class WikiConfig(BaseModel):
     # Phase 3: Business domain (classification only; pipeline integration in Phase 4)
     business_domain_enabled: bool = False
     business_domain_infrastructure_label: str = "__infrastructure__"
+    # Phase 4: Cross-repo business-level wiki
+    business_wiki_batch_threshold: int = 100
 
 
 class GitConfig(BaseModel):

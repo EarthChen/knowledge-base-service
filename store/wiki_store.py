@@ -368,6 +368,19 @@ class WikiStore:
             q, {"repo": repository, "offset": offset, "limit": batch_size},
         )
 
+    async def list_indexed_repositories(self) -> list[dict[str, Any]]:
+        """List all repositories that have indexed modules."""
+        q = (
+            "MATCH (m:Module) WHERE m.repository IS NOT NULL "
+            "RETURN m.repository AS repository, count(m) AS module_count "
+            "ORDER BY module_count DESC"
+        )
+        result = await self._store.execute_query(q)
+        rows = []
+        for row in getattr(result, "raw", []) or []:
+            rows.append({"repository": str(row[0]), "module_count": int(row[1])})
+        return rows
+
     # --- Wiki tree structure CRUD ---
 
     _TREE_ALLOWED_LABELS = frozenset({"WikiSpace", "WikiSection", "WikiPage"})

@@ -373,6 +373,136 @@ class WikiService:
         bundle["degraded"] = degraded
         yield {"complete": bundle}
 
+    async def generate_business_wiki(
+        self,
+        business_id: str,
+        language: str = "en",
+        llm_provider: str | None = None,
+    ) -> dict[str, Any]:
+        """Generate cross-repo business-level wiki.
+
+        1. List all indexed repositories
+        2. Collect all modules from each repo
+        3. Classify modules into business domains (CrossRepoBusinessDomainPlanner)
+        4. Create WikiSpace + WikiSection tree
+        5. Generate domain overview pages (DomainOverviewComposer)
+        6. Generate cross-references (WikiReferenceGenerator)
+        """
+        app_cfg = get_settings().wiki
+
+        if self._wiki_store is None:
+            raise WikiScopeError("WikiStore required for business-level wiki generation")
+
+        repos = await self._wiki_store.list_indexed_repositories()
+        if not repos:
+            return {"business_id": business_id, "domains": [], "pages_count": 0}
+
+        all_modules: dict[str, list[GraphNode]] = {}
+        for r in repos:
+            repo_name = r["repository"]
+            modules = await self._graph.list_repository_modules(repo_name)
+            if modules:
+                all_modules[repo_name] = modules
+
+        from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
+
+        llm_port = self._resolve_llm_port(llm_provider)
+        planner = CrossRepoBusinessDomainPlanner(
+            llm_port,
+            infrastructure_label=app_cfg.business_domain_infrastructure_label,
+            batch_threshold=app_cfg.business_wiki_batch_threshold,
+        )
+        domain_mapping = await planner.classify(business_id, all_modules)
+
+        space_uid = f"WikiSpace:{business_id}"
+        await self._wiki_store.upsert_wiki_space(
+            business_id=business_id,
+            title=f"{business_id} Knowledge Base",
+            description=f"Business-level wiki for {business_id}",
+        )
+
+        domain_names: list[str] = []
+        all_pages: list[WikiPage] = []
+        sort_idx = 0
+
+        for domain_name, repo_module_pairs in domain_mapping.items():
+            section_uid = f"WikiSection:{business_id}:{domain_name}"
+            await self._wiki_store.upsert_wiki_section(
+                uid=section_uid,
+                title=domain_name,
+                description=f"Business domain: {domain_name}",
+                section_type="business_domain",
+                sort_order=sort_idx,
+                auto_generated=True,
+            )
+            await self._wiki_store.add_has_child_edge(
+                parent_uid=space_uid,
+                parent_label="WikiSpace",
+                child_uid=section_uid,
+                child_label="WikiSection",
+                view_type="business_domain",
+                sort_order=sort_idx,
+            )
+            sort_idx += 1
+            domain_names.append(domain_name)
+
+            from wiki.domain_overview_composer import DomainOverviewComposer
+
+            overview_composer = DomainOverviewComposer(llm_port)
+            domain_modules = [
+                (repo, mod_name, node)
+                for repo, mod_name in repo_module_pairs
+                for node in [self._find_module_node(all_modules, repo, mod_name)]
+                if node is not None
+            ]
+            overview_page = await overview_composer.compose(
+                domain_name, domain_modules, language=language,
+            )
+            all_pages.append(overview_page)
+
+        # Persist business domain overview pages (namespace: business_id)
+        if all_pages:
+            await self._persist_pages_to_graph(business_id, all_pages)
+
+        # Generate per-repo wiki pages (creates WikiPages + SOURCE_ENTITY edges)
+        for repo_name in all_modules:
+            try:
+                await self.generate(
+                    repo_name,
+                    "repo",
+                    "structure",
+                    "json",
+                    language,
+                    llm_provider,
+                )
+            except Exception:
+                log.warning("business_wiki_repo_failed", repository=repo_name, exc_info=True)
+
+        from wiki.reference_generator import WikiReferenceGenerator
+
+        ref_gen = WikiReferenceGenerator(self._wiki_store)
+        ref_count = await ref_gen.generate()
+
+        return {
+            "business_id": business_id,
+            "domains": domain_names,
+            "pages_count": len(all_pages),
+            "references_count": ref_count,
+            "repositories": [r["repository"] for r in repos],
+        }
+
+    def _find_module_node(
+        self,
+        all_modules: dict[str, list[GraphNode]],
+        repo: str,
+        module_name: str,
+    ) -> GraphNode | None:
+        for m in all_modules.get(repo, []):
+            name = m.properties.get("name")
+            if isinstance(name, str) and name == module_name:
+                return m
+        return None
+
     def _budget_for_tier(self, tier: ImportanceTier | None) -> int:
         """Return the token budget for a given importance tier from app config."""
         app_cfg = get_settings().wiki
@@ -457,6 +587,7 @@ class WikiService:
                 )
                 page.metadata.enrichment_level = EnrichmentLevel.BASE
                 pages.append(page)
+                page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
                 if tier is not None:
                     page_tier_map[page.path] = tier
                 if config.mode == "full" and page.metadata.fallback_tier == 3:
@@ -520,6 +651,7 @@ class WikiService:
                 "generated_at": ts,
                 "importance_tier": getattr(p.metadata, "importance_tier", None),
                 "enrichment_level": getattr(p.metadata, "enrichment_level", None),
+                "entity_uid": getattr(p, "_source_entity_uid", None),
             }
             for p in pages
         ]
@@ -528,6 +660,27 @@ class WikiService:
         except Exception as exc:
             log.warning("wiki_page_persist_failed", repository=repository, error=str(exc))
             return
+
+        for pd in page_dicts:
+            entity_uid = pd.get("entity_uid")
+            if entity_uid:
+                wiki_uid = f"WikiPage:{repository}:{pd['path']}"
+                se_q = (
+                    "MATCH (wp:WikiPage {uid: $wiki_uid}) "
+                    "MATCH (e {uid: $entity_uid}) "
+                    "MERGE (wp)-[:SOURCE_ENTITY]->(e)"
+                )
+                try:
+                    await self._store.execute_query(
+                        se_q, {"wiki_uid": wiki_uid, "entity_uid": entity_uid},
+                    )
+                except Exception as exc:
+                    log.warning(
+                        "source_entity_edge_failed",
+                        wiki_uid=wiki_uid,
+                        entity_uid=entity_uid,
+                        error=str(exc),
+                    )
 
         try:
             emb_gen = EmbeddingGenerator.shared(config=get_settings().embedding)

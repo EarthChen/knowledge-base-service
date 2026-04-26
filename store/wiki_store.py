@@ -324,6 +324,50 @@ class WikiStore:
         )
         return await self._store.execute_query(q, {"repo": repository})
 
+    # --- Phase 2: Chunk vector retrieval ---
+
+    async def vector_search_chunks(
+        self, k: int, vec: list[float], repository: str, limit: int
+    ) -> QueryResultWrapper:
+        """Semantic search over Chunk embeddings."""
+        q = (
+            "CALL db.idx.vector.queryNodes('Chunk', 'embedding', $k, vecf32($vec)) "
+            "YIELD node, score "
+            "WHERE node.repository = $repository "
+            "RETURN node.text AS text, node.file AS file, "
+            "node.start_line AS start_line, node.end_line AS end_line, "
+            "node.parent_uid AS parent_uid, node.parent_name AS parent_name, "
+            "score "
+            "ORDER BY score DESC LIMIT $limit"
+        )
+        return await self._store.execute_query(
+            q, {"k": k, "vec": vec, "repository": repository, "limit": limit},
+        )
+
+    async def count_chunks_without_embedding(self, repository: str) -> QueryResultWrapper:
+        """Count Chunk nodes that lack an embedding vector."""
+        q = (
+            "MATCH (c:Chunk {repository: $repo}) "
+            "WHERE c.embedding IS NULL "
+            "RETURN count(c) AS cnt"
+        )
+        return await self._store.execute_query(q, {"repo": repository})
+
+    async def batch_get_chunks_for_embedding(
+        self, repository: str, batch_size: int, offset: int
+    ) -> QueryResultWrapper:
+        """Fetch a batch of Chunk nodes without embeddings for indexing."""
+        q = (
+            "MATCH (c:Chunk {repository: $repo}) "
+            "WHERE c.embedding IS NULL "
+            "RETURN c.uid AS uid, c.text AS text "
+            "ORDER BY c.uid "
+            "SKIP $offset LIMIT $limit"
+        )
+        return await self._store.execute_query(
+            q, {"repo": repository, "offset": offset, "limit": batch_size},
+        )
+
     # --- Wiki tree structure CRUD ---
 
     _TREE_ALLOWED_LABELS = frozenset({"WikiSpace", "WikiSection", "WikiPage"})

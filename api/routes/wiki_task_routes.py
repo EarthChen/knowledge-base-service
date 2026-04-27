@@ -67,7 +67,18 @@ async def _run_business_wiki_background(
     """Background coroutine: run business wiki generation and update task state."""
     async def _progress(info: dict[str, Any]) -> None:
         if task_store:
-            await task_store.update_status(task_id, "running", progress=info)
+            tr = int(info.get("total_repos", 0) or 0)
+            cr = int(info.get("completed_repos", 0) or 0)
+            denom = max(tr, 1)
+            pct = int(cr / denom * 100)
+            await task_store.update_status(
+                task_id,
+                "running",
+                completed_repos=str(cr),
+                total_repos=str(tr),
+                current_repo=str(info.get("current_repo", "")),
+                progress_pct=str(pct),
+            )
         if event_bus:
             await event_bus.publish(
                 WikiEvent(

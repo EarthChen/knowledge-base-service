@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { businessWikiGenerate, businessWikiTaskStatus } from "../api/client";
+import { ApiError, businessWikiGenerate, businessWikiTaskStatus } from "../api/client";
 import type { WikiAsyncTask } from "../api/types";
 import { useToast } from "../components/Toast";
 import { useI18n } from "../i18n/context";
@@ -22,9 +22,19 @@ export function useWikiRegenerate(businessId: string) {
   const { toast } = useToast();
   const { locale, t } = useI18n();
 
+  const inFlightRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const regenerate = useCallback(
     async (incremental = true) => {
-      if (!businessId.trim() || isPending) return;
+      if (!businessId.trim() || inFlightRef.current) return;
+      inFlightRef.current = true;
       setIsPending(true);
       setProgress(null);
       try {
@@ -40,13 +50,15 @@ export function useWikiRegenerate(businessId: string) {
         const maxAttempts = 120;
         for (let i = 0; i < maxAttempts; i++) {
           await new Promise((r) => setTimeout(r, 2000));
+          if (!mountedRef.current) break;
           const st: WikiAsyncTask = await businessWikiTaskStatus(tid);
           if (st.progress_pct !== undefined) {
+            if (!mountedRef.current) break;
             setProgress({
-              totalRepos: st.total_repos ?? 0,
-              completedRepos: st.completed_repos ?? 0,
+              totalRepos: Number(st.total_repos) || 0,
+              completedRepos: Number(st.completed_repos) || 0,
               currentRepo: st.current_repo ?? "",
-              progressPct: st.progress_pct ?? 0,
+              progressPct: Number(st.progress_pct) || 0,
               skippedRepos:
                 typeof st.skipped_repos === "number"
                   ? st.skipped_repos
@@ -74,18 +86,20 @@ export function useWikiRegenerate(businessId: string) {
         }
         toast("error", t.wiki.regenerateTimeout);
       } catch (e: unknown) {
-        const msg = getErrorMessage(e, t.common.unexpectedError);
-        if (typeof msg === "string" && msg.includes("409")) {
+        if (e instanceof ApiError && e.status === 409) {
           toast("error", t.wiki.regenerateConflict);
         } else {
-          toast("error", msg);
+          toast("error", getErrorMessage(e, t.common.unexpectedError));
         }
       } finally {
-        setIsPending(false);
-        setProgress(null);
+        inFlightRef.current = false;
+        if (mountedRef.current) {
+          setIsPending(false);
+          setProgress(null);
+        }
       }
     },
-    [businessId, isPending, locale, t, toast, queryClient],
+    [businessId, locale, t, toast, queryClient],
   );
 
   return { regenerate, isPending, progress };

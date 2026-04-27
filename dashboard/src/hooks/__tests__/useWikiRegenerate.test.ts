@@ -21,10 +21,14 @@ vi.mock("../../i18n/context", () => ({
   useI18n: () => useI18nMock(),
 }));
 
-vi.mock("../../api/client", () => ({
-  businessWikiGenerate: vi.fn(),
-  businessWikiTaskStatus: vi.fn(),
-}));
+vi.mock("../../api/client", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../../api/client")>();
+  return {
+    ...mod,
+    businessWikiGenerate: vi.fn(),
+    businessWikiTaskStatus: vi.fn(),
+  };
+});
 
 function createWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -196,5 +200,18 @@ describe("useWikiRegenerate", () => {
       await result.current.regenerate(true);
     });
     expect(toast).toHaveBeenCalledWith("error", "network down");
+  });
+
+  it("toasts conflict when businessWikiGenerate returns 409", async () => {
+    vi.mocked(client.businessWikiGenerate).mockRejectedValue(
+      new client.ApiError("Business wiki generation already running.", 409, {
+        error: "generation_in_progress",
+      }),
+    );
+    const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
+    await act(async () => {
+      await result.current.regenerate(true);
+    });
+    expect(toast).toHaveBeenCalledWith("error", en.wiki.regenerateConflict);
   });
 });

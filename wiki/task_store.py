@@ -21,7 +21,7 @@ class WikiTaskStore:
     DEFAULT_TTL = 1800  # 30 minutes
     LOCK_TTL = 3600  # 1 hour
 
-    _JSON_FIELDS = frozenset({"partial_errors", "skipped_repos", "result", "progress"})
+    _JSON_FIELDS = frozenset({"partial_errors", "skipped_repos", "result"})
 
     def __init__(self, redis_conn: Any) -> None:
         self._redis = redis_conn

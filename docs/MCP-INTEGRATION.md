@@ -4,7 +4,7 @@
 
 | 表面 | 列出 | 调用 | 工具数 |
 |------|------|------|--------|
-| **主服务 MCP** | `GET /api/v1/mcp/tools` | `POST /api/v1/mcp/tool`，体为 `{"tool_name":"...","arguments":{...}}` | **18**（`MCP_TOOLS_MANIFEST` 11 个 + `WIKI_MCP_TOOLS_MANIFEST` 7 个） |
+| **主服务 MCP** | `GET /api/v1/mcp/tools` | `POST /api/v1/mcp/tool`，体为 `{"tool_name":"...","arguments":{...}}` | **20**（`MCP_TOOLS_MANIFEST` 12 个 + `WIKI_MCP_TOOLS_MANIFEST` 8 个） |
 | **Wiki 专用 MCP** | `GET /api/v1/mcp/tools/list` | `POST /api/v1/mcp/tools/call`，体为 `{"name":"...","arguments":{...}}` | **5**；仅当 `WIKI__MCP_SERVER_ENABLED=true` 且已 `bootstrap_wiki` 时可用 |
 
 > 主清单在 `api/mcp_server.py` 末尾与 `wiki/mcp_tools.py` 的 `WIKI_MCP_TOOLS_MANIFEST` 合并；五工具定义在 `api/mcp_wiki_server.py` 的 `TOOL_DEFINITIONS`。
@@ -23,9 +23,9 @@
 
 ## 工具参考
 
-### A. 主服务 MCP（18 个工具）
+### A. 主服务 MCP（20 个工具）
 
-第 1–11 为图谱/检索类，第 12–18 为 Wiki 管线类（`wiki/mcp_tools.py`）。
+第 1–12 为图谱/检索类，第 13–20 为 Wiki 管线类（`wiki/mcp_tools.py`）。
 
 #### 1. `rag_query`
 
@@ -180,7 +180,15 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）。 |
 
-#### 12. `get_wiki_page`
+#### 12. `graph_path`
+
+| | |
+|--|--|
+| **描述** | 在仓库内，沿 `CALLS`、`INHERITS`、`IMPORTS` 边查找两个具名代码实体（Function/Class/Module）之间的**最短路径**（有深度上限）。 |
+| **最低角色** | Viewer |
+| **参数** | `repository`（**必填**）、`from_entity`（**必填**，起点名称或 FQN）、`to_entity`（**必填**，终点名称或 FQN）、`max_depth`（int，默认 5，服务端限制 1–8）。 |
+
+#### 13. `get_wiki_page`
 
 | | |
 |--|--|
@@ -188,7 +196,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）、`scope`（**必填**，如 `module:path` 或 `class:fqn`）。 |
 
-#### 13. `list_wiki_pages`
+#### 14. `list_wiki_pages`
 
 | | |
 |--|--|
@@ -196,7 +204,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**），可选 `scope` 子树过滤。 |
 
-#### 14. `search_wiki`
+#### 15. `search_wiki`
 
 | | |
 |--|--|
@@ -204,7 +212,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）、`query`（**必填**）、`mode`（`hybrid` 默认 / `graph` / `semantic` / `keyword`）、`limit`、`min_score`，可选 `scope`。 |
 
-#### 15. `wiki_export`
+#### 16. `wiki_export`
 
 | | |
 |--|--|
@@ -212,7 +220,7 @@
 | **最低角色** | **Editor** |
 | **参数** | `repository`（**必填**）、`target_dir`（**必填**），可选 `selected_files`（路径数组）。 |
 
-#### 16. `wiki_get_tree`
+#### 17. `wiki_get_tree`
 
 | | |
 |--|--|
@@ -220,7 +228,7 @@
 | **最低角色** | Viewer |
 | **参数** | `business_id`（默认 `default`）、`view`（枚举，默认 `business_domain`）。 |
 
-#### 17. `wiki_get_related`
+#### 18. `wiki_get_related`
 
 | | |
 |--|--|
@@ -228,13 +236,21 @@
 | **最低角色** | Viewer |
 | **参数** | `page_uid`（**必填**，如 `WikiPage:repo:path`）。 |
 
-#### 18. `wiki_get_domain_overview`
+#### 19. `wiki_get_domain_overview`
 
 | | |
 |--|--|
 | **描述** | 指定业务域的域总览页内容/元数据。 |
 | **最低角色** | Viewer |
 | **参数** | `domain_name`（**必填**）、`business_id`（默认 `default`）。 |
+
+#### 20. `wiki_get_snapshot`
+
+| | |
+|--|--|
+| **描述** | 获取某仓库下全部 Wiki 页的**编译快照**：结构化 Markdown，含页摘要、置信度、交叉引用与模块组织。 |
+| **最低角色** | Viewer |
+| **参数** | `repository`（**必填**）。 |
 
 ### B. Wiki 专用 MCP（5 个工具，`WIKI__MCP_SERVER_ENABLED=true`）
 

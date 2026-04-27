@@ -27,7 +27,7 @@ query/               # Hybrid search, blast radius, NL→Cypher (UI)
 
 | Concern | Modules |
 |---------|---------|
-| Generation / compose | `wiki/wiki_service.py`, `wiki/composer.py`, `wiki/repo_composer.py` |
+| Generation / compose | `wiki/service.py`, `wiki/composer.py`, `wiki/repo_composer.py` |
 | Incremental / changelog | `wiki/incremental.py`, `wiki/change_detector.py`, `store/wiki_changelog.py` |
 | Quality v2 | `wiki/confidence_scorer.py`, `wiki/contradiction_detector.py`, `wiki/lint.py` |
 | Auto-heal (library) | `wiki/auto_healer.py` — see [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md) for wiring |

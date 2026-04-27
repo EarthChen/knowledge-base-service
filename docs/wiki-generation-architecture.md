@@ -6,7 +6,7 @@
 
 - 将**索引属性图**（Tree-sitter → FalkorDB + 向量）转化为 **Markdown**（**Mermaid**、**`[[Wikilink]]` → 可点击 Markdown 链接**）和**稳定源码位置交叉链接**。
 - 支持**全量/增量**再生成、**Ingest+changelog** 可观测、多种 **LLM 后端**（OpenAI 兼容）与**仪表盘**浏览。
-- 暴露主 **MCP**（`mcp_server.py` + `wiki/mcp_tools.py` 共 18 个工具）与 **可选的 Wiki 专用 MCP 五工具**（`/api/v1/mcp/tools/*`）；与完整 HTTP `/api/v1/wiki/*` 面并行（详见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)）。
+- 暴露主 **MCP**（`mcp_server.py` + `wiki/mcp_tools.py` 共 20 个工具）与 **可选的 Wiki 专用 MCP 五工具**（`/api/v1/mcp/tools/*`）；与完整 HTTP `/api/v1/wiki/*` 面并行（详见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)）。
 - **LLM Wiki v2**：页级**置信度**、**跨页矛盾**、**主张/替代**、**记忆分层 + 遗忘**、**YAML 模式校验**（见下文专节）。
 
 ## 分层管道
@@ -145,7 +145,7 @@ sequenceDiagram
 - **置信度（0.0–1.0）**：`WIKI__CONFIDENCE_SCORING_ENABLED` 时，在生成后及 lint 中由 `wiki/confidence_scorer.py` 依来源覆盖、**新鲜度**、**用户反馈**、**交叉引用**、**矛盾罚分**等加权（权重 **`WIKI__CONFIDENCE_WEIGHT_W1`–`W5`**）计算，回写 `WikiPage.confidence_score`。
 - **矛盾检测**：`WIKI__CONTRADICTION_DETECTION_ENABLED` 时跨页发现陈述冲突，经 LLM **judge** 后持久化；**`GET /api/v1/wiki/contradictions?...`** 列出与页关联的记录，**`PATCH /api/v1/wiki/contradictions/{uid}/acknowledge|resolve`**（Editor）做工作流状态迁移。
 - **主张 / 替代 / 版本**：`WIKI__SUPERSESSION_TRACKING_ENABLED` 时维护主张链与**替代**关系；**`GET /api/v1/wiki/pages/claim-history`** 拉取与页相关的主张与版本记录（`store/wiki_claim_store` 等）。
-- **模式校验**：`WIKI__SCHEMA_VALIDATION_ENABLED` 时，`WikiLintService` 用 **`WIKI__SCHEMA_PATH`** 指向的 YAML 校验生成页**区块结构**，与 `WIKI__STALE_DETECTION_ENABLED` 等 lint 门组合使用。
+- **模式校验**：`WIKI__SCHEMA_VALIDATION_ENABLED` 时，`WikiLintService` 用 **`WIKI__SCHEMA_PATH`** 指向的 YAML 校验生成页**区块结构**，与 **`WIKI__STALE_DETECTION_ENABLED`**（`WikiConfig.stale_detection_enabled`，嵌套 `WIKI__`）等 lint 门组合使用。
 
 ## 自动化（Webhook、Wiki 调度、Lint 调度、AutoHealer）
 
@@ -174,7 +174,7 @@ sequenceDiagram
 
 ## MCP 与 HTTP 的权威来源
 
-- 主服务 **18 个** MCP 工具（含 7 个 `WIKI_MCP_*`）见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md) § A；**`GET /api/v1/mcp/tools`** 为唯一合并清单。
+- 主服务 **20 个** MCP 工具（含 8 个 `WIKI_MCP_*`）见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md) § A；**`GET /api/v1/mcp/tools`** 为唯一合并清单。
 - 可选 **5 个** Wiki 工具（`wiki_search` 等）见同文档 § B；**`WIKI__MCP_SERVER_ENABLED`**，端点 **`/api/v1/mcp/tools/list`** / **`/api/v1/mcp/tools/call`**。
 
 跨功能分析另见主 MCP 的 **`analyze_changes`**（`wiki_pr_impact` 等）。

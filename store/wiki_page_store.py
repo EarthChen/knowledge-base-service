@@ -293,6 +293,22 @@ class WikiPageStoreMixin:
         )
         return await self._store.execute_query(q, {"names": names})
 
+    async def ask_query_shortest_path_between(
+        self,
+        repository: str,
+        from_name: str,
+        to_name: str,
+        *,
+        max_depth: int = 5,
+    ) -> dict[str, Any]:
+        """Repository-scoped shortest path; same logic as ``GraphQueryRepository.shortest_path_between_names``."""
+        from store.graph_queries import GraphQueryRepository
+
+        gq = GraphQueryRepository(self._store)
+        return await gq.shortest_path_between_names(
+            repository, from_name, to_name, max_depth=max_depth
+        )
+
     async def ask_query_impact_callers(self, names: list[str]) -> QueryResultWrapper:
         q = (
             "MATCH (n) WHERE n.name IN $names "

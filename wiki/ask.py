@@ -246,6 +246,33 @@ class GraphEnhancedContextCollector:
                 lines.append(" -> ".join(str(x) for x in path if x))
         return "\n".join(lines)
 
+    async def _query_repo_scoped_shortest_path(self, repository: str, names: list[str]) -> str:
+        """Supplement relation questions with a repository-scoped path (see GraphQueryRepository)."""
+        if len(names) < 2:
+            return ""
+        a, b = names[0], names[1]
+        if a == b:
+            for n in names[2:]:
+                if n != a:
+                    b = n
+                    break
+            else:
+                return ""
+        raw = await self._wiki.ask_query_shortest_path_between(repository, a, b)
+        if not raw.get("ok"):
+            return ""
+        rows = raw.get("rows") or []
+        lines: list[str] = []
+        for row in rows:
+            depth = row.get("depth")
+            node_list = row.get("nodes") or []
+            rel_list = row.get("rels") or []
+            seg = " -> ".join(str(x) for x in node_list if str(x).strip())
+            rel_str = ", ".join(str(x) for x in rel_list) if rel_list else ""
+            suffix = f" | edges: {rel_str}" if rel_str else ""
+            lines.append(f"Repository-scoped shortest path (depth {depth}): {seg}{suffix}")
+        return "\n".join(lines)
+
     async def _query_impact_callers(self, names: list[str]) -> str:
         if not names:
             return ""
@@ -334,6 +361,11 @@ class GraphEnhancedContextCollector:
             graph_section = await self._query_flow_callees(names)
         elif question_type == "relation":
             graph_section = await self._query_relation_paths(names)
+            scoped = await self._query_repo_scoped_shortest_path(repository, names)
+            if scoped:
+                graph_section = (
+                    f"{graph_section}\n{scoped}".strip() if graph_section else scoped
+                )
         elif question_type == "impact":
             graph_section = await self._query_impact_callers(names)
 

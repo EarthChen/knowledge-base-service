@@ -4,10 +4,10 @@ Exposes the knowledge base as MCP tools that can be injected into
 Cursor Agent sessions, enabling the agent to query the code knowledge graph.
 Indexing is handled through HTTP API endpoints, not through MCP tools.
 
-Tools exposed (19 total):
+Tools exposed (20 total):
   - rag_query, rag_graph: Hybrid search and graph queries
   - documents: List indexed docs or fetch one by uid
-  - get_file_content, get_code_snippet, get_complete_context: On-disk file source and entity context
+  - get_file_content, get_code_snippet, get_complete_context, graph_path: On-disk file source, entity context, and shortest path between entities
   - analyze_code: Quality score or index vs disk consistency (mode)
   - analyze_changes: PR review, blast-radius impact, wiki impact scope, wiki file-level PR impact (mode)
   - search_architecture: Classes by layer or discovered HTTP/RPC/Kafka endpoints (mode)
@@ -694,6 +694,36 @@ MCP_TOOLS_MANIFEST = [
             "required": ["repository", "file_path"],
         },
     },
+    {
+        "name": "graph_path",
+        "description": (
+            "Find the shortest path between two named code entities (Function/Class/Module) "
+            "within a repository over CALLS, INHERITS, and IMPORTS edges, up to a bounded depth."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {
+                    "type": "string",
+                    "description": "Repository name as indexed on graph nodes.",
+                },
+                "from_entity": {
+                    "type": "string",
+                    "description": "Start entity name or fully qualified name (FQN).",
+                },
+                "to_entity": {
+                    "type": "string",
+                    "description": "End entity name or fully qualified name (FQN).",
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Maximum path length (hops). Clamped to 1–8; default 5.",
+                    "default": 5,
+                },
+            },
+            "required": ["repository", "from_entity", "to_entity"],
+        },
+    },
 ] + WIKI_MCP_TOOLS_MANIFEST
 
 
@@ -754,6 +784,7 @@ class KnowledgeBaseMCPHandler:
             "search_architecture": self.handle_search_architecture,
             "analyze_changes": self.handle_analyze_changes,
             "get_complete_context": self.handle_get_complete_context,
+            "graph_path": self.handle_graph_path,
             "get_insights": self.handle_get_insights,
             "index_freshness": self.handle_index_freshness,
             "get_wiki_page": self._wiki.handle_get_wiki_page,
@@ -1387,6 +1418,29 @@ class KnowledgeBaseMCPHandler:
         if not result.data:
             return _mcp_error("not_found", "Document not found")
         return _format_get_document_mcp(result.data)
+
+    async def handle_graph_path(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        from store.graph_queries import GraphQueryRepository
+
+        repository = str(arguments.get("repository") or "").strip()
+        from_entity = str(arguments.get("from_entity") or "").strip()
+        to_entity = str(arguments.get("to_entity") or "").strip()
+        if not repository or not from_entity or not to_entity:
+            return _mcp_error(
+                "invalid_params",
+                "repository, from_entity, and to_entity are required",
+            )
+        if not self._store:
+            return _mcp_error("service_unavailable", "Graph store not available")
+        raw_max = arguments.get("max_depth", 5)
+        try:
+            max_depth = int(raw_max) if raw_max is not None else 5
+        except (TypeError, ValueError):
+            return _mcp_error("invalid_params", "max_depth must be an integer")
+        gq = GraphQueryRepository(self._store)
+        return await gq.shortest_path_between_names(
+            repository, from_entity, to_entity, max_depth=max_depth
+        )
 
     async def handle_get_file_content(self, args: dict[str, Any]) -> dict[str, Any]:
         repository = str(args.get("repository") or "").strip()

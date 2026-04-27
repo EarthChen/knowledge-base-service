@@ -447,6 +447,48 @@ class GraphQueryRepository:
         )
         return await self._store.execute_query(edges_q, {"uids": node_uids})
 
+    async def shortest_path_between_names(
+        self,
+        repository: str,
+        from_name: str,
+        to_name: str,
+        *,
+        max_depth: int = 5,
+    ) -> dict[str, Any]:
+        """Find shortest path between two named entities using shortestPath with fallback."""
+        rel = "CALLS|INHERITS|IMPORTS"
+        d = min(max(1, int(max_depth)), 8)
+        primary = (
+            f"MATCH (a), (b) "
+            f"WHERE a.repository = $repo AND b.repository = $repo "
+            f"AND (a.name = $from OR a.fqn = $from) AND (b.name = $to OR b.fqn = $to) "
+            f"MATCH p = shortestPath((a)-[:{rel}*1..{d}]-(b)) "
+            f"RETURN p, length(p) AS depth, "
+            f"[n IN nodes(p) | coalesce(n.name, n.fqn, '')] AS nodes, "
+            f"[r IN relationships(p) | type(r)] AS rels LIMIT 1"
+        )
+        params = {"repo": repository, "from": from_name, "to": to_name}
+        try:
+            res = await self._store.execute_query(primary, params)
+            rows = getattr(res, "data", None) or []
+            if rows:
+                return {"ok": True, "rows": rows, "used": "shortestPath"}
+        except Exception:
+            pass
+        fb = (
+            f"MATCH (a), (b) "
+            f"WHERE a.repository = $repo AND b.repository = $repo "
+            f"AND (a.name = $from OR a.fqn = $from) AND (b.name = $to OR b.fqn = $to) "
+            f"MATCH path = (a)-[*1..{d}]-(b) "
+            f"RETURN path, length(path) AS depth, "
+            f"[n IN nodes(path) | coalesce(n.name, n.fqn, '')] AS nodes, "
+            f"[r IN relationships(path) | type(r)] AS rels "
+            f"ORDER BY depth LIMIT 1"
+        )
+        res2 = await self._store.execute_query(fb, params)
+        rows2 = getattr(res2, "data", None) or []
+        return {"ok": bool(rows2), "rows": rows2, "used": "variable_length_fallback"}
+
     # ── Admin operations ────────────────────────────────────────
 
     async def cleanup_excluded_dirs(self, patterns: list[str]) -> int:

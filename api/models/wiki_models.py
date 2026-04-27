@@ -126,6 +126,12 @@ class GitPushConfig(BaseModel):
     commit_message_prefix: str = Field(default="docs(wiki):")
 
 
+class WikiPageContentBody(BaseModel):
+    content: str
+    edit_reason: str = ""
+    expected_version: int | None = None
+
+
 class BusinessWikiExportBody(BaseModel):
     business_id: str = Field(default="default", min_length=1)
     format: str = Field(..., pattern="^(markdown|zip|git|obsidian|mkdocs)$")

@@ -24,8 +24,11 @@ from api.models.wiki_models import (
     AnalyzeImpactBody,
     BusinessWikiExportBody,
     WikiGlobalSearchBody,
+    WikiPageContentBody,
     WikiSearchBody,
 )
+from api.routes.kb_routers import editor_router
+from api.routes.kb_dependencies import get_effective_business_id
 from api.routes.wiki_shared import (
     _GLOBAL_SEARCH_CONCURRENCY,
     _GLOBAL_SEARCH_MAX_REPOS,
@@ -391,6 +394,45 @@ async def business_wiki_export(
     }
 
 
+@router.get("/pages/{page_uid:path}/versions", response_model=None)
+async def wiki_list_page_versions(
+    request: Request,
+    page_uid: str,
+    business_id: str = Depends(get_effective_business_id),
+) -> list[dict[str, Any]]:
+    """Version history for a wiki page (``WikiVersion``-shaped rows for the dashboard)."""
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise KbServiceUnavailable("Wiki store unavailable")
+    store = WikiStore(raw_store)
+    decoded = unquote(page_uid)
+    if not await store.assert_wiki_page_in_business(business_id, decoded):
+        raise KbNotFound(f"Wiki page not found: {decoded}")
+    return await store.list_wiki_page_versions(decoded)
+
+
+@router.get("/pages/{page_uid:path}/diff", response_model=None)
+async def wiki_page_version_diff(
+    request: Request,
+    page_uid: str,
+    from_version: int = Query(..., ge=0, description="Source version (inclusive)"),
+    to_version: int = Query(..., ge=0, description="Target version (inclusive)"),
+    business_id: str = Depends(get_effective_business_id),
+) -> dict[str, Any]:
+    """Unified-diff-style ``WikiDiff`` for two logical versions of a page."""
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise KbServiceUnavailable("Wiki store unavailable")
+    store = WikiStore(raw_store)
+    decoded = unquote(page_uid)
+    if not await store.assert_wiki_page_in_business(business_id, decoded):
+        raise KbNotFound(f"Wiki page not found: {decoded}")
+    out = await store.get_wiki_page_version_diff(decoded, from_version, to_version)
+    if out is None:
+        raise KbNotFound("One or both versions are not available for this page")
+    return out
+
+
 @router.get("/pages/{page_uid:path}/references", response_model=None)
 async def get_page_references(
     page_uid: str,
@@ -602,3 +644,32 @@ async def wiki_get_page_detail(
         "context": ctx,
         "generated_at": props.get("generated_at"),
     }
+
+
+@editor_router.patch("/wiki/pages/{page_uid:path}/content", response_model=None)
+async def wiki_edit_page_content(
+    page_uid: str,
+    body: WikiPageContentBody,
+    request: Request,
+    business_id: str = Depends(get_effective_business_id),
+) -> dict[str, Any]:
+    """Update wiki page body with optimistic concurrency (LWW) and a ``WikiPageVersion`` snapshot."""
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise KbServiceUnavailable("Wiki store unavailable")
+    store = WikiStore(raw_store)
+    decoded = unquote(page_uid)
+    if not await store.assert_wiki_page_in_business(business_id, decoded):
+        raise KbNotFound(f"Wiki page not found: {decoded}")
+    out = await store.update_wiki_page_content(
+        decoded,
+        body.content,
+        source="human_edit",
+        expected_version=body.expected_version,
+        edit_reason=body.edit_reason,
+    )
+    if not out.get("ok"):
+        if out.get("error") == "wiki_page_not_found":
+            raise KbNotFound(f"Wiki page not found: {decoded}")
+        raise KbServiceUnavailable(str(out.get("error", "update_failed")))
+    return out

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import difflib
+import hashlib
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from store.falkordb_store import QueryResultWrapper
@@ -613,3 +617,188 @@ class WikiPageStoreMixin:
                 }
             )
         return rows
+
+    async def assert_wiki_page_in_business(self, business_id: str, page_uid: str) -> bool:
+        """Return whether ``page_uid`` is reachable from ``business_id`` via WikiSpace → HAS_CHILD → WikiPage."""
+        q = (
+            "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage {uid: $page_uid}) "
+            "RETURN 1 AS ok LIMIT 1"
+        )
+        r = await self.execute_query(q, {"business_id": business_id, "page_uid": page_uid})
+        return bool(r.data)
+
+    async def update_wiki_page_content(
+        self,
+        page_uid: str,
+        content: str,
+        source: str = "human_edit",
+        expected_version: int | None = None,
+        edit_reason: str = "",
+    ) -> dict[str, Any]:
+        """Update wiki page content, bump version, snapshot previous state on ``WikiPageVersion`` (LWW on mismatch)."""
+        ex = await self.execute_query(
+            "MATCH (wp:WikiPage {uid: $uid}) RETURN 1 AS ok LIMIT 1",
+            {"uid": page_uid},
+        )
+        if not ex.data:
+            return {"ok": False, "error": "wiki_page_not_found", "page_uid": page_uid}
+
+        wv_uid = f"wpv:{page_uid}:{uuid.uuid4().hex[:16]}"
+        created = datetime.now(timezone.utc).isoformat()
+        cypher = (
+            "MATCH (wp:WikiPage {uid: $page_uid}) "
+            "WITH wp, coalesce(wp.version, 0) AS cur_v, coalesce(wp.content, '') AS old_c, "
+            "coalesce(wp.content_source, '') AS old_src "
+            "CREATE (wv:WikiPageVersion {"
+            "uid: $wv_uid, wiki_page_uid: $page_uid, version: cur_v, content: old_c, "
+            "edit_reason: $edit_reason, created_at: $created_at, content_source: old_src}) "
+            "SET wp.content = $new_content, wp.content_source = $source, wp.version = cur_v + 1 "
+            "RETURN cur_v + 1 AS new_version, cur_v AS previous_version, old_c AS old_content"
+        )
+        r = await self.execute_query(
+            cypher,
+            {
+                "page_uid": page_uid,
+                "new_content": content,
+                "source": source,
+                "edit_reason": edit_reason,
+                "created_at": created,
+                "wv_uid": wv_uid,
+            },
+        )
+        if not r.data:
+            return {"ok": False, "error": "wiki_page_update_failed", "page_uid": page_uid}
+        row = r.data[0]
+        new_v = int(row.get("new_version", 0))
+        prev_v = int(row.get("previous_version", 0))
+        mismatch = bool(
+            expected_version is not None and int(expected_version) != prev_v
+        )
+        out: dict[str, Any] = {
+            "ok": True,
+            "page_uid": page_uid,
+            "version": new_v,
+            "previous_version": prev_v,
+            "version_mismatch_warning": mismatch,
+        }
+        if mismatch:
+            out["expected_version"] = expected_version
+            out["server_version"] = prev_v
+        return out
+
+    async def _wiki_version_content(
+        self, page_uid: str, version: int
+    ) -> str | None:
+        """Text at logical ``version``; ``None`` if page or version is unknown."""
+        r_wp = await self.execute_query(
+            "MATCH (wp:WikiPage {uid: $uid}) "
+            "RETURN coalesce(wp.version, 0) AS v, coalesce(wp.content, '') AS c",
+            {"uid": page_uid},
+        )
+        if not r_wp.data:
+            return None
+        cur = int(r_wp.data[0].get("v", 0) or 0)
+        if version == cur:
+            return str(r_wp.data[0].get("c") or "")
+        wv = await self.execute_query(
+            "MATCH (wv:WikiPageVersion {wiki_page_uid: $uid, version: $ver}) "
+            "RETURN wv.content AS c LIMIT 1",
+            {"uid": page_uid, "ver": version},
+        )
+        if wv.data:
+            return str(wv.data[0].get("c") or "")
+        return None
+
+    def _hunks_from_unified(self, u_lines: list[str]) -> list[dict[str, Any]]:
+        """Turn unified diff output into the dashboard ``WikiDiff`` hunk shape."""
+        if not u_lines:
+            return [
+                {
+                    "old_start": 1,
+                    "old_lines": 0,
+                    "new_start": 1,
+                    "new_lines": 0,
+                    "content": "",
+                }
+            ]
+        return [
+            {
+                "old_start": 0,
+                "old_lines": 0,
+                "new_start": 0,
+                "new_lines": 0,
+                "content": "\n".join(u_lines),
+            }
+        ]
+
+    async def get_wiki_page_version_diff(
+        self,
+        page_uid: str,
+        from_version: int,
+        to_version: int,
+    ) -> dict[str, Any] | None:
+        """Return ``WikiDiff``-shaped diff between two logical versions, or ``None`` if not found."""
+        a = await self._wiki_version_content(page_uid, from_version)
+        b = await self._wiki_version_content(page_uid, to_version)
+        if a is None or b is None:
+            return None
+        a_lines = a.splitlines(keepends=True)
+        b_lines = b.splitlines(keepends=True)
+        u = list(
+            difflib.unified_diff(
+                a_lines,
+                b_lines,
+                fromfile=f"v{from_version}",
+                tofile=f"v{to_version}",
+                lineterm="",
+            )
+        )
+        return {
+            "from_version": from_version,
+            "to_version": to_version,
+            "hunks": self._hunks_from_unified(u),
+        }
+
+    async def list_wiki_page_versions(self, page_uid: str) -> list[dict[str, Any]]:
+        """Rows compatible with the dashboard ``WikiVersion`` type (``version`` desc)."""
+        r_wp = await self.execute_query(
+            "MATCH (wp:WikiPage {uid: $uid}) "
+            "RETURN coalesce(wp.version, 0) AS v, coalesce(wp.content, '') AS c, "
+            "coalesce(wp.generated_at, '') AS generated_at, coalesce(wp.content_source, '') AS src",
+            {"uid": page_uid},
+        )
+        if not r_wp.data:
+            return []
+        cur_v = int(r_wp.data[0].get("v", 0) or 0)
+        body = r_wp.data[0]
+        cur_content = str(body.get("c") or "")
+        gen_at = str(body.get("generated_at") or "") or datetime.now(timezone.utc).isoformat()
+        ch = hashlib.sha256(cur_content.encode("utf-8")).hexdigest()
+        items: list[dict[str, Any]] = [
+            {
+                "version": cur_v,
+                "content_hash": ch,
+                "generated_at": gen_at,
+                "change_summary": "",
+            }
+        ]
+        wv = await self.execute_query(
+            "MATCH (wv:WikiPageVersion {wiki_page_uid: $uid}) "
+            "RETURN wv.version AS v, wv.content AS c, wv.created_at AS created_at, "
+            "coalesce(wv.edit_reason, '') AS edit_reason, coalesce(wv.content_source, '') AS src",
+            {"uid": page_uid},
+        )
+        for row in wv.data or []:
+            vnum = int(row.get("v", 0) or 0)
+            c = str(row.get("c") or "")
+            h = hashlib.sha256(c.encode("utf-8")).hexdigest()
+            items.append(
+                {
+                    "version": vnum,
+                    "content_hash": h,
+                    "generated_at": str(row.get("created_at") or gen_at),
+                    "change_summary": str(row.get("edit_reason") or "history"),
+                }
+            )
+        items.sort(key=lambda x: int(x.get("version", 0)), reverse=True)
+        return items

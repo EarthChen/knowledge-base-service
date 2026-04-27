@@ -127,8 +127,8 @@ class GitPushConfig(BaseModel):
 
 
 class WikiPageContentBody(BaseModel):
-    content: str
-    edit_reason: str = ""
+    content: str = Field(..., max_length=500_000)
+    edit_reason: str = Field(default="", max_length=1000)
     expected_version: int | None = None
 
 

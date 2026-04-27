@@ -27,6 +27,9 @@ class WikiChangeLogStore:
         pages_regenerated: int,
         files_changed: list[str] | None = None,
         errors: list[str] | None = None,
+        *,
+        heal_refs_removed: int | None = None,
+        heal_pages_deprecated: int | None = None,
     ) -> str:
         uid = f"WikiChangeLog:{uuid.uuid4().hex[:12]}"
         cypher = (
@@ -34,6 +37,7 @@ class WikiChangeLogStore:
             "  uid: $uid, repository: $repo, trigger: $trigger,"
             "  pages_affected: $pages_affected, pages_regenerated: $pages_regen,"
             "  files_changed: $files, errors: $errors,"
+            "  heal_refs_removed: $heal_refs, heal_pages_deprecated: $heal_pages,"
             "  timestamp: $ts"
             "})"
         )
@@ -45,6 +49,8 @@ class WikiChangeLogStore:
             "pages_regen": pages_regenerated,
             "files": files_changed or [],
             "errors": errors or [],
+            "heal_refs": int(heal_refs_removed) if heal_refs_removed is not None else 0,
+            "heal_pages": int(heal_pages_deprecated) if heal_pages_deprecated is not None else 0,
             "ts": time.time(),
         })
         return uid

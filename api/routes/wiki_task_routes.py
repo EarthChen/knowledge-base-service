@@ -92,6 +92,15 @@ async def _run_business_wiki_background(
     try:
         if task_store:
             await task_store.update_status(task_id, "running")
+        if event_bus:
+            await event_bus.publish(
+                WikiEvent(
+                    event_type="wiki:generation_started",
+                    repository=business_id,
+                    business_id=business_id,
+                    data={"task_id": task_id},
+                )
+            )
         result = await svc.generate_business_wiki(
             business_id=business_id,
             language=language,
@@ -110,7 +119,7 @@ async def _run_business_wiki_background(
         if event_bus:
             await event_bus.publish(
                 WikiEvent(
-                    event_type="business_gen_complete",
+                    event_type="wiki:generation_completed",
                     repository=business_id,
                     business_id=business_id,
                     data={"task_id": task_id, "pages_count": result.get("pages_count", 0)},
@@ -120,6 +129,15 @@ async def _run_business_wiki_background(
         log.exception("business_wiki_background_failed", task_id=task_id)
         if task_store:
             await task_store.update_status(task_id, "failed", error="internal_error")
+        if event_bus:
+            await event_bus.publish(
+                WikiEvent(
+                    event_type="wiki:generation_failed",
+                    repository=business_id,
+                    business_id=business_id,
+                    data={"task_id": task_id, "error": "internal_error"},
+                )
+            )
     finally:
         if task_store:
             await task_store.unlock(business_id)

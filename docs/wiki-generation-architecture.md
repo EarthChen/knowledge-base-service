@@ -152,7 +152,7 @@ sequenceDiagram
 - **通用 Webhook**：`api/routes/webhook_routes.py`，**`/api/v1/hooks/{provider}`** 等，签名与防抖；另见 **`/api/v1/hooks/ingest/push`**（上文）。
 - **Wiki 调度器**：`wiki/scheduler/` 协调定期**再生成/导出**计划，与 **`TaskLock`** 互斥，避免与 Ingest/Webhook 并发写同一树。
 - **LintScheduler**（`wiki/lint_scheduler.py`）：`WIKI__LINT_SCHEDULER_ENABLED=true` 时按 **`WIKI__LINT_SCHEDULER_INTERVAL_HOURS`** 周期调用 `WikiLintService`（可含**置信度重算**、**模式校验**、**矛盾**相关后处理，视功能开关而定）。
-- **AutoHealer**（`wiki/auto_healer.py`）：`AutoHealer` 类提供 **`remove_broken_references`**（清理悬空 `WIKI_REFERENCES` 边）与 **`deprecate_orphan_pages`**（无 `SOURCE_ENTITY` 的页标记为弃用）。模块**刻意不包含**「陈旧页自动打标」（见 `auto_healer.py` 顶注）。`WIKI__AUTO_HEAL_ENABLED` 在 `WikiConfig` 与设置 UI 中可用，但**当前** `main` / `WikiLintService` / `LintScheduler` **未调用** `AutoHealer`；接好调度后再将「由 lint/调度触发」视为生效。
+- **AutoHealer**（`wiki/auto_healer.py`）：`AutoHealer` 类提供 **`remove_broken_references`**（清理悬空 `WIKI_REFERENCES` 边）与 **`deprecate_orphan_pages`**（无 `SOURCE_ENTITY` 的页标记为弃用）。模块**刻意不包含**「陈旧页自动打标」（见 `auto_healer.py` 顶注）。**Phase 0 已完成接入**：`WIKI__AUTO_HEAL_ENABLED=true`（默认）时，`WikiLintService.run_lint()` 在 lint 后自动调用 `AutoHealer.heal()`，并将 heal 指标（`refs_removed` / `pages_deprecated`）写入 `WikiChangeLog`；HTTP API、MCP、`LintScheduler` 均走 `run_lint` 统一路径。
 
 ## 相关模块
 

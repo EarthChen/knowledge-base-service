@@ -22,7 +22,7 @@ Do **not** merge the two SP namespaces when reading issues or PRs.
 | Wiki tree | `api/routes/wiki_page_routes.py` | `GET /api/v1/wiki/tree?business_id=&view=` | — |
 | Contradictions | `wiki/contradiction_detector.py`, `api/routes/wiki_contradiction_routes.py` | `GET /api/v1/wiki/contradictions?page_uid=...`；`PATCH .../acknowledge` / `.../resolve` | List uses **query** `page_uid`, not `/api/v1/wiki/{repository}/contradictions`. |
 | Lint | `wiki/lint.py`, `wiki/lint_scheduler.py` | Periodic lint when `WIKI__LINT_SCHEDULER_ENABLED` | — |
-| **AutoHealer** | `wiki/auto_healer.py` | *None today* | **`AutoHealer`** implements `remove_broken_references` + `deprecate_orphan_pages` only. Stale-page marking is **not** implemented (see module docstring). **`WIKI__AUTO_HEAL_ENABLED`** exists in `WikiConfig` / settings UI but **no** `main.py` / lint / scheduler path invokes `AutoHealer` yet—integrate before treating the flag as operational. |
+| **AutoHealer** | `wiki/auto_healer.py` | `WikiLintService.run_lint()` → `AutoHealer.heal()` | **`AutoHealer`** implements `remove_broken_references` + `deprecate_orphan_pages` only. Stale-page marking is **not** implemented (see module docstring). **Phase 0 已完成接入**：当 `WIKI__AUTO_HEAL_ENABLED=true`（默认）时，`run_lint` 在 lint 完成后自动调用 `AutoHealer.heal()`，结果写入 `WikiChangeLog`。HTTP、MCP、`LintScheduler` 均通过 `run_lint` 统一调用。 |
 | Confidence / claims / memory v2 | `wiki/confidence_scorer.py`, `store/wiki_*`, etc. | See [wiki-generation-architecture.md](wiki-generation-architecture.md) | Defaults for several flags are **on** in `config.WikiConfig` (e.g. confidence + contradiction); override per env. |
 
 ## Specs that are not separate files

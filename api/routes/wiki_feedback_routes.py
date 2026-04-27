@@ -11,11 +11,6 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from api.exceptions import KbNotFound, KbServiceUnavailable
-from auth import Role, require_role
-from store.wiki_feedback_store import WikiFeedbackStore
-from store.wiki_store import WikiStore
-from wiki.service import WikiRepoNotFoundError, WikiService
-from wiki.lint import WikiLintService
 from api.models.wiki_models import (
     ChunkIndexBody,
     IngestRequest,
@@ -34,7 +29,11 @@ from api.routes.wiki_shared import (
     get_wiki_service_dep,
     log,
 )
+from auth import Role, require_role
+from store.wiki_feedback_store import WikiFeedbackStore
+from wiki.lint import WikiLintService
 from wiki.memory_loop import MemoryLoop
+from wiki.service import WikiRepoNotFoundError, WikiService
 from wiki.wiki_docs_exporter import export_result_to_dict
 
 router = APIRouter(tags=["wiki", "feedback"])
@@ -42,6 +41,7 @@ router = APIRouter(tags=["wiki", "feedback"])
 
 @router.post("/pages/{page_uid:path}/feedback", response_model=None)
 async def post_wiki_page_feedback(
+    request: Request,
     page_uid: str,
     body: WikiPageFeedbackBody,
     fb: WikiFeedbackStore = Depends(get_wiki_feedback_store_dep),
@@ -55,7 +55,21 @@ async def post_wiki_page_feedback(
         business_id=body.business_id,
         severity=body.severity,
     )
-    return {"uid": uid, "page_uid": decoded, "business_id": body.business_id}
+    loop = getattr(request.app.state, "wiki_feedback_regen", None)
+    regen_result: dict[str, Any] = {}
+    if loop:
+        try:
+            regen_result = await loop.on_feedback(
+                decoded, body.business_id, body.rating, severity=body.severity
+            )
+        except Exception:  # noqa: BLE001 — never fail the feedback persist path
+            log.warning("feedback_regen_error", exc_info=True)
+    return {
+        "uid": uid,
+        "page_uid": decoded,
+        "business_id": body.business_id,
+        "regen_result": regen_result,
+    }
 
 
 @router.get("/pages/{page_uid:path}/feedback/summary", response_model=None)

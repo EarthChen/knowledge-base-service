@@ -2,12 +2,149 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 
 from config import Settings
+from log import get_logger
 from store.graph_queries import GraphQueryRepository
+
+log = get_logger(__name__)
+
+
+def _get_wiki_generation_sem(state: Any) -> asyncio.Semaphore:
+    """Match ``api.routes.wiki_shared.get_wiki_generation_sem`` (one semaphore per app)."""
+    try:
+        return state["wiki_generation_sem"]
+    except (KeyError, TypeError):
+        sem = asyncio.Semaphore(5)
+        state["wiki_generation_sem"] = sem
+        return sem
+
+
+def _wiki_scope_for_page(path: str | None, page_type: str | None) -> str:
+    """Map persisted WikiPage fields to ``parse_scope`` string for ``WikiService.generate``."""
+    if not path:
+        return "repo"
+    pt = (page_type or "").strip().lower()
+    if pt == "repo_overview":
+        return "repo"
+    if pt == "class_detail":
+        return f"class:{path}"
+    return f"module:{path}"
+
+
+async def _run_feedback_wiki_regen(
+    app_state: Any,
+    page_uid: str,
+    priority: str,
+    token_multiplier: float,
+) -> None:
+    from wiki.service import WikiRepoNotFoundError, WikiService
+    from wiki.structure_planner import WikiScopeError
+
+    factory = getattr(app_state, "wiki_service_factory", None)
+    if not callable(factory):
+        log.warning("feedback_regen_no_service", page_uid=page_uid)
+        return
+
+    store = getattr(app_state, "wiki_store", None)
+    if store is None or not hasattr(store, "execute_query"):
+        log.warning("feedback_regen_no_store", page_uid=page_uid)
+        return
+
+    q = (
+        "MATCH (wp:WikiPage) WHERE wp.uid = $uid "
+        "RETURN wp.repository AS repository, wp.path AS path, wp.page_type AS page_type "
+        "LIMIT 1"
+    )
+    r = await store.execute_query(q, {"uid": page_uid})
+    rows = getattr(r, "data", []) or []
+    repository: str | None = None
+    path: str | None = None
+    page_type: str | None = None
+    if rows and isinstance(rows[0], dict):
+        repository = rows[0].get("repository")
+        path = rows[0].get("path")
+        page_type = rows[0].get("page_type")
+    if not repository and page_uid.startswith("WikiPage:"):
+        rest = page_uid[len("WikiPage:") :]
+        parts = rest.split(":", 1)
+        if len(parts) == 2:
+            repository, path = parts[0], parts[1] or path
+
+    if not repository:
+        log.warning("feedback_regen_no_repository", page_uid=page_uid)
+        return
+
+    scope = _wiki_scope_for_page(
+        str(path) if path is not None else None,
+        str(page_type) if page_type is not None else None,
+    )
+    out = factory()
+    service: WikiService = await out if asyncio.iscoroutine(out) else out
+    sem = _get_wiki_generation_sem(app_state)
+
+    log.info(
+        "feedback_regen_start",
+        page_uid=page_uid,
+        repository=repository,
+        scope=scope,
+        priority=priority,
+        token_multiplier=token_multiplier,
+    )
+    try:
+        async with sem:
+            await service.generate(
+                repository,
+                scope,
+                "structure",
+                "json",
+                language="en",
+            )
+    except WikiScopeError:
+        log.info(
+            "feedback_regen_scope_fallback_repo",
+            page_uid=page_uid,
+            original_scope=scope,
+        )
+        async with sem:
+            await service.generate(
+                repository,
+                "repo",
+                "structure",
+                "json",
+                language="en",
+            )
+    except WikiRepoNotFoundError as exc:
+        log.warning(
+            "feedback_regen_repo_missing",
+            page_uid=page_uid,
+            repository=exc.repository,
+        )
+
+
+def _make_enqueue_regenerate(
+    app_state: Any,
+) -> Callable[[str, str, float], Awaitable[None]]:
+    async def enqueue_regenerate(
+        page_uid: str, priority: str, token_multiplier: float
+    ) -> None:
+        async def _task() -> None:
+            try:
+                await _run_feedback_wiki_regen(
+                    app_state, page_uid, priority, token_multiplier
+                )
+            except Exception:  # noqa: BLE001 — background: never let task die silently
+                log.warning("feedback_regen_background_failed", page_uid=page_uid, exc_info=True)
+
+        asyncio.create_task(_task())
+
+    return enqueue_regenerate
 
 
 async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
@@ -37,6 +174,10 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
     from store.wiki_feedback_store import WikiFeedbackStore
 
     app.state.wiki_feedback_store = WikiFeedbackStore(kb.store)
+
+    from wiki.event_bus import WikiEventBus
+
+    app.state.wiki_event_bus = WikiEventBus()
 
     async def repository_exists(repo: str) -> bool:
         kb_inner = await registry.get_service("default")
@@ -118,6 +259,15 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
 
     app.state.graph_query_service = kb.graph_query
 
+    _get_wiki_generation_sem(app.state)
+    from wiki.feedback_loop import FeedbackDrivenRegeneration
+
+    app.state.wiki_feedback_regen = FeedbackDrivenRegeneration(
+        graph=kb.store,
+        wiki_config=settings.wiki,
+        enqueue_regenerate=_make_enqueue_regenerate(app.state),
+    )
+
     if settings.wiki.mcp_server_enabled:
         from api.mcp_wiki_server import MCPWikiServer
 
@@ -132,6 +282,9 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
 
 async def teardown_wiki(app: FastAPI) -> None:
     """Graceful cleanup of wiki resources (e.g. conversation store)."""
+    bus = getattr(app.state, "wiki_event_bus", None)
+    if bus:
+        await bus.shutdown()
     conv_store = getattr(app.state, "conversation_store", None)
     if conv_store is not None:
         await conv_store.close()

@@ -118,14 +118,13 @@ class WikiTreeStoreMixin:
         if wiki_tier == "standard":
             tier_filter = (
                 " AND (coalesce(labels(node)[0], '') <> 'WikiPage' OR "
-                "coalesce(node.importance_tier, 'standard') <> 'supplementary')"
+                "coalesce(node.importance_tier, 'standard') NOT IN ['supplementary', 'skeleton'])"
             )
         elif wiki_tier == "essential":
             tier_filter = (
                 " AND (coalesce(labels(node)[0], '') <> 'WikiPage' OR "
                 "coalesce(node.importance_tier, 'standard') IN ['core', 'essential'])"
             )
-        # "comprehensive", None, or unknown: no tier filter
         q = (
             "MATCH (ws:WikiSpace {business_id: $business_id}) "
             f"OPTIONAL MATCH path = (ws)-[:HAS_CHILD*1..{max_depth}]->(node) "

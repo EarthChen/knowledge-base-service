@@ -9,6 +9,8 @@ from dataclasses import asdict
 from typing import Any
 from urllib.parse import unquote
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -273,9 +275,9 @@ async def wiki_get_tree(
     request: Request,
     business_id: str = Query(default="default"),
     view: str = Query(default="business_domain"),
-    wiki_tier: str | None = Query(
+    wiki_tier: Literal["comprehensive", "standard", "essential"] | None = Query(
         default=None,
-        description="Optional importance tier filter: comprehensive, standard, or essential",
+        description="Importance tier filter: comprehensive (all), standard (no skeleton/supplementary), or essential (core+essential only)",
     ),
 ) -> dict[str, Any]:
     """Return the wiki tree structure for the given business and view type."""

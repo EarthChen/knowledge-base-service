@@ -9,6 +9,9 @@ from log import get_logger
 log = get_logger(__name__)
 
 
+_MAX_OFFLINE_PAGES = 2000
+
+
 class WikiOfflinePack:
     def __init__(self, store: Any) -> None:
         self._store = store
@@ -16,6 +19,9 @@ class WikiOfflinePack:
     async def build(self, repository: str, business_id: str) -> dict[str, Any]:
         """Build a complete offline package with pages, tree, and metadata."""
         pages = await self._fetch_pages(repository)
+        truncated = len(pages) > _MAX_OFFLINE_PAGES
+        if truncated:
+            pages = pages[:_MAX_OFFLINE_PAGES]
         tree = await self._fetch_tree(repository)
 
         snapshot_content = None
@@ -31,7 +37,7 @@ class WikiOfflinePack:
         except Exception:
             log.warning("offline_pack_snapshot_fetch_failed", repository=repository, exc_info=True)
 
-        return {
+        result: dict[str, Any] = {
             "repository": repository,
             "business_id": business_id,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -40,6 +46,10 @@ class WikiOfflinePack:
             "tree": tree,
             "wiki_snapshot": snapshot_content,
         }
+        if truncated:
+            result["truncated"] = True
+            result["max_pages"] = _MAX_OFFLINE_PAGES
+        return result
 
     async def _fetch_pages(self, repository: str) -> list[dict[str, Any]]:
         q = (
@@ -69,4 +79,5 @@ class WikiOfflinePack:
             r = await self._store.execute_query(q, {"repo": repository})
             return [dict(row) for row in (getattr(r, "data", None) or []) if isinstance(row, dict)]
         except Exception:
+            log.warning("offline_pack_tree_fetch_failed", repository=repository, exc_info=True)
             return []

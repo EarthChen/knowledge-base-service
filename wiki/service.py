@@ -44,6 +44,34 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
+def _compilation_snapshot_to_page_dicts(
+    data: dict[str, str], repository: str, layered: bool
+) -> list[dict[str, Any]]:
+    """Map snapshot markdown blobs to the dict shape expected by ``persist_wiki_pages``."""
+    ts = datetime.now(timezone.utc).isoformat()
+    out: list[dict[str, Any]] = []
+    for key, content in data.items():
+        if not layered:
+            path = "wiki_snapshot.md"
+            title = f"Knowledge Snapshot — {repository}"
+        elif key == "index":
+            path = "wiki_snapshot.md"
+            title = f"Knowledge Snapshot — {repository}"
+        else:
+            path = f"wiki_snapshot_modules/{key}.md"
+            title = f"Snapshot — {key}"
+        out.append(
+            {
+                "path": path,
+                "title": title,
+                "content": content,
+                "page_type": PageType.INDEX.value,
+                "generated_at": ts,
+            }
+        )
+    return out
+
+
 def _enrichment_level_for_api(level: object | None) -> str | None:
     if level is None:
         return None
@@ -123,11 +151,27 @@ class WikiService:
             return
         if self._store is None or not hasattr(self._store, "execute_query"):
             return
+        if not hasattr(self._store, "persist_wiki_pages"):
+            return
         from wiki.compilation_snapshot import WikiCompilationSnapshot
 
         snap = WikiCompilationSnapshot(self._store, self._wiki_cfg)
+
+        async def _persist_snapshot(data: dict[str, str], repo: str, layered: bool) -> None:
+            page_dicts = _compilation_snapshot_to_page_dicts(data, repo, layered)
+            if not page_dicts:
+                return
+            try:
+                await self._store.persist_wiki_pages(repo, page_dicts)
+            except Exception:
+                log.warning(
+                    "snapshot_persist_pages_failed", repository=repo, exc_info=True
+                )
+
         try:
-            await snap.generate_and_persist(business_id, repository)
+            await snap.generate_and_persist(
+                business_id, repository, persist_fn=_persist_snapshot
+            )
             log.info("compilation_snapshot_built", repository=repository)
         except Exception:
             log.warning("compilation_snapshot_failed", repository=repository, exc_info=True)

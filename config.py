@@ -242,9 +242,11 @@ class WikiConfig(BaseModel):
     feedback_regen_critical_immediate: bool = True
     """When true, severity=critical feedback triggers immediate regeneration."""
     feedback_regen_token_multiplier: float = 1.5
-    """Token budget multiplier for critical-severity regeneration."""
+    """Intended token budget multiplier for critical-severity regeneration; currently logged
+    with feedback regen, not yet applied to ``WikiService.generate``/composer budgets."""
     feedback_regen_batch_token_multiplier: float = 1.2
-    """Token budget multiplier for threshold-triggered regeneration."""
+    """Intended token budget multiplier for threshold-triggered regeneration; currently logged
+    with feedback regen, not yet applied to ``WikiService.generate``/composer budgets."""
     feedback_regen_cooldown_hours: int = 24
     """Minimum hours between automatic regenerations for the same page."""
 

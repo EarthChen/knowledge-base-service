@@ -17,6 +17,7 @@ async def test_run_compilation_snapshot_uses_wiki_compilation_and_logs() -> None
     """_run_compilation_snapshot delegates to WikiCompilationSnapshot and logs success."""
     store = MagicMock()
     store.execute_query = AsyncMock(return_value=MagicMock(data=[]))
+    store.persist_wiki_pages = AsyncMock(return_value=1)
 
     graph = AsyncMock()
     svc = WikiService(
@@ -36,6 +37,11 @@ async def test_run_compilation_snapshot_uses_wiki_compilation_and_logs() -> None
         for c in mock_log.info.call_args_list
     )
     store.execute_query.assert_awaited()
+    store.persist_wiki_pages.assert_awaited()
+    _repo, page_dicts = store.persist_wiki_pages.await_args.args
+    assert _repo == "test-repo"
+    assert any(p.get("path") == "wiki_snapshot.md" for p in page_dicts)
+    assert all(p.get("page_type") == "index" for p in page_dicts)
 
 
 @pytest.mark.asyncio

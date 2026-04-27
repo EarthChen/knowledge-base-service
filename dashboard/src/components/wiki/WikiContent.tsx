@@ -1,8 +1,10 @@
+import { useEffect, useState } from "react";
 import ErrorBoundary from "../ErrorBoundary";
-import { BookOpen } from "lucide-react";
+import { BookOpen, Pencil } from "lucide-react";
 import type { WikiPageDetail } from "../../hooks/wikiTypes";
 import { useWikiAnnotations } from "../../hooks/useWikiAnnotations";
 import MarkdownRenderer from "./MarkdownRenderer";
+import { WikiEditor } from "./WikiEditor";
 import WikiAnnotationLayer from "./WikiAnnotationLayer";
 import WikiAnnotationSidebar from "./WikiAnnotationSidebar";
 import WikiEditButton from "./WikiEditButton";
@@ -65,6 +67,7 @@ export default function WikiContent({
 }: Props) {
   const { locale, t } = useI18n();
   const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
   const title =
     detail?.title ??
     (pagePath ? pagePath.split("/").pop() ?? pagePath : t.wiki.overviewTitle);
@@ -74,7 +77,17 @@ export default function WikiContent({
   const tocItems: ParsedHeading[] = detail?.content ? parseMarkdownHeadings(detail.content) : [];
   const showToc = tocItems.length >= 3;
   const pageUid = detail?.context?.uid?.trim() ?? "";
+  const pageVersion = (() => {
+    const v = detail?.context?.version;
+    if (v == null || String(v).trim() === "") return 0;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  })();
   const annotationsQuery = useWikiAnnotations(businessId, pageUid);
+
+  useEffect(() => {
+    setEditing(false);
+  }, [pagePath, pageUid]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
@@ -126,6 +139,17 @@ export default function WikiContent({
                   generatedAt={detail?.generated_at || ""}
                 />
               ) : null}
+              {pageUid && detail ? (
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-800 shadow-sm hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+                  aria-label={t.wiki.editContent}
+                >
+                  <Pencil size={14} className="shrink-0" aria-hidden />
+                  {t.wiki.editContent}
+                </button>
+              ) : null}
               <WikiEditButton
                 gitRemoteUrl={detail?.context?.git_remote_url}
                 branch={detail?.context?.git_branch}
@@ -153,7 +177,7 @@ export default function WikiContent({
         )}
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:items-start">
-        {showToc && detail?.content ? (
+        {!editing && showToc && detail?.content ? (
           <MobileTocBar
             key={`${pagePath}\0${repository}`}
             content={detail.content}
@@ -178,32 +202,55 @@ export default function WikiContent({
 
         {!isLoading && !error && detail && (
           <>
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-              <div className="min-w-0 flex-1">
-                {pageUid ? (
-                  <WikiAnnotationLayer
-                    annotations={annotationsQuery.data ?? []}
-                    highlightSourceKey={detail.content}
-                    onAddAnnotation={({ start, end, comment, selected_text }) => {
-                      annotationsQuery.create.mutate(
-                        {
-                          text_range_start: start,
-                          text_range_end: end,
-                          selected_text,
-                          comment,
-                          author: "viewer",
-                        },
-                        {
-                          onError: (e) => {
-                            toast(
-                              "error",
-                              getErrorMessage(e, t.common.unexpectedError) || t.wiki.annotationSaveFailed,
-                            );
+            {editing && pageUid ? (
+              <div className="w-full min-h-[min(70vh,800px)]">
+                <WikiEditor
+                  pageUid={pageUid}
+                  initialContent={detail.content}
+                  currentVersion={pageVersion}
+                  businessId={businessId}
+                  wikiLinkParams={wikiLinkParams}
+                  onClose={() => setEditing(false)}
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+                <div className="min-w-0 flex-1">
+                  {pageUid ? (
+                    <WikiAnnotationLayer
+                      annotations={annotationsQuery.data ?? []}
+                      highlightSourceKey={detail.content}
+                      onAddAnnotation={({ start, end, comment, selected_text }) => {
+                        annotationsQuery.create.mutate(
+                          {
+                            text_range_start: start,
+                            text_range_end: end,
+                            selected_text,
+                            comment,
+                            author: "viewer",
                           },
-                        },
-                      );
-                    }}
-                  >
+                          {
+                            onError: (e) => {
+                              toast(
+                                "error",
+                                getErrorMessage(e, t.common.unexpectedError) ||
+                                  t.wiki.annotationSaveFailed,
+                              );
+                            },
+                          },
+                        );
+                      }}
+                    >
+                      <ErrorBoundary fallbackLabel="Content rendering error">
+                        <MarkdownRenderer
+                          content={detail.content}
+                          businessId={businessId}
+                          wikiLinkParams={wikiLinkParams}
+                          headings={tocItems}
+                        />
+                      </ErrorBoundary>
+                    </WikiAnnotationLayer>
+                  ) : (
                     <ErrorBoundary fallbackLabel="Content rendering error">
                       <MarkdownRenderer
                         content={detail.content}
@@ -212,40 +259,32 @@ export default function WikiContent({
                         headings={tocItems}
                       />
                     </ErrorBoundary>
-                  </WikiAnnotationLayer>
-                ) : (
-                  <ErrorBoundary fallbackLabel="Content rendering error">
-                    <MarkdownRenderer
-                      content={detail.content}
-                      businessId={businessId}
-                      wikiLinkParams={wikiLinkParams}
-                      headings={tocItems}
+                  )}
+                </div>
+                {pageUid ? (
+                  <aside className="shrink-0 rounded-xl border border-gray-100 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/40 lg:w-72">
+                    <h4 className="border-b border-gray-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:border-gray-800 dark:text-gray-400">
+                      {t.wiki.annotationsTitle}
+                    </h4>
+                    <WikiAnnotationSidebar
+                      annotations={annotationsQuery.data ?? []}
+                      onDelete={(id) =>
+                        annotationsQuery.remove.mutate(id, {
+                          onError: (e) => {
+                            toast(
+                              "error",
+                              getErrorMessage(e, t.common.unexpectedError) ||
+                                t.wiki.annotationDeleteFailed,
+                            );
+                          },
+                        })
+                      }
+                      isDeleting={annotationsQuery.remove.isPending}
                     />
-                  </ErrorBoundary>
-                )}
+                  </aside>
+                ) : null}
               </div>
-              {pageUid ? (
-                <aside className="shrink-0 rounded-xl border border-gray-100 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/40 lg:w-72">
-                  <h4 className="border-b border-gray-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:border-gray-800 dark:text-gray-400">
-                    {t.wiki.annotationsTitle}
-                  </h4>
-                  <WikiAnnotationSidebar
-                    annotations={annotationsQuery.data ?? []}
-                    onDelete={(id) =>
-                      annotationsQuery.remove.mutate(id, {
-                        onError: (e) => {
-                          toast(
-                            "error",
-                            getErrorMessage(e, t.common.unexpectedError) || t.wiki.annotationDeleteFailed,
-                          );
-                        },
-                      })
-                    }
-                    isDeleting={annotationsQuery.remove.isPending}
-                  />
-                </aside>
-              ) : null}
-            </div>
+            )}
 
             <WikiSourceLocRow repository={repository} sourceLocations={detail.source_locations ?? []} />
 
@@ -275,7 +314,7 @@ export default function WikiContent({
         )}
         </div>
 
-        {showToc && detail?.content && (
+        {!editing && showToc && detail?.content && (
           <aside className="hidden shrink-0 border-t border-gray-100 px-5 py-6 dark:border-gray-700 lg:block lg:w-56 lg:border-l lg:border-t-0 xl:w-60">
             <TableOfContents content={detail.content} parsedHeadings={tocItems} />
           </aside>

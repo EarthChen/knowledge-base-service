@@ -833,6 +833,12 @@ const en: Translations = {
     askStreamFailed: "Stream failed",
     annotationSaveFailed: "Could not save annotation",
     annotationDeleteFailed: "Could not delete annotation",
+    wikiEditReasonPlaceholder: "Edit reason (optional)",
+    wikiEditorSave: "Save",
+    wikiEditorCancel: "Cancel",
+    wikiEditorSaving: "Saving...",
+    wikiEditorDismiss: "Dismiss",
+    editContent: "Edit page content",
   },
   sync: {
     title: "Sync schedules",

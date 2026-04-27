@@ -821,6 +821,12 @@ const zh: Translations = {
     askStreamFailed: "流式响应失败",
     annotationSaveFailed: "无法保存批注",
     annotationDeleteFailed: "无法删除批注",
+    wikiEditReasonPlaceholder: "编辑说明（选填）",
+    wikiEditorSave: "保存",
+    wikiEditorCancel: "取消",
+    wikiEditorSaving: "正在保存…",
+    wikiEditorDismiss: "关闭",
+    editContent: "编辑页面内容",
   },
   sync: {
     title: "定时同步",

@@ -846,6 +846,12 @@ export interface Translations {
     askStreamFailed: string;
     annotationSaveFailed: string;
     annotationDeleteFailed: string;
+    wikiEditReasonPlaceholder: string;
+    wikiEditorSave: string;
+    wikiEditorCancel: string;
+    wikiEditorSaving: string;
+    wikiEditorDismiss: string;
+    editContent: string;
   };
   sync: {
     title: string;

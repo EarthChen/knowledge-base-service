@@ -181,6 +181,22 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
 
     app.state.wiki_event_bus = WikiEventBus()
 
+    from wiki.task_store import WikiTaskStore
+
+    wiki_task_store: WikiTaskStore | None = None
+    try:
+        redis_conn = getattr(kb.store, "_redis", None) or getattr(kb.store, "redis", None)
+        if redis_conn is None and hasattr(kb.store, "_graph"):
+            redis_conn = getattr(kb.store._graph, "_redis", None)
+        if redis_conn is not None:
+            wiki_task_store = WikiTaskStore(redis_conn)
+            log.info("wiki_task_store_initialized", backend="redis")
+        else:
+            log.warning("wiki_task_store_no_redis", fallback="in-memory")
+    except Exception:
+        log.warning("wiki_task_store_init_failed", exc_info=True)
+    app.state.wiki_task_store = wiki_task_store
+
     async def repository_exists(repo: str) -> bool:
         kb_inner = await registry.get_service("default")
         queries = GraphQueryRepository(kb_inner.store)

@@ -85,3 +85,29 @@ async def test_list_active_empty(store, mock_redis):
     mock_redis.scan.return_value = (0, [])
     result = await store.list_active()
     assert result == []
+
+
+@pytest.mark.asyncio
+async def test_task_registry_delegates_to_store(mock_redis):
+    """When WikiTaskStore is injected, WikiTaskRegistry delegates get/put."""
+    from wiki.task_registry import WikiTaskRegistry
+
+    store = WikiTaskStore(mock_redis)
+    registry = WikiTaskRegistry(task_store=store)
+
+    mock_redis.hgetall.return_value = {
+        b"task_id": b"t1", b"status": b"pending",
+    }
+    registry.put_task("t1", {"task_id": "t1", "status": "pending"})
+    result = registry.get_task("t1")
+    assert result is not None
+    assert result["task_id"] == "t1"
+
+
+def test_task_registry_works_without_store():
+    """Backward compat: no store → in-memory dict."""
+    from wiki.task_registry import WikiTaskRegistry
+
+    registry = WikiTaskRegistry()
+    registry.put_task("t1", {"task_id": "t1", "status": "pending"})
+    assert registry.get_task("t1")["status"] == "pending"

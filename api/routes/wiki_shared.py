@@ -139,7 +139,8 @@ def get_graph_query_dep(request: Request) -> GraphQueryService:
 def get_task_registry_dep(request: Request) -> WikiTaskRegistry:
     reg = getattr(request.app.state, "wiki_tasks", None)
     if reg is None:
-        reg = WikiTaskRegistry()
+        task_store = getattr(request.app.state, "wiki_task_store", None)
+        reg = WikiTaskRegistry(task_store=task_store)
         request.app.state.wiki_tasks = reg
     return reg
 

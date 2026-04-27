@@ -47,7 +47,7 @@ describe("usePatchWikiPage", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["wiki"] });
   });
 
-  it("defaults edit_reason to empty string and expected_version to null when omitted", async () => {
+  it("defaults edit_reason to empty string and omits expected_version when omitted", async () => {
     vi.mocked(api).mockResolvedValue({ ok: true });
     const { wrapper } = buildClientWithSpy();
     const { result } = renderHook(() => usePatchWikiPage(), { wrapper });
@@ -60,7 +60,6 @@ describe("usePatchWikiPage", () => {
         body: JSON.stringify({
           content: "c",
           edit_reason: "",
-          expected_version: null,
         }),
       },
     );

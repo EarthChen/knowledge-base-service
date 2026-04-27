@@ -31,7 +31,7 @@ export function usePatchWikiPage() {
           body: JSON.stringify({
             content,
             edit_reason: editReason ?? "",
-            expected_version: expectedVersion ?? null,
+            ...(expectedVersion !== undefined ? { expected_version: expectedVersion } : {}),
           }),
         },
       );

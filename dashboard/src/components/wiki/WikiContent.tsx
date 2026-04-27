@@ -79,9 +79,9 @@ export default function WikiContent({
   const pageUid = detail?.context?.uid?.trim() ?? "";
   const pageVersion = (() => {
     const v = detail?.context?.version;
-    if (v == null || String(v).trim() === "") return 0;
+    if (v == null || String(v).trim() === "") return undefined;
     const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
+    return Number.isFinite(n) ? n : undefined;
   })();
   const annotationsQuery = useWikiAnnotations(businessId, pageUid);
 

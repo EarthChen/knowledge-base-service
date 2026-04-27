@@ -16,7 +16,6 @@ export function WikiTierSelector({ value, onChange }: Props) {
       onChange={(e) => onChange(e.target.value || null)}
       className="rounded border bg-transparent px-1.5 py-1 text-xs"
       aria-label="Wiki tier filter"
-      role="combobox"
     >
       {TIERS.map((t) => (
         <option key={t.value} value={t.value}>

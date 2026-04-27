@@ -19,11 +19,13 @@ function packAuthHeaders(): Record<string, string> {
 export function OfflinePackDownloadButton({ repository, businessId }: Props) {
   const [loading, setLoading] = useState(false);
   const [truncated, setTruncated] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleDownload = async () => {
     setLoading(true);
     setTruncated(false);
     try {
+      setError(null);
       const resp = await fetch(
         `${API_BASE}/wiki/${encodeURIComponent(repository)}/offline-pack?business_id=${encodeURIComponent(businessId)}`,
         { headers: packAuthHeaders() },
@@ -39,8 +41,8 @@ export function OfflinePackDownloadButton({ repository, businessId }: Props) {
       a.download = `${repository}-wiki-offline.json`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      /* network / parse */
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Download failed");
     } finally {
       setLoading(false);
     }
@@ -58,6 +60,7 @@ export function OfflinePackDownloadButton({ repository, businessId }: Props) {
         <Download className="h-4 w-4" />
         {loading ? "Downloading..." : "Download Offline Pack"}
       </button>
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
       {truncated && <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">Data truncated to 2000 pages</p>}
     </div>
   );

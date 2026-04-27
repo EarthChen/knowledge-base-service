@@ -10,7 +10,7 @@ import { useI18n } from "../../i18n/context";
 export interface WikiEditorProps {
   pageUid: string;
   initialContent: string;
-  currentVersion: number;
+  currentVersion: number | undefined;
   businessId?: string;
   wikiLinkParams?: Record<string, string>;
   onClose: () => void;

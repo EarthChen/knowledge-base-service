@@ -1,6 +1,8 @@
 # Phase 0: 知识维护闭环修复
 
-**状态**: Draft
+> **实现状态：已完成（Phase 0）** — 本项已落地；当前运行时行为、默认开关与事实来源以 [IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md) 为准。下文保留历史问题陈述、方案与测试清单供审阅与追溯。
+
+**状态**: 已实现（原 Draft；见上方说明与 IMPLEMENTATION-STATUS）
 **优先级**: 最高（立即可做）
 **预计工期**: 1-2 天
 **依赖**: 无（代码已就绪，仅需接入）
@@ -10,6 +12,8 @@
 ## 1. 背景与动机
 
 ### 1.1 问题描述
+
+> 以下两点描述 **Phase 0 实施前**的缺口，用于对照与追溯；**当前**运行时行为以 [IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md) 为准。
 
 Karpathy 的 LLM Wiki 模式定义了三个核心操作：**Ingest（摄入）**、**Query（查询）**、**Lint（健康检查）**。当前 KBS 的 Ingest 和 Query 已成熟运行，但 Lint 闭环存在两个断裂点：
 
@@ -118,11 +122,11 @@ sequenceDiagram
 
 ## 4. 测试计划
 
-- [ ] 单元测试：`AutoHealer.heal()` 在有断裂引用时正确清理
-- [ ] 单元测试：`AutoHealer.heal()` 在有孤立页时正确标记 deprecated
-- [ ] 集成测试：`WikiLintService.run_lint()` 在 `auto_heal_enabled=True` 时调用 AutoHealer
-- [ ] 集成测试：`WikiLintService.run_lint()` 在 `auto_heal_enabled=False` 时跳过 AutoHealer
-- [ ] 配置测试：确认新默认值生效
+- [x] 单元测试：`AutoHealer.heal()` 在有断裂引用时正确清理
+- [x] 单元测试：`AutoHealer.heal()` 在有孤立页时正确标记 deprecated
+- [x] 集成测试：`WikiLintService.run_lint()` 在 `auto_heal_enabled=True` 时调用 AutoHealer
+- [x] 集成测试：`WikiLintService.run_lint()` 在 `auto_heal_enabled=False` 时跳过 AutoHealer
+- [x] 配置测试：确认新默认值生效
 
 ---
 
@@ -138,8 +142,8 @@ sequenceDiagram
 
 ## 6. 成功标准
 
-- [ ] `WIKI__AUTO_HEAL_ENABLED=true` 时，lint 运行后 AutoHealer 自动执行
-- [ ] 断裂引用在 lint 后被清理
-- [ ] 孤立页面被标记为 deprecated 而非删除
-- [ ] 现有测试全部通过
-- [ ] 1722+ 测试无回归
+- [x] `WIKI__AUTO_HEAL_ENABLED=true` 时，lint 运行后 AutoHealer 自动执行
+- [x] 断裂引用在 lint 后被清理
+- [x] 孤立页面被标记为 deprecated 而非删除
+- [x] 现有测试全部通过
+- [x] 全量 pytest 无回归（实现后约 1727+；以 `uv run pytest` 为准）

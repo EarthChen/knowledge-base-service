@@ -567,7 +567,7 @@ Search for `AgentsMdGenerator` in repo; update git export or admin route to rege
 
 Only if a component references AGENTS: align strings — **skip** if no user-facing string.
 
-**Command (frontend):** `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service/frontend && pnpm test --run` (when applicable)
+**Command (frontend):** `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service/dashboard && pnpm test --run` (when applicable)
 
 ---
 

@@ -4,7 +4,7 @@
 
 **Goal:** Wire the existing `AutoHealer` into `WikiLintService` and enable lint scheduling by default, completing the knowledge maintenance loop.
 
-**Architecture:** Add `run_lint()` to `WikiLintService` that runs **lint first** (`lint()`), then **conditionally** `AutoHealer` (via `heal()` → existing `run_all()`), merges `heal` results into the returned dict, and persists heal metrics to `WikiChangeLog` when a changelog store is available. Change default `WikiConfig` values: `lint_scheduler_enabled=True`, `auto_heal_enabled=True`. Start `LintScheduler` from application lifespan when `lint_scheduler_enabled` (it is not wired today; config alone is insufficient). Update `LintScheduler` to call `run_lint` so scheduled runs get the same unified behavior as HTTP/MCP.
+**Architecture (implemented):** `WikiLintService.run_lint()` runs **lint first** (`lint()`), then **conditionally** `AutoHealer` (via `heal()` → `run_all()`), merges `heal` results, and persists heal metrics to `WikiChangeLog` when a changelog store is available. `WikiConfig` defaults: `lint_scheduler_enabled=True`, `auto_heal_enabled=True`. `LintScheduler` is started from application lifespan when `lint_scheduler_enabled`, and calls `run_lint` so scheduled runs match HTTP/MCP.
 
 **Tech Stack:** Python 3.12+, FastAPI, FalkorDB, pytest
 
@@ -39,7 +39,7 @@
 
 **Files:** `wiki/auto_healer.py`, `tests/wiki/test_auto_healer.py`
 
-- [ ] **Step 1.1 (failing test):** In `tests/wiki/test_auto_healer.py`, add `test_heal_delegates_to_run_all` **before** implementation.
+- [x] **Step 1.1 (failing test):** In `tests/wiki/test_auto_healer.py`, add `test_heal_delegates_to_run_all` **before** implementation.
 
 **Complete test to add**
 
@@ -60,7 +60,7 @@ async def test_heal_delegates_to_run_all() -> None:
 **Command:** `pytest tests/wiki/test_auto_healer.py::test_heal_delegates_to_run_all -q --no-cov`  
 **Expected (before fix):** `AttributeError: 'AutoHealer' object has no attribute 'heal'`
 
-- [ ] **Step 1.2 (implementation):** In `wiki/auto_healer.py`, add:
+- [x] **Step 1.2 (implementation):** In `wiki/auto_healer.py`, add:
 
 ```python
     async def heal(self, repository: str) -> dict[str, Any]:
@@ -68,9 +68,9 @@ async def test_heal_delegates_to_run_all() -> None:
         return await self.run_all(repository)
 ```
 
-- [ ] **Step 1.3:** Re-run: `pytest tests/wiki/test_auto_healer.py -q --no-cov` — **all tests in file pass**
+- [x] **Step 1.3:** Re-run: `pytest tests/wiki/test_auto_healer.py -q --no-cov` — **all tests in file pass**
 
-- [ ] **Step 1.4:** `git commit -m "feat(wiki): add AutoHealer.heal() delegating to run_all"`
+- [x] **Step 1.4:** `git commit -m "feat(wiki): add AutoHealer.heal() delegating to run_all"`
 
 ---
 
@@ -78,7 +78,7 @@ async def test_heal_delegates_to_run_all() -> None:
 
 **Files:** `store/wiki_changelog.py`, `tests/store/test_wiki_changelog.py`
 
-- [ ] **Step 2.1 (failing test):** Extend `tests/store/test_wiki_changelog.py` (or add a new test) so `persist_changelog` with heal kwargs issues a Cypher that includes `heal_refs_removed` and `heal_pages_deprecated` (or assert `execute_query` was called with params containing the counts).
+- [x] **Step 2.1 (failing test):** Extend `tests/store/test_wiki_changelog.py` (or add a new test) so `persist_changelog` with heal kwargs issues a Cypher that includes `heal_refs_removed` and `heal_pages_deprecated` (or assert `execute_query` was called with params containing the counts).
 
 **Example test (complete)**
 
@@ -117,7 +117,7 @@ Adjust the assertion to match the exact param names you use in Cypher (e.g. `$he
 **Command:** `pytest tests/store/test_wiki_changelog.py -k heal -q --no-cov`  
 **Expected (before fix):** `TypeError: persist_changelog() got an unexpected keyword argument...`
 
-- [ ] **Step 2.2 (implementation):** Update `WikiChangeLogStore.persist_changelog` **signature** (backward compatible — new args **optional, default `None`**):
+- [x] **Step 2.2 (implementation):** Update `WikiChangeLogStore.persist_changelog` **signature** (backward compatible — new args **optional, default `None`**):
 
 ```python
     async def persist_changelog(
@@ -148,9 +148,9 @@ Extend the `cypher` `CREATE` to set:
         "heal_pages": int(heal_pages_deprecated) if heal_pages_deprecated is not None else 0,
 ```
 
-- [ ] **Step 2.3:** `pytest tests/store/test_wiki_changelog.py -q --no-cov` — pass
+- [x] **Step 2.3:** `pytest tests/store/test_wiki_changelog.py -q --no-cov` — pass
 
-- [ ] **Step 2.4:** `git commit -m "feat(store): persist auto-heal counts on WikiChangeLog"`
+- [x] **Step 2.4:** `git commit -m "feat(store): persist auto-heal counts on WikiChangeLog"`
 
 ---
 
@@ -158,7 +158,7 @@ Extend the `cypher` `CREATE` to set:
 
 **Files:** `wiki/lint.py`, `tests/wiki/test_lint.py` (new tests file `tests/wiki/test_lint_run_lint.py` is OK if you prefer isolation)
 
-- [ ] **Step 3.1 (failing test):** Add tests that **mock** `WikiLintService.lint` and `AutoHealer.heal` (patch `wiki.lint.AutoHealer` or inject via module patch).
+- [x] **Step 3.1 (failing test):** Add tests that **mock** `WikiLintService.lint` and `AutoHealer.heal` (patch `wiki.lint.AutoHealer` or inject via module patch).
 
 **Complete test file** `tests/wiki/test_lint_run_lint.py` (new file recommended)
 
@@ -237,7 +237,7 @@ async def test_run_lint_skips_heal_when_auto_heal_disabled() -> None:
 **Command:** `pytest tests/wiki/test_lint_run_lint.py -q --no-cov`  
 **Expected (before `run_lint` exists):** `AttributeError` on `run_lint`
 
-- [ ] **Step 3.2 (implementation):** In `wiki/lint.py`:
+- [x] **Step 3.2 (implementation):** In `wiki/lint.py`:
 
 1. **Constructor:** add optional `wiki_changelog_store: Any | None = None` (or import `WikiChangeLogStore` and type it) and assign `self._wiki_changelog_store`.
 2. Add **`async def run_lint(self, repository: str, *, scope: str = "all") -> dict[str, Any]:`**:
@@ -283,9 +283,9 @@ async def test_run_lint_skips_heal_when_auto_heal_disabled() -> None:
 
 `Any` and `log` are already available at module level in `wiki/lint.py`.
 
-- [ ] **Step 3.3:** `pytest tests/wiki/test_lint_run_lint.py -q --no-cov` — pass
+- [x] **Step 3.3:** `pytest tests/wiki/test_lint_run_lint.py -q --no-cov` — pass
 
-- [ ] **Step 3.4:** `git commit -m "feat(wiki): add WikiLintService.run_lint with heal merge and changelog"`
+- [x] **Step 3.4:** `git commit -m "feat(wiki): add WikiLintService.run_lint with heal merge and changelog"`
 
 ---
 
@@ -293,7 +293,7 @@ async def test_run_lint_skips_heal_when_auto_heal_disabled() -> None:
 
 **Files:** `api/routes/wiki_feedback_routes.py`, `wiki/mcp_tools.py`, `main.py` (lint factory), optionally `api/routes/wiki_shared.py` if a shared builder exists
 
-- [ ] **Step 4.1 (failing test / update):** Update `tests/api/test_wiki_lint_api.py` to mock **`run_lint`** instead of **`lint`**, return body including `auto_heal: None`:
+- [x] **Step 4.1 (failing test / update):** Update `tests/api/test_wiki_lint_api.py` to mock **`run_lint`** instead of **`lint`**, return body including `auto_heal: None`:
 
 **Replace mock block (illustration)**
 
@@ -323,7 +323,7 @@ async def test_run_lint_skips_heal_when_auto_heal_disabled() -> None:
     return await lint_svc.run_lint(repository, scope=scope)
 ```
 
-- [ ] **Step 4.2:** In `wiki/mcp_tools.py` `handle_wiki_lint`, replace `report = await svc.lint(...); return {"status": "success", **report.to_dict()}` with:
+- [x] **Step 4.2:** In `wiki/mcp_tools.py` `handle_wiki_lint`, replace `report = await svc.lint(...); return {"status": "success", **report.to_dict()}` with:
 
 ```python
             payload = await svc.run_lint(repository, scope=scope)
@@ -334,7 +334,7 @@ async def test_run_lint_skips_heal_when_auto_heal_disabled() -> None:
 
 (Keep exception handling; ensure you do not double-wrap `status`.)
 
-- [ ] **Step 4.3:** In `main.py` `wiki_lint_service_factory`, add **`wiki_changelog_store=None`** in the `WikiLintService(...)` call — use **`getattr(app.state, "wiki_changelog_store", None)`** so each invocation picks up the store created in `wiki/bootstrap.py`.
+- [x] **Step 4.3:** In `main.py` `wiki_lint_service_factory`, add **`wiki_changelog_store=None`** in the `WikiLintService(...)` call — use **`getattr(app.state, "wiki_changelog_store", None)`** so each invocation picks up the store created in `wiki/bootstrap.py`.
 
 **Complete factory fragment**
 
@@ -351,11 +351,11 @@ async def test_run_lint_skips_heal_when_auto_heal_disabled() -> None:
 
 **Note:** `WikiLintService.__init__` must accept `wiki_changelog_store=` (Task 3).
 
-- [ ] **Step 4.4:** `pytest tests/api/test_wiki_lint_api.py -q --no-cov` — pass
+- [x] **Step 4.4:** `pytest tests/api/test_wiki_lint_api.py -q --no-cov` — pass
 
-- [ ] **Step 4.5:** `git commit -m "feat(api): expose unified run_lint from HTTP and MCP wiki_lint"`
+- [x] **Step 4.5:** `git commit -m "feat(api): expose unified run_lint from HTTP and MCP wiki_lint"`
 
-- [ ] **Step 4.6:** Grep for `WikiLintService(` and add keyword `wiki_changelog_store=...` only where a dedicated factory instantiates the service (e.g. `wiki/mcp_tools.py` if it creates its own `WikiLintService` without changelog — that path will not get changelog unless you pass a store; optional follow-up, not required for `main` factory). Run `pytest tests/wiki/test_lint.py -q --no-cov` to catch signature regressions.
+- [x] **Step 4.6:** Grep for `WikiLintService(` and add keyword `wiki_changelog_store=...` only where a dedicated factory instantiates the service (e.g. `wiki/mcp_tools.py` if it creates its own `WikiLintService` without changelog — that path will not get changelog unless you pass a store; optional follow-up, not required for `main` factory). Run `pytest tests/wiki/test_lint.py -q --no-cov` to catch signature regressions.
 
 ---
 
@@ -363,7 +363,7 @@ async def test_run_lint_skips_heal_when_auto_heal_disabled() -> None:
 
 **Files:** `wiki/lint_scheduler.py`, `tests/wiki/test_lint_scheduler.py`
 
-- [ ] **Step 5.1 (failing test):** In `tests/wiki/test_lint_scheduler.py`, change mock from `lint` to `run_lint` returning a **dict** compatible with the new shape:
+- [x] **Step 5.1 (failing test):** In `tests/wiki/test_lint_scheduler.py`, change mock from `lint` to `run_lint` returning a **dict** compatible with the new shape:
 
 **Complete test replacement (core part)**
 
@@ -382,7 +382,7 @@ async def test_run_lint_skips_heal_when_auto_heal_disabled() -> None:
 
 Assert `mock_lint_service.run_lint.assert_called()`.
 
-- [ ] **Step 5.2:** In `wiki/lint_scheduler.py` `_loop`:
+- [x] **Step 5.2:** In `wiki/lint_scheduler.py` `_loop`:
 
 **Replace**
 
@@ -407,9 +407,9 @@ Assert `mock_lint_service.run_lint.assert_called()`.
                     )
 ```
 
-- [ ] **Step 5.3:** `pytest tests/wiki/test_lint_scheduler.py -q --no-cov` — pass
+- [x] **Step 5.3:** `pytest tests/wiki/test_lint_scheduler.py -q --no-cov` — pass
 
-- [ ] **Step 5.4:** `git commit -m "feat(wiki): LintScheduler uses run_lint for heal pipeline"`
+- [x] **Step 5.4:** `git commit -m "feat(wiki): LintScheduler uses run_lint for heal pipeline"`
 
 ---
 
@@ -417,11 +417,11 @@ Assert `mock_lint_service.run_lint.assert_called()`.
 
 **Files:** `main.py`
 
-- [ ] **Step 6.1 (failing test — optional but recommended):** Add `tests/test_main_lint_scheduler_lifespan.py` using `httpx`/`TestClient` with lifespan, **mock** `get_settings` / registry — only if the team wants coverage; otherwise manual verification is acceptable. Minimal pattern: `with TestClient(app) as c:` and assert `app.state.wiki_lint_scheduler` exists when config mocked to enabled.
+- [x] **Step 6.1 (failing test — optional but recommended):** Add `tests/test_main_lint_scheduler_lifespan.py` using `httpx`/`TestClient` with lifespan, **mock** `get_settings` / registry — only if the team wants coverage; otherwise manual verification is acceptable. Minimal pattern: `with TestClient(app) as c:` and assert `app.state.wiki_lint_scheduler` exists when config mocked to enabled.
 
 **Skip** if time-boxed; document manual: start app with `WIKI__LINT_SCHEDULER_ENABLED=true` and check logs for `lint_scheduler_repo_completed` after interval (not ideal for CI).
 
-- [ ] **Step 6.2 (implementation):** **After** `await bootstrap_wiki(app, settings)` in `main.py` lifespan, add:
+- [x] **Step 6.2 (implementation):** **After** `await bootstrap_wiki(app, settings)` in `main.py` lifespan, add:
 
 **Complete block**
 
@@ -461,9 +461,9 @@ Assert `mock_lint_service.run_lint.assert_called()`.
 
 Place `await ls.stop()` in the `yield` cleanup section with other `await` stops.
 
-- [ ] **Step 6.3:** Run: `python -c "from main import create_app; create_app()"` to ensure no import errors
+- [x] **Step 6.3:** Run: `python -c "from main import create_app; create_app()"` to ensure no import errors
 
-- [ ] **Step 6.4:** `git commit -m "feat(main): start LintScheduler from lifespan when enabled"`
+- [x] **Step 6.4:** `git commit -m "feat(main): start LintScheduler from lifespan when enabled"`
 
 ---
 
@@ -471,7 +471,7 @@ Place `await ls.stop()` in the `yield` cleanup section with other `await` stops.
 
 **File:** `config.py`
 
-- [ ] **Step 7.1 (failing test):** Add `tests/test_wiki_config_defaults.py` (or extend existing config test):
+- [x] **Step 7.1 (failing test):** Add `tests/test_wiki_config_defaults.py` (or extend existing config test):
 
 ```python
 from config import WikiConfig
@@ -485,7 +485,7 @@ def test_wiki_lint_and_auto_heal_defaults_enabled() -> None:
 
 **Command:** `pytest tests/test_wiki_config_defaults.py -q --no-cov` — fails before edit
 
-- [ ] **Step 7.2:** In `config.py` `WikiConfig`:
+- [x] **Step 7.2:** In `config.py` `WikiConfig`:
 
 ```python
     lint_scheduler_enabled: bool = True
@@ -493,9 +493,9 @@ def test_wiki_lint_and_auto_heal_defaults_enabled() -> None:
     auto_heal_enabled: bool = True
 ```
 
-- [ ] **Step 7.3:** `pytest tests/test_wiki_config_defaults.py -q --no-cov` — pass
+- [x] **Step 7.3:** `pytest tests/test_wiki_config_defaults.py -q --no-cov` — pass
 
-- [ ] **Step 7.4:** `git commit -m "feat(config): enable lint scheduler and auto-heal by default"`
+- [x] **Step 7.4:** `git commit -m "feat(config): enable lint scheduler and auto-heal by default"`
 
 ---
 
@@ -503,21 +503,21 @@ def test_wiki_lint_and_auto_heal_defaults_enabled() -> None:
 
 **File:** `docs/DEPLOYMENT.md`
 
-- [ ] **Step 8.1:** Update the table row for `WIKI__LINT_SCHEDULER_ENABLED` default from `false` to `true` (and add a one-line note that auto-heal follows `WIKI__AUTO_HEAL_ENABLED`, default `true`).
+- [x] **Step 8.1:** Update the table row for `WIKI__LINT_SCHEDULER_ENABLED` default from `false` to `true` (and add a one-line note that auto-heal follows `WIKI__AUTO_HEAL_ENABLED`, default `true`).
 
-- [ ] **Step 8.2:** `git commit -m "docs: update deployment defaults for phase0 maintenance loop"`
+- [x] **Step 8.2:** `git commit -m "docs: update deployment defaults for phase0 maintenance loop"`
 
 ---
 
 ## Task 9 — Full verification
 
-- [ ] **Step 9.1:** `pytest -q` from project root (expect full suite green; if coverage or unrelated flakes occur, run twice).
+- [x] **Step 9.1:** `pytest -q` from project root (expect full suite green; if coverage or unrelated flakes occur, run twice).
 
 **Expected output pattern:** `... passed` / summary with **0** failures
 
-- [ ] **Step 9.2:** (Optional) `ruff check wiki api store main.py` if the project uses Ruff (see `pyproject.toml`)
+- [x] **Step 9.2:** (Optional) `ruff check wiki api store main.py` if the project uses Ruff (see `pyproject.toml`)
 
-- [ ] **Step 9.3:** Final commit if any fixups: `git commit -m "chore: phase0 knowledge maintenance loop verification fixes"`
+- [x] **Step 9.3:** Final commit if any fixups: `git commit -m "chore: phase0 knowledge maintenance loop verification fixes"`
 
 ---
 
@@ -530,8 +530,8 @@ def test_wiki_lint_and_auto_heal_defaults_enabled() -> None:
 
 ## Checklist (success criteria from spec, mapped)
 
-- [ ] `WIKI__AUTO_HEAL_ENABLED` true (default after Task 8) results in `run_lint` invoking `AutoHealer.heal` after lint
-- [ ] Dangling `WIKI_REFERENCES` and orphan deprecations are applied via existing store methods (already covered by `tests/wiki/test_auto_healer.py`)
-- [ ] `WikiChangeLog` receives heal counts when changelog store is attached
-- [ ] `LintScheduler` runs `run_lint` and starts when `lint_scheduler_enabled` is true (and `main` wires it)
-- [ ] Full pytest run passes
+- [x] `WIKI__AUTO_HEAL_ENABLED` true (default after Task 8) results in `run_lint` invoking `AutoHealer.heal` after lint
+- [x] Dangling `WIKI_REFERENCES` and orphan deprecations are applied via existing store methods (already covered by `tests/wiki/test_auto_healer.py`)
+- [x] `WikiChangeLog` receives heal counts when changelog store is attached
+- [x] `LintScheduler` runs `run_lint` and starts when `lint_scheduler_enabled` is true (and `main` wires it)
+- [x] Full pytest run passes

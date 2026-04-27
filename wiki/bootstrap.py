@@ -188,6 +188,21 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
         redis_conn = getattr(kb.store, "_redis", None) or getattr(kb.store, "redis", None)
         if redis_conn is None and hasattr(kb.store, "_graph"):
             redis_conn = getattr(kb.store._graph, "_redis", None)
+        if redis_conn is None and hasattr(kb.store, "_db"):
+            sync_conn = getattr(kb.store._db, "connection", None)
+            if sync_conn is not None:
+                import redis.asyncio as aioredis
+
+                conn_kwargs = sync_conn.connection_pool.connection_kwargs.copy()
+                host = conn_kwargs.get("host", "localhost")
+                port = conn_kwargs.get("port", 6379)
+                password = conn_kwargs.get("password")
+                db_num = conn_kwargs.get("db", 0)
+                redis_conn = aioredis.Redis(
+                    host=host, port=port, password=password, db=db_num,
+                    decode_responses=False,
+                )
+                log.info("wiki_task_store_redis_from_sync", host=host, port=port)
         if redis_conn is not None:
             wiki_task_store = WikiTaskStore(redis_conn)
             log.info("wiki_task_store_initialized", backend="redis")

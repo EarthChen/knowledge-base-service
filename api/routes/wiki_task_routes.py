@@ -65,7 +65,18 @@ async def _run_business_wiki_background(
     event_bus: WikiEventBus | None,
 ) -> None:
     """Background coroutine: run business wiki generation and update task state."""
-    _ = incremental
+    async def _progress(info: dict[str, Any]) -> None:
+        if task_store:
+            await task_store.update_status(task_id, "running", progress=info)
+        if event_bus:
+            await event_bus.publish(
+                WikiEvent(
+                    event_type="business_gen_progress",
+                    repository=business_id,
+                    business_id=business_id,
+                    data={"task_id": task_id, **info},
+                )
+            )
 
     try:
         if task_store:
@@ -74,6 +85,8 @@ async def _run_business_wiki_background(
             business_id=business_id,
             language=language,
             llm_provider=llm_provider,
+            incremental=incremental,
+            progress_callback=_progress,
         )
         if task_store:
             await task_store.update_status(

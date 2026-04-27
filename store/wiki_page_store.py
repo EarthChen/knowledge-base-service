@@ -468,6 +468,36 @@ class WikiPageStoreMixin:
         for row in getattr(result, "raw", []) or []:
             rows.append({"repository": str(row[0]), "module_count": int(row[1])})
         return rows
+
+    async def get_repo_wiki_freshness(
+        self, business_id: str,
+    ) -> dict[str, dict[str, Any]]:
+        """Per-repository freshness: latest indexed_at vs latest generated_at.
+
+        Returns ``{repo_name: {"last_indexed": str|None, "last_generated": str|None}}``.
+        Used by incremental business wiki generation to skip unchanged repos.
+        """
+        _ = business_id
+        q = (
+            "MATCH (m:Module) WHERE m.repository IS NOT NULL "
+            "WITH m.repository AS repository, max(coalesce(m.indexed_at, '')) AS last_indexed "
+            "OPTIONAL MATCH (wp:WikiPage {repository: repository}) "
+            "WITH repository, last_indexed, max(coalesce(wp.generated_at, '')) AS last_generated "
+            "RETURN repository, "
+            "CASE WHEN last_indexed = '' THEN null ELSE last_indexed END AS last_indexed, "
+            "CASE WHEN last_generated = '' THEN null ELSE last_generated END AS last_generated"
+        )
+        result = await self._store.execute_query(q)
+        out: dict[str, dict[str, Any]] = {}
+        for row in getattr(result, "data", []) or []:
+            repo = str(row.get("repository", ""))
+            if repo:
+                out[repo] = {
+                    "last_indexed": row.get("last_indexed"),
+                    "last_generated": row.get("last_generated"),
+                }
+        return out
+
     async def get_suggested_questions_context(self, page_uid: str) -> dict[str, Any] | None:
         """Load wiki page and SOURCE_ENTITY graph (callers / callees) for question suggestions.
 

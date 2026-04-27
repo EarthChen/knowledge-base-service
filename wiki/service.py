@@ -591,6 +591,8 @@ class WikiService:
         llm_provider: str | None = None,
         *,
         token_budget_multiplier: float = 1.0,
+        incremental: bool = True,
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """Generate cross-repo business-level wiki.
 
@@ -615,6 +617,7 @@ class WikiService:
                 "references_count": 0,
                 "repositories": [],
                 "partial_errors": [],
+                "skipped_repos": [],
             }
 
         all_modules: dict[str, list[GraphNode]] = {}
@@ -623,6 +626,29 @@ class WikiService:
             modules = await self._graph.list_repository_modules(repo_name)
             if modules:
                 all_modules[repo_name] = modules
+
+        # --- Incremental: identify changed vs skipped repos ---
+        changed_repos: set[str] = set(all_modules.keys())
+        skipped_repos: list[str] = []
+        if incremental and hasattr(self._wiki_store, "get_repo_wiki_freshness"):
+            try:
+                freshness = await self._wiki_store.get_repo_wiki_freshness(business_id)
+                changed_repos = set()
+                for repo_name in all_modules:
+                    entry = freshness.get(repo_name)
+                    if entry is None:
+                        changed_repos.add(repo_name)
+                        continue
+                    li = entry.get("last_indexed")
+                    lg = entry.get("last_generated")
+                    if li is None or lg is None or str(li) > str(lg):
+                        changed_repos.add(repo_name)
+                    else:
+                        skipped_repos.append(repo_name)
+            except Exception:
+                log.warning("freshness_check_failed", exc_info=True)
+                changed_repos = set(all_modules.keys())
+                skipped_repos = []
 
         from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
 
@@ -709,7 +735,19 @@ class WikiService:
 
         # Generate per-repo wiki pages (creates WikiPages + SOURCE_ENTITY edges)
         partial_errors: list[dict[str, str]] = []
+        total_repos = len(all_modules)
+        completed_repos = 0
         for repo_name in all_modules:
+            if repo_name not in changed_repos:
+                completed_repos += 1
+                if progress_callback:
+                    await progress_callback({
+                        "completed_repos": completed_repos,
+                        "total_repos": total_repos,
+                        "current_repo": repo_name,
+                        "skipped": True,
+                    })
+                continue
             try:
                 await self.generate(
                     repo_name,
@@ -723,6 +761,14 @@ class WikiService:
             except Exception as exc:
                 log.warning("business_wiki_repo_failed", repository=repo_name, exc_info=True)
                 partial_errors.append({"repository": repo_name, "error": str(exc)})
+            completed_repos += 1
+            if progress_callback:
+                await progress_callback({
+                    "completed_repos": completed_repos,
+                    "total_repos": total_repos,
+                    "current_repo": repo_name,
+                    "skipped": False,
+                })
 
         ref_count = 0
         try:
@@ -744,6 +790,7 @@ class WikiService:
             "references_count": ref_count,
             "repositories": [r["repository"] for r in repos],
             "partial_errors": partial_errors,
+            "skipped_repos": skipped_repos,
         }
 
     def _find_module_node(

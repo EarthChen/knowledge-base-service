@@ -71,7 +71,7 @@ python scripts/kb_query.py <tool_name> --json-args '{"query": "login", "k": 5}'
 | `analyze_changes` | PR review, impact analysis |
 | `get_insights` | Dashboard stats or graph anomalies |
 | `index_freshness` | Repository index timestamp and counts |
-| `search_wiki` | Hybrid wiki search |
+| `wiki_search` | Hybrid wiki search |
 | `get_wiki_page` | Get generated wiki page |
 | `list_wiki_pages` | Wiki page tree |
 

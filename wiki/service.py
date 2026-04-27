@@ -369,7 +369,7 @@ class WikiService:
         language: str = "en",
         token_budget_multiplier: float = 1.0,
     ) -> dict[str, Any]:
-        """Regenerate only affected wiki pages. Falls back to full generate on failure."""
+        """Mark affected wiki pages as updated (version bump). Falls back to full regeneration on failure."""
 
         if not affected.page_uids:
             return {"pages_regenerated": 0, "pages_total": 0, "trigger": affected.trigger}

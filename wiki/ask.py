@@ -701,7 +701,7 @@ class WikiAskService:
                 if enriched.strip():
                     formatted = enriched
             except Exception:
-                pass
+                log.warning("graph_enrichment_failed", repository=repository, exc_info=True)
         sources = _results_to_ask_sources(search_resp.results)
         messages = self._build_messages(repository, formatted, prior_turns, question)
 

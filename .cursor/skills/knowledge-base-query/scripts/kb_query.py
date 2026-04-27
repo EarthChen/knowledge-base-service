@@ -29,7 +29,7 @@ AVAILABLE_TOOLS = [
     "get_file_content", "analyze_code", "search_architecture",
     "analyze_changes", "get_complete_context", "get_insights",
     "index_freshness", "get_wiki_page", "list_wiki_pages",
-    "search_wiki", "wiki_export",
+    "wiki_search", "wiki_export",
 ]
 
 

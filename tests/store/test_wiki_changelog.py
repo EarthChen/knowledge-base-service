@@ -25,6 +25,30 @@ async def test_persist_changelog_creates_node():
 
 
 @pytest.mark.asyncio
+async def test_persist_changelog_includes_heal_fields() -> None:
+    from store.wiki_changelog import WikiChangeLogStore
+
+    mock_graph = MagicMock()
+    mock_graph.execute_query = AsyncMock()
+    store = WikiChangeLogStore(mock_graph)
+    uid = await store.persist_changelog(
+        "acme/r",
+        "lint_auto_heal",
+        [],
+        0,
+        files_changed=[],
+        errors=[],
+        heal_refs_removed=3,
+        heal_pages_deprecated=4,
+    )
+    assert uid.startswith("WikiChangeLog:")
+    call_args = mock_graph.execute_query.call_args
+    params = call_args[0][1]
+    assert params["heal_refs"] == 3
+    assert params["heal_pages"] == 4
+
+
+@pytest.mark.asyncio
 async def test_list_changelogs():
     mock_graph = AsyncMock()
     mock_result = MagicMock()

@@ -1,5 +1,7 @@
 # LLM Wiki Full Upgrade Design
 
+> **SP naming:** In this **Draft** document, **SP1–SP6** denote the six *sub-projects* in §2 (backend hardening → … → deep research). This is **not** the same numbering as [llm-wiki-v2-upgrade-design](2026-04-26-llm-wiki-v2-upgrade-design.md) (Approved), which uses **SP1–SP7** for *phase-scoped* work. Cross-reference [docs/IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md) to avoid ticket/PR mix-ups.
+
 > From AI doc generator to self-maintaining LLM knowledge base.
 
 **Created**: 2026-04-26  

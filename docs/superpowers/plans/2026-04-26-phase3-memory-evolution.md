@@ -6,7 +6,7 @@
 
 **Architecture:** Extend existing `:WikiQA` nodes in FalkorDB with tiered memory fields (same label preserves `db.idx.vector` on `WikiQA.embedding`). Introduce `MemoryTierManager` for promotion/expiration during lint and on access. `MemoryLoop` becomes tier- and retention-aware when `memory_tiers_enabled` is true. Forgetting is pure calculation + status flags (`faded` / `archived`), never destructive deletes. Schema validation is an optional lint pass using `wiki/schema.yaml` (default) or `WikiConfig.schema_path`.
 
-**Tech Stack:** Python 3.11+ (`uv`), FalkorDB/Cypher, Pydantic (`config.py`), pytest; frontend React + Vitest + `pnpm`.
+**Tech Stack:** Python 3.12+ (`uv`, matches root `pyproject.toml`), FalkorDB/Cypher, Pydantic (`config.py`), pytest; frontend React + Vitest + `pnpm`.
 
 **Spec source of truth (promotion, forgetting, flags):** `docs/superpowers/specs/2026-04-26-llm-wiki-v2-upgrade-design.md` §4 (Phase 3) and §8 (feature flags). Promotion thresholds must match the design **exactly** (see “Authoritative rules” below).
 

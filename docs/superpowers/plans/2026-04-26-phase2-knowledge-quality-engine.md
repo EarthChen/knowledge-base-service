@@ -443,7 +443,14 @@ async def _check_contradictions(self, repository: str) -> list[LintIssue]:
 
 ## SP4 — Task 4: Contradiction API routes
 
-**New file** `api/routes/wiki_contradiction_routes.py`:
+**New file** `api/routes/wiki_contradiction_routes.py` — **as implemented**, the list endpoint is not scoped by path segment `repository` (repo context is not part of the URL). Use a **query** parameter for the page:
+
+- **`GET /api/v1/wiki/contradictions?page_uid=...&include_resolved=`** (VIEWER+)
+- **`PATCH /api/v1/wiki/contradictions/{uid}/acknowledge`** / **`.../resolve`** (EDITOR+)
+
+Rationale: `WikiPage` UIDs in the graph already identify the page; the store lists contradictions *for that page*.
+
+**Sketch (matches current `wiki_contradiction_routes.py`):**
 
 ```python
 from fastapi import APIRouter, Depends, Query, Request
@@ -451,27 +458,22 @@ from auth import Role, require_role
 from config import get_settings
 from store.wiki_store import WikiStore
 
-router = APIRouter(
-    prefix="/api/v1/wiki",
-    tags=["wiki", "contradictions"],
-    dependencies=[Depends(require_role(Role.VIEWER))],
-)
+router = APIRouter(tags=["wiki", "contradictions"])
 
 
-@router.get("/{repository}/contradictions")
-async def list_contradictions(
+@router.get("/contradictions", response_model=None)
+async def list_wiki_contradictions(
     request: Request,
-    repository: str,
+    page_uid: str = Query(..., min_length=1),
     include_resolved: bool = Query(default=False),
 ) -> dict:
     if not get_settings().wiki.contradiction_detection_enabled:
         return {"items": []}
-    raw = getattr(request.app.state, "wiki_store", None)
     # ...
-    return {"items": []}
+    return {"items": rows}
 ```
 
-**Mutations** (Editor role) — `POST .../ack`, `POST .../resolve` setting `status` and `resolved_at`.
+**Mutations** (Editor role) — `PATCH .../acknowledge`, `PATCH .../resolve` setting `status` and `resolved_at`.
 
 **Register** in `create_app` or colocate in `wiki_routes.py` via `router.include_router(...)` to avoid circular imports (follow Phase 1 split if `wiki_routes` was already decomposed).
 
@@ -498,7 +500,7 @@ export function ContradictionAlert({ unresolvedCount, summary }: Props) {
 }
 ```
 
-**Fetch**: extend page load hook to call `GET /api/v1/wiki/{repo}/contradictions?...` filtered by `page_uid`, or embed `unresolved_contradictions` in `get_page_by_path` (preferred for one round-trip).
+**Fetch**: prefer embedding `unresolved_contradictions` in page detail (`get_page_by_path` / `WikiContent` 已有上下文)；或单独调用 `GET /api/v1/wiki/contradictions?page_uid=...`（**不是** `/{repo}/contradictions`）。
 
 **Wire** in `WikiContent.tsx` below stale alert block:
 

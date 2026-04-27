@@ -6,7 +6,7 @@
 
 **Architecture:** New MCP server module exposing 5 tools (wiki_search, wiki_explain, wiki_navigate, wiki_qa, wiki_impact). Supports stdio (local agent) and HTTP/SSE (remote) transports. Compact mode returns structured JSON optimized for LLM context windows.
 
-**Tech Stack:** Python 3.11+, MCP SDK (mcp), FastAPI, pytest
+**Tech Stack:** Python 3.12+, MCP SDK (mcp), FastAPI, pytest
 
 ---
 

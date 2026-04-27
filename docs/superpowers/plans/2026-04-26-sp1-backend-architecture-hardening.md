@@ -6,7 +6,7 @@
 
 **Architecture:** Replace ad-hoc error handling with a typed exception hierarchy caught by global middleware. Introduce `contextvars` for request-scoped business_id/request_id propagation. Move `get_settings()` out of service layer. Persist conversations to SQLite.
 
-**Tech Stack:** Python 3.11+, FastAPI, Pydantic, aiosqlite, contextvars, pytest
+**Tech Stack:** Python 3.12+, FastAPI, Pydantic, aiosqlite, contextvars, pytest
 
 ---
 

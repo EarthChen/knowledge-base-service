@@ -56,7 +56,7 @@ flowchart TB
 | **MCP 处理器**（`api/mcp_server.py`） | 混合/图/索引/Wiki（与 `wiki/mcp_tools.py` 合并清单）；**`get_file_content`** 读检出源文件；NL→Cypher 仅供 Dashboard UI 使用（`query/nl_cypher.py`，不暴露为 MCP 工具） |
 | **Wiki MCP 子服务**（`api/mcp_wiki_server.py`） | 可选；`WIKI__MCP_SERVER_ENABLED` 为 true 时注册 `mcp_wiki_server`，HTTP：`GET /api/v1/mcp/tools/list`、`POST /api/v1/mcp/tools/call`（五工具，见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)） |
 | **增量 Ingest** | `POST /api/v1/wiki/ingest` 按文件列表触发增量再生成；`GET /api/v1/wiki/changelog` 查仓库变更记录；`POST /api/v1/hooks/ingest/push` 在 Webhook 链路上触发自动 Ingest（与 `wiki/bootstrap` 中 `ChangeDetector` / `WikiChangeLogStore` 协同） |
-| **Lint 与自愈** | `wiki/lint.py`（`WikiLintService`）含质量 lint、可选**置信度重算**、**模式校验**；`wiki/lint_scheduler.py` 在 `WIKI__LINT_SCHEDULER_ENABLED` 下周期性跑 lint；`wiki/auto_healer.py` 在 `WIKI__AUTO_HEAL_ENABLED` 下做陈旧页标记、断链清理、孤儿页降级等 |
+| **Lint 与自愈** | `wiki/lint.py`（`WikiLintService`）含质量 lint、可选**置信度重算**、**模式校验**；`wiki/lint_scheduler.py` 在 `WIKI__LINT_SCHEDULER_ENABLED` 下周期性跑 lint；`wiki/auto_healer.py` 中的 **`AutoHealer`** 现实现**断链（悬空 `WIKI_REFERENCES`）清理**与**无 `SOURCE_ENTITY` 的孤儿页降级**，**不**做陈旧页打标。`WIKI__AUTO_HEAL_ENABLED` 已存在于配置，但 **`AutoHealer` 尚未接入** `main` / lint / 调度循环（见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)） |
 | **知识质量引擎** | `wiki/confidence_scorer.py` + `confidence_inputs.py`：页级 `confidence_score`（0.0–1.0）；矛盾检测与 LLM 裁决图持久化；主张/版本/替代关系（`supersession`）与 `GET /api/v1/wiki/pages/claim-history` |
 | **记忆演化** | `wiki/memory_loop.py` 将问答沉淀为可检索记忆并注入生成上下文；`wiki/memory_tiers.py` 实现 Working→Episodic→Semantic→Procedural 分层与提升；`WIKI__FORGETTING_ENABLED` 时按保留曲线缓释优先级（不删节点） |
 | **深度研究与合并** | `wiki/deep_research.py`：`POST /api/v1/wiki/research` 多轮分解；概念合并候选在 `WIKI__CONCEPT_MERGING_ENABLED` 时经 `GET /api/v1/wiki/merge-candidates` 等暴露 |
@@ -135,7 +135,7 @@ flowchart TB
 
 ## Wiki 生成管道（Phase 0–6）
 
-本节概括 **Wiki 元模型重置**、**代码感知 → RAG → 分层生成 → 跨仓业务 Wiki**、**导出与 Git 推送**、**质量保障** 的后端能力。详细设计与 API 契约见 [superpowers/specs/2026-04-24-wiki-enhancement-design.md](superpowers/specs/2026-04-24-wiki-enhancement-design.md)、[superpowers/specs/2026-04-26-wiki-tree-architecture-design.md](superpowers/specs/2026-04-26-wiki-tree-architecture-design.md)；前端规划见 [superpowers/specs/2026-04-26-wiki-frontend-redesign.md](superpowers/specs/2026-04-26-wiki-frontend-redesign.md)。更细的 Wiki 栈说明见 [wiki-generation-architecture.md](wiki-generation-architecture.md)。
+本节概括 **Wiki 元模型重置**、**代码感知 → RAG → 分层生成 → 跨仓业务 Wiki**、**导出与 Git 推送**、**质量保障** 的后端能力。上述主题曾计划拆成独立 spec 文档；当前以 [wiki-generation-architecture.md](wiki-generation-architecture.md) 与 [superpowers/specs/2026-04-26-llm-wiki-v2-upgrade-design.md](superpowers/specs/2026-04-26-llm-wiki-v2-upgrade-design.md) 为**主要设计引用**。实现与规划差异见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。
 
 ### Wiki 数据模型（FalkorDB）
 
@@ -146,7 +146,7 @@ flowchart TB
 | **HAS_CHILD** | 父子边；携带 `view_type`：`business_domain`（业务域视图）或 `code_structure`（代码结构视图） |
 | **WikiPage**（扩展字段） | `path`、`version`、`importance_tier`、`content_hash`、`repositories` 等，用于版本、重要性分层与多仓归属 |
 
-业务侧树查询：**`GET /wiki/tree?business_id=&view=`**（按业务与视图类型拉取 Wiki 树）。
+业务侧树查询：**`GET /api/v1/wiki/tree?business_id=&view=`**（按业务与视图类型拉取 Wiki 树；需已登录 `VIEWER+`）。
 
 ### 端到端流水线
 
@@ -200,13 +200,15 @@ flowchart LR
 ```
 
 - **Phase 1**：`SourceCodeReader` 从 `Chunk.text`、文件或签名回退读取源码；`ImportanceScorer` 基于图做 **core / standard / skeleton** 重要性；各 tier 有 **token 预算**。
-- **Phase 2**：`CodeChunkIndexer` 批量为 `Chunk` 生成嵌入；`ChunkRetriever` 语义检索代码块；**`POST /wiki/chunks/index`** 触发索引。
+- **Phase 2**：`CodeChunkIndexer` 批量为 `Chunk` 生成嵌入；`ChunkRetriever` 语义检索代码块；**`POST /api/v1/wiki/chunks/index`** 触发索引。
 - **Phase 3**：`TieredPromptBuilder` 按重要性 tier 选用不同提示；`AsyncEnrichmentPipeline` 异步推进 **base → enriched → encyclopedia**；`BusinessDomainPlanner` 用 LLM 做模块到业务域分类；全程可跟踪 **EnrichmentLevel**。
-- **Phase 4**：跨仓域规划、从代码图自动生成交叉引用、域总览页组合；**`WikiService.generate_business_wiki()`**；**`POST /wiki/business/generate`**；**`GET /pages/{uid}/references`**。MCP 扩展：**`wiki_get_tree`**、**`wiki_get_related`**、**`wiki_get_domain_overview`**（与既有 Wiki MCP 工具并存，以服务端清单为准）。
-- **Phase 5**：`WikiLinkConverter` 将 `[[wikilink]]` 转为多种格式；`BusinessWikiExporter` 导出扁平文件树；`ObsidianExporter`（含 `.obsidian/`）、`MkDocsExporter`（含 `mkdocs.yml`）；`GitPublisher` 增量 Git 推送与注释回写；**`POST /wiki/export`**（`markdown` / `zip` / `git` / `obsidian` / `mkdocs` 等）。
-- **Phase 6**：`WikiCoverageAnalyzer` 覆盖率、知识缺口与陈旧检测；`SuggestedQuestionsGenerator` 模板化探索问题；**`GET /wiki/coverage-report`**。
+- **Phase 4**：跨仓域规划、从代码图自动生成交叉引用、域总览页组合；**`WikiService.generate_business_wiki()`**；**`POST /api/v1/wiki/business/generate`**；**`GET /api/v1/wiki/pages/{page_uid}/references`**。MCP 扩展：**`wiki_get_tree`**、**`wiki_get_related`**、**`wiki_get_domain_overview`**（与既有 Wiki MCP 工具并存，以服务端清单为准）。
+- **Phase 5**：`WikiLinkConverter` 将 `[[wikilink]]` 转为多种格式；`BusinessWikiExporter` 导出扁平文件树；`ObsidianExporter`（含 `.obsidian/`）、`MkDocsExporter`（含 `mkdocs.yml`）；`GitPublisher` 增量 Git 推送与注释回写；**`POST /api/v1/wiki/export`**（`markdown` / `zip` / `git` / `obsidian` / `mkdocs` 等）。
+- **Phase 6**：`WikiCoverageAnalyzer` 覆盖率、知识缺口与陈旧检测；`SuggestedQuestionsGenerator` 模板化探索问题；**`GET /api/v1/wiki/coverage-report`**。
 
-## SP3–SP6 与 LLM Wiki v2 扩展（概览）
+## 增量 / MCP / 质量 v2 扩展（概览；非 Phase 0–6 的「SP3–SP6」编号）
+
+> **注意**：下表中的「增量 Ingest、MCP、质量引擎」等对应 **全量升级草案** [llm-wiki-full-upgrade-design](superpowers/specs/2026-04-26-llm-wiki-full-upgrade-design.md) 中 **SP3–SP6** 的叙述；[v2 已批准 spec](superpowers/specs/2026-04-26-llm-wiki-v2-upgrade-design.md) 使用**另一套** SP1–SP7 编号。详见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。
 
 以下能力与 Phase 0–6 **正交**：通过 `WikiConfig`（环境前缀 `WIKI__`）与独立 HTTP/MCP 面启用；细节见 [wiki-generation-architecture.md](wiki-generation-architecture.md) 与 [DEPLOYMENT.md](DEPLOYMENT.md)。
 

@@ -35,7 +35,7 @@ knowledge-base-service/
 └── README.md
 ```
 
-**`wiki/` 模块补充**：核心管线 `service.py`、`composer.py`、`search.py`、`ask.py`；增量与自动化 `incremental.py`、`change_detector.py`；v2 能力 `deep_research.py`、`memory_loop.py`、`memory_tiers.py`；质量 `confidence_scorer.py`、`confidence_inputs.py`、`lint.py`、`lint_scheduler.py`、`auto_healer.py`；Agent 文档 `agents_md_generator.py`；主 MCP 合并清单见 `mcp_tools.py`。图侧扩展含 `store/wiki_changelog.py`、`store/wiki_feedback_store.py`、`store/wiki_memory_store.py`、`store/wiki_qa_store.py` 等（以 `store/` 实际文件为准）。
+**`wiki/` 模块补充**：核心管线 `service.py`、`composer.py`、`search.py`、`ask.py`；增量与自动化 `incremental.py`、`change_detector.py`；v2 能力 `deep_research.py`、`memory_loop.py`、`memory_tiers.py`；质量 `confidence_scorer.py`、`confidence_inputs.py`、`lint.py`、`lint_scheduler.py`、`auto_healer.py`（自愈**类**；与 `WIKI__AUTO_HEAL_ENABLED` 的运行时接线见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)）；Agent 文档 `agents_md_generator.py`；主 MCP 合并清单见 `mcp_tools.py`。图侧扩展含 `store/wiki_changelog.py`、`store/wiki_feedback_store.py`、`store/wiki_memory_store.py`、`store/wiki_qa_store.py` 等（以 `store/` 实际文件为准）。
 
 ## 开发环境搭建
 

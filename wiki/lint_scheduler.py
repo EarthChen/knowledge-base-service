@@ -58,11 +58,12 @@ class LintScheduler:
                 service = await self._factory()
                 repos = await self._resolve_repositories()
                 for repo in repos:
-                    result = await service.lint(repo)
+                    result = await service.run_lint(repo, scope="all")
+                    issues = result.get("issues", []) if isinstance(result, dict) else []
                     log.info(
                         "lint_scheduler_repo_completed",
                         repository=repo,
-                        issues=len(result.issues) if result is not None else 0,
+                        issues=len(issues),
                     )
             except asyncio.CancelledError:
                 raise

@@ -6,7 +6,7 @@
 
 **Architecture:** ChangeDetector parses git diff → queries graph for affected entities → expands 1-hop → identifies affected WikiPages. WikiService.generate_incremental() regenerates only those pages. WikiChangeLog nodes track audit trail.
 
-**Tech Stack:** Python 3.11+, FastAPI, FalkorDB Cypher, pytest, asyncio
+**Tech Stack:** Python 3.12+, FastAPI, FalkorDB Cypher, pytest, asyncio
 
 ---
 

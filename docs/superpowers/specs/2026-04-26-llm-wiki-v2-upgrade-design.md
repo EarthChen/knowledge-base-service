@@ -1,5 +1,7 @@
 # LLM Wiki v2 — Full Upgrade Design
 
+> **SP naming:** Here **SP1–SP7** follow the three *phases* in §2–4 (e.g. SP1 = backend **module split**). They **do not** match the **SP1–SP6** *sub-project* list in the separate **Draft** [llm-wiki-full-upgrade-design](2026-04-26-llm-wiki-full-upgrade-design.md). Use [docs/IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md) to disambiguate.
+
 > **Status**: Approved  
 > **Created**: 2026-04-26  
 > **Scope**: 3 Phases, 7 Sub-Projects  

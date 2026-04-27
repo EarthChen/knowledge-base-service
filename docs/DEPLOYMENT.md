@@ -86,12 +86,12 @@
 | `WIKI__LINT_SCHEDULER_ENABLED` | `false` | 为 true 时启动后台 `LintScheduler`，按间隔周期跑 Wiki lint |
 | `WIKI__LINT_SCHEDULER_INTERVAL_HOURS` | `6` | 调度周期间隔（小时） |
 | `WIKI__FEEDBACK_ENABLED` | `true` | 用户反馈与置信度输入相关逻辑的总开关（`WikiConfig`；与 `GET/POST .../feedback` 及 `confidence_inputs` 的联动以当前代码为准） |
-| `WIKI__AUTO_HEAL_ENABLED` | `false` | 为 true 时允许 `AutoHealer` 在 lint/调度中执行陈旧页标记、断链清理、孤儿页降级等 |
+| `WIKI__AUTO_HEAL_ENABLED` | `false` | 为 true 时**意向**启用 `AutoHealer`（断链清理 + 孤儿页降级；**不做**陈旧页打标）。实现类见 `wiki/auto_healer.py`；**当前版本尚未**在 `main`/lint/调度中接入，见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) |
 | `WIKI__DEEP_RESEARCH_ENABLED` | `false` | 为 true 时开放 `POST /api/v1/wiki/research`（多轮研究管线） |
 | `WIKI__CONCEPT_MERGING_ENABLED` | `false` | 为 true 时启用跨仓实体相似与合并候选（如 `GET /api/v1/wiki/merge-candidates`） |
 | `WIKI__CONCEPT_MERGE_SIMILARITY_THRESHOLD` | `0.9` | 概念合并相似度阈值（0.0–1.0） |
-| `WIKI__CONFIDENCE_SCORING_ENABLED` | `false` | 为 true 时计算并回写 `WikiPage.confidence_score`（0.0–1.0，来源/新鲜度/反馈等综合） |
-| `WIKI__CONTRADICTION_DETECTION_ENABLED` | `false` | 为 true 时启用跨页矛盾检测、列表与状态流转 API |
+| `WIKI__CONFIDENCE_SCORING_ENABLED` | `true` | 为 true 时计算并回写 `WikiPage.confidence_score`（0.0–1.0，来源/新鲜度/反馈等综合；与 `config.WikiConfig` 默认一致） |
+| `WIKI__CONTRADICTION_DETECTION_ENABLED` | `true` | 为 true 时启用跨页矛盾检测、列表与状态流转 API（与 `config.WikiConfig` 默认一致） |
 | `WIKI__SUPERSESSION_TRACKING_ENABLED` | `false` | 为 true 时持久化主张/版本/替代并开放 `GET /api/v1/wiki/pages/claim-history` |
 | `WIKI__MEMORY_TIERS_ENABLED` | `false` | 为 true 时启用四层记忆模型与 `WikiQA` 上的分层晋升逻辑 |
 | `WIKI__FORGETTING_ENABLED` | `false` | 为 true 时按保留曲线降低低稳定性记忆的检索优先级（不删除图节点） |

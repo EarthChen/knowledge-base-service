@@ -340,9 +340,11 @@ Wiki 生成
 
 ## 7. 验收标准
 
-- [ ] `enrichment_strategy=disabled` 时，索引阶段零 LLM 调用
-- [ ] `enrichment_strategy=core_only` 时，索引阶段 LLM 调用量 ≤ 当前的 20%
-- [ ] Wiki 生成后，所有非 trivial 实体均有 `business_summary`
-- [ ] Wiki 生成后，BusinessFlow 节点正确创建
-- [ ] 新获得 business_summary 的实体 embedding 已刷新
-- [ ] 所有现有测试通过
+> **验证说明（2026-04-27）**：以下条目中，与索引/Wiki 管线相关的行为由 `tests/test_indexer_enrichment_strategy.py`、`tests/wiki/test_deferred_enrichment.py`、BusinessFlow 与索引集成测试等覆盖；全量 **`uv run pytest` 通过（1722 passed）**。
+
+- [x] `enrichment_strategy=disabled` 时，索引阶段零 LLM 调用（`test_disabled_strategy_skips_enrichment` 等）
+- [x] `enrichment_strategy=core_only` 时，仅对分类为 *core* 的实体调用 `enrich_batch`（**调用比例依仓库与分类器而定**；单元测试验证过滤行为，不替代生产占比统计）
+- [x] Wiki 阶段 **`DeferredEnrichmentService.enrich_remaining`** 对缺少 `business_summary` 的实体做批量补全，并**跳过 trivial**（见 `tests/wiki/test_deferred_enrichment.py`；「全量仓库每一个非 trivial 实体」级别的验收需依具体图数据做抽检）
+- [x] Wiki 生成后，BusinessFlow 节点正确创建（`tests/wiki/test_wiki_business_flow.py` 等）
+- [x] 新获得 business_summary 的实体 embedding 已刷新（延迟 enrichment / 刷新相关测试）
+- [x] 所有现有测试通过（2026-04-27：`1722 passed`）

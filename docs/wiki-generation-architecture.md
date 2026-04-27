@@ -1,6 +1,6 @@
 # Wiki 生成架构
 
-本文档描述**生成式 Wiki 页面**如何融入 Knowledge Base Service：从**索引代码图**和**嵌入**中获取输入，经过**组合管道**；在 **SP3–SP6** 起支持 **HTTP 增量子系统**、**双 MCP 面**、**质量与记忆（LLM Wiki v2）**；并说明自动化（Webhook、**Lint 调度**、**AutoHealer**）与 **混合 Wiki 搜索** 的关系。
+本文档描述**生成式 Wiki 页面**如何融入 Knowledge Base Service：从**索引代码图**和**嵌入**中获取输入，经过**组合管道**；在**全量升级草案**（[llm-wiki-full-upgrade-design](superpowers/specs/2026-04-26-llm-wiki-full-upgrade-design.md)）的 **SP3–SP6** 叙述范围内，**HTTP 增量子系统**、**双 MCP 面**、**质量与记忆（LLM Wiki v2）** 等能力已可启用；*SP 编号*与 [v2 已批准 spec](superpowers/specs/2026-04-26-llm-wiki-v2-upgrade-design.md) 中的 **SP1–SP7** **不是**同一套标签（见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)）。并说明自动化（Webhook、**Lint 调度**、**AutoHealer 库**）与 **混合 Wiki 搜索** 的关系。
 
 ## 目标
 
@@ -152,7 +152,7 @@ sequenceDiagram
 - **通用 Webhook**：`api/routes/webhook_routes.py`，**`/api/v1/hooks/{provider}`** 等，签名与防抖；另见 **`/api/v1/hooks/ingest/push`**（上文）。
 - **Wiki 调度器**：`wiki/scheduler/` 协调定期**再生成/导出**计划，与 **`TaskLock`** 互斥，避免与 Ingest/Webhook 并发写同一树。
 - **LintScheduler**（`wiki/lint_scheduler.py`）：`WIKI__LINT_SCHEDULER_ENABLED=true` 时按 **`WIKI__LINT_SCHEDULER_INTERVAL_HOURS`** 周期调用 `WikiLintService`（可含**置信度重算**、**模式校验**、**矛盾**相关后处理，视功能开关而定）。
-- **AutoHealer**（`wiki/auto_healer.py`）：`WIKI__AUTO_HEAL_ENABLED` 时由 lint 或调度触发，执行**陈旧页打标**、**断链清理**、**孤儿页**降级等图内修复，均通过已有 Store 与 Cypher 完成。
+- **AutoHealer**（`wiki/auto_healer.py`）：`AutoHealer` 类提供 **`remove_broken_references`**（清理悬空 `WIKI_REFERENCES` 边）与 **`deprecate_orphan_pages`**（无 `SOURCE_ENTITY` 的页标记为弃用）。模块**刻意不包含**「陈旧页自动打标」（见 `auto_healer.py` 顶注）。`WIKI__AUTO_HEAL_ENABLED` 在 `WikiConfig` 与设置 UI 中可用，但**当前** `main` / `WikiLintService` / `LintScheduler` **未调用** `AutoHealer`；接好调度后再将「由 lint/调度触发」视为生效。
 
 ## 相关模块
 

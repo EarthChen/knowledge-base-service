@@ -6,7 +6,7 @@
 
 **Architecture:** LintScheduler runs periodically (default 6h) using existing WikiLintService. Auto-heal actions queue incremental regeneration for stale pages. MemoryLoop.inject_into_generation() is called during WikiComposer.compose_page(). User feedback stored as WikiFeedback graph nodes.
 
-**Tech Stack:** Python 3.11+, FastAPI, FalkorDB, asyncio, pytest
+**Tech Stack:** Python 3.12+, FastAPI, FalkorDB, asyncio, pytest
 
 ---
 

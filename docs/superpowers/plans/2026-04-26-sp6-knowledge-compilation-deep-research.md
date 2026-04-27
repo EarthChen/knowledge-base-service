@@ -6,7 +6,7 @@
 
 **Architecture:** ConceptMerger detects cross-repo similar entities via embedding similarity and generates consolidated ConceptPages. WikiComposer injects entity index into LLM prompt for [[wikilink]] generation. DeepResearchService orchestrates multi-turn Q&A with sub-question decomposition. BusinessFlowGraph renders existing BusinessFlow nodes using xyflow.
 
-**Tech Stack:** Python 3.11+, FastAPI, FalkorDB, React 19, @xyflow/react, pytest, Vitest
+**Tech Stack:** Python 3.12+, FastAPI, FalkorDB, React 19, @xyflow/react, pytest, Vitest
 
 ---
 

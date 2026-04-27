@@ -15,6 +15,11 @@ from typing import Any, Protocol, runtime_checkable
 from log import get_logger
 from store.conversation_store import SqliteConversationStore
 from store.wiki_store import WikiStore
+from wiki.reasoning_path import (
+    ReasoningPath,
+    ReasoningStage,
+    extract_entities_in_answer,
+)
 from wiki.search import SearchResponse, SearchResult
 
 log = get_logger(__name__)
@@ -35,6 +40,7 @@ class AskResponse:
     sources: list[AskSource]
     conversation_id: str
     tokens_used: int
+    reasoning_path: dict[str, Any] | None = None
 
 
 @dataclass
@@ -469,6 +475,101 @@ def _results_to_ask_sources(results: list[SearchResult]) -> list[AskSource]:
     return out
 
 
+def _search_entity_hits_for_reasoning(results: list[SearchResult], limit: int = 5) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for r in results[:limit]:
+        t = str(r.title).strip()
+        if t and t not in seen:
+            seen.add(t)
+            out.append(t)
+        for loc in r.source_locations or []:
+            for key in ("entity", "name", "fqn"):
+                raw = loc.get(key)
+                if raw is None:
+                    continue
+                s = str(raw).strip()
+                if s and s not in seen:
+                    seen.add(s)
+                    out.append(s)
+    return out
+
+
+def _retriever_label_for_search_mode(mode: str) -> str:
+    if mode == "semantic":
+        return "vector"
+    if mode == "graph":
+        return "graph"
+    if mode == "keyword":
+        return "fts"
+    if mode == "hybrid":
+        return "wiki_search"
+    return "wiki_search"
+
+
+def _graph_reasoning_stages_for_qtype(
+    question_type: str, search_results: list[SearchResult]
+) -> list[ReasoningStage]:
+    names = GraphEnhancedContextCollector._seed_names(search_results)
+    if not names:
+        return []
+    n = list(names)
+    if question_type in ("concept", "general"):
+        return [ReasoningStage("graph_context", "graph", n, metadata={"kind": "one_hop"})]
+    if question_type == "flow":
+        return [ReasoningStage("graph_context", "graph", n, metadata={"kind": "flow_callees"})]
+    if question_type == "relation":
+        stages = [ReasoningStage("graph_context", "graph", n, metadata={"kind": "relation_paths"})]
+        if len(n) >= 2:
+            stages.append(
+                ReasoningStage(
+                    "graph_path",
+                    "graph_path",
+                    n[:2],
+                    metadata={"kind": "shortest_path"},
+                )
+            )
+        return stages
+    if question_type == "impact":
+        return [ReasoningStage("graph_context", "graph", n, metadata={"kind": "impact_callers"})]
+    return []
+
+
+def _build_wiki_ask_reasoning_path(
+    search_resp: SearchResponse,
+    search_mode: str,
+    question_type: str,
+    answer_text: str,
+    *,
+    include_graph_stages: bool,
+) -> ReasoningPath:
+    """Provenance: search hit entities + graph stages the collector would run (if wiki store used)."""
+    search_hits = _search_entity_hits_for_reasoning(search_resp.results)
+    top_score = search_resp.results[0].score if search_resp.results else None
+    stages: list[ReasoningStage] = [
+        ReasoningStage(
+            stage_name="search",
+            retriever=_retriever_label_for_search_mode(search_mode),
+            entity_hits=search_hits,
+            score=top_score,
+            metadata={"mode": search_mode, "query_expansion": search_resp.query_expansion},
+        )
+    ]
+    if include_graph_stages:
+        stages.extend(_graph_reasoning_stages_for_qtype(question_type, list(search_resp.results)))
+    seed = GraphEnhancedContextCollector._seed_names(search_resp.results)
+    candidates: list[str] = []
+    seen_c: set[str] = set()
+    for x in search_hits + seed:
+        if x not in seen_c:
+            seen_c.add(x)
+            candidates.append(x)
+    return ReasoningPath(
+        stages=stages,
+        answer_entities=extract_entities_in_answer(answer_text, candidates),
+    )
+
+
 def _estimate_tokens(text: str) -> int:
     return max(len(text) // 4, 0)
 
@@ -586,9 +687,9 @@ class WikiAskService:
         if not isinstance(search_resp, SearchResponse):
             raise TypeError("search must return SearchResponse")
         formatted = _format_search_results(search_resp)
+        qtype = detect_question_type(question)
         if self._wiki_store is not None:
             collector = GraphEnhancedContextCollector(self._wiki_store)
-            qtype = detect_question_type(question)
             token_budget = wiki_context_token_budget(question, qtype)
             try:
                 enriched = await collector.collect(
@@ -621,11 +722,19 @@ class WikiAskService:
 
         yield {"event": "wiki-sources", "data": {"sources": [asdict(s) for s in sources]}}
         tokens_used = _estimate_tokens(full_text)
+        reasoning = _build_wiki_ask_reasoning_path(
+            search_resp,
+            mode,
+            qtype,
+            full_text,
+            include_graph_stages=(self._wiki_store is not None),
+        )
         yield {
             "event": "wiki-answer-complete",
             "data": {
                 "conversation_id": history.conversation_id,
                 "tokens_used": tokens_used,
+                "reasoning_path": reasoning.to_dict(),
             },
         }
 
@@ -666,6 +775,7 @@ class WikiAskService:
         sources: list[AskSource] = []
         conv_id = ""
         tokens_used = 0
+        reasoning_path: dict[str, Any] | None = None
 
         async for ev in self.ask_stream(
             repository=repository,
@@ -695,10 +805,13 @@ class WikiAskService:
             elif et == "wiki-answer-complete":
                 conv_id = str(data.get("conversation_id", ""))
                 tokens_used = int(data.get("tokens_used", 0) or 0)
+                rp = data.get("reasoning_path")
+                reasoning_path = rp if isinstance(rp, dict) else None
 
         return AskResponse(
             content=content,
             sources=sources,
             conversation_id=conv_id,
             tokens_used=tokens_used,
+            reasoning_path=reasoning_path,
         )

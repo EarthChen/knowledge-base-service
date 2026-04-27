@@ -54,7 +54,7 @@ export default function WikiFeaturesSection({ values, meta, onChange, t }: Secti
       {WIKI_FEATURE_GROUPS.map((group) => (
         <div key={group.titleKey} className="space-y-2">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {t.configSettings[group.titleKey]}
+            {t.configSettings[group.titleKey] as string}
           </p>
           {group.keys.map((key) => (
             <SettingsToggle

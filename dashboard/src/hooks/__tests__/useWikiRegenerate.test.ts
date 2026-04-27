@@ -12,7 +12,7 @@ vi.mock("../../components/Toast", () => ({
   useToast: () => ({ toast }),
 }));
 
-const useI18nMock = vi.fn(() => ({ locale: "en" as const, t: en, setLocale: vi.fn() }));
+const useI18nMock = vi.fn((): { locale: "en" | "zh"; t: typeof en; setLocale: ReturnType<typeof vi.fn> } => ({ locale: "en", t: en, setLocale: vi.fn() }));
 vi.mock("../../i18n/context", () => ({
   useI18n: () => useI18nMock(),
 }));
@@ -62,7 +62,7 @@ describe("useWikiRegenerate", () => {
   });
 
   it("passes zh language when locale is zh", async () => {
-    useI18nMock.mockReturnValue({ locale: "zh" as const, t: en, setLocale: vi.fn() });
+    useI18nMock.mockReturnValue({ locale: "zh", t: en, setLocale: vi.fn() });
     vi.mocked(client.businessWikiGenerate).mockResolvedValue({
       task_id: "",
       status: "done",
@@ -106,7 +106,7 @@ describe("useWikiRegenerate", () => {
     vi.mocked(client.wikiTaskStatus).mockResolvedValue({
       task_id: "t-err-obj",
       status: "failed",
-      error: { code: 10 },
+      error: { error: "internal", detail: "code_10" },
     });
     const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
     await act(async () => {
@@ -114,7 +114,7 @@ describe("useWikiRegenerate", () => {
       await vi.advanceTimersByTimeAsync(2000);
       await regen;
     });
-    const detail = JSON.stringify({ code: 10 });
+    const detail = JSON.stringify({ error: "internal", detail: "code_10" });
     expect(toast).toHaveBeenCalledWith("error", en.wiki.regenerateFailed.replace("{detail}", detail));
   });
 

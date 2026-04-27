@@ -34,7 +34,7 @@ export function WikiToolSuspenseFallback() {
   );
 }
 
-type ViewType = "business_domain" | "code_structure" | (string & {});
+type ViewType = "business_domain" | "code_structure";
 
 type WikiTier = "standard" | "essential" | "comprehensive" | null;
 
@@ -81,7 +81,7 @@ export default function WikiToolPanel({
                 repository={pageQuery.data?.context?.repository ?? businessId}
                 businessId={businessId}
                 pagePath={pagePath}
-                detail={pageQuery.data}
+                detail={pageQuery.data ?? undefined}
                 isLoading={pageQuery.isLoading}
                 error={contentError}
                 wikiLinkParams={wikiLinkParams}

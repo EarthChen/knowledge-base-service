@@ -114,7 +114,7 @@ class TestWikiToolsRegistered:
         assert wiki_names == {
             "get_wiki_page",
             "list_wiki_pages",
-            "search_wiki",
+            "wiki_search",
             "wiki_export",
             "wiki_get_tree",
             "wiki_get_related",
@@ -122,10 +122,10 @@ class TestWikiToolsRegistered:
             "wiki_get_snapshot",
         }
 
-    def test_search_wiki_tool_registered(self):
+    def test_wiki_search_tool_registered(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}
-        assert "search_wiki" in names
-        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "search_wiki")
+        assert "wiki_search" in names
+        tool = next(t for t in MCP_TOOLS_MANIFEST if t["name"] == "wiki_search")
         assert "inputSchema" in tool
         req = tool["inputSchema"].get("required", [])
         assert "repository" in req
@@ -277,9 +277,9 @@ class TestErrorPropagation:
 
 class TestSearchWiki:
     @pytest.mark.asyncio
-    async def test_search_wiki_valid(self, kb_handler: KnowledgeBaseMCPHandler, wiki_pipeline: AsyncMock):
+    async def test_wiki_search_valid(self, kb_handler: KnowledgeBaseMCPHandler, wiki_pipeline: AsyncMock):
         result = await kb_handler.handle_tool_call(
-            "search_wiki",
+            "wiki_search",
             {"repository": "demo-repo", "query": "App class", "mode": "hybrid", "limit": 10, "min_score": 0.0},
         )
         assert "error" not in result
@@ -292,16 +292,26 @@ class TestSearchWiki:
         )
 
     @pytest.mark.asyncio
-    async def test_search_wiki_empty_query(self, kb_handler: KnowledgeBaseMCPHandler):
+    async def test_search_wiki_backward_compat(self, kb_handler: KnowledgeBaseMCPHandler, wiki_pipeline: AsyncMock):
         result = await kb_handler.handle_tool_call(
             "search_wiki",
+            {"repository": "demo-repo", "query": "App class", "mode": "hybrid", "limit": 10, "min_score": 0.0},
+        )
+        assert "error" not in result
+        assert result["total"] == 1
+        wiki_pipeline.search_wiki.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_wiki_search_empty_query(self, kb_handler: KnowledgeBaseMCPHandler):
+        result = await kb_handler.handle_tool_call(
+            "wiki_search",
             {"repository": "demo-repo", "query": "   "},
         )
         assert "error" in result
         assert result["error"]["code"] == "invalid_params"
 
     @pytest.mark.asyncio
-    async def test_search_wiki_not_configured(self):
+    async def test_wiki_search_not_configured(self):
         kb = KnowledgeBaseMCPHandler(
             hybrid_svc=MagicMock(),
             graph_svc=MagicMock(),
@@ -309,7 +319,7 @@ class TestSearchWiki:
             wiki_handler=WikiMCPHandler(None),
         )
         result = await kb.handle_tool_call(
-            "search_wiki",
+            "wiki_search",
             {"repository": "demo-repo", "query": "x"},
         )
         assert "error" in result

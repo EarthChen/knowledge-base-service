@@ -13,7 +13,7 @@ Tools exposed (20 total):
   - search_architecture: Classes by layer or discovered HTTP/RPC/Kafka endpoints (mode)
   - get_insights: Dashboard P2 stats and/or per-repo graph anomaly scan (type)
   - index_freshness: Repository index stamp and counts
-  - get_wiki_page, list_wiki_pages, search_wiki, wiki_export: Wiki browse/search/export
+  - get_wiki_page, list_wiki_pages, wiki_search, wiki_export: Wiki browse/search/export
   - wiki_get_tree, wiki_get_related, wiki_get_domain_overview, wiki_get_snapshot: Business wiki tree, cross-refs, domain overview, compiled snapshot
 """
 
@@ -789,6 +789,7 @@ class KnowledgeBaseMCPHandler:
             "index_freshness": self.handle_index_freshness,
             "get_wiki_page": self._wiki.handle_get_wiki_page,
             "list_wiki_pages": self._wiki.handle_list_wiki_pages,
+            "wiki_search": self._wiki.handle_wiki_search,
             "search_wiki": self._wiki.handle_search_wiki,
             "wiki_export": self._wiki.handle_wiki_export,
             "wiki_get_tree": self._wiki.handle_wiki_get_tree,

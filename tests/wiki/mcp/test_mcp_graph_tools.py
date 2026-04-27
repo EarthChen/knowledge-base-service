@@ -124,7 +124,7 @@ class TestMCPRegistration:
         assert names == {
             "get_wiki_page",
             "list_wiki_pages",
-            "search_wiki",
+            "wiki_search",
             "wiki_export",
             "wiki_get_tree",
             "wiki_get_related",

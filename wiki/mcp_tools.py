@@ -105,7 +105,7 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
         },
     },
     {
-        "name": "search_wiki",
+        "name": "wiki_search",
         "description": (
             "Search generated Wiki pages using hybrid search (graph + vector + full-text). "
             "Returns ranked results with scores, snippets, source locations, and hierarchical context."
@@ -371,6 +371,8 @@ class WikiMCPHandler:
         if isinstance(payload, dict):
             return {**payload, "synthesized": True}
         return payload
+
+    handle_wiki_search = handle_search_wiki  # alias after the method definition
 
     async def handle_ask_about_code(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._pipeline is None:

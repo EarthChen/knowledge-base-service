@@ -194,6 +194,23 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
             "required": ["domain_name"],
         },
     },
+    {
+        "name": "wiki_get_snapshot",
+        "description": (
+            "Get a compiled knowledge snapshot of all wiki pages for a repository. "
+            "Returns a structured markdown document with page summaries, confidence scores, cross-references, and module organization."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {
+                    "type": "string",
+                    "description": "Repository name to get snapshot for",
+                },
+            },
+            "required": ["repository"],
+        },
+    },
 ]
 
 
@@ -604,3 +621,18 @@ class WikiMCPHandler:
             "content": props.get("content", ""),
             "title": props.get("title", ""),
         }
+
+    async def handle_wiki_get_snapshot(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self._store is None:
+            return self._mcp_error("service_unavailable", "Store not configured")
+        repository = str(arguments.get("repository", "")).strip()
+        if not repository:
+            return self._mcp_error("invalid_params", "repository parameter is required")
+        from wiki.compilation_snapshot import WikiCompilationSnapshot
+
+        snap = WikiCompilationSnapshot(self._store, self._wiki_config)
+        try:
+            md = await snap.generate("default", repository)
+        except Exception as exc:
+            return self._mcp_error("internal_error", str(exc))
+        return {"repository": repository, "format": "markdown", "content": md}

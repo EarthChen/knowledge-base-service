@@ -1,4 +1,4 @@
-"""MCP-compatible wiki knowledge server exposing 5 tools."""
+"""MCP-compatible wiki knowledge server exposing 6 tools."""
 from __future__ import annotations
 
 from typing import Any
@@ -69,6 +69,23 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 "repository": {"type": "string", "description": "Repository name"},
             },
             "required": ["files", "repository"],
+        },
+    },
+    {
+        "name": "wiki_get_snapshot",
+        "description": (
+            "Get a compiled knowledge snapshot of all wiki pages for a repository. "
+            "Returns a structured markdown document with page summaries, confidence scores, cross-references, and module organization."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repository": {
+                    "type": "string",
+                    "description": "Repository name to get snapshot for",
+                },
+            },
+            "required": ["repository"],
         },
     },
 ]
@@ -189,3 +206,20 @@ class MCPWikiServer:
             "affected_entities": affected.affected_entities,
             "trigger": affected.trigger,
         })
+
+    async def _handle_wiki_get_snapshot(self, args: dict[str, Any]) -> dict[str, Any]:
+        repo = str(args.get("repository", "")).strip()
+        if not repo:
+            return {"error": "repository required"}
+        if self._wiki_store is None:
+            return {"error": "Wiki store not configured"}
+        from config import get_settings
+        from wiki.compilation_snapshot import WikiCompilationSnapshot
+
+        settings = get_settings()
+        snap = WikiCompilationSnapshot(self._wiki_store, settings.wiki)
+        try:
+            md = await snap.generate("default", repo)
+        except Exception as exc:
+            return {"error": str(exc)}
+        return {"repository": repo, "format": "markdown", "content": md}

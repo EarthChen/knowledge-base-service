@@ -184,10 +184,37 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     await bootstrap_wiki(app, settings)
 
+    app.state.wiki_lint_scheduler = None
+    if settings.wiki.lint_scheduler_enabled:
+        from wiki.lint_scheduler import LintScheduler
+
+        def _list_repos() -> list[str]:
+            reg = kb_state.repo_registry
+            if reg is None:
+                return []
+            return [str(e["repository"]) for e in reg.list_all() if e.get("repository")]
+
+        interval = float(max(1, settings.wiki.lint_scheduler_interval_hours) * 3600)
+        lint_sched = LintScheduler(
+            app.state.wiki_lint_service_factory,
+            repositories=_list_repos,
+            interval_seconds=interval,
+        )
+        lint_sched.start()
+        app.state.wiki_lint_scheduler = lint_sched
+        log.info(
+            "wiki_lint_scheduler_started",
+            interval_hours=settings.wiki.lint_scheduler_interval_hours,
+        )
+
     log.info("kb_service_started")
     yield
 
     log.info("kb_service_stopping")
+    ls = getattr(app.state, "wiki_lint_scheduler", None)
+    if ls is not None:
+        await ls.stop()
+        app.state.wiki_lint_scheduler = None
     await teardown_wiki(app)
     if kb_state.scheduler:
         await kb_state.scheduler.stop()

@@ -15,6 +15,28 @@ export interface WikiRegenProgress {
   skippedRepos: number;
 }
 
+const STORAGE_KEY_PREFIX = "kb_wiki_active_task:";
+
+function saveActiveTask(businessId: string, taskId: string) {
+  try {
+    localStorage.setItem(`${STORAGE_KEY_PREFIX}${businessId}`, taskId);
+  } catch { /* ignore */ }
+}
+
+function loadActiveTask(businessId: string): string | null {
+  try {
+    return localStorage.getItem(`${STORAGE_KEY_PREFIX}${businessId}`);
+  } catch {
+    return null;
+  }
+}
+
+function clearActiveTask(businessId: string) {
+  try {
+    localStorage.removeItem(`${STORAGE_KEY_PREFIX}${businessId}`);
+  } catch { /* ignore */ }
+}
+
 export function useWikiRegenerate(businessId: string) {
   const [isPending, setIsPending] = useState(false);
   const [progress, setProgress] = useState<WikiRegenProgress | null>(null);
@@ -31,6 +53,97 @@ export function useWikiRegenerate(businessId: string) {
     };
   }, []);
 
+  const pollTask = useCallback(
+    async (tid: string, showToasts: boolean) => {
+      const maxAttempts = 120;
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        if (!mountedRef.current) break;
+        let st: WikiAsyncTask;
+        try {
+          st = await businessWikiTaskStatus(tid);
+        } catch {
+          continue;
+        }
+        if (st.progress_pct !== undefined) {
+          if (!mountedRef.current) break;
+          setProgress({
+            totalRepos: Number(st.total_repos) || 0,
+            completedRepos: Number(st.completed_repos) || 0,
+            currentRepo: st.current_repo ?? "",
+            progressPct: Number(st.progress_pct) || 0,
+            skippedRepos:
+              typeof st.skipped_repos === "number"
+                ? st.skipped_repos
+                : Array.isArray(st.skipped_repos)
+                  ? st.skipped_repos.length
+                  : 0,
+          });
+        }
+        if (st.status === "completed") {
+          clearActiveTask(businessId);
+          if (showToasts) toast("success", t.wiki.regenerateComplete);
+          await invalidateWikiQueriesForBusiness(queryClient, businessId);
+          return;
+        }
+        if (st.status === "failed") {
+          clearActiveTask(businessId);
+          if (showToasts) {
+            const err = st.error;
+            const detail =
+              err && typeof err === "object" && "detail" in err
+                ? String((err as { detail?: unknown }).detail ?? err)
+                : err
+                  ? JSON.stringify(err)
+                  : t.common.unknown;
+            toast("error", t.wiki.regenerateFailed.replace("{detail}", detail));
+          }
+          return;
+        }
+      }
+      clearActiveTask(businessId);
+      if (showToasts) toast("error", t.wiki.regenerateTimeout);
+    },
+    [businessId, t, toast, queryClient],
+  );
+
+  // On mount / businessId change, check for a persisted active task and resume polling
+  useEffect(() => {
+    if (!businessId.trim()) return;
+    const savedTaskId = loadActiveTask(businessId);
+    if (!savedTaskId || inFlightRef.current) return;
+
+    let cancelled = false;
+    inFlightRef.current = true;
+    setIsPending(true);
+    setProgress(null);
+
+    (async () => {
+      try {
+        const st = await businessWikiTaskStatus(savedTaskId);
+        if (cancelled) return;
+        if (st.status === "completed" || st.status === "failed") {
+          clearActiveTask(businessId);
+          return;
+        }
+        await pollTask(savedTaskId, true);
+      } catch {
+        clearActiveTask(businessId);
+      } finally {
+        inFlightRef.current = false;
+        if (!cancelled && mountedRef.current) {
+          setIsPending(false);
+          setProgress(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessId]);
+
   const regenerate = useCallback(
     async (incremental = true) => {
       if (!businessId.trim() || inFlightRef.current) return;
@@ -46,45 +159,9 @@ export function useWikiRegenerate(businessId: string) {
           await invalidateWikiQueriesForBusiness(queryClient, businessId);
           return;
         }
+        saveActiveTask(businessId, tid);
         toast("info", t.wiki.regenerateRunning);
-        const maxAttempts = 120;
-        for (let i = 0; i < maxAttempts; i++) {
-          await new Promise((r) => setTimeout(r, 2000));
-          if (!mountedRef.current) break;
-          const st: WikiAsyncTask = await businessWikiTaskStatus(tid);
-          if (st.progress_pct !== undefined) {
-            if (!mountedRef.current) break;
-            setProgress({
-              totalRepos: Number(st.total_repos) || 0,
-              completedRepos: Number(st.completed_repos) || 0,
-              currentRepo: st.current_repo ?? "",
-              progressPct: Number(st.progress_pct) || 0,
-              skippedRepos:
-                typeof st.skipped_repos === "number"
-                  ? st.skipped_repos
-                  : Array.isArray(st.skipped_repos)
-                    ? st.skipped_repos.length
-                    : 0,
-            });
-          }
-          if (st.status === "completed") {
-            toast("success", t.wiki.regenerateComplete);
-            await invalidateWikiQueriesForBusiness(queryClient, businessId);
-            return;
-          }
-          if (st.status === "failed") {
-            const err = st.error;
-            const detail =
-              err && typeof err === "object" && "detail" in err
-                ? String((err as { detail?: unknown }).detail ?? err)
-                : err
-                  ? JSON.stringify(err)
-                  : t.common.unknown;
-            toast("error", t.wiki.regenerateFailed.replace("{detail}", detail));
-            return;
-          }
-        }
-        toast("error", t.wiki.regenerateTimeout);
+        await pollTask(tid, true);
       } catch (e: unknown) {
         if (e instanceof ApiError && e.status === 409) {
           toast("error", t.wiki.regenerateConflict);
@@ -99,7 +176,7 @@ export function useWikiRegenerate(businessId: string) {
         }
       }
     },
-    [businessId, locale, t, toast, queryClient],
+    [businessId, locale, t, toast, queryClient, pollTask],
   );
 
   return { regenerate, isPending, progress };

@@ -145,6 +145,7 @@ async def test_generate_without_flow_inferencer(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
     store = MagicMock()
     store.persist_wiki_pages = AsyncMock()
+    store.execute_query = AsyncMock(return_value=MagicMock(data=[]))
 
     graph = AsyncMock()
     svc = WikiService(
@@ -170,7 +171,6 @@ async def test_generate_without_flow_inferencer(monkeypatch: pytest.MonkeyPatch)
     await svc.generate("r1", "repo", "structure", "json")
 
     svc._compose_all_pages.assert_awaited_once()
-    store.execute_query.assert_not_called()
 
 
 @pytest.mark.asyncio

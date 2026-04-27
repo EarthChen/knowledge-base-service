@@ -29,13 +29,15 @@ describe("parseWikiSearchParams", () => {
     expect(result.path).toBeNull();
     expect(result.viewType).toBe("business_domain");
     expect(result.toolTab).toBe("page");
+    expect(result.wikiTier).toBeNull();
   });
 
   it("parses all params", () => {
-    const sp = new URLSearchParams("path=a/b&view=code_structure&tool=export");
+    const sp = new URLSearchParams("path=a/b&view=code_structure&tool=export&wiki_tier=standard");
     const result = parseWikiSearchParams(sp);
     expect(result.path).toBe("a/b");
     expect(result.viewType).toBe("code_structure");
     expect(result.toolTab).toBe("export");
+    expect(result.wikiTier).toBe("standard");
   });
 });

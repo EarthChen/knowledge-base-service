@@ -65,6 +65,19 @@ export type WikiAskSource = {
   relevance_score: number;
 };
 
+export type ReasoningStage = {
+  stage_name: string;
+  retriever: string;
+  entity_hits: string[];
+  score: number | null;
+  metadata: Record<string, unknown>;
+};
+
+export type ReasoningPathData = {
+  stages: ReasoningStage[];
+  answer_entities: string[];
+};
+
 export type WikiTreeNode = {
   uid: string;
   title: string;

@@ -14,16 +14,21 @@ import { useWikiTree } from "../../hooks/useWikiTree";
 import { useI18n } from "../../i18n/context";
 import { wikiHref } from "./wikiRouteHelpers";
 import { getErrorMessage } from "../../utils/errorUtils";
+import { WikiTierSelector } from "./WikiTierSelector";
 
 type ViewType = "business_domain" | "code_structure";
 
 const EMPTY_TREE: WikiTreeNode[] = [];
+
+type WikiTier = "standard" | "essential" | "comprehensive" | null;
 
 type Props = {
   businessId: string;
   viewType: ViewType;
   activePath: string;
   onViewChange: (view: ViewType) => void;
+  wikiTier: WikiTier;
+  onWikiTierChange: (tier: string | null) => void;
 };
 
 function collectAncestorKeys(
@@ -176,9 +181,11 @@ export default function WikiTreeNav({
   viewType,
   activePath,
   onViewChange,
+  wikiTier,
+  onWikiTierChange,
 }: Props) {
   const { t } = useI18n();
-  const treeQuery = useWikiTree(businessId, viewType);
+  const treeQuery = useWikiTree(businessId, viewType, wikiTier);
   const nodes = useMemo(
     () => treeQuery.data?.tree ?? EMPTY_TREE,
     [treeQuery.data?.tree],
@@ -189,8 +196,9 @@ export default function WikiTreeNav({
       ({
         business_id: businessId,
         view: viewType,
+        ...(wikiTier ? { wiki_tier: wikiTier } : {}),
       }) as Record<string, string>,
-    [businessId, viewType],
+    [businessId, viewType, wikiTier],
   );
 
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -263,12 +271,16 @@ export default function WikiTreeNav({
         </button>
       </div>
 
-      <div className="flex items-center justify-end border-b border-gray-50 px-2 py-1.5 dark:border-gray-800">
+      <div className="flex items-center justify-between gap-2 border-b border-gray-50 px-2 py-1.5 dark:border-gray-800">
+        <WikiTierSelector
+          value={wikiTier === "standard" || wikiTier === "essential" ? wikiTier : null}
+          onChange={onWikiTierChange}
+        />
         <button
           type="button"
           onClick={expandAll}
           disabled={!nodes.length}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 dark:text-gray-400 dark:hover:bg-gray-800"
+          className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 dark:text-gray-400 dark:hover:bg-gray-800"
         >
           <UnfoldVertical size={12} aria-hidden />
           {t.documents.expandAll}

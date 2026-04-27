@@ -9,14 +9,17 @@ import { getErrorMessage } from "../../utils/errorUtils";
 
 type ViewType = "business_domain" | "code_structure";
 
+type WikiTier = "standard" | "essential" | "comprehensive" | null;
+
 type Props = {
   businessId: string;
   viewType: ViewType;
+  wikiTier: WikiTier;
 };
 
-export default function WikiLandingPage({ businessId, viewType }: Props) {
+export default function WikiLandingPage({ businessId, viewType, wikiTier }: Props) {
   const { t } = useI18n();
-  const treeQuery = useWikiTree(businessId, viewType);
+  const treeQuery = useWikiTree(businessId, viewType, wikiTier);
   const roots = treeQuery.data?.tree ?? [];
 
   const linkParams = useMemo(
@@ -24,8 +27,9 @@ export default function WikiLandingPage({ businessId, viewType }: Props) {
       ({
         business_id: businessId,
         view: viewType,
+        ...(wikiTier ? { wiki_tier: wikiTier } : {}),
       }) as Record<string, string>,
-    [businessId, viewType],
+    [businessId, viewType, wikiTier],
   );
 
   return (

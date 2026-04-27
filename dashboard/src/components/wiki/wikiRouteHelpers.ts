@@ -26,6 +26,8 @@ const TOOL_TABS = new Set([
   "flows",
 ]);
 
+const WIKI_TIERS = new Set(["standard", "essential", "comprehensive"] as const);
+
 export function parseWikiSearchParams(search: URLSearchParams) {
   const rawView = search.get("view");
   const viewType: "business_domain" | "code_structure" =
@@ -33,6 +35,11 @@ export function parseWikiSearchParams(search: URLSearchParams) {
       ? (rawView as "business_domain" | "code_structure")
       : "business_domain";
   const rawTool = search.get("tool");
+  const rawWikiTier = search.get("wiki_tier");
+  const wikiTier: "standard" | "essential" | "comprehensive" | null =
+    rawWikiTier && WIKI_TIERS.has(rawWikiTier as "standard" | "essential" | "comprehensive")
+      ? (rawWikiTier as "standard" | "essential" | "comprehensive")
+      : null;
   const toolTab:
     | "page"
     | "coverage"
@@ -58,5 +65,6 @@ export function parseWikiSearchParams(search: URLSearchParams) {
     viewType,
     businessId: search.get("business_id") || null,
     toolTab,
+    wikiTier,
   };
 }

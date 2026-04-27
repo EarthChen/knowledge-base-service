@@ -16,6 +16,7 @@ import { useI18n } from "../../i18n/context";
 import { buildIdeHref, type EditorId } from "./editorLinks";
 import { EDITOR_PREF_KEY } from "./SourceLink";
 import { wikiHref } from "./wikiRouteHelpers";
+import { ReasoningPathPanel } from "./ReasoningPathPanel";
 
 function readEditorPref(): EditorId {
   try {
@@ -135,6 +136,7 @@ export default function AskPanel({ repository }: Props) {
     sources,
     isStreaming,
     error,
+    reasoningPath,
     ask,
     cancel,
     reset,
@@ -388,6 +390,8 @@ export default function AskPanel({ repository }: Props) {
                   </div>
                 </div>
               )}
+
+              <ReasoningPathPanel reasoningPath={reasoningPath} />
 
               {sources.length > 0 && (
                 <div>

@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { Download, FileOutput, GitBranch, Loader2 } from "lucide-react";
 import { useBusinessWikiExport } from "../../hooks/useBusinessWikiExport";
-import { useBusiness } from "../../contexts/BusinessContext";
 import GitPushConfigDialog from "./GitPushConfigDialog";
+import { OfflinePackDownloadButton } from "./OfflinePackDownloadButton";
 import type { BusinessWikiExportBody } from "../../hooks/wikiTypes";
 import { useI18n } from "../../i18n/context";
 
@@ -10,7 +10,12 @@ type ExportFormat = BusinessWikiExportBody["format"];
 type ViewType = BusinessWikiExportBody["view_type"];
 type MinTier = BusinessWikiExportBody["min_tier"];
 
-export default function WikiBusinessExportPanel() {
+type Props = {
+  repository: string;
+  businessId: string;
+};
+
+export default function WikiBusinessExportPanel({ repository, businessId }: Props) {
   const { t } = useI18n();
   const formatOptions = useMemo(
     () =>
@@ -43,7 +48,6 @@ export default function WikiBusinessExportPanel() {
       ] satisfies { value: ExportFormat; label: string; desc: string }[],
     [t],
   );
-  const { currentBusiness } = useBusiness();
   const exportMutation = useBusinessWikiExport();
   const [format, setFormat] = useState<ExportFormat>("markdown");
   const [viewType, setViewType] = useState<ViewType>("both");
@@ -57,7 +61,7 @@ export default function WikiBusinessExportPanel() {
       return;
     }
     const body: BusinessWikiExportBody = {
-      business_id: currentBusiness,
+      business_id: businessId,
       format,
       view_type: viewType,
       min_tier: minTier,
@@ -129,6 +133,8 @@ export default function WikiBusinessExportPanel() {
             </select>
           </label>
         </div>
+
+        <OfflinePackDownloadButton repository={repository} businessId={businessId} />
 
         {format === "git" && (
           <div className="flex items-center gap-3">

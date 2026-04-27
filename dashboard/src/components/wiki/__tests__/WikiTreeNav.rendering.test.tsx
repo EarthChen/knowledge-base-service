@@ -43,6 +43,8 @@ function renderTree(props?: { activePath?: string }) {
           viewType="business_domain"
           activePath={props?.activePath ?? ""}
           onViewChange={vi.fn()}
+          wikiTier={null}
+          onWikiTierChange={vi.fn()}
         />
       </MemoryRouter>
     </QueryClientProvider>,

@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { getToken, getCurrentBusiness } from "../api/client";
 import { useI18n } from "../i18n/context";
 import { getErrorMessage } from "../utils/errorUtils";
-import type { WikiAskSource } from "./wikiTypes";
+import type { ReasoningPathData, ReasoningStage, WikiAskSource } from "./wikiTypes";
 
 const API_BASE = "/api/v1";
 
@@ -23,6 +23,29 @@ function authHeaders(): Record<string, string> {
   return h;
 }
 
+function parseReasoningPath(raw: unknown): ReasoningPathData | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const stagesRaw = o.stages;
+  if (!Array.isArray(stagesRaw)) return null;
+  const stages: ReasoningStage[] = stagesRaw.map((row) => {
+    const s = row as Record<string, unknown>;
+    const hits = s.entity_hits;
+    const entity_hits = Array.isArray(hits) ? hits.map((x) => String(x)) : [];
+    const meta = s.metadata;
+    return {
+      stage_name: String(s.stage_name ?? ""),
+      retriever: String(s.retriever ?? ""),
+      entity_hits,
+      score: s.score == null || typeof s.score !== "number" ? null : s.score,
+      metadata: meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>) : {},
+    };
+  });
+  const ae = o.answer_entities;
+  const answer_entities = Array.isArray(ae) ? ae.map((x) => String(x)) : [];
+  return { stages, answer_entities };
+}
+
 /** Parse SSE stream from POST /wiki/ask */
 async function consumeWikiAskStream(
   res: Response,
@@ -32,6 +55,7 @@ async function consumeWikiAskStream(
     onComplete?: (data: {
       conversation_id: string;
       tokens_used: number;
+      reasoning_path: ReasoningPathData | null;
     }) => void;
     onError?: (message: string) => void;
   },
@@ -93,9 +117,11 @@ async function consumeWikiAskStream(
           handlers.onSources?.(sources);
         }
       } else if (eventName === "wiki-answer-complete") {
+        const rp = parseReasoningPath(data.reasoning_path);
         handlers.onComplete?.({
           conversation_id: String(data.conversation_id ?? ""),
           tokens_used: Number(data.tokens_used ?? 0),
+          reasoning_path: rp,
         });
       } else if (eventName === "error") {
         const detail =
@@ -117,6 +143,7 @@ export function useWikiAsk(repository: string | undefined) {
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reasoningPath, setReasoningPath] = useState<ReasoningPathData | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const reset = useCallback(() => {
@@ -124,6 +151,7 @@ export function useWikiAsk(repository: string | undefined) {
     setSources([]);
     setError(null);
     setConversationId(undefined);
+    setReasoningPath(null);
   }, []);
 
   const ask = useCallback(
@@ -137,6 +165,7 @@ export function useWikiAsk(repository: string | undefined) {
       setError(null);
       setAnswer("");
       setSources([]);
+      setReasoningPath(null);
 
       const payload: WikiAskBody = {
         repository,
@@ -174,7 +203,10 @@ export function useWikiAsk(repository: string | undefined) {
           {
             onAnswerDelta: (full) => setAnswer(full),
             onSources: setSources,
-            onComplete: (d) => setConversationId(d.conversation_id),
+            onComplete: (d) => {
+              setConversationId(d.conversation_id);
+              setReasoningPath(d.reasoning_path);
+            },
             onError: (msg) => setError(msg),
           },
           ac.signal,
@@ -201,6 +233,7 @@ export function useWikiAsk(repository: string | undefined) {
     conversationId,
     isStreaming,
     error,
+    reasoningPath,
     ask,
     cancel,
     reset,

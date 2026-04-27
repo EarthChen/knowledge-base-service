@@ -42,6 +42,8 @@ function renderTree() {
           viewType="business_domain"
           activePath=""
           onViewChange={vi.fn()}
+          wikiTier={null}
+          onWikiTierChange={vi.fn()}
         />
       </MemoryRouter>
     </QueryClientProvider>,

@@ -30,6 +30,7 @@ export default function WikiShell() {
   const pagePath = parsed.path?.trim() ?? "";
   const viewType = parsed.viewType;
   const toolTab = parsed.toolTab;
+  const wikiTier = parsed.wikiTier;
 
   const focusAsk = searchParams.get("focus");
   useEffect(() => {
@@ -48,14 +49,14 @@ export default function WikiShell() {
     return () => window.clearTimeout(id);
   }, [focusAsk, setSearchParams]);
 
-  const wikiLinkParams = useMemo(
-    () =>
-      ({
-        business_id: businessId,
-        view: viewType,
-      }) as Record<string, string>,
-    [businessId, viewType],
-  );
+  const wikiLinkParams = useMemo(() => {
+    const p: Record<string, string> = {
+      business_id: businessId,
+      view: viewType,
+    };
+    if (wikiTier) p.wiki_tier = wikiTier;
+    return p;
+  }, [businessId, viewType, wikiTier]);
 
   const pageQuery = useWikiPageByPath(businessId, pagePath || undefined);
   const queryClient = useQueryClient();
@@ -138,6 +139,21 @@ export default function WikiShell() {
     [setSearchParams],
   );
 
+  const setWikiTier = useCallback(
+    (tier: string | null) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (tier) next.set("wiki_tier", tier);
+          else next.delete("wiki_tier");
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
   const contentError =
     pagePath && pageQuery.isError
       ? pageQuery.error instanceof Error
@@ -153,6 +169,8 @@ export default function WikiShell() {
           viewType={viewType}
           activePath={pagePath}
           onViewChange={setViewType}
+          wikiTier={wikiTier}
+          onWikiTierChange={setWikiTier}
         />
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">
@@ -189,6 +207,7 @@ export default function WikiShell() {
             toolTab={toolTab}
             businessId={businessId}
             viewType={viewType}
+            wikiTier={wikiTier}
             pagePath={pagePath}
             pageQuery={pageQuery}
             contentError={contentError}

@@ -36,10 +36,13 @@ export function WikiToolSuspenseFallback() {
 
 type ViewType = "business_domain" | "code_structure" | (string & {});
 
+type WikiTier = "standard" | "essential" | "comprehensive" | null;
+
 type Props = {
   toolTab: WikiToolTab;
   businessId: string;
   viewType: ViewType;
+  wikiTier: WikiTier;
   pagePath: string;
   pageQuery: UseQueryResult<WikiPageDetail | null>;
   contentError: Error | null;
@@ -55,6 +58,7 @@ export default function WikiToolPanel({
   toolTab,
   businessId,
   viewType,
+  wikiTier,
   pagePath,
   pageQuery,
   contentError,
@@ -65,7 +69,7 @@ export default function WikiToolPanel({
     <>
       {toolTab === "page" && !pagePath && (
         <div role="tabpanel" id="wiki-panel-page" aria-labelledby="wiki-tab-page">
-          {panelBoundary(<WikiLandingPage businessId={businessId} viewType={viewType} />)}
+          {panelBoundary(<WikiLandingPage businessId={businessId} viewType={viewType} wikiTier={wikiTier} />)}
         </div>
       )}
 
@@ -137,7 +141,11 @@ export default function WikiToolPanel({
         <div role="tabpanel" id="wiki-panel-export" aria-labelledby="wiki-tab-export">
           {panelBoundary(
             <Suspense fallback={<WikiToolSuspenseFallback />}>
-              <WikiBusinessExportPanel key={businessId} />
+              <WikiBusinessExportPanel
+                key={businessId}
+                repository={pageQuery.data?.context?.repository ?? businessId}
+                businessId={businessId}
+              />
             </Suspense>,
           )}
         </div>

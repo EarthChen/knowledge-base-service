@@ -179,6 +179,10 @@ class WikiConfig(BaseModel):
     cross_reference_min_confidence: float = 0.5
     cross_repo_domain_enabled: bool = False
     knowledge_injection_enabled: bool = True
+    snapshot_enabled: bool = True
+    """When true, run compilation snapshot after wiki pages are persisted."""
+    snapshot_layer_page_threshold: int = 100
+    """At or above this many wiki pages, emit global index + per-module sub-snapshots."""
 
     git_publish_enabled: bool = False
     git_publish_mode: str = "incremental"

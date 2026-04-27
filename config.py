@@ -225,10 +225,10 @@ class WikiConfig(BaseModel):
 
     mcp_server_enabled: bool = True
 
-    lint_scheduler_enabled: bool = False
+    lint_scheduler_enabled: bool = True
     lint_scheduler_interval_hours: int = 6
     feedback_enabled: bool = True
-    auto_heal_enabled: bool = False
+    auto_heal_enabled: bool = True
 
     deep_research_enabled: bool = True
     concept_merging_enabled: bool = True

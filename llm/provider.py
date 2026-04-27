@@ -90,7 +90,7 @@ class LLMProvider:
                             if content:
                                 yield str(content)
                 return
-            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
+            except (httpx.HTTPStatusError, httpx.TransportError) as exc:
                 last_exc = exc
                 if attempt < max_attempts - 1:
                     wait = min(2**attempt, 10)
@@ -136,7 +136,7 @@ class LLMProvider:
                     resp = await self._client.post("/chat/completions", json=body)
                     resp.raise_for_status()
                     return resp.json()
-            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
+            except (httpx.HTTPStatusError, httpx.TransportError) as exc:
                 last_exc = exc
                 if attempt < max_attempts - 1:
                     wait = min(2**attempt, 10)

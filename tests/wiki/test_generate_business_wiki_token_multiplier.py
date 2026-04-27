@@ -45,6 +45,7 @@ async def test_generate_business_wiki_passes_token_budget_multiplier_to_generate
     mock_wiki_store.add_has_child_edge = AsyncMock()
     mock_wiki_store.find_source_entity_mappings = AsyncMock(return_value=[])
     mock_wiki_store.find_code_entity_relationships = AsyncMock(return_value=[])
+    mock_wiki_store.get_repo_wiki_freshness = AsyncMock(return_value={})
 
     graph.list_repository_modules = AsyncMock(
         return_value=[

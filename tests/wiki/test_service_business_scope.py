@@ -49,6 +49,7 @@ async def test_generate_business_wiki_returns_result():
     mock_wiki_store.add_has_child_edge = AsyncMock()
     mock_wiki_store.find_source_entity_mappings = AsyncMock(return_value=[])
     mock_wiki_store.find_code_entity_relationships = AsyncMock(return_value=[])
+    mock_wiki_store.get_repo_wiki_freshness = AsyncMock(return_value={})
 
     graph.list_repository_modules = AsyncMock(
         return_value=[
@@ -70,6 +71,7 @@ async def test_generate_business_wiki_returns_result():
         wiki_config=_biz_wiki_mock(),
         embedding_config=emb,
     )
+    svc.generate = AsyncMock(return_value={})
 
     result = await svc.generate_business_wiki(
         business_id="test-biz",
@@ -92,6 +94,7 @@ async def test_generate_business_wiki_without_llm():
     mock_wiki_store.add_has_child_edge = AsyncMock()
     mock_wiki_store.find_source_entity_mappings = AsyncMock(return_value=[])
     mock_wiki_store.find_code_entity_relationships = AsyncMock(return_value=[])
+    mock_wiki_store.get_repo_wiki_freshness = AsyncMock(return_value={})
 
     _, emb = inject_wiki_embedding()
     svc = WikiService(
@@ -102,6 +105,7 @@ async def test_generate_business_wiki_without_llm():
         wiki_config=_biz_wiki_mock(),
         embedding_config=emb,
     )
+    svc.generate = AsyncMock(return_value={})
 
     result = await svc.generate_business_wiki(
         business_id="biz",

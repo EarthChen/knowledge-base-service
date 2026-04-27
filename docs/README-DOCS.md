@@ -15,12 +15,7 @@
 | [ONBOARDING.md](ONBOARDING.md) | 产品导览、功能发现、首次索引、MCP 设置 |
 | [wiki-generation-architecture.md](wiki-generation-architecture.md) | Wiki 管道、Ingest/自动化、LLM Wiki v2（置信度/矛盾/主张/记忆层） |
 | [superpowers/specs/2026-04-26-llm-wiki-v2-upgrade-design.md](superpowers/specs/2026-04-26-llm-wiki-v2-upgrade-design.md) | **已批准** LLM Wiki v2（三阶段、**SP1–SP7**，与下一条的 SP 含义不同） |
-| [superpowers/specs/2026-04-26-llm-wiki-full-upgrade-design.md](superpowers/specs/2026-04-26-llm-wiki-full-upgrade-design.md) | 草案：LLM Wiki 全面升级路线图（**SP1–SP6**）；`superpowers/plans/*-spN-*` 计划文件沿用此套编号 |
-| [superpowers/specs/2026-04-27-phase0-knowledge-maintenance-loop-design.md](superpowers/specs/2026-04-27-phase0-knowledge-maintenance-loop-design.md) | **Phase 0** — 知识维护闭环修复：接入 AutoHealer + 启用 Lint 调度（立即可做） |
-| [superpowers/specs/2026-04-27-phase1-knowledge-compilation-feedback-design.md](superpowers/specs/2026-04-27-phase1-knowledge-compilation-feedback-design.md) | **Phase 1** — 知识编译快照 + AGENTS.md 增强 + 反馈驱动再生成闭环（短期） |
-| [superpowers/specs/2026-04-27-phase2-graph-community-wiki-editing-design.md](superpowers/specs/2026-04-27-phase2-graph-community-wiki-editing-design.md) | **Phase 2** — 图社区驱动 Wiki 组织 + 路径检索 + Wiki 内置编辑（中期） |
-| [superpowers/specs/2026-04-27-phase3-reasoning-visualization-multiview-design.md](superpowers/specs/2026-04-27-phase3-reasoning-visualization-multiview-design.md) | **Phase 3** — 推理路径可视化 + 多视图 Wiki + 离线访问（长期） |
-| [superpowers/specs/2026-04-27-wiki-generation-architecture-improvement-design.md](superpowers/specs/2026-04-27-wiki-generation-architecture-improvement-design.md) | **已实施** — 业务 Wiki 异步生成（Redis 任务、增量仓库跳过、仪表盘进度）；见 [wiki-generation-architecture.md](wiki-generation-architecture.md) |
+| [superpowers/specs/2026-04-26-llm-wiki-full-upgrade-design.md](superpowers/specs/2026-04-26-llm-wiki-full-upgrade-design.md) | 草案：LLM Wiki 全面升级路线图（**SP1–SP6**） |
 
 ## 技术栈概览
 

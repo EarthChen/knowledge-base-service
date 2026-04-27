@@ -182,6 +182,6 @@ sequenceDiagram
 ## MCP 与 HTTP 的权威来源
 
 - 主服务 **20 个** MCP 工具（含 8 个 `WIKI_MCP_*`）见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md) § A；**`GET /api/v1/mcp/tools`** 为唯一合并清单。
-- 可选 **5 个** Wiki 工具（`wiki_search` 等）见同文档 § B；**`WIKI__MCP_SERVER_ENABLED`**，端点 **`/api/v1/mcp/tools/list`** / **`/api/v1/mcp/tools/call`**。
+- 可选 **6 个** Wiki 工具（`wiki_search`、`wiki_explain`、`wiki_navigate`、`wiki_qa`、`wiki_impact`、`wiki_get_snapshot`）见同文档 § B；**`WIKI__MCP_SERVER_ENABLED`**，端点 **`/api/v1/mcp/tools/list`** / **`/api/v1/mcp/tools/call`**。
 
 跨功能分析另见主 MCP 的 **`analyze_changes`**（`wiki_pr_impact` 等）。

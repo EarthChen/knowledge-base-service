@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -49,7 +49,7 @@ async def test_interval_triggers_regenerate_fn(task_lock: TaskLock) -> None:
         sleep_calls.append(delay)
         await _real_asyncio_sleep(0)
 
-    with patch("wiki.scheduler.wiki_scheduler.asyncio.sleep", side_effect=fake_sleep):
+    with patch("wiki.scheduler.wiki_scheduler.asyncio.sleep", new_callable=AsyncMock, side_effect=fake_sleep):
         await scheduler.start()
         await _real_asyncio_sleep(0.15)
         await scheduler.stop()
@@ -73,7 +73,7 @@ async def test_skip_when_task_lock_held(task_lock: TaskLock) -> None:
     async def fake_sleep(delay: float) -> None:
         await _real_asyncio_sleep(0)
 
-    with patch("wiki.scheduler.wiki_scheduler.asyncio.sleep", side_effect=fake_sleep):
+    with patch("wiki.scheduler.wiki_scheduler.asyncio.sleep", new_callable=AsyncMock, side_effect=fake_sleep):
         await scheduler.start()
         await _real_asyncio_sleep(0.15)
         await scheduler.stop()
@@ -96,7 +96,7 @@ async def test_get_status_reflects_schedule_and_results(task_lock: TaskLock) -> 
         await _real_asyncio_sleep(0)
 
     before = datetime.now(tz=UTC)
-    with patch("wiki.scheduler.wiki_scheduler.asyncio.sleep", side_effect=fake_sleep):
+    with patch("wiki.scheduler.wiki_scheduler.asyncio.sleep", new_callable=AsyncMock, side_effect=fake_sleep):
         await scheduler.start()
         for _ in range(500):
             if regen.await_count >= 2:
@@ -130,7 +130,7 @@ async def test_schedule_type_none_does_not_run(task_lock: TaskLock) -> None:
     async def fake_sleep(delay: float) -> None:
         await _real_asyncio_sleep(0)
 
-    with patch("wiki.scheduler.wiki_scheduler.asyncio.sleep", side_effect=fake_sleep):
+    with patch("wiki.scheduler.wiki_scheduler.asyncio.sleep", new_callable=AsyncMock, side_effect=fake_sleep):
         await scheduler.start()
         await _real_asyncio_sleep(0.15)
         await scheduler.stop()
@@ -154,7 +154,7 @@ async def test_update_config_dynamic(task_lock: TaskLock) -> None:
         slept.append(delay)
         await _real_asyncio_sleep(0)
 
-    with patch("wiki.scheduler.wiki_scheduler.asyncio.sleep", side_effect=fake_sleep):
+    with patch("wiki.scheduler.wiki_scheduler.asyncio.sleep", new_callable=AsyncMock, side_effect=fake_sleep):
         await scheduler.start()
         await _real_asyncio_sleep(0.05)
         scheduler.update_config(

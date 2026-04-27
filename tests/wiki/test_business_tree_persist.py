@@ -35,6 +35,7 @@ def _wiki_store_mock(repos: list[dict[str, object]]):
     mock_wiki_store.add_has_child_edge = AsyncMock()
     mock_wiki_store.find_source_entity_mappings = AsyncMock(return_value=[])
     mock_wiki_store.find_code_entity_relationships = AsyncMock(return_value=[])
+    mock_wiki_store.get_repo_wiki_freshness = AsyncMock(return_value={})
     return mock_wiki_store
 
 
@@ -154,6 +155,7 @@ async def test_code_structure_view_tree():
         wiki_config=mock_wiki_cfg,
         embedding_config=emb,
     )
+    svc.generate = AsyncMock(return_value={})
 
     await svc.generate_business_wiki("biz-tree", language="en")
 
@@ -210,6 +212,7 @@ async def test_domain_and_repo_same_name_distinct_section_uids():
         wiki_config=mock_wiki_cfg,
         embedding_config=emb,
     )
+    svc.generate = AsyncMock(return_value={})
 
     planner_inst = MagicMock()
     planner_inst.classify = AsyncMock(

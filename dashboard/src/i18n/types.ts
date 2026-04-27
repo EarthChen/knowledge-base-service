@@ -61,6 +61,9 @@ export interface Translations {
     diagramClickToZoom: string;
     retry: string;
   };
+  errorBoundary: {
+    defaultMessage: string;
+  };
   sidebar: {
     service: string;
     healthy: string;
@@ -842,6 +845,10 @@ export interface Translations {
     suggestedQuestionsToggle: string;
     /** Use {version} */
     versionBadge: string;
+    offlinePackDownloading: string;
+    offlinePackButton: string;
+    offlinePackDownloadFailed: string;
+    offlinePackDataTruncated: string;
     askRequestFailed: string;
     askStreamFailed: string;
     annotationSaveFailed: string;

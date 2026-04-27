@@ -589,6 +589,8 @@ class WikiService:
         business_id: str,
         language: str = "en",
         llm_provider: str | None = None,
+        *,
+        token_budget_multiplier: float = 1.0,
     ) -> dict[str, Any]:
         """Generate cross-repo business-level wiki.
 
@@ -716,6 +718,7 @@ class WikiService:
                     "json",
                     language,
                     llm_provider,
+                    token_budget_multiplier=token_budget_multiplier,
                 )
             except Exception as exc:
                 log.warning("business_wiki_repo_failed", repository=repo_name, exc_info=True)

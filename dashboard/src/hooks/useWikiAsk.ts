@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState } from "react";
-import { getToken, getCurrentBusiness } from "../api/client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { authHeaders } from "../api/client";
 import { useI18n } from "../i18n/context";
 import { getErrorMessage } from "../utils/errorUtils";
 import type { ReasoningPathData, ReasoningStage, WikiAskSource } from "./wikiTypes";
@@ -13,15 +13,6 @@ export type WikiAskBody = {
   conversation_id?: string | null;
   mode?: "hybrid" | "graph" | "semantic" | "keyword";
 };
-
-function authHeaders(): Record<string, string> {
-  const t = getToken();
-  const biz = getCurrentBusiness();
-  const h: Record<string, string> = { "Content-Type": "application/json" };
-  if (t) h.Authorization = `Bearer ${t}`;
-  if (biz) h["X-Business-Id"] = biz;
-  return h;
-}
 
 function parseReasoningPath(raw: unknown): ReasoningPathData | null {
   if (!raw || typeof raw !== "object") return null;
@@ -145,6 +136,13 @@ export function useWikiAsk(repository: string | undefined) {
   const [error, setError] = useState<string | null>(null);
   const [reasoningPath, setReasoningPath] = useState<ReasoningPathData | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+    },
+    [],
+  );
 
   const reset = useCallback(() => {
     setAnswer("");

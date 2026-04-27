@@ -1,22 +1,15 @@
 import { useState } from "react";
 import { Download } from "lucide-react";
-import { API_BASE, getCurrentBusiness, getToken } from "../../api/client";
+import { API_BASE, authHeaders } from "../../api/client";
+import { useI18n } from "../../i18n/context";
 
 interface Props {
   repository: string;
   businessId: string;
 }
 
-function packAuthHeaders(): Record<string, string> {
-  const t = getToken();
-  const biz = getCurrentBusiness();
-  const h: Record<string, string> = {};
-  if (t) h.Authorization = `Bearer ${t}`;
-  if (biz) h["X-Business-Id"] = biz;
-  return h;
-}
-
 export function OfflinePackDownloadButton({ repository, businessId }: Props) {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(false);
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +21,7 @@ export function OfflinePackDownloadButton({ repository, businessId }: Props) {
       setError(null);
       const resp = await fetch(
         `${API_BASE}/wiki/${encodeURIComponent(repository)}/offline-pack?business_id=${encodeURIComponent(businessId)}`,
-        { headers: packAuthHeaders() },
+        { headers: authHeaders() },
       );
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data: unknown = await resp.json();
@@ -42,7 +35,7 @@ export function OfflinePackDownloadButton({ repository, businessId }: Props) {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Download failed");
+      setError(e instanceof Error ? e.message : t.wiki.offlinePackDownloadFailed);
     } finally {
       setLoading(false);
     }
@@ -58,10 +51,12 @@ export function OfflinePackDownloadButton({ repository, businessId }: Props) {
         role="button"
       >
         <Download className="h-4 w-4" />
-        {loading ? "Downloading..." : "Download Offline Pack"}
+        {loading ? t.wiki.offlinePackDownloading : t.wiki.offlinePackButton}
       </button>
       {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
-      {truncated && <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">Data truncated to 2000 pages</p>}
+      {truncated && (
+        <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">{t.wiki.offlinePackDataTruncated}</p>
+      )}
     </div>
   );
 }

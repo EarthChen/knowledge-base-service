@@ -739,7 +739,6 @@ class KnowledgeBaseMCPHandler:
         store: FalkorDBStore | None = None,
         embedding_gen: EmbeddingGenerator | None = None,
         wiki_handler: WikiMCPHandler | None = None,
-        deep_search_engine: Any | None = None,
         task_status_fn: Callable[[str], dict[str, Any] | None] | None = None,
         repo_registry: Any | None = None,
     ) -> None:
@@ -751,7 +750,6 @@ class KnowledgeBaseMCPHandler:
         self._traversal = TraversalStore(store) if store is not None else None
         self._embedding = embedding_gen
         self._wiki = wiki_handler if wiki_handler is not None else WikiMCPHandler(None)
-        self._deep_search_engine = deep_search_engine
         self._task_status_fn = task_status_fn
         self._repo_registry = repo_registry
 
@@ -1344,47 +1342,6 @@ class KnowledgeBaseMCPHandler:
         if payload is None:
             return _mcp_error("not_found", "Task not found")
         return payload
-
-    async def handle_deep_search(self, args: dict[str, Any]) -> dict[str, Any]:
-        if self._deep_search_engine is None:
-            return _mcp_error(
-                "service_unavailable",
-                "Deep search requires LLM to be enabled and initialized.",
-            )
-        query = str(args.get("query") or "").strip()
-        if not query:
-            return _mcp_error("invalid_params", "query parameter is required")
-        raw_max = args.get("max_iterations", 3)
-        try:
-            max_iterations = int(raw_max) if raw_max is not None else 3
-        except (TypeError, ValueError):
-            return _mcp_error("invalid_params", "max_iterations must be an integer")
-        max_iterations = max(1, min(max_iterations, 5))
-        include_code = args.get("include_code", True)
-        if not isinstance(include_code, bool):
-            include_code = bool(include_code)
-        try:
-            result = await self._deep_search_engine.search(
-                query,
-                max_iterations=max_iterations,
-                include_code=include_code,
-            )
-        except Exception as exc:
-            log.error("mcp_deep_search_failed", error=str(exc))
-            return _mcp_error("deep_search_failed", str(exc))
-        conclusion = result.get("analysis", "")
-        sources: list[dict[str, Any]] = []
-        for loc in result.get("code_locations", []) or []:
-            if isinstance(loc, dict):
-                sources.append(loc)
-        return {
-            "conclusion": conclusion,
-            "analysis": result.get("analysis", ""),
-            "sources": sources,
-            "business_flows": result.get("business_flows", []),
-            "code_locations": result.get("code_locations", []),
-            "search_trace": result.get("search_trace", []),
-        }
 
     async def handle_list_documents(self, args: dict[str, Any]) -> dict[str, Any]:
         if not self._store:

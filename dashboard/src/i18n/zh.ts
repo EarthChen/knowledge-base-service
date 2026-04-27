@@ -55,6 +55,9 @@ const zh: Translations = {
     diagramClickToZoom: "点击放大",
     retry: "重试",
   },
+  errorBoundary: {
+    defaultMessage: "出现问题",
+  },
   sidebar: {
     service: "服务状态：",
     healthy: "正常",
@@ -817,6 +820,10 @@ const zh: Translations = {
     suggestedQuestionsTitle: "延伸探索",
     suggestedQuestionsToggle: "显示推荐问题",
     versionBadge: "v{version}",
+    offlinePackDownloading: "正在下载…",
+    offlinePackButton: "下载离线包",
+    offlinePackDownloadFailed: "下载失败",
+    offlinePackDataTruncated: "数据已截断至 2000 页",
     askRequestFailed: "请求失败",
     askStreamFailed: "流式响应失败",
     annotationSaveFailed: "无法保存批注",

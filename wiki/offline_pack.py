@@ -10,6 +10,7 @@ log = get_logger(__name__)
 
 
 _MAX_OFFLINE_PAGES = 2000
+_SCHEMA_VERSION = "1.0"
 
 
 class WikiOfflinePack:
@@ -37,10 +38,13 @@ class WikiOfflinePack:
         except Exception:
             log.warning("offline_pack_snapshot_fetch_failed", repository=repository, exc_info=True)
 
+        now = datetime.now(timezone.utc)
         result: dict[str, Any] = {
             "repository": repository,
             "business_id": business_id,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "schema_version": _SCHEMA_VERSION,
+            "built_at": now.isoformat(),
+            "generated_at": now.isoformat(),
             "page_count": len(pages),
             "pages": pages,
             "tree": tree,

@@ -96,7 +96,7 @@ describe("useWikiRegenerate", () => {
     expect(toast).toHaveBeenCalledWith("success", en.wiki.regenerateComplete);
   });
 
-  it("stringifies error object when failed status has no string detail", async () => {
+  it("uses error.detail when failed status has object error with detail", async () => {
     vi.useFakeTimers();
     vi.mocked(client.businessWikiGenerate).mockResolvedValue({
       task_id: "t-err-obj",
@@ -114,8 +114,7 @@ describe("useWikiRegenerate", () => {
       await vi.advanceTimersByTimeAsync(2000);
       await regen;
     });
-    const detail = JSON.stringify({ error: "internal", detail: "code_10" });
-    expect(toast).toHaveBeenCalledWith("error", en.wiki.regenerateFailed.replace("{detail}", detail));
+    expect(toast).toHaveBeenCalledWith("error", en.wiki.regenerateFailed.replace("{detail}", "code_10"));
   });
 
   it("shows error toast when task fails with detail", async () => {

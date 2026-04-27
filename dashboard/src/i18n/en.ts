@@ -55,6 +55,9 @@ const en: Translations = {
     diagramClickToZoom: "Click to zoom",
     retry: "Retry",
   },
+  errorBoundary: {
+    defaultMessage: "Something went wrong",
+  },
   sidebar: {
     service: "Service:",
     healthy: "Healthy",
@@ -829,6 +832,10 @@ const en: Translations = {
     suggestedQuestionsTitle: "Explore further",
     suggestedQuestionsToggle: "Show suggested questions",
     versionBadge: "v{version}",
+    offlinePackDownloading: "Downloading…",
+    offlinePackButton: "Download Offline Pack",
+    offlinePackDownloadFailed: "Download failed",
+    offlinePackDataTruncated: "Data truncated to 2000 pages",
     askRequestFailed: "Request failed",
     askStreamFailed: "Stream failed",
     annotationSaveFailed: "Could not save annotation",

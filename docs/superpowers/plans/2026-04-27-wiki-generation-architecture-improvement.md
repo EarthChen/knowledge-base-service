@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Completed (2026-04-27). Phases A–C are implemented in the repository; the checklist below is retained for traceability. Primary verification: `tests/wiki/test_task_store.py`, `test_business_wiki_background.py`, `test_repo_freshness.py`, `test_business_wiki_incremental.py`, and dashboard hooks/tests. Design reference: [2026-04-27-wiki-generation-architecture-improvement-design.md](../specs/2026-04-27-wiki-generation-architecture-improvement-design.md).
+
 **Goal:** Convert synchronous business-wiki generation into a background task with Redis persistence, repository-level incremental skip, and dashboard progress reporting.
 
-**Architecture:** Three-phase build: (A) WikiTaskStore + background task API, (B) repo-level freshness check for incremental skip, (C) SSE progress events + dashboard progress UI. Each phase produces testable, deployable code.
+**Architecture:** Three-phase build: (A) WikiTaskStore + background task API, (B) repo-level freshness check for incremental skip, (C) dashboard progress via **HTTP polling** of `GET /api/v1/wiki/business/tasks/{task_id}` + UI (see `useWikiRegenerate` / `WikiShell`). Each phase produces testable, deployable code.
 
 **Tech Stack:** Python 3.11+, FastAPI, FalkorDB (Redis-compatible), asyncio, React 18, TanStack Query, Vitest
 
@@ -38,7 +40,7 @@
 - Create: `wiki/task_store.py`
 - Test: `tests/wiki/test_task_store.py`
 
-- [ ] **Step 1: Write failing tests for WikiTaskStore**
+- [x] **Step 1: Write failing tests for WikiTaskStore**
 
 ```python
 # tests/wiki/test_task_store.py
@@ -134,12 +136,12 @@ async def test_list_active_empty(store, mock_redis):
     assert result == []
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_task_store.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'wiki.task_store'`
 
-- [ ] **Step 3: Implement WikiTaskStore**
+- [x] **Step 3: Implement WikiTaskStore**
 
 ```python
 # wiki/task_store.py
@@ -256,12 +258,12 @@ class WikiTaskStore:
         return active
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_task_store.py -v`
 Expected: All 6 tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add wiki/task_store.py tests/wiki/test_task_store.py
@@ -277,7 +279,7 @@ git commit -m "feat: add WikiTaskStore — Redis Hash–backed task CRUD with TT
 - Modify: `wiki/task_registry.py`
 - Test: `tests/wiki/test_task_store.py` (add integration-level test)
 
-- [ ] **Step 1: Write failing test for WikiTaskRegistry delegation**
+- [x] **Step 1: Write failing test for WikiTaskRegistry delegation**
 
 ```python
 # Append to tests/wiki/test_task_store.py
@@ -308,12 +310,12 @@ def test_task_registry_works_without_store():
     assert registry.get_task("t1")["status"] == "pending"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_task_store.py::test_task_registry_delegates_to_store tests/wiki/test_task_store.py::test_task_registry_works_without_store -v`
 Expected: FAIL — `WikiTaskRegistry.__init__() got an unexpected keyword argument 'task_store'`
 
-- [ ] **Step 3: Update WikiTaskRegistry to accept optional WikiTaskStore**
+- [x] **Step 3: Update WikiTaskRegistry to accept optional WikiTaskStore**
 
 ```python
 # wiki/task_registry.py
@@ -360,7 +362,7 @@ class WikiTaskRegistry:
         return self.tasks.get(task_id)
 ```
 
-- [ ] **Step 4: Wire WikiTaskStore in bootstrap.py**
+- [x] **Step 4: Wire WikiTaskStore in bootstrap.py**
 
 Add to `wiki/bootstrap.py` inside `bootstrap_wiki`, after `app.state.wiki_event_bus`:
 
@@ -394,12 +396,12 @@ def get_task_registry_dep(request: Request) -> WikiTaskRegistry:
     return reg
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_task_store.py -v`
 Expected: All 8 tests PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add wiki/task_registry.py wiki/bootstrap.py api/routes/wiki_shared.py tests/wiki/test_task_store.py
@@ -415,7 +417,7 @@ git commit -m "feat: wire WikiTaskStore into WikiTaskRegistry and bootstrap"
 - Modify: `api/models/wiki_models.py`
 - Create: `tests/wiki/test_business_wiki_background.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/wiki/test_business_wiki_background.py
@@ -498,12 +500,12 @@ async def test_business_generate_body_incremental():
     assert body2.incremental is True  # default
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_business_wiki_background.py -v`
 Expected: FAIL — missing imports/functions
 
-- [ ] **Step 3: Add `incremental` to BusinessWikiGenerateBody**
+- [x] **Step 3: Add `incremental` to BusinessWikiGenerateBody**
 
 In `api/models/wiki_models.py`, update:
 
@@ -515,7 +517,7 @@ class BusinessWikiGenerateBody(BaseModel):
     incremental: bool = True
 ```
 
-- [ ] **Step 4: Implement background task + lock in wiki_task_routes.py**
+- [x] **Step 4: Implement background task + lock in wiki_task_routes.py**
 
 Add two helper functions and modify `generate_business_wiki` endpoint:
 
@@ -624,7 +626,7 @@ async def generate_business_wiki(
     return JSONResponse(status_code=202, content={"task_id": task_id, "status": "pending"})
 ```
 
-- [ ] **Step 5: Add GET /tasks/{task_id} endpoint for Redis-backed tasks**
+- [x] **Step 5: Add GET /tasks/{task_id} endpoint for Redis-backed tasks**
 
 Add a new endpoint below the existing `wiki_task_status`:
 
@@ -649,12 +651,12 @@ async def business_wiki_task_status(
     raise KbNotFound("task_not_found")
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_business_wiki_background.py -v`
 Expected: All 3 tests PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add api/routes/wiki_task_routes.py api/models/wiki_models.py tests/wiki/test_business_wiki_background.py
@@ -669,7 +671,7 @@ git commit -m "feat: background business wiki generation with task_id, lock, and
 - Modify: `store/wiki_page_store.py`
 - Create: `tests/wiki/test_repo_freshness.py`
 
-- [ ] **Step 1: Write failing tests for freshness query**
+- [x] **Step 1: Write failing tests for freshness query**
 
 ```python
 # tests/wiki/test_repo_freshness.py
@@ -726,12 +728,12 @@ async def test_freshness_null_generated(mock_store):
     assert result["new-repo"]["last_generated"] is None
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_repo_freshness.py -v`
 Expected: FAIL — `AttributeError: 'WikiPageStoreMixin' object has no attribute 'get_repo_wiki_freshness'`
 
-- [ ] **Step 3: Implement get_repo_wiki_freshness**
+- [x] **Step 3: Implement get_repo_wiki_freshness**
 
 Add to `store/wiki_page_store.py` in `WikiPageStoreMixin`:
 
@@ -765,12 +767,12 @@ Add to `store/wiki_page_store.py` in `WikiPageStoreMixin`:
         return out
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_repo_freshness.py -v`
 Expected: All 2 tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add store/wiki_page_store.py tests/wiki/test_repo_freshness.py
@@ -785,7 +787,7 @@ git commit -m "feat: add get_repo_wiki_freshness for repo-level incremental skip
 - Modify: `wiki/service.py`
 - Create: `tests/wiki/test_business_wiki_incremental.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/wiki/test_business_wiki_incremental.py
@@ -872,12 +874,12 @@ async def test_full_regen_all_repos(wiki_service_deps):
     assert result.get("skipped_repos", []) == []
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_business_wiki_incremental.py -v`
 Expected: FAIL — `generate_business_wiki() got an unexpected keyword argument 'incremental'`
 
-- [ ] **Step 3: Add incremental param + skip logic to generate_business_wiki**
+- [x] **Step 3: Add incremental param + skip logic to generate_business_wiki**
 
 In `wiki/service.py`, modify `generate_business_wiki` signature:
 
@@ -970,17 +972,17 @@ Add `skipped_repos` to return dict:
         }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_business_wiki_incremental.py -v`
 Expected: All 2 tests PASS
 
-- [ ] **Step 5: Run existing business wiki tests**
+- [x] **Step 5: Run existing business wiki tests**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_wiki_business_flow.py tests/wiki/test_service_business_scope.py tests/wiki/test_business_api.py -v`
 Expected: All existing tests still PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add wiki/service.py tests/wiki/test_business_wiki_incremental.py
@@ -995,7 +997,7 @@ git commit -m "feat: incremental business wiki generation — skip unchanged rep
 - Modify: `api/routes/wiki_task_routes.py` — wire progress callback
 - Modify: `wiki/event_bus.py` — no changes needed (already supports publish)
 
-- [ ] **Step 1: Write failing test for progress updates**
+- [x] **Step 1: Write failing test for progress updates**
 
 ```python
 # Append to tests/wiki/test_business_wiki_background.py
@@ -1028,11 +1030,11 @@ async def test_progress_callback_updates_store(mock_wiki_service, mock_task_stor
     assert call_count["n"] >= 2
 ```
 
-- [ ] **Step 2: Run test to verify it fails or passes**
+- [x] **Step 2: Run test to verify it fails or passes**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_business_wiki_background.py::test_progress_callback_updates_store -v`
 
-- [ ] **Step 3: Update _run_business_wiki_background to pass progress_callback**
+- [x] **Step 3: Update _run_business_wiki_background to pass progress_callback**
 
 In `api/routes/wiki_task_routes.py`, update `_run_business_wiki_background`:
 
@@ -1100,12 +1102,12 @@ async def _run_business_wiki_background(
             await task_store.unlock(business_id)
 ```
 
-- [ ] **Step 4: Run all background task tests**
+- [x] **Step 4: Run all background task tests**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_business_wiki_background.py -v`
 Expected: All tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add api/routes/wiki_task_routes.py tests/wiki/test_business_wiki_background.py
@@ -1120,7 +1122,7 @@ git commit -m "feat: progress callback in background business wiki generation"
 - Modify: `dashboard/src/api/types.ts`
 - Modify: `dashboard/src/api/client.ts`
 
-- [ ] **Step 1: Extend WikiAsyncTask with progress fields**
+- [x] **Step 1: Extend WikiAsyncTask with progress fields**
 
 In `dashboard/src/api/types.ts`, update `WikiAsyncTask`:
 
@@ -1144,7 +1146,7 @@ export interface WikiAsyncTask {
 }
 ```
 
-- [ ] **Step 2: Update businessWikiGenerate to accept incremental param**
+- [x] **Step 2: Update businessWikiGenerate to accept incremental param**
 
 In `dashboard/src/api/client.ts`, update:
 
@@ -1161,7 +1163,7 @@ export async function businessWikiGenerate(
 }
 ```
 
-- [ ] **Step 3: Add businessWikiTaskStatus function**
+- [x] **Step 3: Add businessWikiTaskStatus function**
 
 In `dashboard/src/api/client.ts`, add:
 
@@ -1171,7 +1173,7 @@ export async function businessWikiTaskStatus(taskId: string): Promise<WikiAsyncT
 }
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add dashboard/src/api/types.ts dashboard/src/api/client.ts
@@ -1188,7 +1190,7 @@ git commit -m "feat(dashboard): extend API types and client for business wiki pr
 - Modify: `dashboard/src/i18n/zh.ts`
 - Modify: `dashboard/src/i18n/types.ts`
 
-- [ ] **Step 1: Add i18n keys**
+- [x] **Step 1: Add i18n keys**
 
 In `dashboard/src/i18n/types.ts`, add to the `wiki` section:
 
@@ -1220,7 +1222,7 @@ In `dashboard/src/i18n/zh.ts`, add:
     regenerateConflict: "该业务的 Wiki 正在生成中。",
 ```
 
-- [ ] **Step 2: Update useWikiRegenerate with progress polling**
+- [x] **Step 2: Update useWikiRegenerate with progress polling**
 
 ```typescript
 // dashboard/src/hooks/useWikiRegenerate.ts
@@ -1312,7 +1314,7 @@ export function useWikiRegenerate(businessId: string) {
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add dashboard/src/hooks/useWikiRegenerate.ts dashboard/src/i18n/en.ts dashboard/src/i18n/zh.ts dashboard/src/i18n/types.ts
@@ -1326,7 +1328,7 @@ git commit -m "feat(dashboard): progress bar + incremental toggle in useWikiRege
 **Files:**
 - Modify: `dashboard/src/hooks/__tests__/useWikiRegenerate.test.ts`
 
-- [ ] **Step 1: Update existing test to match new signature**
+- [x] **Step 1: Update existing test to match new signature**
 
 The `regenerate` function now accepts an `incremental` boolean. Update the test to call `regenerate(true)` and verify `businessWikiGenerate` is called with `incremental = true`. Also verify progress state is returned.
 
@@ -1344,12 +1346,12 @@ const { businessWikiGenerate, businessWikiTaskStatus } = await import("../../api
 (businessWikiTaskStatus as ReturnType<typeof vi.fn>).mockResolvedValue({ task_id: "biz-t1", status: "completed" });
 ```
 
-- [ ] **Step 2: Run frontend tests**
+- [x] **Step 2: Run frontend tests**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service/dashboard && npx vitest run src/hooks/__tests__/useWikiRegenerate.test.ts`
 Expected: All tests PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add dashboard/src/hooks/__tests__/useWikiRegenerate.test.ts
@@ -1360,22 +1362,22 @@ git commit -m "test(dashboard): update useWikiRegenerate test for progress + inc
 
 ## Task 10: Integration — verify end-to-end and existing tests
 
-- [ ] **Step 1: Run all Python wiki tests**
+- [x] **Step 1: Run all Python wiki tests**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/ -v --timeout=30 -x`
 Expected: All tests PASS
 
-- [ ] **Step 2: Run frontend build**
+- [x] **Step 2: Run frontend build**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service/dashboard && npx tsc --noEmit`
 Expected: No TypeScript errors
 
-- [ ] **Step 3: Run frontend test suite**
+- [x] **Step 3: Run frontend test suite**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service/dashboard && npx vitest run`
 Expected: All tests PASS
 
-- [ ] **Step 4: Final commit (if any fixes needed)**
+- [x] **Step 4: Final commit (if any fixes needed)**
 
 ```bash
 git add -A

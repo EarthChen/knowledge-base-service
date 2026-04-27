@@ -29,6 +29,7 @@
 | 目标 | 入口 |
 |------|--------|
 | 增量 Ingest 与变更可观测 | `POST /api/v1/wiki/ingest`、`GET /api/v1/wiki/changelog`；Git 侧可配 `POST /api/v1/hooks/ingest/push` |
+| 跨仓业务 Wiki 再生成（异步） | `POST /api/v1/wiki/business/generate` 返回 **202** 与 `task_id`；`GET /api/v1/wiki/business/tasks/{task_id}` 查进度；重复提交同 business 时 **409**；请求体 `incremental`（默认 true）控制是否按仓库跳过未变化仓 — 详见 [wiki-generation-architecture.md](wiki-generation-architecture.md) |
 | Wiki 内搜索 / 全局 Wiki 搜索 | `POST /api/v1/wiki/search`、`POST /api/v1/wiki/search/global`（参数见 OpenAPI） |
 | 问答应与深度研究 | `POST /api/v1/wiki/ask`（流式等）；`POST /api/v1/wiki/research`（需 `WIKI__DEEP_RESEARCH_ENABLED`） |
 | 业务流可视化（数据 + 前端 xyflow） | `GET /api/v1/wiki/flows?business_id=<id>`，仪表盘在 Wiki 相关视图中使用 |

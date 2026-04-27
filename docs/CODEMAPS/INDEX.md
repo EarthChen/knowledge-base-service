@@ -32,13 +32,15 @@ query/               # Hybrid search, blast radius, NL→Cypher (UI)
 | Phase 2 | `wiki/community_context.py`, `store/graph_queries.py`（`shortest_path_between_names`）, `store/wiki_page_store.py`（`update_wiki_page_content`, 版本/ diff） | HTTP：`PATCH …/content`，`GET …/versions`，`GET …/diff` |
 | Phase 3 | `wiki/reasoning_path.py`, `wiki/offline_pack.py`, `store/wiki_tree_store.py`（`wiki_tier`） | HTTP：`GET …/offline-pack`，`wiki_tier` on tree |
 | P0 / P1 | `docs/superpowers/plans/2026-04-27-p0-tech-debt-cleanup.md`, `2026-04-27-p1-frontend-completion.md` | 历史计划；完成状态以 IMPLEMENTATION-STATUS 为准 |
+| Wiki async gen (2026-04-27) | `wiki/task_store.py`, `api/routes/wiki_task_routes.py`, `store/wiki_page_store.py`（`get_repo_wiki_freshness`）, `dashboard/src/hooks/useWikiRegenerate.ts` | 业务 Wiki **202** + 任务轮询；见 [spec](../superpowers/specs/2026-04-27-wiki-generation-architecture-improvement-design.md) 与 [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md) |
 
 ## Wiki subsystem (focused)
 
 | Concern | Modules |
 |---------|---------|
-| Generation / compose | `wiki/service.py`, `wiki/composer.py`, `wiki/repo_composer.py` |
-| Incremental / changelog | `wiki/incremental.py`, `wiki/change_detector.py`, `store/wiki_changelog.py` |
+| Generation / compose | `wiki/service.py`, `wiki/composer.py`, `wiki/repo_composer.py`（`generate_business_wiki` 支持 `incremental`、`progress_callback`） |
+| Business wiki tasks / Redis | `wiki/task_store.py`（`WikiTaskStore`）, `wiki/task_registry.py`, `wiki/bootstrap.py`（`app.state.wiki_task_store`）, `api/routes/wiki_task_routes.py`（202 + `GET …/business/tasks/{task_id}`） |
+| Incremental / changelog | `wiki/incremental.py`, `wiki/change_detector.py`, `store/wiki_changelog.py`；**仓库级 Wiki 新鲜度** `store/wiki_page_store.get_repo_wiki_freshness` |
 | Quality v2 | `wiki/confidence_scorer.py`, `wiki/contradiction_detector.py`, `wiki/lint.py` |
 | Auto-heal (library) | `wiki/auto_healer.py` — see [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md) for wiring |
 | Ask / research | `wiki/ask.py`, `wiki/deep_research.py`, `wiki/memory_loop.py` |
@@ -47,7 +49,7 @@ query/               # Hybrid search, blast radius, NL→Cypher (UI)
 
 | Area | Location |
 |------|----------|
-| Wiki UI | `dashboard/src/pages/`, `dashboard/src/components/wiki/`（含 `ReasoningPathPanel`, `OfflinePackDownloadButton`, 编辑/ diff 相关测试等） |
+| Wiki UI | `dashboard/src/pages/`, `dashboard/src/components/wiki/`（含 `ReasoningPathPanel`, `OfflinePackDownloadButton`, `WikiShell` 业务再生成进度/增量开关, 编辑/ diff 相关测试等）；`dashboard/src/hooks/useWikiRegenerate.ts`（轮询 `businessWikiTaskStatus`） |
 | Settings | `dashboard/src/components/settings/` |
 | API client | `dashboard/src/api/client.ts` |
 

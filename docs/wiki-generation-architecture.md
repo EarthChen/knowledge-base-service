@@ -60,7 +60,7 @@ Wiki 行为的功能开关位于 `config.py` 的 **`WIKI__*`**（`WikiConfig`）
 | **Phase 1** | `SourceCodeReader`；`ImportanceScorer`（core/standard/skeleton）；按 tier 的 token 预算 |
 | **Phase 2** | `CodeChunkIndexer`、`ChunkRetriever`；**`POST /wiki/chunks/index`** |
 | **Phase 3** | `TieredPromptBuilder`、`AsyncEnrichmentPipeline`（base→enriched→encyclopedia）、`BusinessDomainPlanner`、`EnrichmentLevel` |
-| **Phase 4** | `CrossRepoBusinessDomainPlanner`、`WikiReferenceGenerator`、`DomainOverviewComposer`、`WikiService.generate_business_wiki()`；**`POST /wiki/business/generate`**、**`GET /pages/{uid}/references`**；MCP：`wiki_get_tree`、`wiki_get_related`、`wiki_get_domain_overview` |
+| **Phase 4** | `CrossRepoBusinessDomainPlanner`、`WikiReferenceGenerator`、`DomainOverviewComposer`、`WikiService.generate_business_wiki()`；**`POST /api/v1/wiki/business/generate`**（**202** + `task_id`）、**`GET /api/v1/wiki/business/tasks/{task_id}`**、**`GET /api/v1/wiki/pages/{uid}/references`**；MCP：`wiki_get_tree`、`wiki_get_related`、`wiki_get_domain_overview` |
 | **Phase 5** | `WikiLinkConverter`、`BusinessWikiExporter`、`ObsidianExporter`、`MkDocsExporter`、`GitPublisher`；**`POST /wiki/export`**（markdown/zip/git/obsidian/mkdocs 等） |
 | **Phase 6** | `WikiCoverageAnalyzer`、`SuggestedQuestionsGenerator`；**`GET /wiki/coverage-report`** |
 
@@ -122,6 +122,12 @@ sequenceDiagram
 
 可选 LLM 索引功能（**概念提取**、**业务流推断**）在 `LLMConfig` 中默认**关闭**；需要时显式启用。
 
+## 业务 Wiki 异步生成与增量（跨仓）
+
+- **`POST /api/v1/wiki/business/generate`**（Editor+）：触发跨仓库**业务** Wiki 生成。响应为 **202 Accepted**，正文包含 **`task_id`** 与 `status: "pending"`，实际工作在后台执行；同一 **business** 已有一次生成在跑时返回 **409 Conflict**（`generation_in_progress`）。请求体字段 **`incremental`**（默认 **true**）为 **true** 时，按仓库**新鲜度**跳过索引未变且 Wiki 已生成的仓库（`store/wiki_page_store.get_repo_wiki_freshness`）；为 **false** 时全量重算各仓。
+- **`GET /api/v1/wiki/business/tasks/{task_id}`**：查询后台任务（进度、当前仓库、跳过数等）。任务元数据在 Redis 可用时由 **`WikiTaskStore`**（`wiki/task_store.py`）持久化并带 TTL。
+- **仪表盘**：`useWikiRegenerate` 在提交后轮询 `businessWikiTaskStatus`；`WikiShell` 提供**增量/全量**开关与**进度**展示（i18n 键 `wiki.regenerate*`）。设计定稿见 [2026-04-27-wiki-generation-architecture-improvement-design](superpowers/specs/2026-04-27-wiki-generation-architecture-improvement-design.md)。
+
 ## 增量 Ingest、Changelog 与自动 Ingest
 
 - **`POST /api/v1/wiki/ingest`**：按变更文件集合触发**增量**再生成/修补（与 `ChangeDetector`、任务锁配合，避免全库重写）。
@@ -161,7 +167,8 @@ sequenceDiagram
 | 模型 / 作用域 | `wiki/models.py`、`wiki/context.py` |
 | 延迟 Enrichment | `wiki/deferred_enrichment.py` |
 | 规划 / 组合 / 内链 | `wiki/structure_planner.py`、`wiki/data_collector.py`、`wiki/composer.py`、`wiki/diagram_gen.py`、链接转换相关模块 |
-| 仓库级 / 增量 | `wiki/repo_composer.py`、`wiki/incremental.py`、`wiki/disk_exporter.py`、`wiki/persistent_cache.py` |
+| 仓库级 / 增量 | `wiki/repo_composer.py`、`wiki/incremental.py`、`wiki/disk_exporter.py`、`wiki/persistent_cache.py`；业务 Wiki 仓库级新鲜度与跳过见 **`store/wiki_page_store`**（`get_repo_wiki_freshness`）、**`wiki/service.generate_business_wiki`** |
+| 任务与锁 | `wiki/task_store.py`（`WikiTaskStore`）、`wiki/task_registry.py`；HTTP **`api/routes/wiki_task_routes.py`**（`/business/generate`、**`/business/tasks/{task_id}`**） |
 | 搜索 / 问答 / 深度研究 | `wiki/search.py`、`wiki/ask.py`、`wiki/deep_research.py` |
 | 质量 v2 | `wiki/confidence_scorer.py`、`wiki/confidence_inputs.py`、`store/wiki_contradiction_store.py`、`store/wiki_claim_store.py` |
 | 记忆与遗忘 | `wiki/memory_loop.py`、`wiki/memory_tiers.py`、`store/wiki_qa_store.py`、`store/wiki_memory_store.py` |

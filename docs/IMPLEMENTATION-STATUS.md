@@ -19,6 +19,7 @@ Do **not** merge the two SP namespaces when reading issues or PRs.
 | Area | Code (primary) | HTTP / runtime | Status note |
 |------|----------------|----------------|-------------|
 | Wiki routes | `api/routes/wiki_routes.py` (+ `wiki_*_routes.py`) | Prefix `/api/v1/wiki` | Split into page / task / ask / feedback / contradiction routers. |
+| **Business wiki async** | `wiki/task_store.py`, `wiki/task_registry.py`, `api/routes/wiki_task_routes.py`, `wiki/bootstrap.py` | **`POST /api/v1/wiki/business/generate`** → **202** `{task_id, status: "pending"}`；**`GET /api/v1/wiki/business/tasks/{task_id}`** 查进度；同 business 并发生成 **409**；`BusinessWikiGenerateBody.incremental`（默认 **true**）+ `WikiService.generate_business_wiki` 中仓库级跳过；`store/wiki_page_store.get_repo_wiki_freshness` | **Implemented** — [spec](superpowers/specs/2026-04-27-wiki-generation-architecture-improvement-design.md)；仪表盘 `useWikiRegenerate` / `WikiShell` 轮询与进度条 |
 | Wiki tree | `api/routes/wiki_page_routes.py` | `GET /api/v1/wiki/tree?business_id=&view=` | — |
 | Contradictions | `wiki/contradiction_detector.py`, `api/routes/wiki_contradiction_routes.py` | `GET /api/v1/wiki/contradictions?page_uid=...`；`PATCH .../acknowledge` / `.../resolve` | List uses **query** `page_uid`, not `/api/v1/wiki/{repository}/contradictions`. |
 | Lint | `wiki/lint.py`, `wiki/lint_scheduler.py` | Periodic lint when `WIKI__LINT_SCHEDULER_ENABLED` | **Phase 0:** `LintScheduler` wired; lint paths call into `run_lint`. |

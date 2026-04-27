@@ -1,16 +1,21 @@
 # Wiki Generation Architecture Improvement
 
-**Status:** Approved  
+**Status:** Implemented (2026-04-27)  
 **Created:** 2026-04-27  
 **Scope:** Backend task architecture + incremental generation + progress reporting
 
+**Implementation notes:** Delivered as Phases A–C — `wiki/task_store.py` (`WikiTaskStore`), `WikiTaskRegistry` + `bootstrap` wiring, async `POST /api/v1/wiki/business/generate` (202 + `task_id`), `GET /api/v1/wiki/business/tasks/{task_id}`, repo-level `get_repo_wiki_freshness` + `generate_business_wiki(incremental=..., progress_callback=...)`, dashboard polling and `WikiShell` progress UI. Tests: `tests/wiki/test_task_store.py`, `test_business_wiki_background.py`, `test_repo_freshness.py`, `test_business_wiki_incremental.py`.
+
 ## Background
 
-Current `generate_business_wiki` is synchronous, full-regeneration, and in-memory task tracking. This causes:
+This spec addressed synchronous business-wiki generation, full-regeneration by default, and in-memory-only task tracking. Those issues were:
+
 1. Long blocking HTTP requests (multi-repo generation can take minutes)
 2. Wasted LLM tokens when only one repo changed
 3. Task state lost on service restart
 4. No progress visibility in dashboard
+
+*Resolved in implementation (2026-04-27):* `POST /api/v1/wiki/business/generate` is asynchronous (**202** + `task_id`), progress is available via **`GET /api/v1/wiki/business/tasks/{task_id}`** (and persisted in **Redis** when configured), `incremental` enables repository-level skip, and the dashboard polls and shows progress. See the opening **Implementation notes** for module pointers.
 
 ## Design
 

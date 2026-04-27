@@ -114,6 +114,34 @@ class TestWikiAskService:
         assert "conversation_id" in complete["data"]
         assert "tokens_used" in complete["data"]
 
+    async def test_ask_stream_uses_complete_stream_deltas(self) -> None:
+        search = AsyncMock()
+        search.search = AsyncMock(
+            return_value=SearchResponse(
+                results=[_make_search_result()],
+                query_expansion={},
+                total=1,
+            )
+        )
+
+        class _StreamLLM:
+            async def complete(self, _messages: list) -> str:
+                return "Z"
+
+            async def complete_stream(self, _messages: list):
+                yield "A"
+                yield "B"
+
+        llm = _StreamLLM()
+        svc = WikiAskService(search, llm)  # type: ignore[arg-type]
+        answer_events = [
+            e
+            for e in [ev async for ev in svc.ask_stream("repo", "Q?", mode="hybrid")]
+            if e.get("event") == "wiki-answer"
+        ]
+        assert [e["data"]["delta"] for e in answer_events] == ["A", "B"]
+        assert answer_events[-1]["data"]["content"] == "AB"
+
     async def test_ask_includes_sources(self) -> None:
         sr = _make_search_result()
         search = AsyncMock()

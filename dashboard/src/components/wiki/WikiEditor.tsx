@@ -1,7 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { usePatchWikiPage } from "../../hooks/useWikiPageEdit";
+import { useWikiEditingPresence } from "../../hooks/useWikiEditingPresence";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { parseMarkdownHeadings } from "./headingUtils";
 import { getErrorMessage } from "../../utils/errorUtils";
@@ -24,11 +26,14 @@ export function WikiEditor({
   wikiLinkParams,
   onClose,
 }: WikiEditorProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [content, setContent] = useState(initialContent);
   const [editReason, setEditReason] = useState("");
   const [versionMismatchWarning, setVersionMismatchWarning] = useState<string | null>(null);
   const mutation = usePatchWikiPage();
+  const { otherEditorActive } = useWikiEditingPresence(pageUid);
+  const conflictMessage =
+    locale === "zh" ? t.wiki.editorConflictWarningZh : t.wiki.editorConflictWarning;
 
   const previewHeadings = useMemo(() => parseMarkdownHeadings(content), [content]);
 
@@ -55,6 +60,18 @@ export function WikiEditor({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {otherEditorActive ? (
+        <div
+          className="mb-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-100"
+          role="status"
+        >
+          <AlertTriangle
+            className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden
+          />
+          <p>{conflictMessage}</p>
+        </div>
+      ) : null}
       <div className="flex min-h-[min(70vh,800px)] flex-1 gap-2">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-gray-200 dark:border-gray-700">
           <CodeMirror

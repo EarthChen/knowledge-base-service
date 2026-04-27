@@ -24,81 +24,20 @@ import numpy as np
 from config import EmbeddingConfig
 from log import get_logger
 
+from .embedding_text_format import (
+    MAX_CODE_SNIPPET_CHARS,
+    _format_code_text,
+    _format_doc_text,
+    _smart_truncate,
+    doc_dict_for_embedding,
+)
+
 if TYPE_CHECKING:
     pass
 
 log = get_logger(__name__)
 
-MAX_CODE_SNIPPET_CHARS = 3000
 QUERY_EMBEDDING_CACHE_SIZE = 256
-
-
-def _smart_truncate(code: str, max_chars: int = MAX_CODE_SNIPPET_CHARS) -> str:
-    """Truncate at the nearest statement boundary instead of hard cut."""
-    if len(code) <= max_chars:
-        return code
-    window_start = max(0, max_chars - 200)
-    window = code[window_start:max_chars]
-    for pattern in ["\n\n", ";\n", "\n"]:
-        idx = window.rfind(pattern)
-        if idx >= 0:
-            return code[: window_start + idx + len(pattern)]
-    return code[:max_chars]
-
-
-def _format_code_text(
-    name: str,
-    signature: str,
-    docstring: str,
-    code_snippet: str,
-    business_summary: str = "",
-) -> str:
-    """Build a concise textual representation for embedding."""
-    parts = []
-    if business_summary:
-        parts.append(f"Business: {business_summary}")
-    if name:
-        parts.append(f"Name: {name}")
-    if signature:
-        parts.append(f"Signature: {signature}")
-    if docstring and not business_summary:
-        parts.append(f"Description: {docstring[:500]}")
-    if code_snippet:
-        parts.append(f"Code: {_smart_truncate(code_snippet)}")
-    return "\n".join(parts)
-
-
-def _format_doc_text(title: str, section: str, content: str, heading_context: str = "") -> str:
-    """Format document content for embedding generation."""
-    parts = [f"Document: {title}"]
-    if section:
-        parts.append(f"Section: {section}")
-    if heading_context and heading_context != section:
-        parts.append(f"Context: {heading_context}")
-    parts.append(content)
-    return "\n".join(parts)
-
-
-def doc_dict_for_embedding(
-    properties: dict[str, str | int | float | list[str]],
-) -> dict[str, str]:
-    """Build ``generate_for_docs`` item dict from a Document node's properties."""
-    raw_dt = properties.get("document_title", "")
-    if raw_dt:
-        title = str(raw_dt)
-    else:
-        t = properties.get("title", "")
-        ts = t if isinstance(t, str) else str(t)
-        title = ts.split(" > ", 1)[0] if " > " in ts else ts
-    sec = properties.get("section", "")
-    body = properties.get("content", "")
-    hc = properties.get("heading_context", "")
-    return {
-        "title": title,
-        "section": sec if isinstance(sec, str) else str(sec),
-        "content": body if isinstance(body, str) else str(body),
-        "heading_context": hc if isinstance(hc, str) else str(hc),
-    }
 
 
 def _iter_chunks(items: list, size: int) -> Iterator[list]:

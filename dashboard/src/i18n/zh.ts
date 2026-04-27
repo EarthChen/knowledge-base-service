@@ -227,6 +227,7 @@ const zh: Translations = {
     flowChart: "关系图",
     resultCount: "个结果",
     doubleClickDrillDown: "双击节点以该节点为起点重新查询",
+    viewWiki: "查看 Wiki",
   },
   repos: {
     title: "仓库管理",
@@ -665,8 +666,11 @@ const zh: Translations = {
     askScorePrefix: "分数",
     askEndpointHelpBefore: "回答基于混合检索上下文，并通过 Wiki 问答接口（",
     askEndpointHelpAfter: "）流式返回。",
+    askPreparing: "正在检索上下文并生成回答…",
     askV2Footnote:
       "Ask v2：上下文由图增强搜索提供，包含调用链与模块上下文",
+    askCrystallize: "保存到 Wiki",
+    askCrystallizeSuccess: "已保存页面「{title}」，可通过下方链接打开。",
     deepResearchScopeNote: "深度研究搜索范围为整个知识库（可能跨多个仓库）",
     deepResearchPlaceholder: "提出深度研究问题…",
     deepResearchStart: "开始研究",
@@ -838,7 +842,10 @@ const zh: Translations = {
     wikiEditorCancel: "取消",
     wikiEditorSaving: "正在保存…",
     wikiEditorDismiss: "关闭",
+    editorConflictWarning: "其他用户正在编辑此页面，您的更改可能发生冲突。",
+    editorConflictWarningZh: "其他用户正在编辑此页面，您的更改可能发生冲突。",
     editContent: "编辑页面内容",
+    viewInGraph: "在图中查看",
   },
   sync: {
     title: "定时同步",

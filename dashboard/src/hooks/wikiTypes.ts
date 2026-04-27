@@ -17,6 +17,8 @@ export type WikiSourceLocation = {
   end_line: number;
   fqn: string;
   repository: string;
+  /** Code entity graph uid from SOURCE_ENTITY (when the API provides it). */
+  entity_uid?: string;
 };
 
 export type WikiPageDetail = {
@@ -25,6 +27,8 @@ export type WikiPageDetail = {
   content: string;
   diagrams: unknown[];
   source_locations: WikiSourceLocation[];
+  /** Graph uids of code entities linked via SOURCE_ENTITY. */
+  source_entity_uids?: string[];
   method_locations: unknown[];
   context: Record<string, string> & { confidence_score?: string };
   /** ISO timestamp from page metadata when the server provides it. */

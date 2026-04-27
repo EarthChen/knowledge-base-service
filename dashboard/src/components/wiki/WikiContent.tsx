@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import ErrorBoundary from "../ErrorBoundary";
-import { BookOpen, Pencil } from "lucide-react";
+import { BookOpen, Network, Pencil } from "lucide-react";
 import type { WikiPageDetail } from "../../hooks/wikiTypes";
 import { useWikiAnnotations } from "../../hooks/useWikiAnnotations";
 import MarkdownRenderer from "./MarkdownRenderer";
@@ -24,6 +25,7 @@ import { WikiVersionPicker } from "./WikiVersionPicker";
 import { ConfidenceBadge } from "./ConfidenceBadge";
 import { useI18n } from "../../i18n/context";
 import { useToast } from "../Toast";
+import { explorerGraphHref } from "../../routes/explorerRouteHelpers";
 
 type Props = {
   repository: string;
@@ -55,6 +57,16 @@ function parseSuggestedQuestions(raw: string | undefined): string[] {
   }
 }
 
+function collectSourceEntityUids(detail: WikiPageDetail | undefined): string[] {
+  if (!detail) return [];
+  const fromField = (detail.source_entity_uids ?? []).map((u) => u.trim()).filter(Boolean);
+  if (fromField.length) return [...new Set(fromField)];
+  const fromLocs = (detail.source_locations ?? [])
+    .map((s) => s.entity_uid?.trim())
+    .filter((u): u is string => Boolean(u));
+  return [...new Set(fromLocs)];
+}
+
 export default function WikiContent({
   repository,
   businessId,
@@ -65,6 +77,7 @@ export default function WikiContent({
   wikiLinkParams,
   onAskQuestion,
 }: Props) {
+  const navigate = useNavigate();
   const { locale, t } = useI18n();
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
@@ -84,6 +97,7 @@ export default function WikiContent({
     return Number.isFinite(n) ? n : undefined;
   })();
   const annotationsQuery = useWikiAnnotations(businessId, pageUid);
+  const sourceEntityUids = useMemo(() => collectSourceEntityUids(detail), [detail]);
 
   useEffect(() => {
     setEditing(false);
@@ -155,6 +169,20 @@ export default function WikiContent({
                 branch={detail?.context?.git_branch}
                 exportPath={detail?.context?.export_path}
               />
+              {!editing && sourceEntityUids.length > 0
+                ? sourceEntityUids.map((uid) => (
+                    <button
+                      key={uid}
+                      type="button"
+                      onClick={() => navigate(explorerGraphHref(uid))}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-900 shadow-sm hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/80"
+                      aria-label={`${t.wiki.viewInGraph} (${uid})`}
+                    >
+                      <Network size={14} className="shrink-0" aria-hidden />
+                      {t.wiki.viewInGraph}
+                    </button>
+                  ))
+                : null}
             </div>
           </div>
         </div>

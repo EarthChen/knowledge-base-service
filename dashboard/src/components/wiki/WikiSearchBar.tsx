@@ -172,6 +172,7 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
               results={data.results}
               onSelect={onSelect}
               activeIndex={activeIndex}
+              highlightQuery={query.trim()}
             />
           )}
           {isSuccess && data && data.results.length === 0 && query.trim() && (

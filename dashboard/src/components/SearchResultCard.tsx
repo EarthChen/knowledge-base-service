@@ -142,7 +142,11 @@ export default function SearchResultCard({
 
       {match.signature && (
         <p className="mt-2 truncate font-mono text-xs text-gray-400 dark:text-gray-500">
-          {match.signature}
+          {highlightQuery?.trim() ? (
+            <HighlightText text={match.signature} query={highlightQuery} />
+          ) : (
+            match.signature
+          )}
         </p>
       )}
 

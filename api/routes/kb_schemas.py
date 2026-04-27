@@ -143,6 +143,10 @@ class EnrichRequest(BaseModel):
 
 class GraphExploreRequest(BaseModel):
     name: str = ""
+    center_uid: str | None = Field(
+        default=None,
+        description="When set, explore around this entity by graph uid (takes precedence over name).",
+    )
     depth: int = Field(default=2, ge=1, le=5)
     limit: int = Field(default=100, ge=1, le=500)
 

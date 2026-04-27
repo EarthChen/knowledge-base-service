@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -47,6 +48,61 @@ class LLMProvider:
         }
         data = await self._request(body)
         return data["choices"][0]["message"]["content"]
+
+    async def complete_stream(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        """OpenAI-style SSE stream; yields text content deltas."""
+        body: dict[str, Any] = {
+            "model": model or self._config.model,
+            "messages": messages,
+            "temperature": temperature if temperature is not None else self._config.temperature,
+            "stream": True,
+            **kwargs,
+        }
+        max_attempts = self._config.retry_count
+        last_exc: Exception | None = None
+        for attempt in range(max_attempts):
+            try:
+                async with self._semaphore:
+                    async with self._client.stream("POST", "/chat/completions", json=body) as resp:
+                        resp.raise_for_status()
+                        async for line in resp.aiter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            payload = line.removeprefix("data: ").strip()
+                            if payload == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(payload)
+                            except json.JSONDecodeError:
+                                continue
+                            choices = chunk.get("choices") or []
+                            if not choices:
+                                continue
+                            delta = (choices[0].get("delta") or {}) if isinstance(choices[0], dict) else {}
+                            content = delta.get("content")
+                            if content:
+                                yield str(content)
+                return
+            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
+                last_exc = exc
+                if attempt < max_attempts - 1:
+                    wait = min(2**attempt, 10)
+                    logger.warning(
+                        "LLM stream failed (attempt %d/%d), retrying in %ds: %s",
+                        attempt + 1,
+                        max_attempts,
+                        wait,
+                        exc,
+                    )
+                    await asyncio.sleep(wait)
+        raise last_exc  # type: ignore[misc]
 
     async def complete_json(
         self,

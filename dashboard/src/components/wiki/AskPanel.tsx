@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Bookmark,
   ChevronDown,
   ChevronUp,
   History,
@@ -8,6 +9,9 @@ import {
   Send,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { wikiCrystallize } from "../../api/client";
+import { useToast } from "../Toast";
+import { getErrorMessage } from "../../utils/errorUtils";
 import { useWikiAsk } from "../../hooks/useWikiAsk";
 import { useConversationHistory } from "../../hooks/useConversationHistory";
 import type { WikiConversationMessage } from "../../hooks/useConversationHistory";
@@ -16,6 +20,7 @@ import { useI18n } from "../../i18n/context";
 import { buildIdeHref, type EditorId } from "./editorLinks";
 import { EDITOR_PREF_KEY } from "./SourceLink";
 import { wikiHref } from "./wikiRouteHelpers";
+import MarkdownRenderer from "./MarkdownRenderer";
 import { ReasoningPathPanel } from "./ReasoningPathPanel";
 
 function readEditorPref(): EditorId {
@@ -128,9 +133,13 @@ function ConversationRelativeWhen({
 
 export default function AskPanel({ repository }: Props) {
   const { t } = useI18n();
+  const { toast } = useToast();
   const [open, setOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [lastUserQuestion, setLastUserQuestion] = useState("");
+  const [crystallizeBusy, setCrystallizeBusy] = useState(false);
+  const [crystallizeLink, setCrystallizeLink] = useState<{ path: string; title: string } | null>(null);
   const {
     answer,
     sources,
@@ -153,10 +162,18 @@ export default function AskPanel({ repository }: Props) {
   const historyItems = repository ? convHistory.list(repository) : [];
 
   useEffect(() => {
+    if (isStreaming) {
+      setCrystallizeLink(null);
+    }
+  }, [isStreaming]);
+
+  useEffect(() => {
     localThreadStorageIdRef.current = null;
     threadTitleRef.current = "";
     questionForSaveRef.current = "";
     prevStreamingRef.current = false;
+    setLastUserQuestion("");
+    setCrystallizeLink(null);
   }, [repository]);
 
   useEffect(() => {
@@ -221,7 +238,7 @@ export default function AskPanel({ repository }: Props) {
         <div className="space-y-4 border-t border-gray-100 px-4 pb-4 pt-2 dark:border-gray-700">
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {t.wiki.askEndpointHelpBefore}
-                <code className="rounded bg-gray-100 px-1 dark:bg-gray-800 dark:text-gray-300">POST /api/v1/wiki/ask</code>
+                <code className="rounded bg-gray-100 px-1 dark:bg-gray-800 dark:text-gray-300">POST /api/v1/wiki/ask/stream</code>
                 {t.wiki.askEndpointHelpAfter}
               </p>
 
@@ -235,6 +252,8 @@ export default function AskPanel({ repository }: Props) {
                     threadTitleRef.current = q;
                   }
                   questionForSaveRef.current = q;
+                  setLastUserQuestion(q);
+                  setCrystallizeLink(null);
                   void ask({ question: q });
                   setInput("");
                 }}
@@ -274,6 +293,8 @@ export default function AskPanel({ repository }: Props) {
                       localThreadStorageIdRef.current = null;
                       threadTitleRef.current = "";
                       questionForSaveRef.current = "";
+                      setLastUserQuestion("");
+                      setCrystallizeLink(null);
                     }}
                     className="text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
                   >
@@ -314,6 +335,8 @@ export default function AskPanel({ repository }: Props) {
                           localThreadStorageIdRef.current = null;
                           threadTitleRef.current = "";
                           questionForSaveRef.current = "";
+                          setLastUserQuestion("");
+                          setCrystallizeLink(null);
                         }}
                         className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
                       >
@@ -328,6 +351,8 @@ export default function AskPanel({ repository }: Props) {
                           localThreadStorageIdRef.current = null;
                           threadTitleRef.current = "";
                           questionForSaveRef.current = "";
+                          setLastUserQuestion("");
+                          setCrystallizeLink(null);
                         }}
                         className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-700 hover:bg-gray-50 disabled:opacity-40 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
                       >
@@ -350,6 +375,9 @@ export default function AskPanel({ repository }: Props) {
                                 localThreadStorageIdRef.current = null;
                                 threadTitleRef.current = "";
                                 questionForSaveRef.current = "";
+                                const uq = c.messages.find((m) => m.role === "user");
+                                setLastUserQuestion(uq?.content?.trim() ?? "");
+                                setCrystallizeLink(null);
                               }}
                               className="w-full rounded-md border border-transparent px-2 py-1.5 text-left text-xs hover:border-gray-200 hover:bg-white dark:hover:border-gray-600 dark:hover:bg-gray-800/80"
                             >
@@ -382,12 +410,78 @@ export default function AskPanel({ repository }: Props) {
 
               {(answer || isStreaming) && (
                 <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner dark:border-gray-700 dark:bg-gray-900">
-                  <div className="prose prose-sm prose-slate max-w-none whitespace-pre-wrap dark:prose-invert">
-                    {answer}
-                    {isStreaming && (
-                      <span className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-sky-500 align-middle" />
-                    )}
-                  </div>
+                  {isStreaming && !answer.trim() ? (
+                    <div
+                      className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+                      <span>{t.wiki.askPreparing}</span>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <MarkdownRenderer content={answer} />
+                      {isStreaming && (
+                        <span
+                          className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-sky-500 align-middle"
+                          aria-hidden
+                        />
+                      )}
+                    </div>
+                  )}
+                  {answer && !isStreaming && (
+                    <div className="mt-3 flex flex-col gap-2 border-t border-gray-100 pt-3 dark:border-gray-700">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={crystallizeBusy || !answer.trim()}
+                          onClick={async () => {
+                            if (!repository?.trim() || !answer.trim()) return;
+                            const q =
+                              lastUserQuestion.trim() ||
+                              questionForSaveRef.current.trim() ||
+                              "";
+                            setCrystallizeBusy(true);
+                            try {
+                              const res = await wikiCrystallize({
+                                repository,
+                                question: q || "(Q&A)",
+                                answer: answer.trim(),
+                                sources: sources.map((s) => s.wiki_page).filter(Boolean),
+                                conversation_id: conversationId,
+                              });
+                              setCrystallizeLink({ path: res.path, title: res.title });
+                              toast(
+                                "success",
+                                t.wiki.askCrystallizeSuccess.replace("{title}", res.title),
+                              );
+                            } catch (e) {
+                              toast("error", getErrorMessage(e, t.common.unexpectedError));
+                            } finally {
+                              setCrystallizeBusy(false);
+                            }
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800/60 dark:bg-amber-950/50 dark:text-amber-100 dark:hover:bg-amber-950/80"
+                        >
+                          {crystallizeBusy ? (
+                            <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
+                          ) : (
+                            <Bookmark className="size-3.5 shrink-0" aria-hidden />
+                          )}
+                          {t.wiki.askCrystallize}
+                        </button>
+                        {crystallizeLink && (
+                          <Link
+                            to={wikiHref(crystallizeLink.path)}
+                            className="text-xs font-medium text-sky-700 underline decoration-sky-200 dark:text-sky-400 dark:decoration-sky-800"
+                          >
+                            {crystallizeLink.path}
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

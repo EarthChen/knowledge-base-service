@@ -18,6 +18,19 @@ from services.redis_startup import await_with_busy_loading_retry, run_sync_with_
 
 from .schema import VECTOR_INDEX_CONFIGS, EdgeType, GraphEdge, GraphNode, NodeLabel
 
+# Edges (re)created by the code/doc indexer for a file — cleared before re-upsert
+# in incremental mode so MERGE does not leave stale relations.
+_PARSING_EDGE_TYPES: tuple[str, ...] = (
+    "CALLS",
+    "CONTAINS",
+    "INHERITS",
+    "IMPLEMENTS",
+    "IMPORTS",
+    "PART_OF",
+    "PROVIDES_RPC",
+    "CONSUMES_RPC",
+)
+
 log = get_logger(__name__)
 
 _graph_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="falkordb")
@@ -222,7 +235,7 @@ class FalkorDBStore:
         await asyncio.gather(*[_one(u, lb, e) for u, lb, e in items])
 
     _ALLOWED_PROPERTIES = frozenset({
-        "business_summary", "description", "embedding", "fqn",
+        "business_summary", "description", "embedding", "fqn", "content_hash",
         "confidence_score", "category", "source", "aliases",
         "memory_status", "stability_factor", "last_accessed",
     })
@@ -312,6 +325,120 @@ class FalkorDBStore:
         log.info("falkordb_deleted_by_file", file=file_path, deleted=deleted)
         return deleted
 
+    async def get_chunk_hashes_for_file(self, file_path: str) -> dict[str, str]:
+        """Return ``uid -> content_hash`` for embeddable nodes (Function, Class, Document, Chunk).
+
+        Labels that are not in the result set, or with missing ``content_hash``,
+        are returned with empty string so callers treat them as *needs re-embed*.
+        """
+        return await self.get_chunk_hashes_for_files([file_path])
+
+    async def get_chunk_hashes_for_files(self, file_paths: list[str] | set[str]) -> dict[str, str]:
+        """Same as :meth:`get_chunk_hashes_for_file` for one or more ``n.file`` keys (merged)."""
+        paths = [p for p in (file_paths if isinstance(file_paths, list) else set(file_paths)) if p]
+        if not paths:
+            return {}
+        loop = asyncio.get_running_loop()
+        cypher = (
+            "MATCH (n) "
+            "WHERE (n:Function OR n:Class OR n:Document OR n:Chunk) AND n.file IN $files "
+            "RETURN n.uid AS uid, coalesce(n.content_hash, '') AS content_hash"
+        )
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                cypher, params={"files": list(paths)},
+            ),
+        )
+        out: dict[str, str] = {}
+        for row in result.result_set or []:
+            if not row:
+                continue
+            uid = str(row[0] or "")
+            ch = str(row[1] or "")
+            if uid:
+                out[uid] = ch
+        return out
+
+    async def get_node_uids_for_file(self, file_path: str) -> set[str]:
+        """All node UIDs for this *file* key (``file`` or Module ``path``), including Module."""
+        return await self.get_node_uids_for_files([file_path])
+
+    async def get_node_uids_for_files(self, file_paths: list[str] | set[str]) -> set[str]:
+        """Like :meth:`get_node_uids_for_file` for multiple path keys (union of UIDs)."""
+        paths = [p for p in (file_paths if isinstance(file_paths, list) else set(file_paths)) if p]
+        if not paths:
+            return set()
+        loop = asyncio.get_running_loop()
+        fl = list(paths)
+        cypher = (
+            "MATCH (n) "
+            "WHERE n.file IN $files OR (n:Module AND n.path IN $files) "
+            "RETURN n.uid AS uid"
+        )
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                cypher, params={"files": fl},
+            ),
+        )
+        uids: set[str] = set()
+        for row in result.result_set or []:
+            if row and row[0]:
+                uids.add(str(row[0]))
+        return uids
+
+    async def delete_parser_edges_for_file(self, file_path: str) -> None:
+        """Delete indexing-time edges that touch nodes belonging to *file_path* (see :meth:`delete_parser_edges_for_files`)."""
+        await self.delete_parser_edges_for_files([file_path])
+
+    async def delete_parser_edges_for_files(self, file_paths: list[str] | set[str]) -> None:
+        """Delete parsing pipeline edges that touch any of the given *file* / Module *path* keys.
+
+        See :data:`_PARSING_EDGE_TYPES`. Cross-file *CALLS* / *IMPORTS* involving
+        these paths are removed and recreated by the next :meth:`batch_upsert`.
+        """
+        paths = [p for p in (file_paths if isinstance(file_paths, list) else set(file_paths)) if p]
+        if not paths:
+            return
+        loop = asyncio.get_running_loop()
+        fl = list(paths)
+        cypher = (
+            "MATCH (a)-[r]->(b) "
+            "WHERE type(r) IN $types AND ("
+            "  (a:Module AND a.path IN $files) OR (b:Module AND b.path IN $files) "
+            "  OR a.file IN $files OR b.file IN $files) "
+            "DELETE r"
+        )
+        await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                cypher,
+                params={"files": fl, "types": list(_PARSING_EDGE_TYPES)},
+            ),
+        )
+        log.info("falkordb_parser_edges_deleted", files=fl, types=_PARSING_EDGE_TYPES)
+
+    async def delete_nodes_by_uids(self, uids: list[str]) -> int:
+        """``DETACH DELETE`` nodes with the given UIDs. Returns the number of deletes attempted."""
+        if not uids:
+            return 0
+        loop = asyncio.get_running_loop()
+        cypher = "UNWIND $uids AS u MATCH (n {uid: u}) DETACH DELETE n RETURN count(n) AS c"
+        total = 0
+        step = 500
+        for i in range(0, len(uids), step):
+            batch = uids[i : i + step]
+            result = await loop.run_in_executor(
+                _graph_executor,
+                lambda b=batch: self._graph.query(  # type: ignore[union-attr]
+                    cypher, params={"uids": b}
+                ),
+            )
+            if result.result_set and result.result_set[0]:
+                total += int(result.result_set[0][0] or 0)
+        return total
+
     async def execute_query(self, cypher: str, params: dict[str, Any] | None = None) -> QueryResultWrapper:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
@@ -386,6 +513,7 @@ class FalkorDBStore:
                     else str(page.get("enrichment_level")),
                     "repositories": page.get("repositories", [repository]),
                     "confidence_score": page.get("confidence_score"),
+                    "source_origin": page.get("source_origin", ""),
                 }
             )
         cypher = (
@@ -402,7 +530,10 @@ class FalkorDBStore:
             "w.importance_tier = page.importance_tier, "
             "w.enrichment_level = page.enrichment_level, "
             "w.repositories = page.repositories, "
-            "w.confidence_score = coalesce(page.confidence_score, w.confidence_score) "
+            "w.confidence_score = coalesce(page.confidence_score, w.confidence_score), "
+            "w.source_origin = CASE "
+            "WHEN page.source_origin IS NULL OR page.source_origin = '' "
+            "THEN w.source_origin ELSE page.source_origin END "
             "RETURN count(*) AS cnt"
         )
         result = await self.execute_query(cypher, {"batch": batch})

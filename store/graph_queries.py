@@ -439,6 +439,25 @@ class GraphQueryRepository:
         )
         return await self._store.execute_query(nodes_q, {"name": name, "limit": limit})
 
+    async def explore_by_uid(self, uid: str, depth: int, limit: int) -> QueryResultWrapper:
+        """Like ``explore_by_name`` but centers on a node identified by graph ``uid``."""
+        nodes_q = (
+            "MATCH (center) "
+            "WHERE (center:Function OR center:Class OR center:Module) "
+            "AND center.uid = $uid "
+            f"OPTIONAL MATCH (center)-[*1..{depth}]-(neighbor) "
+            "WHERE neighbor:Function OR neighbor:Class OR neighbor:Module "
+            "WITH center, collect(DISTINCT neighbor) AS nbrs "
+            "UNWIND ([center] + nbrs) AS n "
+            "WITH DISTINCT n LIMIT $limit "
+            "RETURN n.uid AS uid, n.name AS name, labels(n)[0] AS type, "
+            "coalesce(n.file, '') AS file, coalesce(n.start_line, 0) AS line, "
+            "coalesce(n.end_line, n.start_line, 0) AS end_line, "
+            "coalesce(n.signature, '') AS signature, "
+            "coalesce(n.docstring, '') AS docstring"
+        )
+        return await self._store.execute_query(nodes_q, {"uid": uid, "limit": limit})
+
     async def explore_edges(self, node_uids: list[str]) -> QueryResultWrapper:
         edges_q = (
             "MATCH (a)-[rel]->(b) "

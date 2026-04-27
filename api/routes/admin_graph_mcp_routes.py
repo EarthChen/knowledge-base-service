@@ -209,7 +209,7 @@ async def graph_explore(
 
     queries = GraphQueryRepository(svc.store)
 
-    if not req.name:
+    if not req.name and not (req.center_uid and req.center_uid.strip()):
         result = await queries.explore_overview(req.limit)
         nodes = [
             {
@@ -227,7 +227,11 @@ async def graph_explore(
         ]
         return {"nodes": nodes, "edges": []}
 
-    nodes_result = await queries.explore_by_name(req.name, req.depth, req.limit)
+    cuid = (req.center_uid or "").strip()
+    if cuid:
+        nodes_result = await queries.explore_by_uid(cuid, req.depth, req.limit)
+    else:
+        nodes_result = await queries.explore_by_name(req.name, req.depth, req.limit)
 
     if not nodes_result.data:
         return {"nodes": [], "edges": []}
@@ -251,11 +255,17 @@ async def graph_explore(
         })
 
     if nodes_list:
-        first_name = req.name
-        for nd in nodes_list:
-            if nd["name"] == first_name:
-                nd["is_center"] = True
-                break
+        if cuid:
+            for nd in nodes_list:
+                if nd["id"] == cuid:
+                    nd["is_center"] = True
+                    break
+        else:
+            first_name = req.name
+            for nd in nodes_list:
+                if nd["name"] == first_name:
+                    nd["is_center"] = True
+                    break
 
     edges_result = await queries.explore_edges(node_uids)
 

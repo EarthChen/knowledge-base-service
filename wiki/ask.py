@@ -15,6 +15,7 @@ from typing import Any, Protocol, runtime_checkable
 from log import get_logger
 from store.conversation_store import SqliteConversationStore
 from store.wiki_store import WikiStore
+from wiki.crystallizer import crystallize as crystallize_wiki_page
 from wiki.reasoning_path import (
     ReasoningPath,
     ReasoningStage,
@@ -574,6 +575,17 @@ def _estimate_tokens(text: str) -> int:
     return max(len(text) // 4, 0)
 
 
+def _is_async_text_stream_method(fn: object) -> bool:
+    """True if ``fn`` is an async generator (streaming text), not a sync mock."""
+    if fn is None or not callable(fn):
+        return False
+    unwrapped = inspect.unwrap(fn)  # type: ignore[unreachable]
+    f = unwrapped
+    if inspect.ismethod(f):
+        f = f.__func__
+    return inspect.isasyncgenfunction(f)
+
+
 def _chunk_deltas(text: str) -> list[str]:
     if not text:
         return []
@@ -711,14 +723,36 @@ class WikiAskService:
         )
         full_text = ""
         try:
-            full_text = await self._llm.complete(messages)
+            stream_fn = getattr(self._llm, "complete_stream", None)
+            if _is_async_text_stream_method(stream_fn):
+                acc = ""
+                got_any = False
+                async for chunk in stream_fn(messages):
+                    if not chunk:
+                        continue
+                    got_any = True
+                    acc += chunk
+                    full_text = acc
+                    yield {"event": "wiki-answer", "data": {"content": acc, "delta": chunk}}
+                if not got_any:
+                    full_text = await self._llm.complete(messages)
+                    acc = ""
+                    for d in _chunk_deltas(full_text):
+                        acc += d
+                        yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
+            else:
+                full_text = await self._llm.complete(messages)
+                acc = ""
+                for d in _chunk_deltas(full_text):
+                    acc += d
+                    yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
         except Exception:
+            log.warning("wiki_ask_llm_failed", repository=repository, exc_info=True)
             full_text = error_out
-
-        acc = ""
-        for d in _chunk_deltas(full_text):
-            acc += d
-            yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
+            acc = ""
+            for d in _chunk_deltas(full_text):
+                acc += d
+                yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
 
         yield {"event": "wiki-sources", "data": {"sources": [asdict(s) for s in sources]}}
         tokens_used = _estimate_tokens(full_text)
@@ -814,4 +848,25 @@ class WikiAskService:
             conversation_id=conv_id,
             tokens_used=tokens_used,
             reasoning_path=reasoning_path,
+        )
+
+    async def crystallize(
+        self,
+        repository: str,
+        question: str,
+        answer: str,
+        sources: list[str],
+        business_id: str,
+    ) -> dict[str, str]:
+        """Save a Q&A pair as a new wiki page with backlinks to source paths."""
+        if self._wiki_store is None:
+            msg = "Wiki graph store is not configured"
+            raise RuntimeError(msg)
+        return await crystallize_wiki_page(
+            self._wiki_store,
+            repository,
+            question,
+            answer,
+            sources,
+            business_id,
         )

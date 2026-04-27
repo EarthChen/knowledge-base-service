@@ -169,3 +169,85 @@ class TestWikiAsk:
         )
         assert r.status_code == 503
         assert r.json()["error"]["code"] == "kb_service_unavailable"
+
+
+class TestWikiAskStreamV2:
+    """POST/GET /api/v1/wiki/ask/stream — data-only SSE with type: token|sources|done."""
+
+    def test_ask_stream_post_format(self) -> None:
+        mock_ask = MagicMock()
+
+        async def stream_v2(**kwargs: Any):
+            _ = kwargs
+            yield {"event": "wiki-answer", "data": {"content": "Hi", "delta": "Hi"}}
+            yield {
+                "event": "wiki-sources",
+                "data": {
+                    "sources": [
+                        {
+                            "entity": "X",
+                            "file_path": "a.py",
+                            "start_line": 1,
+                            "wiki_page": "b.md",
+                            "relevance_score": 0.5,
+                        }
+                    ]
+                },
+            }
+            yield {
+                "event": "wiki-answer-complete",
+                "data": {"conversation_id": "c1", "tokens_used": 3, "reasoning_path": None},
+            }
+
+        mock_ask.ask_stream = stream_v2
+        _, client, _ = _make_ask_app(mock_ask)
+
+        r = client.post(
+            "/api/v1/wiki/ask/stream",
+            json={"repository": "r", "question": "Q?"},
+        )
+        assert r.status_code == 200
+        assert "text/event-stream" in (r.headers.get("content-type") or "")
+        text = r.text
+        assert '"type": "token"' in text
+        assert '"type": "sources"' in text
+        assert '"type": "done"' in text
+        assert "c1" in text
+
+    def test_ask_stream_get_format(self) -> None:
+        mock_ask = MagicMock()
+
+        async def track(**kwargs: Any):
+            assert kwargs.get("repository") == "my-repo"
+            async for x in _fake_ask_stream(**kwargs):
+                yield x
+
+        mock_ask.ask_stream = track
+        _, client, _ = _make_ask_app(mock_ask)
+
+        r = client.get(
+            "/api/v1/wiki/ask/stream",
+            params={"repository": "my-repo", "question": "How?"},
+        )
+        assert r.status_code == 200
+        assert '"type": "token"' in r.text
+
+    def test_ask_stream_distinguishable_from_legacy(self) -> None:
+        """v2 has no `event:` line; legacy /ask has event: wiki-answer."""
+        mock_ask = MagicMock()
+        mock_ask.ask_stream = _fake_ask_stream
+        _, client, _ = _make_ask_app(mock_ask)
+
+        v2 = client.post(
+            "/api/v1/wiki/ask/stream",
+            json={"repository": "r", "question": "Q"},
+        )
+        assert v2.status_code == 200
+        assert "event: " not in v2.text
+
+        legacy = client.post(
+            "/api/v1/wiki/ask",
+            json={"repository": "r", "question": "Q"},
+        )
+        assert legacy.status_code == 200
+        assert "event: wiki-answer" in legacy.text

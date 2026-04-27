@@ -11,7 +11,7 @@ from urllib.parse import unquote
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.exceptions import KbNotFound, KbServiceUnavailable
@@ -39,11 +39,13 @@ from api.routes.wiki_shared import (
     _search_response_to_json,
     get_graph_query_dep,
     get_route_settings,
+    get_wiki_editing_store_dep,
     get_wiki_search_dep,
     get_wiki_service_dep,
     get_wiki_store_dep,
     log,
 )
+from wiki.editing_store import WikiEditingStore
 
 router = APIRouter(tags=["wiki", "pages"])
 
@@ -174,9 +176,14 @@ async def wiki_get_page_by_path(
     row = result.data[0]
     sources_raw = row.get("sources") or []
     source_locations: list[dict[str, Any]] = []
+    source_entity_uids: list[str] = []
     for s in sources_raw:
         if isinstance(s, dict) and s.get("file_path"):
             source_locations.append(s)
+        if isinstance(s, dict):
+            eu = str(s.get("entity_uid") or "").strip()
+            if eu and eu not in source_entity_uids:
+                source_entity_uids.append(eu)
 
     is_stale = "false"
     page_uid = str(row.get("uid") or "")
@@ -211,10 +218,34 @@ async def wiki_get_page_by_path(
         "content": str(row.get("content") or ""),
         "diagrams": [],
         "source_locations": source_locations,
+        "source_entity_uids": source_entity_uids,
         "method_locations": [],
         "context": ctx,
         "generated_at": str(row.get("generated_at") or "") or None,
     }
+
+
+@router.get("/pages/by-source-entity", response_model=None)
+async def wiki_get_path_by_source_entity(
+    request: Request,
+    business_id: str = Query(default="default"),
+    entity_uid: str = Query(..., min_length=1),
+) -> dict[str, Any]:
+    """Return a wiki page path for a code entity linked via SOURCE_ENTITY, if any."""
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise KbServiceUnavailable("Wiki store unavailable")
+    cypher = (
+        "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage) "
+        "MATCH (wp)-[:SOURCE_ENTITY]->(e {uid: $entity_uid}) "
+        "RETURN coalesce(wp.path, '') AS path LIMIT 1"
+    )
+    result = await raw_store.execute_query(
+        cypher, {"business_id": business_id, "entity_uid": entity_uid}
+    )
+    row = (getattr(result, "data", None) or [None])[0]
+    p = str((row or {}).get("path") or "").strip() if row else ""
+    return {"path": p or None}
 
 
 @router.get("/pages/claim-history", response_model=None)
@@ -664,6 +695,99 @@ async def wiki_get_page_detail(
         "context": ctx,
         "generated_at": props.get("generated_at"),
     }
+
+
+def _raw_bearer_token(
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> str | None:
+    if not authorization:
+        token_q = request.query_params.get("token")
+        if token_q:
+            authorization = f"Bearer {token_q}"
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    return authorization[7:].strip() or None
+
+
+def _client_host(request: Request) -> str:
+    if request.client and request.client.host:
+        return request.client.host
+    return "0.0.0.0"
+
+
+@editor_router.post("/wiki/pages/{page_uid:path}/editing", response_model=None)
+async def wiki_page_editing_heartbeat(
+    request: Request,
+    page_uid: str,
+    business_id: str = Depends(get_effective_business_id),
+    raw_token: str | None = Depends(_raw_bearer_token),
+    editing_store: WikiEditingStore | None = Depends(get_wiki_editing_store_dep),
+) -> dict[str, Any]:
+    """Register or refresh editing presence (heartbeat) for a wiki page."""
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise KbServiceUnavailable("Wiki store unavailable")
+    store = WikiStore(raw_store)
+    decoded = unquote(page_uid)
+    if not await store.assert_wiki_page_in_business(business_id, decoded):
+        raise KbNotFound(f"Wiki page not found: {decoded}")
+    if editing_store is None:
+        return {"ok": True, "degraded": True}
+    eid = WikiEditingStore.editor_fingerprint(
+        token=raw_token, client_host=_client_host(request),
+    )
+    await editing_store.heartbeat(decoded, eid)
+    return {"ok": True, "degraded": False}
+
+
+@editor_router.delete("/wiki/pages/{page_uid:path}/editing", response_model=None)
+async def wiki_page_editing_stop(
+    request: Request,
+    page_uid: str,
+    business_id: str = Depends(get_effective_business_id),
+    raw_token: str | None = Depends(_raw_bearer_token),
+    editing_store: WikiEditingStore | None = Depends(get_wiki_editing_store_dep),
+) -> Response:
+    """Remove editing presence for the current client."""
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise KbServiceUnavailable("Wiki store unavailable")
+    store = WikiStore(raw_store)
+    decoded = unquote(page_uid)
+    if not await store.assert_wiki_page_in_business(business_id, decoded):
+        raise KbNotFound(f"Wiki page not found: {decoded}")
+    if editing_store is not None:
+        eid = WikiEditingStore.editor_fingerprint(
+            token=raw_token, client_host=_client_host(request),
+        )
+        await editing_store.stop(decoded, eid)
+    return Response(status_code=204)
+
+
+@editor_router.get("/wiki/pages/{page_uid:path}/editors", response_model=None)
+async def wiki_page_list_editors(
+    request: Request,
+    page_uid: str,
+    business_id: str = Depends(get_effective_business_id),
+    raw_token: str | None = Depends(_raw_bearer_token),
+    editing_store: WikiEditingStore | None = Depends(get_wiki_editing_store_dep),
+) -> dict[str, Any]:
+    """List active editors; ``other_active`` is true if another client is also editing."""
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise KbServiceUnavailable("Wiki store unavailable")
+    store = WikiStore(raw_store)
+    decoded = unquote(page_uid)
+    if not await store.assert_wiki_page_in_business(business_id, decoded):
+        raise KbNotFound(f"Wiki page not found: {decoded}")
+    if editing_store is None:
+        return {"editors": [], "other_active": False, "degraded": True}
+    self_id = WikiEditingStore.editor_fingerprint(
+        token=raw_token, client_host=_client_host(request),
+    )
+    out = await editing_store.list_editors(decoded, self_editor_id=self_id)
+    return {**out, "degraded": False}
 
 
 @editor_router.patch("/wiki/pages/{page_uid:path}/content", response_model=None)

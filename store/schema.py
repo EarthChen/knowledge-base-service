@@ -8,12 +8,13 @@ Node types:
   - Module(name, path, language, description; optional indexed_at, repository, commit_sha)
   - Document(title, path, content_hash, section; optional indexed_at, repository, commit_sha)
   - BusinessFlow, BusinessConcept (business semantics)
-  - WikiPage(uid, repository, path, title, content, page_type, generated_at; optional embedding)
+  - WikiPage(uid, repository, path, title, content, page_type, generated_at; optional embedding,
+             source_origin for user-crystallized Q&A pages)
   - WikiSpace(uid, business_id, title, description)
   - WikiSection(uid, title, description, section_type, sort_order)
   - WikiQA(uid, business_id, question, answer, source_pages, quality_score, created_at; embedding)
   - Chunk(text, parent_uid, parent_label, parent_name, chunk_index, file, start_line,
-          end_line, repository, indexed_at; embedding)
+          end_line, content_hash, repository, indexed_at; embedding)
 
 Edge types:
   - CALLS(caller → callee)

@@ -5,6 +5,7 @@ import { getErrorMessage } from "../utils/errorUtils";
 import type { ReasoningPathData, ReasoningStage, WikiAskSource } from "./wikiTypes";
 
 const API_BASE = "/api/v1";
+const WIKI_ASK_STREAM = `${API_BASE}/wiki/ask/stream`;
 
 export type WikiAskBody = {
   repository: string;
@@ -37,11 +38,11 @@ function parseReasoningPath(raw: unknown): ReasoningPathData | null {
   return { stages, answer_entities };
 }
 
-/** Parse SSE stream from POST /wiki/ask */
-async function consumeWikiAskStream(
+/** Parse SSE from POST /wiki/ask/stream — `data: { "type": "token" | "sources" | "done" | "error", ... }` */
+async function consumeWikiAskStreamSseV2(
   res: Response,
   handlers: {
-    onAnswerDelta?: (full: string, delta: string) => void;
+    onToken?: (delta: string) => void;
     onSources?: (sources: WikiAskSource[]) => void;
     onComplete?: (data: {
       conversation_id: string;
@@ -68,12 +69,9 @@ async function consumeWikiAskStream(
       const rawBlock = buffer.slice(0, sep);
       buffer = buffer.slice(sep + 2);
 
-      let eventName = "message";
       const dataLines: string[] = [];
       for (const line of rawBlock.split("\n")) {
-        if (line.startsWith("event:")) {
-          eventName = line.slice(6).trim();
-        } else if (line.startsWith("data:")) {
+        if (line.startsWith("data:")) {
           dataLines.push(line.slice(5).trimStart());
         }
       }
@@ -87,12 +85,10 @@ async function consumeWikiAskStream(
         continue;
       }
 
-      if (eventName === "wiki-answer") {
-        handlers.onAnswerDelta?.(
-          String(data.content ?? ""),
-          String(data.delta ?? ""),
-        );
-      } else if (eventName === "wiki-sources") {
+      const type = data.type;
+      if (type === "token") {
+        handlers.onToken?.(String(data.content ?? ""));
+      } else if (type === "sources") {
         const raw = data.sources;
         if (Array.isArray(raw)) {
           const sources = raw.map((s) => {
@@ -107,14 +103,14 @@ async function consumeWikiAskStream(
           });
           handlers.onSources?.(sources);
         }
-      } else if (eventName === "wiki-answer-complete") {
+      } else if (type === "done") {
         const rp = parseReasoningPath(data.reasoning_path);
         handlers.onComplete?.({
           conversation_id: String(data.conversation_id ?? ""),
           tokens_used: Number(data.tokens_used ?? 0),
           reasoning_path: rp,
         });
-      } else if (eventName === "error") {
+      } else if (type === "error") {
         const detail =
           typeof data.detail === "string"
             ? data.detail
@@ -175,7 +171,7 @@ export function useWikiAsk(repository: string | undefined) {
 
       let res: Response;
       try {
-        res = await fetch(`${API_BASE}/wiki/ask`, {
+        res = await fetch(WIKI_ASK_STREAM, {
           method: "POST",
           headers: authHeaders(),
           body: JSON.stringify(payload),
@@ -196,10 +192,12 @@ export function useWikiAsk(repository: string | undefined) {
       }
 
       try {
-        await consumeWikiAskStream(
+        await consumeWikiAskStreamSseV2(
           res,
           {
-            onAnswerDelta: (full) => setAnswer(full),
+            onToken: (delta) => {
+              if (delta) setAnswer((prev) => prev + delta);
+            },
             onSources: setSources,
             onComplete: (d) => {
               setConversationId(d.conversation_id);

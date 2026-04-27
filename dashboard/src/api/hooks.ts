@@ -244,7 +244,7 @@ export function useGraphExplore() {
   return useMutation<
     GraphExploreResponse,
     Error,
-    { name: string; depth: number; limit: number }
+    { name: string; center_uid?: string; depth: number; limit: number }
   >({
     mutationFn: (body) =>
       api("/graph/explore", { method: "POST", body: JSON.stringify(body) }),

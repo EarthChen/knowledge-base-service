@@ -26,6 +26,7 @@ from indexer.enrichment import (
 )
 from indexer.graph_enricher import GraphEnricher
 from indexer.import_resolver import ImportResolver
+from indexer.chunk_hash import apply_content_hash_to_nodes
 from indexer.index_report import IndexReport
 from log import get_logger
 from store.falkordb_store import FalkorDBStore
@@ -107,6 +108,15 @@ def _stamp_repository_metadata(
 
 def _get_exclude_dirs() -> set[str]:
     return set(get_settings().exclude_dirs)
+
+
+def _path_keys_for_store(fpath: str, directory: str) -> list[str]:
+    """Graph ``file`` / ``path`` keys to query (repo-relative and absolute on-disk) for the same file."""
+    full = str(Path(directory) / fpath)
+    keys: set[str] = {fpath}
+    if full and full != fpath:
+        keys.add(full)
+    return list(keys)
 
 
 class IncrementalIndexer:
@@ -241,6 +251,7 @@ class IncrementalIndexer:
         try:
             for fpath, nodes, edges in self._builder.iter_directory(directory):
                 try:
+                    apply_content_hash_to_nodes(nodes)
                     _stamp_repository_metadata(nodes, repository, commit_sha=commit_sha)
                     await self._store.batch_upsert(nodes, edges)
                     total_nodes += len(nodes)
@@ -450,14 +461,17 @@ class IncrementalIndexer:
             EnrichmentPriorityClassifier() if enrichment_strategy == "core_only" else None
         )
 
+        total_embeds = 0
         for fpath in modified_files:
             try:
                 full_path = str(Path(directory) / fpath)
-                await self._store.delete_by_file(fpath)
-                await self._store.delete_by_file(full_path)
                 if not Path(full_path).exists():
                     report.record_file_skipped()
                     continue
+
+                path_keys = _path_keys_for_store(fpath, directory)
+                old_hashes = await self._store.get_chunk_hashes_for_files(path_keys)
+                old_uids = await self._store.get_node_uids_for_files(path_keys)
 
                 ext = _config_file_extension(Path(fpath))
 
@@ -465,11 +479,45 @@ class IncrementalIndexer:
                     try:
                         doc = self._doc_indexer.parse_document(full_path, store_path=fpath)
                         doc_nodes, doc_edges = self._doc_indexer.build_graph(doc)
+                        apply_content_hash_to_nodes(doc_nodes)
+                        new_uids = {n.uid for n in doc_nodes}
+                        stale = list(old_uids - new_uids)
+                        await self._store.delete_parser_edges_for_files(path_keys)
+                        if stale:
+                            await self._store.delete_nodes_by_uids(stale)
                         _stamp_repository_metadata(doc_nodes, repository, commit_sha=commit_sha)
                         await self._store.batch_upsert(doc_nodes, doc_edges)
                         doc_file_paths.append(fpath)
                         total_doc_nodes += len(doc_nodes)
                         total_doc_edges += len(doc_edges)
+                        embeddable = [
+                            n
+                            for n in doc_nodes
+                            if n.label
+                            in (
+                                NodeLabel.FUNCTION,
+                                NodeLabel.CLASS,
+                                NodeLabel.DOCUMENT,
+                                NodeLabel.CHUNK,
+                            )
+                        ]
+                        t_emb = len(embeddable)
+                        to_embed = [
+                            n
+                            for n in embeddable
+                            if old_hashes.get(n.uid) != n.properties.get("content_hash")
+                        ]
+                        log.info(
+                            "chunk_skip",
+                            file=fpath,
+                            total=t_emb,
+                            skipped=t_emb - len(to_embed),
+                            updated=len(to_embed),
+                        )
+                        if to_embed:
+                            total_embeds += await self._generate_and_store_embeddings(
+                                to_embed, skip_enrich=True,
+                            )
                         report.record_file_success(fpath, doc_nodes, doc_edges)
                     except Exception as exc:
                         log.warning("incremental_doc_index_error", file=full_path, error=str(exc))
@@ -480,11 +528,45 @@ class IncrementalIndexer:
                         store_path=fpath,
                         import_resolver=import_resolver,
                     )
+                    apply_content_hash_to_nodes(nodes)
+                    new_uids = {n.uid for n in nodes}
+                    stale = list(old_uids - new_uids)
+                    await self._store.delete_parser_edges_for_files(path_keys)
+                    if stale:
+                        await self._store.delete_nodes_by_uids(stale)
                     _stamp_repository_metadata(nodes, repository, commit_sha=commit_sha)
                     await self._store.batch_upsert(nodes, edges)
                     code_file_paths.append(fpath)
                     total_nodes += len(nodes)
                     total_edges += len(edges)
+                    embeddable = [
+                        n
+                        for n in nodes
+                        if n.label
+                        in (
+                            NodeLabel.FUNCTION,
+                            NodeLabel.CLASS,
+                            NodeLabel.DOCUMENT,
+                            NodeLabel.CHUNK,
+                        )
+                    ]
+                    t_emb = len(embeddable)
+                    to_embed = [
+                        n
+                        for n in embeddable
+                        if old_hashes.get(n.uid) != n.properties.get("content_hash")
+                    ]
+                    log.info(
+                        "chunk_skip",
+                        file=fpath,
+                        total=t_emb,
+                        skipped=t_emb - len(to_embed),
+                        updated=len(to_embed),
+                    )
+                    if to_embed:
+                        total_embeds += await self._generate_and_store_embeddings(
+                            to_embed, skip_enrich=True,
+                        )
                     for n in nodes:
                         if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS):
                             enrich_candidates += 1
@@ -547,22 +629,7 @@ class IncrementalIndexer:
             progress_callback(enriched_count=enriched_n)
 
         if progress_callback:
-            progress_callback(phase="embedding")
-        total_embeds = 0
-        all_embed_paths = code_file_paths + doc_file_paths
-        embed_total = len(all_embed_paths)
-        for idx, fpath in enumerate(all_embed_paths):
-            nodes_for_embed = await self._store.get_nodes_by_file(fpath)
-            if nodes_for_embed:
-                total_embeds += await self._generate_and_store_embeddings(
-                    nodes_for_embed, skip_enrich=True,
-                )
-            if progress_callback and (idx + 1) % 20 == 0:
-                progress_callback(
-                    embeddings=total_embeds,
-                    current_file=fpath,
-                    phase=f"embedding ({idx + 1}/{embed_total})",
-                )
+            progress_callback(phase="embedding", embeddings=total_embeds)
 
         if progress_callback:
             progress_callback(phase="resolving_references", embeddings=total_embeds)
@@ -703,14 +770,46 @@ class IncrementalIndexer:
         When *None* it equals *file_path* (backward compatible).
         """
         persist = store_path or file_path
-        await self._store.delete_by_file(persist)
-        if persist != file_path:
-            await self._store.delete_by_file(file_path)
+        path_keys = {persist, file_path} if file_path != persist else {persist}
+        old_hashes = await self._store.get_chunk_hashes_for_files(path_keys)
+        old_uids = await self._store.get_node_uids_for_files(path_keys)
         nodes, edges = self._builder.build_from_file(file_path, content, store_path=persist)
+        apply_content_hash_to_nodes(nodes)
+        new_uids = {n.uid for n in nodes}
+        await self._store.delete_parser_edges_for_files(path_keys)
+        stale = list(old_uids - new_uids)
+        if stale:
+            await self._store.delete_nodes_by_uids(stale)
         _sha = _try_git_head_sha_for_file(file_path)
         _stamp_repository_metadata(nodes, repository, commit_sha=_sha)
         await self._store.batch_upsert(nodes, edges)
-        embed_count = await self._generate_and_store_embeddings(nodes)
+        embeddable = [
+            n
+            for n in nodes
+            if n.label
+            in (
+                NodeLabel.FUNCTION,
+                NodeLabel.CLASS,
+                NodeLabel.DOCUMENT,
+                NodeLabel.CHUNK,
+            )
+        ]
+        t_emb = len(embeddable)
+        to_embed = [
+            n
+            for n in embeddable
+            if old_hashes.get(n.uid) != n.properties.get("content_hash")
+        ]
+        log.info(
+            "chunk_skip",
+            file=persist,
+            total=t_emb,
+            skipped=t_emb - len(to_embed),
+            updated=len(to_embed),
+        )
+        embed_count = 0
+        if to_embed:
+            embed_count = await self._generate_and_store_embeddings(to_embed)
         return {"nodes": len(nodes), "edges": len(edges), "embeddings": embed_count}
 
     async def _enrich_from_items(
@@ -774,10 +873,15 @@ class IncrementalIndexer:
     async def _generate_and_store_embeddings(
         self, nodes: list, *, skip_enrich: bool = False,
     ) -> int:
-        """Generate and store embeddings for Function, Class, and Document nodes."""
+        """Generate and store embeddings for Function, Class, Document, and Chunk nodes."""
         embeddable = [
             n for n in nodes
-            if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS, NodeLabel.DOCUMENT)
+            if n.label in (
+                NodeLabel.FUNCTION,
+                NodeLabel.CLASS,
+                NodeLabel.DOCUMENT,
+                NodeLabel.CHUNK,
+            )
         ]
         if not embeddable:
             return 0
@@ -819,7 +923,12 @@ class IncrementalIndexer:
                             )
 
         doc_indices = [i for i, n in enumerate(embeddable) if n.label == NodeLabel.DOCUMENT]
-        code_indices = [i for i, n in enumerate(embeddable) if n.label != NodeLabel.DOCUMENT]
+        code_indices = [
+            i
+            for i, n in enumerate(embeddable)
+            if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS)
+        ]
+        chunk_indices = [i for i, n in enumerate(embeddable) if n.label == NodeLabel.CHUNK]
 
         by_index: dict[int, list[float]] = {}
         if doc_indices:
@@ -842,6 +951,24 @@ class IncrementalIndexer:
             ]
             code_embs = await self._embedding.generate_for_code(code_items)
             for i, emb in zip(code_indices, code_embs):
+                by_index[i] = emb
+        if chunk_indices:
+            chunk_items = [
+                {
+                    "name": "",
+                    "signature": "",
+                    "docstring": "",
+                    "code_snippet": str(
+                        embeddable[i].properties.get("text", "")
+                        or embeddable[i].properties.get("code_snippet", "")
+                        or "",
+                    ),
+                    "business_summary": embeddable[i].properties.get("business_summary", ""),
+                }
+                for i in chunk_indices
+            ]
+            chunk_embs = await self._embedding.generate_for_code(chunk_items)
+            for i, emb in zip(chunk_indices, chunk_embs):
                 by_index[i] = emb
 
         for idx, node in enumerate(embeddable):

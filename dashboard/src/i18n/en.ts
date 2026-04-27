@@ -230,6 +230,7 @@ const en: Translations = {
     flowChart: "Flow Chart",
     resultCount: "results",
     doubleClickDrillDown: "Double-click node to drill down",
+    viewWiki: "View Wiki",
   },
   repos: {
     title: "Repositories",
@@ -673,8 +674,11 @@ const en: Translations = {
     askEndpointHelpBefore:
       "Answers use hybrid search context and stream from the wiki Q&A endpoint (",
     askEndpointHelpAfter: ").",
+    askPreparing: "Retrieving context and generating…",
     askV2Footnote:
       "Ask v2: Context enhanced by graph search including call chains and module context",
+    askCrystallize: "Save to Wiki",
+    askCrystallizeSuccess: "Saved page “{title}”. Open it using the link below.",
     deepResearchScopeNote:
       "Deep Research searches the entire knowledge base (may span multiple repos)",
     deepResearchPlaceholder: "Ask a deep research question…",
@@ -850,7 +854,13 @@ const en: Translations = {
     wikiEditorCancel: "Cancel",
     wikiEditorSaving: "Saving...",
     wikiEditorDismiss: "Dismiss",
+    /** Collaboration: shown when another editor is active (EN UI). */
+    editorConflictWarning:
+      "Another user is currently editing this page. Your changes may conflict.",
+    /** Same notice in Chinese (e.g. bilingual tools). */
+    editorConflictWarningZh: "其他用户正在编辑此页面，您的更改可能发生冲突。",
     editContent: "Edit page content",
+    viewInGraph: "View in Graph",
   },
   sync: {
     title: "Sync schedules",

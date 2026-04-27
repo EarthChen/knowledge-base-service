@@ -90,6 +90,12 @@ class GatewayLLMProviderAdapter:
         messages: list[dict[str, str]],
         **kwargs: Any,
     ) -> AsyncIterator[str]:
+        if hasattr(self._inner, "complete_stream"):
+            stream = self._inner.complete_stream(messages, **kwargs)
+            async for chunk in stream:  # type: ignore[union-attr]
+                if chunk:
+                    yield chunk
+            return
         yield await self.complete(messages, **kwargs)
 
     async def close(self) -> None:
@@ -101,6 +107,22 @@ class LLMPortBridge:
 
     def __init__(self, provider: BaseLLMProvider) -> None:
         self._provider = provider
+
+    async def complete(
+        self,
+        messages: list[dict[str, str]],
+        **kwargs: Any,
+    ) -> str:
+        return await self._provider.complete(messages, **kwargs)
+
+    async def complete_stream(
+        self,
+        messages: list[dict[str, str]],
+        **kwargs: Any,
+    ) -> AsyncIterator[str]:
+        async for chunk in self._provider.complete_stream(messages, **kwargs):
+            if chunk:
+                yield chunk
 
     async def generate(self, prompt: str, system: str = "") -> str:
         messages: list[dict[str, str]] = []

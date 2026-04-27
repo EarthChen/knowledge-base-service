@@ -71,6 +71,24 @@ class WikiResearchBody(BaseModel):
     business_id: str = Field(default="default", min_length=1)
 
 
+class WikiCrystallizeBody(BaseModel):
+    """Save an ask answer as a new wiki page (session crystallization)."""
+
+    repository: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1)
+    answer: str = Field(..., min_length=1)
+    sources: list[str] = Field(default_factory=list)
+    conversation_id: str | None = None
+    business_id: str = Field(default="default", min_length=1)
+
+
+class WikiCrystallizeResponse(BaseModel):
+    page_uid: str
+    title: str
+    path: str
+    conversation_id: str | None = None
+
+
 class WikiQaRecordBody(BaseModel):
     business_id: str = Field(..., min_length=1)
     question: str = Field(..., min_length=1)

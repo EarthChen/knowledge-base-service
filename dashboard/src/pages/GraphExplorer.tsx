@@ -1,4 +1,11 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import {
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+  type MutableRefObject,
+} from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   ReactFlow,
@@ -15,7 +22,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "@dagrejs/dagre";
-import { Network, Search, ZoomIn, Loader2, Eye, EyeOff, AlertTriangle, Undo2 } from "lucide-react";
+import { Network, Search, ZoomIn, Loader2, Eye, EyeOff, AlertTriangle, Undo2, BookOpen } from "lucide-react";
 import {
   useGraphExplore,
   useGraphExpand,
@@ -23,8 +30,12 @@ import {
   useGraphCommunities,
   useRepositories,
 } from "../api/hooks";
+import { getCurrentBusiness } from "../api/client";
+import { useWikiPathForSourceEntity } from "../hooks/useWikiPathForSourceEntity";
+import { wikiHref } from "../components/wiki/wikiRouteHelpers";
 import { useI18n } from "../i18n/context";
 import type {
+  GraphExploreResponse,
   GraphNode as ApiNode,
   GraphEdge as ApiEdge,
   CommunityInfo,
@@ -221,9 +232,45 @@ function truncateDoc(s: string, max = 280): string {
   return `${t.slice(0, max)}…`;
 }
 
+function ingestExploreResult(
+  data: GraphExploreResponse,
+  selectId: string | null,
+  opts: {
+    setInitialSliceHint: (v: boolean) => void;
+    setExpandHistory: (v: string[][]) => void;
+    setSelectedNodeId: (v: string | null) => void;
+    apiNodesRef: MutableRefObject<Map<string, ApiNode>>;
+    edgesRef: MutableRefObject<ApiEdge[]>;
+    applyGraphLayout: () => void;
+    expandReset: () => void;
+  },
+) {
+  const {
+    setInitialSliceHint,
+    setExpandHistory,
+    setSelectedNodeId,
+    apiNodesRef,
+    edgesRef,
+    applyGraphLayout,
+    expandReset,
+  } = opts;
+  expandReset();
+  setExpandHistory([]);
+  const overflow = data.nodes.length > INITIAL_NODE_LIMIT;
+  setInitialSliceHint(overflow);
+  const slice = overflow ? data.nodes.slice(0, INITIAL_NODE_LIMIT) : data.nodes;
+  apiNodesRef.current = new Map(slice.map((n) => [n.id, n]));
+  const idset = new Set(slice.map((n) => n.id));
+  edgesRef.current = data.edges.filter(
+    (e) => idset.has(e.source) && idset.has(e.target),
+  );
+  applyGraphLayout();
+  setSelectedNodeId(selectId);
+}
+
 export default function GraphExplorer() {
-  const [graphSearchParams] = useSearchParams();
-  const [searchName, setSearchName] = useState(() => graphSearchParams.get("q") ?? "");
+  const [searchParams] = useSearchParams();
+  const [searchName, setSearchName] = useState(() => searchParams.get("q") ?? "");
   const [depth, setDepth] = useState(2);
   const [limit, setLimit] = useState(100);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -297,24 +344,49 @@ export default function GraphExplorer() {
         { name: name.trim(), depth, limit },
         {
           onSuccess: (data) => {
-            expandMutation.reset();
-            setExpandHistory([]);
-            const overflow = data.nodes.length > INITIAL_NODE_LIMIT;
-            setInitialSliceHint(overflow);
-            const slice = overflow ? data.nodes.slice(0, INITIAL_NODE_LIMIT) : data.nodes;
-            apiNodesRef.current = new Map(slice.map((n) => [n.id, n]));
-            const idset = new Set(slice.map((n) => n.id));
-            edgesRef.current = data.edges.filter(
-              (e) => idset.has(e.source) && idset.has(e.target),
-            );
-            applyGraphLayout();
-            setSelectedNodeId(null);
+            ingestExploreResult(data, null, {
+              setInitialSliceHint,
+              setExpandHistory,
+              setSelectedNodeId,
+              apiNodesRef,
+              edgesRef,
+              applyGraphLayout,
+              expandReset: () => expandMutation.reset(),
+            });
           },
         },
       );
     },
     [depth, limit, mutation, expandMutation, applyGraphLayout],
   );
+
+  const nodeDeepLinkRef = useRef<string | null>(null);
+  const nodeParam = searchParams.get("node");
+  useEffect(() => {
+    const n = (nodeParam ?? "").trim();
+    if (!n) {
+      nodeDeepLinkRef.current = null;
+      return;
+    }
+    if (nodeDeepLinkRef.current === n) return;
+    nodeDeepLinkRef.current = n;
+    mutation.mutate(
+      { name: "", center_uid: n, depth, limit },
+      {
+        onSuccess: (data) => {
+          ingestExploreResult(data, n, {
+            setInitialSliceHint,
+            setExpandHistory,
+            setSelectedNodeId,
+            apiNodesRef,
+            edgesRef,
+            applyGraphLayout,
+            expandReset: () => expandMutation.reset(),
+          });
+        },
+      },
+    );
+  }, [nodeParam, depth, limit, mutation, expandMutation, applyGraphLayout]);
 
   useEffect(() => {
     if (apiNodesRef.current.size === 0) return;
@@ -472,6 +544,10 @@ export default function GraphExplorer() {
   }, [typeVisible, isDark, communityHighlight, setNodes]);
 
   const selectedApiNode = selectedNodeId ? apiNodesRef.current.get(selectedNodeId) : undefined;
+  const businessId = getCurrentBusiness();
+  const wikiForEntity = useWikiPathForSourceEntity(businessId, selectedNodeId, {
+    enabled: Boolean(selectedNodeId?.trim()),
+  });
 
   const legend = useMemo(() => {
     const P = paletteForTheme(isDark);
@@ -991,6 +1067,15 @@ export default function GraphExplorer() {
               >
                 {t.explorer.expandAllNeighbors}
               </button>
+              {wikiForEntity.data?.path && !wikiForEntity.isLoading && !wikiForEntity.isError ? (
+                <Link
+                  to={wikiHref(wikiForEntity.data.path, { business_id: businessId })}
+                  className="inline-flex items-center justify-center rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-medium text-violet-900 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/80 dark:text-violet-100 dark:hover:bg-violet-900/80"
+                >
+                  <BookOpen size={14} className="mr-1.5 inline shrink-0" aria-hidden />
+                  {t.graph.viewWiki}
+                </Link>
+              ) : null}
               <Link
                 to={
                   selectedApiNode.name

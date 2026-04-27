@@ -8,6 +8,8 @@ from dataclasses import asdict
 from typing import Any
 
 from fastapi import Depends, Request
+
+from wiki.editing_store import WikiEditingStore
 from store.wiki_feedback_store import WikiFeedbackStore
 from store.wiki_store import WikiStore
 from wiki.ask import WikiAskService
@@ -53,6 +55,7 @@ __all__ = [
     "get_wiki_docs_exporter_dep",
     "get_wiki_lint_service_dep",
     "get_wiki_feedback_store_dep",
+    "get_wiki_editing_store_dep",
     "_maybe_call",
     "_wiki_page_from_export_dict",
     "_search_response_to_json",
@@ -101,6 +104,17 @@ def get_wiki_store_dep(request: Request) -> Any:
     if store is None:
         raise KbServiceUnavailable("Graph store not configured")
     return store
+
+
+def get_wiki_editing_store_dep(request: Request) -> WikiEditingStore | None:
+    """Redis-backed editing presence; same connection as ``WikiTaskStore`` when available."""
+    wts = getattr(request.app.state, "wiki_task_store", None)
+    if wts is None:
+        return None
+    redis_conn = getattr(wts, "_redis", None)
+    if redis_conn is None:
+        return None
+    return WikiEditingStore(redis_conn)
 
 
 async def get_wiki_search_dep(request: Request) -> WikiSearchService:

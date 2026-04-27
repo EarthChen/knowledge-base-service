@@ -245,6 +245,7 @@ export interface Translations {
     flowChart: string;
     resultCount: string;
     doubleClickDrillDown: string;
+    viewWiki: string;
   };
   repos: {
     title: string;
@@ -686,7 +687,11 @@ export interface Translations {
     askScorePrefix: string;
     askEndpointHelpBefore: string;
     askEndpointHelpAfter: string;
+    /** Shown while search + first token are in flight */
+    askPreparing: string;
     askV2Footnote: string;
+    askCrystallize: string;
+    askCrystallizeSuccess: string;
     deepResearchScopeNote: string;
     /** Wiki tab — deep research panel */
     deepResearchPlaceholder: string;
@@ -863,7 +868,10 @@ export interface Translations {
     wikiEditorCancel: string;
     wikiEditorSaving: string;
     wikiEditorDismiss: string;
+    editorConflictWarning: string;
+    editorConflictWarningZh: string;
     editContent: string;
+    viewInGraph: string;
   };
   sync: {
     title: string;

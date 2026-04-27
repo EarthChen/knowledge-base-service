@@ -22,6 +22,8 @@ class PageType(StrEnum):
     DOMAIN_OVERVIEW = "domain_overview"
     BUSINESS_FLOW = "business_flow"
     INDEX = "index"
+    # Saved from Q&A session crystallization
+    CRYSTALLIZED = "crystallized"
 
 
 class DiagramType(StrEnum):

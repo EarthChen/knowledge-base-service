@@ -6,6 +6,7 @@ import type { WikiSearchResult } from "../../hooks/wikiTypes";
 import { useI18n } from "../../i18n/context";
 import { wikiHref } from "./wikiRouteHelpers";
 import { getErrorMessage } from "../../utils/errorUtils";
+import HighlightText from "../HighlightText";
 
 function repoFilterBody(repositories: string[] | null | undefined): string[] | null | undefined {
   if (repositories === undefined) return undefined;
@@ -85,6 +86,8 @@ export default function WikiGlobalSearchBar({
 
   const byRepo = data?.by_repository ?? {};
   const groups = Object.entries(byRepo).filter(([, hits]) => hits.length > 0);
+  const highlightQ = q.trim();
+  const showHighlight = highlightQ.length > 0;
 
   const outerClass = [
     "rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900",
@@ -176,9 +179,19 @@ export default function WikiGlobalSearchBar({
                       to={wikiHref(r.page_path)}
                       className="block rounded-lg border border-transparent px-3 py-2 transition-colors hover:border-sky-200 hover:bg-sky-50/60 dark:hover:border-sky-900 dark:hover:bg-sky-950/40"
                     >
-                      <span className="font-medium text-gray-900 dark:text-gray-100">{r.title}</span>
+                      <span className="font-medium text-gray-900 dark:text-gray-100">
+                        {showHighlight ? (
+                          <HighlightText text={r.title} query={highlightQ} />
+                        ) : (
+                          r.title
+                        )}
+                      </span>
                       <span className="mt-0.5 block truncate font-mono text-[11px] text-gray-500 dark:text-gray-400">
-                        {r.page_path}
+                        {showHighlight ? (
+                          <HighlightText text={r.page_path} query={highlightQ} />
+                        ) : (
+                          r.page_path
+                        )}
                       </span>
                     </Link>
                   </li>

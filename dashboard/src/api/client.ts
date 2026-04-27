@@ -161,3 +161,32 @@ export async function businessWikiExport(
     body: JSON.stringify(body),
   });
 }
+
+export type WikiCrystallizeRequest = {
+  repository: string;
+  question: string;
+  answer: string;
+  sources: string[];
+  conversation_id?: string | null;
+  business_id?: string;
+};
+
+export type WikiCrystallizeResponse = {
+  page_uid: string;
+  title: string;
+  path: string;
+  conversation_id?: string | null;
+};
+
+export async function wikiCrystallize(
+  body: WikiCrystallizeRequest,
+): Promise<WikiCrystallizeResponse> {
+  const businessId = body.business_id ?? getCurrentBusiness() ?? "default";
+  return api<WikiCrystallizeResponse>("/wiki/ask/crystallize", {
+    method: "POST",
+    body: JSON.stringify({
+      ...body,
+      business_id: businessId,
+    }),
+  });
+}

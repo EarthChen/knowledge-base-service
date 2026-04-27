@@ -197,6 +197,19 @@ class KnowledgeBaseService:
 
         from store.wiki_store import WikiStore as _WikiStore
 
+        community_service = None
+        if settings.wiki.community_context_enabled:
+            try:
+                from query.community_detection import CommunityDetector
+                from wiki.community_context import CachedCommunityService
+
+                community_service = CachedCommunityService(
+                    self._store,
+                    CommunityDetector(self._store),
+                )
+            except Exception:  # noqa: BLE001 — optional wiring
+                log.warning("community_context_service_unavailable", exc_info=True)
+
         self._wiki_service = WikiService(
             graph=self._store,
             llm=self._llm_provider,
@@ -205,6 +218,7 @@ class KnowledgeBaseService:
             deferred_enrichment=self._wiki_deferred_enrichment,
             flow_inferencer=self._wiki_flow_inferencer,
             wiki_store=_WikiStore(self._store),
+            community_service=community_service,
             wiki_config=settings.wiki,
             embedding_config=settings.embedding,
         )

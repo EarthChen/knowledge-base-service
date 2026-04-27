@@ -15,6 +15,7 @@ from llm.provider_factory import LLMProviderFactory
 from store.schema import GraphNode, NodeLabel
 from wiki.composer import WikiComposer
 from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
+from wiki.community_context import format_communities_markdown
 from wiki.confidence_scorer import confidence_scorer_from_wiki_app_config
 from wiki.deferred_enrichment import DeferredEnrichmentService
 from wiki.context import WikiContextBuilder
@@ -102,6 +103,7 @@ class WikiService:
         flow_inferencer: BusinessFlowInferencer | None = None,
         wiki_store: Any | None = None,
         memory_loop: MemoryLoop | None = None,
+        community_service: Any | None = None,
         *,
         wiki_config: WikiAppConfig,
         embedding_config: EmbeddingConfig,
@@ -126,6 +128,7 @@ class WikiService:
         self._deferred_enrichment = deferred_enrichment
         self._flow_inferencer = flow_inferencer
         self._memory_loop = memory_loop
+        self._community_service = community_service
 
     def _composer_for(self, llm_provider: str | None) -> WikiComposer:
         llm_port = self._resolve_llm_port(llm_provider)
@@ -291,6 +294,15 @@ class WikiService:
         config = self._config_for(mode, format, repository, language)
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
+        community_markdown = ""
+        if self._community_service and getattr(
+            self._wiki_cfg, "community_context_enabled", True,
+        ):
+            try:
+                cr = await self._community_service.get_cached(repository)
+                community_markdown = format_communities_markdown(cr)
+            except Exception:  # noqa: BLE001 — optional context: never fail wiki generation
+                log.warning("community_context_failed", repository=repository, exc_info=True)
         _importance_tiers: dict[str, ImportanceTier] = {}
         app_cfg = self._wiki_cfg
         if app_cfg.code_budget_enabled and self._wiki_store is not None:
@@ -325,6 +337,7 @@ class WikiService:
             composer,
             _importance_tiers,
             llm_provider,
+            community_markdown=community_markdown,
         )
         await self._persist_pages_to_graph(repository, pages, language=language)
         await self._run_compilation_snapshot("default", repository)
@@ -459,6 +472,15 @@ class WikiService:
         config = self._config_for(mode, format, repository, language)
         await self._ensure_repo(repository)
         structure = await self._planner.plan(repository, scope)
+        community_markdown = ""
+        if self._community_service and getattr(
+            self._wiki_cfg, "community_context_enabled", True,
+        ):
+            try:
+                cr = await self._community_service.get_cached(repository)
+                community_markdown = format_communities_markdown(cr)
+            except Exception:  # noqa: BLE001 — optional context: never fail wiki generation
+                log.warning("community_context_failed", repository=repository, exc_info=True)
         _importance_tiers: dict[str, ImportanceTier] = {}
         app_cfg = self._wiki_cfg
         if app_cfg.code_budget_enabled and self._wiki_store is not None:
@@ -495,7 +517,9 @@ class WikiService:
             node: WikiStructureNode, parent_ctx: str = "",
         ) -> AsyncIterator[WikiPage]:
             if node.page_type == PageType.REPO_OVERVIEW:
-                page = self._make_repo_overview_page(repository, structure, config)
+                page = self._make_repo_overview_page(
+                    repository, structure, config, community_markdown=community_markdown,
+                )
                 page.metadata.enrichment_level = EnrichmentLevel.BASE
                 yield page
                 for ch in node.children:
@@ -781,6 +805,8 @@ class WikiService:
         composer: WikiComposer,
         importance_tiers: dict[str, ImportanceTier] | None = None,
         llm_provider: str | None = None,
+        *,
+        community_markdown: str = "",
     ) -> tuple[list[WikiPage], bool]:
         pages: list[WikiPage] = []
         degraded = False
@@ -790,7 +816,9 @@ class WikiService:
         async def walk(node: WikiStructureNode, parent_ctx: str = "") -> None:
             nonlocal degraded
             if node.page_type == PageType.REPO_OVERVIEW:
-                page = self._make_repo_overview_page(repository, structure, config)
+                page = self._make_repo_overview_page(
+                    repository, structure, config, community_markdown=community_markdown,
+                )
                 page.metadata.enrichment_level = EnrichmentLevel.BASE
                 pages.append(page)
             else:
@@ -836,6 +864,7 @@ class WikiService:
         repository: str,
         structure: WikiStructure,
         config: WikiConfig,
+        community_markdown: str = "",
     ) -> WikiPage:
         lines = [
             f"# {structure.repository}",
@@ -844,11 +873,14 @@ class WikiService:
             "",
             f"- Planned wiki pages: {structure.total_pages}",
         ]
+        content = "\n".join(lines)
+        if community_markdown.strip():
+            content = f"{content}\n\n{community_markdown.rstrip()}\n"
         return WikiPage(
             path="README.md",
             title=structure.repository,
             page_type=PageType.REPO_OVERVIEW,
-            content="\n".join(lines),
+            content=content,
             diagrams=[],
             source_locations=[],
             metadata=WikiPageMetadata(

@@ -209,6 +209,10 @@ class WikiConfig(BaseModel):
     importance_core_percentile: int = 80
     importance_standard_percentile: int = 30
 
+    # Phase 2: community context (wiki repo overview)
+    community_context_enabled: bool = True
+    """When true, run community detection and inject Markdown into the repository overview page."""
+
     # Phase 2: RAG retrieval
     rag_enabled: bool = True
     rag_top_k: int = 5

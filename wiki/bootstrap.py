@@ -212,6 +212,19 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
         kb_svc = await registry.get_service("default")
         from store.wiki_store import WikiStore as _WikiStore
 
+        community_service = None
+        if settings.wiki.community_context_enabled:
+            try:
+                from query.community_detection import CommunityDetector
+                from wiki.community_context import CachedCommunityService
+
+                community_service = CachedCommunityService(
+                    kb_svc.store,
+                    CommunityDetector(kb_svc.store),
+                )
+            except Exception:  # noqa: BLE001 — optional wiring
+                log.warning("community_context_service_unavailable", exc_info=True)
+
         return WikiService(
             graph=kb_svc.store,
             llm=_wrap_llm(kb_svc.llm_provider),
@@ -221,6 +234,7 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
             flow_inferencer=kb_svc.wiki_flow_inferencer,
             wiki_store=_WikiStore(kb_svc.store),
             memory_loop=wiki_mem,
+            community_service=community_service,
             wiki_config=settings.wiki,
             embedding_config=settings.embedding,
         )

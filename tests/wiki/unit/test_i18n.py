@@ -193,6 +193,8 @@ class TestServiceLanguagePropagation:
             _composer: object,
             _importance_tiers: object = None,
             _llm_provider: str | None = None,
+            *,
+            community_markdown: str = "",
         ) -> tuple[list, bool]:
             captured["config"] = config
             return [], False

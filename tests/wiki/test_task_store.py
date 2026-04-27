@@ -60,6 +60,9 @@ async def test_update_status(store, mock_redis):
     mapping = call_args[1].get("mapping") or call_args[0][1]
     assert mapping["status"] == "running"
     assert mapping["current_repo"] == "user-svc"
+    mock_redis.expire.assert_called_once_with(
+        "kb:wiki_tasks:t1", WikiTaskStore.DEFAULT_TTL,
+    )
 
 
 @pytest.mark.asyncio

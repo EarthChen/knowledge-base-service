@@ -67,7 +67,9 @@ class WikiTaskStore:
                 mapping[k] = json.dumps(v, default=str)
             else:
                 mapping[k] = str(v) if v is not None else ""
-        await self._redis.hset(self._key(task_id), mapping=mapping)
+        key = self._key(task_id)
+        await self._redis.hset(key, mapping=mapping)
+        await self._redis.expire(key, self.DEFAULT_TTL)
 
     async def try_lock(self, business_id: str) -> bool:
         ok = await self._redis.set(

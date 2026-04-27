@@ -67,29 +67,6 @@ async def _run_business_wiki_background(
     """Background coroutine: run business wiki generation and update task state."""
     _ = incremental
 
-    async def _progress(info: dict) -> None:  # noqa: F841
-        if task_store:
-            pct = int(
-                info.get("completed_repos", 0) / max(info.get("total_repos", 1), 1) * 100
-            )
-            await task_store.update_status(
-                task_id,
-                "running",
-                completed_repos=info.get("completed_repos", 0),
-                total_repos=info.get("total_repos", 0),
-                current_repo=info.get("current_repo", ""),
-                progress_pct=pct,
-            )
-        if event_bus:
-            await event_bus.publish(
-                WikiEvent(
-                    event_type="business_gen_progress",
-                    repository=info.get("current_repo", ""),
-                    business_id=business_id,
-                    data={"task_id": task_id, **info},
-                )
-            )
-
     try:
         if task_store:
             await task_store.update_status(task_id, "running")
@@ -115,10 +92,10 @@ async def _run_business_wiki_background(
                     data={"task_id": task_id, "pages_count": result.get("pages_count", 0)},
                 )
             )
-    except Exception as exc:
-        log.warning("business_wiki_background_failed", task_id=task_id, exc_info=True)
+    except Exception:
+        log.exception("business_wiki_background_failed", task_id=task_id)
         if task_store:
-            await task_store.update_status(task_id, "failed", error=str(exc))
+            await task_store.update_status(task_id, "failed", error="internal_error")
     finally:
         if task_store:
             await task_store.unlock(business_id)
@@ -399,6 +376,7 @@ async def generate_business_wiki(
     body: BusinessWikiGenerateBody,
     request: Request,
     svc: WikiService = Depends(get_wiki_service_dep),
+    registry: WikiTaskRegistry = Depends(get_task_registry_dep),
 ) -> JSONResponse:
     """Trigger cross-repo business-level wiki generation as a background task."""
     task_store: WikiTaskStore | None = getattr(
@@ -418,34 +396,42 @@ async def generate_business_wiki(
         )
 
     task_id = f"biz-wiki-{uuid.uuid4().hex[:12]}"
-    initial = {
-        "task_id": task_id,
-        "status": "pending",
-        "business_id": body.business_id,
-        "incremental": str(body.incremental),
-    }
-    if task_store:
-        await task_store.put_task(task_id, initial)
-
-    asyncio.create_task(
-        _run_business_wiki_background(
-            task_id=task_id,
-            business_id=body.business_id,
-            language=body.language,
-            llm_provider=body.llm_provider,
-            incremental=body.incremental,
-            svc=svc,
-            task_store=task_store,
-            event_bus=event_bus,
+    try:
+        initial = {
+            "task_id": task_id,
+            "status": "pending",
+            "business_id": body.business_id,
+            "incremental": str(body.incremental),
+        }
+        if task_store:
+            await task_store.put_task(task_id, initial)
+        registry.put_task(task_id, initial)
+        asyncio.create_task(
+            _run_business_wiki_background(
+                task_id=task_id,
+                business_id=body.business_id,
+                language=body.language,
+                llm_provider=body.llm_provider,
+                incremental=body.incremental,
+                svc=svc,
+                task_store=task_store,
+                event_bus=event_bus,
+            )
         )
-    )
+    except Exception:
+        if task_store:
+            await task_store.unlock(body.business_id)
+        raise
 
     return JSONResponse(
         status_code=202, content={"task_id": task_id, "status": "pending"}
     )
 
 
-@router.get("/business/tasks/{task_id}")
+@router.get(
+    "/business/tasks/{task_id}",
+    dependencies=[Depends(require_role(Role.VIEWER))],
+)
 async def business_wiki_task_status(
     task_id: str,
     request: Request,

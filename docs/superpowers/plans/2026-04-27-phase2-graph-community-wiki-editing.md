@@ -1,5 +1,7 @@
 # Phase 2 — Graph Community–Driven Wiki Organization, Path Retrieval, and Wiki Editing
 
+> **HISTORICAL — see [IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md) for current state.**
+
 **Spec**: [`../specs/2026-04-27-phase2-graph-community-wiki-editing-design.md`](../specs/2026-04-27-phase2-graph-community-wiki-editing-design.md)  
 **Date**: 2026-04-27
 

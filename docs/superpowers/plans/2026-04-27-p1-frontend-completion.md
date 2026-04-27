@@ -1,5 +1,7 @@
 # P1 — Frontend Completion Implementation Plan
 
+> **HISTORICAL — see [IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md) for current state.**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement 4 new frontend components (WikiEditor, ReasoningPathPanel, WikiTierSelector, OfflinePackDownloadButton) and raise test coverage to 70%.

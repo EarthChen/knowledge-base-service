@@ -47,4 +47,4 @@ The following were referenced in older architecture text; they are **not** prese
 ## Verification
 
 - **Python:** `requires-python >=3.12` in root `pyproject.toml` (see also [DEPLOYMENT.md](DEPLOYMENT.md)).
-- **Tests:** `uv run pytest` (last full run: 1727 passed, 2026-04-27).
+- **Tests:** `uv run pytest` — last collection **1769** tests (`uv run pytest --collect-only -q`)；仪表盘 Vitest **160** tests（`pnpm test`，`dashboard/`）。

@@ -1,6 +1,6 @@
 # 文档索引
 
-**Knowledge Base Service** — FastAPI 后端、FalkorDB 图存储、Tree-sitter 索引、ONNX/torch 嵌入（BAAI/bge-m3）、RRF 混合检索与可选重排序、React + Vite 仪表盘。Wiki 侧支持**增量 Ingest**、**质量与矛盾检测**、**记忆分层与遗忘曲线**、**用户反馈与深度研究**、**业务流图（xyflow）**；面向 Agent 的能力包括**主服务 MCP 清单（图谱 + Wiki 管线）**与可选的**独立 Wiki MCP 五工具**（`WIKI__MCP_SERVER_ENABLED`）。
+**Knowledge Base Service** — FastAPI 后端、FalkorDB 图存储、Tree-sitter 索引、ONNX/torch 嵌入（BAAI/bge-m3）、RRF 混合检索与可选重排序、React + Vite 仪表盘。Wiki 侧支持**增量 Ingest**、**质量与矛盾检测**、**记忆分层与遗忘曲线**、**用户反馈与深度研究**、**业务流图（xyflow）**；面向 Agent 的能力包括**主服务 MCP 清单（图谱 + Wiki 管线）**与可选的**独立 Wiki HTTP MCP（6 个工具、2 个端点：list/call）**（`WIKI__MCP_SERVER_ENABLED`）。
 
 ## 文档导航
 
@@ -9,7 +9,7 @@
 | [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) | **实现与规划对照**（双套 SP 编号说明、矛盾 API 路径、AutoHealer 现状、缺失独立 spec 的替代引用） |
 | [CODEMAPS/INDEX.md](CODEMAPS/INDEX.md) | 代码入口与 Wiki 相关目录速查 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 端到端架构、索引与检索、Wiki 子系统（质量引擎、记忆演化、MCP） |
-| [MCP-INTEGRATION.md](MCP-INTEGRATION.md) | 主 MCP 工具（20 个：12 核心 + 8 Wiki）与可选 Wiki MCP HTTP（6 个）、角色、HTTP 绑定 |
+| [MCP-INTEGRATION.md](MCP-INTEGRATION.md) | 主 MCP 工具（20 个：12 核心 + 8 Wiki）与可选 Wiki HTTP MCP（6 个工具、2 个端点）、角色、HTTP 绑定 |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 前置条件、`WIKI__*` 等功能开关、认证、限流、Docker、安全 |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 目录结构、`uv` / `pnpm`、测试、新增语言与扩展 MCP |
 | [ONBOARDING.md](ONBOARDING.md) | 产品导览、功能发现、首次索引、MCP 设置 |

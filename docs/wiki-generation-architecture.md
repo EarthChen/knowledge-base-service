@@ -6,7 +6,7 @@
 
 - 将**索引属性图**（Tree-sitter → FalkorDB + 向量）转化为 **Markdown**（**Mermaid**、**`[[Wikilink]]` → 可点击 Markdown 链接**）和**稳定源码位置交叉链接**。
 - 支持**全量/增量**再生成、**Ingest+changelog** 可观测、多种 **LLM 后端**（OpenAI 兼容）与**仪表盘**浏览。
-- 暴露主 **MCP**（`mcp_server.py` + `wiki/mcp_tools.py` 共 20 个工具）与 **可选的 Wiki 专用 MCP 五工具**（`/api/v1/mcp/tools/*`）；与完整 HTTP `/api/v1/wiki/*` 面并行（详见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)）。
+- 暴露主 **MCP**（`mcp_server.py` + `wiki/mcp_tools.py` 共 20 个工具）与 **可选的 Wiki 专用 HTTP MCP 六工具**（`/api/v1/mcp/tools/*`，`TOOL_DEFINITIONS`）；与完整 HTTP `/api/v1/wiki/*` 面并行（详见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)）。
 - **LLM Wiki v2**：页级**置信度**、**跨页矛盾**、**主张/替代**、**记忆分层 + 遗忘**、**YAML 模式校验**（见下文专节）。
 
 ## 分层管道

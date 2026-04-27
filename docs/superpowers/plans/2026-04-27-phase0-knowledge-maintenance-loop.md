@@ -1,5 +1,7 @@
 # Phase 0: Knowledge Maintenance Loop — Implementation Plan
 
+> **HISTORICAL — see [IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md) for current state.**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Wire the existing `AutoHealer` into `WikiLintService` and enable lint scheduling by default, completing the knowledge maintenance loop.

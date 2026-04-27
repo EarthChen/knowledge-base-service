@@ -82,7 +82,7 @@
 | `WIKI__COT_ANALYSIS_MODEL` | `""` | 分析模型覆盖 |
 | `WIKI__COT_GENERATION_MODEL` | `""` | 生成模型覆盖 |
 | `WIKI__AUTO_UPDATE_ON_INDEX` | `false` | 索引后自动刷新 Wiki |
-| `WIKI__MCP_SERVER_ENABLED` | `false` | 为 true 时启用独立 Wiki MCP：`GET /api/v1/mcp/tools/list`、`POST /api/v1/mcp/tools/call`（五工具） |
+| `WIKI__MCP_SERVER_ENABLED` | `false` | 为 true 时启用独立 Wiki HTTP MCP：`GET /api/v1/mcp/tools/list`、`POST /api/v1/mcp/tools/call`（六工具） |
 | `WIKI__LINT_SCHEDULER_ENABLED` | `true` | 为 true 时启动后台 `LintScheduler`，按间隔周期跑 Wiki lint + AutoHeal（需 `WIKI__AUTO_HEAL_ENABLED`） |
 | `WIKI__LINT_SCHEDULER_INTERVAL_HOURS` | `6` | 调度周期间隔（小时） |
 | `WIKI__AUTO_HEAL_ENABLED` | `true` | 为 true 时 lint 运行后自动执行 AutoHealer（清理断裂引用、标记孤立页为 deprecated） |

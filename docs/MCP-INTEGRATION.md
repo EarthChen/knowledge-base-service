@@ -5,21 +5,21 @@
 | 表面 | 列出 | 调用 | 工具数 |
 |------|------|------|--------|
 | **主服务 MCP** | `GET /api/v1/mcp/tools` | `POST /api/v1/mcp/tool`，体为 `{"tool_name":"...","arguments":{...}}` | **20**（`MCP_TOOLS_MANIFEST` 12 个 + `WIKI_MCP_TOOLS_MANIFEST` 8 个） |
-| **Wiki 专用 MCP** | `GET /api/v1/mcp/tools/list` | `POST /api/v1/mcp/tools/call`，体为 `{"name":"...","arguments":{...}}` | **5**；仅当 `WIKI__MCP_SERVER_ENABLED=true` 且已 `bootstrap_wiki` 时可用 |
+| **Wiki 专用 MCP** | `GET /api/v1/mcp/tools/list` | `POST /api/v1/mcp/tools/call`，体为 `{"name":"...","arguments":{...}}` | **6**；仅当 `WIKI__MCP_SERVER_ENABLED=true` 且已 `bootstrap_wiki` 时可用 |
 
-> 主清单在 `api/mcp_server.py` 末尾与 `wiki/mcp_tools.py` 的 `WIKI_MCP_TOOLS_MANIFEST` 合并；五工具定义在 `api/mcp_wiki_server.py` 的 `TOOL_DEFINITIONS`。
+> 主清单在 `api/mcp_server.py` 末尾与 `wiki/mcp_tools.py` 的 `WIKI_MCP_TOOLS_MANIFEST` 合并；**独立 Wiki HTTP** 的六工具定义在 `api/mcp_wiki_server.py` 的 `TOOL_DEFINITIONS`（与主清单的 Wiki 能力互补，非重复计数）。
 
-认证使用 `Authorization: Bearer <token>`。主 MCP 工具级角色在 `KnowledgeBaseMCPHandler.handle_tool_call` 经 `MCP_TOOL_MIN_ROLE` 校验；Wiki 五工具与主路由相同，默认 **Viewer**（以服务端实现为准）。
+认证使用 `Authorization: Bearer <token>`。主 MCP 工具级角色在 `KnowledgeBaseMCPHandler.handle_tool_call` 经 `MCP_TOOL_MIN_ROLE` 校验；Wiki HTTP 六工具与主路由相同，默认 **Viewer**（以服务端实现为准）。
 
 ## 角色模型
 
 | 角色 | HTTP / 含义 | MCP |
 |------|-------------|-----|
-| **VIEWER** | 只读 API 路由 | 除需要 Editor 的工具外，可调用主清单与 Wiki 五工具（若已启用） |
+| **VIEWER** | 只读 API 路由 | 除需要 Editor 的工具外，可调用主清单与 Wiki HTTP 六工具（若已启用） |
 | **EDITOR** | 索引、写操作 | `wiki_export`（最低要求）；索引通过 HTTP API 触发，不暴露为 MCP 工具 |
 | **ADMIN** | 业务管理、同步计划、破坏性操作 | MCP 无额外管理专用工具；用于 HTTP 管理路由 |
 
-**需要 Editor（或更高角色）的 MCP 工具：** `wiki_export`。其余主清单与五工具在实现上为 **Viewer** 即可。
+**需要 Editor（或更高角色）的 MCP 工具：** `wiki_export`（主清单）。其余主清单与 Wiki HTTP 六工具在实现上为 **Viewer** 即可。
 
 ## 工具参考
 
@@ -204,7 +204,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**），可选 `scope` 子树过滤。 |
 
-#### 15. `search_wiki`
+#### 15. `wiki_search`
 
 | | |
 |--|--|
@@ -252,7 +252,7 @@
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）。 |
 
-### B. Wiki 专用 MCP（5 个工具，`WIKI__MCP_SERVER_ENABLED=true`）
+### B. Wiki 专用 HTTP MCP（6 个工具、2 个端点，`WIKI__MCP_SERVER_ENABLED=true`）
 
 **列出**：`GET /api/v1/mcp/tools/list` → `{"tools":[...]}`。**调用**：`POST /api/v1/mcp/tools/call`，体为 `{"name":"<工具名>","arguments":{...}}`；成功响应包在 `content[0].text` 的 JSON 字符串中（与 MCP 内容块约定一致）。
 
@@ -263,16 +263,17 @@
 | `wiki_navigate` | 浏览 Wiki 树 | `repository`（必填），`path` 默认 `/` |
 | `wiki_qa` | 基于 wiki 的问答 | `question`、`repository`（均必填） |
 | `wiki_impact` | 文件变更对 Wiki/实体的影响 | `files`（路径数组）、`repository`（均必填） |
+| `wiki_get_snapshot` | 某仓库下全部 Wiki 页的编译快照（Markdown） | `repository`（必填） |
 
-> 五工具由 `MCPWikiServer` 将请求委托给 `WikiSearchService` / `WikiStore` / `WikiAskService` / `ChangeDetector`；未启用时上述端点返回 503（`MCP server not configured`）。
+> 六工具由 `MCPWikiServer` 将请求委托给 `WikiSearchService` / `WikiStore` / `WikiAskService` / `ChangeDetector` / `WikiCompilationSnapshot`；未启用时上述端点返回 503（`MCP server not configured`）。
 
 ---
 
 ## Agent 集成模式
 
 1. **发现** — 主 MCP：`GET /api/v1/mcp/tools`；若启用 Wiki MCP，再调 `GET /api/v1/mcp/tools/list` 合并本地缓存。
-2. **搜索后深入** — `rag_query` → 选取 `uid` → `get_code_snippet`；长文件用 **`get_file_content`**；图关系用 **`rag_graph`**。启用五工具时可用 **`wiki_search`** / **`wiki_explain`** 替代或补充主清单中的 `search_wiki` / 页面拉取组合。
-3. **Wiki 管线** — `list_wiki_pages` → `get_wiki_page` 或 `search_wiki`；或五工具 path：`wiki_navigate` → `wiki_qa`；导出仍需 **`wiki_export`**（Editor）或 HTTP `POST /api/v1/wiki/export`。
+2. **搜索后深入** — `rag_query` → 选取 `uid` → `get_code_snippet`；长文件用 **`get_file_content`**；图关系用 **`rag_graph`**。启用 **Wiki HTTP 六工具**时可用其 **`wiki_search`** / **`wiki_explain`** 等，或始终使用主清单中的 **`wiki_search`** / **`get_wiki_page`** / **`list_wiki_pages`**。
+3. **Wiki 管线** — `list_wiki_pages` → `get_wiki_page` 或 `wiki_search`；或 **HTTP 六工具**路径：`wiki_navigate` → `wiki_qa`；导出仍需 **`wiki_export`**（Editor）或 HTTP `POST /api/v1/wiki/export`。
 
 > **注意**：索引操作（全量 / 增量）通过 Dashboard 或 HTTP API 端点触发，不暴露为 MCP 工具。
 

@@ -36,7 +36,7 @@
 | 主张 / 版本历史 | `GET /api/v1/wiki/pages/claim-history?page_uid=...`（需 `WIKI__SUPERSESSION_TRACKING_ENABLED`） |
 | 用户反馈 | `POST /api/v1/wiki/pages/{page_uid}/feedback`、`GET .../feedback/summary` |
 | 概念合并候选 | `GET /api/v1/wiki/merge-candidates?business_id=...`（需 `WIKI__CONCEPT_MERGING_ENABLED`） |
-| 主 MCP 与 Wiki 五工具 | 主服务：`GET /api/v1/mcp/tools`；独立 Wiki MCP（需 `WIKI__MCP_SERVER_ENABLED`）：`GET /api/v1/mcp/tools/list` — 详见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md) |
+| 主 MCP 与 Wiki HTTP MCP | 主服务：`GET /api/v1/mcp/tools`；独立 Wiki MCP（需 `WIKI__MCP_SERVER_ENABLED`）：`GET /api/v1/mcp/tools/list` — 详见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md) |
 | AI 用 AGENTS 文档 | 由 `wiki/agents_md_generator` 在生成/导出侧产出，与其它 Wiki 页一并浏览或经 MCP 拉取 |
 
 ## 文件浏览器
@@ -78,9 +78,9 @@
 
 服务会在 `GIT__CLONE_BASE_PATH` 下克隆并索引检出内容。
 
-### 方式 C：MCP Agent
+### 方式 C：通过 API 的同一逻辑（非 MCP 工具名）
 
-使用 **`rag_index`** 工具（需 **Editor** 角色），字段与 HTTP 请求体相同。
+索引在服务端由 `KnowledgeBaseMCPHandler.handle_rag_index` 实现，但 **`rag_index` 未列入 MCP 工具清单**（`MCP_TOOLS_MANIFEST` 为纯查询向清单）。Agent 若走 **MCP**，无法通过名为 `rag_index` 的工具触发索引；请使用 **方式 A / B** 的 `POST /api/v1/index`（**Editor**），请求体字段与内部 `handle_rag_index` 所用参数一致（`directory` / `git_url`、`repository`、`mode` 等）。
 
 ## 搜索技巧
 
@@ -94,8 +94,8 @@
 ## 与 AI Agent 集成（MCP）
 
 1. **Token** — 创建 `viewer` 或 `editor` Token（`tokens.yaml` 或 `API_TOKENS`）。
-2. **主清单** — `GET /api/v1/mcp/tools`（**18** 个工具：11 个图谱/检索 + 7 个 Wiki 管线）+ `POST /api/v1/mcp/tool`，请求体 `{"tool_name":"...","arguments":{...}}`。
-3. **Wiki 五工具**（可选）— 设置 `WIKI__MCP_SERVER_ENABLED=true` 后：`GET /api/v1/mcp/tools/list`，调用 `POST /api/v1/mcp/tools/call`，JSON 体为 `{"name":"<tool>","arguments":{...}}`（与主路由字段名不同，见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)）。
+2. **主清单** — `GET /api/v1/mcp/tools`（**20** 个工具：**12** 个图谱/检索 + **8** 个 Wiki 管线）+ `POST /api/v1/mcp/tool`，请求体 `{"tool_name":"...","arguments":{...}}`。
+3. **Wiki HTTP MCP**（可选，**6** 个工具、**2** 个端点）— 设置 `WIKI__MCP_SERVER_ENABLED=true` 后：`GET /api/v1/mcp/tools/list`，调用 `POST /api/v1/mcp/tools/call`，JSON 体为 `{"name":"<tool>","arguments":{...}}`（与主路由字段名不同，见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)）。
 4. **租户** — 多租户图时通过 `X-Business-Id: your-tenant` 选择图（与 Token 能力一致时）。
 
 完整工具列表和 Schema：[MCP-INTEGRATION.md](MCP-INTEGRATION.md)。

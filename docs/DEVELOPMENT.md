@@ -11,7 +11,7 @@ knowledge-base-service/
 ├── service_registry.py     # 多租户图服务
 ├── api/
 │   ├── mcp_server.py       # 主 MCP 清单 + KnowledgeBaseMCPHandler
-│   ├── mcp_wiki_server.py  # 可选：Wiki 专用五工具（与主清单分路由）
+│   ├── mcp_wiki_server.py  # 可选：Wiki 专用 HTTP 六工具（与主清单分路由）
 │   ├── rate_limiter.py     # 令牌桶中间件
 │   └── routes/             # wiki_*（ingest、feedback、contradiction、mcp tools）、webhook 等
 ├── indexer/                # Tree-sitter → 图、增量索引、嵌入、Import 解析、配置文件解析（config_indexer.py）
@@ -96,7 +96,7 @@ uv run python -m pytest
 3. 在 `KnowledgeBaseMCPHandler` 或 `WikiMCPHandler` 上实现处理函数并在 `handle_tool_call` 的 `handlers` 中注册。
 4. 在 `tests/test_mcp_*.py` 中覆盖。
 
-**Wiki 专用五工具**（`WIKI__MCP_SERVER_ENABLED`）：清单与路由在 `api/mcp_wiki_server.py`、`api/routes/wiki_mcp_routes.py`（`POST /api/v1/mcp/tools/call` 的请求体使用 `name` + `arguments`）；测试见 `tests/api/test_mcp_wiki_server.py`。
+**Wiki 专用 HTTP 六工具**（`WIKI__MCP_SERVER_ENABLED`）：清单与路由在 `api/mcp_wiki_server.py`、`api/routes/wiki_mcp_routes.py`（`POST /api/v1/mcp/tools/call` 的请求体使用 `name` + `arguments`）；测试见 `tests/api/test_mcp_wiki_server.py`。
 
 ## 代码规范
 

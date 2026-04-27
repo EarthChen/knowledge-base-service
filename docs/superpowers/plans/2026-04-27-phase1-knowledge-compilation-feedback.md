@@ -1,5 +1,7 @@
 # Phase 1: Knowledge Compilation & Feedback Loop — Implementation Plan
 
+> **HISTORICAL — see [IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md) for current state.**
+
 > **For agentic workers:** Use superpowers:subagent-driven-development or superpowers:executing-plans to implement task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a compiled knowledge snapshot (Karpathy-style “index”) that agents can load in one call, enrich `AGENTS.md` without conflating it with the snapshot, expose `wiki_get_snapshot` over MCP, and close the feedback loop with threshold-based regeneration, critical-severity fast path, and a 24h per-page cooldown.

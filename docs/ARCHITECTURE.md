@@ -54,7 +54,7 @@ flowchart TB
 | **嵌入**（Embeddings） | `EmbeddingConfig`：默认 `BAAI/bge-m3`，在多种节点标签上建立向量索引（参见 `store/schema.py` 中的 `VECTOR_INDEX_CONFIGS`） |
 | **LLM**（可选） | OpenAI 兼容 API，用于深度搜索、可选索引丰富化（`LLMConfig`） |
 | **MCP 处理器**（`api/mcp_server.py`） | 混合/图/索引/Wiki（与 `wiki/mcp_tools.py` 合并清单）；**`get_file_content`** 读检出源文件；NL→Cypher 仅供 Dashboard UI 使用（`query/nl_cypher.py`，不暴露为 MCP 工具） |
-| **Wiki MCP 子服务**（`api/mcp_wiki_server.py`） | 可选；`WIKI__MCP_SERVER_ENABLED` 为 true 时注册 `mcp_wiki_server`，HTTP：`GET /api/v1/mcp/tools/list`、`POST /api/v1/mcp/tools/call`（五工具，见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)） |
+| **Wiki MCP 子服务**（`api/mcp_wiki_server.py`） | 可选；`WIKI__MCP_SERVER_ENABLED` 为 true 时注册 `mcp_wiki_server`，HTTP：`GET /api/v1/mcp/tools/list`、`POST /api/v1/mcp/tools/call`（六工具，见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)） |
 | **增量 Ingest** | `POST /api/v1/wiki/ingest` 按文件列表触发增量再生成；`GET /api/v1/wiki/changelog` 查仓库变更记录；`POST /api/v1/hooks/ingest/push` 在 Webhook 链路上触发自动 Ingest（与 `wiki/bootstrap` 中 `ChangeDetector` / `WikiChangeLogStore` 协同） |
 | **Lint 与自愈** | `wiki/lint.py`（`WikiLintService`）含质量 lint、可选**置信度重算**、**模式校验**；`WikiLintService.run_lint()` 在 `WIKI__AUTO_HEAL_ENABLED=true`（`WikiConfig` 默认 `true`）时于 lint 后调用 **`AutoHealer.heal()`**，heal 指标写入 **`WikiChangeLog`**。`wiki/lint_scheduler.py` 在 `WIKI__LINT_SCHEDULER_ENABLED=true`（默认 `true`）下由 `main.py` 生命周期**启动**并周期性对注册仓库跑 `run_lint`；`wiki/auto_healer.py` 中的 **`AutoHealer`** 实现**断链（悬空 `WIKI_REFERENCES`）清理**与**无 `SOURCE_ENTITY` 的孤儿页降级**，**不**做陈旧页打标。HTTP / MCP / 调度器均经 `run_lint` 走同一管线（见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)） |
 | **知识质量引擎** | `wiki/confidence_scorer.py` + `confidence_inputs.py`：页级 `confidence_score`（0.0–1.0）；矛盾检测与 LLM 裁决图持久化；主张/版本/替代关系（`supersession`）与 `GET /api/v1/wiki/pages/claim-history` |
@@ -215,7 +215,7 @@ flowchart LR
 | 子系统 | 职责摘要 |
 |--------|----------|
 | **增量 Ingest** | 推代码后按路径增量再生成、changelog 可观测；与 Git Webhook 的 `/hooks/ingest/push` 集成 |
-| **MCP Wiki 五工具** | `wiki_search` / `wiki_explain` / `wiki_navigate` / `wiki_qa` / `wiki_impact`；与主清单分离，需 `WIKI__MCP_SERVER_ENABLED` |
+| **MCP Wiki HTTP 六工具** | `wiki_search` / `wiki_explain` / `wiki_navigate` / `wiki_qa` / `wiki_impact` / `wiki_get_snapshot`；与主清单分离，需 `WIKI__MCP_SERVER_ENABLED` |
 | **内联 Wikilink** | 正文 `[[EntityName]]` 在组合/导出时解析为 Markdown 链向已有 Wiki 页或占位 |
 | **业务流图** | `GET /api/v1/wiki/flows?business_id=` 提供节点（及预留边）供仪表盘 **xyflow** 渲染 |
 | **用户反馈** | `POST/GET .../pages/{page_uid}/feedback`；纳入置信度与质量信号（见 `WIKI__FEEDBACK_ENABLED`） |

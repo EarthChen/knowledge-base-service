@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-: "${KB_BASE_URL:=http://localhost:8000}"
+: "${KB_BASE_URL:=http://localhost:8100}"
 : "${KB_TOKEN:=}"
 : "${KB_BUSINESS_ID:=default}"
 

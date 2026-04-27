@@ -109,7 +109,7 @@ pnpm build
 |------|------|
 | [docs/README-DOCS.md](docs/README-DOCS.md) | 文档索引与技术栈 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 管道、Schema、仪表盘架构 |
-| [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md) | 全部 15 个 MCP 工具、角色、示例 |
+| [docs/MCP-INTEGRATION.md](docs/MCP-INTEGRATION.md) | 全部 20 个 MCP 工具、角色、示例 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 生产部署、环境变量、安全 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 项目结构、测试、扩展指南 |
 | [docs/ONBOARDING.md](docs/ONBOARDING.md) | 用户上手指南 |

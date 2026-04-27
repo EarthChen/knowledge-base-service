@@ -1,5 +1,7 @@
 # Phase 3 — Reasoning Visualization, Multi-View Wiki, Offline Data Package (Implementation Plan)
 
+> **HISTORICAL — see [IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md) for current state.**
+
 > **Spec**: [`docs/superpowers/specs/2026-04-27-phase3-reasoning-visualization-multiview-design.md`](../specs/2026-04-27-phase3-reasoning-visualization-multiview-design.md)  
 > **Date**: 2026-04-27  
 > **Tooling**: Python via **`uv`** (never `pip`); dashboard via **`pnpm`** (never `npm`).  

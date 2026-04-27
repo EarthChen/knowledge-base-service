@@ -20,16 +20,31 @@ import sys
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-KB_BASE_URL = os.environ.get("KB_BASE_URL", "http://localhost:8000")
+KB_BASE_URL = os.environ.get("KB_BASE_URL", "http://localhost:8100")
 KB_TOKEN = os.environ.get("KB_TOKEN", "")
 KB_BUSINESS_ID = os.environ.get("KB_BUSINESS_ID", "default")
 
 AVAILABLE_TOOLS = [
-    "rag_query", "rag_graph", "documents", "get_code_snippet",
-    "get_file_content", "analyze_code", "search_architecture",
-    "analyze_changes", "get_complete_context", "get_insights",
-    "index_freshness", "get_wiki_page", "list_wiki_pages",
-    "wiki_search", "wiki_export",
+    "rag_query",
+    "rag_graph",
+    "documents",
+    "get_code_snippet",
+    "get_file_content",
+    "graph_path",
+    "analyze_code",
+    "search_architecture",
+    "analyze_changes",
+    "get_complete_context",
+    "get_insights",
+    "index_freshness",
+    "get_wiki_page",
+    "list_wiki_pages",
+    "wiki_search",
+    "wiki_export",
+    "wiki_get_tree",
+    "wiki_get_related",
+    "wiki_get_domain_overview",
+    "wiki_get_snapshot",
 ]
 
 

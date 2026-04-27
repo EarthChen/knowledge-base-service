@@ -83,8 +83,9 @@
 | `WIKI__COT_GENERATION_MODEL` | `""` | 生成模型覆盖 |
 | `WIKI__AUTO_UPDATE_ON_INDEX` | `false` | 索引后自动刷新 Wiki |
 | `WIKI__MCP_SERVER_ENABLED` | `false` | 为 true 时启用独立 Wiki MCP：`GET /api/v1/mcp/tools/list`、`POST /api/v1/mcp/tools/call`（五工具） |
-| `WIKI__LINT_SCHEDULER_ENABLED` | `false` | 为 true 时启动后台 `LintScheduler`，按间隔周期跑 Wiki lint |
+| `WIKI__LINT_SCHEDULER_ENABLED` | `true` | 为 true 时启动后台 `LintScheduler`，按间隔周期跑 Wiki lint + AutoHeal（需 `WIKI__AUTO_HEAL_ENABLED`） |
 | `WIKI__LINT_SCHEDULER_INTERVAL_HOURS` | `6` | 调度周期间隔（小时） |
+| `WIKI__AUTO_HEAL_ENABLED` | `true` | 为 true 时 lint 运行后自动执行 AutoHealer（清理断裂引用、标记孤立页为 deprecated） |
 | `WIKI__FEEDBACK_ENABLED` | `true` | 用户反馈与置信度输入相关逻辑的总开关（`WikiConfig`；与 `GET/POST .../feedback` 及 `confidence_inputs` 的联动以当前代码为准） |
 | `WIKI__AUTO_HEAL_ENABLED` | `false` | 为 true 时**意向**启用 `AutoHealer`（断链清理 + 孤儿页降级；**不做**陈旧页打标）。实现类见 `wiki/auto_healer.py`；**当前版本尚未**在 `main`/lint/调度中接入，见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) |
 | `WIKI__DEEP_RESEARCH_ENABLED` | `false` | 为 true 时开放 `POST /api/v1/wiki/research`（多轮研究管线） |

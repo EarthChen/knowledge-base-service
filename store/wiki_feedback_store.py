@@ -22,12 +22,13 @@ class WikiFeedbackStore:
         user_id: str = "anonymous",
         *,
         business_id: str = "default",
+        severity: str = "normal",
     ) -> str:
         uid = f"WikiFeedback:{uuid.uuid4().hex[:12]}"
         cypher = (
             "CREATE (f:WikiFeedback {"
             "  uid: $uid, page_uid: $page_uid, business_id: $business_id, rating: $rating,"
-            "  comment: $comment, user_id: $user_id, timestamp: $ts"
+            "  comment: $comment, user_id: $user_id, timestamp: $ts, severity: $severity"
             "})"
         )
         await self._graph.execute_query(
@@ -40,6 +41,7 @@ class WikiFeedbackStore:
                 "comment": comment,
                 "user_id": user_id,
                 "ts": time.time(),
+                "severity": severity,
             },
         )
         return uid

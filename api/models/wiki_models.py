@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -83,6 +85,7 @@ class WikiPageFeedbackBody(BaseModel):
     rating: str = Field(..., pattern="^(up|down)$")
     business_id: str = Field(default="default", min_length=1)
     comment: str = Field(default="", max_length=2000)
+    severity: Literal["normal", "critical"] = "normal"
 
 
 class WikiExportPreviewBody(BaseModel):

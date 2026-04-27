@@ -53,6 +53,7 @@ async def post_wiki_page_feedback(
         rating=body.rating,
         comment=body.comment,
         business_id=body.business_id,
+        severity=body.severity,
     )
     return {"uid": uid, "page_uid": decoded, "business_id": body.business_id}
 

@@ -61,3 +61,14 @@ async def test_run_all_cleans_refs_and_deprecates_orphans() -> None:
     assert result["refs_removed"] == 2
     assert result["pages_deprecated"] == 3
     assert "pages_marked" not in result
+
+
+@pytest.mark.asyncio
+async def test_heal_delegates_to_run_all() -> None:
+    mock_store = MagicMock()
+    mock_store.delete_broken_wiki_references = AsyncMock(return_value=1)
+    mock_store.deprecate_orphan_wiki_pages = AsyncMock(return_value=2)
+    healer = AutoHealer(mock_store)
+    result = await healer.heal("my-repo")
+    assert result["refs_removed"] == 1
+    assert result["pages_deprecated"] == 2

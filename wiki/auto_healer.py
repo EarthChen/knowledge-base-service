@@ -47,3 +47,7 @@ class AutoHealer:
         refs = await self.remove_broken_references(repository)
         orphans = await self.deprecate_orphan_pages(repository)
         return {**refs, **orphans}
+
+    async def heal(self, repository: str) -> dict[str, Any]:
+        """Run all auto-heal steps (alias for run_all)."""
+        return await self.run_all(repository)

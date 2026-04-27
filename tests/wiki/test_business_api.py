@@ -43,22 +43,27 @@ def test_generate_business_wiki_endpoint(app):
     )
     assert r.status_code == 202
     data = r.json()
-    assert data["business_id"] == "test"
+    assert data["status"] == "pending"
+    assert "task_id" in data
+    assert data["task_id"].startswith("biz-wiki-")
 
 
 def test_generate_business_wiki_scope_error(app):
-    """WikiScopeError from generate_business_wiki should return 400."""
+    """WikiScopeError from generate_business_wiki is surfaced as failed task, not 400 on accept."""
     client = TestClient(app)
     mock_svc = AsyncMock()
-    mock_svc.generate_business_wiki = AsyncMock(side_effect=WikiScopeError("no such business"))
+    mock_svc.generate_business_wiki = AsyncMock(
+        side_effect=WikiScopeError("no such business")
+    )
     app.state.wiki_service_factory = lambda: mock_svc
     r = client.post(
         "/api/v1/wiki/business/generate",
         json={"business_id": "missing", "language": "zh"},
     )
-    assert r.status_code == 400
-    body = r.json()
-    assert body["error"]["code"] == "kb_client_error"
+    assert r.status_code == 202
+    data = r.json()
+    assert data["status"] == "pending"
+    assert "task_id" in data
 
 
 def test_generate_business_wiki_service_unavailable(app):

@@ -49,6 +49,7 @@ class BusinessWikiGenerateBody(BaseModel):
     business_id: str = Field(default="default", min_length=1)
     language: str = Field(default="en", pattern="^(en|zh)$")
     llm_provider: str | None = None
+    incremental: bool = True
 
 
 class WikiAskBody(BaseModel):

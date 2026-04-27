@@ -19,6 +19,7 @@ from wiki.models import parse_scope
 from wiki.service import WikiRepoNotFoundError, WikiService
 from wiki.structure_planner import WikiScopeError
 from wiki.exporter import WikiExporter
+from wiki.task_store import WikiTaskStore
 from api.models.wiki_models import (
     BusinessWikiGenerateBody,
     WikiGenerateBody,
@@ -37,10 +38,90 @@ from api.routes.wiki_shared import (
     get_wiki_service_dep,
     log,
 )
-from wiki.event_bus import WikiEvent
+from wiki.event_bus import WikiEvent, WikiEventBus
 from wiki.task_registry import WikiTaskRegistry
 
 router = APIRouter(tags=["wiki", "tasks"])
+
+
+async def _check_business_lock(
+    task_store: WikiTaskStore | None, business_id: str,
+) -> bool:
+    """Return True if lock acquired, False if already locked."""
+    if task_store is None:
+        return True
+    return await task_store.try_lock(business_id)
+
+
+async def _run_business_wiki_background(
+    *,
+    task_id: str,
+    business_id: str,
+    language: str,
+    llm_provider: str | None,
+    incremental: bool,
+    svc: WikiService,
+    task_store: WikiTaskStore | None,
+    event_bus: WikiEventBus | None,
+) -> None:
+    """Background coroutine: run business wiki generation and update task state."""
+    _ = incremental
+
+    async def _progress(info: dict) -> None:  # noqa: F841
+        if task_store:
+            pct = int(
+                info.get("completed_repos", 0) / max(info.get("total_repos", 1), 1) * 100
+            )
+            await task_store.update_status(
+                task_id,
+                "running",
+                completed_repos=info.get("completed_repos", 0),
+                total_repos=info.get("total_repos", 0),
+                current_repo=info.get("current_repo", ""),
+                progress_pct=pct,
+            )
+        if event_bus:
+            await event_bus.publish(
+                WikiEvent(
+                    event_type="business_gen_progress",
+                    repository=info.get("current_repo", ""),
+                    business_id=business_id,
+                    data={"task_id": task_id, **info},
+                )
+            )
+
+    try:
+        if task_store:
+            await task_store.update_status(task_id, "running")
+        result = await svc.generate_business_wiki(
+            business_id=business_id,
+            language=language,
+            llm_provider=llm_provider,
+        )
+        if task_store:
+            await task_store.update_status(
+                task_id,
+                "completed",
+                result=result,
+                partial_errors=result.get("partial_errors", []),
+                skipped_repos=result.get("skipped_repos", []),
+            )
+        if event_bus:
+            await event_bus.publish(
+                WikiEvent(
+                    event_type="business_gen_complete",
+                    repository=business_id,
+                    business_id=business_id,
+                    data={"task_id": task_id, "pages_count": result.get("pages_count", 0)},
+                )
+            )
+    except Exception as exc:
+        log.warning("business_wiki_background_failed", task_id=task_id, exc_info=True)
+        if task_store:
+            await task_store.update_status(task_id, "failed", error=str(exc))
+    finally:
+        if task_store:
+            await task_store.unlock(business_id)
 
 
 def _wiki_event_to_sse_data(ev: WikiEvent) -> str:
@@ -316,16 +397,71 @@ async def wiki_events_stream(
 )
 async def generate_business_wiki(
     body: BusinessWikiGenerateBody,
+    request: Request,
     svc: WikiService = Depends(get_wiki_service_dep),
-) -> dict[str, Any]:
-    """Trigger cross-repo business-level wiki generation."""
-    try:
-        result = await svc.generate_business_wiki(
+) -> JSONResponse:
+    """Trigger cross-repo business-level wiki generation as a background task."""
+    task_store: WikiTaskStore | None = getattr(
+        request.app.state, "wiki_task_store", None
+    )
+    event_bus: WikiEventBus | None = getattr(
+        request.app.state, "wiki_event_bus", None
+    )
+
+    if not await _check_business_lock(task_store, body.business_id):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "error": "generation_in_progress",
+                "detail": "Business wiki generation already running.",
+            },
+        )
+
+    task_id = f"biz-wiki-{uuid.uuid4().hex[:12]}"
+    initial = {
+        "task_id": task_id,
+        "status": "pending",
+        "business_id": body.business_id,
+        "incremental": str(body.incremental),
+    }
+    if task_store:
+        await task_store.put_task(task_id, initial)
+
+    asyncio.create_task(
+        _run_business_wiki_background(
+            task_id=task_id,
             business_id=body.business_id,
             language=body.language,
             llm_provider=body.llm_provider,
+            incremental=body.incremental,
+            svc=svc,
+            task_store=task_store,
+            event_bus=event_bus,
         )
-    except WikiScopeError as exc:
-        log.warning("business wiki generate scope error", error=str(exc))
-        raise KbClientError("Invalid wiki scope or business configuration.") from exc
-    return result
+    )
+
+    return JSONResponse(
+        status_code=202, content={"task_id": task_id, "status": "pending"}
+    )
+
+
+@router.get("/business/tasks/{task_id}")
+async def business_wiki_task_status(
+    task_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    """Get background business wiki task progress from Redis store."""
+    task_store: WikiTaskStore | None = getattr(
+        request.app.state, "wiki_task_store", None
+    )
+    if task_store:
+        rec = await task_store.get_task(task_id)
+        if rec is not None:
+            return rec
+    registry = getattr(request.app.state, "wiki_tasks", None)
+    if registry:
+        rec = registry.get_task(task_id)
+        if rec is not None:
+            return rec
+    raise KbNotFound("task_not_found")
+

@@ -44,8 +44,6 @@ async def _run_feedback_wiki_regen(
     priority: str,
     token_multiplier: float,
 ) -> None:
-    # TODO(Phase 1): token_multiplier is logged but not yet propagated to
-    # WikiService.generate() / composer budgets
     from wiki.service import WikiRepoNotFoundError, WikiService
     from wiki.structure_planner import WikiScopeError
 
@@ -107,6 +105,7 @@ async def _run_feedback_wiki_regen(
                 "structure",
                 "json",
                 language="en",
+                token_budget_multiplier=token_multiplier,
             )
     except WikiScopeError:
         log.info(
@@ -121,6 +120,7 @@ async def _run_feedback_wiki_regen(
                 "structure",
                 "json",
                 language="en",
+                token_budget_multiplier=token_multiplier,
             )
     except WikiRepoNotFoundError as exc:
         log.warning(

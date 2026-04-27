@@ -1,11 +1,4 @@
-"""Feedback-driven wiki regeneration with threshold, critical path, and cooldown.
-
-``token_multiplier`` values returned from :meth:`FeedbackDrivenRegeneration.on_feedback`
-are emitted in logs and API responses, but are **not** yet applied to
-:class:`~wiki.service.WikiService` generation or composer code/token budgets. That
-propagation is a known gap (Phase 1); configure multipliers for future use / observability
-until budgets wire through.
-"""
+"""Feedback-driven wiki regeneration with threshold, critical path, and cooldown."""
 from __future__ import annotations
 
 import time

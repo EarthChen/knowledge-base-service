@@ -195,6 +195,7 @@ class TestServiceLanguagePropagation:
             _llm_provider: str | None = None,
             *,
             community_markdown: str = "",
+            token_budget_multiplier: float = 1.0,
         ) -> tuple[list, bool]:
             captured["config"] = config
             return [], False

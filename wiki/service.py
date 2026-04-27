@@ -289,6 +289,7 @@ class WikiService:
         format: str,
         language: str = "en",
         llm_provider: str | None = None,
+        token_budget_multiplier: float = 1.0,
     ) -> dict[str, Any]:
         scope = parse_scope(scope_raw)
         config = self._config_for(mode, format, repository, language)
@@ -338,6 +339,7 @@ class WikiService:
             _importance_tiers,
             llm_provider,
             community_markdown=community_markdown,
+            token_budget_multiplier=token_budget_multiplier,
         )
         await self._persist_pages_to_graph(repository, pages, language=language)
         await self._run_compilation_snapshot("default", repository)
@@ -365,6 +367,7 @@ class WikiService:
         repository: str,
         affected: AffectedPageSet,
         language: str = "en",
+        token_budget_multiplier: float = 1.0,
     ) -> dict[str, Any]:
         """Regenerate only affected wiki pages. Falls back to full generate on failure."""
 
@@ -441,6 +444,7 @@ class WikiService:
                     "structure",
                     "json",
                     language=language,
+                    token_budget_multiplier=token_budget_multiplier,
                 )
                 return {
                     "pages_regenerated": -1,
@@ -466,6 +470,7 @@ class WikiService:
         format: str,
         language: str = "en",
         llm_provider: str | None = None,
+        token_budget_multiplier: float = 1.0,
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield ``{"page": page_dict}`` per page, then ``{"complete": export_bundle}``."""
         scope = parse_scope(scope_raw)
@@ -528,7 +533,9 @@ class WikiService:
                 return
             graph_node = await self._resolve_structure_node(repository, node)
             tier = _importance_tiers.get(graph_node.uid)
-            code_budget = self._budget_for_tier(tier)
+            code_budget = self._budget_for_tier(
+                tier, multiplier=token_budget_multiplier,
+            )
             page_data = await self._collector.collect(repository, graph_node, code_budget=code_budget)
             if tier is not None:
                 page_data.importance_tier = tier
@@ -748,16 +755,18 @@ class WikiService:
                 return m
         return None
 
-    def _budget_for_tier(self, tier: ImportanceTier | None) -> int:
+    def _budget_for_tier(self, tier: ImportanceTier | None, *, multiplier: float = 1.0) -> int:
         """Return the token budget for a given importance tier from app config."""
         app_cfg = self._wiki_cfg
         if tier == ImportanceTier.CORE:
-            return app_cfg.core_code_budget
-        if tier == ImportanceTier.STANDARD:
-            return app_cfg.standard_code_budget
-        if tier == ImportanceTier.SKELETON:
-            return app_cfg.skeleton_code_budget
-        return app_cfg.standard_code_budget
+            base = app_cfg.core_code_budget
+        elif tier == ImportanceTier.STANDARD:
+            base = app_cfg.standard_code_budget
+        elif tier == ImportanceTier.SKELETON:
+            base = app_cfg.skeleton_code_budget
+        else:
+            base = app_cfg.standard_code_budget
+        return int(base * multiplier)
 
     async def _enrich_pages_after_compose(
         self,
@@ -807,6 +816,7 @@ class WikiService:
         llm_provider: str | None = None,
         *,
         community_markdown: str = "",
+        token_budget_multiplier: float = 1.0,
     ) -> tuple[list[WikiPage], bool]:
         pages: list[WikiPage] = []
         degraded = False
@@ -824,7 +834,9 @@ class WikiService:
             else:
                 graph_node = await self._resolve_structure_node(repository, node)
                 tier = tiers.get(graph_node.uid)
-                code_budget = self._budget_for_tier(tier)
+                code_budget = self._budget_for_tier(
+                    tier, multiplier=token_budget_multiplier,
+                )
                 page_data = await self._collector.collect(repository, graph_node, code_budget=code_budget)
                 if tier is not None:
                     page_data.importance_tier = tier

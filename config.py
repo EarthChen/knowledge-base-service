@@ -234,6 +234,20 @@ class WikiConfig(BaseModel):
     feedback_enabled: bool = True
     auto_heal_enabled: bool = True
 
+    # Phase 1 C1: feedback-driven regeneration
+    feedback_regen_enabled: bool = True
+    """Enable feedback-driven wiki page regeneration."""
+    feedback_regen_threshold: int = 3
+    """Number of negative feedback votes to trigger regeneration."""
+    feedback_regen_critical_immediate: bool = True
+    """When true, severity=critical feedback triggers immediate regeneration."""
+    feedback_regen_token_multiplier: float = 1.5
+    """Token budget multiplier for critical-severity regeneration."""
+    feedback_regen_batch_token_multiplier: float = 1.2
+    """Token budget multiplier for threshold-triggered regeneration."""
+    feedback_regen_cooldown_hours: int = 24
+    """Minimum hours between automatic regenerations for the same page."""
+
     deep_research_enabled: bool = True
     concept_merging_enabled: bool = True
     concept_merge_similarity_threshold: float = Field(default=0.9, ge=0.0, le=1.0)

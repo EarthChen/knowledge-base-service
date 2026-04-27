@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -650,6 +651,15 @@ class WikiService:
                 changed_repos = set(all_modules.keys())
                 skipped_repos = []
 
+        total_repos = len(all_modules)
+        if progress_callback:
+            await progress_callback({
+                "completed_repos": 0,
+                "total_repos": total_repos,
+                "current_repo": "",
+                "phase": "classifying_domains",
+            })
+
         from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
 
         llm_port = self._resolve_llm_port(llm_provider)
@@ -658,7 +668,21 @@ class WikiService:
             infrastructure_label=app_cfg.business_domain_infrastructure_label,
             batch_threshold=app_cfg.business_wiki_batch_threshold,
         )
-        domain_mapping = await planner.classify(business_id, all_modules)
+        try:
+            domain_mapping = await asyncio.wait_for(
+                planner.classify(business_id, all_modules),
+                timeout=120,
+            )
+        except TimeoutError:
+            log.warning("domain_classification_timeout", business_id=business_id)
+            domain_mapping = {
+                app_cfg.business_domain_infrastructure_label: [
+                    (repo, mod.properties.get("name", ""))
+                    for repo, mods in all_modules.items()
+                    for mod in mods
+                    if isinstance(mod.properties.get("name"), str)
+                ],
+            }
 
         tree_builder = WikiTreeBuilder()
         space_uid = tree_builder.generate_space_uid(business_id)

@@ -1,0 +1,71 @@
+"""Typed broadcast event bus for wiki subsystem (asyncio-based)."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, AsyncIterator
+
+from log import get_logger
+
+log = get_logger(__name__)
+
+
+@dataclass
+class WikiEvent:
+    event_type: str
+    repository: str
+    data: dict[str, Any] = field(default_factory=dict)
+    business_id: str = "default"
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class WikiEventBus:
+    """Broadcast wiki events to all connected SSE clients."""
+
+    def __init__(self) -> None:
+        self._subscribers: list[asyncio.Queue[WikiEvent | None]] = []
+
+    def subscribe(self) -> asyncio.Queue[WikiEvent | None]:
+        q: asyncio.Queue[WikiEvent | None] = asyncio.Queue(maxsize=100)
+        self._subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue[WikiEvent | None]) -> None:
+        try:
+            self._subscribers.remove(q)
+        except ValueError:
+            pass
+
+    async def publish(self, event: WikiEvent) -> None:
+        log.debug("wiki_event_published", event_type=event.event_type, repository=event.repository)
+        dead: list[asyncio.Queue] = []
+        for q in self._subscribers:
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                dead.append(q)
+        for q in dead:
+            self.unsubscribe(q)
+
+    async def stream(self, business_id: str | None = None) -> AsyncIterator[WikiEvent]:
+        q = self.subscribe()
+        try:
+            while True:
+                event = await q.get()
+                if event is None:
+                    break
+                if business_id is not None and event.business_id != business_id:
+                    continue
+                yield event
+        finally:
+            self.unsubscribe(q)
+
+    async def shutdown(self) -> None:
+        for q in self._subscribers:
+            try:
+                q.put_nowait(None)
+            except asyncio.QueueFull:
+                pass
+        self._subscribers.clear()

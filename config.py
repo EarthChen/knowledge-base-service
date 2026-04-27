@@ -265,7 +265,7 @@ class WikiConfig(BaseModel):
     contradiction_similarity_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
 
     # Phase 2 SP5: claim supersession history
-    supersession_tracking_enabled: bool = False
+    supersession_tracking_enabled: bool = True
 
     # Phase 3 (LLM Wiki v2 — Memory Evolution)
     memory_tiers_enabled: bool = True

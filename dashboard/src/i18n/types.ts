@@ -794,6 +794,10 @@ export interface Translations {
     notificationUpdated: string;
     notificationRefresh: string;
     notificationDismiss: string;
+    feedbackWasHelpful: string;
+    feedbackThanks: string;
+    feedbackHelpful: string;
+    feedbackNotHelpful: string;
     generationLabel: string;
     generationInProgress: string;
     generationCompleted: string;

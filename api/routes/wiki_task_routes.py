@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, Query, Request
@@ -36,9 +37,24 @@ from api.routes.wiki_shared import (
     get_wiki_service_dep,
     log,
 )
+from wiki.event_bus import WikiEvent
 from wiki.task_registry import WikiTaskRegistry
 
 router = APIRouter(tags=["wiki", "tasks"])
+
+
+def _wiki_event_to_sse_data(ev: WikiEvent) -> str:
+    d: dict[str, Any] = {
+        "type": ev.event_type,
+        "business_id": ev.business_id,
+        "timestamp": ev.timestamp,
+    }
+    if "page_path" in ev.data:
+        d["page_path"] = ev.data["page_path"]
+    rest = {k: v for k, v in ev.data.items() if k != "page_path"}
+    if rest:
+        d["payload"] = rest
+    return json.dumps(d, default=str)
 
 
 @router.post("/generate", response_model=None)
@@ -257,16 +273,30 @@ async def wiki_task_status(
     response_model=None,
 )
 async def wiki_events_stream(
+    request: Request,
     business_id: str = Query(..., min_length=1),
 ) -> StreamingResponse:
     """SSE of wiki events for a business. EventSource may pass the API token as ``token`` (no header)."""
     log.debug("wiki_events_subscribe", business_id=business_id)
 
-    async def events() -> Any:
+    async def events() -> AsyncIterator[str]:
         yield ": stream-open\n\n"
+        bus = getattr(request.app.state, "wiki_event_bus", None)
+        if bus is None:
+            while True:
+                await asyncio.sleep(60.0)
+                yield ": keepalive\n\n"
+        aiter = bus.stream(business_id).__aiter__()
         while True:
-            await asyncio.sleep(60.0)
-            yield ": keepalive\n\n"
+            try:
+                event: WikiEvent = await asyncio.wait_for(aiter.__anext__(), 60.0)
+            except StopAsyncIteration:
+                break
+            except TimeoutError:
+                yield ": keepalive\n\n"
+                continue
+            body = _wiki_event_to_sse_data(event)
+            yield f"data: {body}\n\n"
 
     return StreamingResponse(
         events(),

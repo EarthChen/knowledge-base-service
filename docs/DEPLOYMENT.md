@@ -92,7 +92,7 @@
 | `WIKI__CONCEPT_MERGE_SIMILARITY_THRESHOLD` | `0.9` | 概念合并相似度阈值（0.0–1.0） |
 | `WIKI__CONFIDENCE_SCORING_ENABLED` | `true` | 为 true 时计算并回写 `WikiPage.confidence_score`（0.0–1.0，来源/新鲜度/反馈等综合；与 `config.WikiConfig` 默认一致） |
 | `WIKI__CONTRADICTION_DETECTION_ENABLED` | `true` | 为 true 时启用跨页矛盾检测、列表与状态流转 API（与 `config.WikiConfig` 默认一致） |
-| `WIKI__SUPERSESSION_TRACKING_ENABLED` | `false` | 为 true 时持久化主张/版本/替代并开放 `GET /api/v1/wiki/pages/claim-history` |
+| `WIKI__SUPERSESSION_TRACKING_ENABLED` | `true` | 为 true 时持久化主张/版本/替代并开放 `GET /api/v1/wiki/pages/claim-history` |
 | `WIKI__MEMORY_TIERS_ENABLED` | `false` | 为 true 时启用四层记忆模型与 `WikiQA` 上的分层晋升逻辑 |
 | `WIKI__FORGETTING_ENABLED` | `false` | 为 true 时按保留曲线降低低稳定性记忆的检索优先级（不删除图节点） |
 | `WIKI__SCHEMA_VALIDATION_ENABLED` | `false` | 为 true 时在 lint 中按 YAML 校验 Wiki 页结构 |

@@ -8,14 +8,11 @@ import {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { getCurrentBusiness } from "../currentBusiness";
 import { useAuth } from "./AuthContext";
 import type { Business, BusinessesResponse } from "../api/types";
 
 const STORAGE_KEY = "kb_business_id";
-
-function getStoredBusiness(): string {
-  return localStorage.getItem(STORAGE_KEY) || "default";
-}
 
 interface BusinessContextType {
   currentBusiness: string;
@@ -38,7 +35,7 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
   const isBound = boundBusiness !== null;
 
   const [currentBusiness, setCurrentBusinessState] = useState(() =>
-    boundBusiness ?? getStoredBusiness()
+    boundBusiness ?? getCurrentBusiness()
   );
   const queryClient = useQueryClient();
 
@@ -99,6 +96,4 @@ export function useBusiness() {
   return useContext(BusinessContext);
 }
 
-export function getCurrentBusiness(): string {
-  return getStoredBusiness();
-}
+export { getCurrentBusiness } from "../currentBusiness";

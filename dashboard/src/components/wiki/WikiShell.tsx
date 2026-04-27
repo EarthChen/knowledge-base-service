@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import ErrorBoundary from "../ErrorBoundary";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import WikiReferencesPanel from "./WikiReferencesPanel";
 import { parseWikiSearchParams, wikiSearchHref } from "./wikiRouteHelpers";
 import { useBusiness } from "../../contexts/BusinessContext";
@@ -10,6 +10,7 @@ import { useI18n } from "../../i18n/context";
 import type { WikiEvent, WikiEventType } from "../../hooks/wikiTypes";
 import { useWikiEvents } from "../../hooks/useWikiEvents";
 import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
+import { invalidateWikiQueriesForBusiness } from "../../hooks/invalidateWikiQueries";
 import { useWikiRegenerate } from "../../hooks/useWikiRegenerate";
 import WikiToolTabStrip from "./WikiToolTabStrip";
 import WikiToolPanel, { type WikiToolTab, WikiToolSuspenseFallback } from "./WikiToolPanel";
@@ -19,18 +20,6 @@ import WikiUpdateNotification from "./WikiUpdateNotification";
 import WikiTreeNav from "./WikiTreeNav";
 
 export { WikiToolSuspenseFallback };
-
-/** All wiki query keys use `["wiki", <segment>, businessId, ...]` — invalidate everything for this business. */
-function invalidateWikiQueriesForBusiness(queryClient: QueryClient, businessId: string) {
-  const b = businessId.trim();
-  if (!b) return Promise.resolve();
-  return queryClient.invalidateQueries({
-    predicate: (q) => {
-      const k = q.queryKey as unknown[];
-      return k[0] === "wiki" && k[2] === b;
-    },
-  });
-}
 
 export default function WikiShell() {
   const [searchParams, setSearchParams] = useSearchParams();

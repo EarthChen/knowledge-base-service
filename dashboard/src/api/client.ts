@@ -7,10 +7,10 @@ import type {
   WikiExportResult,
   WikiLintReport,
 } from "./types";
+import { getCurrentBusiness } from "../currentBusiness";
 
 export const API_BASE = "/api/v1";
 const STORAGE_KEY = "kb_api_token";
-const BUSINESS_STORAGE_KEY = "kb_business_id";
 
 export function getToken(): string {
   return localStorage.getItem(STORAGE_KEY) || "";
@@ -21,9 +21,7 @@ export function setToken(value: string) {
   else localStorage.removeItem(STORAGE_KEY);
 }
 
-export function getCurrentBusiness(): string {
-  return localStorage.getItem(BUSINESS_STORAGE_KEY) || "default";
-}
+export { getCurrentBusiness };
 
 export function authHeaders(): Record<string, string> {
   const t = getToken();

@@ -1,21 +1,10 @@
 import { useCallback, useState } from "react";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { businessWikiGenerate, wikiTaskStatus } from "../api/client";
 import { useToast } from "../components/Toast";
 import { useI18n } from "../i18n/context";
 import { getErrorMessage } from "../utils/errorUtils";
-
-/** All wiki query keys use `["wiki", <segment>, businessId, ...]` — invalidate everything for this business. */
-function invalidateWikiQueriesForBusiness(queryClient: QueryClient, businessId: string) {
-  const b = businessId.trim();
-  if (!b) return Promise.resolve();
-  return queryClient.invalidateQueries({
-    predicate: (q) => {
-      const k = q.queryKey as unknown[];
-      return k[0] === "wiki" && k[2] === b;
-    },
-  });
-}
+import { invalidateWikiQueriesForBusiness } from "./invalidateWikiQueries";
 
 export function useWikiRegenerate(businessId: string) {
   const [isPending, setIsPending] = useState(false);

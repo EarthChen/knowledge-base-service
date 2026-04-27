@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
 import { api } from "../../api/client";
+import { useI18n } from "../../i18n/context";
 
 type Props = { pageUid: string; businessId: string };
 
 export default function WikiPageFeedback({ pageUid, businessId }: Props) {
+  const { t } = useI18n();
   const [sent, setSent] = useState<"up" | "down" | null>(null);
   const [sending, setSending] = useState(false);
 
@@ -32,20 +34,20 @@ export default function WikiPageFeedback({ pageUid, businessId }: Props) {
         ) : (
           <ThumbsDown className="h-3.5 w-3.5 text-red-500" />
         )}
-        <span>Thanks for your feedback!</span>
+        <span>{t.wiki.feedbackThanks}</span>
       </div>
     );
   }
 
   return (
     <div className="flex items-center gap-3 text-xs text-gray-500">
-      <span>Was this helpful?</span>
+      <span>{t.wiki.feedbackWasHelpful}</span>
       <button
         type="button"
         disabled={sending}
         onClick={() => void sendFeedback("up")}
-        title="Helpful"
-        aria-label="thumbs up"
+        title={t.wiki.feedbackHelpful}
+        aria-label={t.wiki.feedbackHelpful}
         className="rounded p-1 hover:bg-green-50 disabled:opacity-50 dark:hover:bg-green-950/40"
       >
         <ThumbsUp className="h-3.5 w-3.5" />
@@ -54,8 +56,8 @@ export default function WikiPageFeedback({ pageUid, businessId }: Props) {
         type="button"
         disabled={sending}
         onClick={() => void sendFeedback("down")}
-        title="Not helpful"
-        aria-label="thumbs down"
+        title={t.wiki.feedbackNotHelpful}
+        aria-label={t.wiki.feedbackNotHelpful}
         className="rounded p-1 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950/40"
       >
         <ThumbsDown className="h-3.5 w-3.5" />

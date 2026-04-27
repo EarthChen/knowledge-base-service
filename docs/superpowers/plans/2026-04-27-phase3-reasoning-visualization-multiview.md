@@ -823,4 +823,22 @@ cd dashboard && pnpm run lint && pnpm run test && pnpm run build
 
 ---
 
+## Supplementary: Deficiencies discovered during 2026-04-27 full audit
+
+### S1 — WikiScheduler integration
+
+`wiki/scheduler/wiki_scheduler.py` (interval regeneration) exists with tests but is NOT started in `main.py`. Only `LintScheduler` runs in lifespan. Consider wiring `WikiScheduler` alongside offline pack (Group C) to enable periodic regeneration + offline pack refresh.
+
+- [ ] **Step S1.1** — Add `wiki_regeneration_scheduler_enabled` flag to `WikiConfig` (default `False`)
+- [ ] **Step S1.2** — Wire `WikiScheduler` start/stop into `main.py` lifespan (same pattern as `LintScheduler`)
+
+### S2 — Frontend test coverage improvement
+
+Frontend Vitest threshold is only 50% line coverage. Before adding Phase 3 UI components:
+
+- [ ] **Step S2.1** — Raise coverage threshold to 70% in `vitest.config.ts`
+- [ ] **Step S2.2** — Add missing tests for existing wiki components to meet threshold
+
+---
+
 *End of plan.*

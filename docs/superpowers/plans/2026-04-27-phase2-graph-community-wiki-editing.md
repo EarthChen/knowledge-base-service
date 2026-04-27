@@ -901,3 +901,29 @@ pnpm build
 | **C** | A, B | `auth` + `WikiStore` Cypher; frontend API prefix |
 
 **Suggested integration order**: merge A, then B, then C; run full `uv run pytest` and `pnpm build` before release.
+
+---
+
+## Supplementary: Deficiencies discovered during 2026-04-27 full audit
+
+### S1 — WikiStore SRP refactor (prep for editing)
+
+`WikiStore` inherits 7 Mixins (`WikiPageStoreMixin`, `WikiTreeStoreMixin`, `WikiCoverageStoreMixin`, `WikiQaStoreMixin`, `WikiMemoryStoreMixin`, `WikiContradictionStoreMixin`, `WikiClaimStoreMixin`), violating SRP. Before adding Group C editing, consider splitting into independent Repository services to keep editing logic isolated.
+
+- [ ] **Step S1.1** — Identify methods used by Group C editing and extract into `store/wiki_edit_store.py`
+- [ ] **Step S1.2** — Wire new store into `bootstrap_wiki` and editing routes
+
+### S2 — Configuration profiles (reduce 40+ flags complexity)
+
+`WikiConfig` has 40+ flags. Borrow from DeepWiki's zero-config philosophy:
+
+- [ ] **Step S2.1** — Add `wiki_profile: Literal["minimal", "standard", "full"] = "standard"` to `WikiConfig`
+- [ ] **Step S2.2** — On startup, if `wiki_profile` is set and individual flags are not overridden, apply profile defaults
+- [ ] **Step S2.3** — Document profiles in `DEPLOYMENT.md`
+
+### S3 — Graph schema migration tooling
+
+FalkorDB graph schema evolves without formal migration. Before adding WikiPageVersion nodes (Group C):
+
+- [ ] **Step S3.1** — Create `store/migrations/` with a simple version-check + migration runner
+- [ ] **Step S3.2** — Add migration for WikiPageVersion node type and version property on WikiPage

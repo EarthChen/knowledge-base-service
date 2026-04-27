@@ -855,4 +855,34 @@ mypy wiki/compilation_snapshot.py wiki/feedback_loop.py  # if mypy in CI
 
 ---
 
+## Supplementary: Deficiencies discovered during 2026-04-27 full audit
+
+The following issues were identified during a comprehensive code/doc review and LLM Wiki ecosystem comparison. They should be addressed alongside or immediately after Phase 1 tasks:
+
+### S1 — Enable `supersession_tracking_enabled` (default `True`)
+
+LLM Wiki v2 identifies supersession as a core knowledge lifecycle feature. KBS has `supersession_tracking_enabled=False` in `WikiConfig`. Change default to `True` in `config.py` after Phase 1 compilation snapshot is working, so that superseded claims are visible in snapshot output.
+
+- [ ] **Step S1.1** — Change `supersession_tracking_enabled` default from `False` to `True` in `WikiConfig`
+- [ ] **Step S1.2** — Add test in `tests/test_wiki_config_defaults.py` verifying new default
+- [ ] **Step S1.3** — Update `docs/DEPLOYMENT.md` table for `WIKI__SUPERSESSION_TRACKING_ENABLED`
+
+### S2 — Implement real SSE event bus (replace placeholder)
+
+`/api/v1/wiki/events` only sends keepalives. Phase 1 feedback loop needs real event push (lint results, regen progress, ingest status) to frontend.
+
+- [ ] **Step S2.1** — Create `wiki/event_bus.py` with `WikiEventBus` (asyncio broadcast, typed events)
+- [ ] **Step S2.2** — Wire `WikiEventBus` into `bootstrap_wiki` and `wiki_feedback_routes.py` SSE endpoint
+- [ ] **Step S2.3** — Emit events from `run_lint`, `AutoHealer.heal`, `FeedbackDrivenRegeneration`, ingest
+- [ ] **Step S2.4** — Frontend: update `useWikiEvents` to parse typed events and trigger query invalidation
+
+### S3 — Frontend code quality fixes
+
+- [ ] **Step S3.1** — Fix i18n hardcoded strings in `WikiPageFeedback` ("Was this helpful?", etc.)
+- [ ] **Step S3.2** — Deduplicate `invalidateWikiQueriesForBusiness` (keep one in `hooks/`, remove from `WikiShell.tsx`)
+- [ ] **Step S3.3** — Deduplicate `getCurrentBusiness` (single export from `BusinessContext.tsx`, update `api/client.ts`)
+- [ ] **Step S3.4** — Remove legacy `useWikiPage` if `useWikiPageByPath` is the canonical hook
+
+---
+
 _End of plan._

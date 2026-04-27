@@ -118,6 +118,20 @@ class WikiService:
     def _confidence_scoring_enabled(self) -> bool:
         return bool(getattr(self._wiki_cfg, "confidence_scoring_enabled", False))
 
+    async def _run_compilation_snapshot(self, business_id: str, repository: str) -> None:
+        if not getattr(self._wiki_cfg, "snapshot_enabled", True):
+            return
+        if self._store is None or not hasattr(self._store, "execute_query"):
+            return
+        from wiki.compilation_snapshot import WikiCompilationSnapshot
+
+        snap = WikiCompilationSnapshot(self._store, self._wiki_cfg)
+        try:
+            await snap.generate_and_persist(business_id, repository)
+            log.info("compilation_snapshot_built", repository=repository)
+        except Exception:
+            log.warning("compilation_snapshot_failed", repository=repository, exc_info=True)
+
     async def _ensure_repo(self, repository: str) -> None:
         if not await self._repository_exists(repository):
             raise WikiRepoNotFoundError(repository)
@@ -269,6 +283,7 @@ class WikiService:
             llm_provider,
         )
         await self._persist_pages_to_graph(repository, pages, language=language)
+        await self._run_compilation_snapshot("default", repository)
         if self._deferred_enrichment:
             refreshed = await self._deferred_enrichment.refresh_stale_embeddings(repository)
             log.info(
@@ -346,6 +361,9 @@ class WikiService:
                 except Exception as exc:
                     log.warning("incremental_page_failed", page_uid=page_uid, error=str(exc))
                     errors.append(page_uid)
+
+            if pages_regenerated > 0:
+                await self._run_compilation_snapshot("default", repository)
 
             return {
                 "pages_regenerated": pages_regenerated,
@@ -467,6 +485,8 @@ class WikiService:
             yield {"page": page.to_dict()}
 
         await self._enrich_pages_after_compose(pages, page_tier_map, config, llm_provider)
+        await self._persist_pages_to_graph(repository, pages, language=language)
+        await self._run_compilation_snapshot("default", repository)
         for page in pages:
             if page.page_type == PageType.REPO_OVERVIEW:
                 continue

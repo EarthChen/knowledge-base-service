@@ -12,6 +12,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from config import WikiConfig
 from log import get_logger
 from store.wiki_store import WikiStore
+from wiki.auto_healer import AutoHealer
 from wiki.cache import WikiCache
 from wiki.models import WikiPage, parse_scope
 
@@ -92,6 +93,7 @@ class WikiLintService:
         *,
         wiki_config: WikiConfig | None = None,
         contradiction_detector: Any | None = None,
+        wiki_changelog_store: Any | None = None,
     ) -> None:
         self._store = store
         self._wiki_store = wiki_store or WikiStore(store)
@@ -99,6 +101,7 @@ class WikiLintService:
         self._repo_registry = repo_registry
         self._wiki_config = wiki_config
         self._contradiction_detector = contradiction_detector
+        self._wiki_changelog_store = wiki_changelog_store
 
     def _lint_confidence_enabled(self) -> bool:
         c = self._wiki_config
@@ -176,6 +179,39 @@ class WikiLintService:
             checked_at=datetime.now(timezone.utc).isoformat(),
             scope=scope,
         )
+
+    async def run_lint(self, repository: str, *, scope: str = "all") -> dict[str, Any]:
+        """Run wiki lint, then optional auto-heal; return a unified dict for APIs and schedulers.
+
+        Order: ``lint`` (collect issues) → ``AutoHealer.heal`` (if enabled) → merge.
+        """
+        report = await self.lint(repository, scope=scope)
+        body: dict[str, Any] = report.to_dict()
+        body["auto_heal"] = None
+
+        c = self._wiki_config
+        if c is not None and bool(getattr(c, "auto_heal_enabled", False)):
+            healer = AutoHealer(self._wiki_store)
+            heal_result = await healer.heal(repository)
+            body["auto_heal"] = heal_result
+
+            cl = self._wiki_changelog_store
+            if cl is not None and heal_result is not None:
+                try:
+                    await cl.persist_changelog(
+                        repository,
+                        "lint_auto_heal",
+                        [],
+                        0,
+                        files_changed=[],
+                        errors=[],
+                        heal_refs_removed=int(heal_result.get("refs_removed", 0) or 0),
+                        heal_pages_deprecated=int(heal_result.get("pages_deprecated", 0) or 0),
+                    )
+                except Exception:  # noqa: BLE001 — observability must not break lint
+                    log.warning("lint_auto_heal_changelog_failed", repository=repository, exc_info=True)
+
+        return body
 
     def _filter_by_scope(self, issues: list[LintIssue], scope: str) -> list[LintIssue]:
         raw = (scope or "all").strip()

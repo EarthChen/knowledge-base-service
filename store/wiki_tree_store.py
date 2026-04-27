@@ -108,15 +108,31 @@ class WikiTreeStoreMixin:
         )
 
     async def get_wiki_tree(
-        self, business_id: str, view_type: str, max_depth: int = 5
+        self,
+        business_id: str,
+        view_type: str,
+        max_depth: int = 5,
+        wiki_tier: str | None = None,
     ) -> QueryResultWrapper:
+        tier_filter = ""
+        if wiki_tier == "standard":
+            tier_filter = (
+                " AND (coalesce(labels(node)[0], '') <> 'WikiPage' OR "
+                "coalesce(node.importance_tier, 'standard') <> 'supplementary')"
+            )
+        elif wiki_tier == "essential":
+            tier_filter = (
+                " AND (coalesce(labels(node)[0], '') <> 'WikiPage' OR "
+                "coalesce(node.importance_tier, 'standard') IN ['core', 'essential'])"
+            )
+        # "comprehensive", None, or unknown: no tier filter
         q = (
             "MATCH (ws:WikiSpace {business_id: $business_id}) "
             f"OPTIONAL MATCH path = (ws)-[:HAS_CHILD*1..{max_depth}]->(node) "
             "WHERE ALL(r IN relationships(path) WHERE r.view_type = $view_type) "
             "WITH ws, node, length(path) AS depth, "
             "CASE WHEN length(path) > 1 THEN nodes(path)[-2] ELSE ws END AS parent "
-            "WHERE node IS NOT NULL "
+            f"WHERE node IS NOT NULL{tier_filter} "
             "RETURN node.uid AS uid, node.title AS title, "
             "labels(node)[0] AS label, depth, "
             "node.sort_order AS sort_order, "

@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.exceptions import KbNotFound, KbServiceUnavailable
 from auth import Role, require_role
@@ -273,6 +273,10 @@ async def wiki_get_tree(
     request: Request,
     business_id: str = Query(default="default"),
     view: str = Query(default="business_domain"),
+    wiki_tier: str | None = Query(
+        default=None,
+        description="Optional importance tier filter: comprehensive, standard, or essential",
+    ),
 ) -> dict[str, Any]:
     """Return the wiki tree structure for the given business and view type."""
     raw_store: Any = getattr(request.app.state, "wiki_store", None)
@@ -280,7 +284,7 @@ async def wiki_get_tree(
         return {"tree": [], "view_type": view, "business_id": business_id}
 
     store = WikiStore(raw_store)
-    result = await store.get_wiki_tree(business_id, view)
+    result = await store.get_wiki_tree(business_id, view, wiki_tier=wiki_tier)
     flat_nodes: list[dict[str, Any]] = []
     if result and result.result_set:
         for row in result.result_set:
@@ -596,6 +600,20 @@ async def wiki_enrich_trigger(
         ) from exc
 
 
+@router.get("/{repository}/offline-pack", response_model=None)
+async def wiki_offline_pack(
+    repository: str,
+    business_id: str | None = Query(default=None),
+    store: Any = Depends(get_wiki_store_dep),
+) -> JSONResponse:
+    """Return a JSON package of wiki pages, tree, and optional snapshot for offline use."""
+    from wiki.offline_pack import WikiOfflinePack
+
+    pack = WikiOfflinePack(store)
+    result = await pack.build(repository, business_id or "")
+    return JSONResponse(content=result, media_type="application/json")
+
+
 @router.get("/{repository}/pages", response_model=None)
 async def wiki_list_pages(
     repository: str,
@@ -673,3 +691,6 @@ async def wiki_edit_page_content(
             raise KbNotFound(f"Wiki page not found: {decoded}")
         raise KbServiceUnavailable(str(out.get("error", "update_failed")))
     return out
+
+
+wiki_page_router = router

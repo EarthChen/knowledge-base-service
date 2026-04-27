@@ -206,6 +206,20 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
         if redis_conn is not None:
             wiki_task_store = WikiTaskStore(redis_conn)
             log.info("wiki_task_store_initialized", backend="redis")
+            try:
+                orphans = await wiki_task_store.list_active()
+                for task in orphans:
+                    tid = task.get("task_id", "")
+                    if tid:
+                        await wiki_task_store.update_status(
+                            tid, "failed", error="server_restart",
+                        )
+                        bid = task.get("business_id")
+                        if bid:
+                            await wiki_task_store.unlock(bid)
+                        log.info("orphan_task_cleaned", task_id=tid)
+            except Exception:
+                log.warning("orphan_task_cleanup_failed", exc_info=True)
         else:
             log.warning("wiki_task_store_no_redis", fallback="in-memory")
     except Exception:

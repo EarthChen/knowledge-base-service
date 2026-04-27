@@ -451,12 +451,12 @@ class WikiMCPHandler:
                 repo_registry=self._repo_registry,
                 wiki_config=self._wiki_config,
             )
-            report = await svc.lint(repository, scope=scope)
+            payload = await svc.run_lint(repository, scope=scope)
         except Exception:
             import structlog
             structlog.get_logger().exception("wiki_lint failed", repository=repository)
             return self._mcp_error("internal_error", "Wiki lint failed unexpectedly")
-        return {"status": "success", **report.to_dict()}
+        return {"status": "success", **payload}
 
     async def handle_wiki_export_preview(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._wiki_cache is None:

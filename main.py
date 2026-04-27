@@ -178,6 +178,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             repo_registry=kb_state.repo_registry,
             wiki_config=settings.wiki,
             contradiction_detector=det,
+            wiki_changelog_store=getattr(app.state, "wiki_changelog_store", None),
         )
 
     app.state.wiki_lint_service_factory = wiki_lint_service_factory

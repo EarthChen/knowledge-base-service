@@ -131,8 +131,7 @@ async def wiki_lint(
             f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
         ) from exc
     scope = body.scope if body else "all"
-    report = await lint_svc.lint(repository, scope=scope)
-    return report.to_dict()
+    return await lint_svc.run_lint(repository, scope=scope)
 
 
 @router.post(

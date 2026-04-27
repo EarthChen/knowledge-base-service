@@ -17,7 +17,7 @@ from api.routes.wiki_routes import (
     get_wiki_service_dep,
     wiki_router,
 )
-from wiki.lint import LintReport, WikiLintService
+from wiki.lint import WikiLintService
 from wiki.service import WikiRepoNotFoundError
 
 
@@ -36,14 +36,17 @@ def wiki_lint_client() -> tuple[TestClient, MagicMock]:
     mock_wiki.ensure_repository = AsyncMock(return_value=None)
 
     mock_lint = MagicMock(spec=WikiLintService)
-    mock_lint.lint = AsyncMock(
-        return_value=LintReport(
-            issues=[],
-            stats={"total": 0, "errors": 0, "warnings": 0, "info": 0},
-            checked_at="2026-01-01T00:00:00+00:00",
-            scope="all",
-        ),
-    )
+
+    async def _fake_run_lint(repo: str, scope: str = "all") -> dict:
+        return {
+            "issues": [],
+            "stats": {"total": 0, "errors": 0, "warnings": 0, "info": 0},
+            "checked_at": "2026-01-01T00:00:00+00:00",
+            "scope": scope,
+            "auto_heal": None,
+        }
+
+    mock_lint.run_lint = AsyncMock(side_effect=_fake_run_lint)
 
     async def override_wiki() -> MagicMock:
         return mock_wiki
@@ -71,7 +74,8 @@ def test_post_wiki_lint_returns_200(wiki_lint_client: tuple[TestClient, MagicMoc
     assert "issues" in body
     assert "stats" in body
     assert "checked_at" in body
-    mock_lint.lint.assert_awaited_once()
+    assert body.get("auto_heal") is None
+    mock_lint.run_lint.assert_awaited_once()
 
 
 def test_post_wiki_lint_missing_repo_returns_404() -> None:

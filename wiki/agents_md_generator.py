@@ -24,6 +24,20 @@ class AgentsMdGenerator:
         rows = getattr(result, "data", []) or []
         pages = [r for r in rows if isinstance(r, dict)]
 
+        stats_q = (
+            "MATCH (wp:WikiPage {repository: $repo}) "
+            "WHERE coalesce(wp.deprecated, false) = false "
+            "RETURN count(wp) AS n, avg(coalesce(wp.confidence, 0)) AS avg_conf"
+        )
+        stats_result = await self._graph.execute_query(stats_q, {"repo": repository})
+        stats_rows = getattr(stats_result, "data", []) or []
+        stat0: dict[str, Any] = (
+            stats_rows[0] if stats_rows and isinstance(stats_rows[0], dict) else {}
+        )
+        n_pages = int(stat0.get("n", 0) or 0)
+        raw_avg = stat0.get("avg_conf")
+        avg_conf = float(raw_avg) if raw_avg is not None else 0.0
+
         lines: list[str] = [
             "# Knowledge Base — Agent Guide",
             "",
@@ -35,6 +49,8 @@ class AgentsMdGenerator:
 
         if not pages:
             lines.append("_No wiki pages generated yet. Run wiki generation first._")
+            lines.append("")
+            lines.extend(self._knowledge_at_glance_lines(n_pages, avg_conf))
             return "\n".join(lines)
 
         sections: dict[str, list[dict[str, Any]]] = {}
@@ -54,6 +70,7 @@ class AgentsMdGenerator:
                 lines.append(f"- **{title}**{type_badge}: `{ppath}`")
             lines.append("")
 
+        lines.extend(self._knowledge_at_glance_lines(n_pages, avg_conf))
         lines.extend([
             "## How to Use",
             "",
@@ -63,3 +80,15 @@ class AgentsMdGenerator:
         ])
 
         return "\n".join(lines)
+
+    def _knowledge_at_glance_lines(self, n_pages: int, avg_conf: float) -> list[str]:
+        return [
+            "## Knowledge at a glance",
+            "",
+            f"- **Pages:** {n_pages}",
+            f"- **Average confidence:** {avg_conf:.2f}",
+            "",
+            "For a full map of pages and cross-refs, call MCP tool `wiki_get_snapshot` with this repository, or read",
+            "`wiki_snapshot.md` in exports.",
+            "",
+        ]

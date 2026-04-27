@@ -12,14 +12,18 @@ vi.mock("../../components/Toast", () => ({
   useToast: () => ({ toast }),
 }));
 
-const useI18nMock = vi.fn((): { locale: "en" | "zh"; t: typeof en; setLocale: ReturnType<typeof vi.fn> } => ({ locale: "en", t: en, setLocale: vi.fn() }));
+const useI18nMock = vi.fn((): { locale: "en" | "zh"; t: typeof en; setLocale: ReturnType<typeof vi.fn> } => ({
+  locale: "en",
+  t: en,
+  setLocale: vi.fn(),
+}));
 vi.mock("../../i18n/context", () => ({
   useI18n: () => useI18nMock(),
 }));
 
 vi.mock("../../api/client", () => ({
   businessWikiGenerate: vi.fn(),
-  wikiTaskStatus: vi.fn(),
+  businessWikiTaskStatus: vi.fn(),
 }));
 
 function createWrapper() {
@@ -42,7 +46,7 @@ describe("useWikiRegenerate", () => {
   it("returns early and does not call the API for blank business id", async () => {
     const { result } = renderHook(() => useWikiRegenerate("   "), { wrapper: createWrapper() });
     await act(async () => {
-      await result.current.regenerate();
+      await result.current.regenerate(true);
     });
     expect(vi.mocked(client.businessWikiGenerate)).not.toHaveBeenCalled();
   });
@@ -55,9 +59,9 @@ describe("useWikiRegenerate", () => {
     });
     const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
     await act(async () => {
-      await result.current.regenerate();
+      await result.current.regenerate(true);
     });
-    expect(vi.mocked(client.businessWikiGenerate)).toHaveBeenCalledWith("biz-1", "en");
+    expect(vi.mocked(client.businessWikiGenerate)).toHaveBeenCalledWith("biz-1", "en", true);
     expect(toast).toHaveBeenCalledWith("success", en.wiki.regenerateStarted);
   });
 
@@ -70,9 +74,9 @@ describe("useWikiRegenerate", () => {
     });
     const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
     await act(async () => {
-      await result.current.regenerate();
+      await result.current.regenerate(true);
     });
-    expect(vi.mocked(client.businessWikiGenerate)).toHaveBeenCalledWith("biz-1", "zh");
+    expect(vi.mocked(client.businessWikiGenerate)).toHaveBeenCalledWith("biz-1", "zh", true);
   });
 
   it("polls until task completes and shows success", async () => {
@@ -82,17 +86,17 @@ describe("useWikiRegenerate", () => {
       status: "pending",
       mode: "full",
     });
-    vi.mocked(client.wikiTaskStatus).mockResolvedValue({
+    vi.mocked(client.businessWikiTaskStatus).mockResolvedValue({
       task_id: "task-1",
       status: "completed",
     });
     const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
     await act(async () => {
-      const regen = result.current.regenerate();
+      const regen = result.current.regenerate(true);
       await vi.advanceTimersByTimeAsync(2000);
       await regen;
     });
-    expect(vi.mocked(client.wikiTaskStatus)).toHaveBeenCalledWith("task-1");
+    expect(vi.mocked(client.businessWikiTaskStatus)).toHaveBeenCalledWith("task-1");
     expect(toast).toHaveBeenCalledWith("success", en.wiki.regenerateComplete);
   });
 
@@ -103,14 +107,14 @@ describe("useWikiRegenerate", () => {
       status: "pending",
       mode: "full",
     });
-    vi.mocked(client.wikiTaskStatus).mockResolvedValue({
+    vi.mocked(client.businessWikiTaskStatus).mockResolvedValue({
       task_id: "t-err-obj",
       status: "failed",
       error: { error: "internal", detail: "code_10" },
     });
     const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
     await act(async () => {
-      const regen = result.current.regenerate();
+      const regen = result.current.regenerate(true);
       await vi.advanceTimersByTimeAsync(2000);
       await regen;
     });
@@ -124,23 +128,20 @@ describe("useWikiRegenerate", () => {
       status: "pending",
       mode: "full",
     });
-    vi.mocked(client.wikiTaskStatus).mockResolvedValue({
+    vi.mocked(client.businessWikiTaskStatus).mockResolvedValue({
       task_id: "t2",
       status: "failed",
       error: { detail: "boom" },
     });
     const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
     const p = act(async () => {
-      await result.current.regenerate();
+      await result.current.regenerate(true);
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
     await p;
-    expect(toast).toHaveBeenCalledWith(
-      "error",
-      en.wiki.regenerateFailed.replace("{detail}", "boom"),
-    );
+    expect(toast).toHaveBeenCalledWith("error", en.wiki.regenerateFailed.replace("{detail}", "boom"));
   });
 
   it("toasts timeout when max attempts are exhausted", async () => {
@@ -150,16 +151,16 @@ describe("useWikiRegenerate", () => {
       status: "pending",
       mode: "full",
     });
-    vi.mocked(client.wikiTaskStatus).mockResolvedValue({
+    vi.mocked(client.businessWikiTaskStatus).mockResolvedValue({
       task_id: "t3",
       status: "running",
     });
     const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
     const p = act(async () => {
-      await result.current.regenerate();
+      await result.current.regenerate(true);
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000 * 45 + 10);
+      await vi.advanceTimersByTimeAsync(2000 * 120 + 10);
     });
     await p;
     expect(toast).toHaveBeenCalledWith("error", en.wiki.regenerateTimeout);
@@ -172,13 +173,13 @@ describe("useWikiRegenerate", () => {
       status: "pending",
       mode: "full",
     });
-    vi.mocked(client.wikiTaskStatus).mockResolvedValue({
+    vi.mocked(client.businessWikiTaskStatus).mockResolvedValue({
       task_id: "t-no-err",
       status: "failed",
     });
     const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
     await act(async () => {
-      const regen = result.current.regenerate();
+      const regen = result.current.regenerate(true);
       await vi.advanceTimersByTimeAsync(2000);
       await regen;
     });
@@ -192,7 +193,7 @@ describe("useWikiRegenerate", () => {
     vi.mocked(client.businessWikiGenerate).mockRejectedValue(new Error("network down"));
     const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
     await act(async () => {
-      await result.current.regenerate();
+      await result.current.regenerate(true);
     });
     expect(toast).toHaveBeenCalledWith("error", "network down");
   });

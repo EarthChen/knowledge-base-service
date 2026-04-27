@@ -652,6 +652,11 @@ export interface Translations {
     regenerateComplete: string;
     regenerateFailed: string;
     regenerateTimeout: string;
+    regenerateProgress: string;
+    regenerateSkipped: string;
+    regenerateIncremental: string;
+    regenerateFull: string;
+    regenerateConflict: string;
     pagesHeading: string;
     expandAllFolders: string;
     treeNavExpand: string;

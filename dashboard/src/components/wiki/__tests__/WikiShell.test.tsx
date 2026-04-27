@@ -86,7 +86,7 @@ describe("WikiShell", () => {
     const user = userEvent.setup();
     renderShell("/wiki?business_id=b1");
     await user.click(screen.getByRole("button", { name: "Regenerate" }));
-    expect(generateMock).toHaveBeenCalledWith("b1", "en");
+    expect(generateMock).toHaveBeenCalledWith("b1", "en", true);
   });
 
   it("wiki tool Suspense fallback uses i18n loading string", () => {

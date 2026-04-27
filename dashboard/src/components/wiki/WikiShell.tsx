@@ -61,7 +61,12 @@ export default function WikiShell() {
   const pageQuery = useWikiPageByPath(businessId, pagePath || undefined);
   const queryClient = useQueryClient();
   const { t } = useI18n();
-  const { regenerate: handleRegenerateWiki, isPending: regeneratePending } = useWikiRegenerate(businessId);
+  const {
+    regenerate: handleRegenerateWiki,
+    isPending: regeneratePending,
+    progress: regenerateProgress,
+  } = useWikiRegenerate(businessId);
+  const [wikiRegenIncremental, setWikiRegenIncremental] = useState(true);
   const [updateNotification, setUpdateNotification] = useState<string | null>(null);
   const [generationStatus, setGenerationStatus] = useState<WikiEventType | null>(null);
   const [refsPanelOpen, setRefsPanelOpen] = useState(() => {
@@ -178,9 +183,39 @@ export default function WikiShell() {
             <WikiToolTabStrip toolTab={toolTab} onToolTabChange={setToolTab} />
             <div className="flex flex-wrap items-center gap-2">
               <WikiSearchBar repository={businessId} linkParams={wikiLinkParams} />
+              <div
+                className="inline-flex shrink-0 overflow-hidden rounded-lg border border-gray-200 text-xs font-medium dark:border-gray-600"
+                role="group"
+                aria-label={t.wiki.regenerate}
+              >
+                <button
+                  type="button"
+                  onClick={() => setWikiRegenIncremental(true)}
+                  disabled={regeneratePending}
+                  className={`px-2.5 py-2 transition-colors ${
+                    wikiRegenIncremental
+                      ? "bg-amber-100 text-amber-950 dark:bg-amber-950/60 dark:text-amber-100"
+                      : "bg-white text-gray-600 hover:bg-gray-50 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  {t.wiki.regenerateIncremental}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWikiRegenIncremental(false)}
+                  disabled={regeneratePending}
+                  className={`border-l border-gray-200 px-2.5 py-2 transition-colors dark:border-gray-600 ${
+                    !wikiRegenIncremental
+                      ? "bg-amber-100 text-amber-950 dark:bg-amber-950/60 dark:text-amber-100"
+                      : "bg-white text-gray-600 hover:bg-gray-50 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+                  }`}
+                >
+                  {t.wiki.regenerateFull}
+                </button>
+              </div>
               <button
                 type="button"
-                onClick={handleRegenerateWiki}
+                onClick={() => void handleRegenerateWiki(wikiRegenIncremental)}
                 disabled={regeneratePending}
                 aria-busy={regeneratePending}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-200 dark:hover:bg-amber-950"
@@ -190,6 +225,36 @@ export default function WikiShell() {
               </button>
             </div>
           </div>
+
+          {regenerateProgress && (
+            <div className="space-y-1.5 rounded-lg border border-amber-200/80 bg-amber-50/50 px-3 py-2 dark:border-amber-900/50 dark:bg-amber-950/20">
+              <p className="text-xs text-amber-950 dark:text-amber-100">
+                {t.wiki.regenerateProgress
+                  .replace("{current}", regenerateProgress.currentRepo || "—")
+                  .replace("{pct}", String(Math.round(regenerateProgress.progressPct)))}
+              </p>
+              {regenerateProgress.skippedRepos > 0 && (
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  {t.wiki.regenerateSkipped.replace("{count}", String(regenerateProgress.skippedRepos))}
+                </p>
+              )}
+              <div
+                className="h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
+                role="progressbar"
+                aria-valuenow={Math.round(regenerateProgress.progressPct)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={t.wiki.regenerateProgress
+                  .replace("{current}", regenerateProgress.currentRepo || "—")
+                  .replace("{pct}", String(Math.round(regenerateProgress.progressPct)))}
+              >
+                <div
+                  className="h-full rounded-full bg-amber-500 transition-[width] dark:bg-amber-600"
+                  style={{ width: `${Math.min(100, Math.max(0, regenerateProgress.progressPct))}%` }}
+                />
+              </div>
+            </div>
+          )}
 
           {updateNotification && (
             <WikiUpdateNotification

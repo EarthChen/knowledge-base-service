@@ -153,6 +153,15 @@ export interface WikiAsyncTask {
   scope?: string;
   result?: unknown;
   error?: { error?: string; detail?: string };
+  // Business wiki progress fields
+  business_id?: string;
+  total_repos?: number;
+  completed_repos?: number;
+  skipped_repos?: string[] | number;
+  current_repo?: string;
+  progress_pct?: number;
+  incremental?: string;
+  partial_errors?: Array<{ repository: string; error: string }>;
 }
 
 export interface IndexTaskProgress {

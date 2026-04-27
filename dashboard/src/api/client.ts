@@ -141,11 +141,16 @@ export async function wikiTaskStatus(taskId: string): Promise<WikiAsyncTask> {
 export async function businessWikiGenerate(
   businessId: string,
   language: string,
+  incremental = true,
 ): Promise<TaskInfo> {
   return api<TaskInfo>("/wiki/business/generate", {
     method: "POST",
-    body: JSON.stringify({ business_id: businessId, language }),
+    body: JSON.stringify({ business_id: businessId, language, incremental }),
   });
+}
+
+export async function businessWikiTaskStatus(taskId: string): Promise<WikiAsyncTask> {
+  return api<WikiAsyncTask>(`/wiki/business/tasks/${encodeURIComponent(taskId)}`);
 }
 
 export async function businessWikiExport(

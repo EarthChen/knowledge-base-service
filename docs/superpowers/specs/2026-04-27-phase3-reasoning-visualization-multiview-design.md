@@ -1,6 +1,8 @@
 # Phase 3: 推理可视化与多视图模式
 
-**状态**: Draft
+> **实现状态：后端已完成（Phase 3）** — Backend implemented 2026-04-27. **Frontend 组件待办**（例如部分 Dashboard 多视图/推理面板等）。以 [IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md) 为准。下文保留历史问题陈述、方案与测试清单供审阅与追溯。
+
+**状态**: Backend implemented 2026-04-27. Frontend components pending.（原 Draft；见上方说明与 IMPLEMENTATION-STATUS）
 **优先级**: 低（长期）
 **预计工期**: 8-12 天
 **依赖**: Phase 0 + Phase 1 + Phase 2

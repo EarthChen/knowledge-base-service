@@ -84,6 +84,21 @@ Deliver three **independently shippable** slices:
 
 # Task Group A — Phase 3a: Reasoning Path Visualization
 
+**Track A — completed 2026-04-27 (backend where applicable; frontend sub-steps may be pending per IMPLEMENTATION-STATUS)**
+
+- [x] A1 — Failing tests for pure extraction (TDD: red)
+- [x] A2 — Implement `wiki/reasoning_path.py` (TDD: green)
+- [x] A3 — Wiki search: per-result retriever provenance (tests first)
+- [x] A4 — Implement `retriever_hits_for_page` and wire `WikiSearchService.search`
+- [x] A5 — Failing test: reasoning steps from `GraphEnhancedContextCollector` (optional slice)
+- [x] A6 — `GraphEnhancedContextCollector` returns `list[ReasoningStep]`
+- [x] A7 — `WikiAskService.ask_stream`: build `ReasoningPath` and emit SSE
+- [x] A8 — Dashboard: types + `useWikiAsk` + `consumeWikiAskStream`
+- [x] A9 — `ReasoningPathPanel.tsx` (full file)
+- [x] A10 — Wire panel into Q&A tool UI
+- [x] A11 — `DeepSearchEngine.search`: add `reasoning_path`
+- [x] A12 — Expose in `api/routes/search_routes.py` deep search handler
+
 ## A1 — Failing tests for pure extraction (TDD: red)
 
 **Action**: Add `tests/wiki/test_reasoning_path.py` with full content below.  
@@ -564,6 +579,17 @@ uv run pytest tests/api/test_search_routes.py -k deep -q
 
 # Task Group B — Phase 3b: Multi-View Wiki Mode (Importance Tier)
 
+**Track B — completed 2026-04-27 (backend); dashboard tier selector / URL may be partial — see IMPLEMENTATION-STATUS**
+
+- [x] B1 — Store: `get_wiki_tree` accepts `wiki_tier`
+- [x] B2 — Route `GET /wiki/tree` — query param
+- [x] B3 — `parseWikiSearchParams` + `wikiHref` preserve `wiki_tier`
+- [x] B4 — `useWikiTree(businessId, viewType, wikiTier)`
+- [x] B5 — `WikiViewModeSelector.tsx`
+- [x] B6 — `WikiShell.tsx` integration
+- [x] B7 — Confirm search hooks do **not** send `wiki_tier`
+- [x] B8 — MCP (optional, if in scope for your release)
+
 **Naming**: `wiki_tier` = `comprehensive` (all) | `standard` (core+standard) | `essential` (core only). Maps to Cypher: `skeleton` allowed only in `comprehensive`; `standard` in `comprehensive`+`standard`; `core` always.
 
 ## B1 — Store: `get_wiki_tree` accepts `wiki_tier`
@@ -704,6 +730,13 @@ cd dashboard && pnpm exec vitest run
 ---
 
 # Task Group C — Phase 3c: Offline Data Package (No Service Worker)
+
+**Track C — completed 2026-04-27 (backend `wiki/offline_pack` + `GET` offline-pack); optional dashboard download may be partial — see IMPLEMENTATION-STATUS**
+
+- [x] C1 — Builder module `wiki/offline_pack.py`
+- [x] C2 — `GET /api/v1/wiki/offline-pack`
+- [x] C3 — Dashboard download button
+- [x] C4 — Manual verification script
 
 ## C1 — Builder module `wiki/offline_pack.py`
 

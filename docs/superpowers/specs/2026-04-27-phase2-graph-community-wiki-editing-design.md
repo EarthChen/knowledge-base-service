@@ -1,6 +1,8 @@
 # Phase 2: 图社区驱动 Wiki 组织与编辑能力
 
-**状态**: Draft
+> **实现状态：已完成（Phase 2）** — Implemented 2026-04-27. 本项已落地；当前运行时行为、默认开关与事实来源以 [IMPLEMENTATION-STATUS.md](../../IMPLEMENTATION-STATUS.md) 为准。下文保留历史问题陈述、方案与测试清单供审阅与追溯。
+
+**状态**: 已实现 2026-04-27（原 Draft；见上方说明与 IMPLEMENTATION-STATUS）
 **优先级**: 中（中期）
 **预计工期**: 5-8 天
 **依赖**: Phase 0 + Phase 1

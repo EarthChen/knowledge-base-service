@@ -95,6 +95,14 @@ flowchart TB
 
 *Independent deliverable: formatted communities + cache + `WikiService` wiring + tests.*
 
+**Track A — completed 2026-04-27**
+
+- [x] A1 — Add `format_communities_markdown` (pure function) + unit test
+- [x] A2 — Add `get_repository_index_fingerprint` async helper + test with mocked store
+- [x] A3 — Add `CachedCommunityService` (in-memory) + test
+- [x] A4 — Wire `CachedCommunityService` into `WikiService` (constructor + branch in `_compose_all_pages`)
+- [x] A5 — Bootstrap wiring in `main.py` / `wire_wiki_app_state` (or equivalent)
+
 ---
 
 ## A1 — Add `format_communities_markdown` (pure function) + unit test
@@ -413,6 +421,14 @@ cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run python -
 # Task Group B — Path retrieval (graph + MCP + Ask entity match)
 
 *Independent after `GraphQueryRepository` method signature is stable.*
+
+**Track B — completed 2026-04-27**
+
+- [x] B1 — Implement `GraphQueryRepository.shortest_path_between_names` with `shortestPath` + fallback
+- [x] B2 — Register MCP tool `graph_path` in `api/mcp_server.py`
+- [x] B3 — Add `select_entity_pair_for_path(question, names)` in `wiki/ask.py`
+- [x] B4 — Wire path query into `GraphEnhancedContextCollector.collect` or `WikiAskService` flow
+- [x] B5 — Align `ask_query_relation_paths` with `repository` parameter + shared path builder
 
 ---
 
@@ -747,6 +763,16 @@ cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest t
 # Task Group C — Wiki editing (API + store + UI)
 
 *Independent: can ship read-only `GET` for versions first if not present.*
+
+**Track C — completed 2026-04-27**
+
+- [x] C1 — Pydantic body model for patch
+- [x] C2 — Cypher: assert page in business, update content, insert version
+- [x] C3 — `GET /api/v1/wiki/pages/{page_uid}/versions` and `GET .../diff` (if missing)
+- [x] C4 — `PATCH /api/v1/wiki/pages/{page_uid}/content`
+- [x] C5 — Optional `compilation_snapshot` tick after human edit
+- [x] C6 — Frontend `WikiEditor.tsx` and `WikiContent.tsx` entry
+- [x] C7 — Update `WikiPage` graph persistence to respect `human_edit` on regeneration (guard)
 
 ---
 

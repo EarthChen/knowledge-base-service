@@ -30,7 +30,7 @@
 
 **Command (verify types load):** `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -c "from config import Settings; s=Settings(); print(s.wiki.snapshot_enabled, s.wiki.snapshot_layer_page_threshold)"`
 
-- [ ] **Step A1.1 — Add fields to `WikiConfig`**
+- [x] **Step A1.1 — Add fields to `WikiConfig`**
 
 Add to the `WikiConfig` class in `config.py` (env prefix already `WIKI__` via `Settings`):
 
@@ -54,7 +54,7 @@ class WikiConfig(BaseModel):
     """At or above this many wiki pages, emit global index + per-module sub-snapshots."""
 ```
 
-- [ ] **Step A1.2 — Add failing test that defaults resolve**
+- [x] **Step A1.2 — Add failing test that defaults resolve**
 
 `tests/wiki/test_compilation_snapshot_config.py`:
 
@@ -81,7 +81,7 @@ Run: `pytest tests/wiki/test_compilation_snapshot_config.py -q`
 
 **Command:** `pytest tests/wiki/test_compilation_snapshot.py -q`
 
-- [ ] **Step A2.1 — Test: small repo produces single markdown, includes title line**
+- [x] **Step A2.1 — Test: small repo produces single markdown, includes title line**
 
 `tests/wiki/test_compilation_snapshot.py` (complete):
 
@@ -155,7 +155,7 @@ async def test_layered_output_over_threshold():
     assert len(layered["modules"]) >= 1
 ```
 
-- [ ] **Step A2.2 — Implement `wiki/compilation_snapshot.py` (complete)**
+- [x] **Step A2.2 — Implement `wiki/compilation_snapshot.py` (complete)**
 
 ```python
 """Build a compiled markdown snapshot of wiki knowledge (graph → markdown)."""
@@ -389,7 +389,7 @@ class WikiCompilationSnapshot:
 
 **Files:** `wiki/compilation_snapshot.py` (add `persist_wiki_snapshot_pages` helper) or `wiki/service.py` private method
 
-- [ ] **Step A3.1 — Test that persist writes MERGE for snapshot path**
+- [x] **Step A3.1 — Test that persist writes MERGE for snapshot path**
 
 Use existing `persist_wiki_pages` contract from the graph store. Implement `_persist_compilation_snapshot` in `WikiService` that maps markdown to `path` values:
 
@@ -400,7 +400,7 @@ Use existing `persist_wiki_pages` contract from the graph store. Implement `_per
 
 (Implement test with a mock `persist_wiki_pages` capturing dicts passed.)
 
-- [ ] **Step A3.2 — Wire `generate()` and `generate_stream_events()` after `_persist_pages_to_graph`**
+- [x] **Step A3.2 — Wire `generate()` and `generate_stream_events()` after `_persist_pages_to_graph`**
 
 In `wiki/service.py`, after successful `await self._persist_pages_to_graph(...)` (and the same for stream path after persist), if `self._wiki_cfg.snapshot_enabled` and `self._store`:
 
@@ -425,13 +425,13 @@ async def _run_compilation_snapshot(self, business_id: str, repository: str) -> 
     # Implement persist via persist_wiki_pages with synthetic WikiPage dicts; see A3.1
 ```
 
-- [ ] **Step A3.3 — `generate_incremental`**
+- [x] **Step A3.3 — `generate_incremental`**
 
 At end of `generate_incremental` in `wiki/service.py`, if `pages_regenerated > 0` and `snapshot_enabled`, call `await self._run_compilation_snapshot("default", repository)`.
 
 **File note:** The spec also listed `wiki/incremental.py` — the HTTP ingest path uses `generate_incremental` on `WikiService`; only that needs the snapshot refresh unless a separate `WikiIncrementalUpdater` path also persists pages.
 
-- [ ] **Command:** `pytest tests/wiki/test_kb_wiki_pipeline.py -q` (extend or add integration test with mocked store)
+- [x] **Command:** `pytest tests/wiki/test_kb_wiki_pipeline.py -q` (extend or add integration test with mocked store)
 
 ---
 
@@ -444,7 +444,7 @@ At end of `generate_incremental` in `wiki/service.py`, if `pages_regenerated > 0
 - `api/mcp_server.py` — register handler in the wiki tool map (search for `wiki_get_domain_overview`)
 - `tests/wiki/mcp/test_mcp_business_wiki.py` or new `tests/wiki/mcp/test_wiki_get_snapshot.py`
 
-- [ ] **Step A4.1 — Failing test: manifest includes tool**
+- [x] **Step A4.1 — Failing test: manifest includes tool**
 
 ```python
 def test_wiki_get_snapshot_in_manifests():
@@ -457,7 +457,7 @@ def test_wiki_get_snapshot_in_manifests():
     assert "wiki_get_snapshot" in t2
 ```
 
-- [ ] **Step A4.2 — Implement handlers**
+- [x] **Step A4.2 — Implement handlers**
 
 `MCPWikiServer` must accept `CompilationSnapshot` or `WikiService` or raw graph — minimal: pass `wiki_store` and call `WikiCompilationSnapshot(wiki_store, settings.wiki).generate(...)`.
 
@@ -484,7 +484,7 @@ async def _handle_wiki_get_snapshot(self, args: dict[str, Any]) -> dict[str, Any
 
 Constructor of `MCPWikiServer` may need `settings: Settings` injected in `wiki/bootstrap.py`.
 
-- [ ] **Step A4.3 — Wire bootstrap**
+- [x] **Step A4.3 — Wire bootstrap**
 
 `wiki/bootstrap.py`: when constructing `MCPWikiServer(...)`, pass `settings` (or a snapshot-only wrapper).
 
@@ -503,7 +503,7 @@ Constructor of `MCPWikiServer` may need `settings: Settings` injected in `wiki/b
 
 **Files:** `wiki/agents_md_generator.py`, `tests/wiki/test_agents_md_generator.py` (create if missing)
 
-- [ ] **Step B1.1 — Test: section "Knowledge at a glance" with counts**
+- [x] **Step B1.1 — Test: section "Knowledge at a glance" with counts**
 
 ```python
 import pytest
@@ -542,7 +542,7 @@ async def test_agents_includes_knowledge_map_pointer():
     assert "How to use tools" in md or "How to Use" in md
 ```
 
-- [ ] **Step B1.2 — Complete implementation**
+- [x] **Step B1.2 — Complete implementation**
 
 `wiki/agents_md_generator.py` — keep existing list of pages, add a query for aggregates (COUNT, AVG confidence, optional stale if property exists), add sections:
 
@@ -555,7 +555,7 @@ async def test_agents_includes_knowledge_map_pointer():
 # ... after existing pages_q, add optional stats query matching your graph schema ...
 ```
 
-- [ ] **Command:** `pytest tests/wiki/test_agents_md_generator.py -q`
+- [x] **Command:** `pytest tests/wiki/test_agents_md_generator.py -q`
 
 ### B2 — Call site (if any) for `AgentsMdGenerator`
 
@@ -577,7 +577,7 @@ Only if a component references AGENTS: align strings — **skip** if no user-fac
 
 **Files:** `config.py` (`WikiConfig`), `tests/wiki/test_compilation_snapshot_config.py` (rename to `test_wiki_phase1_config.py` or add asserts)
 
-- [ ] **Step C1.1 — Add fields**
+- [x] **Step C1.1 — Add fields**
 
 ```python
 feedback_regen_enabled: bool = True
@@ -590,7 +590,7 @@ feedback_regen_cooldown_hours: int = 24
 
 Env: `WIKI__FEEDBACK_REGEN_COOLDOWN_HOURS` (default 24) per review. All of the above use the existing `WIKI__` nested env prefix from `Settings`.
 
-- [ ] **Step C1.2 — Test defaults**
+- [x] **Step C1.2 — Test defaults**
 
 ```python
 def test_feedback_regen_cooldown_default():
@@ -607,7 +607,7 @@ def test_feedback_regen_cooldown_default():
 
 **Files:** `api/models/wiki_models.py`, `api/routes/wiki_feedback_routes.py`, `store/wiki_feedback_store.py` (add optional property on `WikiFeedback` if needed)
 
-- [ ] **Step C2.1 — Extend `WikiPageFeedbackBody`**
+- [x] **Step C2.1 — Extend `WikiPageFeedbackBody`**
 
 ```python
 from typing import Literal
@@ -617,11 +617,11 @@ from typing_extensions import NotRequired  # or Python 3.10+ with typed dict —
 severity: Literal["normal", "critical"] = "normal"
 ```
 
-- [ ] **Step C2.2 — Pass severity into Cypher** (optional `severity` on node)
+- [x] **Step C2.2 — Pass severity into Cypher** (optional `severity` on node)
 
 `WikiFeedbackStore.persist_feedback` add `severity: str = "normal"`.
 
-- [ ] **Step C2.3 — Test route**
+- [x] **Step C2.3 — Test route**
 
 `tests/api/test_wiki_feedback_regen.py`:
 
@@ -637,7 +637,7 @@ def test_post_feedback_accepts_severity(client):
 
 ### C3 — `wiki/feedback_loop.py`
 
-- [ ] **Step C3.1 — Unit test: threshold and cooldown**
+- [x] **Step C3.1 — Unit test: threshold and cooldown**
 
 `tests/wiki/test_feedback_loop.py`:
 
@@ -661,7 +661,7 @@ async def test_queues_when_down_count_reaches_threshold():
 
 (Provide `_FakeResult` matching your graph return shape.)
 
-- [ ] **Step C3.2 — Complete implementation** `wiki/feedback_loop.py`
+- [x] **Step C3.2 — Complete implementation** `wiki/feedback_loop.py`
 
 ```python
 """Feedback-driven wiki regeneration with threshold, critical path, and cooldown."""
@@ -766,7 +766,7 @@ class FeedbackDrivenRegeneration:
 
 ### C4 — Enqueue: connect to `WikiService.generate` / `WikiTaskRegistry`
 
-- [ ] **Step C4.1 — Implement `enqueue_regenerate` in `api/routes/wiki_shared.py` or `wiki/bootstrap`**
+- [x] **Step C4.1 — Implement `enqueue_regenerate` in `api/routes/wiki_shared.py` or `wiki/bootstrap`**
 
 `enqueue_regenerate(page_uid, priority, token_mult)` should:
 
@@ -776,7 +776,7 @@ class FeedbackDrivenRegeneration:
 
 **Files:** `wiki/service.py` (add optional `regeneration_token_multiplier: float | None = None` that scales code budgets in `_budget_for_tier` when set), `wiki/composer.py` (thread through if needed).
 
-- [ ] **Step C4.2 — `post_wiki_page_feedback` calls feedback loop**
+- [x] **Step C4.2 — `post_wiki_page_feedback` calls feedback loop**
 
 `api/routes/wiki_feedback_routes.py`:
 
@@ -793,7 +793,7 @@ async def post_wiki_page_feedback(..., request: Request, body: WikiPageFeedbackB
     return {"uid": uid, "page_uid": decoded, "business_id": body.business_id, "regen": out}
 ```
 
-- [ ] **Step C4.3 — `wiki/bootstrap.py`:** `app.state.wiki_feedback_regen = FeedbackDrivenRegeneration(...)` with graph + settings + bound enqueue.
+- [x] **Step C4.3 — `wiki/bootstrap.py`:** `app.state.wiki_feedback_regen = FeedbackDrivenRegeneration(...)` with graph + settings + bound enqueue.
 
 **Command:** `pytest tests/ -q --tb=short -k "feedback"`
 

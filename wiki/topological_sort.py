@@ -1,4 +1,9 @@
-"""Topological sort with batch grouping for parallel leaf composition."""
+"""Topological sort with batch grouping for parallel leaf composition.
+
+Note: This utility is prepared as foundation for Phase 2 hierarchical
+composition where leaf nodes are batched by dependency order. It is not
+yet integrated into the production compose pipeline.
+"""
 
 from __future__ import annotations
 

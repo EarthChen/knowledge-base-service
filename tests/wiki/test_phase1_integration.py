@@ -128,6 +128,121 @@ async def test_compose_all_pages_skeleton_skip_returns_no_page() -> None:
 
 
 @pytest.mark.asyncio
+async def test_compose_all_pages_skeleton_skip_still_composes_children() -> None:
+    graph = _graph_base()
+
+    async def find_node_by_path(repo: str, path: str) -> MagicMock:
+        if path == "parent_mod":
+            name = "ParentMod"
+        elif path == "parent_mod/child_mod":
+            name = "ChildMod"
+        else:
+            name = path.split("/")[-1] if "/" in path else path
+        return MagicMock(
+            uid=f"Module:test:{path}",
+            label=NodeLabel.MODULE,
+            properties={"name": name, "path": path},
+        )
+
+    graph.find_node_by_path = AsyncMock(side_effect=find_node_by_path)
+    w, e = inject_wiki_embedding()
+    wiki = w.model_copy(update={"skeleton_strategy": "skip"})
+    svc = WikiService(
+        graph=graph,
+        llm=None,
+        repository_exists=AsyncMock(return_value=True),
+        wiki_config=wiki,
+        embedding_config=e,
+    )
+    composer = WikiComposer(llm=None, context_builder=WikiContextBuilder(None), store=graph)
+    structure = WikiStructure(
+        repository="test-repo",
+        root=WikiStructureNode(
+            path=".",
+            title="test-repo",
+            page_type=PageType.REPO_OVERVIEW,
+            children=[
+                WikiStructureNode(
+                    path="parent_mod",
+                    title="ParentMod",
+                    page_type=PageType.MODULE_OVERVIEW,
+                    children=[
+                        WikiStructureNode(
+                            path="parent_mod/child_mod",
+                            title="ChildMod",
+                            page_type=PageType.MODULE_OVERVIEW,
+                            children=[],
+                        ),
+                    ],
+                ),
+            ],
+        ),
+        total_pages=3,
+    )
+    config = WikiConfig(repository="test-repo", mode="structure", format="json")
+    tiers = {
+        "Module:test:parent_mod": ImportanceTier.SKELETON,
+        "Module:test:parent_mod/child_mod": ImportanceTier.STANDARD,
+    }
+
+    pages, _ = await svc._compose_all_pages(
+        "test-repo", structure, config, composer, tiers, None,
+    )
+
+    mod_pages = [p for p in pages if p.page_type == PageType.MODULE_OVERVIEW]
+    assert len(mod_pages) == 1
+    assert mod_pages[0].title == "ChildMod"
+    assert len(pages) == 2
+
+
+@pytest.mark.asyncio
+async def test_compose_all_pages_wikilink_cache_disabled_no_register() -> None:
+    graph = _mock_graph_module_overview()
+    w, e = inject_wiki_embedding()
+    wiki = w.model_copy(update={"wikilink_cache_enabled": False})
+    svc = WikiService(
+        graph=graph,
+        llm=None,
+        repository_exists=AsyncMock(return_value=True),
+        wiki_config=wiki,
+        embedding_config=e,
+    )
+    composer = WikiComposer(llm=None, context_builder=WikiContextBuilder(None), store=graph)
+    structure = WikiStructure(
+        repository="test-repo",
+        root=WikiStructureNode(
+            path=".",
+            title="test-repo",
+            page_type=PageType.REPO_OVERVIEW,
+            children=[
+                WikiStructureNode(
+                    path="test_module",
+                    title="TestModule",
+                    page_type=PageType.MODULE_OVERVIEW,
+                    children=[],
+                ),
+            ],
+        ),
+        total_pages=2,
+    )
+    config = WikiConfig(repository="test-repo", mode="structure", format="json")
+
+    with patch("wiki.service.WikiLinkCache") as mock_wlc_class:
+        cache_instance = MagicMock()
+        cache_instance.warm_up = AsyncMock(return_value=2)
+        cache_instance.register = MagicMock()
+        mock_wlc_class.return_value = cache_instance
+
+        pages, _ = await svc._compose_all_pages("test-repo", structure, config, composer)
+
+    mock_wlc_class.assert_called_once()
+    cache_instance.warm_up.assert_not_called()
+    cache_instance.register.assert_not_called()
+    assert composer._wikilink_cache is None
+    assert len(pages) == 2
+
+
+@pytest.mark.asyncio
 async def test_compose_all_pages_skeleton_template_uses_fallback() -> None:
     graph = _mock_graph_module_overview()
     w, e = inject_wiki_embedding()

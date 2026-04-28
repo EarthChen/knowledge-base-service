@@ -531,6 +531,24 @@ class WikiService:
                 entities=len(_importance_tiers),
             )
         composer = self._composer_for(llm_provider)
+        wikilink_cache = WikiLinkCache()
+        stream_cache_active = False
+        if getattr(self._wiki_cfg, "wikilink_cache_enabled", True) and composer._wiki_store:
+            try:
+                loaded = await wikilink_cache.warm_up(composer._wiki_store, repository)
+                log.info("wikilink_cache_warm_up", repository=repository, loaded=loaded)
+                composer._wikilink_cache = wikilink_cache
+                stream_cache_active = True
+            except Exception:
+                log.warning(
+                    "wikilink_cache_warm_up_failed",
+                    repository=repository,
+                    exc_info=True,
+                )
+        _stream_sk_light_raw = str(
+            getattr(self._wiki_cfg, "skeleton_light_model", "") or "",
+        ).strip()
+        stream_skeleton_light_model = _stream_sk_light_raw if _stream_sk_light_raw else None
         if self._deferred_enrichment:
             enriched = await self._deferred_enrichment.enrich_remaining(repository)
             log.info(
@@ -567,12 +585,29 @@ class WikiService:
             page_data = await self._collector.collect(repository, graph_node, code_budget=code_budget)
             if tier is not None:
                 page_data.importance_tier = tier
+            skeleton_strat = None
+            if tier == ImportanceTier.SKELETON:
+                raw = getattr(self._wiki_cfg, "skeleton_strategy", "template")
+                try:
+                    skeleton_strat = SkeletonStrategy(raw)
+                except ValueError:
+                    skeleton_strat = SkeletonStrategy.TEMPLATE
             page = await composer.compose_page(
                 page_data,
                 node.page_type,
                 config,
                 parent_context=parent_ctx,
+                importance_tier=tier,
+                skeleton_strategy=skeleton_strat,
+                skeleton_light_model=stream_skeleton_light_model,
             )
+            if page is None:
+                for ch in node.children:
+                    async for p in walk_stream(ch, parent_ctx):
+                        yield p
+                return
+            if stream_cache_active:
+                wikilink_cache.register(page.title, page.path)
             page.metadata.enrichment_level = EnrichmentLevel.BASE
             if tier is not None:
                 page_tier_map[page.path] = tier
@@ -1088,11 +1123,13 @@ class WikiService:
         _PAGE_TIMEOUT = 120
 
         wikilink_cache = WikiLinkCache()
+        cache_active = False
         if getattr(self._wiki_cfg, "wikilink_cache_enabled", True) and composer._wiki_store:
             try:
                 loaded = await wikilink_cache.warm_up(composer._wiki_store, repository)
                 log.info("wikilink_cache_warm_up", repository=repository, loaded=loaded)
                 composer._wikilink_cache = wikilink_cache
+                cache_active = True
             except Exception:
                 log.warning(
                     "wikilink_cache_warm_up_failed",
@@ -1184,6 +1221,10 @@ class WikiService:
                     skeleton_strat = SkeletonStrategy(raw)
                 except ValueError:
                     skeleton_strat = SkeletonStrategy.TEMPLATE
+            _sk_light_raw = str(
+                getattr(self._wiki_cfg, "skeleton_light_model", "") or "",
+            ).strip()
+            skeleton_light_model = _sk_light_raw if _sk_light_raw else None
             try:
                 page = await asyncio.wait_for(
                     composer.compose_page(
@@ -1193,6 +1234,7 @@ class WikiService:
                         parent_context=parent_ctx,
                         importance_tier=tier,
                         skeleton_strategy=skeleton_strat,
+                        skeleton_light_model=skeleton_light_model,
                     ),
                     timeout=_PAGE_TIMEOUT,
                 )
@@ -1205,11 +1247,13 @@ class WikiService:
                 )
                 return
             if page is None:
+                await walk_children_parallel(node.children, parent_ctx)
                 return
             page.metadata.enrichment_level = EnrichmentLevel.BASE
             async with compose_state_lock:
                 pages.append(page)
-                wikilink_cache.register(page.title, page.path)
+                if cache_active:
+                    wikilink_cache.register(page.title, page.path)
                 page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
                 if tier is not None:
                     page_tier_map[page.path] = tier

@@ -59,3 +59,23 @@ class TestWikiStore:
         cypher, params = mock_base.execute_query.call_args[0]
         assert "WikiPage" in cypher
         assert params == {"repo": "r1"}
+
+    async def test_get_wiki_generation_version(self, mock_base: MagicMock, wiki_store: WikiStore) -> None:
+        mock_base.execute_query = AsyncMock(
+            return_value=QueryResultWrapper(data=[{"generation_version": 5}], raw=[[5]]),
+        )
+        version = await wiki_store.get_wiki_generation_version("test-repo")
+        assert version == 5
+
+    async def test_get_wiki_generation_version_none(self, mock_base: MagicMock, wiki_store: WikiStore) -> None:
+        mock_base.execute_query = AsyncMock(return_value=QueryResultWrapper(data=[], raw=[]))
+        version = await wiki_store.get_wiki_generation_version("test-repo")
+        assert version is None
+
+    async def test_set_wiki_generation_version(self, mock_base: MagicMock, wiki_store: WikiStore) -> None:
+        mock_base.execute_query = AsyncMock(return_value=QueryResultWrapper(data=[], raw=[]))
+        await wiki_store.set_wiki_generation_version("test-repo", 3)
+        mock_base.execute_query.assert_called_once()
+        call_args = mock_base.execute_query.call_args
+        assert "MERGE" in call_args[0][0]
+        assert call_args[0][1]["ver"] == 3

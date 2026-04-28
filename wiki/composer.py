@@ -23,6 +23,7 @@ from wiki.models import (
     WikiDiagram,
     WikiPage,
     WikiPageMetadata,
+    WikiPageSummary,
 )
 from wiki.wikilink_resolver import resolve_wikilinks
 
@@ -30,6 +31,13 @@ if TYPE_CHECKING:
     from wiki.wikilink_cache import WikiLinkCache
 
 log = get_logger(__name__)
+
+_PARENT_SYSTEM_PROMPT = (
+    "You are a senior engineer writing a module overview. "
+    "Synthesize the provided child component summaries into a cohesive description. "
+    "Focus on how components work together, the module's overall purpose, and key design patterns. "
+    "Use clear section headings (##). Output Markdown."
+)
 
 
 def _effective_wiki_language(language: str) -> str:
@@ -254,6 +262,64 @@ class WikiComposer:
                     error=str(exc),
                 )
         return page
+
+    async def compose_parent_page(
+        self,
+        page_data: PageData,
+        page_type: PageType,
+        config: WikiConfig,
+        child_summaries: list[WikiPageSummary],
+    ) -> WikiPage:
+        """Compose a parent module page using child summaries instead of raw code."""
+        title = _primary_name(page_data.node)
+        path = _wiki_path(page_data.node, page_type)
+        eff_lang = _effective_wiki_language(config.language)
+
+        if not self._llm or not child_summaries:
+            description = self._tier3_structural(page_data, page_type, eff_lang)
+            tier = 3
+        else:
+            children_context = "\n".join(
+                f"- **{s.title}** ({s.importance_tier.value if s.importance_tier else 'unknown'}): {s.summary}"
+                for s in child_summaries
+            )
+            lang_directive = "Generate documentation in English." if eff_lang == "en" else "请用中文生成文档。"
+            prompt = (
+                f"## Module: {title}\n\n"
+                f"### Child Components ({len(child_summaries)} total):\n{children_context}\n\n"
+                f"## Task\n{lang_directive}\n\n"
+                "Write a module overview that:\n"
+                "1. Describes the module's overall purpose and responsibility\n"
+                "2. Explains how the child components work together\n"
+                "3. Identifies key design patterns and architectural decisions\n"
+                "4. Notes important entry points and external interfaces\n"
+            )
+            description = (await self._llm.generate(prompt, system=_PARENT_SYSTEM_PROMPT)).strip()
+            tier = 2
+
+        content = self._markdown_body(title, page_data, page_type, description)
+        if self._wikilink_cache is not None:
+            entity_index = self._wikilink_cache.get_index()
+        else:
+            entity_index = await self._wikilink_entity_index(config.repository)
+        content = resolve_wikilinks(content, entity_index)
+        diagrams = self._build_diagrams(page_data, page_type)
+        meta = WikiPageMetadata(
+            node_count=self._estimate_node_count(page_data),
+            edge_count=len(page_data.edges),
+            generation_mode=config.mode,
+            fallback_tier=tier,
+        )
+        return WikiPage(
+            path=path,
+            title=title,
+            page_type=page_type,
+            content=content,
+            diagrams=diagrams,
+            source_locations=[page_data.source_location],
+            metadata=meta,
+            method_locations=list(page_data.method_locations),
+        )
 
     async def compose_incremental_navigation_pages(
         self,

@@ -242,6 +242,7 @@ class WikiPage:
     source_locations: list[SourceLocation]
     metadata: WikiPageMetadata
     method_locations: list[SourceLocation] = field(default_factory=list)
+    navigation: NavigationContext | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {

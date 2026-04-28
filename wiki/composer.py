@@ -45,6 +45,26 @@ def _effective_wiki_language(language: str) -> str:
     return language if language in ("en", "zh") else "en"
 
 
+def render_navigation_section(page: WikiPage) -> str:
+    """Render breadcrumbs and navigation links as Markdown."""
+    if not page.navigation:
+        return ""
+    nav = page.navigation
+    sections: list[str] = []
+    if nav.breadcrumbs:
+        crumb_links = " > ".join(f"[[{title}]]" for title, _path in nav.breadcrumbs)
+        sections.append(f"> {crumb_links}")
+    if nav.child_paths:
+        sections.append("\n### Sub-components\n")
+        for path in nav.child_paths:
+            sections.append(f"- [{path}]({path})")
+    if nav.sibling_paths:
+        sections.append("\n### Related (same parent)\n")
+        for path in nav.sibling_paths:
+            sections.append(f"- [{path}]({path})")
+    return "\n".join(sections)
+
+
 def _display_name(uid: str) -> str:
     parts = uid.rsplit(":", 2)
     if len(parts) >= 3:

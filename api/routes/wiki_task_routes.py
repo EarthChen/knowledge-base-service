@@ -271,6 +271,7 @@ async def wiki_generate_incremental(
     body: WikiIncrementalGenerateBody,
     request: Request,
     svc: WikiService = Depends(get_wiki_service_dep),
+    sem: asyncio.Semaphore = Depends(get_wiki_generation_sem),
 ) -> dict[str, Any]:
     """Run incremental wiki update from graph diff (code_hash vs wiki_code_hash)."""
     if not getattr(svc._wiki_cfg, "incremental_enabled", False):
@@ -283,7 +284,8 @@ async def wiki_generate_incremental(
     if store is None or not hasattr(store, "execute_query"):
         raise KbServiceUnavailable("Graph store not configured")
 
-    return await svc.generate_incremental(body.repository, language=body.language)
+    async with sem:
+        return await svc.generate_incremental(body.repository, language=body.language)
 
 
 @router.post("/quick", response_model=None)

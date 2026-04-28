@@ -35,6 +35,9 @@ class WikiDiff:
     changed_uids: set[str]
     affected_parents: set[str]
     affected_communities: set[int] = field(default_factory=set)
+    # NOTE: affected_communities is computed for future use in
+    # business flow page regeneration (Phase 4+). Currently only
+    # changed_uids and affected_parents drive incremental composition.
 
     @property
     def is_empty(self) -> bool:

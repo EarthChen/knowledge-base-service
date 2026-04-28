@@ -468,6 +468,24 @@ class WikiService:
                 refreshed=refreshed,
             )
 
+        # Establish baseline for incremental updates
+        try:
+            query_port = self._store if self._store is not None else self._graph
+            wiki_meta = (
+                self._wiki_store
+                if self._wiki_store is not None
+                else (WikiStore(query_port) if query_port else None)
+            )
+            if wiki_meta:
+                await self._bulk_set_wiki_code_hashes(repository)
+                current_ver = await wiki_meta.get_wiki_generation_version(repository)
+                await wiki_meta.set_wiki_generation_version(
+                    repository, (current_ver or 0) + 1,
+                )
+                log.info("wiki_baseline_established", repository=repository)
+        except Exception:
+            log.warning("wiki_baseline_failed", repository=repository, exc_info=True)
+
         if format == "markdown" and len(pages) == 1:
             return {
                 "content": self._exporter.export_markdown_single(pages[0]),
@@ -478,6 +496,19 @@ class WikiService:
         bundle = self._exporter.export_json(pages, structure)
         bundle["degraded"] = degraded
         return bundle
+
+    async def _bulk_set_wiki_code_hashes(self, repository: str) -> None:
+        """After full generation, mark all entities as wiki-synced."""
+        query_port = self._store if self._store is not None else self._graph
+        if query_port is None or not hasattr(query_port, "execute_query"):
+            return
+        await query_port.execute_query(
+            "MATCH (n {repository: $repo}) "
+            "WHERE n.code_hash IS NOT NULL "
+            "SET n.wiki_code_hash = n.code_hash",
+            {"repo": repository},
+        )
+        log.info("bulk_wiki_code_hashes_set", repository=repository)
 
     async def _update_wiki_code_hashes(self, repository: str, uids: list[str]) -> None:
         """After successful wiki page generation, set wiki_code_hash = code_hash."""
@@ -592,10 +623,12 @@ class WikiService:
                     repository, regenerated_pages, language=language,
                 )
 
-            await self._update_wiki_code_hashes(repository, updated_uids)
-
-            current_version = last_version + 1
-            await wiki_meta.set_wiki_generation_version(repository, current_version)
+            if updated_uids:
+                await self._update_wiki_code_hashes(repository, updated_uids)
+                current_version = last_version + 1
+                await wiki_meta.set_wiki_generation_version(repository, current_version)
+            else:
+                current_version = last_version
 
             if progress_callback:
                 await progress_callback({

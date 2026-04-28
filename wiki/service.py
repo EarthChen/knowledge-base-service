@@ -15,7 +15,7 @@ from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
 from store.schema import EdgeType, GraphNode, NodeLabel
 from wiki.backlink_builder import BacklinkBuilder
-from wiki.composer import WikiComposer, render_navigation_section
+from wiki.composer import WikiComposer
 from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
 from wiki.community_context import format_communities_markdown
 from wiki.confidence_scorer import confidence_scorer_from_wiki_app_config
@@ -1884,11 +1884,6 @@ class WikiService:
             await backlink_builder.build_backlinks(pages, self._graph, wikilink_cache, repository)
         except Exception:
             log.warning("backlink_building_failed", repository=repository, exc_info=True)
-
-        for page in pages:
-            nav_section = render_navigation_section(page)
-            if nav_section:
-                page.content = nav_section + "\n\n" + page.content
 
         _elapsed = _time.monotonic() - _t0
         log.info(

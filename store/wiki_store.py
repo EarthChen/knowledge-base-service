@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from store.schema import GraphNode
 from store.wiki_claim_store import WikiClaimStoreMixin
 from store.wiki_contradiction_store import WikiContradictionStoreMixin
 from store.wiki_coverage_store import WikiCoverageStoreMixin
@@ -54,6 +55,13 @@ class WikiStore(
     async def execute_query(self, cypher: str, params: dict[str, Any] | None = None) -> Any:
         """Delegate Cypher to the underlying graph store (e.g. for MCP EntityExplainer)."""
         return await self._store.execute_query(cypher, params)
+
+    async def find_top_level_modules(self, repository: str) -> list[GraphNode]:
+        """Top-level ``Module`` nodes (no incoming ``CONTAINS``) for incremental overview context."""
+        finder = getattr(self._store, "find_top_level_modules", None)
+        if finder is None:
+            return []
+        return await finder(repository)
 
     async def list_wiki_pages_for_quality_evaluation(
         self, repository: str,

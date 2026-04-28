@@ -39,6 +39,14 @@ _PARENT_SYSTEM_PROMPT = (
     "Use clear section headings (##). Output Markdown."
 )
 
+_REPO_OVERVIEW_SYSTEM = (
+    "You are a senior architect writing a repository overview for developer onboarding. "
+    "Describe the overall architecture, key design patterns, major module responsibilities, "
+    "how they collaborate, and the system's primary data flows. "
+    "Include a Mermaid architecture diagram showing module relationships. "
+    "Use clear section headings (##). Output Markdown."
+)
+
 _STRUCTURED_SECTIONS_MODULE = (
     "\n\nStructure your documentation with these sections (adapt as appropriate):\n"
     "1. **Purpose & Responsibility** — What this module does and why it exists\n"
@@ -404,13 +412,47 @@ class WikiComposer:
                 index_lines.append(f"- [{p}]({p})")
         index_body = "\n".join(index_lines).rstrip() + "\n"
 
-        repo_ctx = await self._ctx.build_repository_context([])
+        module_summaries: list[str] = []
+        if self._wiki_store is not None:
+            try:
+                top_modules = await self._wiki_store.find_top_level_modules(repository)
+                for m in (top_modules or [])[:30]:
+                    name = m.properties.get("name", "")
+                    bs = m.properties.get("business_summary", "")
+                    doc = m.properties.get("docstring", "")
+                    summary = bs or (doc[:200] if doc else "")
+                    module_summaries.append(f"{name}: {summary}" if summary else name)
+            except Exception:
+                log.debug("overview_module_fetch_failed", repository=repository)
+
+        repo_ctx = await self._ctx.build_repository_context(module_summaries)
+
+        if self._llm and module_summaries:
+            overview_prompt = (
+                f"# Repository: {repository}\n\n"
+                f"## Modules ({len(module_summaries)} top-level):\n"
+                + "\n".join(f"- {s}" for s in module_summaries)
+                + "\n\nWrite a comprehensive repository overview."
+            )
+            try:
+                overview_text = (
+                    await self._llm.generate(
+                        overview_prompt,
+                        system=_REPO_OVERVIEW_SYSTEM,
+                    )
+                ).strip()
+            except Exception:
+                log.warning("llm_overview_failed", repository=repository, exc_info=True)
+                overview_text = repo_ctx.strip()
+        else:
+            overview_text = repo_ctx.strip()
+
         overview_lines = [
             f"# {repository} overview",
             "",
             f"_Graph version **{graph_version}** after the latest incremental wiki update._",
             "",
-            repo_ctx.strip(),
+            overview_text,
         ]
         overview_body = "\n".join(overview_lines).strip() + "\n"
 

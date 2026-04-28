@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowRight, ArrowUp, GitBranch } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useWikiNavigation } from "../../hooks/useWikiNavigation";
+import { useI18n } from "../../i18n/context";
 import { wikiHref } from "./wikiRouteHelpers";
 
 type Props = {
@@ -14,9 +15,11 @@ function pageLabel(p: string): string {
 }
 
 export default function WikiNavigationLinks({ repository, pagePath, wikiLinkParams }: Props) {
-  const { data: nav, isLoading } = useWikiNavigation(repository, pagePath);
+  const { t } = useI18n();
+  const { data: nav, isLoading, isError } = useWikiNavigation(repository, pagePath);
 
   if (isLoading || !nav) return null;
+  if (isError) return null;
 
   const hasAnyLinks =
     nav.parent_path ||
@@ -30,12 +33,12 @@ export default function WikiNavigationLinks({ repository, pagePath, wikiLinkPara
   return (
     <div className="mt-4 space-y-3 rounded-lg border border-gray-200 bg-gray-50/50 p-3 dark:border-gray-700 dark:bg-gray-800/30">
       <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-        Navigation
+        {t.wiki.navHeading}
       </h4>
       {nav.parent_path && (
         <div className="flex items-center gap-2 text-sm">
           <ArrowUp size={14} className="shrink-0 text-gray-400" />
-          <span className="text-gray-500">Parent:</span>
+          <span className="text-gray-500">{t.wiki.navParent}</span>
           <Link
             to={wikiHref(nav.parent_path, params)}
             className="truncate text-blue-600 hover:underline dark:text-blue-400"
@@ -48,7 +51,7 @@ export default function WikiNavigationLinks({ repository, pagePath, wikiLinkPara
         <div className="text-sm">
           <div className="flex items-center gap-2 text-gray-500">
             <ArrowDown size={14} className="shrink-0" />
-            <span>Children ({nav.child_paths.length}):</span>
+            <span>{t.wiki.navChildren.replace("{count}", String(nav.child_paths.length))}</span>
           </div>
           <ul className="ml-6 mt-1 space-y-0.5">
             {nav.child_paths.slice(0, 10).map((p) => (
@@ -62,7 +65,9 @@ export default function WikiNavigationLinks({ repository, pagePath, wikiLinkPara
               </li>
             ))}
             {nav.child_paths.length > 10 && (
-              <li className="text-xs text-gray-400">+{nav.child_paths.length - 10} more</li>
+              <li className="text-xs text-gray-400">
+                {t.wiki.navMore.replace("{count}", String(nav.child_paths.length - 10))}
+              </li>
             )}
           </ul>
         </div>
@@ -71,7 +76,7 @@ export default function WikiNavigationLinks({ repository, pagePath, wikiLinkPara
         <div className="text-sm">
           <div className="flex items-center gap-2 text-gray-500">
             <ArrowRight size={14} className="shrink-0" />
-            <span>Siblings ({nav.sibling_paths.length}):</span>
+            <span>{t.wiki.navSiblings.replace("{count}", String(nav.sibling_paths.length))}</span>
           </div>
           <ul className="ml-6 mt-1 space-y-0.5">
             {nav.sibling_paths.slice(0, 8).map((p) => (
@@ -85,7 +90,9 @@ export default function WikiNavigationLinks({ repository, pagePath, wikiLinkPara
               </li>
             ))}
             {nav.sibling_paths.length > 8 && (
-              <li className="text-xs text-gray-400">+{nav.sibling_paths.length - 8} more</li>
+              <li className="text-xs text-gray-400">
+                {t.wiki.navMore.replace("{count}", String(nav.sibling_paths.length - 8))}
+              </li>
             )}
           </ul>
         </div>
@@ -94,7 +101,7 @@ export default function WikiNavigationLinks({ repository, pagePath, wikiLinkPara
         <div className="text-sm">
           <div className="flex items-center gap-2 text-gray-500">
             <GitBranch size={14} className="shrink-0" />
-            <span>Business Flows:</span>
+            <span>{t.wiki.navBusinessFlows}</span>
           </div>
           <ul className="ml-6 mt-1 space-y-0.5">
             {nav.related_flow_paths.map((p) => (

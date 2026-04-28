@@ -1,4 +1,5 @@
 import { BarChart2 } from "lucide-react";
+import { useI18n } from "../../i18n/context";
 
 interface QualitySummary {
   avg_score: number;
@@ -12,6 +13,8 @@ type Props = {
 };
 
 export default function WikiQualitySummary({ summary, isLoading }: Props) {
+  const { t } = useI18n();
+
   if (isLoading) {
     return (
       <div className="animate-pulse rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
@@ -30,7 +33,7 @@ export default function WikiQualitySummary({ summary, isLoading }: Props) {
     <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
       <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
         <BarChart2 size={16} />
-        <span>Documentation Quality</span>
+        <span>{t.wiki.docQualityTitle}</span>
       </div>
       <div className="mt-3 flex items-baseline gap-2">
         <span
@@ -44,12 +47,14 @@ export default function WikiQualitySummary({ summary, isLoading }: Props) {
         >
           {pct}%
         </span>
-        <span className="text-xs text-gray-500">average score</span>
+        <span className="text-xs text-gray-500">{t.wiki.docQualityAvg}</span>
       </div>
       <div className="mt-2 flex gap-4 text-xs text-gray-500 dark:text-gray-400">
-        <span>{summary.evaluated_count} pages evaluated</span>
+        <span>{t.wiki.docQualityEvaluated.replace("{count}", String(summary.evaluated_count))}</span>
         {summary.low_quality_count > 0 && (
-          <span className="text-red-500">{summary.low_quality_count} below threshold</span>
+          <span className="text-red-500">
+            {t.wiki.docQualityBelowThreshold.replace("{count}", String(summary.low_quality_count))}
+          </span>
         )}
       </div>
     </div>

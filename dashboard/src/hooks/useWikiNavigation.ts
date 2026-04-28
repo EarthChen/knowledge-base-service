@@ -17,7 +17,7 @@ export function useWikiNavigation(repository: string, pagePath: string) {
     queryKey: ["wiki", "navigation", trimmedRepo, trimmedPath],
     queryFn: () =>
       api<NavigationContext>(
-        `/wiki/navigation?repository=${encodeURIComponent(trimmedRepo)}&path=${encodeURIComponent(trimmedPath)}`,
+        `/wiki/${encodeURIComponent(trimmedRepo)}/navigation?path=${encodeURIComponent(trimmedPath)}`,
       ),
     enabled: Boolean(trimmedRepo && trimmedPath),
     staleTime: 300_000,

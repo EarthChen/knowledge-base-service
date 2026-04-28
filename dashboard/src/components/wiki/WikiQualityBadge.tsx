@@ -1,6 +1,9 @@
+import { useI18n } from "../../i18n/context";
+
 type Props = { score: number; className?: string };
 
 export default function WikiQualityBadge({ score, className = "" }: Props) {
+  const { t } = useI18n();
   const pct = Math.round(score * 100);
   const color = score >= 0.8 ? "green" : score >= 0.6 ? "yellow" : "red";
 
@@ -14,7 +17,7 @@ export default function WikiQualityBadge({ score, className = "" }: Props) {
             : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
       } ${className}`}
     >
-      Quality: {pct}%
+      {t.wiki.qualityBadge.replace("{pct}", String(pct))}
     </span>
   );
 }

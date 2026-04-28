@@ -216,8 +216,8 @@ export default function WikiShell() {
                 type="button"
                 onClick={toggleSidebar}
                 className="hidden items-center justify-center rounded-md border border-gray-200 bg-white p-1.5 text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 lg:flex"
-                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-label={sidebarCollapsed ? t.wiki.sidebarExpand : t.wiki.sidebarCollapse}
+                title={sidebarCollapsed ? t.wiki.sidebarExpand : t.wiki.sidebarCollapse}
               >
                 {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
               </button>

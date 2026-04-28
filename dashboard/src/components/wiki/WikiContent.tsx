@@ -17,6 +17,7 @@ import WikiPageFeedback from "./WikiPageFeedback";
 import TableOfContents from "./TableOfContents";
 import WikiBreadcrumbs from "./WikiBreadcrumbs";
 import WikiQualityBadge from "./WikiQualityBadge";
+import WikiNavigationLinks from "./WikiNavigationLinks";
 import { parseMarkdownHeadings, type ParsedHeading } from "./headingUtils";
 import { getErrorMessage } from "../../utils/errorUtils";
 import WikiCallChainSection from "./WikiCallChainSection";
@@ -326,6 +327,12 @@ export default function WikiContent({
                 ) : null}
               </div>
             )}
+
+            <WikiNavigationLinks
+              repository={repository}
+              pagePath={pagePath}
+              wikiLinkParams={wikiLinkParams}
+            />
 
             <WikiSourceLocRow repository={repository} sourceLocations={detail.source_locations ?? []} />
 

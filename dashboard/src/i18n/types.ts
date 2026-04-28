@@ -885,6 +885,27 @@ export interface Translations {
     editorConflictWarningZh: string;
     editContent: string;
     viewInGraph: string;
+    sidebarExpand: string;
+    sidebarCollapse: string;
+    navHeading: string;
+    navParent: string;
+    navChildren: string;
+    navSiblings: string;
+    navBusinessFlows: string;
+    /** Use {count} */
+    navMore: string;
+    qualityBadge: string;
+    docQualityTitle: string;
+    docQualityAvg: string;
+    /** Use {count} */
+    docQualityEvaluated: string;
+    /** Use {count} */
+    docQualityBelowThreshold: string;
+    phaseLeafCompose: string;
+    phaseParentAggregate: string;
+    phaseBusinessFlow: string;
+    phaseNavigation: string;
+    phaseQualityEval: string;
   };
   sync: {
     title: string;

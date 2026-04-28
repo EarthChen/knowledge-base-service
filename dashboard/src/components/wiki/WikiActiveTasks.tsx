@@ -5,12 +5,13 @@ import type { WikiAsyncTask } from "../../api/types";
 import { useI18n } from "../../i18n/context";
 import { useToast } from "../Toast";
 
-const phaseLabels: Record<string, string> = {
-  leaf_compose: "Composing leaf pages",
-  parent_aggregate: "Aggregating parent modules",
-  business_flow: "Building business flows",
-  navigation: "Populating navigation",
-  quality_eval: "Evaluating quality",
+type PhaseKey = "leaf_compose" | "parent_aggregate" | "business_flow" | "navigation" | "quality_eval";
+const phaseI18nKeys: Record<PhaseKey, keyof typeof import("../../i18n/en").default.wiki> = {
+  leaf_compose: "phaseLeafCompose",
+  parent_aggregate: "phaseParentAggregate",
+  business_flow: "phaseBusinessFlow",
+  navigation: "phaseNavigation",
+  quality_eval: "phaseQualityEval",
 };
 
 interface WikiActiveTasksProps {
@@ -149,7 +150,9 @@ export default function WikiActiveTasks({ businessId }: WikiActiveTasksProps) {
 
             {task.current_phase && (
               <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {phaseLabels[task.current_phase] || task.current_phase}
+                {phaseI18nKeys[task.current_phase as PhaseKey]
+                  ? t.wiki[phaseI18nKeys[task.current_phase as PhaseKey]]
+                  : task.current_phase}
               </div>
             )}
 

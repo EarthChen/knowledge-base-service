@@ -638,6 +638,9 @@ class WikiComposer:
         lines.append(f"- Related edges: {len(page_data.edges)}")
 
         if page_type == PageType.MODULE_OVERVIEW:
+            module_doc = n.properties.get("docstring")
+            if isinstance(module_doc, str) and module_doc:
+                lines.append(f"- Module documentation: {module_doc[:500]}")
             lines.append(f"- Child classes/modules: {len(page_data.children)}")
             for ch in page_data.children[:20]:
                 ch_name = ch.properties.get("name", ch.uid)

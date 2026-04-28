@@ -369,15 +369,19 @@ class CodeGraphBuilder:
         import_names = [imp.module for imp in filtered_imports]
 
         module_name = Path(file_path).stem
+        module_props: dict[str, object] = {
+            "name": module_name,
+            "path": file_path,
+            "language": language,
+            "imports": import_names,
+            "indexed_at": indexed_at,
+        }
+        module_doc = result.module_docstring
+        if module_doc:
+            module_props["docstring"] = module_doc[:1000]
         module_node = GraphNode(
             label=NodeLabel.MODULE,
-            properties={
-                "name": module_name,
-                "path": file_path,
-                "language": language,
-                "imports": import_names,
-                "indexed_at": indexed_at,
-            },
+            properties=module_props,
         )
         nodes.append(module_node)
 

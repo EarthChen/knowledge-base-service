@@ -239,6 +239,8 @@ class WikiConfig:
     mode: str = "structure"
     format: str = "json"
     language: str = "en"
+    comment_injection_tier: int = 2
+    comment_max_chars: int = 500
 
     def __post_init__(self) -> None:
         if self.mode not in ("full", "structure"):

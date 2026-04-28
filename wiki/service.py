@@ -31,6 +31,7 @@ from wiki.models import (
     WikiConfig,
     WikiPage,
     WikiPageMetadata,
+    WikiPageSummary,
     WikiStructure,
     WikiStructureNode,
     parse_scope,
@@ -48,6 +49,37 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
+def _populate_navigation_context(
+    root: WikiStructureNode,
+    pages: dict[str, WikiPage],
+) -> None:
+    """Walk structure tree and populate NavigationContext for each page."""
+    from wiki.models import NavigationContext
+
+    def _walk(
+        node: WikiStructureNode,
+        parent: WikiStructureNode | None,
+        breadcrumbs: list[tuple[str, str]],
+    ) -> None:
+        current_crumbs = breadcrumbs + [(node.title, node.path)]
+        if node.path in pages:
+            page = pages[node.path]
+            nav = NavigationContext(
+                parent_path=parent.path if parent else None,
+                parent_title=parent.title if parent else None,
+                sibling_paths=[
+                    ch.path for ch in (parent.children if parent else []) if ch.path != node.path
+                ],
+                child_paths=[ch.path for ch in node.children],
+                breadcrumbs=current_crumbs,
+            )
+            page.navigation = nav
+        for child in node.children:
+            _walk(child, node, current_crumbs)
+
+    _walk(root, None, [])
+
+
 def _expected_wiki_page_paths_dfs(node: WikiStructureNode) -> list[str]:
     """Depth-first paths matching ``_compose_all_pages`` / legacy serial ``walk`` order."""
     if node.page_type == PageType.REPO_OVERVIEW:
@@ -59,6 +91,57 @@ def _expected_wiki_page_paths_dfs(node: WikiStructureNode) -> list[str]:
     for ch in node.children:
         order.extend(_expected_wiki_page_paths_dfs(ch))
     return order
+
+
+def _extract_summary(page: WikiPage, entity_uid: str = "") -> WikiPageSummary:
+    """Extract a short summary from a composed WikiPage for parent aggregation."""
+    content = page.content or ""
+    overview_start = content.find("## Overview")
+    if overview_start >= 0:
+        after_heading = content[overview_start + len("## Overview") :].strip()
+        next_heading = after_heading.find("\n## ")
+        if next_heading > 0:
+            summary_text = after_heading[:next_heading].strip()[:200]
+        else:
+            summary_text = after_heading[:200]
+    else:
+        lines = content.split("\n")
+        non_heading = [ln for ln in lines if ln.strip() and not ln.startswith("#")]
+        summary_text = " ".join(non_heading)[:200]
+    summary_text = summary_text.replace("\n", " ").strip()
+    return WikiPageSummary(
+        entity_uid=entity_uid,
+        title=page.title,
+        path=page.path,
+        summary=summary_text,
+        importance_tier=getattr(page, "_importance_tier", None),
+        page_type=page.page_type,
+    )
+
+
+def _collect_nodes_by_depth(
+    root: WikiStructureNode,
+) -> tuple[list[WikiStructureNode], list[tuple[int, WikiStructureNode]]]:
+    """Partition tree into (leaves, [(depth, parent_node)]) with parents sorted deepest-first."""
+    leaves: list[WikiStructureNode] = []
+    parents: list[tuple[int, WikiStructureNode]] = []
+
+    def _visit(node: WikiStructureNode, depth: int) -> None:
+        if node.page_type == PageType.REPO_OVERVIEW:
+            parents.append((depth, node))
+            for child in node.children:
+                _visit(child, depth + 1)
+            return
+        if not node.children:
+            leaves.append(node)
+        else:
+            parents.append((depth, node))
+            for child in node.children:
+                _visit(child, depth + 1)
+
+    _visit(root, 0)
+    parents.sort(key=lambda x: -x[0])
+    return leaves, parents
 
 
 def _compilation_snapshot_to_page_dicts(
@@ -1099,6 +1182,15 @@ class WikiService:
         ]
         await asyncio.gather(*(_enrich_one(p, t) for p, t in targets))
 
+    def _resolve_skeleton_strategy(self, tier: ImportanceTier | None) -> SkeletonStrategy | None:
+        if tier != ImportanceTier.SKELETON:
+            return None
+        raw = getattr(self._wiki_cfg, "skeleton_strategy", "template")
+        try:
+            return SkeletonStrategy(raw)
+        except ValueError:
+            return SkeletonStrategy.TEMPLATE
+
     async def _compose_all_pages(
         self,
         repository: str,
@@ -1117,8 +1209,7 @@ class WikiService:
         degraded = False
         tiers = importance_tiers or {}
         page_tier_map: dict[str, ImportanceTier] = {}
-        _page_counter = 0
-        _total_nodes = structure.total_pages
+        summary_index: dict[str, WikiPageSummary] = {}
         _t0 = _time.monotonic()
         _PAGE_TIMEOUT = 120
 
@@ -1137,64 +1228,126 @@ class WikiService:
                     exc_info=True,
                 )
 
+        leaves, parents_by_depth = _collect_nodes_by_depth(structure.root)
+        _total_nodes = len(leaves) + len(parents_by_depth)
         log.info(
             "compose_all_pages_start",
             repository=repository,
             total_nodes=_total_nodes,
+            leaves=len(leaves),
+            parents=len(parents_by_depth),
         )
 
         sem_limit = max(1, int(getattr(self._wiki_cfg, "compose_concurrency", 3)))
-        subtree_sem = asyncio.Semaphore(sem_limit)
-        compose_state_lock = asyncio.Lock()
+        sem = asyncio.Semaphore(sem_limit)
 
-        async def walk_children_parallel(children: list[WikiStructureNode], parent_ctx: str) -> None:
-            if not children:
-                return
+        _sk_light_raw = str(getattr(self._wiki_cfg, "skeleton_light_model", "") or "").strip()
+        skeleton_light_model = _sk_light_raw if _sk_light_raw else None
 
-            async def run_subtree(ch: WikiStructureNode) -> None:
-                async with subtree_sem:
-                    await walk(ch, parent_ctx)
+        log.info(
+            "compose_phase_start",
+            repository=repository,
+            phase="leaf_compose",
+            count=len(leaves),
+        )
 
-            await asyncio.gather(*(run_subtree(ch) for ch in children))
+        async def compose_leaf(node: WikiStructureNode) -> WikiPage | None:
+            nonlocal degraded
+            async with sem:
+                try:
+                    graph_node = await asyncio.wait_for(
+                        self._resolve_structure_node(repository, node),
+                        timeout=30,
+                    )
+                except TimeoutError:
+                    log.warning("resolve_leaf_timeout", path=node.path)
+                    return None
+                except Exception:
+                    log.warning("resolve_leaf_error", path=node.path, exc_info=True)
+                    return None
+                tier = tiers.get(graph_node.uid)
+                code_budget = self._budget_for_tier(
+                    tier, multiplier=token_budget_multiplier,
+                )
+                try:
+                    page_data = await asyncio.wait_for(
+                        self._collector.collect(repository, graph_node, code_budget=code_budget),
+                        timeout=60,
+                    )
+                except TimeoutError:
+                    log.warning("collector_leaf_timeout", path=node.path)
+                    return None
+                if tier is not None:
+                    page_data.importance_tier = tier
+                skeleton_strat = self._resolve_skeleton_strategy(tier)
+                try:
+                    page = await asyncio.wait_for(
+                        composer.compose_page(
+                            page_data,
+                            node.page_type,
+                            config,
+                            importance_tier=tier,
+                            skeleton_strategy=skeleton_strat,
+                            skeleton_light_model=skeleton_light_model,
+                        ),
+                        timeout=_PAGE_TIMEOUT,
+                    )
+                except TimeoutError:
+                    log.warning("compose_leaf_timeout", path=node.path)
+                    return None
+                if page is None:
+                    return None
+                page.metadata.enrichment_level = EnrichmentLevel.BASE
+                page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
+                if tier is not None:
+                    page_tier_map[page.path] = tier
+                if config.mode == "full" and page.metadata.fallback_tier == 3:
+                    degraded = True
+                if cache_active:
+                    wikilink_cache.register(page.title, page.path)
+                return page
 
-        async def walk(node: WikiStructureNode, parent_ctx: str = "") -> None:
-            nonlocal degraded, _page_counter
-            if node.page_type == PageType.REPO_OVERVIEW:
+        leaf_results = await asyncio.gather(*(compose_leaf(n) for n in leaves))
+        for page in leaf_results:
+            if page is not None:
+                pages.append(page)
+                uid = getattr(page, "_source_entity_uid", "")
+                summary_index[page.path] = _extract_summary(page, entity_uid=uid)
+
+        log.info(
+            "compose_phase_complete",
+            repository=repository,
+            phase="leaf_compose",
+            pages_composed=len(pages),
+            elapsed_s=round(_time.monotonic() - _t0, 1),
+        )
+
+        log.info(
+            "compose_phase_start",
+            repository=repository,
+            phase="parent_aggregate",
+            count=len(parents_by_depth),
+        )
+
+        for _depth, parent_node in parents_by_depth:
+            if parent_node.page_type == PageType.REPO_OVERVIEW:
                 page = self._make_repo_overview_page(
                     repository, structure, config, community_markdown=community_markdown,
                 )
                 page.metadata.enrichment_level = EnrichmentLevel.BASE
-                async with compose_state_lock:
-                    pages.append(page)
-                    _page_counter += 1
-                await walk_children_parallel(node.children, parent_ctx)
-                return
-
-            async with compose_state_lock:
-                _page_counter += 1
-                page_num_for_progress = _page_counter
-            _t_page = _time.monotonic()
+                pages.append(page)
+                continue
             try:
                 graph_node = await asyncio.wait_for(
-                    self._resolve_structure_node(repository, node),
+                    self._resolve_structure_node(repository, parent_node),
                     timeout=30,
                 )
             except TimeoutError:
-                log.warning(
-                    "resolve_structure_node_timeout",
-                    repository=repository,
-                    path=node.path,
-                    page_num=page_num_for_progress,
-                )
-                return
+                log.warning("resolve_parent_timeout", path=parent_node.path)
+                continue
             except Exception:
-                log.warning(
-                    "resolve_structure_node_error",
-                    repository=repository,
-                    path=node.path,
-                    exc_info=True,
-                )
-                return
+                log.warning("resolve_parent_error", path=parent_node.path, exc_info=True)
+                continue
             tier = tiers.get(graph_node.uid)
             code_budget = self._budget_for_tier(
                 tier, multiplier=token_budget_multiplier,
@@ -1205,75 +1358,62 @@ class WikiService:
                     timeout=60,
                 )
             except TimeoutError:
-                log.warning(
-                    "collector_collect_timeout",
-                    repository=repository,
-                    path=node.path,
-                    page_num=page_num_for_progress,
-                )
-                return
+                log.warning("collector_parent_timeout", path=parent_node.path)
+                continue
             if tier is not None:
                 page_data.importance_tier = tier
-            skeleton_strat = None
-            if tier == ImportanceTier.SKELETON:
-                raw = getattr(self._wiki_cfg, "skeleton_strategy", "template")
-                try:
-                    skeleton_strat = SkeletonStrategy(raw)
-                except ValueError:
-                    skeleton_strat = SkeletonStrategy.TEMPLATE
-            _sk_light_raw = str(
-                getattr(self._wiki_cfg, "skeleton_light_model", "") or "",
-            ).strip()
-            skeleton_light_model = _sk_light_raw if _sk_light_raw else None
-            try:
-                page = await asyncio.wait_for(
-                    composer.compose_page(
-                        page_data,
-                        node.page_type,
-                        config,
-                        parent_context=parent_ctx,
-                        importance_tier=tier,
-                        skeleton_strategy=skeleton_strat,
-                        skeleton_light_model=skeleton_light_model,
-                    ),
-                    timeout=_PAGE_TIMEOUT,
-                )
-            except TimeoutError:
-                log.warning(
-                    "compose_page_timeout",
-                    repository=repository,
-                    path=node.path,
-                    page_num=page_num_for_progress,
-                )
-                return
-            if page is None:
-                await walk_children_parallel(node.children, parent_ctx)
-                return
-            page.metadata.enrichment_level = EnrichmentLevel.BASE
-            async with compose_state_lock:
-                pages.append(page)
-                if cache_active:
-                    wikilink_cache.register(page.title, page.path)
-                page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
-                if tier is not None:
-                    page_tier_map[page.path] = tier
-                if config.mode == "full" and page.metadata.fallback_tier == 3:
-                    degraded = True
-                if page_num_for_progress % 50 == 0 or page_num_for_progress <= 3:
-                    elapsed = _time.monotonic() - _t0
-                    page_elapsed = _time.monotonic() - _t_page
-                    log.info(
-                        "compose_page_progress",
-                        repository=repository,
-                        page_num=page_num_for_progress,
-                        total=_total_nodes,
-                        page_time_s=round(page_elapsed, 1),
-                        total_time_s=round(elapsed, 1),
-                        path=node.path,
-                    )
-            await walk_children_parallel(node.children, parent_ctx)
 
-        await walk(structure.root)
+            child_summaries = [
+                summary_index[ch.path] for ch in parent_node.children if ch.path in summary_index
+            ]
+            try:
+                if child_summaries:
+                    page = await asyncio.wait_for(
+                        composer.compose_parent_page(
+                            page_data,
+                            parent_node.page_type,
+                            config,
+                            child_summaries,
+                        ),
+                        timeout=_PAGE_TIMEOUT,
+                    )
+                else:
+                    skeleton_strat = self._resolve_skeleton_strategy(tier)
+                    page = await asyncio.wait_for(
+                        composer.compose_page(
+                            page_data,
+                            parent_node.page_type,
+                            config,
+                            importance_tier=tier,
+                            skeleton_strategy=skeleton_strat,
+                            skeleton_light_model=skeleton_light_model,
+                        ),
+                        timeout=_PAGE_TIMEOUT,
+                    )
+            except TimeoutError:
+                log.warning("compose_parent_timeout", path=parent_node.path)
+                continue
+            if page is None:
+                continue
+            page.metadata.enrichment_level = EnrichmentLevel.BASE
+            page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
+            if tier is not None:
+                page_tier_map[page.path] = tier
+            if config.mode == "full" and page.metadata.fallback_tier == 3:
+                degraded = True
+            pages.append(page)
+            summary_index[page.path] = _extract_summary(page, entity_uid=graph_node.uid)
+            if cache_active:
+                wikilink_cache.register(page.title, page.path)
+
+        log.info(
+            "compose_phase_complete",
+            repository=repository,
+            phase="parent_aggregate",
+            pages_composed=len(pages),
+            elapsed_s=round(_time.monotonic() - _t0, 1),
+        )
+
         path_order = {p: i for i, p in enumerate(_expected_wiki_page_paths_dfs(structure.root))}
         pages.sort(key=lambda pg: path_order.get(pg.path, 1 << 30))
         _elapsed = _time.monotonic() - _t0

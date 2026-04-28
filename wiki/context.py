@@ -7,6 +7,10 @@ import re
 from dataclasses import dataclass
 from typing import Protocol
 
+from log import get_logger
+
+log = get_logger(__name__)
+
 
 @dataclass
 class WikiContext:
@@ -33,6 +37,7 @@ class WikiContextBuilder:
         self._llm = llm
 
     async def build_glossary(self, module_names: list[str], entry_points: list[str]) -> dict[str, str]:
+        log.info("build_glossary_start", module_count=len(module_names), using_llm=self._llm is not None)
         if self._llm is not None:
             prompt = (
                 "Create a short glossary for this codebase wiki.\n\n"
@@ -43,8 +48,12 @@ class WikiContextBuilder:
             raw = (await self._llm.generate(prompt, system="Reply with JSON only. No markdown fences.")).strip()
             parsed = self._parse_json_object(raw)
             if parsed:
+                log.info("build_glossary_done", term_count=len(parsed), source="llm")
                 return parsed
-        return {name: f"Module `{name}` — code area in this repository." for name in module_names}
+            log.warning("build_glossary_llm_parse_failed", raw_len=len(raw))
+        result = {name: f"Module `{name}` — code area in this repository." for name in module_names}
+        log.info("build_glossary_done", term_count=len(result), source="fallback")
+        return result
 
     def _parse_json_object(self, raw: str) -> dict[str, str]:
         text = raw.strip()
@@ -64,13 +73,16 @@ class WikiContextBuilder:
         return out
 
     async def build_repository_context(self, modules: list[str], arch_summary: str = "") -> str:
+        log.info("build_repo_context_start", module_count=len(modules), using_llm=self._llm is not None)
         if self._llm is not None:
             prompt = (
                 "Summarize the repository for wiki readers in 2-4 sentences.\n\n"
                 f"Modules (paths or names): {', '.join(modules) if modules else '(none)'}\n"
                 f"Architecture notes: {arch_summary or '(none)'}\n"
             )
-            return (await self._llm.generate(prompt, system="Be factual and concise.")).strip()
+            result = (await self._llm.generate(prompt, system="Be factual and concise.")).strip()
+            log.info("build_repo_context_done", result_len=len(result), source="llm")
+            return result
 
         parts: list[str] = []
         if modules:

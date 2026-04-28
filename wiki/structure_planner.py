@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from log import get_logger
 from store.schema import GraphEdge, GraphNode, NodeLabel
 from wiki.models import PageType, ScopeParam, WikiStructure, WikiStructureNode
+
+log = get_logger(__name__)
 
 
 class WikiScopeError(Exception):
@@ -37,6 +40,7 @@ class WikiStructurePlanner:
         self._graph = graph
 
     async def plan(self, repository: str, scope: ScopeParam) -> WikiStructure:
+        log.info("structure_plan_start", repository=repository, scope_type=scope.scope_type, scope_value=scope.value)
         if scope.scope_type == "repo":
             return await self._plan_repo(repository)
 
@@ -47,27 +51,32 @@ class WikiStructurePlanner:
                     f"Scope type 'module' resolved to {node.label}, expected Module"
                 )
             root = await self._build_module_tree(repository, node)
-            return WikiStructure(
+            structure = WikiStructure(
                 repository=repository,
                 root=root,
                 total_pages=self._count_pages(root),
             )
+            log.info("structure_plan_done", repository=repository, scope_type="module", total_pages=structure.total_pages)
+            return structure
 
         if scope.scope_type == "class":
             node = await self._resolve_scope_node(repository, scope.value or "")
             if node.label != NodeLabel.CLASS:
                 raise WikiScopeError(f"Scope type 'class' resolved to {node.label}, expected Class")
             root = self._leaf_wiki_node(node, PageType.CLASS_DETAIL)
-            return WikiStructure(
+            structure = WikiStructure(
                 repository=repository,
                 root=root,
                 total_pages=self._count_pages(root),
             )
+            log.info("structure_plan_done", repository=repository, scope_type="class", total_pages=structure.total_pages)
+            return structure
 
         raise WikiScopeError(f"Unsupported scope type: {scope.scope_type!r}")
 
     async def _plan_repo(self, repository: str) -> WikiStructure:
         modules = await self._graph.find_top_level_modules(repository)
+        log.info("plan_repo_modules_found", repository=repository, module_count=len(modules))
         children = [
             self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
             for m in sorted(modules, key=self._sort_key_for_module_list)
@@ -78,11 +87,13 @@ class WikiStructurePlanner:
             page_type=PageType.REPO_OVERVIEW,
             children=children,
         )
-        return WikiStructure(
+        structure = WikiStructure(
             repository=repository,
             root=root,
             total_pages=self._count_pages(root),
         )
+        log.info("structure_plan_done", repository=repository, scope_type="repo", total_pages=structure.total_pages)
+        return structure
 
     def _sort_key_for_module_list(self, node: GraphNode) -> tuple[str, str]:
         path = str(node.properties.get("path") or "")

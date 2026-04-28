@@ -79,38 +79,6 @@ def _effective_wiki_language(language: str) -> str:
     return language if language in ("en", "zh") else "en"
 
 
-_NAV_SIBLING_LIMIT = 10
-_NAV_CHILD_LIMIT = 15
-
-
-def render_navigation_section(page: WikiPage) -> str:
-    """Render breadcrumbs and navigation links as Markdown."""
-    if not page.navigation:
-        return ""
-    nav = page.navigation
-    sections: list[str] = []
-    if nav.breadcrumbs:
-        crumb_links = " > ".join(f"[[{title}]]" for title, _path in nav.breadcrumbs)
-        sections.append(f"> {crumb_links}")
-    if nav.child_paths:
-        shown = nav.child_paths[:_NAV_CHILD_LIMIT]
-        remaining = len(nav.child_paths) - len(shown)
-        sections.append("\n### Sub-components\n")
-        for path in shown:
-            sections.append(f"- [{path}]({path})")
-        if remaining > 0:
-            sections.append(f"\n*… and {remaining} more sub-components*")
-    if nav.sibling_paths:
-        shown = nav.sibling_paths[:_NAV_SIBLING_LIMIT]
-        remaining = len(nav.sibling_paths) - len(shown)
-        sections.append("\n### Related (same parent)\n")
-        for path in shown:
-            sections.append(f"- [{path}]({path})")
-        if remaining > 0:
-            sections.append(f"\n*… and {remaining} more siblings*")
-    return "\n".join(sections)
-
-
 def _display_name(uid: str) -> str:
     parts = uid.rsplit(":", 2)
     if len(parts) >= 3:
@@ -189,10 +157,20 @@ class WikiComposer:
         skeleton_light_model: str | None = None,
     ) -> WikiPage | None:
         glossary = glossary or {}
+        entity_name = _primary_name(page_data.node)
+        log.info(
+            "compose_page_start",
+            entity=entity_name,
+            page_type=page_type.value,
+            mode=config.mode,
+            has_llm=self._llm is not None,
+            importance_tier=importance_tier.value if importance_tier else None,
+        )
 
         # Tier-aware dispatch for SKELETON entities
         if importance_tier == ImportanceTier.SKELETON and skeleton_strategy is not None:
             if skeleton_strategy == SkeletonStrategy.SKIP:
+                log.debug("compose_page_skip", entity=entity_name, reason="skeleton_skip")
                 return None
             if skeleton_strategy == SkeletonStrategy.TEMPLATE:
                 node = page_data.node
@@ -213,6 +191,7 @@ class WikiComposer:
                     generation_mode=config.mode,
                     fallback_tier=3,
                 )
+                log.info("compose_page_done", entity=title, tier=3, strategy="skeleton_template", content_len=len(content))
                 return WikiPage(
                     path=path,
                     title=title,
@@ -253,9 +232,11 @@ class WikiComposer:
         if page_data.business_summary and page_data.business_summary.strip():
             tier = 1
             description = page_data.business_summary.strip()
+            log.debug("compose_page_tier_decision", entity=title, tier=1, reason="business_summary")
         elif config.mode == "structure":
             tier = 3
             description = self._tier3_structural(page_data, page_type, eff_lang)
+            log.debug("compose_page_tier_decision", entity=title, tier=3, reason="structure_mode")
         elif self._llm is not None:
             tier = 2
             description = await self._tier2_llm(
@@ -288,6 +269,7 @@ class WikiComposer:
         else:
             tier = 3
             description = self._tier3_structural(page_data, page_type, eff_lang)
+            log.debug("compose_page_tier_decision", entity=title, tier=3, reason="no_llm")
 
         content = self._markdown_body(title, page_data, page_type, description)
         if self._wikilink_cache is not None:
@@ -327,6 +309,14 @@ class WikiComposer:
                     path=path,
                     error=str(exc),
                 )
+        log.info(
+            "compose_page_done",
+            entity=title,
+            tier=tier,
+            page_type=page_type.value,
+            content_len=len(content),
+            diagram_count=len(diagrams),
+        )
         return page
 
     async def compose_parent_page(
@@ -340,6 +330,12 @@ class WikiComposer:
         title = _primary_name(page_data.node)
         path = _wiki_path(page_data.node, page_type)
         eff_lang = _effective_wiki_language(config.language)
+        log.info(
+            "compose_parent_start",
+            entity=title,
+            child_count=len(child_summaries),
+            has_llm=self._llm is not None,
+        )
 
         if not self._llm or not child_summaries:
             description = self._tier3_structural(page_data, page_type, eff_lang)
@@ -376,6 +372,7 @@ class WikiComposer:
             generation_mode=config.mode,
             fallback_tier=tier,
         )
+        log.info("compose_parent_done", entity=title, tier=tier, content_len=len(content))
         return WikiPage(
             path=path,
             title=title,
@@ -396,6 +393,12 @@ class WikiComposer:
         config: WikiConfig,
     ) -> tuple[WikiPage, WikiPage]:
         """Build ``index.md`` and ``overview.md`` for incremental wiki refresh (P3)."""
+        log.info(
+            "navigation_pages_start",
+            repository=repository,
+            affected_count=len(affected_pages),
+            neighbor_count=len(neighbor_pages),
+        )
         index_lines = [
             f"# {repository} wiki",
             "",
@@ -489,6 +492,13 @@ class WikiComposer:
             source_locations=[loc_ov],
             metadata=meta_ov,
         )
+        log.info(
+            "navigation_pages_done",
+            repository=repository,
+            module_count=len(module_summaries),
+            overview_tier=meta_ov.fallback_tier,
+            llm_used=bool(self._llm and module_summaries),
+        )
         return index_page, overview_page
 
     async def _compose_skeleton_light(
@@ -504,6 +514,7 @@ class WikiComposer:
         title = _primary_name(node)
         path = _wiki_path(node, page_type)
         eff_lang = _effective_wiki_language(config.language)
+        log.info("skeleton_light_start", entity=title, model=skeleton_light_model)
 
         if not self._llm:
             description = self._tier3_structural(page_data, page_type, eff_lang)
@@ -533,6 +544,7 @@ class WikiComposer:
             generation_mode=config.mode,
             fallback_tier=tier,
         )
+        log.info("skeleton_light_done", entity=title, tier=tier, content_len=len(content))
         return WikiPage(
             path=path,
             title=title,
@@ -600,6 +612,8 @@ class WikiComposer:
         memory_block: str = "",
     ) -> str:
         assert self._llm is not None
+        entity_name = _primary_name(page_data.node)
+        log.info("tier2_llm_start", entity=entity_name, page_type=page_type.value)
         lang = _effective_wiki_language(config.language)
         style = self._ctx.build_style_sheet(config.language)
         ctx_block = self._ctx.build_page_context(
@@ -608,7 +622,7 @@ class WikiComposer:
             style,
             language=config.language,
         )
-        entity = self._entity_digest(page_data, page_type)
+        entity = self._entity_digest(page_data, page_type, config=config)
         lang_directive = (
             "Generate documentation in English."
             if lang == "en"
@@ -639,10 +653,16 @@ class WikiComposer:
             "Focus on business logic and workflow understanding. "
             "Use clear section headings (##). Output Markdown."
         )
-        return (await self._llm.generate(prompt, system=system)).strip()
+        log.debug("tier2_llm_prompt_built", entity=entity_name, prompt_len=len(prompt))
+        result = (await self._llm.generate(prompt, system=system)).strip()
+        log.info("tier2_llm_done", entity=entity_name, response_len=len(result))
+        return result
 
-    def _entity_digest(self, page_data: PageData, page_type: PageType) -> str:
+    def _entity_digest(
+        self, page_data: PageData, page_type: PageType, *, config: WikiConfig | None = None,
+    ) -> str:
         n = page_data.node
+        comment_budget = config.comment_max_chars if config else 500
         lines = [
             f"- Label: {n.label.value}",
             f"- UID: {n.uid}",
@@ -661,7 +681,7 @@ class WikiComposer:
             lines.append(f"- Signature: {sig}")
         doc = n.properties.get("docstring")
         if isinstance(doc, str) and doc:
-            lines.append(f"- Docstring: {doc[:500]}")
+            lines.append(f"- Docstring: {doc[:comment_budget]}")
         bs = n.properties.get("business_summary")
         if isinstance(bs, str) and bs:
             lines.append(f"- Business summary: {bs}")

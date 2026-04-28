@@ -7,9 +7,12 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from config import AppWikiFlags as AppWikiConfig, EmbeddingConfig
+from log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 from wiki.models import ChunkSnippet, CodeSnippet, ImportanceTier, SourceLocation
 from wiki.structure_planner import GraphQueryPort
+
+log = get_logger(__name__)
 
 
 def _edge_frequency(edge: GraphEdge) -> int:
@@ -204,6 +207,7 @@ class WikiDataCollector:
         self._rag_enabled = rag_enabled
 
     async def collect(self, repository: str, node: GraphNode, code_budget: int = 8000) -> PageData:
+        log.info("data_collect_start", entity_uid=node.uid, label=node.label.value, repository=repository)
         raw_edges = await self._graph.find_edges(repository, node.uid)
         prioritized = _prioritize_edges(node.uid, raw_edges)
         edges = _annotate_neighbor_tiers(node.uid, raw_edges, prioritized)
@@ -243,7 +247,7 @@ class WikiDataCollector:
             )
             related_chunks = await retriever.retrieve(node, repository)
 
-        return PageData(
+        page_data = PageData(
             node=node,
             edges=edges,
             children=children,
@@ -254,3 +258,14 @@ class WikiDataCollector:
             code_snippets=code_snippets,
             related_chunks=related_chunks,
         )
+        log.info(
+            "data_collect_done",
+            entity_uid=node.uid,
+            edge_count=len(edges),
+            child_count=len(children),
+            method_count=len(methods),
+            has_business_summary=business_summary is not None,
+            code_snippet_count=len(code_snippets),
+            related_chunk_count=len(related_chunks),
+        )
+        return page_data

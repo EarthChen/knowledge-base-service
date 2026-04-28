@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from log import get_logger
@@ -14,8 +14,20 @@ from wiki.doc_wiki_fusion import create_source_doc_edges, find_related_docs, for
 from wiki.data_collector import PageData
 from wiki.diagram_gen import generate_call_flowchart, generate_class_diagram, generate_dependency_graph
 from wiki.memory_loop import MemoryLoop
-from wiki.models import PageType, SourceLocation, WikiConfig, WikiDiagram, WikiPage, WikiPageMetadata
+from wiki.models import (
+    ImportanceTier,
+    PageType,
+    SkeletonStrategy,
+    SourceLocation,
+    WikiConfig,
+    WikiDiagram,
+    WikiPage,
+    WikiPageMetadata,
+)
 from wiki.wikilink_resolver import resolve_wikilinks
+
+if TYPE_CHECKING:
+    from wiki.wikilink_cache import WikiLinkCache
 
 log = get_logger(__name__)
 
@@ -81,12 +93,14 @@ class WikiComposer:
         store: Any | None = None,
         wiki_store: WikiStore | None = None,
         memory_loop: MemoryLoop | None = None,
+        wikilink_cache: "WikiLinkCache | None" = None,
     ) -> None:
         self._llm = llm
         self._ctx = context_builder
         self._store = store
         self._wiki_store = wiki_store or (WikiStore(store) if store is not None else None)
         self._memory_loop = memory_loop
+        self._wikilink_cache = wikilink_cache
 
     async def compose_page(
         self,
@@ -95,8 +109,48 @@ class WikiComposer:
         config: WikiConfig,
         parent_context: str = "",
         glossary: dict[str, str] | None = None,
-    ) -> WikiPage:
+        *,
+        importance_tier: ImportanceTier | None = None,
+        skeleton_strategy: SkeletonStrategy | None = None,
+    ) -> WikiPage | None:
         glossary = glossary or {}
+
+        # Tier-aware dispatch for SKELETON entities
+        if importance_tier == ImportanceTier.SKELETON and skeleton_strategy is not None:
+            if skeleton_strategy == SkeletonStrategy.SKIP:
+                return None
+            if skeleton_strategy == SkeletonStrategy.TEMPLATE:
+                node = page_data.node
+                title = _primary_name(node)
+                path = _wiki_path(node, page_type)
+                eff_lang = _effective_wiki_language(config.language)
+                description = self._tier3_structural(page_data, page_type, eff_lang)
+                content = self._markdown_body(title, page_data, page_type, description)
+                if self._wikilink_cache is not None:
+                    entity_index = self._wikilink_cache.get_index()
+                else:
+                    entity_index = await self._wikilink_entity_index(config.repository)
+                content = resolve_wikilinks(content, entity_index)
+                diagrams = self._build_diagrams(page_data, page_type)
+                meta = WikiPageMetadata(
+                    node_count=self._estimate_node_count(page_data),
+                    edge_count=len(page_data.edges),
+                    generation_mode=config.mode,
+                    fallback_tier=3,
+                )
+                return WikiPage(
+                    path=path,
+                    title=title,
+                    page_type=page_type,
+                    content=content,
+                    diagrams=diagrams,
+                    source_locations=[page_data.source_location],
+                    metadata=meta,
+                    method_locations=list(page_data.method_locations),
+                )
+            if skeleton_strategy == SkeletonStrategy.LIGHT_MODEL:
+                return await self._compose_skeleton_light(page_data, page_type, config)
+
         node = page_data.node
         title = _primary_name(node)
         path = _wiki_path(node, page_type)
@@ -156,7 +210,10 @@ class WikiComposer:
             description = self._tier3_structural(page_data, page_type, eff_lang)
 
         content = self._markdown_body(title, page_data, page_type, description)
-        entity_index = await self._wikilink_entity_index(config.repository)
+        if self._wikilink_cache is not None:
+            entity_index = self._wikilink_cache.get_index()
+        else:
+            entity_index = await self._wikilink_entity_index(config.repository)
         content = resolve_wikilinks(content, entity_index)
         diagrams = self._build_diagrams(page_data, page_type)
         meta = WikiPageMetadata(
@@ -261,6 +318,78 @@ class WikiComposer:
             metadata=meta_ov,
         )
         return index_page, overview_page
+
+    async def _compose_skeleton_light(
+        self,
+        page_data: PageData,
+        page_type: PageType,
+        config: WikiConfig,
+    ) -> WikiPage:
+        """Compose SKELETON entity using a lighter/cheaper LLM model."""
+        node = page_data.node
+        title = _primary_name(node)
+        path = _wiki_path(node, page_type)
+        eff_lang = _effective_wiki_language(config.language)
+
+        if not self._llm:
+            description = self._tier3_structural(page_data, page_type, eff_lang)
+            tier = 3
+        else:
+            prompt = self._build_skeleton_light_prompt(page_data, page_type, eff_lang)
+            description = (
+                await self._llm.generate(
+                    prompt,
+                    system="You are writing concise documentation. Be brief but accurate.",
+                )
+            ).strip()
+            tier = 2
+
+        content = self._markdown_body(title, page_data, page_type, description)
+        if self._wikilink_cache is not None:
+            entity_index = self._wikilink_cache.get_index()
+        else:
+            entity_index = await self._wikilink_entity_index(config.repository)
+        content = resolve_wikilinks(content, entity_index)
+        diagrams = self._build_diagrams(page_data, page_type)
+        meta = WikiPageMetadata(
+            node_count=self._estimate_node_count(page_data),
+            edge_count=len(page_data.edges),
+            generation_mode=config.mode,
+            fallback_tier=tier,
+        )
+        return WikiPage(
+            path=path,
+            title=title,
+            page_type=page_type,
+            content=content,
+            diagrams=diagrams,
+            source_locations=[page_data.source_location],
+            metadata=meta,
+            method_locations=list(page_data.method_locations),
+        )
+
+    def _build_skeleton_light_prompt(
+        self,
+        page_data: PageData,
+        page_type: PageType,
+        lang: str,
+    ) -> str:
+        """Build a shorter prompt for SKELETON entities."""
+        name = _primary_name(page_data.node)
+        code_snippet = ""
+        if page_data.code_snippets:
+            snippet = page_data.code_snippets[0]
+            if hasattr(snippet, "source"):
+                code_snippet = snippet.source[:500]
+            elif isinstance(snippet, str):
+                code_snippet = snippet[:500]
+        lang_hint = "Generate in English." if lang == "en" else "请用中文生成。"
+        return (
+            f"Write a brief documentation summary for `{name}` ({page_type.value}).\n"
+            f"Code preview:\n```\n{code_snippet}\n```\n"
+            f"Include: one-line purpose, parameter list (if any), return type.\n"
+            f"{lang_hint}\nKeep it under 150 words."
+        )
 
     async def _wikilink_entity_index(self, repository: str) -> dict[str, str]:
         """Map WikiPage title -> in-app wiki URL for [[wikilink]] resolution."""

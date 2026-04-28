@@ -1,6 +1,10 @@
-import pytest
 from wiki.service import _populate_navigation_context
-from wiki.models import WikiPage, WikiPageMetadata, WikiStructureNode, PageType
+from wiki.models import (
+    PageType,
+    WikiPage,
+    WikiPageMetadata,
+    WikiStructureNode,
+)
 
 
 def _make_structure():

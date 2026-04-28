@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from config import WikiConfig
+from config import AppWikiFlags
 from log import get_logger
 from store.wiki_store import WikiStore
 from wiki.auto_healer import AutoHealer
@@ -91,7 +91,7 @@ class WikiLintService:
         repo_registry: Any | None = None,
         wiki_store: WikiStore | None = None,
         *,
-        wiki_config: WikiConfig | None = None,
+        wiki_config: AppWikiFlags | None = None,
         contradiction_detector: Any | None = None,
         wiki_changelog_store: Any | None = None,
     ) -> None:

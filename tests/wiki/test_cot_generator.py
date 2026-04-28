@@ -147,8 +147,8 @@ async def test_invalid_analysis_json_yields_empty_analysis_and_no_pages() -> Non
 
 @pytest.mark.asyncio
 async def test_settings_wiki_config_defaults_disable_cot() -> None:
-    from config import WikiConfig, get_settings
+    from config import AppWikiFlags, get_settings
 
     w = get_settings().wiki
-    assert isinstance(w, WikiConfig)
+    assert isinstance(w, AppWikiFlags)
     assert w.cot_enabled is False

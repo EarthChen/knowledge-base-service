@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from config import EmbeddingConfig, Settings, WikiConfig
+from config import AppWikiFlags, EmbeddingConfig, Settings
 
 
-def inject_wiki_embedding() -> tuple[WikiConfig, EmbeddingConfig]:
+def inject_wiki_embedding() -> tuple[AppWikiFlags, EmbeddingConfig]:
     from config import get_settings
 
     s: Settings = get_settings()

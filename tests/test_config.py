@@ -1,6 +1,6 @@
 """Tests for knowledge base service configuration."""
 
-from config import EmbeddingConfig, FalkorDBConfig, Settings, WikiConfig, get_settings
+from config import AppWikiFlags, EmbeddingConfig, FalkorDBConfig, Settings, get_settings
 
 
 class TestFalkorDBConfig:
@@ -46,7 +46,7 @@ class TestSettings:
         assert ".tsx" in settings.file_extensions["typescript"]
 
     def test_wiki_sp7_flags_defaults(self) -> None:
-        w = WikiConfig()
+        w = AppWikiFlags()
         assert w.forgetting_enabled is True
         assert w.schema_validation_enabled is True
         assert w.schema_path == "wiki/schema.yaml"
@@ -64,7 +64,7 @@ def test_wiki_skeleton_strategy_default() -> None:
 
 
 def test_wiki_incremental_enabled_default() -> None:
-    w = WikiConfig()
+    w = AppWikiFlags()
     assert w.incremental_enabled is False
     settings = Settings(_env_file=None)
     assert settings.wiki.incremental_enabled is False

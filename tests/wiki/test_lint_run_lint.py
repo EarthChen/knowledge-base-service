@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from config import WikiConfig
+from config import AppWikiFlags
 from wiki.lint import LintReport, WikiLintService
 
 
@@ -21,7 +21,7 @@ def _make_report() -> LintReport:
 async def test_run_lint_merges_heal_when_auto_heal_enabled() -> None:
     mock_store = MagicMock()
     mock_store.list_wiki_pages_for_repo = AsyncMock(return_value=MagicMock(data=[]))
-    cfg = MagicMock(spec=WikiConfig)
+    cfg = MagicMock(spec=AppWikiFlags)
     cfg.auto_heal_enabled = True
     cfg.contradiction_detection_enabled = False
     cfg.confidence_scoring_enabled = False
@@ -49,7 +49,7 @@ async def test_run_lint_merges_heal_when_auto_heal_enabled() -> None:
 @pytest.mark.asyncio
 async def test_run_lint_skips_heal_when_auto_heal_disabled() -> None:
     mock_store = MagicMock()
-    cfg = MagicMock(spec=WikiConfig)
+    cfg = MagicMock(spec=AppWikiFlags)
     cfg.auto_heal_enabled = False
     cfg.contradiction_detection_enabled = False
     cfg.confidence_scoring_enabled = False

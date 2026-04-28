@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from config import EmbeddingConfig, WikiConfig as WikiAppConfig
+from config import AppWikiFlags as WikiAppConfig, EmbeddingConfig
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory

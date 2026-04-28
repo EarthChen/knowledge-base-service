@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from config import WikiConfig
+from config import AppWikiFlags
 from wiki.lint import WikiLintService
 
 
@@ -20,7 +20,7 @@ async def test_lint_memory_promotion_skips_when_flag_off() -> None:
     wiki_store.list_wiki_pages_for_repo = AsyncMock(return_value=[])
     up = AsyncMock()
     wiki_store.update_wiki_qa_memory = up
-    cfg = WikiConfig(memory_tiers_enabled=False)
+    cfg = AppWikiFlags(memory_tiers_enabled=False)
     svc = WikiLintService(store, wiki_store=wiki_store, wiki_config=cfg)
     for name in (
         "_check_staleness",
@@ -65,7 +65,7 @@ async def test_lint_memory_promotion_persists_tier_and_promoted_at() -> None:
     wiki_store.list_wiki_qa = lwq
     wiki_store.update_wiki_qa_memory = up
     wiki_store.list_wiki_pages_for_repo = AsyncMock(return_value=[])
-    cfg = WikiConfig().model_copy(update={"memory_tiers_enabled": True})
+    cfg = AppWikiFlags().model_copy(update={"memory_tiers_enabled": True})
     svc = WikiLintService(store, wiki_store=wiki_store, wiki_config=cfg)
     for name in (
         "_check_staleness",

@@ -170,8 +170,8 @@ class RerankConfig(BaseModel):
     top_n: int = 30
 
 
-class WikiConfig(BaseModel):
-    """Application-level wiki feature flags (separate from ``wiki.models.WikiConfig``)."""
+class AppWikiFlags(BaseModel):
+    """Application-level wiki feature flags (separate from per-run ``wiki.models.WikiConfig``)."""
 
     cot_enabled: bool = False
     cot_analysis_model: str = ""
@@ -352,7 +352,7 @@ class Settings(BaseSettings):
     falkordb: FalkorDBConfig = Field(default_factory=FalkorDBConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
-    wiki: WikiConfig = Field(default_factory=WikiConfig)
+    wiki: AppWikiFlags = Field(default_factory=AppWikiFlags)
     hybrid_search: HybridSearchConfig = Field(default_factory=HybridSearchConfig)
     rerank: RerankConfig = Field(default_factory=RerankConfig)
     git: GitConfig = Field(default_factory=GitConfig)

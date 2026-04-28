@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from config import WikiConfig as WikiAppConfig, EmbeddingConfig
+from config import AppWikiFlags as WikiAppConfig, EmbeddingConfig
 
 
 @pytest.fixture

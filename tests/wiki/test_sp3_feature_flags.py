@@ -1,16 +1,16 @@
-"""SP3: confidence scoring feature flags on application WikiConfig."""
+"""SP3: confidence scoring feature flags on application AppWikiFlags."""
 
 from __future__ import annotations
 
-from config import WikiConfig
+from config import AppWikiFlags
 
 
 def test_confidence_scoring_default_on() -> None:
-    assert WikiConfig().confidence_scoring_enabled is True
+    assert AppWikiFlags().confidence_scoring_enabled is True
 
 
 def test_confidence_weights_match_spec_defaults() -> None:
-    c = WikiConfig()
+    c = AppWikiFlags()
     assert c.confidence_weight_w1 == 0.30
     assert c.confidence_weight_w2 == 0.25
     assert c.confidence_weight_w3 == 0.25

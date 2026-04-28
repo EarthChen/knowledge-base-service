@@ -49,7 +49,7 @@ class ConfidenceScorer:
 
 
 def confidence_scorer_from_wiki_app_config(cfg: object) -> ConfidenceScorer:
-    """Build a :class:`ConfidenceScorer` from application :class:`config.WikiConfig` weights."""
+    """Build a :class:`ConfidenceScorer` from application :class:`config.AppWikiFlags` weights."""
     w = WeightBundle(
         float(getattr(cfg, "confidence_weight_w1", DEFAULT_WEIGHTS.w1)),
         float(getattr(cfg, "confidence_weight_w2", DEFAULT_WEIGHTS.w2)),

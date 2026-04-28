@@ -7,7 +7,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
-from config import EmbeddingConfig, WikiConfig
+from config import AppWikiFlags, EmbeddingConfig
 from wiki.models import PageType, WikiPage, WikiPageMetadata
 from wiki.service import WikiService
 
@@ -91,7 +91,7 @@ async def test_supersession_creates_claim_history(monkeypatch: pytest.MonkeyPatc
             json.dumps([{"claim_text": "Y", "subject_entity": "E"}]),  # new
         ],
     )
-    app_cfg = WikiConfig().model_copy(
+    app_cfg = AppWikiFlags().model_copy(
         update={
             "confidence_scoring_enabled": False,
             "supersession_tracking_enabled": True,

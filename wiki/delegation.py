@@ -65,7 +65,13 @@ def group_children_by_graph(
                     stack.append(neighbor)
         groups.append(component)
 
-    return groups
+    final_groups: list[list[WikiStructureNode]] = []
+    for group in groups:
+        if len(group) > max_group_size:
+            final_groups.extend(_chunk_group(group, max_group_size))
+        else:
+            final_groups.append(group)
+    return final_groups
 
 
 def _chunk_group(

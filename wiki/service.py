@@ -22,6 +22,7 @@ from wiki.confidence_scorer import confidence_scorer_from_wiki_app_config
 from wiki.deferred_enrichment import DeferredEnrichmentService
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
+from wiki.delegation import evaluate_delegation, group_children_by_graph
 from wiki.exporter import WikiExporter
 from wiki.memory_loop import MemoryLoop
 from wiki.models import (
@@ -82,9 +83,9 @@ def _populate_navigation_context(
 
 
 def _expected_wiki_page_paths_dfs(node: WikiStructureNode) -> list[str]:
-    """Depth-first paths matching ``_compose_all_pages`` / legacy serial ``walk`` order."""
+    """Depth-first structure paths matching ``_compose_all_pages`` walk order."""
     if node.page_type == PageType.REPO_OVERVIEW:
-        order = ["README.md"]
+        order = [node.path]
         for ch in node.children:
             order.extend(_expected_wiki_page_paths_dfs(ch))
         return order
@@ -587,6 +588,10 @@ class WikiService:
         token_budget_multiplier: float = 1.0,
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield ``{"page": page_dict}`` per page, then ``{"complete": export_bundle}``."""
+        # NOTE: generate_stream_events uses legacy recursive walk for streaming.
+        # Phase 2 features (parent aggregation, business flows, backlinks, navigation)
+        # are only available through the non-streaming _compose_all_pages path.
+        # Aligning streaming with the two-pass architecture is planned for a future phase.
         scope = parse_scope(scope_raw)
         config = self._config_for(mode, format, repository, language)
         await self._ensure_repo(repository)
@@ -1314,6 +1319,7 @@ class WikiService:
                     return None
                 page.metadata.enrichment_level = EnrichmentLevel.BASE
                 page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
+                page._structure_path = node.path  # type: ignore[attr-defined]
                 if tier is not None:
                     page_tier_map[page.path] = tier
                 if config.mode == "full" and page.metadata.fallback_tier == 3:
@@ -1327,7 +1333,11 @@ class WikiService:
             if page is not None:
                 pages.append(page)
                 uid = getattr(page, "_source_entity_uid", "")
-                summary_index[page.path] = _extract_summary(page, entity_uid=uid)
+                struct_path = getattr(page, "_structure_path", page.path)
+                _sum = _extract_summary(page, entity_uid=uid)
+                summary_index[struct_path] = _sum
+                if page.path != struct_path:
+                    summary_index[page.path] = _sum
 
         log.info(
             "compose_phase_complete",
@@ -1370,6 +1380,7 @@ class WikiService:
                     repository, structure, config, community_markdown=community_markdown,
                 )
                 page.metadata.enrichment_level = EnrichmentLevel.BASE
+                page._structure_path = parent_node.path  # type: ignore[attr-defined]
                 pages.append(page)
                 continue
             try:
@@ -1401,6 +1412,51 @@ class WikiService:
             child_summaries = [
                 summary_index[ch.path] for ch in parent_node.children if ch.path in summary_index
             ]
+            if getattr(self._wiki_cfg, "delegation_enabled", True):
+                decision = evaluate_delegation(
+                    children_count=len(parent_node.children),
+                    total_code_lines=0,  # code lines not tracked on structure nodes
+                    max_children=getattr(self._wiki_cfg, "delegation_max_children", 30),
+                    max_code_lines=getattr(self._wiki_cfg, "delegation_max_code_lines", 5000),
+                )
+                if decision.should_delegate and child_summaries:
+                    edges: list[tuple[str, str]] = []  # TODO: populate from graph in future
+                    groups = group_children_by_graph(
+                        [ch for ch in parent_node.children if ch.path in summary_index],
+                        edges,
+                        max_group_size=getattr(self._wiki_cfg, "delegation_max_children", 30),
+                    )
+                    if len(groups) > 1:
+                        group_summaries: list[WikiPageSummary] = []
+                        for group in groups:
+                            group_child_sums = [
+                                summary_index[ch.path]
+                                for ch in group
+                                if ch.path in summary_index
+                            ]
+                            if group_child_sums:
+                                combined = "; ".join(s.summary[:50] for s in group_child_sums)
+                                group_summaries.append(
+                                    WikiPageSummary(
+                                        entity_uid=f"virtual:{parent_node.path}:{len(group_summaries)}",
+                                        title=f"Group: {group_child_sums[0].title} etc.",
+                                        path=parent_node.path,
+                                        summary=combined[:200],
+                                        importance_tier=None,
+                                        page_type=PageType.MODULE_OVERVIEW,
+                                    )
+                                )
+                        if group_summaries:
+                            child_summaries = group_summaries
+                            log.info(
+                                "delegation_applied",
+                                path=parent_node.path,
+                                groups=len(groups),
+                                reason=decision.reason,
+                            )
+            skeleton_strat = self._resolve_skeleton_strategy(tier)
+            if tier == ImportanceTier.SKELETON and skeleton_strat == SkeletonStrategy.SKIP:
+                continue
             try:
                 if child_summaries:
                     page = await asyncio.wait_for(
@@ -1432,12 +1488,16 @@ class WikiService:
                 continue
             page.metadata.enrichment_level = EnrichmentLevel.BASE
             page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
+            page._structure_path = parent_node.path  # type: ignore[attr-defined]
             if tier is not None:
                 page_tier_map[page.path] = tier
             if config.mode == "full" and page.metadata.fallback_tier == 3:
                 degraded = True
             pages.append(page)
-            summary_index[page.path] = _extract_summary(page, entity_uid=graph_node.uid)
+            _psum = _extract_summary(page, entity_uid=graph_node.uid)
+            summary_index[parent_node.path] = _psum
+            if page.path != parent_node.path:
+                summary_index[page.path] = _psum
             if cache_active:
                 wikilink_cache.register(page.title, page.path)
 
@@ -1459,11 +1519,53 @@ class WikiService:
                 },
             )
 
-        path_order = {p: i for i, p in enumerate(_expected_wiki_page_paths_dfs(structure.root))}
-        pages.sort(key=lambda pg: path_order.get(pg.path, 1 << 30))
+        if getattr(self._wiki_cfg, "business_flow_aggregation_enabled", True):
+            try:
+                from wiki.business_flow_composer import BusinessFlowPageComposer
 
-        pages_by_path = {p.path: p for p in pages}
-        _populate_navigation_context(structure.root, pages_by_path)
+                community_svc = getattr(self, "_community_service", None)
+                llm_bridge = self._resolve_llm_port(llm_provider)
+                if community_svc:
+                    flow_composer = BusinessFlowPageComposer(llm_bridge, community_svc)
+                    uid_to_path: dict[str, str] = {}
+                    for page in pages:
+                        uid = getattr(page, "_source_entity_uid", "")
+                        if uid:
+                            uid_to_path[uid] = page.path
+                    min_size = getattr(self._wiki_cfg, "business_flow_min_community_size", 3)
+                    flow_pages = await flow_composer.compose_flows(
+                        repository,
+                        summary_index,
+                        uid_to_path,
+                        config,
+                        min_community_size=min_size,
+                    )
+                    pages.extend(flow_pages)
+                    log.info(
+                        "business_flow_phase_complete",
+                        repository=repository,
+                        flow_pages=len(flow_pages),
+                    )
+                else:
+                    log.warning(
+                        "business_flow_phase_skipped",
+                        repository=repository,
+                        reason="community_service_unavailable",
+                    )
+            except Exception:
+                log.warning(
+                    "business_flow_phase_failed",
+                    repository=repository,
+                    exc_info=True,
+                )
+
+        path_order = {p: i for i, p in enumerate(_expected_wiki_page_paths_dfs(structure.root))}
+        pages.sort(
+            key=lambda pg: path_order.get(getattr(pg, "_structure_path", pg.path), 1 << 30),
+        )
+
+        pages_by_struct_path = {getattr(p, "_structure_path", p.path): p for p in pages}
+        _populate_navigation_context(structure.root, pages_by_struct_path)
 
         backlink_builder = BacklinkBuilder()
         try:

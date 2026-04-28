@@ -58,6 +58,15 @@ def test_group_children_chunk_fallback():
     assert all(len(g) <= 4 for g in groups)
 
 
+def test_group_children_splits_oversized_component():
+    children = _make_children(10)
+    edges = [(children[i].path, children[i + 1].path) for i in range(9)]
+    groups = group_children_by_graph(children, edges, max_group_size=4)
+    assert all(len(g) <= 4 for g in groups)
+    total = sum(len(g) for g in groups)
+    assert total == 10
+
+
 def test_group_children_single_node():
     children = _make_children(1)
     groups = group_children_by_graph(children, edges=[])

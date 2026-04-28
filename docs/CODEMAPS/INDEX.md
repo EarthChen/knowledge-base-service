@@ -1,6 +1,6 @@
 # Code map index
 
-**Last updated:** 2026-04-27  
+**Last updated:** 2026-04-27 (Wiki domain-classification perf: sub-batch, SSE, parallel, cache)  
 **Repo:** `knowledge-base-service` (FastAPI + React/Vite + FalkorDB)
 
 ## Entry points
@@ -39,6 +39,7 @@ query/               # Hybrid search, blast radius, NL→Cypher (UI)
 | Concern | Modules |
 |---------|---------|
 | Generation / compose | `wiki/service.py`, `wiki/composer.py`, `wiki/repo_composer.py`（`generate_business_wiki` 支持 `incremental`、`progress_callback`） |
+| Business domain LLM (perf) | `wiki/business_domain_planner.py` (sub-batching), `wiki/cross_repo_domain_planner.py` (parallel classify, per-repo timeout, bounded in-memory cache), `llm/base_provider.py` (`LLMPortBridge.generate_stream`, SSE); `tests/wiki/test_domain_planner_perf.py` |
 | Business wiki tasks / Redis | `wiki/task_store.py`（`WikiTaskStore`）, `wiki/task_registry.py`, `wiki/bootstrap.py`（`app.state.wiki_task_store`）, `api/routes/wiki_task_routes.py`（202 + `GET …/business/tasks/{task_id}`） |
 | Incremental / changelog | `wiki/incremental.py`, `wiki/change_detector.py`, `store/wiki_changelog.py`；**仓库级 Wiki 新鲜度** `store/wiki_page_store.get_repo_wiki_freshness` |
 | Quality v2 | `wiki/confidence_scorer.py`, `wiki/contradiction_detector.py`, `wiki/lint.py` |

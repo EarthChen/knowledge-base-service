@@ -120,7 +120,7 @@ export default function WikiReferencesPanel({
 
   return (
     <aside
-      className="flex max-h-[min(40vh,360px)] w-full shrink-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900 lg:max-h-[min(70vh,560px)] lg:w-64"
+      className="flex max-h-[min(40vh,360px)] w-full shrink-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900 lg:max-h-[min(70vh,560px)] lg:w-52 xl:w-60"
       aria-label={t.wiki.referencesHeading}
     >
       <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-700">

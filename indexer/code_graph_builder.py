@@ -21,6 +21,17 @@ log = get_logger(__name__)
 
 _JAVA_SRC_MARKERS = ("src/main/java/", "src/test/java/")
 
+_STDLIB_IMPORT_PREFIXES = (
+    "java.", "javax.", "jdk.", "sun.", "com.sun.",
+    "org.w3c.", "org.xml.", "org.ietf.",
+)
+
+
+def _is_stdlib_import(module_path: str) -> bool:
+    """Return True for JDK / standard library imports that should not be indexed."""
+    return module_path.startswith(_STDLIB_IMPORT_PREFIXES)
+
+
 _SPRING_BEAN_SEMANTIC_ROLES = frozenset({
     "service", "repository", "component", "http_controller",
 })
@@ -351,7 +362,11 @@ class CodeGraphBuilder:
         edges: list[GraphEdge] = []
 
         indexed_at = utc_indexed_at_iso()
-        import_names = [imp.module for imp in result.imports]
+        filtered_imports = [
+            imp for imp in result.imports
+            if imp.module and not _is_stdlib_import(imp.module.strip())
+        ]
+        import_names = [imp.module for imp in filtered_imports]
 
         module_name = Path(file_path).stem
         module_node = GraphNode(
@@ -372,7 +387,7 @@ class CodeGraphBuilder:
         unresolved_imports = 0
         resolved_target_uids: set[str] = set()
 
-        for imp in result.imports:
+        for imp in filtered_imports:
             raw_mod = imp.module.strip() if imp.module else ""
             mod_name = raw_mod.split(".")[-1] if raw_mod else ""
             if not raw_mod:

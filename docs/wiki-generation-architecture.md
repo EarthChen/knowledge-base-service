@@ -59,8 +59,8 @@ Wiki 行为的功能开关位于 `config.py` 的 **`WIKI__*`**（`WikiConfig`）
 | **Phase 0** | `WikiSpace` / `WikiSection`、`HAS_CHILD` + `view_type`（`business_domain` / `code_structure`）；`WikiPage` 扩展 `path`、`version`、`importance_tier`、`content_hash`、`repositories`；**`GET /wiki/tree`** |
 | **Phase 1** | `SourceCodeReader`；`ImportanceScorer`（core/standard/skeleton）；按 tier 的 token 预算 |
 | **Phase 2** | `CodeChunkIndexer`、`ChunkRetriever`；**`POST /wiki/chunks/index`** |
-| **Phase 3** | `TieredPromptBuilder`、`AsyncEnrichmentPipeline`（base→enriched→encyclopedia）、`BusinessDomainPlanner`、`EnrichmentLevel` |
-| **Phase 4** | `CrossRepoBusinessDomainPlanner`、`WikiReferenceGenerator`、`DomainOverviewComposer`、`WikiService.generate_business_wiki()`；**`POST /api/v1/wiki/business/generate`**（**202** + `task_id`）、**`GET /api/v1/wiki/business/tasks/{task_id}`**、**`GET /api/v1/wiki/pages/{uid}/references`**；MCP：`wiki_get_tree`、`wiki_get_related`、`wiki_get_domain_overview` |
+| **Phase 3** | `TieredPromptBuilder`、`AsyncEnrichmentPipeline`（base→enriched→encyclopedia）、`BusinessDomainPlanner`（模块→业务域 LLM 分类；大单仓按 `WIKI__BUSINESS_DOMAIN_SUB_BATCH_SIZE` 子批调用后合并）、`EnrichmentLevel`；分类路径上 LLM 使用 `LLMPortBridge.generate_stream()` **SSE**，降低长生成读超时风险 |
+| **Phase 4** | `CrossRepoBusinessDomainPlanner`（多仓 `asyncio.gather` + `WIKI__BUSINESS_DOMAIN_MAX_CONCURRENCY`、`WIKI__BUSINESS_DOMAIN_CLASSIFY_TIMEOUT`、TTL `WIKI__BUSINESS_DOMAIN_CACHE_TTL` 的进程内有界缓存）、`WikiReferenceGenerator`、`DomainOverviewComposer`、`WikiService.generate_business_wiki()`；**`POST /api/v1/wiki/business/generate`**（**202** + `task_id`）、**`GET /api/v1/wiki/business/tasks/{task_id}`**、**`GET /api/v1/wiki/pages/{uid}/references`**；MCP：`wiki_get_tree`、`wiki_get_related`、`wiki_get_domain_overview` |
 | **Phase 5** | `WikiLinkConverter`、`BusinessWikiExporter`、`ObsidianExporter`、`MkDocsExporter`、`GitPublisher`；**`POST /wiki/export`**（markdown/zip/git/obsidian/mkdocs 等） |
 | **Phase 6** | `WikiCoverageAnalyzer`、`SuggestedQuestionsGenerator`；**`GET /wiki/coverage-report`** |
 
@@ -84,6 +84,8 @@ flowchart TB
   end
   meta --> aware --> gen --> ship
 ```
+
+**业务域 LLM 分类（可扩展性）**：曾出现将上万模块、多仓一次性塞进单次 prompt 导致请求体过大、HTTP 客户端长时间无增量数据而读超时的情况。当前栈：**子批**（`business_domain_planner`）→ **SSE 流式**（`llm/base_provider.py`）→ **跨仓并行与单仓超时**（`cross_repo_domain_planner`）→ **短 TTL、内容哈希键、容量 32 的进程内缓存**。默认值与部署覆盖见 [DEPLOYMENT.md](DEPLOYMENT.md) 中 `WIKI__BUSINESS_DOMAIN_*`。
 
 ### 延迟 Enrichment 流程
 
@@ -166,7 +168,7 @@ sequenceDiagram
 |--------|------|
 | 模型 / 作用域 | `wiki/models.py`、`wiki/context.py` |
 | 延迟 Enrichment | `wiki/deferred_enrichment.py` |
-| 规划 / 组合 / 内链 | `wiki/structure_planner.py`、`wiki/data_collector.py`、`wiki/composer.py`、`wiki/diagram_gen.py`、链接转换相关模块 |
+| 规划 / 组合 / 内链 | `wiki/structure_planner.py`、`wiki/data_collector.py`、`wiki/composer.py`、`wiki/diagram_gen.py`、`wiki/business_domain_planner.py`、`wiki/cross_repo_domain_planner.py`、链接转换相关模块 |
 | 仓库级 / 增量 | `wiki/repo_composer.py`、`wiki/incremental.py`、`wiki/disk_exporter.py`、`wiki/persistent_cache.py`；业务 Wiki 仓库级新鲜度与跳过见 **`store/wiki_page_store`**（`get_repo_wiki_freshness`）、**`wiki/service.generate_business_wiki`** |
 | 任务与锁 | `wiki/task_store.py`（`WikiTaskStore`）、`wiki/task_registry.py`；HTTP **`api/routes/wiki_task_routes.py`**（`/business/generate`、**`/business/tasks/{task_id}`**） |
 | 搜索 / 问答 / 深度研究 | `wiki/search.py`、`wiki/ask.py`、`wiki/deep_research.py` |

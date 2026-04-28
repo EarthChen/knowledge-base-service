@@ -36,21 +36,23 @@ export default function WikiCallChainSection({
   const analyzeMutation = useAnalyzeImpact();
   const [impactResult, setImpactResult] = useState<AnalyzeImpactResponse | null>(null);
 
+  const sourceLocs = detail.source_locations ?? [];
+
   const fqns = useMemo(
-    () => detail.source_locations.map((loc) => loc.fqn).filter(Boolean),
-    [detail.source_locations],
+    () => sourceLocs.map((loc) => loc.fqn).filter(Boolean),
+    [sourceLocs],
   );
 
   const changedFiles = useMemo(() => {
     const map = new Map<string, { path: string; status: "modified" }>();
-    for (const loc of detail.source_locations) {
+    for (const loc of sourceLocs) {
       if (!loc.file_path) continue;
       map.set(loc.file_path, { path: loc.file_path, status: "modified" });
     }
     return Array.from(map.values());
-  }, [detail.source_locations]);
+  }, [sourceLocs]);
 
-  if (!detail.source_locations?.length) return null;
+  if (!sourceLocs.length) return null;
 
   const handleAnalyze = () => {
     setImpactResult(null);

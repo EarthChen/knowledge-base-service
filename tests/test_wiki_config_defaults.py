@@ -10,3 +10,7 @@ def test_wiki_lint_and_auto_heal_defaults_enabled() -> None:
 def test_wiki_supersession_default_enabled() -> None:
     s = Settings()
     assert s.wiki.supersession_tracking_enabled is True
+
+
+def test_wiki_compose_concurrency_default() -> None:
+    assert WikiConfig().compose_concurrency == 3

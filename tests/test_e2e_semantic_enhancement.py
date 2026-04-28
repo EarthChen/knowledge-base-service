@@ -248,6 +248,18 @@ class TestConfigExtensions:
         assert config.model == "gpt-4o-mini"
         assert config.max_concurrent == 10
 
+    def test_llm_config_accepts_max_concurrency_alias(self):
+        assert LLMConfig.model_validate({"max_concurrency": 5}).max_concurrent == 5
+        assert LLMConfig(max_concurrency=5).max_concurrent == 5
+        assert LLMConfig(max_concurrent=7).max_concurrent == 7
+
+    def test_settings_llm_max_concurrency_env_nested_alias(self, monkeypatch):
+        monkeypatch.setenv("LLM__MAX_CONCURRENCY", "5")
+        from config import Settings
+
+        s = Settings(_env_file=None)
+        assert s.llm.max_concurrent == 5
+
     def test_rerank_config_defaults(self):
         config = RerankConfig()
         assert config.enabled is False

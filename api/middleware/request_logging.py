@@ -47,6 +47,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
             response.headers["X-Request-Id"] = request_id
             response.headers["X-Response-Time"] = f"{duration_ms}ms"
+            if request.url.path.startswith("/api/"):
+                response.headers["Cache-Control"] = "no-store"
             return response
         except Exception:
             duration_ms = round((time.monotonic() - start) * 1000, 1)

@@ -8,7 +8,10 @@ export function useWikiAnnotations(businessId: string, pageUid: string) {
 
   const query = useQuery<WikiAnnotation[]>({
     queryKey,
-    queryFn: () => api<WikiAnnotation[]>(`/wiki/pages/${encodeURIComponent(pageUid)}/annotations`),
+    queryFn: async () => {
+      const raw = await api<unknown>(`/wiki/pages/${encodeURIComponent(pageUid)}/annotations`);
+      return Array.isArray(raw) ? (raw as WikiAnnotation[]) : [];
+    },
     enabled: !!businessId.trim() && !!pageUid,
   });
 

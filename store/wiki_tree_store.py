@@ -22,8 +22,8 @@ class WikiTreeStoreMixin:
             "SET ws.business_id = $business_id, "
             "ws.title = $title, "
             "ws.description = $description, "
-            "ws.updated_at = $ts "
-            "ON CREATE SET ws.created_at = $ts "
+            "ws.updated_at = $ts, "
+            "ws.created_at = coalesce(ws.created_at, $ts) "
             "RETURN ws.uid AS uid"
         )
         ts = datetime.now(timezone.utc).isoformat()

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import Depends, Header, Query
+from fastapi import Depends, Header, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 import api.kb_state as kb_state
@@ -367,6 +367,133 @@ async def sync_all_repositories(
             results.append({"repository": repo, "status": "error", "detail": str(exc)})
 
     return {"synced": results, "total": len(results)}
+
+
+@admin_router.post("/sync/repo-update-wiki")
+async def sync_repo_and_regenerate_wiki(
+    req: SyncRepoRequest,
+    request: Request,
+    svc: KnowledgeBaseService = Depends(get_service),
+    business_id: str = Depends(get_effective_business_id),
+) -> dict[str, Any]:
+    """Git pull a repository, run incremental re-indexing, and trigger wiki regeneration.
+
+    Combines sync/repo + wiki/generate into a single pipeline.
+    Returns sync stats immediately; wiki generation runs in the background.
+    """
+    queries = GraphQueryRepository(svc.store)
+    repo_dir: str | None = req.directory
+    repo_name = req.repository
+    sync_result: dict[str, Any] = {}
+
+    if req.git_url:
+        from services.git_manager import GitManager
+
+        if kb_state.repo_registry is None:
+            raise KbServiceUnavailable("Repository registry not initialized")
+
+        mgr = GitManager(get_settings().git)
+        result = await mgr.ensure_repo(req.git_url, branch=req.branch)
+        if result["status"] in ("clone_failed", "pull_failed"):
+            raise KbError(f"Git operation failed: {result.get('detail', '')}")
+
+        repo_name, name_warn = await resolve_canonical_repository_for_git(
+            req.git_url, req.repository, kb_state.repo_registry, queries,
+        )
+        if name_warn:
+            log.warning("repository_name_canonicalized", detail=name_warn, git_url=req.git_url)
+
+        repo_dir = result["directory"]
+        pre_head = result.get("pre_head", "")
+
+        if result["status"] == "up_to_date":
+            sync_result = {
+                "repository": repo_name,
+                "directory": repo_dir,
+                "git_pull": "already_up_to_date",
+                "index_stats": None,
+            }
+        else:
+            base = pre_head if pre_head else req.base_ref
+            index_stats = await svc.indexer.index_incremental(
+                repo_dir, base, req.head_ref, repository=repo_name,
+            )
+            if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
+                await queries.tag_unowned_nodes(repo_name, directory=repo_dir, git_url=req.git_url)
+            if kb_state.repo_registry:
+                kb_state.repo_registry.register(req.git_url, repo_name)
+            sync_result = {
+                "repository": repo_name,
+                "directory": repo_dir,
+                "git_pull": result["status"],
+                "index_stats": index_stats,
+            }
+    else:
+        if not repo_dir:
+            sample_file = await queries.get_repository_sample_file(repo_name)
+            if sample_file is None:
+                raise KbNotFound(f"Repository '{repo_name}' not found in index")
+            sample_file = sample_file or ""
+            if sample_file and sample_file.startswith("/"):
+                repo_dir = infer_repo_root(sample_file, repo_name)
+
+        if not repo_dir or not Path(repo_dir).is_dir():
+            raise KbError("Repository directory not found.")
+
+        pre_pull_head = await _git_rev_parse(repo_dir, "HEAD")
+        pull_result = await _git_pull(repo_dir)
+
+        if pull_result["stdout"] == "Already up to date.":
+            sync_result = {
+                "repository": repo_name,
+                "directory": repo_dir,
+                "git_pull": "already_up_to_date",
+                "index_stats": None,
+            }
+        else:
+            base = pre_pull_head if pre_pull_head else req.base_ref
+            index_stats = await svc.indexer.index_incremental(
+                repo_dir, base, req.head_ref, repository=repo_name,
+            )
+            if index_stats.get("doc_nodes", 0) > 0 or index_stats.get("nodes", 0) > 0:
+                await queries.tag_unowned_nodes(repo_name, directory=repo_dir)
+            sync_result = {
+                "repository": repo_name,
+                "directory": repo_dir,
+                "git_pull": pull_result,
+                "index_stats": index_stats,
+            }
+
+    wiki_task_id: str | None = None
+    try:
+        factory = getattr(request.app.state, "wiki_service_factory", None)
+        if callable(factory):
+            wiki_svc = factory()
+            if asyncio.iscoroutine(wiki_svc):
+                wiki_svc = await wiki_svc
+
+            import uuid
+            wiki_task_id = f"wiki-sync-{uuid.uuid4().hex[:12]}"
+            wiki_mode = "full"
+
+            async def _wiki_bg() -> None:
+                try:
+                    await wiki_svc.generate(
+                        repo_name, "repo", wiki_mode, "json", "zh",
+                    )
+                    log.info("sync_wiki_regen_done", repository=repo_name)
+                except Exception:
+                    log.warning("sync_wiki_regen_failed", repository=repo_name, exc_info=True)
+
+            asyncio.create_task(_wiki_bg())
+    except Exception:
+        log.warning("sync_wiki_trigger_failed", repository=repo_name, exc_info=True)
+
+    return {
+        **sync_result,
+        "wiki_task_id": wiki_task_id,
+        "wiki_triggered": wiki_task_id is not None,
+    }
 
 
 @admin_router.post("/admin/migrate-to-relative-paths")

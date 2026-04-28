@@ -14,7 +14,7 @@ export default function WikiAnnotationSidebar({
   isDeleting,
 }: WikiAnnotationSidebarProps) {
   const { t } = useI18n();
-  if (annotations.length === 0) {
+  if (!Array.isArray(annotations) || annotations.length === 0) {
     return (
       <p className="px-4 py-6 text-center text-xs text-gray-500 dark:text-gray-400">
         {t.wiki.annotationsEmpty}

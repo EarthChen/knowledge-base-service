@@ -98,6 +98,10 @@
 | `WIKI__SCHEMA_VALIDATION_ENABLED` | `false` | 为 true 时在 lint 中按 YAML 校验 Wiki 页结构 |
 | `WIKI__SCHEMA_PATH` | `wiki/schema.yaml` | 结构定义文件路径（相对仓库工作目录或部署约定根） |
 | `WIKI__FORGETTING_INITIAL_STABILITY` | `7.0` | 遗忘曲线初始稳定性参数（天尺度，与实现一致） |
+| `WIKI__BUSINESS_DOMAIN_SUB_BATCH_SIZE` | `200` | 单仓业务域 LLM 分类时每个子批的最大模块数；超过则切分为多次调用并合并结果 |
+| `WIKI__BUSINESS_DOMAIN_CLASSIFY_TIMEOUT` | `120` | 跨仓分类时**单仓库** `wait_for` 超时（秒） |
+| `WIKI__BUSINESS_DOMAIN_MAX_CONCURRENCY` | `3` | 跨仓分类并行仓库数上限（`Semaphore`） |
+| `WIKI__BUSINESS_DOMAIN_CACHE_TTL` | `3600` | 跨仓业务域分类**进程内缓存** TTL（秒）；键为内容感知哈希，容量上限 32，满则淘汰最旧项 |
 
 **可选权重与矛盾调参**（与 `WikiConfig` 一致）：`WIKI__CONFIDENCE_WEIGHT_W1` … `WIKI__CONFIDENCE_WEIGHT_W5`（默认约 0.30 / 0.25 / 0.25 / 0.20，**W5 默认 1.0** 为惩罚系数用途）、`WIKI__CONTRADICTION_SIMILARITY_THRESHOLD`（默认 `0.75`）。生产环境请结合 `LLM__ENABLED` 与具体 Provider 再开启深度研究、矛盾裁决等能力。
 

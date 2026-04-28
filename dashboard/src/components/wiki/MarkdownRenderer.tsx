@@ -215,7 +215,7 @@ export default function MarkdownRenderer({
   }, [headingIds, businessId, wikiLinkParams, onDocLink]);
 
   return (
-    <article className="prose prose-slate dark:prose-invert max-w-none prose-headings:scroll-mt-24 prose-a:text-sky-700 prose-pre:bg-transparent prose-pre:p-0 dark:prose-a:text-sky-400">
+    <article className="prose prose-slate dark:prose-invert max-w-none break-words prose-headings:scroll-mt-24 prose-a:text-sky-700 prose-pre:bg-transparent prose-pre:p-0 dark:prose-a:text-sky-400">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}

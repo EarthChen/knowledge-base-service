@@ -632,7 +632,7 @@ class WikiComposer:
         ]:
             val = n.properties.get(prop_name)
             if val:
-                display = ", ".join(val) if isinstance(val, list) else str(val)
+                display = ", ".join(str(x) for x in val) if isinstance(val, list) else str(val)
                 lines.append(f"- {label}: {display}")
 
         lines.append(f"- Related edges: {len(page_data.edges)}")

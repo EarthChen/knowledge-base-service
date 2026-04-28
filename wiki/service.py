@@ -594,9 +594,11 @@ class WikiService:
             glossary: dict[str, str] = {}
             if composer._wiki_store is not None:
                 try:
-                    mod_names = [
-                        n.properties.get("name", "") for n in graph_nodes_by_uid.values()
-                    ]
+                    mod_names = list({
+                        n.properties.get("name", "")
+                        for n in graph_nodes_by_uid.values()
+                        if n.properties.get("name")
+                    })
                     glossary = await composer._ctx.build_glossary(mod_names, mod_names)
                 except Exception:
                     log.warning(

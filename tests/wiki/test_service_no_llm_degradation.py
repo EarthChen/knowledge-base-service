@@ -31,6 +31,7 @@ async def test_no_llm_pages_get_base_enrichment() -> None:
     graph.find_children = AsyncMock(return_value=[])
     graph.find_edges = AsyncMock(return_value=[])
     graph.find_node_by_fqn = AsyncMock(return_value=None)
+    graph.find_all_referrers_batch = AsyncMock(return_value={})
     graph.find_node_by_path = AsyncMock(
         return_value=MagicMock(
             uid="Module:r:mod",
@@ -93,6 +94,7 @@ async def test_no_llm_enrichment_pipeline_not_instantiated(monkeypatch: pytest.M
     graph.find_children = AsyncMock(return_value=[])
     graph.find_edges = AsyncMock(return_value=[])
     graph.find_node_by_fqn = AsyncMock(return_value=None)
+    graph.find_all_referrers_batch = AsyncMock(return_value={})
     graph.find_node_by_path = AsyncMock(
         return_value=MagicMock(
             uid="Module:r:mod",

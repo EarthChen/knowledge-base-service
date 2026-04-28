@@ -29,6 +29,7 @@ def _mock_graph() -> AsyncMock:
     g.find_children = AsyncMock(return_value=[])
     g.find_edges = AsyncMock(return_value=[])
     g.find_node_by_fqn = AsyncMock(return_value=None)
+    g.find_all_referrers_batch = AsyncMock(return_value={})
     g.find_node_by_path = AsyncMock(
         return_value=MagicMock(
             uid="Module:test:TestModule",
@@ -111,7 +112,7 @@ async def test_compose_all_pages_runs_enrichment_when_llm_configured() -> None:
         ),
         total_pages=2,
     )
-    config = WikiConfig(repository="test-repo", mode="structure", format="json")
+    config = WikiConfig(repository="test-repo", mode="full", format="json")
     composer = WikiComposer(llm=llm, context_builder=WikiContextBuilder(llm), store=graph)
 
     tiers = {"Module:test:TestModule": ImportanceTier.STANDARD}

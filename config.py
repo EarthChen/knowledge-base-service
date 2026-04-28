@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -89,6 +89,8 @@ class GatewayConfig(BaseModel):
 class LLMConfig(BaseModel):
     """Configuration for LLM provider (OpenAI-compatible protocol)."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     enabled: bool = False
     # Optional indexing-time LLM passes (default off; see gateway.enrichment_enabled for
     # business_summary / CodeSummaryEnricher).
@@ -104,7 +106,10 @@ class LLMConfig(BaseModel):
     api_key: str = ""
     model: str = "gpt-4o-mini"
     deep_search_model: str = "gpt-4o"
-    max_concurrent: int = 10
+    max_concurrent: int = Field(
+        default=10,
+        validation_alias=AliasChoices("max_concurrent", "max_concurrency"),
+    )
     timeout: int = 30
     retry_count: int = 3
     temperature: float = 0.1
@@ -225,6 +230,17 @@ class WikiConfig(BaseModel):
     chunk_embedding_batch_size: int = 64
     chunk_embedding_max_length: int = 512
 
+    #: Max concurrent wiki subtrees during compose (sibling ``walk`` tasks) and enrichment.
+    compose_concurrency: int = Field(default=3, ge=1)
+
+    # Phase 2 Task 7: hierarchical compose — business-flow aggregation & delegation
+    business_flow_aggregation_enabled: bool = Field(default=True)
+    business_flow_min_community_size: int = Field(default=3)
+    delegation_enabled: bool = Field(default=True)
+    delegation_max_children: int = Field(default=30)
+    delegation_max_code_lines: int = Field(default=5000)
+    delegation_grouping_strategy: str = Field(default="graph")
+
     # Phase 3: Tiered generation + enrichment
     enrichment_enabled: bool = True
     enrichment_round1_enabled: bool = True
@@ -234,6 +250,10 @@ class WikiConfig(BaseModel):
     business_domain_infrastructure_label: str = "__infrastructure__"
     # Phase 4: Cross-repo business-level wiki
     business_wiki_batch_threshold: int = 100
+    business_domain_sub_batch_size: int = 80
+    business_domain_classify_timeout: int = 600
+    business_domain_max_concurrency: int = 3
+    business_domain_cache_ttl: int = 3600
 
     mcp_server_enabled: bool = True
 

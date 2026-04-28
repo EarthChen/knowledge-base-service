@@ -165,6 +165,8 @@ def _make_full_graph(
 
     g.increment_graph_version = AsyncMock(side_effect=bump)
 
+    g.find_all_referrers_batch = AsyncMock(return_value={})
+
     return g
 
 
@@ -265,6 +267,7 @@ async def test_provider_factory_with_wiki_service() -> None:
     graph.find_children = AsyncMock(return_value=[])
     graph.find_top_level_modules = AsyncMock(return_value=[])
     graph.list_repository_modules = AsyncMock(return_value=[])
+    graph.find_all_referrers_batch = AsyncMock(return_value={})
 
     svc = WikiService(
         graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), llm_factory=factory,
@@ -446,6 +449,8 @@ async def test_p1_wiki_generate_still_works() -> None:
     graph.find_children = AsyncMock(return_value=[])
     graph.find_top_level_modules = AsyncMock(return_value=[])
     graph.list_repository_modules = AsyncMock(return_value=[])
+
+    graph.find_all_referrers_batch = AsyncMock(return_value={})
 
     svc = WikiService(graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), **wiki_service_injection())
     bundle = await svc.generate(REPO, "module:pkg/a", mode="structure", format="json")

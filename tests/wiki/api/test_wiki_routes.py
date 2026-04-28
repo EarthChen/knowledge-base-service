@@ -146,6 +146,7 @@ class TestWikiGenerateSync:
         graph.list_repository_modules = AsyncMock(return_value=[])
         graph.find_module_import_edges = AsyncMock(return_value=[])
         graph.find_repository_calls_edges = AsyncMock(return_value=[])
+        graph.find_all_referrers_batch = AsyncMock(return_value={})
 
         svc = WikiService(
             graph=graph, llm=llm, repository_exists=AsyncMock(return_value=True), **wiki_service_injection(),

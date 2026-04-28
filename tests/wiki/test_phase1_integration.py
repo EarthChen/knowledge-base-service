@@ -21,6 +21,7 @@ def _graph_base() -> AsyncMock:
     graph.find_children = AsyncMock(return_value=[])
     graph.find_edges = AsyncMock(return_value=[])
     graph.find_node_by_fqn = AsyncMock(return_value=None)
+    graph.find_all_referrers_batch = AsyncMock(return_value={})
     graph.execute_query = AsyncMock(return_value=MagicMock(data=[]))
     return graph
 

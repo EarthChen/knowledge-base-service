@@ -196,6 +196,7 @@ class TestServiceLanguagePropagation:
             *,
             community_markdown: str = "",
             token_budget_multiplier: float = 1.0,
+            progress_callback: object | None = None,
         ) -> tuple[list, bool]:
             captured["config"] = config
             return [], False

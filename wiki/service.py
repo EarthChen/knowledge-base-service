@@ -14,7 +14,8 @@ from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embeddi
 from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
 from store.schema import GraphNode, NodeLabel
-from wiki.composer import WikiComposer
+from wiki.backlink_builder import BacklinkBuilder
+from wiki.composer import WikiComposer, render_navigation_section
 from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
 from wiki.community_context import format_communities_markdown
 from wiki.confidence_scorer import confidence_scorer_from_wiki_app_config
@@ -398,6 +399,7 @@ class WikiService:
         language: str = "en",
         llm_provider: str | None = None,
         token_budget_multiplier: float = 1.0,
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         scope = parse_scope(scope_raw)
         config = self._config_for(mode, format, repository, language)
@@ -448,6 +450,7 @@ class WikiService:
             llm_provider,
             community_markdown=community_markdown,
             token_budget_multiplier=token_budget_multiplier,
+            progress_callback=progress_callback,
         )
         await self._persist_pages_to_graph(
             repository, pages, language=language,
@@ -1202,6 +1205,7 @@ class WikiService:
         *,
         community_markdown: str = "",
         token_budget_multiplier: float = 1.0,
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> tuple[list[WikiPage], bool]:
         import time as _time
 
@@ -1250,6 +1254,17 @@ class WikiService:
             phase="leaf_compose",
             count=len(leaves),
         )
+        if progress_callback:
+            await progress_callback(
+                {
+                    "repository": repository,
+                    "phase": "wiki_compose",
+                    "subphase": "leaf_compose",
+                    "status": "started",
+                    "total_leaves": len(leaves),
+                    "total_parents": len(parents_by_depth),
+                },
+            )
 
         async def compose_leaf(node: WikiStructureNode) -> WikiPage | None:
             nonlocal degraded
@@ -1321,6 +1336,16 @@ class WikiService:
             pages_composed=len(pages),
             elapsed_s=round(_time.monotonic() - _t0, 1),
         )
+        if progress_callback:
+            await progress_callback(
+                {
+                    "repository": repository,
+                    "phase": "wiki_compose",
+                    "subphase": "leaf_compose",
+                    "status": "complete",
+                    "pages": len(pages),
+                },
+            )
 
         log.info(
             "compose_phase_start",
@@ -1328,6 +1353,16 @@ class WikiService:
             phase="parent_aggregate",
             count=len(parents_by_depth),
         )
+        if progress_callback:
+            await progress_callback(
+                {
+                    "repository": repository,
+                    "phase": "wiki_compose",
+                    "subphase": "parent_aggregate",
+                    "status": "started",
+                    "total_parents": len(parents_by_depth),
+                },
+            )
 
         for _depth, parent_node in parents_by_depth:
             if parent_node.page_type == PageType.REPO_OVERVIEW:
@@ -1413,9 +1448,34 @@ class WikiService:
             pages_composed=len(pages),
             elapsed_s=round(_time.monotonic() - _t0, 1),
         )
+        if progress_callback:
+            await progress_callback(
+                {
+                    "repository": repository,
+                    "phase": "wiki_compose",
+                    "subphase": "parent_aggregate",
+                    "status": "complete",
+                    "pages": len(pages),
+                },
+            )
 
         path_order = {p: i for i, p in enumerate(_expected_wiki_page_paths_dfs(structure.root))}
         pages.sort(key=lambda pg: path_order.get(pg.path, 1 << 30))
+
+        pages_by_path = {p.path: p for p in pages}
+        _populate_navigation_context(structure.root, pages_by_path)
+
+        backlink_builder = BacklinkBuilder()
+        try:
+            await backlink_builder.build_backlinks(pages, self._graph, wikilink_cache, repository)
+        except Exception:
+            log.warning("backlink_building_failed", repository=repository, exc_info=True)
+
+        for page in pages:
+            nav_section = render_navigation_section(page)
+            if nav_section:
+                page.content = nav_section + "\n\n" + page.content
+
         _elapsed = _time.monotonic() - _t0
         log.info(
             "compose_all_pages_done",
@@ -1423,6 +1483,16 @@ class WikiService:
             pages_composed=len(pages),
             total_time_s=round(_elapsed, 1),
         )
+        if progress_callback:
+            await progress_callback(
+                {
+                    "repository": repository,
+                    "phase": "wiki_compose",
+                    "subphase": "navigation",
+                    "status": "complete",
+                    "pages": len(pages),
+                },
+            )
         await self._enrich_pages_after_compose(pages, page_tier_map, config, llm_provider)
         return pages, degraded
 

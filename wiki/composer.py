@@ -39,6 +39,32 @@ _PARENT_SYSTEM_PROMPT = (
     "Use clear section headings (##). Output Markdown."
 )
 
+_STRUCTURED_SECTIONS_MODULE = (
+    "\n\nStructure your documentation with these sections (adapt as appropriate):\n"
+    "1. **Purpose & Responsibility** — What this module does and why it exists\n"
+    "2. **Key Components** — Main classes/functions and their roles\n"
+    "3. **Integration Points** — How this connects to other parts of the system\n"
+    "4. **Data Flow** — Input/output, transformations, side effects\n"
+    "5. **Design Decisions** — Notable trade-offs, patterns, constraints\n"
+)
+
+_STRUCTURED_SECTIONS_CLASS = (
+    "\n\nStructure your documentation with these sections (adapt as appropriate):\n"
+    "1. **Purpose & Responsibility** — What this class does and why it exists\n"
+    "2. **Methods & Properties** — Key methods, their parameters, and behavior\n"
+    "3. **Integration Points** — How this connects to other classes/modules\n"
+    "4. **Data Flow** — Input/output, state management, side effects\n"
+    "5. **Design Decisions** — Notable trade-offs, patterns, constraints\n"
+)
+
+_STRUCTURED_SECTIONS_FUNCTION = (
+    "\n\nStructure your documentation with these sections (adapt as appropriate):\n"
+    "1. **Purpose** — What this function does\n"
+    "2. **Parameters & Return** — Input parameters and return value semantics\n"
+    "3. **Usage Context** — Where and how this function is called\n"
+    "4. **Design Notes** — Edge cases, constraints, performance considerations\n"
+)
+
 
 def _effective_wiki_language(language: str) -> str:
     """Normalize wiki language; unknown codes fall back to English templates."""
@@ -548,16 +574,20 @@ class WikiComposer:
         )
         doc_section = f"\n\n{related_docs_block}\n" if related_docs_block.strip() else ""
         memory_section = f"\n\n{memory_block}\n" if memory_block.strip() else ""
+        section_template = ""
+        if page_type == PageType.MODULE_OVERVIEW:
+            section_template = _STRUCTURED_SECTIONS_MODULE
+        elif page_type == PageType.CLASS_DETAIL:
+            section_template = _STRUCTURED_SECTIONS_CLASS
+        else:
+            section_template = _STRUCTURED_SECTIONS_FUNCTION
+
         prompt = (
             f"{ctx_block}\n\n"
             "## Task\n"
             f"{lang_directive}\n\n"
             f"Write a detailed documentation page for this {page_type.value.replace('_', ' ')}.\n"
-            "Include:\n"
-            "1. A concise overview of this entity's purpose and responsibility\n"
-            "2. How its key methods/components work together (describe the workflow/process)\n"
-            "3. Its relationships with other modules (who calls it, what it depends on)\n"
-            "4. Any important design patterns or business logic\n\n"
+            f"{section_template}\n"
             f"{entity}\n"
             f"{doc_section}"
             f"{memory_section}"

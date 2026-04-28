@@ -93,6 +93,18 @@ class ParseResult:
     imports: list[ParsedImport] = field(default_factory=list)
     calls: list[ParsedCall] = field(default_factory=list)
     fields: list[ParsedField] = field(default_factory=list)
+    module_docstring: str = ""
+
+
+_LICENSE_KEYWORDS: frozenset[str] = frozenset({
+    "copyright", "licensed", "license", "apache", "mit license",
+    "gpl", "bsd", "mozilla", "all rights reserved",
+})
+
+
+def _is_license_comment(text: str) -> bool:
+    lower = text.lower()[:500]
+    return sum(1 for kw in _LICENSE_KEYWORDS if kw in lower) >= 2
 
 
 _JAVA_DI_NON_BEAN_SIMPLE_TYPES: frozenset[str] = frozenset({
@@ -196,6 +208,8 @@ class TreeSitterParser:
 
         if language == "java":
             result.fields = self._extract_java_fields(tree, source_bytes, file_path, result)
+
+        result.module_docstring = self._extract_module_docstring(tree.root_node, language)
 
         return result
 
@@ -396,9 +410,76 @@ class TreeSitterParser:
                     return raw.strip("'\"").strip()
         elif language in ("java", "javascript", "typescript", "go"):
             prev = node.prev_named_sibling
+            while prev and prev.type in (
+                "decorator", "annotation", "marker_annotation",
+                "modifiers", "module_attribute",
+            ):
+                prev = prev.prev_named_sibling
             if prev and prev.type in ("comment", "block_comment"):
                 raw = prev.text.decode("utf-8") if prev.text else ""
                 return raw.strip("/* \n\t")
+
+        return ""
+
+    @staticmethod
+    def _extract_module_docstring(root_node: Node, language: str) -> str:
+        """Extract file-level docstring from the module root."""
+        if language == "python":
+            for child in root_node.children:
+                if child.type == "comment":
+                    continue
+                if child.type in ("string", "concatenated_string"):
+                    raw = child.text.decode("utf-8") if child.text else ""
+                    return raw.strip("'\"").strip()
+                if child.type == "expression_statement":
+                    expr = child.children[0] if child.children else None
+                    if expr and expr.type in ("string", "concatenated_string"):
+                        raw = expr.text.decode("utf-8") if expr.text else ""
+                        return raw.strip("'\"").strip()
+                    break
+                if child.type not in ("import_statement", "import_from_statement"):
+                    break
+            return ""
+        return TreeSitterParser._extract_file_header_comment(root_node, language)
+
+    @staticmethod
+    def _extract_file_header_comment(root_node: Node, language: str) -> str:
+        """Extract documentation comment above the first class declaration (not above imports)."""
+        if language not in ("java", "javascript", "typescript", "go"):
+            return ""
+
+        first_class = None
+        for child in root_node.children:
+            if child.type in (
+                "class_declaration", "interface_declaration",
+                "enum_declaration", "annotation_type_declaration",
+                "class",
+            ):
+                first_class = child
+                break
+            if child.type == "export_statement":
+                for sub in child.children:
+                    if sub.type in ("class_declaration", "interface_declaration", "class"):
+                        first_class = sub
+                        break
+                if first_class:
+                    break
+
+        if first_class is None:
+            return ""
+
+        prev = first_class.prev_named_sibling
+        while prev and prev.type in (
+            "decorator", "annotation", "marker_annotation", "modifiers",
+        ):
+            prev = prev.prev_named_sibling
+
+        if prev and prev.type in ("comment", "block_comment"):
+            raw = prev.text.decode("utf-8") if prev.text else ""
+            cleaned = raw.strip("/* \n\t")
+            if _is_license_comment(cleaned):
+                return ""
+            return cleaned
 
         return ""
 

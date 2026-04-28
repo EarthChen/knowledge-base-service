@@ -423,7 +423,7 @@ class WikiComposer:
                     summary = bs or (doc[:200] if doc else "")
                     module_summaries.append(f"{name}: {summary}" if summary else name)
             except Exception:
-                log.debug("overview_module_fetch_failed", repository=repository)
+                log.warning("overview_module_fetch_failed", repository=repository, exc_info=True)
 
         repo_ctx = await self._ctx.build_repository_context(module_summaries)
 
@@ -466,7 +466,7 @@ class WikiComposer:
             node_count=0,
             edge_count=0,
             generation_mode=config.mode,
-            fallback_tier=3,
+            fallback_tier=2 if (self._llm and module_summaries) else 3,
         )
         loc_idx = SourceLocation(".", 0, 0, f"{repository}.wiki.index", repository)
         loc_ov = SourceLocation(".", 0, 0, f"{repository}.wiki.overview", repository)
@@ -680,9 +680,6 @@ class WikiComposer:
         lines.append(f"- Related edges: {len(page_data.edges)}")
 
         if page_type == PageType.MODULE_OVERVIEW:
-            module_doc = n.properties.get("docstring")
-            if isinstance(module_doc, str) and module_doc:
-                lines.append(f"- Module documentation: {module_doc[:500]}")
             lines.append(f"- Child classes/modules: {len(page_data.children)}")
             for ch in page_data.children[:20]:
                 ch_name = ch.properties.get("name", ch.uid)

@@ -231,7 +231,7 @@ export default function WikiTreeNav({
   }, [nodes]);
 
   return (
-    <aside className="flex w-full shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900 lg:w-72">
+    <aside className="flex w-full shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
       <div
         className="flex border-b border-gray-100 dark:border-gray-700"
         role="tablist"

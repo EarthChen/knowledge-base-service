@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, PanelLeftClose, PanelLeftOpen, RefreshCw } from "lucide-react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import ErrorBoundary from "../ErrorBoundary";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,6 +15,7 @@ import { useWikiRegenerate } from "../../hooks/useWikiRegenerate";
 import WikiToolTabStrip from "./WikiToolTabStrip";
 import WikiToolPanel, { type WikiToolTab, WikiToolSuspenseFallback } from "./WikiToolPanel";
 import WikiSearchBar from "./WikiSearchBar";
+import WikiActiveTasks from "./WikiActiveTasks";
 import WikiGenerationProgress from "./WikiGenerationProgress";
 import WikiUpdateNotification from "./WikiUpdateNotification";
 import WikiTreeNav from "./WikiTreeNav";
@@ -71,11 +72,31 @@ export default function WikiShell() {
   const [generationStatus, setGenerationStatus] = useState<WikiEventType | null>(null);
   const [refsPanelOpen, setRefsPanelOpen] = useState(() => {
     try {
-      return localStorage.getItem("kb_wiki_refs_panel") !== "closed";
+      return localStorage.getItem("kb_wiki_refs_panel") === "open";
     } catch {
-      return true;
+      return false;
     }
   });
+
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("kb_wiki_sidebar") === "collapsed";
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("kb_wiki_sidebar", next ? "collapsed" : "open");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
 
   const toggleRefsPanel = useCallback(() => {
     setRefsPanelOpen((prev) => {
@@ -169,18 +190,35 @@ export default function WikiShell() {
   return (
     <ErrorBoundary fallbackLabel="Wiki failed to render">
       <div className="flex min-h-[min(70vh,860px)] flex-col gap-4 lg:flex-row lg:items-stretch">
-        <WikiTreeNav
-          businessId={businessId}
-          viewType={viewType}
-          activePath={pagePath}
-          onViewChange={setViewType}
-          wikiTier={wikiTier}
-          onWikiTierChange={setWikiTier}
-        />
+        <div
+          className={`transition-all duration-300 ${sidebarCollapsed ? "w-0 overflow-hidden lg:w-0" : "w-full lg:w-64 xl:w-72"}`}
+        >
+          {!sidebarCollapsed && (
+            <WikiTreeNav
+              businessId={businessId}
+              viewType={viewType}
+              activePath={pagePath}
+              onViewChange={setViewType}
+              wikiTier={wikiTier}
+              onWikiTierChange={setWikiTier}
+            />
+          )}
+        </div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-            <WikiToolTabStrip toolTab={toolTab} onToolTabChange={setToolTab} />
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                className="hidden items-center justify-center rounded-md border border-gray-200 bg-white p-1.5 text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 lg:flex"
+                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+              </button>
+              <WikiToolTabStrip toolTab={toolTab} onToolTabChange={setToolTab} />
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <WikiSearchBar repository={businessId} linkParams={wikiLinkParams} />
               <div
@@ -266,6 +304,7 @@ export default function WikiShell() {
               onDismiss={() => setUpdateNotification(null)}
             />
           )}
+          <WikiActiveTasks businessId={businessId} />
           <WikiGenerationProgress status={generationStatus} />
 
           <WikiToolPanel

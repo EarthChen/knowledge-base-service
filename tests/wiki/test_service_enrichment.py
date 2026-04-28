@@ -211,3 +211,4 @@ async def test_persist_pages_includes_enrichment_level(monkeypatch: pytest.Monke
     await svc._persist_pages_to_graph("repo1", [page])
     _repo, dicts = store.persist_wiki_pages.await_args.args
     assert dicts[0]["enrichment_level"] == EnrichmentLevel.BASE
+    assert dicts[0].get("navigation_json") == ""

@@ -48,6 +48,36 @@ def test_navigation_context_with_data():
     assert len(nav.breadcrumbs) == 2
 
 
+def test_navigation_context_to_api_dict_roundtrip():
+    nav = NavigationContext(
+        parent_path="modules/api",
+        parent_title="api",
+        sibling_paths=["b.md"],
+        child_paths=["c.md"],
+        related_flow_paths=["flow.md"],
+        breadcrumbs=[("R", "README.md"), ("api", "modules/api")],
+    )
+    restored = NavigationContext.from_api_dict(nav.to_api_dict())
+    assert restored == nav
+
+
+def test_navigation_context_api_from_stored_json():
+    from wiki.models import navigation_context_api_from_stored_json
+
+    assert navigation_context_api_from_stored_json(None) == NavigationContext().to_api_dict()
+    assert navigation_context_api_from_stored_json("") == NavigationContext().to_api_dict()
+    raw = '{"parent_path":"x","parent_title":"y","sibling_paths":[],"child_paths":[],"related_flow_paths":[],"breadcrumbs":[["T","p.md"]]}'
+    out = navigation_context_api_from_stored_json(raw)
+    assert out["parent_path"] == "x"
+    assert out["breadcrumbs"] == [["T", "p.md"]]
+
+
+def test_navigation_context_api_from_stored_json_invalid_falls_back():
+    from wiki.models import navigation_context_api_from_stored_json
+
+    assert navigation_context_api_from_stored_json("not-json") == NavigationContext().to_api_dict()
+
+
 def test_wiki_structure_node_is_leaf():
     leaf = WikiStructureNode(path="classes/Foo.md", title="Foo", page_type=PageType.CLASS_DETAIL)
     parent = WikiStructureNode(

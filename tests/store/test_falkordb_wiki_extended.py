@@ -35,3 +35,4 @@ async def test_persist_wiki_pages_includes_new_fields():
     assert "w.repositories" in cypher
     assert "w.confidence_score" in cypher
     assert "w.source_origin" in cypher
+    assert "w.navigation_json" in cypher

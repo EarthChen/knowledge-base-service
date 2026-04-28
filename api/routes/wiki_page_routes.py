@@ -46,6 +46,7 @@ from api.routes.wiki_shared import (
     log,
 )
 from wiki.editing_store import WikiEditingStore
+from wiki.models import navigation_context_api_from_stored_json
 
 router = APIRouter(tags=["wiki", "pages"])
 
@@ -237,6 +238,9 @@ async def wiki_get_page_by_path(
         "uid": page_uid,
         "is_stale": is_stale,
     }
+    qo = row.get("quality_overall")
+    if qo is not None and str(qo).strip() != "":
+        ctx["quality_overall"] = str(qo)
     if row.get("confidence_score") is not None:
         ctx["confidence_score"] = str(row.get("confidence_score"))
     if page_uid and settings.wiki.contradiction_detection_enabled:
@@ -802,6 +806,25 @@ async def wiki_get_page_detail(
         "context": ctx,
         "generated_at": props.get("generated_at"),
     }
+
+
+@router.get("/{repository}/navigation", response_model=None)
+async def get_wiki_page_navigation(
+    repository: str,
+    path: str = Query(..., description="Wiki page path"),
+    store: Any = Depends(get_wiki_store_dep),
+) -> dict[str, Any]:
+    """Return NavigationContext for a persisted wiki page (empty defaults if unset)."""
+    repo = normalize_repo_name(repository)
+    decoded_path = unquote(path).lstrip("/")
+    ws = WikiStore(store)
+    result = await ws.get_wiki_page_navigation_row(repo, decoded_path)
+    if not result.data:
+        raise KbNotFound(f"No wiki page at path {decoded_path!r}")
+    raw = result.data[0].get("navigation_json")
+    return navigation_context_api_from_stored_json(
+        str(raw) if raw is not None else None,
+    )
 
 
 def _raw_bearer_token(

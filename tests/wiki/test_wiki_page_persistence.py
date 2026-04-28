@@ -67,6 +67,7 @@ async def test_persist_wiki_pages_unwind_merge_returns_count() -> None:
     assert len(batch) == 2
     assert batch[0]["uid"] == "WikiPage:repo1:README.md"
     assert batch[0]["repository"] == "repo1"
+    assert batch[0].get("navigation_json") == ""
     assert batch[1]["uid"] == "WikiPage:repo1:mod.md"
 
 

@@ -6,6 +6,7 @@ WikiPage, WikiStructure, WikiConfig, ScopeParam, SourceLocation.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -88,6 +89,50 @@ class NavigationContext:
     child_paths: list[str] = field(default_factory=list)
     related_flow_paths: list[str] = field(default_factory=list)
     breadcrumbs: list[tuple[str, str]] = field(default_factory=list)
+
+    def to_api_dict(self) -> dict[str, Any]:
+        """JSON-serializable shape for APIs (breadcrumbs as list pairs)."""
+        return {
+            "parent_path": self.parent_path,
+            "parent_title": self.parent_title,
+            "sibling_paths": list(self.sibling_paths),
+            "child_paths": list(self.child_paths),
+            "related_flow_paths": list(self.related_flow_paths),
+            "breadcrumbs": [[t, p] for t, p in self.breadcrumbs],
+        }
+
+    @classmethod
+    def from_api_dict(cls, data: dict[str, Any]) -> NavigationContext:
+        crumbs_raw = data.get("breadcrumbs") or []
+        breadcrumbs: list[tuple[str, str]] = []
+        for item in crumbs_raw:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                breadcrumbs.append((str(item[0]), str(item[1])))
+        return cls(
+            parent_path=data.get("parent_path"),
+            parent_title=data.get("parent_title"),
+            sibling_paths=[str(x) for x in (data.get("sibling_paths") or [])],
+            child_paths=[str(x) for x in (data.get("child_paths") or [])],
+            related_flow_paths=[str(x) for x in (data.get("related_flow_paths") or [])],
+            breadcrumbs=breadcrumbs,
+        )
+
+
+def navigation_context_api_from_stored_json(raw: str | None) -> dict[str, Any]:
+    """Parse ``navigation_json`` from graph; invalid or empty → empty defaults."""
+    empty = NavigationContext().to_api_dict()
+    if raw is None or not str(raw).strip():
+        return empty
+    try:
+        data = json.loads(str(raw))
+    except json.JSONDecodeError:
+        return empty
+    if not isinstance(data, dict):
+        return empty
+    try:
+        return NavigationContext.from_api_dict(data).to_api_dict()
+    except (TypeError, ValueError):
+        return empty
 
 
 @dataclass

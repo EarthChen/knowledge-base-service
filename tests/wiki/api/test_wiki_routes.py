@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -443,4 +444,55 @@ class TestWikiPagesGraphBacked:
     def test_get_page_detail_503_when_store_missing(self) -> None:
         _, client, _ = _make_app(wiki_store=None)
         r = client.get("/api/v1/wiki/r1/pages/README.md")
+        assert r.status_code == 503
+
+    def test_get_navigation_returns_parsed_json(self) -> None:
+        payload = {
+            "parent_path": "modules/x",
+            "parent_title": "x",
+            "sibling_paths": [],
+            "child_paths": [],
+            "related_flow_paths": [],
+            "breadcrumbs": [["Repo", "README.md"]],
+        }
+        store = MagicMock()
+        store.execute_query = AsyncMock(
+            return_value=QueryResultWrapper(
+                data=[{"navigation_json": json.dumps(payload)}],
+                raw=[],
+            ),
+        )
+        _, client, _ = _make_app(wiki_store=store)
+        r = client.get(
+            "/api/v1/wiki/my-repo/navigation",
+            params={"path": "classes/Foo.md"},
+        )
+        assert r.status_code == 200
+        assert r.json() == payload
+        _cypher, params = store.execute_query.await_args.args
+        assert params == {"repo": "my-repo", "path": "classes/Foo.md"}
+
+    def test_get_navigation_empty_defaults_when_unset(self) -> None:
+        store = MagicMock()
+        store.execute_query = AsyncMock(
+            return_value=QueryResultWrapper(data=[{"navigation_json": ""}], raw=[]),
+        )
+        _, client, _ = _make_app(wiki_store=store)
+        r = client.get("/api/v1/wiki/r1/navigation", params={"path": "a.md"})
+        assert r.status_code == 200
+        d = r.json()
+        assert d["parent_path"] is None
+        assert d["breadcrumbs"] == []
+        assert d["sibling_paths"] == []
+
+    def test_get_navigation_404_when_missing_page(self) -> None:
+        store = MagicMock()
+        store.execute_query = AsyncMock(return_value=QueryResultWrapper(data=[], raw=[]))
+        _, client, _ = _make_app(wiki_store=store)
+        r = client.get("/api/v1/wiki/r1/navigation", params={"path": "nope.md"})
+        assert r.status_code == 404
+
+    def test_get_navigation_503_when_store_missing(self) -> None:
+        _, client, _ = _make_app(wiki_store=None)
+        r = client.get("/api/v1/wiki/r1/navigation", params={"path": "a.md"})
         assert r.status_code == 503

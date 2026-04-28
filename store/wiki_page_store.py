@@ -348,6 +348,16 @@ class WikiPageStoreMixin:
         q = "MATCH (wp:WikiPage {repository: $repo, path: $path}) RETURN wp LIMIT 1"
         return await self._store.execute_query(q, {"repo": repository, "path": path})
 
+    async def get_wiki_page_navigation_row(
+        self, repository: str, path: str,
+    ) -> QueryResultWrapper:
+        """Return persisted ``navigation_json`` for a wiki page (may be empty)."""
+        q = (
+            "MATCH (wp:WikiPage {repository: $repo, path: $path}) "
+            "RETURN coalesce(wp.navigation_json, '') AS navigation_json LIMIT 1"
+        )
+        return await self._store.execute_query(q, {"repo": repository, "path": path})
+
     async def get_page_by_path(self, business_id: str, path: str) -> QueryResultWrapper:
         """Load one wiki page under a business WikiSpace by path, with aggregated SOURCE_ENTITY rows."""
         _se = EdgeType.SOURCE_ENTITY.value
@@ -363,6 +373,7 @@ class WikiPageStoreMixin:
             "wp.repository AS repository, wp.uid AS uid, "
             "coalesce(wp.generated_at, '') AS generated_at, "
             "wp.confidence_score AS confidence_score, "
+            "wp.quality_overall AS quality_overall, "
             "sources "
             "LIMIT 1"
         )

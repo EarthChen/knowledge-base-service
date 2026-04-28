@@ -1870,6 +1870,11 @@ class WikiService:
                 "importance_tier": getattr(p.metadata, "importance_tier", None),
                 "enrichment_level": getattr(p.metadata, "enrichment_level", None),
                 "entity_uid": getattr(p, "_source_entity_uid", None),
+                "navigation_json": (
+                    json.dumps(p.navigation.to_api_dict(), ensure_ascii=False)
+                    if p.navigation
+                    else ""
+                ),
             }
             for p in pages
         ]

@@ -514,6 +514,7 @@ class FalkorDBStore:
                     "repositories": page.get("repositories", [repository]),
                     "confidence_score": page.get("confidence_score"),
                     "source_origin": page.get("source_origin", ""),
+                    "navigation_json": page.get("navigation_json") or "",
                 }
             )
         cypher = (
@@ -531,6 +532,7 @@ class FalkorDBStore:
             "w.enrichment_level = page.enrichment_level, "
             "w.repositories = page.repositories, "
             "w.confidence_score = coalesce(page.confidence_score, w.confidence_score), "
+            "w.navigation_json = page.navigation_json, "
             "w.source_origin = CASE "
             "WHEN page.source_origin IS NULL OR page.source_origin = '' "
             "THEN w.source_origin ELSE page.source_origin END "

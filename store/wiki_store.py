@@ -69,33 +69,46 @@ class WikiStore(
         )
         return list(getattr(result, "data", None) or [])
 
-    async def save_quality_scores(
-        self, repository: str, scores: list[Any],
-    ) -> None:
-        for score in scores:
-            await self._store.execute_query(
-                "MATCH (p:WikiPage {repository: $repo, path: $path}) "
-                "SET p.quality_completeness = $comp, "
-                "    p.quality_helpfulness = $help, "
-                "    p.quality_truthfulness = $truth, "
-                "    p.quality_overall = $overall, "
-                "    p.quality_issues = $issues",
-                {
-                    "repo": repository, "path": score.page_path,
-                    "comp": score.completeness, "help": score.helpfulness,
-                    "truth": score.truthfulness, "overall": score.overall,
-                    "issues": ",".join(score.issues),
-                },
-            )
+    async def save_quality_scores(self, repository: str, scores: list[Any]) -> int:
+        if not scores:
+            return 0
+        rows = [
+            {
+                "path": s.page_path,
+                "comp": s.completeness,
+                "help": s.helpfulness,
+                "truth": s.truthfulness,
+                "overall": s.overall,
+                "issues": ",".join(str(i) for i in s.issues),
+            }
+            for s in scores
+        ]
+        result = await self._store.execute_query(
+            "UNWIND $rows AS row "
+            "MATCH (p:WikiPage {repository: $repo, path: row.path}) "
+            "SET p.quality_completeness = row.comp, "
+            "    p.quality_helpfulness = row.help, "
+            "    p.quality_truthfulness = row.truth, "
+            "    p.quality_overall = row.overall, "
+            "    p.quality_issues = row.issues "
+            "RETURN count(p) AS matched",
+            {"repo": repository, "rows": rows},
+        )
+        matched = 0
+        data = getattr(result, "data", None) or []
+        if data:
+            row = data[0]
+            matched = int(row.get("matched", 0) if isinstance(row, dict) else (row[0] or 0))
+        return matched
 
-    async def get_quality_summary(self, repository: str) -> dict[str, Any]:
+    async def get_quality_summary(self, repository: str, min_score: float = 0.6) -> dict[str, Any]:
         result = await self._store.execute_query(
             "MATCH (p:WikiPage {repository: $repo}) "
             "WHERE p.quality_overall IS NOT NULL "
             "RETURN avg(p.quality_overall) AS avg_score, "
             "       count(p) AS evaluated_count, "
-            "       count(CASE WHEN p.quality_overall < 0.6 THEN 1 END) AS low_quality_count",
-            {"repo": repository},
+            "       count(CASE WHEN p.quality_overall < $threshold THEN 1 END) AS low_quality_count",
+            {"repo": repository, "threshold": min_score},
         )
         rows = getattr(result, "data", None) or []
         if rows and rows[0]:

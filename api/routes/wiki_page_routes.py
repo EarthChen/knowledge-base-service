@@ -653,9 +653,11 @@ async def wiki_documentation_quality_summary(
     store: Any = Depends(get_wiki_store_dep),
 ) -> dict[str, Any]:
     """Aggregate persisted documentation quality scores for a repository (WikiPage graph properties)."""
+    settings = get_route_settings()
     repo = normalize_repo_name(repository)
     ws = WikiStore(store)
-    return await ws.get_quality_summary(repo)
+    min_score = float(getattr(settings.wiki, "quality_min_score", 0.6) or 0.6)
+    return await ws.get_quality_summary(repo, min_score=min_score)
 
 
 @router.post(

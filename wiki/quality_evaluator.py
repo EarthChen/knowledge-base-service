@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from log import get_logger
@@ -68,8 +69,16 @@ class WikiQualityEvaluator:
         )
 
         try:
-            raw = await self._llm.generate(prompt, system="You are a documentation quality evaluator. Output valid JSON only.")
-            result = json.loads(raw.strip().strip("```json").strip("```"))
+            raw = await self._llm.generate(
+                prompt,
+                system="You are a documentation quality evaluator. Output valid JSON only.",
+                model=self._judge_model or None,
+            )
+            cleaned = raw.strip()
+            fence_match = re.search(r"```(?:json)?\s*\n?(.*?)```", cleaned, re.DOTALL)
+            if fence_match:
+                cleaned = fence_match.group(1).strip()
+            result = json.loads(cleaned)
         except (json.JSONDecodeError, Exception):
             log.warning("llm_judge_parse_failed", page=page.path, exc_info=True)
             return self.structural_check(page)
@@ -78,13 +87,21 @@ class WikiQualityEvaluator:
         helpfulness = max(0.0, min(1.0, float(result.get("helpfulness", 0))))
         truthfulness = max(0.0, min(1.0, float(result.get("truthfulness", 0))))
 
+        raw_issues = result.get("issues", [])
+        if isinstance(raw_issues, list):
+            issues = [str(i) for i in raw_issues if i]
+        elif isinstance(raw_issues, str):
+            issues = [raw_issues] if raw_issues else []
+        else:
+            issues = []
+
         return WikiPageQualityScore(
             page_path=page.path,
             completeness=completeness,
             helpfulness=helpfulness,
             truthfulness=truthfulness,
             overall=round((completeness + helpfulness + truthfulness) / 3, 3),
-            issues=result.get("issues", []),
+            issues=issues,
         )
 
     def aggregate_scores(

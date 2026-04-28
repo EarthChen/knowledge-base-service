@@ -33,7 +33,7 @@ _PARSING_EDGE_TYPES: tuple[str, ...] = (
 
 log = get_logger(__name__)
 
-_graph_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="falkordb")
+_graph_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="falkordb")
 _xref_lock = asyncio.Lock()
 
 
@@ -774,6 +774,10 @@ class FalkorDBStore:
                 "WHERE m.imports IS NOT NULL AND size(m.imports) > 0 "
                 "UNWIND m.imports AS imp "
                 "WITH m, imp, split(imp, '.') AS parts "
+                "WHERE NOT (starts_with(imp, 'java.') OR starts_with(imp, 'javax.') "
+                "OR starts_with(imp, 'jdk.') OR starts_with(imp, 'sun.') "
+                "OR starts_with(imp, 'com.sun.') OR starts_with(imp, 'org.w3c.') "
+                "OR starts_with(imp, 'org.xml.') OR starts_with(imp, 'org.ietf.')) "
                 "WITH m, parts[size(parts)-1] AS mod_name "
                 "MATCH (target:Module {name: mod_name}) "
                 "WHERE target.uid <> m.uid "
@@ -950,6 +954,29 @@ class FalkorDBStore:
                 target_uid=str(row[1]),
             ))
         return edges
+
+    async def find_all_referrers_batch(self, repository: str) -> dict[str, list[str]]:
+        """Batch-load all CALLS/IMPORTS relationships for backlink building.
+
+        Returns ``{target_uid: [source_uid, ...]}`` for edges where both endpoints
+        belong to the given repository.
+        """
+        q = (
+            "MATCH (src)-[:CALLS|IMPORTS]->(tgt) "
+            "WHERE src.repository = $repo AND tgt.repository = $repo "
+            "RETURN tgt.uid, src.uid"
+        )
+        result = await self.execute_query(q, {"repo": repository})
+        referrers: dict[str, list[str]] = {}
+        for row in result.raw or []:
+            if not row:
+                continue
+            tgt_uid, src_uid = row[0], row[1]
+            if tgt_uid is not None and src_uid is not None:
+                ts, ss = str(tgt_uid), str(src_uid)
+                if ts and ss:
+                    referrers.setdefault(ts, []).append(ss)
+        return referrers
 
     async def find_edges(self, repository: str, node_uid: str) -> list[GraphEdge]:
         loop = asyncio.get_running_loop()

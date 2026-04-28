@@ -38,6 +38,22 @@ class ImportanceTier(StrEnum):
     SKELETON = "skeleton"
 
 
+class WikiQualityDimension(StrEnum):
+    COMPLETENESS = "completeness"
+    HELPFULNESS = "helpfulness"
+    TRUTHFULNESS = "truthfulness"
+
+
+@dataclass
+class WikiPageQualityScore:
+    page_path: str
+    completeness: float
+    helpfulness: float
+    truthfulness: float
+    overall: float
+    issues: list[str] = field(default_factory=list)
+
+
 class EnrichmentLevel(StrEnum):
     BASE = "base"
     ENRICHED = "enriched"

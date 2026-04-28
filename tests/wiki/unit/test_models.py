@@ -17,6 +17,8 @@ from wiki.models import (
     WikiDiagram,
     WikiPage,
     WikiPageMetadata,
+    WikiPageQualityScore,
+    WikiQualityDimension,
     WikiStructure,
     WikiStructureNode,
     parse_scope,
@@ -361,3 +363,22 @@ class TestWikiStructure:
         assert data["total_pages"] == 1
         assert "root" in data
         assert len(data["root"]["children"]) == 1
+
+
+def test_quality_dimension_values():
+    assert WikiQualityDimension.COMPLETENESS == "completeness"
+    assert WikiQualityDimension.HELPFULNESS == "helpfulness"
+    assert WikiQualityDimension.TRUTHFULNESS == "truthfulness"
+
+
+def test_quality_score_overall():
+    score = WikiPageQualityScore(
+        page_path="classes/Foo.md",
+        completeness=0.8,
+        helpfulness=0.7,
+        truthfulness=0.9,
+        overall=0.8,
+        issues=[],
+    )
+    assert score.overall == 0.8
+    assert not score.issues

@@ -367,6 +367,8 @@ async def test_generate_business_wiki_partial_errors_on_repo_failure() -> None:
     mock_wiki_store.add_has_child_edge = AsyncMock()
     mock_wiki_store.find_source_entity_mappings = AsyncMock(return_value=[])
     mock_wiki_store.find_code_entity_relationships = AsyncMock(return_value=[])
+    mock_wiki_store.get_repo_wiki_freshness = AsyncMock(return_value={})
+    mock_wiki_store.get_wiki_pages_for_business = AsyncMock(return_value=[])
 
     overview_page = WikiPage(
         path="overview.md",
@@ -386,6 +388,10 @@ async def test_generate_business_wiki_partial_errors_on_repo_failure() -> None:
     mock_wiki_cfg.code_budget_enabled = False
     mock_wiki_cfg.rag_enabled = False
     mock_wiki_cfg.business_wiki_batch_threshold = 100
+    mock_wiki_cfg.business_domain_sub_batch_size = 80
+    mock_wiki_cfg.business_domain_classify_timeout = 600
+    mock_wiki_cfg.business_domain_max_concurrency = 3
+    mock_wiki_cfg.business_domain_cache_ttl = 3600
 
     _, emb = inject_wiki_embedding()
     svc = WikiService(

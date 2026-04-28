@@ -27,6 +27,7 @@ def wiki_service_deps():
     wiki_store.upsert_wiki_space = AsyncMock()
     wiki_store.upsert_wiki_section = AsyncMock()
     wiki_store.add_has_child_edge = AsyncMock()
+    wiki_store.get_wiki_pages_for_business = AsyncMock(return_value=[])
     return {
         "graph": graph,
         "store": store,

@@ -20,6 +20,10 @@ def _biz_wiki_mock():
     m.code_budget_enabled = False
     m.rag_enabled = False
     m.business_wiki_batch_threshold = 100
+    m.business_domain_sub_batch_size = 80
+    m.business_domain_classify_timeout = 600
+    m.business_domain_max_concurrency = 3
+    m.business_domain_cache_ttl = 3600
     return m
 
 
@@ -46,6 +50,7 @@ async def test_generate_business_wiki_passes_token_budget_multiplier_to_generate
     mock_wiki_store.find_source_entity_mappings = AsyncMock(return_value=[])
     mock_wiki_store.find_code_entity_relationships = AsyncMock(return_value=[])
     mock_wiki_store.get_repo_wiki_freshness = AsyncMock(return_value={})
+    mock_wiki_store.get_wiki_pages_for_business = AsyncMock(return_value=[])
 
     graph.list_repository_modules = AsyncMock(
         return_value=[

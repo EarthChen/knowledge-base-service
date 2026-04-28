@@ -25,6 +25,10 @@ def _mock_wiki_cfg():
     cfg.code_budget_enabled = False
     cfg.rag_enabled = False
     cfg.business_wiki_batch_threshold = 100
+    cfg.business_domain_sub_batch_size = 80
+    cfg.business_domain_classify_timeout = 600
+    cfg.business_domain_max_concurrency = 3
+    cfg.business_domain_cache_ttl = 3600
     return cfg
 
 
@@ -54,6 +58,8 @@ async def test_generate_business_wiki_calls_reference_generator():
         ],
     )
     mock_wiki_store.add_wiki_reference_edge = AsyncMock()
+    mock_wiki_store.get_repo_wiki_freshness = AsyncMock(return_value={})
+    mock_wiki_store.get_wiki_pages_for_business = AsyncMock(return_value=[])
 
     _, emb = inject_wiki_embedding()
     svc = WikiService(
@@ -84,6 +90,8 @@ async def test_reference_generation_failure_does_not_crash():
     mock_wiki_store.upsert_wiki_space = AsyncMock()
     mock_wiki_store.upsert_wiki_section = AsyncMock()
     mock_wiki_store.add_has_child_edge = AsyncMock()
+    mock_wiki_store.get_repo_wiki_freshness = AsyncMock(return_value={})
+    mock_wiki_store.get_wiki_pages_for_business = AsyncMock(return_value=[])
 
     _, emb = inject_wiki_embedding()
     svc = WikiService(

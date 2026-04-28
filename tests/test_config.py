@@ -1,6 +1,6 @@
 """Tests for knowledge base service configuration."""
 
-from config import EmbeddingConfig, FalkorDBConfig, Settings, WikiConfig
+from config import EmbeddingConfig, FalkorDBConfig, Settings, WikiConfig, get_settings
 
 
 class TestFalkorDBConfig:
@@ -55,3 +55,9 @@ class TestSettings:
         assert settings.wiki.schema_path == "wiki/schema.yaml"
         assert settings.wiki.forgetting_enabled is True
         assert settings.wiki.schema_validation_enabled is True
+
+
+def test_wiki_skeleton_strategy_default() -> None:
+    settings = get_settings()
+    assert settings.wiki.skeleton_strategy == "template"
+    assert settings.wiki.wikilink_cache_enabled is True

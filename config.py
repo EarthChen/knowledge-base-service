@@ -209,6 +209,10 @@ class WikiConfig(BaseModel):
     importance_core_percentile: int = 80
     importance_standard_percentile: int = 30
 
+    skeleton_strategy: str = Field(default="template")
+    skeleton_light_model: str = Field(default="")
+    wikilink_cache_enabled: bool = Field(default=True)
+
     # Phase 2: community context (wiki repo overview)
     community_context_enabled: bool = True
     """When true, run community detection and inject Markdown into the repository overview page."""

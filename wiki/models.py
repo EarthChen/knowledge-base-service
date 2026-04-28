@@ -44,6 +44,36 @@ class EnrichmentLevel(StrEnum):
     ENCYCLOPEDIA = "encyclopedia"
 
 
+class SkeletonStrategy(StrEnum):
+    TEMPLATE = "template"
+    LIGHT_MODEL = "light_model"
+    SKIP = "skip"
+
+
+@dataclass
+class WikiPageSummary:
+    """Short summary extracted from a composed WikiPage for parent aggregation."""
+
+    entity_uid: str
+    title: str
+    path: str
+    summary: str
+    importance_tier: ImportanceTier | None
+    page_type: PageType
+
+
+@dataclass
+class NavigationContext:
+    """Contextual navigation metadata for wiki page rendering."""
+
+    parent_path: str | None = None
+    parent_title: str | None = None
+    sibling_paths: list[str] = field(default_factory=list)
+    child_paths: list[str] = field(default_factory=list)
+    related_flow_paths: list[str] = field(default_factory=list)
+    breadcrumbs: list[tuple[str, str]] = field(default_factory=list)
+
+
 @dataclass
 class CodeSnippet:
     source: str
@@ -296,6 +326,10 @@ class WikiStructureNode:
     title: str
     page_type: PageType
     children: list[WikiStructureNode] = field(default_factory=list)
+
+    @property
+    def is_leaf(self) -> bool:
+        return len(self.children) == 0
 
     def sorted_children(self) -> list[WikiStructureNode]:
         return sorted(self.children, key=lambda c: c.title)

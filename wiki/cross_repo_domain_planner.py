@@ -27,10 +27,14 @@ class CrossRepoBusinessDomainPlanner:
         *,
         infrastructure_label: str = "__infrastructure__",
         batch_threshold: int = 100,
+        sub_batch_size: int = 80,
+        max_concurrency: int = 3,
     ) -> None:
         self._llm = llm
         self._infrastructure_label = infrastructure_label
         self._batch_threshold = batch_threshold
+        self._sub_batch_size = sub_batch_size
+        self._max_concurrency = max_concurrency
         self._metadata_cache: dict[tuple[str, str], dict[str, str | int | float | list[str]]] = {}
 
     async def classify(
@@ -119,7 +123,12 @@ class CrossRepoBusinessDomainPlanner:
             modules = all_modules[repo_id]
             if not modules:
                 continue
-            per_repo[repo_id] = await planner.classify(repo_id, modules)
+            per_repo[repo_id] = await planner.classify(
+                repo_id,
+                modules,
+                sub_batch_size=self._sub_batch_size,
+                max_concurrency=self._max_concurrency,
+            )
 
         prompt = self._build_merge_prompt(business_id, per_repo)
         raw = (await self._llm.generate(prompt, system=_SYSTEM_JSON)).strip()

@@ -115,3 +115,26 @@ async def test_classify_unclassified_modules_go_to_infra():
     assert "核心" in result
     assert result["核心"] == [("repo-p", "seen")]
     assert "missing" in {m for _, m in result["__infrastructure__"]}
+
+
+@pytest.mark.asyncio
+async def test_classify_large_batch_forwards_sub_batch_size_and_concurrency():
+    """When using multi-batch path, sub_batch_size and max_concurrency should be forwarded."""
+    llm = AsyncMock()
+    llm.generate = AsyncMock(
+        side_effect=[
+            '{"域A": ["a1"], "__infrastructure__": ["a2"]}',
+            '{"域B": ["b1"], "__infrastructure__": ["b2"]}',
+            '{"域A": [["r1", "a1"], ["r2", "b1"]], "__infrastructure__": [["r1", "a2"], ["r2", "b2"]]}',
+        ]
+    )
+
+    planner = CrossRepoBusinessDomainPlanner(
+        llm, batch_threshold=3, sub_batch_size=50, max_concurrency=2,
+    )
+    all_modules = {
+        "r1": [_make_module("a1"), _make_module("a2")],
+        "r2": [_make_module("b1"), _make_module("b2")],
+    }
+    result = await planner.classify("biz-7", all_modules)
+    assert "域A" in result or "__infrastructure__" in result

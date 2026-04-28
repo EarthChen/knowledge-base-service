@@ -1042,16 +1042,19 @@ class WikiService:
             llm_port,
             infrastructure_label=app_cfg.business_domain_infrastructure_label,
             batch_threshold=app_cfg.business_wiki_batch_threshold,
+            sub_batch_size=app_cfg.business_domain_sub_batch_size,
+            max_concurrency=app_cfg.business_domain_max_concurrency,
         )
         try:
-            total_batches = sum(
-                max(1, -(-len(mods) // app_cfg.business_domain_sub_batch_size))
+            _sbs = max(1, app_cfg.business_domain_sub_batch_size)
+            _mc = max(1, app_cfg.business_domain_max_concurrency)
+            per_repo_waves = sum(
+                max(1, -(-(-(-len(mods) // _sbs)) // _mc))
                 for mods in all_modules.values()
                 if mods
             )
-            waves = max(1, -(-len(all_modules) // app_cfg.business_domain_max_concurrency))
             per_batch_timeout = app_cfg.business_domain_classify_timeout
-            classify_budget = per_batch_timeout * max(total_batches // max(app_cfg.business_domain_max_concurrency, 1), waves) + 300
+            classify_budget = per_batch_timeout * (per_repo_waves + 1) + 300
             domain_mapping = await asyncio.wait_for(
                 planner.classify(business_id, all_modules),
                 timeout=classify_budget,

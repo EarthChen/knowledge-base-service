@@ -1,9 +1,11 @@
-"""Classify repository modules into business domains (one LLM call)."""
+"""Classify repository modules into business domains via LLM, with sub-batch support."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import time
 from typing import TYPE_CHECKING
 
 from log import get_logger
@@ -16,7 +18,8 @@ log = get_logger(__name__)
 
 
 class BusinessDomainPlanner:
-    """Two-pass flow: collect module metadata, then one-shot LLM domain assignment."""
+    """Collect module metadata, then classify via LLM. Large inputs are split into
+    concurrent sub-batches bounded by ``max_concurrency``."""
 
     def __init__(
         self,
@@ -26,7 +29,14 @@ class BusinessDomainPlanner:
         self._llm = llm
         self._infrastructure_label = infrastructure_label
 
-    async def classify(self, repository_id: str, modules: list[GraphNode]) -> dict[str, list[str]]:
+    async def classify(
+        self,
+        repository_id: str,
+        modules: list[GraphNode],
+        *,
+        sub_batch_size: int = 80,
+        max_concurrency: int = 3,
+    ) -> dict[str, list[str]]:
         if not modules:
             return {}
 
@@ -39,25 +49,136 @@ class BusinessDomainPlanner:
         if self._llm is None:
             return {self._infrastructure_label: list(names_in_order)}
 
-        metadata = self._collect_metadata(modules)
+        sub_batch_size = max(1, sub_batch_size)
+        max_concurrency = max(1, max_concurrency)
 
-        try:
-            prompt = self._build_prompt(repository_id, metadata)
-            raw = (await self._llm.generate(prompt, system="Reply with JSON only. No markdown fences.")).strip()
-            parsed = self._parse_domain_map(raw)
-            if not parsed:
+        if len(modules) <= sub_batch_size:
+            try:
+                return await self._classify_single_batch(
+                    repository_id,
+                    modules,
+                    names_in_order,
+                    valid_names,
+                )
+            except Exception:
+                log.warning(
+                    "business_domain_classification_failed",
+                    repository_id=repository_id,
+                    exc_info=True,
+                )
                 return self._all_infrastructure(names_in_order)
-            return self._merge_llm_assignment(parsed, valid_names, names_in_order)
-        except Exception:
-            log.warning(
-                "business_domain_classification_failed",
-                repository_id=repository_id,
-                exc_info=True,
+
+        batches = [
+            modules[i : i + sub_batch_size]
+            for i in range(0, len(modules), sub_batch_size)
+        ]
+        total_batches = len(batches)
+        log.info(
+            "domain_classify_start",
+            repository_id=repository_id,
+            module_count=len(modules),
+            batch_count=total_batches,
+            sub_batch_size=sub_batch_size,
+            max_concurrency=max_concurrency,
+        )
+
+        t0 = time.monotonic()
+        sem = asyncio.Semaphore(max_concurrency)
+        batch_results: list[dict[str, list[str]]] = [{} for _ in range(total_batches)]
+        failed_count = 0
+
+        async def _run_batch(idx: int, batch: list[GraphNode]) -> None:
+            nonlocal failed_count
+            async with sem:
+                batch_names = self._module_names_in_order(batch)
+                batch_valid = set(batch_names)
+                try:
+                    log.debug(
+                        "domain_classify_batch_start",
+                        repository_id=repository_id,
+                        batch_index=idx,
+                        batch_size=len(batch),
+                    )
+                    bt = time.monotonic()
+                    batch_results[idx] = await self._classify_single_batch(
+                        repository_id,
+                        batch,
+                        batch_names,
+                        batch_valid,
+                    )
+                    elapsed_ms = int((time.monotonic() - bt) * 1000)
+                    log.info(
+                        "domain_classify_batch_done",
+                        repository_id=repository_id,
+                        batch_index=idx,
+                        domains_found=len(batch_results[idx]),
+                        elapsed_ms=elapsed_ms,
+                    )
+                except Exception:
+                    failed_count += 1
+                    log.warning(
+                        "domain_classify_batch_failed",
+                        repository_id=repository_id,
+                        batch_index=idx,
+                        batch_size=len(batch),
+                        exc_info=True,
+                    )
+                    batch_results[idx] = {self._infrastructure_label: batch_names}
+
+        await asyncio.gather(*[_run_batch(i, b) for i, b in enumerate(batches)])
+
+        merged: dict[str, list[str]] = {}
+        for batch_result in batch_results:
+            for domain, domain_modules in batch_result.items():
+                merged.setdefault(domain, []).extend(domain_modules)
+
+        total_ms = int((time.monotonic() - t0) * 1000)
+        log.info(
+            "domain_classify_done",
+            repository_id=repository_id,
+            total_domains=len(merged),
+            batch_count=total_batches,
+            failed_batches=failed_count,
+            total_elapsed_ms=total_ms,
+        )
+
+        return self._ensure_all_assigned(merged, valid_names, names_in_order)
+
+    async def _classify_single_batch(
+        self,
+        repository_id: str,
+        modules: list[GraphNode],
+        names_in_order: list[str],
+        valid_names: set[str],
+    ) -> dict[str, list[str]]:
+        metadata = self._collect_metadata(modules)
+        prompt = self._build_prompt(repository_id, metadata)
+        raw = (
+            await self._llm.generate(
+                prompt, system="Reply with JSON only. No markdown fences.",
             )
+        ).strip()
+        parsed = self._parse_domain_map(raw)
+        if not parsed:
             return self._all_infrastructure(names_in_order)
+        return self._merge_llm_assignment(parsed, valid_names, names_in_order)
 
     def _all_infrastructure(self, names_in_order: list[str]) -> dict[str, list[str]]:
         return {self._infrastructure_label: list(names_in_order)}
+
+    def _ensure_all_assigned(
+        self,
+        merged: dict[str, list[str]],
+        valid_names: set[str],
+        names_in_order: list[str],
+    ) -> dict[str, list[str]]:
+        assigned: set[str] = set()
+        for names in merged.values():
+            assigned.update(names)
+        missing = [n for n in names_in_order if n in valid_names and n not in assigned]
+        if missing:
+            merged.setdefault(self._infrastructure_label, []).extend(missing)
+        return merged
 
     def _module_names_in_order(self, modules: list[GraphNode]) -> list[str]:
         out: list[str] = []

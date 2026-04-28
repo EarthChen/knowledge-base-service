@@ -113,7 +113,7 @@ async def test_business_domain_planner_sub_batching() -> None:
     modules = [_make_module(f"mod-{i:03d}") for i in range(200)]
     planner = BusinessDomainPlanner(llm)
     result = await planner.classify("big-repo", modules)
-    assert len(calls) == 1
+    assert len(calls) == 3  # default sub_batch_size=80 → three batches for 200 modules
     assert "A" in result and "B" in result
     assert len(result["A"]) == 100
     assert len(result["B"]) == 100

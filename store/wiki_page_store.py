@@ -6,6 +6,7 @@ import difflib
 import hashlib
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 
 from store.falkordb_store import QueryResultWrapper
@@ -347,6 +348,29 @@ class WikiPageStoreMixin:
     async def get_wiki_page_detail(self, repository: str, path: str) -> QueryResultWrapper:
         q = "MATCH (wp:WikiPage {repository: $repo, path: $path}) RETURN wp LIMIT 1"
         return await self._store.execute_query(q, {"repo": repository, "path": path})
+
+    async def get_page_by_entity_uid(
+        self, repository: str, entity_uid: str,
+    ) -> SimpleNamespace | None:
+        """Return persisted wiki page content for a code entity linked via SOURCE_ENTITY, if any."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        q = (
+            f"MATCH (wp:WikiPage {{repository: $repo}})-[:{_se}]->(e {{uid: $entity_uid}}) "
+            "RETURN coalesce(wp.content, '') AS content, coalesce(wp.path, '') AS path LIMIT 1"
+        )
+        result = await self._store.execute_query(
+            q, {"repo": repository, "entity_uid": entity_uid},
+        )
+        rows = getattr(result, "data", None) or []
+        if not rows:
+            return None
+        row = rows[0]
+        if not isinstance(row, dict):
+            return None
+        return SimpleNamespace(
+            content=str(row.get("content") or ""),
+            path=str(row.get("path") or ""),
+        )
 
     async def get_wiki_page_navigation_row(
         self, repository: str, path: str,

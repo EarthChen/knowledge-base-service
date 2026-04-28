@@ -13,7 +13,7 @@ from config import EmbeddingConfig, WikiConfig as WikiAppConfig
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
-from store.schema import GraphNode, NodeLabel
+from store.schema import EdgeType, GraphNode, NodeLabel
 from wiki.backlink_builder import BacklinkBuilder
 from wiki.composer import WikiComposer, render_navigation_section
 from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
@@ -582,9 +582,32 @@ class WikiService:
             await self._ensure_repo(repository)
             composer = self._composer_for(llm_provider)
 
+            graph_nodes_by_uid: dict[str, GraphNode] = {}
+            for u in all_affected_uids:
+                try:
+                    n = await self._graph.find_node_by_uid(repository, u)
+                    if n is not None:
+                        graph_nodes_by_uid[u] = n
+                except Exception:
+                    log.debug("incremental_prefetch_node_failed", uid=u, exc_info=True)
+
+            glossary: dict[str, str] = {}
+            if composer._wiki_store is not None:
+                try:
+                    mod_names = [
+                        n.properties.get("name", "") for n in graph_nodes_by_uid.values()
+                    ]
+                    glossary = await composer._ctx.build_glossary(mod_names, mod_names)
+                except Exception:
+                    log.warning(
+                        "incremental_glossary_build_failed",
+                        repository=repository,
+                        exc_info=True,
+                    )
+
             for uid in all_affected_uids:
                 try:
-                    graph_node = await self._graph.find_node_by_uid(repository, uid)
+                    graph_node = graph_nodes_by_uid.get(uid)
                     if graph_node is None:
                         continue
                     page_type = (
@@ -602,6 +625,22 @@ class WikiService:
                     if tier is not None:
                         page_data.importance_tier = tier
                     skeleton_strat = self._resolve_skeleton_strategy(tier)
+                    parent_context = ""
+                    parent_edges = [
+                        e
+                        for e in page_data.edges
+                        if e.edge_type == EdgeType.CONTAINS and e.target_uid == uid
+                    ]
+                    if parent_edges and composer._wiki_store is not None:
+                        try:
+                            parent_uid = parent_edges[0].source_uid
+                            parent_page = await composer._wiki_store.get_page_by_entity_uid(
+                                repository, parent_uid,
+                            )
+                            if parent_page and hasattr(parent_page, "content"):
+                                parent_context = str(parent_page.content)[:1200]
+                        except Exception:
+                            log.debug("incremental_parent_context_miss", uid=uid)
                     page = await composer.compose_page(
                         page_data,
                         page_type,
@@ -609,6 +648,8 @@ class WikiService:
                         importance_tier=tier,
                         skeleton_strategy=skeleton_strat,
                         skeleton_light_model=skeleton_light_model,
+                        parent_context=parent_context,
+                        glossary=glossary,
                     )
                     if page is not None:
                         page.metadata.enrichment_level = EnrichmentLevel.BASE

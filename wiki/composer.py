@@ -45,6 +45,10 @@ def _effective_wiki_language(language: str) -> str:
     return language if language in ("en", "zh") else "en"
 
 
+_NAV_SIBLING_LIMIT = 10
+_NAV_CHILD_LIMIT = 15
+
+
 def render_navigation_section(page: WikiPage) -> str:
     """Render breadcrumbs and navigation links as Markdown."""
     if not page.navigation:
@@ -55,13 +59,21 @@ def render_navigation_section(page: WikiPage) -> str:
         crumb_links = " > ".join(f"[[{title}]]" for title, _path in nav.breadcrumbs)
         sections.append(f"> {crumb_links}")
     if nav.child_paths:
+        shown = nav.child_paths[:_NAV_CHILD_LIMIT]
+        remaining = len(nav.child_paths) - len(shown)
         sections.append("\n### Sub-components\n")
-        for path in nav.child_paths:
+        for path in shown:
             sections.append(f"- [{path}]({path})")
+        if remaining > 0:
+            sections.append(f"\n*… and {remaining} more sub-components*")
     if nav.sibling_paths:
+        shown = nav.sibling_paths[:_NAV_SIBLING_LIMIT]
+        remaining = len(nav.sibling_paths) - len(shown)
         sections.append("\n### Related (same parent)\n")
-        for path in nav.sibling_paths:
+        for path in shown:
             sections.append(f"- [{path}]({path})")
+        if remaining > 0:
+            sections.append(f"\n*… and {remaining} more siblings*")
     return "\n".join(sections)
 
 
@@ -204,7 +216,7 @@ class WikiComposer:
                 memory_block = await self._memory_loop.inject_into_generation(title, config.repository)
             except Exception as exc:  # noqa: BLE001 — optional enrichment
                 log.warning("wiki_memory_inject_failed", error=str(exc))
-        if config.mode != "full" and page_data.business_summary and page_data.business_summary.strip():
+        if page_data.business_summary and page_data.business_summary.strip():
             tier = 1
             description = page_data.business_summary.strip()
         elif config.mode == "structure":
@@ -582,6 +594,17 @@ class WikiComposer:
         if isinstance(bs, str) and bs:
             lines.append(f"- Business summary: {bs}")
 
+        for prop_name, label in [
+            ("annotations", "Annotations"),
+            ("semantic_roles", "Semantic roles"),
+            ("base_classes", "Base classes"),
+            ("interfaces", "Implements"),
+        ]:
+            val = n.properties.get(prop_name)
+            if val:
+                display = ", ".join(val) if isinstance(val, list) else str(val)
+                lines.append(f"- {label}: {display}")
+
         lines.append(f"- Related edges: {len(page_data.edges)}")
 
         if page_type == PageType.MODULE_OVERVIEW:
@@ -595,6 +618,10 @@ class WikiComposer:
                     detail += f" | sig: {str(ch_sig)[:120]}"
                 if ch_bs:
                     detail += f" | summary: {str(ch_bs)[:100]}"
+                ch_annotations = ch.properties.get("annotations", "")
+                if ch_annotations:
+                    ann_str = ", ".join(ch_annotations) if isinstance(ch_annotations, list) else str(ch_annotations)
+                    detail += f" | annotations: {ann_str[:80]}"
                 lines.append(detail)
         else:
             lines.append(f"- Methods: {len(page_data.methods)}")
@@ -610,6 +637,12 @@ class WikiComposer:
                     detail += f" | summary: {str(m_bs)[:100]}"
                 elif m_doc:
                     detail += f" | doc: {str(m_doc)[:100]}"
+                m_params = m.properties.get("parameters", "")
+                m_ret = m.properties.get("return_type", "")
+                if m_params:
+                    detail += f" | params: {str(m_params)[:100]}"
+                if m_ret:
+                    detail += f" | returns: {str(m_ret)[:60]}"
                 lines.append(detail)
 
         calls_out = [e for e in page_data.edges if e.edge_type == EdgeType.CALLS and e.source_uid == n.uid]

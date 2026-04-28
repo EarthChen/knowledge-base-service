@@ -658,6 +658,10 @@ export interface Translations {
     regenerateIncremental: string;
     regenerateFull: string;
     regenerateConflict: string;
+    /** Repo-scoped POST /wiki/generate-incremental (graph diff), distinct from business regenerate modes. */
+    repoIncrementalUpdate: string;
+    repoIncrementalTooltip: string;
+    repoIncrementalStarted: string;
     pagesHeading: string;
     expandAllFolders: string;
     treeNavExpand: string;
@@ -815,6 +819,15 @@ export interface Translations {
     generationInProgress: string;
     generationCompleted: string;
     generationFailed: string;
+    activeTaskLabel: string;
+    activeTaskProgress: string;
+    activeTaskPending: string;
+    taskCancel: string;
+    taskCancelConfirm: string;
+    taskCancelYes: string;
+    taskCancelNo: string;
+    taskCancelled: string;
+    taskCancelFailed: string;
     exportBusinessPanelTitle: string;
     exportFormatLabel: string;
     exportFormatMarkdownLabel: string;

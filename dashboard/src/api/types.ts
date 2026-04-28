@@ -56,6 +56,8 @@ export interface P2Stats {
 export interface Repository {
   repository: string;
   nodes: number;
+  git_url?: string;
+  last_indexed?: string;
 }
 
 export interface RepositoriesResponse {
@@ -160,6 +162,8 @@ export interface WikiAsyncTask {
   skipped_repos?: string[] | number;
   current_repo?: string;
   progress_pct?: number;
+  /** Multi-phase generation step from SSE / task status (e.g. leaf_compose, quality_eval). */
+  current_phase?: string;
   incremental?: string;
   partial_errors?: Array<{ repository: string; error: string }>;
 }

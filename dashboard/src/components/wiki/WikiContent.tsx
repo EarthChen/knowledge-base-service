@@ -16,6 +16,7 @@ import WikiSuggestedQuestions from "./WikiSuggestedQuestions";
 import WikiPageFeedback from "./WikiPageFeedback";
 import TableOfContents from "./TableOfContents";
 import WikiBreadcrumbs from "./WikiBreadcrumbs";
+import WikiQualityBadge from "./WikiQualityBadge";
 import { parseMarkdownHeadings, type ParsedHeading } from "./headingUtils";
 import { getErrorMessage } from "../../utils/errorUtils";
 import WikiCallChainSection from "./WikiCallChainSection";
@@ -55,6 +56,15 @@ function parseSuggestedQuestions(raw: string | undefined): string[] {
   } catch {
     return [];
   }
+}
+
+function parseQualityOverall(raw: string | undefined): number | null {
+  if (raw == null || String(raw).trim() === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  if (n >= 0 && n <= 1) return n;
+  if (n > 1 && n <= 100) return n / 100;
+  return null;
 }
 
 function collectSourceEntityUids(detail: WikiPageDetail | undefined): string[] {
@@ -97,7 +107,9 @@ export default function WikiContent({
     return Number.isFinite(n) ? n : undefined;
   })();
   const annotationsQuery = useWikiAnnotations(businessId, pageUid);
+  const annotations = Array.isArray(annotationsQuery.data) ? annotationsQuery.data : [];
   const sourceEntityUids = useMemo(() => collectSourceEntityUids(detail), [detail]);
+  const docQualityScore = parseQualityOverall(detail?.context?.quality_overall);
 
   useEffect(() => {
     setEditing(false);
@@ -138,6 +150,7 @@ export default function WikiContent({
               </span>
             )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
+              {docQualityScore != null && <WikiQualityBadge score={docQualityScore} />}
               {detail?.context?.confidence_score != null &&
                 String(detail.context.confidence_score).trim() !== "" && (
                   <ConfidenceBadge
@@ -204,7 +217,7 @@ export default function WikiContent({
           </div>
         )}
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:items-start">
+      <div className="flex min-h-0 flex-1 flex-col xl:flex-row xl:items-start">
         {!editing && showToc && detail?.content ? (
           <MobileTocBar
             key={`${pagePath}\0${repository}`}
@@ -213,7 +226,7 @@ export default function WikiContent({
             heading={t.wiki.tocHeading}
           />
         ) : null}
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 py-6">
         {isLoading && (
           <div className="animate-pulse space-y-3">
             <div className="h-4 w-2/3 rounded bg-gray-100 dark:bg-gray-800" />
@@ -242,11 +255,11 @@ export default function WikiContent({
                 />
               </div>
             ) : (
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-                <div className="min-w-0 flex-1">
+              <div className="flex flex-col gap-4">
+                <div className="min-w-0">
                   {pageUid ? (
                     <WikiAnnotationLayer
-                      annotations={annotationsQuery.data ?? []}
+                      annotations={annotations}
                       highlightSourceKey={detail.content}
                       onAddAnnotation={({ start, end, comment, selected_text }) => {
                         annotationsQuery.create.mutate(
@@ -289,13 +302,13 @@ export default function WikiContent({
                     </ErrorBoundary>
                   )}
                 </div>
-                {pageUid ? (
-                  <aside className="shrink-0 rounded-xl border border-gray-100 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/40 lg:w-72">
+                {pageUid && annotations.length > 0 ? (
+                  <aside className="rounded-xl border border-gray-100 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/40">
                     <h4 className="border-b border-gray-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:border-gray-800 dark:text-gray-400">
                       {t.wiki.annotationsTitle}
                     </h4>
                     <WikiAnnotationSidebar
-                      annotations={annotationsQuery.data ?? []}
+                      annotations={annotations}
                       onDelete={(id) =>
                         annotationsQuery.remove.mutate(id, {
                           onError: (e) => {
@@ -343,7 +356,7 @@ export default function WikiContent({
         </div>
 
         {!editing && showToc && detail?.content && (
-          <aside className="hidden shrink-0 border-t border-gray-100 px-5 py-6 dark:border-gray-700 lg:block lg:w-56 lg:border-l lg:border-t-0 xl:w-60">
+          <aside className="hidden shrink-0 border-t border-gray-100 px-5 py-6 dark:border-gray-700 xl:block xl:w-52 xl:border-l xl:border-t-0 2xl:w-56">
             <TableOfContents content={detail.content} parsedHeadings={tocItems} />
           </aside>
         )}

@@ -30,7 +30,11 @@ export type WikiPageDetail = {
   /** Graph uids of code entities linked via SOURCE_ENTITY. */
   source_entity_uids?: string[];
   method_locations: unknown[];
-  context: Record<string, string> & { confidence_score?: string };
+  context: Record<string, string> & {
+    confidence_score?: string;
+    /** Persisted documentation quality 0–1 when the API exposes it. */
+    quality_overall?: string;
+  };
   /** ISO timestamp from page metadata when the server provides it. */
   generated_at?: string | null;
 };
@@ -170,6 +174,13 @@ export type WikiQualityScoreResponse = {
   score: number;
   factors: WikiQualityFactor[];
   details: Record<string, number | string>;
+};
+
+/** Response from GET /wiki/{repository}/documentation-quality/summary */
+export type WikiDocumentationQualitySummary = {
+  avg_score: number;
+  evaluated_count: number;
+  low_quality_count: number;
 };
 
 export type BusinessWikiExportBody = {

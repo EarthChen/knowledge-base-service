@@ -12,6 +12,7 @@ import { useWikiEvents } from "../../hooks/useWikiEvents";
 import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
 import { invalidateWikiQueriesForBusiness } from "../../hooks/invalidateWikiQueries";
 import { useWikiRegenerate } from "../../hooks/useWikiRegenerate";
+import WikiIncrementalTrigger from "./WikiIncrementalTrigger";
 import WikiToolTabStrip from "./WikiToolTabStrip";
 import WikiToolPanel, { type WikiToolTab, WikiToolSuspenseFallback } from "./WikiToolPanel";
 import WikiSearchBar from "./WikiSearchBar";
@@ -187,6 +188,9 @@ export default function WikiShell() {
         : new Error(String(pageQuery.error))
       : null;
 
+  const repoForIncremental =
+    pageQuery.data?.context?.repository?.trim() || businessId.trim();
+
   return (
     <ErrorBoundary fallbackLabel="Wiki failed to render">
       <div className="flex min-h-[min(70vh,860px)] flex-col gap-4 lg:flex-row lg:items-stretch">
@@ -261,6 +265,7 @@ export default function WikiShell() {
                 {regeneratePending ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <RefreshCw size={14} aria-hidden />}
                 {t.wiki.regenerate}
               </button>
+              <WikiIncrementalTrigger repository={repoForIncremental} />
             </div>
           </div>
 

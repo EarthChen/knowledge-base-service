@@ -142,10 +142,11 @@ export async function businessWikiGenerate(
   businessId: string,
   language: string,
   incremental = true,
+  mode: "structure" | "full" = "structure",
 ): Promise<TaskInfo> {
   return api<TaskInfo>("/wiki/business/generate", {
     method: "POST",
-    body: JSON.stringify({ business_id: businessId, language, incremental }),
+    body: JSON.stringify({ business_id: businessId, language, incremental, mode }),
   });
 }
 
@@ -153,10 +154,50 @@ export async function businessWikiTaskStatus(taskId: string): Promise<WikiAsyncT
   return api<WikiAsyncTask>(`/wiki/business/tasks/${encodeURIComponent(taskId)}`);
 }
 
+export interface ActiveTasksResponse {
+  tasks: WikiAsyncTask[];
+  total: number;
+}
+
+export async function listActiveWikiTasks(): Promise<ActiveTasksResponse> {
+  return api<ActiveTasksResponse>("/wiki/tasks/active");
+}
+
+export async function cancelWikiTask(taskId: string): Promise<{ task_id: string; status: string }> {
+  return api<{ task_id: string; status: string }>(
+    `/wiki/tasks/${encodeURIComponent(taskId)}/cancel`,
+    { method: "POST" },
+  );
+}
+
 export async function businessWikiExport(
   body: BusinessWikiExportBody,
 ): Promise<BusinessWikiExportResponse> {
   return api<BusinessWikiExportResponse>("/wiki/export", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export type SyncRepoAndWikiRequest = {
+  repository: string;
+  git_url?: string;
+  branch?: string;
+};
+
+export type SyncRepoAndWikiResponse = {
+  repository: string;
+  directory: string;
+  git_pull: string | Record<string, string>;
+  index_stats: Record<string, number> | null;
+  wiki_task_id: string | null;
+  wiki_triggered: boolean;
+};
+
+export async function syncRepoAndWiki(
+  body: SyncRepoAndWikiRequest,
+): Promise<SyncRepoAndWikiResponse> {
+  return api<SyncRepoAndWikiResponse>("/sync/repo-update-wiki", {
     method: "POST",
     body: JSON.stringify(body),
   });

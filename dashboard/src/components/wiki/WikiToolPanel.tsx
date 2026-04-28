@@ -2,11 +2,13 @@ import { lazy, Suspense, type ReactNode } from "react";
 import { useI18n } from "../../i18n/context";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { WikiPageDetail } from "../../hooks/wikiTypes";
+import { useWikiDocumentationQualitySummary } from "../../hooks/useWikiQualityScore";
 import ErrorBoundary from "../ErrorBoundary";
 import AskPanel from "./AskPanel";
 import WikiContent from "./WikiContent";
 import WikiCoverageCard from "./WikiCoverageCard";
 import WikiQualityScoreCard from "./WikiQualityScoreCard";
+import WikiQualitySummary from "./WikiQualitySummary";
 import WikiLandingPage from "./WikiLandingPage";
 
 const WikiReferenceGraph = lazy(() => import("./WikiReferenceGraph"));
@@ -65,6 +67,10 @@ export default function WikiToolPanel({
   wikiLinkParams,
   onAskQuestion,
 }: Props) {
+  const docQualityRepo =
+    pageQuery.data?.context?.repository?.trim() || businessId.trim();
+  const docQualitySummary = useWikiDocumentationQualitySummary(docQualityRepo, toolTab === "coverage");
+
   return (
     <>
       {toolTab === "page" && !pagePath && (
@@ -96,9 +102,15 @@ export default function WikiToolPanel({
       {toolTab === "coverage" && (
         <div role="tabpanel" id="wiki-panel-coverage" aria-labelledby="wiki-tab-coverage">
           {panelBoundary(
-            <div className="grid gap-4 lg:grid-cols-2">
-              <WikiCoverageCard businessId={businessId} />
-              <WikiQualityScoreCard businessId={businessId} />
+            <div className="space-y-4">
+              <WikiQualitySummary
+                summary={docQualitySummary.data ?? undefined}
+                isLoading={docQualitySummary.isLoading}
+              />
+              <div className="grid gap-4 lg:grid-cols-2">
+                <WikiCoverageCard businessId={businessId} />
+                <WikiQualityScoreCard businessId={businessId} />
+              </div>
             </div>,
           )}
         </div>

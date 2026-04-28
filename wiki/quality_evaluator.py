@@ -109,3 +109,45 @@ class WikiQualityEvaluator:
             "overall": round(weighted_sum / total_weight, 3) if total_weight > 0 else 0,
             "page_count": len(page_scores),
         }
+
+    def select_sample_pages(
+        self,
+        pages: list[WikiPage],
+        tier_map: dict[str, ImportanceTier],
+        sample_size: int = 20,
+    ) -> list[WikiPage]:
+        """Select representative pages for sampled quality evaluation."""
+        import random
+
+        core_pages = [p for p in pages if tier_map.get(p.path) == ImportanceTier.CORE]
+        standard_pages = [p for p in pages if tier_map.get(p.path) == ImportanceTier.STANDARD]
+        sample = list(core_pages)
+        remaining = max(0, sample_size - len(sample))
+        if remaining > 0 and standard_pages:
+            sample.extend(random.sample(standard_pages, min(remaining, len(standard_pages))))
+        return sample
+
+    def identify_pages_for_heal(
+        self,
+        scores: list[WikiPageQualityScore],
+        min_score: float = 0.6,
+    ) -> list[str]:
+        return [s.page_path for s in scores if s.overall < min_score]
+
+    def build_heal_prompt_hint(self, score: WikiPageQualityScore) -> str:
+        if not score.issues:
+            return ""
+        issue_descriptions = {
+            "missing_overview": "Add a clear ## Overview section explaining the component's purpose.",
+            "missing_components": "Add a ## Key components or ## Methods section listing important members.",
+            "missing_relationships": "Add a ## Relationships section showing dependencies and callers.",
+            "content_too_short": "Expand the documentation with more detail about behavior and usage.",
+            "no_diagrams": "Consider what visual diagram would help explain the architecture.",
+        }
+        hints = [issue_descriptions.get(i, f"Address: {i}") for i in score.issues]
+        return (
+            "\n\n## Quality Improvement Instructions\n"
+            "The previous version of this documentation was flagged for quality issues. "
+            "Please specifically address:\n"
+            + "\n".join(f"- {h}" for h in hints)
+        )

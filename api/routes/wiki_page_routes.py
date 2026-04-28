@@ -6,10 +6,8 @@ import asyncio
 import io as _io
 import zipfile as _zipfile
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import unquote
-
-from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -19,6 +17,8 @@ from auth import Role, require_role
 from services.git_manager import normalize_repo_name
 from store.wiki_store import WikiStore
 from wiki.coverage_analyzer import WikiCoverageAnalyzer
+from wiki.models import ImportanceTier, PageType, WikiPage, WikiPageMetadata
+from wiki.quality_evaluator import WikiQualityEvaluator
 from wiki.quality_score import WikiQualityScorer
 from wiki.service import WikiRepoNotFoundError, WikiService
 from wiki.search import SearchResponse
@@ -48,6 +48,43 @@ from api.routes.wiki_shared import (
 from wiki.editing_store import WikiEditingStore
 
 router = APIRouter(tags=["wiki", "pages"])
+
+
+def _wiki_quality_rows_to_pages_and_tiers(
+    rows: list[dict[str, Any]],
+) -> tuple[list[WikiPage], dict[str, ImportanceTier]]:
+    pages: list[WikiPage] = []
+    tier_map: dict[str, ImportanceTier] = {}
+    for row in rows:
+        path = row.get("path")
+        if not path:
+            continue
+        raw_pt = row.get("page_type") or "class_detail"
+        try:
+            page_type = PageType(str(raw_pt))
+        except ValueError:
+            page_type = PageType.CLASS_DETAIL
+        tier_raw = str(row.get("importance_tier") or "").strip().lower()
+        path_s = str(path)
+        if tier_raw:
+            try:
+                tier_map[path_s] = ImportanceTier(tier_raw)
+            except ValueError:
+                tier_map[path_s] = ImportanceTier.STANDARD
+        else:
+            tier_map[path_s] = ImportanceTier.STANDARD
+        pages.append(
+            WikiPage(
+                path=path_s,
+                title=str(row.get("title") or ""),
+                page_type=page_type,
+                content=str(row.get("content") or ""),
+                diagrams=[],
+                source_locations=[],
+                metadata=WikiPageMetadata(0, 0),
+            )
+        )
+    return pages, tier_map
 
 
 @router.post("/search", response_model=None)
@@ -608,6 +645,74 @@ async def wiki_enrichment_status(
         raise KbNotFound(
             f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
         ) from exc
+
+
+@router.get("/{repository}/documentation-quality/summary", response_model=None)
+async def wiki_documentation_quality_summary(
+    repository: str,
+    store: Any = Depends(get_wiki_store_dep),
+) -> dict[str, Any]:
+    """Aggregate persisted documentation quality scores for a repository (WikiPage graph properties)."""
+    repo = normalize_repo_name(repository)
+    ws = WikiStore(store)
+    return await ws.get_quality_summary(repo)
+
+
+@router.post(
+    "/{repository}/documentation-quality/evaluate",
+    response_model=None,
+    dependencies=[Depends(require_role(Role.EDITOR))],
+)
+async def wiki_documentation_quality_evaluate(
+    repository: str,
+    store: Any = Depends(get_wiki_store_dep),
+    mode: Literal["quick", "sampled", "full"] = Query(default="quick"),
+    wiki_svc: WikiService = Depends(get_wiki_service_dep),
+) -> dict[str, Any]:
+    """Run documentation quality evaluation and persist scores on WikiPage nodes."""
+    settings = get_route_settings()
+    repo = normalize_repo_name(repository)
+    try:
+        await wiki_svc.ensure_repository(repo)
+    except WikiRepoNotFoundError as exc:
+        raise KbNotFound(
+            f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
+        ) from exc
+
+    ws = WikiStore(store)
+    rows = await ws.list_wiki_pages_for_quality_evaluation(repo)
+    pages, tier_map = _wiki_quality_rows_to_pages_and_tiers(rows)
+
+    if not pages:
+        return {"mode": mode, "summary": {"overall": 0, "page_count": 0}, "evaluated_pages": 0}
+
+    sample_size = int(getattr(settings.wiki, "quality_sample_size", 20) or 20)
+    if mode == "sampled":
+        sampler = WikiQualityEvaluator(llm=None)
+        pages = sampler.select_sample_pages(pages, tier_map, sample_size=sample_size)
+
+    judge_model = str(getattr(settings.wiki, "quality_judge_model", "") or "")
+    llm_port = None if mode == "quick" else wiki_svc._resolve_llm_port(None)
+    evaluator = WikiQualityEvaluator(llm=llm_port, judge_model=judge_model)
+
+    if mode == "quick":
+        scores = [evaluator.structural_check(p) for p in pages]
+    else:
+        scores = [await evaluator.llm_judge_evaluate(p) for p in pages]
+
+    await ws.save_quality_scores(repo, scores)
+    summary = evaluator.aggregate_scores(scores, tier_map)
+
+    min_score = float(getattr(settings.wiki, "quality_min_score", 0.6) or 0.6)
+    if summary.get("overall", 1.0) < min_score:
+        log.warning(
+            "wiki_quality_below_threshold",
+            repository=repo,
+            score=summary.get("overall"),
+            threshold=min_score,
+        )
+
+    return {"mode": mode, "summary": summary, "evaluated_pages": len(scores)}
 
 
 @router.post(

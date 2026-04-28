@@ -305,6 +305,13 @@ class WikiConfig(BaseModel):
     schema_path: str = "wiki/schema.yaml"
     forgetting_initial_stability: float = 7.0
 
+    # Phase 4: documentation quality evaluation (structural + LLM judge)
+    quality_evaluation_mode: str = Field(default="quick")
+    quality_min_score: float = Field(default=0.6)
+    quality_auto_heal: bool = Field(default=False)
+    quality_judge_model: str = Field(default="")
+    quality_sample_size: int = Field(default=20)
+
 
 class GitConfig(BaseModel):
     """Git repository management for remote indexing.

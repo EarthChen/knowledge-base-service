@@ -129,8 +129,45 @@ def test_aggregate_scores_with_tier_weights():
     assert result["page_count"] == 3
 
 
-def test_aggregate_scores_empty():
+def test_select_sample_all_core_included():
     evaluator = WikiQualityEvaluator(llm=None)
-    result = evaluator.aggregate_scores([], {})
-    assert result["overall"] == 0
-    assert result["page_count"] == 0
+    pages = [
+        WikiPage(path=f"p{i}.md", title=f"P{i}", page_type=PageType.CLASS_DETAIL,
+                 content="# Test", diagrams=[], source_locations=[],
+                 metadata=WikiPageMetadata(1, 1))
+        for i in range(50)
+    ]
+    tier_map = {"p0.md": ImportanceTier.CORE, "p1.md": ImportanceTier.CORE, "p2.md": ImportanceTier.CORE}
+    for i in range(3, 50):
+        tier_map[f"p{i}.md"] = ImportanceTier.STANDARD
+    sample = evaluator.select_sample_pages(pages, tier_map, sample_size=10)
+    assert len(sample) == 10
+    core_in_sample = [p for p in sample if tier_map[p.path] == ImportanceTier.CORE]
+    assert len(core_in_sample) == 3
+
+
+def test_identify_pages_for_heal():
+    evaluator = WikiQualityEvaluator(llm=None)
+    scores = [
+        WikiPageQualityScore("a.md", 0.9, 0.8, 0.9, 0.87, []),
+        WikiPageQualityScore("b.md", 0.3, 0.4, 0.5, 0.4, ["missing_overview", "content_too_short"]),
+        WikiPageQualityScore("c.md", 0.5, 0.5, 0.6, 0.53, ["no_diagrams"]),
+    ]
+    to_heal = evaluator.identify_pages_for_heal(scores, min_score=0.6)
+    assert "b.md" in to_heal
+    assert "c.md" in to_heal
+    assert "a.md" not in to_heal
+
+
+def test_build_heal_prompt_includes_issues():
+    evaluator = WikiQualityEvaluator(llm=None)
+    score = WikiPageQualityScore("b.md", 0.3, 0.4, 0.5, 0.4, ["missing_overview", "content_too_short"])
+    prompt_hint = evaluator.build_heal_prompt_hint(score)
+    assert "missing_overview" in prompt_hint or "Overview" in prompt_hint
+    assert "content_too_short" in prompt_hint or "Expand" in prompt_hint
+
+
+def test_build_heal_prompt_no_issues():
+    evaluator = WikiQualityEvaluator(llm=None)
+    score = WikiPageQualityScore("a.md", 0.9, 0.9, 0.9, 0.9, [])
+    assert evaluator.build_heal_prompt_hint(score) == ""

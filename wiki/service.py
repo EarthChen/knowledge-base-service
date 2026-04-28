@@ -1544,16 +1544,46 @@ class WikiService:
                     wikilink_cache.register(page.title, page.path)
                 return page
 
-        leaf_results = await asyncio.gather(*(compose_leaf(n) for n in leaves))
-        for page in leaf_results:
-            if page is not None:
-                pages.append(page)
-                uid = getattr(page, "_source_entity_uid", "")
-                struct_path = getattr(page, "_structure_path", page.path)
-                _sum = _extract_summary(page, entity_uid=uid)
-                summary_index[struct_path] = _sum
-                if page.path != struct_path:
-                    summary_index[page.path] = _sum
+        batch_size = int(getattr(self._wiki_cfg, "progressive_persist_batch_size", 20))
+        progressive = getattr(self._wiki_cfg, "progressive_persist_enabled", True)
+
+        for batch_start in range(0, len(leaves), batch_size):
+            batch = leaves[batch_start : batch_start + batch_size]
+            leaf_results = await asyncio.gather(*(compose_leaf(n) for n in batch))
+
+            batch_pages: list[WikiPage] = []
+            for page in leaf_results:
+                if page is not None:
+                    pages.append(page)
+                    batch_pages.append(page)
+                    uid = getattr(page, "_source_entity_uid", "")
+                    struct_path = getattr(page, "_structure_path", page.path)
+                    _sum = _extract_summary(page, entity_uid=uid)
+                    summary_index[struct_path] = _sum
+                    if page.path != struct_path:
+                        summary_index[page.path] = _sum
+
+            if progressive and batch_pages and self._store is not None:
+                try:
+                    await self._persist_pages_to_graph(
+                        repository,
+                        batch_pages,
+                        language=config.language,
+                        skip_claim_tracking=(config.mode == "structure"),
+                    )
+                    log.info(
+                        "progressive_persist_leaf_batch",
+                        repository=repository,
+                        batch_start=batch_start,
+                        batch_saved=len(batch_pages),
+                    )
+                except Exception:
+                    log.warning(
+                        "progressive_persist_leaf_failed",
+                        repository=repository,
+                        batch_start=batch_start,
+                        exc_info=True,
+                    )
 
         log.info(
             "compose_phase_complete",
@@ -1590,132 +1620,198 @@ class WikiService:
                 },
             )
 
-        for _depth, parent_node in parents_by_depth:
-            if parent_node.page_type == PageType.REPO_OVERVIEW:
-                page = self._make_repo_overview_page(
-                    repository, structure, config, community_markdown=community_markdown,
-                )
-                page.metadata.enrichment_level = EnrichmentLevel.BASE
-                page._structure_path = parent_node.path  # type: ignore[attr-defined]
-                pages.append(page)
-                continue
-            try:
-                graph_node = await asyncio.wait_for(
-                    self._resolve_structure_node(repository, parent_node),
-                    timeout=30,
-                )
-            except TimeoutError:
-                log.warning("resolve_parent_timeout", path=parent_node.path)
-                continue
-            except Exception:
-                log.warning("resolve_parent_error", path=parent_node.path, exc_info=True)
-                continue
-            tier = tiers.get(graph_node.uid)
-            code_budget = self._budget_for_tier(
-                tier, multiplier=token_budget_multiplier,
-            )
-            try:
-                page_data = await asyncio.wait_for(
-                    self._collector.collect(repository, graph_node, code_budget=code_budget),
-                    timeout=60,
-                )
-            except TimeoutError:
-                log.warning("collector_parent_timeout", path=parent_node.path)
-                continue
-            if tier is not None:
-                page_data.importance_tier = tier
+        progressive_parents = getattr(self._wiki_cfg, "progressive_persist_enabled", True)
+        prev_depth: int | None = None
+        depth_batch: list[WikiPage] = []
 
-            child_summaries = [
-                summary_index[ch.path] for ch in parent_node.children if ch.path in summary_index
-            ]
-            if getattr(self._wiki_cfg, "delegation_enabled", True):
-                decision = evaluate_delegation(
-                    children_count=len(parent_node.children),
-                    total_code_lines=0,  # code lines not tracked on structure nodes
-                    max_children=getattr(self._wiki_cfg, "delegation_max_children", 30),
-                    max_code_lines=getattr(self._wiki_cfg, "delegation_max_code_lines", 5000),
-                )
-                if decision.should_delegate and child_summaries:
-                    edges: list[tuple[str, str]] = []  # TODO: populate from graph in future
-                    groups = group_children_by_graph(
-                        [ch for ch in parent_node.children if ch.path in summary_index],
-                        edges,
-                        max_group_size=getattr(self._wiki_cfg, "delegation_max_children", 30),
+        for _depth, parent_node in parents_by_depth:
+            if (
+                progressive_parents
+                and prev_depth is not None
+                and _depth != prev_depth
+                and depth_batch
+                and self._store is not None
+            ):
+                try:
+                    await self._persist_pages_to_graph(
+                        repository,
+                        depth_batch,
+                        language=config.language,
+                        skip_claim_tracking=(config.mode == "structure"),
                     )
-                    if len(groups) > 1:
-                        group_summaries: list[WikiPageSummary] = []
-                        for group in groups:
-                            group_child_sums = [
-                                summary_index[ch.path]
-                                for ch in group
-                                if ch.path in summary_index
-                            ]
-                            if group_child_sums:
-                                combined = "; ".join(s.summary[:50] for s in group_child_sums)
-                                group_summaries.append(
-                                    WikiPageSummary(
-                                        entity_uid=f"virtual:{parent_node.path}:{len(group_summaries)}",
-                                        title=f"Group: {group_child_sums[0].title} etc.",
-                                        path=parent_node.path,
-                                        summary=combined[:200],
-                                        importance_tier=None,
-                                        page_type=PageType.MODULE_OVERVIEW,
-                                    )
-                                )
-                        if group_summaries:
-                            child_summaries = group_summaries
-                            log.info(
-                                "delegation_applied",
-                                path=parent_node.path,
-                                groups=len(groups),
-                                reason=decision.reason,
-                            )
-            skeleton_strat = self._resolve_skeleton_strategy(tier)
-            if tier == ImportanceTier.SKELETON and skeleton_strat == SkeletonStrategy.SKIP:
-                continue
+                    log.info(
+                        "progressive_persist_parent_depth",
+                        repository=repository,
+                        completed_depth=prev_depth,
+                        batch_saved=len(depth_batch),
+                    )
+                except Exception:
+                    log.warning(
+                        "progressive_persist_parent_depth_failed",
+                        repository=repository,
+                        completed_depth=prev_depth,
+                        exc_info=True,
+                    )
+                depth_batch.clear()
+
             try:
-                if child_summaries:
-                    page = await asyncio.wait_for(
-                        composer.compose_parent_page(
-                            page_data,
-                            parent_node.page_type,
-                            config,
-                            child_summaries,
-                        ),
-                        timeout=_PAGE_TIMEOUT,
+                if parent_node.page_type == PageType.REPO_OVERVIEW:
+                    page = self._make_repo_overview_page(
+                        repository, structure, config, community_markdown=community_markdown,
                     )
-                else:
-                    skeleton_strat = self._resolve_skeleton_strategy(tier)
-                    page = await asyncio.wait_for(
-                        composer.compose_page(
-                            page_data,
-                            parent_node.page_type,
-                            config,
-                            importance_tier=tier,
-                            skeleton_strategy=skeleton_strat,
-                            skeleton_light_model=skeleton_light_model,
-                        ),
-                        timeout=_PAGE_TIMEOUT,
+                    page.metadata.enrichment_level = EnrichmentLevel.BASE
+                    page._structure_path = parent_node.path  # type: ignore[attr-defined]
+                    pages.append(page)
+                    if progressive_parents:
+                        depth_batch.append(page)
+                    continue
+                try:
+                    graph_node = await asyncio.wait_for(
+                        self._resolve_structure_node(repository, parent_node),
+                        timeout=30,
                     )
-            except TimeoutError:
-                log.warning("compose_parent_timeout", path=parent_node.path)
-                continue
-            if page is None:
-                continue
-            page.metadata.enrichment_level = EnrichmentLevel.BASE
-            page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
-            page._structure_path = parent_node.path  # type: ignore[attr-defined]
-            if tier is not None:
-                page_tier_map[page.path] = tier
-            if config.mode == "full" and page.metadata.fallback_tier == 3:
-                degraded = True
-            pages.append(page)
-            _psum = _extract_summary(page, entity_uid=graph_node.uid)
-            summary_index[parent_node.path] = _psum
-            if page.path != parent_node.path:
-                summary_index[page.path] = _psum
-            if cache_active:
-                wikilink_cache.register(page.title, page.path)
+                except TimeoutError:
+                    log.warning("resolve_parent_timeout", path=parent_node.path)
+                    continue
+                except Exception:
+                    log.warning("resolve_parent_error", path=parent_node.path, exc_info=True)
+                    continue
+                tier = tiers.get(graph_node.uid)
+                code_budget = self._budget_for_tier(
+                    tier, multiplier=token_budget_multiplier,
+                )
+                try:
+                    page_data = await asyncio.wait_for(
+                        self._collector.collect(repository, graph_node, code_budget=code_budget),
+                        timeout=60,
+                    )
+                except TimeoutError:
+                    log.warning("collector_parent_timeout", path=parent_node.path)
+                    continue
+                if tier is not None:
+                    page_data.importance_tier = tier
+
+                child_summaries = [
+                    summary_index[ch.path] for ch in parent_node.children if ch.path in summary_index
+                ]
+                if getattr(self._wiki_cfg, "delegation_enabled", True):
+                    decision = evaluate_delegation(
+                        children_count=len(parent_node.children),
+                        total_code_lines=0,  # code lines not tracked on structure nodes
+                        max_children=getattr(self._wiki_cfg, "delegation_max_children", 30),
+                        max_code_lines=getattr(self._wiki_cfg, "delegation_max_code_lines", 5000),
+                    )
+                    if decision.should_delegate and child_summaries:
+                        edges: list[tuple[str, str]] = []  # TODO: populate from graph in future
+                        groups = group_children_by_graph(
+                            [ch for ch in parent_node.children if ch.path in summary_index],
+                            edges,
+                            max_group_size=getattr(self._wiki_cfg, "delegation_max_children", 30),
+                        )
+                        if len(groups) > 1:
+                            group_summaries: list[WikiPageSummary] = []
+                            for group in groups:
+                                group_child_sums = [
+                                    summary_index[ch.path]
+                                    for ch in group
+                                    if ch.path in summary_index
+                                ]
+                                if group_child_sums:
+                                    combined = "; ".join(s.summary[:50] for s in group_child_sums)
+                                    group_summaries.append(
+                                        WikiPageSummary(
+                                            entity_uid=f"virtual:{parent_node.path}:{len(group_summaries)}",
+                                            title=f"Group: {group_child_sums[0].title} etc.",
+                                            path=parent_node.path,
+                                            summary=combined[:200],
+                                            importance_tier=None,
+                                            page_type=PageType.MODULE_OVERVIEW,
+                                        )
+                                    )
+                            if group_summaries:
+                                child_summaries = group_summaries
+                                log.info(
+                                    "delegation_applied",
+                                    path=parent_node.path,
+                                    groups=len(groups),
+                                    reason=decision.reason,
+                                )
+                skeleton_strat = self._resolve_skeleton_strategy(tier)
+                if tier == ImportanceTier.SKELETON and skeleton_strat == SkeletonStrategy.SKIP:
+                    continue
+                try:
+                    if child_summaries:
+                        page = await asyncio.wait_for(
+                            composer.compose_parent_page(
+                                page_data,
+                                parent_node.page_type,
+                                config,
+                                child_summaries,
+                            ),
+                            timeout=_PAGE_TIMEOUT,
+                        )
+                    else:
+                        skeleton_strat = self._resolve_skeleton_strategy(tier)
+                        page = await asyncio.wait_for(
+                            composer.compose_page(
+                                page_data,
+                                parent_node.page_type,
+                                config,
+                                importance_tier=tier,
+                                skeleton_strategy=skeleton_strat,
+                                skeleton_light_model=skeleton_light_model,
+                            ),
+                            timeout=_PAGE_TIMEOUT,
+                        )
+                except TimeoutError:
+                    log.warning("compose_parent_timeout", path=parent_node.path)
+                    continue
+                if page is None:
+                    continue
+                page.metadata.enrichment_level = EnrichmentLevel.BASE
+                page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
+                page._structure_path = parent_node.path  # type: ignore[attr-defined]
+                if tier is not None:
+                    page_tier_map[page.path] = tier
+                if config.mode == "full" and page.metadata.fallback_tier == 3:
+                    degraded = True
+                pages.append(page)
+                _psum = _extract_summary(page, entity_uid=graph_node.uid)
+                summary_index[parent_node.path] = _psum
+                if page.path != parent_node.path:
+                    summary_index[page.path] = _psum
+                if cache_active:
+                    wikilink_cache.register(page.title, page.path)
+                if progressive_parents:
+                    depth_batch.append(page)
+            finally:
+                prev_depth = _depth
+
+        if (
+            progressive_parents
+            and depth_batch
+            and self._store is not None
+        ):
+            try:
+                await self._persist_pages_to_graph(
+                    repository,
+                    depth_batch,
+                    language=config.language,
+                    skip_claim_tracking=(config.mode == "structure"),
+                )
+                log.info(
+                    "progressive_persist_parent_depth",
+                    repository=repository,
+                    completed_depth=prev_depth,
+                    batch_saved=len(depth_batch),
+                )
+            except Exception:
+                log.warning(
+                    "progressive_persist_parent_depth_failed",
+                    repository=repository,
+                    completed_depth=prev_depth,
+                    exc_info=True,
+                )
 
         log.info(
             "compose_phase_complete",

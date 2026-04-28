@@ -230,6 +230,9 @@ class WikiConfig(BaseModel):
     chunk_embedding_batch_size: int = 64
     chunk_embedding_max_length: int = 512
 
+    progressive_persist_enabled: bool = True
+    progressive_persist_batch_size: int = 20
+
     #: Max concurrent wiki subtrees during compose (sibling ``walk`` tasks) and enrichment.
     compose_concurrency: int = Field(default=3, ge=1)
 

@@ -999,11 +999,6 @@ class WikiService:
             llm_port,
             infrastructure_label=app_cfg.business_domain_infrastructure_label,
             batch_threshold=app_cfg.business_wiki_batch_threshold,
-            classify_timeout=app_cfg.business_domain_classify_timeout,
-            max_concurrency=app_cfg.business_domain_max_concurrency,
-            sub_batch_size=app_cfg.business_domain_sub_batch_size,
-            cache_ttl=app_cfg.business_domain_cache_ttl,
-            redis_conn=self._redis,
         )
         try:
             total_batches = sum(

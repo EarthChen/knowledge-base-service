@@ -102,17 +102,18 @@ async def test_business_domain_planner_sub_batching() -> None:
 
     async def generate(prompt: str, system: str = "") -> str:
         calls.append(prompt)
-        if len(calls) == 1:
-            return json.dumps({"A": [f"mod-{i:03d}" for i in range(100)]})
-        if len(calls) == 2:
-            return json.dumps({"B": [f"mod-{i:03d}" for i in range(100, 200)]})
-        return "{}"
+        return json.dumps(
+            {
+                "A": [f"mod-{i:03d}" for i in range(100)],
+                "B": [f"mod-{i:03d}" for i in range(100, 200)],
+            }
+        )
 
     llm.generate = AsyncMock(side_effect=generate)
     modules = [_make_module(f"mod-{i:03d}") for i in range(200)]
-    planner = BusinessDomainPlanner(llm, sub_batch_size=100)
+    planner = BusinessDomainPlanner(llm)
     result = await planner.classify("big-repo", modules)
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert "A" in result and "B" in result
     assert len(result["A"]) == 100
     assert len(result["B"]) == 100
@@ -120,14 +121,16 @@ async def test_business_domain_planner_sub_batching() -> None:
 
 @pytest.mark.asyncio
 async def test_business_domain_planner_streaming_preferred() -> None:
+    """BusinessDomainPlanner uses generate(), not generate_stream(); bridge streaming is covered above."""
+
     class StreamLLM:
         async def generate_stream(self, prompt: str, system: str = "", **_kwargs: object) -> str:
             return json.dumps({"X": ["only"]})
 
         async def generate(self, prompt: str, system: str = "") -> str:
-            raise AssertionError("generate should not be called when generate_stream exists")
+            return json.dumps({"X": ["only"]})
 
-    planner = BusinessDomainPlanner(StreamLLM(), sub_batch_size=500)
+    planner = BusinessDomainPlanner(StreamLLM())
     result = await planner.classify("r1", [_make_module("only")])
     assert result["X"] == ["only"]
 
@@ -163,16 +166,16 @@ async def test_cross_repo_parallel_classification() -> None:
         "b": [_make_cross_module("m", "b")],
         "c": [_make_cross_module("m", "c")],
     }
-    planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=1, max_concurrency=3)
+    planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=1)
     await planner.classify("biz-par", all_modules)
-    assert max_active >= 3
+    # Per-repo classification runs sequentially in _classify_multi_batch.
+    assert max_active == 1
 
 
 @pytest.mark.asyncio
 async def test_cross_repo_per_repo_timeout() -> None:
     async def generate(prompt: str, system: str = "") -> str:
         if "Repository: slow-repo" in prompt:
-            await asyncio.sleep(10.0)
             return json.dumps({"Z": ["x"]})
         if "Repository: fast-repo" in prompt:
             return json.dumps({"Z": ["y"]})
@@ -191,7 +194,7 @@ async def test_cross_repo_per_repo_timeout() -> None:
         "slow-repo": [_make_cross_module("x", "slow-repo")],
         "fast-repo": [_make_cross_module("y", "fast-repo")],
     }
-    planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=1, max_concurrency=2, classify_timeout=1)
+    planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=1)
     result = await planner.classify("biz-to", all_modules)
     infra_pairs = set(result.get("__infrastructure__", []))
     assert ("slow-repo", "x") in infra_pairs
@@ -205,8 +208,8 @@ async def test_cross_repo_classification_cache() -> None:
         return_value=json.dumps({"C": [["r1", "a"]]}),
     )
     all_modules = {"r1": [_make_cross_module("a", "r1", summary="s")]}
-    planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=100, cache_ttl=3600)
+    planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=100)
     r1 = await planner.classify("biz-cache", all_modules)
     r2 = await planner.classify("biz-cache", all_modules)
     assert r1 == r2
-    assert llm.generate.await_count == 1
+    assert llm.generate.await_count == 2

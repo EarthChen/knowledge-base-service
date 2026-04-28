@@ -125,7 +125,7 @@ export async function wikiExportExecute(
 export async function wikiGenerate(
   repository: string,
   scope: string,
-  mode = "structure",
+  mode = "full",
   language = "en",
 ): Promise<TaskInfo> {
   return api<TaskInfo>("/wiki/generate", {
@@ -142,7 +142,7 @@ export async function businessWikiGenerate(
   businessId: string,
   language: string,
   incremental = true,
-  mode: "structure" | "full" = "structure",
+  mode: "structure" | "full" = "full",
 ): Promise<TaskInfo> {
   return api<TaskInfo>("/wiki/business/generate", {
     method: "POST",

@@ -152,7 +152,7 @@ export function useWikiRegenerate(businessId: string) {
       setProgress(null);
       try {
         const lang = locale === "zh" ? "zh" : "en";
-        const mode = incremental ? "structure" : "full";
+        const mode = "full";
         const res = await businessWikiGenerate(businessId.trim(), lang, incremental, mode);
         const tid = res.task_id ? String(res.task_id) : "";
         if (!tid) {

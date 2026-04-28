@@ -297,6 +297,7 @@ class WikiConfig(BaseModel):
 
     # Phase 3 (LLM Wiki v2 — Memory Evolution)
     memory_tiers_enabled: bool = True
+    incremental_enabled: bool = Field(default=False)
 
     # Phase 3 SP7: forgetting curve + YAML schema lint
     forgetting_enabled: bool = True

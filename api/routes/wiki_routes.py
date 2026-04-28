@@ -17,7 +17,12 @@ from api.routes.wiki_task_routes import router as wiki_task_router
 from api.routes import wiki_shared
 from wiki.quality_score import WikiQualityScorer
 from wiki.task_registry import WIKI_TASK_TTL_SEC, WikiTaskRegistry
-from api.models.wiki_models import IngestRequest, WikiGenerateBody, WikiQuickBody
+from api.models.wiki_models import (
+    IngestRequest,
+    WikiGenerateBody,
+    WikiIncrementalGenerateBody,
+    WikiQuickBody,
+)
 
 wiki_router = APIRouter(
     prefix="/api/v1/wiki",
@@ -79,6 +84,7 @@ __all__ = [
     "_GLOBAL_SEARCH_MAX_REPOS",
     "time",
     "WikiGenerateBody",
+    "WikiIncrementalGenerateBody",
     "WikiQuickBody",
     "IngestRequest",
 ]

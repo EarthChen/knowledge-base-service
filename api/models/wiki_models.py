@@ -14,6 +14,13 @@ class WikiGenerateBody(BaseModel):
     llm_provider: str | None = None
 
 
+class WikiIncrementalGenerateBody(BaseModel):
+    """Trigger graph-diff incremental wiki refresh for one repository."""
+
+    repository: str = Field(..., min_length=1)
+    language: str = Field(default="en", pattern="^(en|zh)$")
+
+
 class WikiQuickBody(BaseModel):
     git_url: str = Field(..., min_length=1)
     branch: str | None = None
@@ -50,6 +57,11 @@ class BusinessWikiGenerateBody(BaseModel):
     language: str = Field(default="en", pattern="^(en|zh)$")
     llm_provider: str | None = None
     incremental: bool = True
+    mode: str = Field(
+        default="structure",
+        pattern="^(structure|full)$",
+        description="Wiki generation mode: 'structure' for fast code-only, 'full' for LLM-enriched content",
+    )
 
 
 class WikiAskBody(BaseModel):

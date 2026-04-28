@@ -11,7 +11,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from api.exceptions import KbClientError, KbNotFound
+from api.exceptions import KbClientError, KbNotFound, KbServiceUnavailable
 from auth import Role, require_role
 from services.git_manager import normalize_repo_name
 from utils.git_utils import looks_like_git_url
@@ -23,6 +23,7 @@ from wiki.task_store import WikiTaskStore
 from api.models.wiki_models import (
     BusinessWikiGenerateBody,
     WikiGenerateBody,
+    WikiIncrementalGenerateBody,
     WikiQuickBody,
 )
 from api.routes.wiki_shared import (
@@ -39,7 +40,9 @@ from api.routes.wiki_shared import (
     log,
 )
 from wiki.event_bus import WikiEvent, WikiEventBus
+from wiki.incremental_diff import _first_column_values, compute_wiki_diff
 from wiki.task_registry import WikiTaskRegistry
+from wiki.change_detector import AffectedPageSet
 
 router = APIRouter(tags=["wiki", "tasks"])
 
@@ -60,6 +63,7 @@ async def _run_business_wiki_background(
     language: str,
     llm_provider: str | None,
     incremental: bool,
+    mode: str = "structure",
     svc: WikiService,
     task_store: WikiTaskStore | None,
     event_bus: WikiEventBus | None,
@@ -108,6 +112,7 @@ async def _run_business_wiki_background(
             language=language,
             llm_provider=llm_provider,
             incremental=incremental,
+            mode=mode,
             progress_callback=_progress,
         )
         if task_store:
@@ -263,6 +268,49 @@ async def wiki_generate(
     return result
 
 
+@router.post("/generate-incremental")
+async def wiki_generate_incremental(
+    body: WikiIncrementalGenerateBody,
+    request: Request,
+    svc: WikiService = Depends(get_wiki_service_dep),
+) -> dict[str, Any]:
+    """Run incremental wiki update from graph diff (code_hash vs wiki_code_hash)."""
+    if not getattr(svc._wiki_cfg, "incremental_enabled", False):
+        raise KbClientError(
+            "Incremental updates are not enabled",
+            detail="incremental_enabled",
+        )
+
+    store: Any = getattr(request.app.state, "wiki_store", None)
+    if store is None or not hasattr(store, "execute_query"):
+        raise KbServiceUnavailable("Graph store not configured")
+
+    diff = await compute_wiki_diff(store, body.repository, since_version=0)
+    entity_uids = list(diff.changed_uids | diff.affected_parents)
+    page_uids: list[str] = []
+    if entity_uids:
+        page_q = (
+            "MATCH (wp:WikiPage)-[:SOURCE_ENTITY]->(e) "
+            "WHERE e.uid IN $uids AND e.repository = $repo "
+            "RETURN DISTINCT wp.uid AS uid"
+        )
+        page_result = await store.execute_query(
+            page_q, {"uids": entity_uids, "repo": body.repository},
+        )
+        page_uids = [str(v) for v in _first_column_values(page_result) if v]
+
+    affected = AffectedPageSet(
+        page_uids=page_uids,
+        affected_entities=entity_uids,
+        trigger="incremental_graph_diff",
+    )
+    return await svc.generate_incremental(
+        body.repository,
+        affected,
+        language=body.language,
+    )
+
+
 @router.post("/quick", response_model=None)
 async def wiki_quick(
     body: WikiQuickBody,
@@ -357,6 +405,89 @@ async def wiki_quick(
     pages_models = [_wiki_page_from_export_dict(p, repo) for p in result["pages"]]
     cache.put(repo, _QUICK_SCOPE, body.mode, gv, pages_models)
     return result
+
+
+@router.get(
+    "/tasks/active",
+    dependencies=[Depends(require_role(Role.VIEWER))],
+)
+async def list_active_wiki_tasks(
+    request: Request,
+    registry: WikiTaskRegistry = Depends(get_task_registry_dep),
+) -> dict[str, Any]:
+    """List all active (pending/running) wiki tasks from both Redis and in-memory registry."""
+    task_store: WikiTaskStore | None = getattr(
+        request.app.state, "wiki_task_store", None
+    )
+    tasks: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    if task_store:
+        try:
+            redis_tasks = await task_store.list_active()
+            for t in redis_tasks:
+                tid = t.get("task_id", "")
+                if tid and tid not in seen_ids:
+                    seen_ids.add(tid)
+                    tasks.append(t)
+        except Exception:
+            log.warning("list_active_tasks_redis_error", exc_info=True)
+
+    for tid, rec in registry.tasks.items():
+        if tid not in seen_ids and rec.get("status") in ("pending", "running"):
+            seen_ids.add(tid)
+            tasks.append(rec)
+
+    return {"tasks": tasks, "total": len(tasks)}
+
+
+@router.post(
+    "/tasks/{task_id}/cancel",
+    dependencies=[Depends(require_role(Role.EDITOR))],
+)
+async def cancel_wiki_task(
+    task_id: str,
+    request: Request,
+    registry: WikiTaskRegistry = Depends(get_task_registry_dep),
+) -> dict[str, Any]:
+    """Cancel a running wiki generation task."""
+    task_store: WikiTaskStore | None = getattr(
+        request.app.state, "wiki_task_store", None
+    )
+    event_bus: WikiEventBus | None = getattr(
+        request.app.state, "wiki_event_bus", None
+    )
+
+    rec = registry.get_task(task_id)
+    if rec is None and task_store:
+        rec = await task_store.get_task(task_id)
+    if rec is None:
+        raise KbNotFound("task_not_found")
+
+    if rec.get("status") in ("completed", "failed", "cancelled"):
+        return {"task_id": task_id, "status": rec["status"], "detail": "already_terminal"}
+
+    if task_store:
+        await task_store.update_status(task_id, "cancelled")
+        business_id = rec.get("business_id", "")
+        if business_id:
+            await task_store.unlock(business_id)
+
+    registry.put_task(task_id, {**rec, "status": "cancelled"})
+
+    if event_bus:
+        business_id = rec.get("business_id", "")
+        await event_bus.publish(
+            WikiEvent(
+                event_type="wiki:generation_failed",
+                repository=business_id,
+                business_id=business_id,
+                data={"task_id": task_id, "error": "cancelled_by_user"},
+            )
+        )
+
+    log.info("wiki_task_cancelled", task_id=task_id)
+    return {"task_id": task_id, "status": "cancelled"}
 
 
 @router.get("/tasks/{task_id}")
@@ -457,6 +588,7 @@ async def generate_business_wiki(
                 language=body.language,
                 llm_provider=body.llm_provider,
                 incremental=body.incremental,
+                mode=body.mode,
                 svc=svc,
                 task_store=task_store,
                 event_bus=event_bus,

@@ -61,3 +61,10 @@ def test_wiki_skeleton_strategy_default() -> None:
     settings = get_settings()
     assert settings.wiki.skeleton_strategy == "template"
     assert settings.wiki.wikilink_cache_enabled is True
+
+
+def test_wiki_incremental_enabled_default() -> None:
+    w = WikiConfig()
+    assert w.incremental_enabled is False
+    settings = Settings(_env_file=None)
+    assert settings.wiki.incremental_enabled is False

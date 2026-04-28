@@ -40,9 +40,7 @@ from api.routes.wiki_shared import (
     log,
 )
 from wiki.event_bus import WikiEvent, WikiEventBus
-from wiki.incremental_diff import _first_column_values, compute_wiki_diff
 from wiki.task_registry import WikiTaskRegistry
-from wiki.change_detector import AffectedPageSet
 
 router = APIRouter(tags=["wiki", "tasks"])
 
@@ -285,30 +283,7 @@ async def wiki_generate_incremental(
     if store is None or not hasattr(store, "execute_query"):
         raise KbServiceUnavailable("Graph store not configured")
 
-    diff = await compute_wiki_diff(store, body.repository, since_version=0)
-    entity_uids = list(diff.changed_uids | diff.affected_parents)
-    page_uids: list[str] = []
-    if entity_uids:
-        page_q = (
-            "MATCH (wp:WikiPage)-[:SOURCE_ENTITY]->(e) "
-            "WHERE e.uid IN $uids AND e.repository = $repo "
-            "RETURN DISTINCT wp.uid AS uid"
-        )
-        page_result = await store.execute_query(
-            page_q, {"uids": entity_uids, "repo": body.repository},
-        )
-        page_uids = [str(v) for v in _first_column_values(page_result) if v]
-
-    affected = AffectedPageSet(
-        page_uids=page_uids,
-        affected_entities=entity_uids,
-        trigger="incremental_graph_diff",
-    )
-    return await svc.generate_incremental(
-        body.repository,
-        affected,
-        language=body.language,
-    )
+    return await svc.generate_incremental(body.repository, language=body.language)
 
 
 @router.post("/quick", response_model=None)

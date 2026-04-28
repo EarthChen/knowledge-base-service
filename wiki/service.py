@@ -24,6 +24,7 @@ from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
 from wiki.delegation import evaluate_delegation, group_children_by_graph
 from wiki.exporter import WikiExporter
+from wiki.incremental_diff import compute_wiki_diff
 from wiki.memory_loop import MemoryLoop
 from wiki.models import (
     EnrichmentLevel,
@@ -43,6 +44,7 @@ from wiki.tree_builder import WikiTreeBuilder
 from wiki.wikilink_cache import WikiLinkCache
 
 from log import get_logger
+from store.wiki_store import WikiStore
 
 if TYPE_CHECKING:
     from indexer.business_flow_inferencer import BusinessFlowInferencer
@@ -477,7 +479,150 @@ class WikiService:
         bundle["degraded"] = degraded
         return bundle
 
+    async def _update_wiki_code_hashes(self, repository: str, uids: list[str]) -> None:
+        """After successful wiki page generation, set wiki_code_hash = code_hash."""
+        if not uids:
+            return
+        query_port = self._store if self._store is not None else self._graph
+        if query_port is None or not hasattr(query_port, "execute_query"):
+            return
+        await query_port.execute_query(
+            "MATCH (n {repository: $repo}) "
+            "WHERE n.uid IN $uids AND n.code_hash IS NOT NULL "
+            "SET n.wiki_code_hash = n.code_hash",
+            {"repo": repository, "uids": uids},
+        )
+        log.info("wiki_code_hashes_updated", repository=repository, count=len(uids))
+
     async def generate_incremental(
+        self,
+        repository: str,
+        config: WikiConfig | None = None,
+        llm_provider: str | None = None,
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+        *,
+        language: str = "en",
+        token_budget_multiplier: float = 1.0,
+    ) -> dict[str, Any]:
+        """Incremental wiki update: only regenerate pages for entities whose code hash changed."""
+        query_port = self._store if self._store is not None else self._graph
+        if query_port is None or not hasattr(query_port, "execute_query"):
+            return {"status": "error", "message": "No graph store available"}
+
+        wiki_meta = self._wiki_store if self._wiki_store is not None else WikiStore(query_port)
+
+        last_version = await wiki_meta.get_wiki_generation_version(repository)
+        if last_version is None:
+            log.info("incremental_no_baseline", repository=repository)
+            return {
+                "status": "no_baseline",
+                "message": "No previous generation found. Run full generation first.",
+            }
+
+        diff = await compute_wiki_diff(query_port, repository, since_version=last_version)
+        if diff.is_empty:
+            log.info("incremental_no_changes", repository=repository)
+            return {"status": "no_changes", "changed": 0}
+
+        if progress_callback:
+            await progress_callback({"phase": "incremental_diff", "changed": diff.total_affected})
+
+        all_affected_uids = diff.changed_uids | diff.affected_parents
+        updated_uids: list[str] = []
+        regenerated_pages: list[WikiPage] = []
+        effective_config = config or self._config_for("full", "json", repository, language)
+
+        _importance_tiers: dict[str, ImportanceTier] = {}
+        app_cfg = self._wiki_cfg
+        if app_cfg.code_budget_enabled and self._wiki_store is not None:
+            from wiki.importance_scorer import ImportanceScorer
+
+            scorer = ImportanceScorer(
+                self._wiki_store,
+                core_percentile=app_cfg.importance_core_percentile,
+                standard_percentile=app_cfg.importance_standard_percentile,
+            )
+            _importance_tiers = await scorer.score_all(repository)
+
+        _sk_light_raw = str(getattr(self._wiki_cfg, "skeleton_light_model", "") or "").strip()
+        skeleton_light_model = _sk_light_raw if _sk_light_raw else None
+
+        try:
+            await self._ensure_repo(repository)
+            composer = self._composer_for(llm_provider)
+
+            for uid in all_affected_uids:
+                try:
+                    graph_node = await self._graph.find_node_by_uid(repository, uid)
+                    if graph_node is None:
+                        continue
+                    page_type = (
+                        PageType.MODULE_OVERVIEW
+                        if graph_node.label == NodeLabel.MODULE
+                        else PageType.CLASS_DETAIL
+                    )
+                    tier = _importance_tiers.get(graph_node.uid)
+                    code_budget = self._budget_for_tier(
+                        tier, multiplier=token_budget_multiplier,
+                    )
+                    page_data = await self._collector.collect(
+                        repository, graph_node, code_budget=code_budget,
+                    )
+                    if tier is not None:
+                        page_data.importance_tier = tier
+                    skeleton_strat = self._resolve_skeleton_strategy(tier)
+                    page = await composer.compose_page(
+                        page_data,
+                        page_type,
+                        effective_config,
+                        importance_tier=tier,
+                        skeleton_strategy=skeleton_strat,
+                        skeleton_light_model=skeleton_light_model,
+                    )
+                    if page is not None:
+                        page.metadata.enrichment_level = EnrichmentLevel.BASE
+                        page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
+                        regenerated_pages.append(page)
+                        updated_uids.append(uid)
+                except Exception:
+                    log.warning("incremental_entity_failed", uid=uid, exc_info=True)
+
+            if regenerated_pages:
+                await self._persist_pages_to_graph(
+                    repository, regenerated_pages, language=language,
+                )
+
+            await self._update_wiki_code_hashes(repository, updated_uids)
+
+            current_version = last_version + 1
+            await wiki_meta.set_wiki_generation_version(repository, current_version)
+
+            if progress_callback:
+                await progress_callback({
+                    "phase": "incremental_complete",
+                    "pages_regenerated": len(regenerated_pages),
+                    "version": current_version,
+                })
+
+            log.info(
+                "incremental_complete",
+                repository=repository,
+                pages_regenerated=len(regenerated_pages),
+                version=current_version,
+            )
+
+            return {
+                "status": "success",
+                "pages_regenerated": len(regenerated_pages),
+                "changed_entities": len(diff.changed_uids),
+                "affected_parents": len(diff.affected_parents),
+                "version": current_version,
+            }
+        except Exception:
+            log.error("incremental_failed", repository=repository, exc_info=True)
+            return {"status": "failed", "pages_regenerated": len(regenerated_pages)}
+
+    async def bump_affected_wiki_pages(
         self,
         repository: str,
         affected: AffectedPageSet,

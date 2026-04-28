@@ -18,7 +18,7 @@ def test_ingest_endpoint_accepts_file_list():
     _ = register_exception_handlers  # keep hook consistent with spec
 
     mock_service = AsyncMock()
-    mock_service.generate_incremental = AsyncMock(
+    mock_service.bump_affected_wiki_pages = AsyncMock(
         return_value={
             "pages_regenerated": 2,
             "pages_total": 3,

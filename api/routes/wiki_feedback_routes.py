@@ -241,7 +241,7 @@ async def wiki_ingest(req: IngestRequest, request: Request) -> dict[str, Any]:
     )
     out = factory()
     service = await out if asyncio.iscoroutine(out) else out
-    result = await service.generate_incremental(req.repository, affected)
+    result = await service.bump_affected_wiki_pages(req.repository, affected)
     return result
 
 

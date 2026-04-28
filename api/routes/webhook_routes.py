@@ -168,7 +168,7 @@ async def webhook_wiki_ingest_push(
     )
     out = factory()
     service = await out if asyncio.iscoroutine(out) else out
-    return await service.generate_incremental(body.repository, affected)
+    return await service.bump_affected_wiki_pages(body.repository, affected)
 
 
 @webhook_router.post("/{provider}")

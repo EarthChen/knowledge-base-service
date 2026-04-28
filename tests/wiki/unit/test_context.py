@@ -12,7 +12,9 @@ class TestGlossary:
         captured: dict[str, str] = {}
 
         class MockLLM:
-            async def generate(self, prompt: str, system: str = "") -> str:
+            async def generate(  # noqa: PLR0913
+                self, prompt: str, system: str = "", **_: object
+            ) -> str:
                 captured["prompt"] = prompt
                 captured["system"] = system
                 return json.dumps({"KBS": "Knowledge-Base-Service", "API": "Application Programming Interface"})

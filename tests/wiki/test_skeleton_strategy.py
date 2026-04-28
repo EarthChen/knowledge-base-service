@@ -101,6 +101,27 @@ async def test_composer_uses_cache_instead_of_db():
     assert page.title == "TestClass" or page.title == "SomeClass"
 
 
+async def test_skeleton_light_model_passes_model_kwarg_to_llm():
+    """LIGHT_MODEL composes with app-config style model name on generate()."""
+    llm_mock = AsyncMock()
+    llm_mock.generate = AsyncMock(return_value="Brief doc for TestClass.")
+    ctx = _make_ctx()
+    composer = WikiComposer(llm_mock, ctx)
+    config = WikiConfig(repository="test", mode="full")
+    page = await composer.compose_page(
+        _make_page_data(),
+        PageType.CLASS_DETAIL,
+        config,
+        importance_tier=ImportanceTier.SKELETON,
+        skeleton_strategy=SkeletonStrategy.LIGHT_MODEL,
+        skeleton_light_model="gpt-4o-nano",
+    )
+    assert page is not None
+    llm_mock.generate.assert_called_once()
+    assert llm_mock.generate.await_args is not None
+    assert llm_mock.generate.await_args.kwargs.get("model") == "gpt-4o-nano"
+
+
 async def test_non_skeleton_still_works():
     """Non-SKELETON entities should still use normal compose flow."""
     ctx = _make_ctx()

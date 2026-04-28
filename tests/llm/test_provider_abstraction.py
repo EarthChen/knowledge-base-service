@@ -178,7 +178,8 @@ async def test_bridge_generate_with_system() -> None:
         [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "user text"},
-        ]
+        ],
+        model=None,
     )
     assert result == "out"
 
@@ -189,5 +190,24 @@ async def test_bridge_generate_no_system() -> None:
     prov.complete = AsyncMock(return_value="only user")
     bridge = LLMPortBridge(prov)
     result = await bridge.generate("hello")
-    prov.complete.assert_awaited_once_with([{"role": "user", "content": "hello"}])
+    prov.complete.assert_awaited_once_with(
+        [{"role": "user", "content": "hello"}],
+        model=None,
+    )
     assert result == "only user"
+
+
+@pytest.mark.asyncio
+async def test_bridge_generate_passes_model_to_complete() -> None:
+    prov = MagicMock()
+    prov.complete = AsyncMock(return_value="out")
+    bridge = LLMPortBridge(prov)
+    result = await bridge.generate("q", system="s", model="cheap-model")
+    prov.complete.assert_awaited_once_with(
+        [
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": "q"},
+        ],
+        model="cheap-model",
+    )
+    assert result == "out"

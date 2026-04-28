@@ -17,7 +17,13 @@ class WikiContext:
 
 
 class LLMPort(Protocol):
-    async def generate(self, prompt: str, system: str = "") -> str: ...
+    async def generate(
+        self,
+        prompt: str,
+        system: str = "",
+        *,
+        model: str | None = None,
+    ) -> str: ...
 
 
 class WikiContextBuilder:

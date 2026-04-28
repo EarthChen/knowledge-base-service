@@ -124,9 +124,28 @@ class LLMPortBridge:
             if chunk:
                 yield chunk
 
-    async def generate(self, prompt: str, system: str = "") -> str:
+    async def generate(
+        self,
+        prompt: str,
+        system: str = "",
+        *,
+        model: str | None = None,
+    ) -> str:
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        return await self._provider.complete(messages)
+        return await self._provider.complete(messages, model=model)
+
+    async def generate_stream(self, prompt: str, system: str = "", **kwargs: Any) -> str:
+        messages: list[dict[str, str]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        if getattr(type(self._provider), "complete_stream", None) is None:
+            return await self.generate(prompt, system)
+        parts: list[str] = []
+        async for chunk in self._provider.complete_stream(messages, **kwargs):
+            if chunk:
+                parts.append(chunk)
+        return "".join(parts)

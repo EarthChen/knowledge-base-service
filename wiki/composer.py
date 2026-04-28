@@ -112,6 +112,7 @@ class WikiComposer:
         *,
         importance_tier: ImportanceTier | None = None,
         skeleton_strategy: SkeletonStrategy | None = None,
+        skeleton_light_model: str | None = None,
     ) -> WikiPage | None:
         glossary = glossary or {}
 
@@ -149,7 +150,12 @@ class WikiComposer:
                     method_locations=list(page_data.method_locations),
                 )
             if skeleton_strategy == SkeletonStrategy.LIGHT_MODEL:
-                return await self._compose_skeleton_light(page_data, page_type, config)
+                return await self._compose_skeleton_light(
+                    page_data,
+                    page_type,
+                    config,
+                    skeleton_light_model=skeleton_light_model,
+                )
 
         node = page_data.node
         title = _primary_name(node)
@@ -324,6 +330,8 @@ class WikiComposer:
         page_data: PageData,
         page_type: PageType,
         config: WikiConfig,
+        *,
+        skeleton_light_model: str | None = None,
     ) -> WikiPage:
         """Compose SKELETON entity using a lighter/cheaper LLM model."""
         node = page_data.node
@@ -336,10 +344,12 @@ class WikiComposer:
             tier = 3
         else:
             prompt = self._build_skeleton_light_prompt(page_data, page_type, eff_lang)
+            light_model = (skeleton_light_model or "").strip() or None
             description = (
                 await self._llm.generate(
                     prompt,
                     system="You are writing concise documentation. Be brief but accurate.",
+                    model=light_model,
                 )
             ).strip()
             tier = 2

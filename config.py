@@ -114,6 +114,10 @@ class LLMConfig(BaseModel):
     retry_count: int = 3
     temperature: float = 0.1
     synthesis_max_tokens: int = 2000
+    max_context_tokens: int = Field(
+        default=128_000,
+        description="LLM model context window size. Safety ceiling for all budget calculations.",
+    )
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
 
     @field_validator("enrichment_strategy")
@@ -303,6 +307,13 @@ class AppWikiFlags(BaseModel):
     incremental_enabled: bool = Field(default=False)
     #: When True, skip composing pages whose source matches the last saved wiki baseline (full compose).
     resume_from_saved: bool = Field(default=False)
+    default_llm_budget: int = Field(
+        default=30_000,
+        description=(
+            "Base token budget for all LLM operations. "
+            "Components derive budgets as fixed proportions of this value."
+        ),
+    )
 
     # Layer 0: Cross-file resolution
     cross_file_resolution_enabled: bool = Field(default=True)

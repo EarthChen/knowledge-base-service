@@ -1,6 +1,18 @@
 from wiki.compact_formatter import CompactFormatter
 
 
+def test_formatter_accepts_resolver_budget():
+    from wiki.token_budget import TokenBudgetResolver
+
+    r = TokenBudgetResolver(base=30_000)
+    formatter = CompactFormatter(max_tokens=r.budget("compact"))
+    assert formatter._max_tokens == 3_900
+
+    r_small = TokenBudgetResolver(base=6_000)
+    formatter_small = CompactFormatter(max_tokens=r_small.budget("compact"))
+    assert formatter_small._max_tokens == 780
+
+
 def test_format_found_entity():
     formatter = CompactFormatter(max_tokens=4000)
     data = {

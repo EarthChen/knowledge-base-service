@@ -7,6 +7,14 @@ import pytest
 from query.context_assembler import ContextAssembler
 
 
+def test_assembler_accepts_resolver_budget():
+    from wiki.token_budget import TokenBudgetResolver
+
+    r = TokenBudgetResolver(base=30_000)
+    budget = r.budget("assembly")
+    assert budget == 8_100
+
+
 @pytest.fixture
 def mock_store():
     return AsyncMock()

@@ -162,8 +162,14 @@ class WikiComposer:
         importance_tier: ImportanceTier | None = None,
         skeleton_strategy: SkeletonStrategy | None = None,
         skeleton_light_model: str | None = None,
+        business_domain: str | None = None,
+        is_entry_point: bool = False,
     ) -> WikiPage | None:
         glossary = glossary or {}
+        if business_domain:
+            page_data.node.properties.setdefault("business_domain", business_domain)
+        if is_entry_point:
+            page_data.node.properties.setdefault("is_entry_point", True)
         entity_name = _primary_name(page_data.node)
         log.info(
             "compose_page_start",
@@ -703,6 +709,14 @@ class WikiComposer:
         bs = n.properties.get("business_summary")
         if isinstance(bs, str) and bs:
             lines.append(f"- Business summary: {bs}")
+        bd = n.properties.get("business_domain")
+        if isinstance(bd, str) and bd:
+            lines.append(f"- Business Domain: {bd}")
+        description = n.properties.get("description")
+        if isinstance(description, str) and description:
+            business_summary = n.properties.get("business_summary", "")
+            if description != business_summary:
+                lines.append(f"- Module Description: {description[:300]}")
 
         for prop_name, label in [
             ("annotations", "Annotations"),

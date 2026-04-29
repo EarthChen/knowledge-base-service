@@ -81,3 +81,122 @@ class TestDomainEntryPoints:
         assert "all_entry_point_names" in source, (
             "generate_business_wiki should reference all_entry_point_names"
         )
+
+
+class TestBusinessDomainInjection:
+    def test_entity_digest_includes_business_domain(self):
+        """When business_domain is set on node properties, _entity_digest should include it."""
+        from wiki.composer import WikiComposer
+        from wiki.models import PageType
+        from store.schema import GraphNode, NodeLabel
+
+        composer = WikiComposer.__new__(WikiComposer)
+        node = GraphNode(uid="test_uid", label=NodeLabel.CLASS, properties={
+            "name": "UserService",
+            "business_domain": "User Management",
+            "path": "user_service.py",
+        })
+        from dataclasses import dataclass, field
+        from typing import Any
+
+        @dataclass
+        class FakePageData:
+            node: Any
+            edges: list = field(default_factory=list)
+            children: list = field(default_factory=list)
+            methods: list = field(default_factory=list)
+            code_snippets: list = field(default_factory=list)
+            related_chunks: list = field(default_factory=list)
+
+        page_data = FakePageData(node=node)
+        digest = composer._entity_digest(page_data, PageType.CLASS_DETAIL)
+        assert "Business Domain: User Management" in digest
+
+    def test_entity_digest_no_domain_when_absent(self):
+        """When business_domain is not set, digest should not contain domain line."""
+        from wiki.composer import WikiComposer
+        from wiki.models import PageType
+        from store.schema import GraphNode, NodeLabel
+
+        composer = WikiComposer.__new__(WikiComposer)
+        node = GraphNode(uid="test_uid", label=NodeLabel.CLASS, properties={
+            "name": "UserService",
+            "path": "user_service.py",
+        })
+        from dataclasses import dataclass, field
+        from typing import Any
+
+        @dataclass
+        class FakePageData:
+            node: Any
+            edges: list = field(default_factory=list)
+            children: list = field(default_factory=list)
+            methods: list = field(default_factory=list)
+            code_snippets: list = field(default_factory=list)
+            related_chunks: list = field(default_factory=list)
+
+        page_data = FakePageData(node=node)
+        digest = composer._entity_digest(page_data, PageType.CLASS_DETAIL)
+        assert "Business Domain" not in digest
+
+
+class TestModuleDescriptionInjection:
+    def test_entity_digest_includes_module_description(self):
+        """Module description should appear in digest when present and different from business_summary."""
+        from wiki.composer import WikiComposer
+        from wiki.models import PageType
+        from store.schema import GraphNode, NodeLabel
+
+        composer = WikiComposer.__new__(WikiComposer)
+        node = GraphNode(uid="test_uid", label=NodeLabel.MODULE, properties={
+            "name": "UserModule",
+            "path": "user_module.py",
+            "description": "Handles user registration and authentication workflows",
+            "business_summary": "User service module",
+        })
+        from dataclasses import dataclass, field
+        from typing import Any
+
+        @dataclass
+        class FakePageData:
+            node: Any
+            edges: list = field(default_factory=list)
+            children: list = field(default_factory=list)
+            methods: list = field(default_factory=list)
+            code_snippets: list = field(default_factory=list)
+            related_chunks: list = field(default_factory=list)
+
+        page_data = FakePageData(node=node)
+        digest = composer._entity_digest(page_data, PageType.MODULE_OVERVIEW)
+        assert "Module Description:" in digest
+        assert "Handles user registration" in digest
+
+    def test_entity_digest_no_description_when_same_as_summary(self):
+        """Module description should be skipped if identical to business_summary."""
+        from wiki.composer import WikiComposer
+        from wiki.models import PageType
+        from store.schema import GraphNode, NodeLabel
+
+        composer = WikiComposer.__new__(WikiComposer)
+        same_text = "User service module"
+        node = GraphNode(uid="test_uid", label=NodeLabel.MODULE, properties={
+            "name": "UserModule",
+            "path": "user_module.py",
+            "description": same_text,
+            "business_summary": same_text,
+        })
+        from dataclasses import dataclass, field
+        from typing import Any
+
+        @dataclass
+        class FakePageData:
+            node: Any
+            edges: list = field(default_factory=list)
+            children: list = field(default_factory=list)
+            methods: list = field(default_factory=list)
+            code_snippets: list = field(default_factory=list)
+            related_chunks: list = field(default_factory=list)
+
+        page_data = FakePageData(node=node)
+        digest = composer._entity_digest(page_data, PageType.MODULE_OVERVIEW)
+        assert "Module Description:" not in digest

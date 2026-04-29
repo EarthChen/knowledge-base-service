@@ -24,7 +24,7 @@
 | `wiki/dependency_graph.py` | 类常量 | 30,000 | `MAX_TOKENS_PER_BATCH` — 模块表示构建 |
 
 **核心问题：**
-1. **不一致风险** — 修改模型上下文窗口后，下游组件仍使用旧的硬编码值
+1. **模型切换不安全** — 从 128K 模型切到 8K 模型时，30K 的域树分解预算会超出窗口限制
 2. **运维成本** — 切换 LLM 提供商时需要逐文件检查和调整
 3. **可测试性差** — 硬编码值无法在测试中覆盖
 
@@ -32,134 +32,140 @@
 
 ## 2. Goal
 
-建立一个**分层的 Token Budget 配置体系**，使得：
+建立一个**极简的 Token Budget 配置体系**，使得：
 
-1. 模型上下文窗口大小可在 **一处** 配置，自动传播到所有下游组件
-2. 各组件可基于全局值计算自己的预算（百分比/比例），而非独立硬编码
-3. 保持向后兼容 — 已有的显式配置仍可覆盖推算值
+1. **一处配置，全局生效** — 仅通过 1 个配置项控制所有组件的预算基数
+2. **比例自动派生** — 各组件基于全局基数和固定比例计算自己的预算，无需独立配置
+3. **安全天花板** — 所有预算自动受模型上下文窗口限制
+4. **向后兼容** — 零配置迁移，现有部署无需修改任何环境变量
 
 ---
 
 ## 3. Design
 
-### 3.1 Configuration Hierarchy
+### 3.1 关键设计决策
+
+经过 Sequential Thinking 深度分析，**移除 per-component 覆盖机制**：
+
+**理由：**
+- 不同组件的预算差异不是"不一致"，而是**合理设计** — Q&A 需要 8K 聚焦上下文，域树分解需要 30K 全面列表，紧凑格式化只需 4K
+- 99% 的用户不会调整 per-component 预算；仅需在切换模型时调整一个全局值
+- 4 个 per-component override 字段属于过度设计，违反精准克制原则
+
+### 3.2 Configuration Hierarchy (Two Layers Only)
 
 ```
 ┌─────────────────────────────────────┐
-│  Layer 0: Provider Context Window   │  ← 由 LLM 模型决定
+│  Layer 0: Provider Context Window   │  ← 由 LLM 模型决定（已存在于 provider 中）
 │  llm.max_context_tokens = 128000    │
 └──────────────┬──────────────────────┘
-               │ derives
+               │ ceiling cap
 ┌──────────────▼──────────────────────┐
-│  Layer 1: Global Operation Budget   │  ← 全局默认，取 context_window 的比例
+│  Layer 1: Global Operation Budget   │  ← 唯一新增配置
 │  wiki.default_llm_budget = 30000    │
 └──────────────┬──────────────────────┘
-               │ inherits (可覆盖)
+               │ × ratio (code constant)
 ┌──────────────▼──────────────────────┐
-│  Layer 2: Per-Component Override    │  ← 各组件若需不同值可显式覆盖
-│  wiki.ask_token_budget = None       │  ← None 表示继承 Layer 1
-│  wiki.decomposition_budget = None   │
+│  Derived Per-Component Budgets      │  ← 代码级比例常量，不暴露为配置
+│  decomposition = base × 1.0         │
+│  ask_base     = base × 0.27         │
+│  ask_flow     = base × 0.40         │
+│  compact      = base × 0.13         │
+│  assembly     = base × 0.27         │
 └─────────────────────────────────────┘
 ```
 
-### 3.2 Config Model Changes
+### 3.3 Config Model Changes
 
 ```python
 # config.py
 
 class AppLlmSettings(BaseSettings):
-    # Provider context window — the hard limit of the model
     max_context_tokens: int = Field(
         default=128_000,
-        description="LLM model context window size. Used as the ceiling for all budget calculations.",
+        description="LLM model context window size. Used as the safety ceiling.",
     )
     synthesis_max_tokens: int = Field(default=2000)
 
 
 class AppWikiFlags(BaseSettings):
-    # ─── Layer 1: Global operation budget ───
     default_llm_budget: int = Field(
         default=30_000,
         description=(
-            "Default token budget for LLM batch operations (domain decomposition, "
-            "module representation, context assembly). "
-            "Components inherit this unless explicitly overridden."
+            "Base token budget for all LLM operations. "
+            "Each component derives its actual budget as a fixed proportion of this value. "
+            "Adjust this single value when switching to models with different context windows."
         ),
     )
-
-    # ─── Layer 2: Per-component overrides (None = inherit default_llm_budget) ───
-    ask_token_budget: int | None = Field(
-        default=None,
-        description="Token budget for wiki Q&A context. None = use default_llm_budget.",
-    )
-    decomposition_token_budget: int | None = Field(
-        default=None,
-        description="Token budget per batch for domain tree LLM decomposition. None = use default_llm_budget.",
-    )
-    context_assembly_budget: int | None = Field(
-        default=None,
-        description="Token budget for context assembler. None = use default_llm_budget.",
-    )
-    compact_format_budget: int | None = Field(
-        default=None,
-        description="Token budget for compact formatter. None = use default_llm_budget // 8.",
-    )
+    # decomposition_max_tokens_per_batch is DEPRECATED, kept for backward compat
 ```
 
-### 3.3 Budget Resolution Helper
+### 3.4 Budget Resolver
 
 ```python
-# config.py or wiki/token_budget.py
+# wiki/token_budget.py
+
+from __future__ import annotations
 
 class TokenBudgetResolver:
-    """Resolves effective token budgets from hierarchical config."""
+    """Derives per-component token budgets from a single base value."""
 
-    def __init__(self, llm_cfg: AppLlmSettings, wiki_cfg: AppWikiFlags):
-        self._llm = llm_cfg
-        self._wiki = wiki_cfg
+    RATIOS: dict[str, float] = {
+        "decomposition": 1.0,       # 30K @ base=30K — full budget for domain tree
+        "ask_concept": 0.33,        # 10K — concept Q&A
+        "ask_flow": 0.40,           # 12K — flow Q&A (needs more context)
+        "ask_relation": 0.27,       # 8K  — relation Q&A
+        "ask_impact": 0.33,         # 10K — impact Q&A
+        "ask_general": 0.27,        # 8K  — general Q&A
+        "compact": 0.13,            # 4K  — compact formatter
+        "assembly": 0.27,           # 8K  — context assembler
+    }
 
-    @property
-    def context_window(self) -> int:
-        return self._llm.max_context_tokens
+    def __init__(self, base: int, ceiling: int | None = None):
+        self._base = base
+        self._ceiling = int(ceiling * 0.8) if ceiling else None
 
-    @property
-    def default_budget(self) -> int:
-        return self._wiki.default_llm_budget
+    def budget(self, component: str) -> int:
+        ratio = self.RATIOS.get(component, 0.27)
+        raw = int(self._base * ratio)
+        if self._ceiling:
+            return min(raw, self._ceiling)
+        return raw
 
     def ask_budget(self, question_type: str | None = None) -> int:
-        base = self._wiki.ask_token_budget or self.default_budget
-        # Per-type multipliers can still apply
-        multipliers = {
-            "concept": 1.25, "flow": 1.5, "relation": 1.0,
-            "impact": 1.25, "general": 1.0,
-        }
-        return int(base * multipliers.get(question_type or "general", 1.0))
-
-    def decomposition_budget(self) -> int:
-        return self._wiki.decomposition_token_budget or self.default_budget
-
-    def context_assembly_budget(self) -> int:
-        return self._wiki.context_assembly_budget or self.default_budget
-
-    def compact_format_budget(self) -> int:
-        return self._wiki.compact_format_budget or (self.default_budget // 8)
+        key = f"ask_{question_type or 'general'}"
+        return self.budget(key)
 ```
 
-### 3.4 Migration Path
+### 3.5 Proportional Scaling Example
+
+| Component | Ratio | base=30K (128K model) | base=6K (8K model) |
+|-----------|:-----:|:---------------------:|:------------------:|
+| decomposition | 1.0 | 30,000 | 6,000 |
+| ask_flow | 0.40 | 12,000 | 2,400 |
+| ask_concept | 0.33 | 10,000 | 2,000 |
+| ask_general | 0.27 | 8,000 | 1,600 |
+| assembly | 0.27 | 8,000 | 1,600 |
+| compact | 0.13 | 4,000 | 780 |
+
+当切换到 8K 模型时，只需设 `WIKI__DEFAULT_LLM_BUDGET=6000`，所有组件自动缩放。
+
+### 3.6 Migration Path
 
 | 阶段 | 改动 | 影响范围 |
 |------|------|---------|
-| Phase 1 | 添加 `default_llm_budget` + `TokenBudgetResolver` | `config.py`, 新文件 `wiki/token_budget.py` |
-| Phase 2 | `wiki/ask.py` 读取 resolver 替代硬编码 | `wiki/ask.py` |
-| Phase 3 | `compact_formatter.py` + `context_assembler.py` 读取 resolver | 2 files |
-| Phase 4 | `dependency_graph.py` 的 `MAX_TOKENS_PER_BATCH` 替换为 resolver | 1 file |
-| Phase 5 | 移除 `decomposition_max_tokens_per_batch` (被 `decomposition_token_budget` 替代) | `config.py` |
+| Phase 1 | 添加 `default_llm_budget` 配置 + `TokenBudgetResolver` | `config.py`, 新文件 `wiki/token_budget.py` |
+| Phase 2 | `wiki/ask.py` 替换 `_WIKI_TYPE_TOKEN_BUDGET` 硬编码 dict | `wiki/ask.py` |
+| Phase 3 | `compact_formatter.py` + `context_assembler.py` 使用 resolver | 2 files |
+| Phase 4 | `dependency_graph.py` 移除 `MAX_TOKENS_PER_BATCH` 类常量 | 1 file |
+| Phase 5 | 标记 `decomposition_max_tokens_per_batch` 为 deprecated | `config.py` |
 
-### 3.5 Backward Compatibility
+### 3.7 Backward Compatibility
 
-- 所有新字段都有合理默认值，无需修改现有环境变量
-- `decomposition_max_tokens_per_batch` 在 Phase 5 之前保持，标记 deprecated
-- 已有的 `token_budget_multiplier` 参数（API 层）继续生效，在 resolver 输出上应用乘数
+- `default_llm_budget = 30000` 使得所有派生值与现有硬编码值一致 — **零配置迁移**
+- `decomposition_max_tokens_per_batch` 保留但标记 deprecated
+- `token_budget_multiplier`（API 层参数）继续生效，作用在 resolver 输出之上
+- 所有现有函数参数签名不变
 
 ---
 
@@ -167,12 +173,12 @@ class TokenBudgetResolver:
 
 | File | Change Type | Description |
 |------|------------|-------------|
-| `config.py` | Modify | Add `max_context_tokens` to `AppLlmSettings`, add `default_llm_budget` + per-component overrides to `AppWikiFlags` |
-| `wiki/token_budget.py` | **New** | `TokenBudgetResolver` class |
-| `wiki/ask.py` | Modify | Replace `_WIKI_TYPE_TOKEN_BUDGET` dict with resolver call |
-| `wiki/compact_formatter.py` | Modify | Accept optional resolver, fallback to constructor param |
-| `query/context_assembler.py` | Modify | Accept optional resolver for default budget |
-| `wiki/dependency_graph.py` | Modify | Replace `MAX_TOKENS_PER_BATCH` class constant with resolver |
+| `config.py` | Modify | Add `max_context_tokens` to `AppLlmSettings`, add `default_llm_budget` to `AppWikiFlags` |
+| `wiki/token_budget.py` | **New** | `TokenBudgetResolver` — ratio-based budget derivation with safety ceiling |
+| `wiki/ask.py` | Modify | Replace `_WIKI_TYPE_TOKEN_BUDGET` dict with `resolver.ask_budget()` |
+| `wiki/compact_formatter.py` | Modify | Accept optional `base_budget`, derive from resolver |
+| `query/context_assembler.py` | Modify | Accept optional `base_budget`, derive from resolver |
+| `wiki/dependency_graph.py` | Modify | Replace `MAX_TOKENS_PER_BATCH` with resolver |
 | `wiki/service.py` | Modify | Instantiate `TokenBudgetResolver` and pass to components |
 
 ---
@@ -181,11 +187,11 @@ class TokenBudgetResolver:
 
 | Test | Description |
 |------|-------------|
-| `test_budget_resolver_defaults` | Verify resolver returns correct defaults without overrides |
-| `test_budget_resolver_overrides` | Verify explicit per-component values take precedence |
-| `test_ask_budget_multipliers` | Verify question-type multipliers apply on top of base budget |
-| `test_backward_compat_no_env` | Verify zero-config migration: no env vars → same behavior as before |
-| `test_env_override_propagation` | Set `WIKI__DEFAULT_LLM_BUDGET=50000` → all components see higher budget |
+| `test_resolver_default_ratios` | base=30000 → decomposition=30000, ask_general=8100, compact=3900 |
+| `test_resolver_ceiling_cap` | base=30000, ceiling=8000 → all budgets ≤ 6400 (8000×0.8) |
+| `test_resolver_small_model` | base=6000 → proportionally scaled values match expectation |
+| `test_backward_compat_no_env` | No env vars → same behavior as current hardcoded values |
+| `test_env_propagation` | `WIKI__DEFAULT_LLM_BUDGET=50000` → all components see higher budget |
 
 ---
 
@@ -193,12 +199,18 @@ class TokenBudgetResolver:
 
 | Risk | Probability | Impact | Mitigation |
 |------|:-----------:|:------:|------------|
-| Budget too high for small models | Low | Medium | `compact_format_budget` auto-scales as `default // 8` |
-| Breaking existing API `max_tokens` params | Low | High | Keep all existing function parameters, resolver is additive |
-| Config explosion (too many knobs) | Medium | Low | Per-component overrides default to `None` (invisible) |
+| Small model budgets too low (ask < 1K) | Low | Medium | Resolver enforces `min(ratio_budget, 512)` floor |
+| Breaking existing API `max_tokens` params | Low | High | All function signatures unchanged; resolver is additive |
+| Ratio needs tuning after deployment | Medium | Low | Ratios are code constants, easy to adjust without config change |
 
 ---
 
 ## 7. Decision Log
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| D1 | **移除 per-component override 配置** | Sequential Thinking 分析：99% 用户不使用，4 个冗余字段违反精准克制原则 |
+| D2 | **比例因子为代码常量** | 不同组件的预算差异是合理设计（非"不一致"），不应暴露为用户配置 |
+| D3 | **仅新增 1 个配置字段** | `default_llm_budget` — 一处配置，全局生效，最小运维成本 |
 
 > Awaiting user approval.

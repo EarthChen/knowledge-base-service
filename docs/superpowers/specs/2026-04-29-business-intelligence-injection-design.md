@@ -132,13 +132,25 @@ if business_domain:
 
 **持久化决策**：在全量 wiki 生成时，将 domain classification 结果写入图节点的 `business_domain` 属性。这样增量路径可以直接从节点属性读取，无需重新分类。
 
+**关键：domain 沿 CONTAINS 边向下传播**。`domain_mapping` 是 module-level 的，但 `compose_page` 处理所有层级实体（Module/Class/Function）。因此需要将 domain 从 Module 传播到其包含的 Class 和 Function：
+
 ```python
-# 全量生成时持久化
+# 全量生成时持久化（含向下传播）
 for module_name, domain_name in domain_mapping.items():
+    # 1. Module 节点
     await store.set_node_property(repository, module_name, "business_domain", domain_name)
+    # 2. 沿 CONTAINS 边向下传播
+    children = await store.find_descendants(repository, module_name, edge_type="CONTAINS", max_depth=3)
+    for child_uid in children:
+        await store.set_node_property(repository, child_uid, "business_domain", domain_name)
 ```
 
-**文件变更**：`wiki/composer.py`, `wiki/service.py`, `store/falkordb_store.py`（可选：持久化方法）
+在增量路径中，`compose_page` 直接从实体节点的 `business_domain` 属性读取：
+```python
+business_domain = node.properties.get("business_domain")
+```
+
+**文件变更**：`wiki/composer.py`, `wiki/service.py`, `store/falkordb_store.py`（复用已有 `set_node_property`）
 
 ---
 
@@ -162,7 +174,19 @@ if description and description != business_summary:
 
 #### S2-1: RepoOverviewComposer
 
-**目标**：为每个仓库生成一个架构概览页，作为 Wiki 树的根节点。
+**目标**：为每个仓库生成一个架构概览页，作为 Wiki 树的入口叙事。
+
+**树位置**：RepoOverview 作为 WikiSpace 根节点的第一个子节点（`sort_index=0`），在所有 Domain Section 之前：
+
+```
+WikiSpace (root)
+├── ⭐ Repo Overview (WikiPage, page_type=REPO_OVERVIEW, sort_index=0)
+├── Domain: User Management (WikiSection, sort_index=1)
+│   ├── UserController (WikiPage)
+│   └── UserService (WikiPage)
+└── Domain: Payment (WikiSection, sort_index=2)
+    └── PaymentService (WikiPage)
+```
 
 **新文件**：`wiki/repo_overview_composer.py`
 
@@ -267,14 +291,23 @@ class RelatedPagesBuilder:
         return await self._resolve_to_pages(repository, ranked)
 ```
 
-**持久化**：在 FalkorDB 中创建 `RELATED_TO` 边：
+**持久化**：在 FalkorDB 中基于**代码实体节点**（而非 WikiPage 节点）创建 `RELATED_TO` 边。代码实体已在图中，无需创建新节点：
 
 ```cypher
-MERGE (a:WikiPage {uid: $source_uid})
-MERGE (b:WikiPage {uid: $target_uid})
+MATCH (a {uid: $source_entity_uid, repository: $repo})
+MATCH (b {uid: $target_entity_uid, repository: $repo})
 MERGE (a)-[r:RELATED_TO]->(b)
 SET r.weight = $weight, r.strategy = $strategy
 ```
+
+API 查询时通过 `entity_uid` 关联到 WikiPage：
+```cypher
+MATCH (entity {uid: $entity_uid})-[r:RELATED_TO]->(related)
+MATCH (wp:WikiPage {entity_uid: related.uid})
+RETURN wp.uid, wp.title, r.weight ORDER BY r.weight DESC LIMIT 10
+```
+
+> **注**：如 FalkorDB 不支持 UNION 语法，`find_related_entities` 拆为两次查询（出边 + 入边）后合并。
 
 **调用时机**：在 `generate_business_wiki` 最末尾、所有页面和链接构建完成后。
 
@@ -379,7 +412,15 @@ elif page_type == "class" and methods_count > 5:
     )
 ```
 
-**Entry Point 信息传递**：在 `compose_page` 中新增 `is_entry_point: bool = False` 参数。在 `generate_business_wiki` 中从 `module_graph.entry_points` 查找当前实体是否为入口点。
+**Entry Point 信息传递链**：
+
+1. `generate_business_wiki` 中构建 `entry_point_set = set(module_graph.entry_points)`
+2. 在 per-repo `generate()` 调用前，将 `entry_point_set` 传入或存储为实例变量
+3. 在 compose 循环中（`_compose_all_pages` 或 `_compose_module_pages`），检查当前实体名是否在 `entry_point_set` 中
+4. `compose_page` 新增 `is_entry_point: bool = False` 参数
+5. `_entity_digest` 根据 `is_entry_point` 和 `page_type` 追加相应图表指令
+
+增量路径中，从实体节点的 `semantic_roles` 属性判断（已包含 `http_controller`、`rpc_provider` 等角色标注），无需额外传递。
 
 **文件变更**：`wiki/composer.py`
 

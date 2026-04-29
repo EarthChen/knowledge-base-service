@@ -325,3 +325,60 @@ class TestRelatedPagesBuilder:
         builder = RelatedPagesBuilder(mock_store)
         await builder.build(entity_uid="uid", business_domain=None)
         mock_store.find_entities_by_domain.assert_not_called()
+
+
+class TestRelatedToEdgePersistence:
+    @pytest.mark.asyncio
+    async def test_build_and_persist_calls_upsert_edge(self):
+        """build_and_persist should call store.upsert_edge for each related entity."""
+        from wiki.related_pages_builder import RelatedPagesBuilder
+
+        mock_store = MagicMock()
+        mock_store.find_related_entities = AsyncMock(return_value=[
+            ("related_uid_1", "CALLS"),
+            ("related_uid_2", "IMPORTS"),
+        ])
+        mock_store.find_entities_by_domain = AsyncMock(return_value=[])
+        mock_store.find_siblings = AsyncMock(return_value=[])
+        mock_store.upsert_edge = AsyncMock()
+
+        builder = RelatedPagesBuilder(mock_store)
+        results = await builder.build_and_persist(
+            entity_uid="source_uid",
+            business_domain="Core",
+        )
+
+        assert len(results) == 2
+        assert mock_store.upsert_edge.call_count == 2
+        for call in mock_store.upsert_edge.call_args_list:
+            edge = call.args[0] if call.args else call.kwargs.get("edge")
+            assert edge.source_uid == "source_uid"
+            assert edge.edge_type.value == "RELATED_TO" or str(edge.edge_type) == "RELATED_TO"
+
+    @pytest.mark.asyncio
+    async def test_build_and_persist_handles_upsert_failure(self):
+        """If upsert_edge fails for one edge, others should still be attempted."""
+        from wiki.related_pages_builder import RelatedPagesBuilder
+
+        mock_store = MagicMock()
+        mock_store.find_related_entities = AsyncMock(return_value=[
+            ("uid_1", "CALLS"),
+            ("uid_2", "CALLS"),
+        ])
+        mock_store.find_entities_by_domain = AsyncMock(return_value=[])
+        mock_store.find_siblings = AsyncMock(return_value=[])
+        mock_store.upsert_edge = AsyncMock(side_effect=[Exception("DB error"), None])
+
+        builder = RelatedPagesBuilder(mock_store)
+        results = await builder.build_and_persist(entity_uid="source_uid")
+
+        assert len(results) == 2
+        assert mock_store.upsert_edge.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_related_to_edge_type_exists(self):
+        """RELATED_TO should be a valid EdgeType."""
+        from store.schema import EdgeType
+
+        assert hasattr(EdgeType, "RELATED_TO")
+        assert EdgeType.RELATED_TO == "RELATED_TO"

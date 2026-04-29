@@ -80,3 +80,36 @@ class RelatedPagesBuilder:
             ))
 
         return results
+
+    async def build_and_persist(
+        self,
+        entity_uid: str,
+        business_domain: str | None = None,
+    ) -> list[RelatedPageInfo]:
+        """Build related pages and persist RELATED_TO edges to the graph."""
+        results = await self.build(entity_uid, business_domain)
+        for info in results:
+            try:
+                await self._persist_related_edge(
+                    entity_uid, info.entity_uid, info.relevance_score, info.strategy,
+                )
+            except Exception:
+                log.warning(
+                    "related_edge_persist_failed",
+                    source=entity_uid, target=info.entity_uid,
+                    exc_info=True,
+                )
+        return results
+
+    async def _persist_related_edge(
+        self, source_uid: str, target_uid: str, weight: float, strategy: str,
+    ) -> None:
+        from store.schema import EdgeType, GraphEdge
+
+        edge = GraphEdge(
+            edge_type=EdgeType.RELATED_TO,
+            source_uid=source_uid,
+            target_uid=target_uid,
+            properties={"weight": weight, "strategy": strategy},
+        )
+        await self._store.upsert_edge(edge)

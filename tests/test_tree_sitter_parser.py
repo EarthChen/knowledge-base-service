@@ -282,3 +282,40 @@ public class Demo {
         result = java_parser.parse_file("Demo.java", "java", code)
         f = next(f for f in result.functions if f.name == "getUsers")
         assert f.return_type == "List<User>"
+
+
+class TestParsedCallReceiverExpr:
+    def test_java_method_invocation_has_receiver(self):
+        parser = TreeSitterParser(supported_languages=["java"])
+        code = (
+            "public class Controller {\n"
+            "    private UserService userService;\n"
+            "    public void create() {\n"
+            "        userService.save();\n"
+            "    }\n"
+            "}\n"
+        )
+        result = parser.parse_file("Controller.java", "java", code)
+        calls = [c for c in result.calls if c.callee_name == "save"]
+        assert len(calls) == 1
+        assert calls[0].receiver_expr == "userService"
+
+    def test_python_method_invocation_has_receiver(self):
+        parser = TreeSitterParser(supported_languages=["python"])
+        code = (
+            "class Controller:\n"
+            "    def create(self):\n"
+            "        self.service.save()\n"
+        )
+        result = parser.parse_file("controller.py", "python", code)
+        calls = [c for c in result.calls if c.callee_name == "save"]
+        assert len(calls) == 1
+        assert calls[0].receiver_expr == "self.service"
+
+    def test_plain_function_call_has_empty_receiver(self):
+        parser = TreeSitterParser(supported_languages=["python"])
+        code = "def foo():\n    bar()\n\ndef bar():\n    pass\n"
+        result = parser.parse_file("test.py", "python", code)
+        calls = [c for c in result.calls if c.callee_name == "bar"]
+        assert len(calls) == 1
+        assert calls[0].receiver_expr == ""

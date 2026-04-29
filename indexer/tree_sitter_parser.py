@@ -84,6 +84,7 @@ class ParsedCall:
     callee_name: str
     file: str
     line: int
+    receiver_expr: str = ""
 
 
 @dataclass
@@ -335,6 +336,30 @@ class TreeSitterParser:
 
         return imports
 
+    @staticmethod
+    def _extract_receiver_expr(call_node: Node, language: str) -> str:
+        """Text of the object/receiver for method-style calls; empty for plain calls."""
+        if language == "java":
+            obj = call_node.child_by_field_name("object")
+            if obj is not None and obj.text:
+                return obj.text.decode("utf-8")
+            return ""
+        if language == "python":
+            func_child = call_node.child_by_field_name("function")
+            if func_child is not None and func_child.type == "attribute":
+                obj = func_child.child_by_field_name("object")
+                if obj is not None and obj.text:
+                    return obj.text.decode("utf-8")
+            return ""
+        if language in ("javascript", "typescript"):
+            func_child = call_node.child_by_field_name("function")
+            if func_child is not None and func_child.type == "member_expression":
+                obj = func_child.child_by_field_name("object")
+                if obj is not None and obj.text:
+                    return obj.text.decode("utf-8")
+            return ""
+        return ""
+
     def _extract_calls(
         self, tree: Tree, source: bytes, file_path: str, language: str,
         query_str: str, parse_result: ParseResult,
@@ -360,6 +385,8 @@ class TreeSitterParser:
 
             callee = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
             call_line = call_nodes[0].start_point[0] + 1
+            call_node = call_nodes[0]
+            receiver_expr = TreeSitterParser._extract_receiver_expr(call_node, language)
             caller = self._find_enclosing_function(call_line, func_ranges)
             if caller:
                 calls.append(ParsedCall(
@@ -367,6 +394,7 @@ class TreeSitterParser:
                     callee_name=callee,
                     file=file_path,
                     line=call_line,
+                    receiver_expr=receiver_expr,
                 ))
 
         return calls

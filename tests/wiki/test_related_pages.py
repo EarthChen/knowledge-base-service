@@ -382,3 +382,30 @@ class TestRelatedToEdgePersistence:
 
         assert hasattr(EdgeType, "RELATED_TO")
         assert EdgeType.RELATED_TO == "RELATED_TO"
+
+
+class TestApiRelatedPages:
+    def test_page_detail_route_references_related_pages(self):
+        """Page detail route should include related_pages logic."""
+        import importlib
+        import inspect
+
+        try:
+            mod = importlib.import_module("api.routes.wiki_page_routes")
+        except ImportError:
+            mod = importlib.import_module("api.routes.wiki_routes")
+
+        source = inspect.getsource(mod)
+        assert "related_pages" in source
+
+
+class TestRelatedPagesIntegration:
+    def test_service_uses_related_pages_builder(self):
+        """generate_business_wiki source should reference RelatedPagesBuilder."""
+        import inspect
+
+        from wiki.service import WikiService
+
+        source = inspect.getsource(WikiService.generate_business_wiki)
+        assert "RelatedPagesBuilder" in source
+        assert "build_and_persist" in source

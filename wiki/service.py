@@ -1539,6 +1539,22 @@ class WikiService:
                     exc_info=True,
                 )
 
+        # Build cross-page references (RELATED_TO edges)
+        from wiki.related_pages_builder import RelatedPagesBuilder
+
+        related_builder = RelatedPagesBuilder(self._graph)
+        for repo_name, repo_modules in all_modules.items():
+            for mod in repo_modules:
+                mod_uid = mod.uid
+                mod_domain = mod.properties.get("business_domain")
+                try:
+                    await related_builder.build_and_persist(
+                        entity_uid=mod_uid,
+                        business_domain=mod_domain,
+                    )
+                except Exception:
+                    log.warning("related_pages_build_failed", uid=mod_uid, exc_info=True)
+
         ref_count = 0
         try:
             from wiki.reference_generator import WikiReferenceGenerator

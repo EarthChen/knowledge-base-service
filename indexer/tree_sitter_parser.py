@@ -148,6 +148,10 @@ LANGUAGE_QUERIES: dict[str, dict[str, str]] = {
         "function": """[
             (function_declaration name: (identifier) @func.name) @func.def
             (method_definition name: (property_identifier) @func.name) @func.def
+            (lexical_declaration
+                (variable_declarator
+                    name: (identifier) @func.name
+                    value: (arrow_function) @func.def))
         ]""",
         "class": "(class_declaration name: (identifier) @class.name) @class.def",
         "import": "(import_statement source: (string) @import.name) @import.stmt",
@@ -157,6 +161,10 @@ LANGUAGE_QUERIES: dict[str, dict[str, str]] = {
         "function": """[
             (function_declaration name: (identifier) @func.name) @func.def
             (method_definition name: (property_identifier) @func.name) @func.def
+            (lexical_declaration
+                (variable_declarator
+                    name: (identifier) @func.name
+                    value: (arrow_function) @func.def))
         ]""",
         "class": "(class_declaration name: (type_identifier) @class.name) @class.def",
         "import": "(import_statement source: (string) @import.name) @import.stmt",
@@ -234,6 +242,11 @@ class TreeSitterParser:
                 continue
 
             func_node = func_nodes[0]
+            if language in ("javascript", "typescript") and func_node.type == "arrow_function":
+                lex = TreeSitterParser._lexical_declaration_for_arrow_binding(func_node)
+                if lex is None or not TreeSitterParser._is_module_level(lex):
+                    continue
+
             name = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
             raw_snippet = func_node.text.decode("utf-8") if func_node.text else ""
             code_snippet = TreeSitterParser._truncate_code_snippet(raw_snippet)
@@ -259,6 +272,30 @@ class TreeSitterParser:
             ))
 
         return functions
+
+    @staticmethod
+    def _is_module_level(node: Node) -> bool:
+        """True if node is direct child of program or of export_statement under program."""
+        parent = node.parent
+        if parent is None:
+            return False
+        if parent.type == "program":
+            return True
+        if parent.type == "export_statement":
+            gp = parent.parent
+            return gp is not None and gp.type == "program"
+        return False
+
+    @staticmethod
+    def _lexical_declaration_for_arrow_binding(arrow: Node) -> Node | None:
+        """Walk from arrow_function to enclosing lexical_declaration (const/let binding)."""
+        p = arrow.parent
+        if p is None or p.type != "variable_declarator":
+            return None
+        p = p.parent
+        if p is None or p.type != "lexical_declaration":
+            return None
+        return p
 
     def _extract_classes(
         self, tree: Tree, source: bytes, file_path: str, language: str, query_str: str,

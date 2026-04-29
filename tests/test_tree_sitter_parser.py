@@ -128,6 +128,42 @@ def inner():
         assert len(helpers) == 1
 
 
+class TestArrowFunctionExtraction:
+    def test_module_level_arrow_function_js(self):
+        parser = TreeSitterParser(supported_languages=["javascript"])
+        code = "const fetchUser = async (id) => {\n  return db.find(id);\n};\n"
+        result = parser.parse_file("api.js", "javascript", code)
+        funcs = [f for f in result.functions if f.name == "fetchUser"]
+        assert len(funcs) == 1
+        assert funcs[0].start_line >= 1
+
+    def test_exported_arrow_function_ts(self):
+        parser = TreeSitterParser(supported_languages=["typescript"])
+        code = "export const handler = (req: Request) => {\n  return 'ok';\n};\n"
+        result = parser.parse_file("handler.ts", "typescript", code)
+        funcs = [f for f in result.functions if f.name == "handler"]
+        assert len(funcs) == 1
+
+    def test_nested_callback_not_extracted(self):
+        parser = TreeSitterParser(supported_languages=["javascript"])
+        code = (
+            "function main() {\n"
+            "  const items = list.map((x) => x + 1);\n"
+            "}\n"
+        )
+        result = parser.parse_file("test.js", "javascript", code)
+        func_names = [f.name for f in result.functions]
+        assert "main" in func_names
+        non_main = [n for n in func_names if n != "main"]
+        assert len(non_main) == 0, f"Unexpected functions extracted: {non_main}"
+
+    def test_regular_functions_still_work(self):
+        parser = TreeSitterParser(supported_languages=["javascript"])
+        code = "function hello() { return 'hi'; }\n"
+        result = parser.parse_file("test.js", "javascript", code)
+        assert any(f.name == "hello" for f in result.functions)
+
+
 class TestJavaScriptParsing:
     def test_parse_function(self, parser: TreeSitterParser):
         code = '''function greet(name) {

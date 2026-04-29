@@ -23,6 +23,13 @@ def test_wiki_compose_concurrency_default() -> None:
     assert AppWikiFlags().compose_concurrency == 3
 
 
+def test_decomposition_max_tokens_deprecated_field_still_works() -> None:
+    cfg = AppWikiFlags()
+    assert hasattr(cfg, "decomposition_max_tokens_per_batch")
+    assert hasattr(cfg, "default_llm_budget")
+    assert cfg.default_llm_budget == 30_000
+
+
 def test_config_has_entity_filter_flags() -> None:
     cfg = AppWikiFlags()
     assert hasattr(cfg, "entity_filter_enabled")

@@ -327,6 +327,7 @@ class AppWikiFlags(BaseModel):
     max_domain_depth: int = Field(default=4)
     min_modules_for_nesting: int = Field(default=3)
     hub_detection_percentile: float = Field(default=90.0)
+    # DEPRECATED: Use default_llm_budget instead. Will be removed in a future version.
     decomposition_max_tokens_per_batch: int = Field(default=30000)
 
     # Phase 3 SP7: forgetting curve + YAML schema lint

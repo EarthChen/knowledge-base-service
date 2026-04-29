@@ -408,8 +408,11 @@ async def test_generate_business_wiki_partial_errors_on_repo_failure() -> None:
         patch("wiki.domain_overview_composer.DomainOverviewComposer") as Comp,
         patch("wiki.reference_generator.WikiReferenceGenerator") as RefGen,
     ):
-        Planner.return_value.classify = AsyncMock(
-            return_value={"__infrastructure__": [("r-ok", "mod"), ("r-fail", "mod")]},
+        Planner.return_value.classify_hierarchical = AsyncMock(
+            return_value=(
+                {"__infrastructure__": [("r-ok", "mod"), ("r-fail", "mod")]},
+                None,
+            ),
         )
         Comp.return_value.compose = AsyncMock(return_value=overview_page)
         RefGen.return_value.generate = AsyncMock(return_value=0)

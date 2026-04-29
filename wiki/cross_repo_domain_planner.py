@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from log import get_logger
 from store.schema import GraphNode
 from wiki.business_domain_planner import BusinessDomainPlanner
-from wiki.dependency_graph import HierarchicalDecomposer
+from wiki.dependency_graph import HierarchicalDecomposer, ModuleGraph, ModuleInfo
 
 if TYPE_CHECKING:
     from wiki.context import LLMPort
-    from wiki.dependency_graph import DomainNode, ModuleGraph, ModuleInfo
+    from wiki.dependency_graph import DomainNode
 
 log = get_logger(__name__)
 
@@ -55,6 +55,59 @@ class CrossRepoBusinessDomainPlanner:
             min_modules_for_nesting=min_modules_for_nesting,
             max_tokens_per_batch=max_tokens_per_batch,
         )
+
+    async def classify_hierarchical(
+        self,
+        business_id: str,
+        all_modules: dict[str, list[GraphNode]],
+        store: Any,
+    ) -> tuple[dict[str, list[tuple[str, str]]], list | None]:
+        """Classify modules and optionally return a nested domain tree.
+
+        Returns:
+            (flat_domain_mapping, domain_tree_or_none)
+        """
+        flat_result = await self.classify(business_id, all_modules)
+
+        domain_tree = None
+        decomposer = self.create_hierarchical_decomposer()
+        if decomposer is not None and store is not None:
+            try:
+                all_module_infos: list[ModuleInfo] = []
+                for _repo_id, modules in all_modules.items():
+                    for m in modules:
+                        name = m.properties.get("name", "")
+                        if isinstance(name, str) and name:
+                            all_module_infos.append(
+                                ModuleInfo(
+                                    name=name,
+                                    path=str(m.properties.get("path", "")),
+                                    uid=m.uid,
+                                    summary=str(
+                                        m.properties.get("business_summary", "")
+                                        or m.properties.get("docstring", "")
+                                        or ""
+                                    ),
+                                    semantic_roles=list(m.properties.get("semantic_roles", []) or []),
+                                )
+                            )
+
+                if all_module_infos:
+                    module_graph = ModuleGraph(modules=all_module_infos, edges=[], entry_points=[])
+                    domain_tree = await decomposer.decompose(all_module_infos, module_graph)
+                    log.info(
+                        "hierarchical_decomposition_done",
+                        business_id=business_id,
+                        domains=len(domain_tree) if domain_tree else 0,
+                    )
+            except Exception:
+                log.warning(
+                    "hierarchical_decomposition_failed",
+                    business_id=business_id,
+                    exc_info=True,
+                )
+
+        return flat_result, domain_tree
 
     async def classify(
         self,

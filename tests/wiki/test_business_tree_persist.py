@@ -227,8 +227,8 @@ async def test_domain_and_repo_same_name_distinct_section_uids():
     svc.generate = AsyncMock(return_value={})
 
     planner_inst = MagicMock()
-    planner_inst.classify = AsyncMock(
-        return_value={shared: [(shared, "core")]},
+    planner_inst.classify_hierarchical = AsyncMock(
+        return_value=({shared: [(shared, "core")]}, None),
     )
 
     with patch(

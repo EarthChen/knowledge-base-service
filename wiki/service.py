@@ -1241,12 +1241,13 @@ class WikiService:
             )
             per_batch_timeout = app_cfg.business_domain_classify_timeout
             classify_budget = per_batch_timeout * (per_repo_waves + 1) + 300
-            domain_mapping = await asyncio.wait_for(
-                planner.classify(business_id, all_modules),
+            domain_mapping, domain_tree = await asyncio.wait_for(
+                planner.classify_hierarchical(business_id, all_modules, self._store),
                 timeout=classify_budget,
             )
         except TimeoutError:
             log.warning("domain_classification_timeout", business_id=business_id)
+            domain_tree = None
             domain_mapping = {
                 app_cfg.business_domain_infrastructure_label: [
                     (repo, mod.properties.get("name", ""))
@@ -1304,8 +1305,14 @@ class WikiService:
                 for node in [self._find_module_node(all_modules, repo, mod_name)]
                 if node is not None
             ]
+            domain_subtree = None
+            domain_entry_points: list[str] = []
+            if domain_tree:
+                domain_subtree = [d for d in domain_tree if d.name == domain_name]
             overview_page = await overview_composer.compose(
                 domain_name, domain_modules, language=language,
+                domain_tree=domain_subtree,
+                entry_points=domain_entry_points,
             )
             all_pages.append(overview_page)
 
@@ -1399,6 +1406,27 @@ class WikiService:
         await self._link_pages_to_tree(
             business_id, domain_mapping, list(all_modules.keys()), tree_builder,
         )
+
+        if domain_tree:
+            try:
+                pages_result = await self._wiki_store.get_wiki_pages_for_business(business_id)
+                pages_by_entity: dict[str, dict[str, Any]] = {}
+                for page in pages_result:
+                    entity_uid = page.get("entity_uid", "")
+                    title = page.get("title", "")
+                    if entity_uid:
+                        pages_by_entity[str(entity_uid)] = page
+                    if title:
+                        pages_by_entity[str(title)] = page
+                await self._link_pages_to_nested_tree(
+                    business_id, domain_tree, pages_by_entity, tree_builder,
+                )
+            except Exception:
+                log.warning(
+                    "link_nested_tree_failed",
+                    business_id=business_id,
+                    exc_info=True,
+                )
 
         ref_count = 0
         try:
@@ -2038,6 +2066,7 @@ class WikiService:
                 child_summaries = [
                     summary_index[ch.path] for ch in parent_node.children if ch.path in summary_index
                 ]
+                edges: list[tuple[str, str]] = []
 
                 page: WikiPage | None = page_early
                 if page is None:
@@ -2052,7 +2081,7 @@ class WikiService:
                             child_paths = [
                                 ch.path for ch in parent_node.children if ch.path in summary_index
                             ]
-                            edges: list[tuple[str, str]] = []
+                            edges = []
                             if (
                                 child_paths
                                 and self._store is not None
@@ -2109,12 +2138,21 @@ class WikiService:
                         continue
                     try:
                         if child_summaries:
+                            inter_child_edges_dicts = (
+                                [
+                                    {"source": s, "edge_type": "CALLS", "target": t}
+                                    for s, t in edges
+                                ]
+                                if edges
+                                else None
+                            )
                             page = await asyncio.wait_for(
                                 composer.compose_parent_page(
                                     page_data,
                                     parent_node.page_type,
                                     config,
                                     child_summaries,
+                                    inter_child_edges=inter_child_edges_dicts,
                                 ),
                                 timeout=_PAGE_TIMEOUT,
                             )

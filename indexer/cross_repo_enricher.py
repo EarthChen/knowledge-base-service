@@ -1,6 +1,6 @@
-"""P2 Cross-repo enrichment: RPC resolution, Spring DI graph, Entity-table mapping.
+"""P2 Cross-repo enrichment: RPC, Spring DI, Entity-table mapping, shared-library types.
 
-Runs as a global post-indexing pass across all repositories.  Each enrichment
+Runs as a global post-indexing pass across all repositories. Each enrichment
 is idempotent — old edges are deleted before recreation.
 """
 
@@ -40,6 +40,47 @@ _RPC_CONSUMER_NAMES = frozenset({"MoaConsumer", "DubboReference"})
 _DI_INJECT_NAMES = frozenset({"Autowired", "Inject", "Resource"})
 _ENTITY_ANNOTATION_NAMES = frozenset({"Entity", "Table", "Document", "MappedSuperclass", "TableName"})
 
+# JDK / lang / common framework refs — skip cross-repo INHERITS/IMPLEMENTS resolution
+_CROSS_REPO_SYMBOL_DENY_SIMPLE: frozenset[str] = frozenset({
+    "Object",
+    "Enum",
+    "Record",
+    "Throwable",
+    "Exception",
+    "RuntimeException",
+    "Error",
+    "Cloneable",
+    "Serializable",
+    "Comparable",
+    "CharSequence",
+    "AutoCloseable",
+    "Iterable",
+    "Annotation",
+})
+_CROSS_REPO_SYMBOL_DENY_FQN_PREFIX: tuple[str, ...] = (
+    "java.",
+    "javax.",
+    "jakarta.",
+    "kotlin.",
+    "scala.",
+    "sun.",
+    "jdk.",
+    "org.springframework.",
+    "org.junit.",
+    "org.mockito.",
+    "org.slf4j.",
+    "org.apache.logging.",
+    "org.apache.commons.",
+    "org.apache.kafka.",
+    "org.hibernate.",
+    "io.netty.",
+    "com.fasterxml.jackson.",
+    "com.google.protobuf.",
+    "io.swagger.",
+    "io.reactivex.",
+    "reactor.",
+)
+
 
 class CrossRepoEnricher:
     """Global enrichment pass that resolves cross-repository relationships."""
@@ -53,10 +94,12 @@ class CrossRepoEnricher:
         rpc_count = await self._enrich_cross_repo_rpc()
         di_count = await self._enrich_di_graph()
         entity_count = await self._enrich_entity_mapping()
+        symbol_count = await self._enrich_cross_repo_symbols()
         return {
             "cross_repo_rpc_edges": rpc_count,
             "di_dependency_edges": di_count,
             "entity_table_edges": entity_count,
+            "cross_repo_symbol_edges": symbol_count,
         }
 
     # ─── P2-1: Cross-Repository RPC Resolution ─────────────────────────
@@ -381,4 +424,150 @@ class CrossRepoEnricher:
         except Exception as exc:
             log.error("entity_mapping_enrichment_failed", error=str(exc))
         log.info("entity_mapping_enrichment_done", edges_created=count)
+        return count
+
+    # ─── Cross-repo INHERITS / IMPLEMENTS (shared libraries) ───────────
+
+    @staticmethod
+    def _cross_repo_symbol_skip_reference(ref: str) -> bool:
+        s = ref.strip()
+        if not s:
+            return True
+        simple = s.rsplit(".", 1)[-1]
+        if simple in _CROSS_REPO_SYMBOL_DENY_SIMPLE:
+            return True
+        lower = s.lower()
+        return any(lower.startswith(p) for p in _CROSS_REPO_SYMBOL_DENY_FQN_PREFIX)
+
+    @staticmethod
+    def _parent_name_keys(rows: list[dict[str, Any]]) -> set[str]:
+        keys: set[str] = set()
+        for row in rows:
+            name = row.get("name") or ""
+            fqn = row.get("fqn") or ""
+            if name:
+                keys.add(name)
+            if fqn:
+                keys.add(fqn)
+                keys.add(fqn.rsplit(".", 1)[-1])
+        return keys
+
+    @staticmethod
+    def _type_ref_already_linked(ref: str, linked_keys: set[str]) -> bool:
+        """True if ``ref`` (simple or FQN) matches an existing INHERITS/IMPLEMENTS target."""
+        raw = ref.strip()
+        if not raw:
+            return True
+        if raw in linked_keys:
+            return True
+        simple = raw.rsplit(".", 1)[-1]
+        if simple in linked_keys:
+            return True
+        for k in linked_keys:
+            if "." in k and k.endswith(f".{simple}"):
+                return True
+        return False
+
+    async def _enrich_cross_repo_symbols(self) -> int:
+        """Resolve INHERITS/IMPLEMENTS across repositories using name/FQN matching."""
+        count = 0
+        try:
+            await self._idx.cross_repo_delete_symbol_edges()
+
+            candidates = await self._idx.cross_repo_symbol_candidates()
+
+            for row in candidates.data:
+                child_uid = row.get("uid") or ""
+                child_repo = row.get("repository") or ""
+                base_classes = row.get("base_classes") or []
+                interfaces = row.get("interfaces") or []
+
+                if not child_uid or not child_repo:
+                    continue
+                if not isinstance(base_classes, list):
+                    base_classes = []
+                if not isinstance(interfaces, list):
+                    interfaces = []
+
+                inh_res = await self._idx.cross_repo_class_inherit_parents(child_uid)
+                inherit_keys = self._parent_name_keys(inh_res.data)
+
+                for base_name in base_classes:
+                    if not isinstance(base_name, str):
+                        continue
+                    if self._cross_repo_symbol_skip_reference(base_name):
+                        continue
+                    if self._type_ref_already_linked(base_name, inherit_keys):
+                        continue
+                    target = await self._idx.cross_repo_find_class_by_name(
+                        base_name, child_repo, require_interface=False,
+                    )
+                    if not target:
+                        continue
+                    parent_uid = target.get("uid") or ""
+                    if not parent_uid:
+                        continue
+                    try:
+                        await self._idx.cross_repo_merge_inherits_edge(
+                            child_uid,
+                            parent_uid,
+                            child_repo,
+                            target.get("repository") or "",
+                        )
+                        count += 1
+                        for k in self._parent_name_keys([target]):
+                            inherit_keys.add(k)
+                    except Exception as exc:
+                        log.warning(
+                            "cross_repo_inherits_edge_failed",
+                            child=child_uid,
+                            parent=target.get("uid"),
+                            error=str(exc),
+                        )
+
+                impl_res = await self._idx.cross_repo_class_implements_targets(child_uid)
+                impl_keys = self._parent_name_keys(impl_res.data)
+
+                for iface in interfaces:
+                    if not isinstance(iface, str):
+                        continue
+                    if self._cross_repo_symbol_skip_reference(iface):
+                        continue
+                    if self._type_ref_already_linked(iface, impl_keys):
+                        continue
+                    target = await self._idx.cross_repo_find_class_by_name(
+                        iface, child_repo, require_interface=True,
+                    )
+                    if not target:
+                        iface_loose = await self._idx.cross_repo_find_class_by_name(
+                            iface, child_repo, require_interface=False,
+                        )
+                        target = iface_loose
+                    if not target:
+                        continue
+                    iface_uid = target.get("uid") or ""
+                    if not iface_uid:
+                        continue
+                    try:
+                        await self._idx.cross_repo_merge_implements_edge(
+                            child_uid,
+                            iface_uid,
+                            child_repo,
+                            target.get("repository") or "",
+                        )
+                        count += 1
+                        for k in self._parent_name_keys([target]):
+                            impl_keys.add(k)
+                    except Exception as exc:
+                        log.warning(
+                            "cross_repo_implements_edge_failed",
+                            child=child_uid,
+                            iface=target.get("uid"),
+                            error=str(exc),
+                        )
+
+        except Exception as exc:
+            log.error("cross_repo_symbol_enrichment_failed", error=str(exc))
+
+        log.info("cross_repo_symbol_enrichment_done", edges_created=count)
         return count

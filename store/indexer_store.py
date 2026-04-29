@@ -328,3 +328,121 @@ class IndexerStore:
             q,
             {"dao_uid": dao_uid, "entity_uid": entity_uid, "table_name": table_name},
         )
+
+    # --- indexer/cross_repo_enricher.py (cross-repo INHERITS / IMPLEMENTS) ---
+    async def cross_repo_delete_symbol_edges(self) -> QueryResultWrapper:
+        """Remove cross-repo symbol edges before re-running enrichment."""
+        await self._store.execute_query(
+            "MATCH ()-[r:INHERITS]->() WHERE r.cross_repo = true DELETE r"
+        )
+        return await self._store.execute_query(
+            "MATCH ()-[r:IMPLEMENTS]->() WHERE r.cross_repo = true DELETE r"
+        )
+
+    async def cross_repo_symbol_candidates(self) -> QueryResultWrapper:
+        """Classes that declare extends/implements lists (may need cross-repo links)."""
+        q = (
+            "MATCH (c:Class) "
+            "WHERE (c.base_classes IS NOT NULL AND size(c.base_classes) > 0) "
+            "   OR (c.interfaces IS NOT NULL AND size(c.interfaces) > 0) "
+            "RETURN c.uid AS uid, c.repository AS repository, "
+            "c.base_classes AS base_classes, c.interfaces AS interfaces, c.name AS name"
+        )
+        return await self._store.execute_query(q)
+
+    async def cross_repo_class_inherit_parents(self, child_uid: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (c:Class {uid: $uid})-[:INHERITS]->(p:Class) "
+            "RETURN p.name AS name, p.fqn AS fqn"
+        )
+        return await self._store.execute_query(q, {"uid": child_uid})
+
+    async def cross_repo_class_implements_targets(self, child_uid: str) -> QueryResultWrapper:
+        q = (
+            "MATCH (c:Class {uid: $uid})-[:IMPLEMENTS]->(p:Class) "
+            "RETURN p.name AS name, p.fqn AS fqn"
+        )
+        return await self._store.execute_query(q, {"uid": child_uid})
+
+    async def cross_repo_find_class_by_name(
+        self,
+        class_name: str,
+        exclude_repo: str,
+        *,
+        require_interface: bool = False,
+    ) -> dict | None:
+        """Find a Class in another repository by simple name, FQN, or FQN suffix."""
+        raw = (class_name or "").strip()
+        if not raw:
+            return None
+        simple_name = raw.rsplit(".", 1)[-1]
+        name_suffix = f".{simple_name}"
+        iface_filter = (
+            " AND coalesce(c.is_interface, false) = true " if require_interface else " "
+        )
+        q = (
+            "MATCH (c:Class) "
+            "WHERE c.repository <> $exclude_repo "
+            f"{iface_filter}"
+            "AND (c.fqn = $full_ref OR c.name = $name OR c.fqn ENDS WITH $name_suffix) "
+            "RETURN c.uid AS uid, c.repository AS repository, c.name AS name, c.fqn AS fqn "
+            "LIMIT 1"
+        )
+        result = await self._store.execute_query(
+            q,
+            {
+                "name": simple_name,
+                "name_suffix": name_suffix,
+                "exclude_repo": exclude_repo,
+                "full_ref": raw,
+            },
+        )
+        if result.data:
+            return result.data[0]
+        return None
+
+    async def cross_repo_merge_inherits_edge(
+        self,
+        child_uid: str,
+        parent_uid: str,
+        child_repo: str,
+        parent_repo: str,
+    ) -> QueryResultWrapper:
+        q = (
+            "MATCH (child {uid: $child_uid}), (parent {uid: $parent_uid}) "
+            "MERGE (child)-[r:INHERITS]->(parent) "
+            "SET r.cross_repo = true, "
+            "r.source_repository = $child_repo, r.target_repository = $parent_repo"
+        )
+        return await self._store.execute_query(
+            q,
+            {
+                "child_uid": child_uid,
+                "parent_uid": parent_uid,
+                "child_repo": child_repo,
+                "parent_repo": parent_repo,
+            },
+        )
+
+    async def cross_repo_merge_implements_edge(
+        self,
+        child_uid: str,
+        iface_uid: str,
+        child_repo: str,
+        iface_repo: str,
+    ) -> QueryResultWrapper:
+        q = (
+            "MATCH (child {uid: $child_uid}), (iface {uid: $iface_uid}) "
+            "MERGE (child)-[r:IMPLEMENTS]->(iface) "
+            "SET r.cross_repo = true, "
+            "r.source_repository = $child_repo, r.target_repository = $iface_repo"
+        )
+        return await self._store.execute_query(
+            q,
+            {
+                "child_uid": child_uid,
+                "iface_uid": iface_uid,
+                "child_repo": child_repo,
+                "iface_repo": iface_repo,
+            },
+        )

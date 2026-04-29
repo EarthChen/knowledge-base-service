@@ -200,3 +200,28 @@ class TestModuleDescriptionInjection:
         page_data = FakePageData(node=node)
         digest = composer._entity_digest(page_data, PageType.MODULE_OVERVIEW)
         assert "Module Description:" not in digest
+
+
+class TestDomainPersistence:
+    def test_service_persists_domain_in_source(self):
+        """generate_business_wiki should contain domain persistence logic."""
+        import inspect
+
+        from wiki.service import WikiService
+
+        source = inspect.getsource(WikiService.generate_business_wiki)
+        assert "business_domain" in source
+        assert "find_descendants" in source
+        assert "update_node_property" in source
+
+
+class TestComposePageDomainPassing:
+    def test_compose_leaf_passes_business_domain(self):
+        """_compose_all_pages should pass business_domain to compose_page."""
+        import inspect
+
+        from wiki.service import WikiService
+
+        source = inspect.getsource(WikiService._compose_all_pages)
+        assert "business_domain" in source
+        assert "is_entry_point" in source

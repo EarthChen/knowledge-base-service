@@ -1340,6 +1340,46 @@ class WikiService:
             )
             all_pages.append(overview_page)
 
+        # Persist business_domain to graph nodes (Module + descendants)
+        for domain_name, repo_module_pairs in domain_mapping.items():
+            for repo, mod_name in repo_module_pairs:
+                mod_nodes = [
+                    m for m in all_modules.get(repo, [])
+                    if m.properties.get("name") == mod_name
+                ]
+                if not mod_nodes:
+                    continue
+                mod_node = mod_nodes[0]
+                try:
+                    await self._graph.update_node_property(
+                        mod_node.label,
+                        mod_node.uid,
+                        "business_domain",
+                        domain_name,
+                    )
+                    descendants = await self._graph.find_descendants(
+                        mod_node.uid, edge_type="CONTAINS", max_depth=3,
+                    )
+                    for child_uid in descendants:
+                        try:
+                            await self._graph.update_node_property(
+                                NodeLabel.CLASS, child_uid, "business_domain", domain_name,
+                            )
+                        except Exception:
+                            try:
+                                await self._graph.update_node_property(
+                                    NodeLabel.FUNCTION, child_uid, "business_domain", domain_name,
+                                )
+                            except Exception:
+                                pass
+                except Exception:
+                    log.warning(
+                        "domain_persist_failed",
+                        module=mod_name,
+                        domain=domain_name,
+                        exc_info=True,
+                    )
+
         # Build code_structure view (repo-level sections)
         code_sort_idx = 0
         for repo_name in sorted(all_modules.keys()):
@@ -1896,6 +1936,11 @@ class WikiService:
                         )
                 page: WikiPage | None = page_res
                 if page is None:
+                    _biz_domain = graph_node.properties.get("business_domain")
+                    _is_entry = bool(
+                        set(graph_node.properties.get("semantic_roles", []) or [])
+                        & {"http_controller", "rpc_provider", "message_listener", "scheduled_task"}
+                    )
                     try:
                         page = await asyncio.wait_for(
                             composer.compose_page(
@@ -1905,6 +1950,8 @@ class WikiService:
                                 importance_tier=tier,
                                 skeleton_strategy=skeleton_strat,
                                 skeleton_light_model=skeleton_light_model,
+                                business_domain=_biz_domain,
+                                is_entry_point=_is_entry,
                             ),
                             timeout=_PAGE_TIMEOUT,
                         )

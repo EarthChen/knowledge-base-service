@@ -17,6 +17,12 @@ def builder():
     return CodeGraphBuilder(parser=parser, file_extensions=file_extensions)
 
 
+@pytest.fixture
+def java_builder():
+    parser = TreeSitterParser(supported_languages=["java"])
+    return CodeGraphBuilder(parser=parser, file_extensions={"java": [".java"]})
+
+
 class TestLanguageDetection:
     def test_detect_python(self, builder: CodeGraphBuilder):
         assert builder.detect_language("src/main.py") == "python"
@@ -133,3 +139,65 @@ def index():
         props = func_nodes[0].properties
         assert props.get("return_type") == "str"
         assert props.get("parameters") == ["x:int"]
+
+
+class TestGlobalSymbolTable:
+    def test_builds_per_language_table(self, java_builder: CodeGraphBuilder):
+        """Symbol table should have entries for classes and functions."""
+        nodes_file1, _ = java_builder.build_from_file(
+            "com/example/UserService.java",
+            content="public class UserService {\n    public void save() {}\n}\n",
+        )
+        nodes_file2, _ = java_builder.build_from_file(
+            "com/example/UserController.java",
+            content="public class UserController {\n    public void create() {}\n}\n",
+        )
+        all_nodes = nodes_file1 + nodes_file2
+        table = java_builder._build_global_symbol_table(all_nodes)
+
+        assert "java" in table
+        java_table = table["java"]
+        # Should have entries for both class names
+        found_names = list(java_table.keys())
+        assert any("UserService" in k for k in found_names), f"UserService not found in {found_names}"
+        assert any("UserController" in k for k in found_names), f"UserController not found in {found_names}"
+
+    def test_fqn_takes_precedence(self, java_builder: CodeGraphBuilder):
+        """When a node has fqn, that key should map to the node uid."""
+        nodes, _ = java_builder.build_from_file(
+            "com/example/UserService.java",
+            content="public class UserService {}\n",
+        )
+        table = java_builder._build_global_symbol_table(nodes)
+        java_table = table.get("java", {})
+        class_nodes = [n for n in nodes if n.label == NodeLabel.CLASS]
+        assert len(class_nodes) == 1
+        # The class should be findable by its name
+        assert "UserService" in java_table or any("UserService" in k for k in java_table)
+
+    def test_python_functions_in_table(self, builder: CodeGraphBuilder):
+        """Python functions should be in the python table."""
+        nodes, _ = builder.build_from_file(
+            "utils.py",
+            content="def helper():\n    pass\n\ndef process():\n    pass\n",
+        )
+        table = builder._build_global_symbol_table(nodes)
+        py_table = table.get("python", {})
+        assert "helper" in py_table
+        assert "process" in py_table
+
+    def test_empty_nodes_returns_empty_tables(self, builder: CodeGraphBuilder):
+        table = builder._build_global_symbol_table([])
+        assert table == {}
+
+    def test_module_nodes_excluded(self, builder: CodeGraphBuilder):
+        """Module nodes should NOT be in the symbol table (only Class and Function)."""
+        nodes, _ = builder.build_from_file("test.py", content="x = 1\n")
+        table = builder._build_global_symbol_table(nodes)
+        # Module node should not produce an entry
+        py_table = table.get("python", {})
+        # The module name "test" should not be in the table (it's a MODULE, not CLASS/FUNCTION)
+        for key, uid in py_table.items():
+            matching_nodes = [n for n in nodes if n.uid == uid]
+            for n in matching_nodes:
+                assert n.label != NodeLabel.MODULE

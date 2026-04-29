@@ -339,6 +339,30 @@ class CodeGraphBuilder:
         )
         return all_nodes, all_edges
 
+    def _build_global_symbol_table(
+        self, all_nodes: list[GraphNode],
+    ) -> dict[str, dict[str, str]]:
+        """Build per-language {fqn_or_name: node_uid} for all Class and Function nodes.
+
+        FQN entries take precedence. If a node has both fqn and name,
+        both are stored but fqn wins (setdefault avoids overwriting).
+        """
+        tables: dict[str, dict[str, str]] = {}
+        for node in all_nodes:
+            lang = node.properties.get("language", "")
+            if not lang:
+                continue
+            if node.label not in (NodeLabel.CLASS, NodeLabel.FUNCTION):
+                continue
+            fqn = node.properties.get("fqn", "")
+            if fqn:
+                tables.setdefault(lang, {})[fqn] = node.uid
+            name = node.properties.get("name", "")
+            if name:
+                # Use setdefault so FQN entry isn't overwritten by simple name
+                tables.setdefault(lang, {}).setdefault(name, node.uid)
+        return tables
+
     @staticmethod
     def _resolve_closest_uid(uids: list[str], call_line: int, result: ParseResult) -> str:
         """Pick the overload whose line range contains *call_line*."""

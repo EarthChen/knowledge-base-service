@@ -39,6 +39,12 @@ class ImportanceTier(StrEnum):
     SKELETON = "skeleton"
 
 
+class EntityStrategy(StrEnum):
+    FULL_PAGE = "full_page"
+    STANDARD_PAGE = "standard"
+    MERGE_TO_PARENT = "merge"
+
+
 class WikiQualityDimension(StrEnum):
     COMPLETENESS = "completeness"
     HELPFULNESS = "helpfulness"

@@ -158,10 +158,12 @@ class WikiTreeStoreMixin:
             "MATCH (ws:WikiSpace {business_id: $business_id}) "
             "MATCH (ws)-[:HAS_CHILD*1..10]->(wp:WikiPage) "
             f"{tier_filter}"
+            "OPTIONAL MATCH (wp)-[:SOURCE_ENTITY]->(e) "
             "RETURN wp.uid AS uid, wp.title AS title, wp.path AS path, "
             "wp.content AS content, wp.page_type AS page_type, "
             "wp.repository AS repository, wp.importance_tier AS importance_tier, "
-            "coalesce(wp.content_hash, '') AS content_hash "
+            "coalesce(wp.content_hash, '') AS content_hash, "
+            "coalesce(e.uid, '') AS entity_uid "
             "ORDER BY wp.path"
         )
         result = await self._store.execute_query(
@@ -178,6 +180,7 @@ class WikiTreeStoreMixin:
                 "repository": str(row.get("repository") or ""),
                 "importance_tier": str(row.get("importance_tier") or ""),
                 "content_hash": str(row.get("content_hash") or ""),
+                "entity_uid": str(row.get("entity_uid") or ""),
             })
         return rows
 

@@ -301,6 +301,8 @@ class AppWikiFlags(BaseModel):
     # Phase 3 (LLM Wiki v2 — Memory Evolution)
     memory_tiers_enabled: bool = True
     incremental_enabled: bool = Field(default=False)
+    #: When True, skip composing pages whose source matches the last saved wiki baseline (full compose).
+    resume_from_saved: bool = Field(default=False)
 
     # Phase 3 SP7: forgetting curve + YAML schema lint
     forgetting_enabled: bool = True

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -582,6 +583,97 @@ class WikiService:
         )
         log.info("wiki_code_hashes_updated", repository=repository, count=len(uids))
 
+    @staticmethod
+    def _sort_by_depth(
+        uids: list[str],
+        contains_edges: list[dict[str, str]],
+    ) -> list[str]:
+        """Sort uids by graph depth — leaves first, roots last."""
+
+        children: dict[str, set[str]] = {}
+        for edge in contains_edges:
+            src = str(edge.get("source", "") or "")
+            tgt = str(edge.get("target", "") or "")
+            children.setdefault(src, set()).add(tgt)
+
+        uid_set = set(uids)
+
+        def depth(uid: str, visited: set[str] | None = None) -> int:
+            if visited is None:
+                visited = set()
+            if uid in visited:
+                return 0
+            visited.add(uid)
+            kids = children.get(uid, set()) & uid_set
+            if not kids:
+                return 0
+            return 1 + max(depth(k, visited) for k in kids)
+
+        return sorted(uids, key=lambda u: depth(u))
+
+    def _resume_source_content_hash(self, graph_node: GraphNode, source_content: str) -> str:
+        """Prefer graph ``code_hash`` (matches incremental ``wiki_code_hash``); fallback to hashed sources."""
+        props = graph_node.properties or {}
+        ch = props.get("code_hash")
+        if isinstance(ch, str) and ch.strip():
+            return ch.strip()
+        return hashlib.sha256(source_content.encode()).hexdigest()
+
+    async def _load_wikipage_for_resume_entity(
+        self,
+        repository: str,
+        graph_node: GraphNode,
+        *,
+        structure_path: str,
+        structure_title: str,
+        structure_page_type: PageType,
+        config: WikiConfig,
+    ) -> WikiPage | None:
+        """Load persisted markdown from DB when compose is skipped via resume-from-saved."""
+        if self._wiki_store is None:
+            return None
+        if not hasattr(self._wiki_store, "execute_query"):
+            return None
+        try:
+            from store.schema import EdgeType
+
+            _se = EdgeType.SOURCE_ENTITY.value
+            q = (
+                f"MATCH (wp:WikiPage {{repository: $repo}})-[:{_se}]->(e {{uid: $uid}}) "
+                "RETURN coalesce(wp.path, '') AS path, coalesce(wp.title, '') AS title, "
+                "coalesce(wp.content, '') AS content, coalesce(wp.page_type, '') AS pt LIMIT 1"
+            )
+            r = await self._wiki_store.execute_query(
+                q, {"repo": repository, "uid": graph_node.uid},
+            )
+            rows = getattr(r, "data", []) or []
+            if not rows or not isinstance(rows[0], dict):
+                return None
+            row = rows[0]
+            pt_raw = str(row.get("pt") or structure_page_type.value)
+            try:
+                pt = PageType(pt_raw)
+            except ValueError:
+                pt = structure_page_type
+            return WikiPage(
+                path=str(row.get("path") or structure_path),
+                title=str(row.get("title") or structure_title),
+                page_type=pt,
+                content=str(row.get("content") or ""),
+                diagrams=[],
+                source_locations=[],
+                metadata=WikiPageMetadata(
+                    node_count=0,
+                    edge_count=0,
+                    generation_mode=config.mode,
+                    fallback_tier=None,
+                ),
+                method_locations=[],
+            )
+        except Exception:
+            log.debug("resume_load_wikipage_failed", uid=graph_node.uid, exc_info=True)
+            return None
+
     async def generate_incremental(
         self,
         repository: str,
@@ -664,7 +756,29 @@ class WikiService:
                         exc_info=True,
                     )
 
-            for uid in all_affected_uids:
+            contains_edges: list[dict[str, str]] = []
+            if hasattr(query_port, "execute_query"):
+                try:
+                    uid_list = list(all_affected_uids)
+                    cq = (
+                        "MATCH (a)-[:CONTAINS]->(b) "
+                        "WHERE a.uid IN $uids AND b.uid IN $uids "
+                        "RETURN a.uid AS source, b.uid AS target"
+                    )
+                    cres = await query_port.execute_query(cq, {"uids": uid_list})
+                    crows = getattr(cres, "data", []) or []
+                    contains_edges = [
+                        {"source": str(r.get("source", "")), "target": str(r.get("target", ""))}
+                        for r in crows
+                        if isinstance(r, dict)
+                    ]
+                except Exception:
+                    log.debug("incremental_depth_sort_failed", exc_info=True)
+
+            sorted_uids = self._sort_by_depth(list(all_affected_uids), contains_edges)
+            just_generated: dict[str, WikiPage] = {}
+
+            for uid in sorted_uids:
                 try:
                     graph_node = graph_nodes_by_uid.get(uid)
                     if graph_node is None:
@@ -693,11 +807,15 @@ class WikiService:
                     if parent_edges and composer._wiki_store is not None:
                         try:
                             parent_uid = parent_edges[0].source_uid
-                            parent_page = await composer._wiki_store.get_page_by_entity_uid(
-                                repository, parent_uid,
-                            )
-                            if parent_page and hasattr(parent_page, "content"):
-                                parent_context = str(parent_page.content)[:1200]
+                            parent_pg_cached = just_generated.get(parent_uid)
+                            if parent_pg_cached is not None and hasattr(parent_pg_cached, "content"):
+                                parent_context = str(parent_pg_cached.content)[:1200]
+                            else:
+                                parent_page = await composer._wiki_store.get_page_by_entity_uid(
+                                    repository, parent_uid,
+                                )
+                                if parent_page and hasattr(parent_page, "content"):
+                                    parent_context = str(parent_page.content)[:1200]
                         except Exception:
                             log.debug("incremental_parent_context_miss", uid=uid)
                     page = await composer.compose_page(
@@ -711,6 +829,7 @@ class WikiService:
                         glossary=glossary,
                     )
                     if page is not None:
+                        just_generated[uid] = page
                         page.metadata.enrichment_level = EnrichmentLevel.BASE
                         page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
                         regenerated_pages.append(page)
@@ -1373,7 +1492,16 @@ class WikiService:
                     log.warning("link_page_code_structure_failed", page_uid=page_uid, exc_info=True)
 
                 mod_name = page.get("title", "")
-                domain_name = module_to_domain.get((repo_name, mod_name))
+                entity_uid = str(page.get("entity_uid", "") or "")
+
+                domain_name = None
+                if entity_uid:
+                    for (r, m), d in module_to_domain.items():
+                        if r == repo_name and entity_uid.endswith(m):
+                            domain_name = d
+                            break
+                if not domain_name:
+                    domain_name = module_to_domain.get((repo_name, mod_name))
                 if not domain_name:
                     for (r, m), d in module_to_domain.items():
                         if r == repo_name:
@@ -1538,6 +1666,24 @@ class WikiService:
         _sk_light_raw = str(getattr(self._wiki_cfg, "skeleton_light_model", "") or "").strip()
         skeleton_light_model = _sk_light_raw if _sk_light_raw else None
 
+        resume_enabled = getattr(self._wiki_cfg, "resume_from_saved", False)
+        existing_page_hashes: dict[str, str] = {}
+        if resume_enabled and self._store is not None and hasattr(self._store, "execute_query"):
+            try:
+                rhq = (
+                    "MATCH (wp:WikiPage {repository: $repo})-[:SOURCE_ENTITY]->(e) "
+                    "RETURN coalesce(wp.path, '') AS path, coalesce(e.wiki_code_hash, '') AS wiki_h"
+                )
+                rhres = await self._store.execute_query(rhq, {"repo": repository})
+                for row in getattr(rhres, "data", None) or []:
+                    if isinstance(row, dict):
+                        pth = str(row.get("path") or "")
+                        wh = str(row.get("wiki_h") or "")
+                        if pth and wh:
+                            existing_page_hashes[pth] = wh
+            except Exception:
+                log.debug("resume_hash_preload_failed", repository=repository, exc_info=True)
+
         log.info(
             "compose_phase_start",
             repository=repository,
@@ -1585,21 +1731,39 @@ class WikiService:
                 if tier is not None:
                     page_data.importance_tier = tier
                 skeleton_strat = self._resolve_skeleton_strategy(tier)
-                try:
-                    page = await asyncio.wait_for(
-                        composer.compose_page(
-                            page_data,
-                            node.page_type,
-                            config,
-                            importance_tier=tier,
-                            skeleton_strategy=skeleton_strat,
-                            skeleton_light_model=skeleton_light_model,
-                        ),
-                        timeout=_PAGE_TIMEOUT,
-                    )
-                except TimeoutError:
-                    log.warning("compose_leaf_timeout", path=node.path)
-                    return None
+
+                src_concat = "".join(cs.source for cs in page_data.code_snippets)
+                page_res: WikiPage | None = None
+                if resume_enabled and existing_page_hashes and composer._wiki_store is not None:
+                    ex_h = existing_page_hashes.get(node.path)
+                    cur_h = self._resume_source_content_hash(graph_node, src_concat)
+                    if ex_h and cur_h and ex_h == cur_h:
+                        log.debug("resume_skip_unchanged", path=node.path)
+                        page_res = await self._load_wikipage_for_resume_entity(
+                            repository,
+                            graph_node,
+                            structure_path=node.path,
+                            structure_title=node.title,
+                            structure_page_type=node.page_type,
+                            config=config,
+                        )
+                page: WikiPage | None = page_res
+                if page is None:
+                    try:
+                        page = await asyncio.wait_for(
+                            composer.compose_page(
+                                page_data,
+                                node.page_type,
+                                config,
+                                importance_tier=tier,
+                                skeleton_strategy=skeleton_strat,
+                                skeleton_light_model=skeleton_light_model,
+                            ),
+                            timeout=_PAGE_TIMEOUT,
+                        )
+                    except TimeoutError:
+                        log.warning("compose_leaf_timeout", path=node.path)
+                        return None
                 if page is None:
                     return None
                 page.metadata.enrichment_level = EnrichmentLevel.BASE
@@ -1760,102 +1924,121 @@ class WikiService:
                 if tier is not None:
                     page_data.importance_tier = tier
 
+                resume_src_concat = "".join(cs.source for cs in page_data.code_snippets)
+                page_early: WikiPage | None = None
+                if resume_enabled and existing_page_hashes and composer._wiki_store is not None:
+                    rex = existing_page_hashes.get(parent_node.path)
+                    rcur = self._resume_source_content_hash(graph_node, resume_src_concat)
+                    if rex and rcur and rex == rcur:
+                        log.debug("resume_skip_unchanged", path=parent_node.path)
+                        page_early = await self._load_wikipage_for_resume_entity(
+                            repository,
+                            graph_node,
+                            structure_path=parent_node.path,
+                            structure_title=parent_node.title,
+                            structure_page_type=parent_node.page_type,
+                            config=config,
+                        )
+
                 child_summaries = [
                     summary_index[ch.path] for ch in parent_node.children if ch.path in summary_index
                 ]
-                if getattr(self._wiki_cfg, "delegation_enabled", True):
-                    decision = evaluate_delegation(
-                        children_count=len(parent_node.children),
-                        total_code_lines=0,  # code lines not tracked on structure nodes
-                        max_children=getattr(self._wiki_cfg, "delegation_max_children", 30),
-                        max_code_lines=getattr(self._wiki_cfg, "delegation_max_code_lines", 5000),
-                    )
-                    if decision.should_delegate and child_summaries:
-                        child_paths = [
-                            ch.path for ch in parent_node.children if ch.path in summary_index
-                        ]
-                        edges: list[tuple[str, str]] = []
-                        if (
-                            child_paths
-                            and self._store is not None
-                            and callable(getattr(self._store, "find_edges_between", None))
-                        ):
-                            try:
-                                edges = await self._store.find_edges_between(
-                                    repository,
-                                    child_paths,
-                                    edge_types=["CALLS", "IMPORTS"],
-                                )
-                            except Exception:
-                                log.warning(
-                                    "delegation_edge_query_failed",
-                                    path=parent_node.path,
-                                    exc_info=True,
-                                )
-                                edges = []
-                        groups = group_children_by_graph(
-                            [ch for ch in parent_node.children if ch.path in summary_index],
-                            edges,
-                            max_group_size=getattr(self._wiki_cfg, "delegation_max_children", 30),
+
+                page: WikiPage | None = page_early
+                if page is None:
+                    if getattr(self._wiki_cfg, "delegation_enabled", True):
+                        decision = evaluate_delegation(
+                            children_count=len(parent_node.children),
+                            total_code_lines=0,  # code lines not tracked on structure nodes
+                            max_children=getattr(self._wiki_cfg, "delegation_max_children", 30),
+                            max_code_lines=getattr(self._wiki_cfg, "delegation_max_code_lines", 5000),
                         )
-                        if len(groups) > 1:
-                            group_summaries: list[WikiPageSummary] = []
-                            for group in groups:
-                                group_child_sums = [
-                                    summary_index[ch.path]
-                                    for ch in group
-                                    if ch.path in summary_index
-                                ]
-                                if group_child_sums:
-                                    combined = "; ".join(s.summary[:50] for s in group_child_sums)
-                                    group_summaries.append(
-                                        WikiPageSummary(
-                                            entity_uid=f"virtual:{parent_node.path}:{len(group_summaries)}",
-                                            title=f"Group: {group_child_sums[0].title} etc.",
-                                            path=parent_node.path,
-                                            summary=combined[:200],
-                                            importance_tier=None,
-                                            page_type=PageType.MODULE_OVERVIEW,
-                                        )
+                        if decision.should_delegate and child_summaries:
+                            child_paths = [
+                                ch.path for ch in parent_node.children if ch.path in summary_index
+                            ]
+                            edges: list[tuple[str, str]] = []
+                            if (
+                                child_paths
+                                and self._store is not None
+                                and callable(getattr(self._store, "find_edges_between", None))
+                            ):
+                                try:
+                                    edges = await self._store.find_edges_between(
+                                        repository,
+                                        child_paths,
+                                        edge_types=["CALLS", "IMPORTS"],
                                     )
-                            if group_summaries:
-                                child_summaries = group_summaries
-                                log.info(
-                                    "delegation_applied",
-                                    path=parent_node.path,
-                                    groups=len(groups),
-                                    reason=decision.reason,
-                                )
-                skeleton_strat = self._resolve_skeleton_strategy(tier)
-                if tier == ImportanceTier.SKELETON and skeleton_strat == SkeletonStrategy.SKIP:
-                    continue
-                try:
-                    if child_summaries:
-                        page = await asyncio.wait_for(
-                            composer.compose_parent_page(
-                                page_data,
-                                parent_node.page_type,
-                                config,
-                                child_summaries,
-                            ),
-                            timeout=_PAGE_TIMEOUT,
-                        )
-                    else:
-                        skeleton_strat = self._resolve_skeleton_strategy(tier)
-                        page = await asyncio.wait_for(
-                            composer.compose_page(
-                                page_data,
-                                parent_node.page_type,
-                                config,
-                                importance_tier=tier,
-                                skeleton_strategy=skeleton_strat,
-                                skeleton_light_model=skeleton_light_model,
-                            ),
-                            timeout=_PAGE_TIMEOUT,
-                        )
-                except TimeoutError:
-                    log.warning("compose_parent_timeout", path=parent_node.path)
-                    continue
+                                except Exception:
+                                    log.warning(
+                                        "delegation_edge_query_failed",
+                                        path=parent_node.path,
+                                        exc_info=True,
+                                    )
+                                    edges = []
+                            groups = group_children_by_graph(
+                                [ch for ch in parent_node.children if ch.path in summary_index],
+                                edges,
+                                max_group_size=getattr(self._wiki_cfg, "delegation_max_children", 30),
+                            )
+                            if len(groups) > 1:
+                                group_summaries: list[WikiPageSummary] = []
+                                for group in groups:
+                                    group_child_sums = [
+                                        summary_index[ch.path]
+                                        for ch in group
+                                        if ch.path in summary_index
+                                    ]
+                                    if group_child_sums:
+                                        combined = "; ".join(s.summary[:50] for s in group_child_sums)
+                                        group_summaries.append(
+                                            WikiPageSummary(
+                                                entity_uid=f"virtual:{parent_node.path}:{len(group_summaries)}",
+                                                title=f"Group: {group_child_sums[0].title} etc.",
+                                                path=parent_node.path,
+                                                summary=combined[:200],
+                                                importance_tier=None,
+                                                page_type=PageType.MODULE_OVERVIEW,
+                                            )
+                                        )
+                                if group_summaries:
+                                    child_summaries = group_summaries
+                                    log.info(
+                                        "delegation_applied",
+                                        path=parent_node.path,
+                                        groups=len(groups),
+                                        reason=decision.reason,
+                                    )
+                    skeleton_strat = self._resolve_skeleton_strategy(tier)
+                    if tier == ImportanceTier.SKELETON and skeleton_strat == SkeletonStrategy.SKIP:
+                        continue
+                    try:
+                        if child_summaries:
+                            page = await asyncio.wait_for(
+                                composer.compose_parent_page(
+                                    page_data,
+                                    parent_node.page_type,
+                                    config,
+                                    child_summaries,
+                                ),
+                                timeout=_PAGE_TIMEOUT,
+                            )
+                        else:
+                            skeleton_strat = self._resolve_skeleton_strategy(tier)
+                            page = await asyncio.wait_for(
+                                composer.compose_page(
+                                    page_data,
+                                    parent_node.page_type,
+                                    config,
+                                    importance_tier=tier,
+                                    skeleton_strategy=skeleton_strat,
+                                    skeleton_light_model=skeleton_light_model,
+                                ),
+                                timeout=_PAGE_TIMEOUT,
+                            )
+                    except TimeoutError:
+                        log.warning("compose_parent_timeout", path=parent_node.path)
+                        continue
                 if page is None:
                     continue
                 page.metadata.enrichment_level = EnrichmentLevel.BASE

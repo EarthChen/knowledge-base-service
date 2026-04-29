@@ -36,10 +36,14 @@ log = get_logger(__name__)
 _comment_filter = CommentFilter()
 
 _PARENT_SYSTEM_PROMPT = (
-    "You are a senior engineer writing a module overview. "
-    "Synthesize the provided child component summaries into a cohesive description. "
-    "Focus on how components work together, the module's overall purpose, and key design patterns. "
-    "Use clear section headings (##). Output Markdown."
+    "You are a senior architect synthesizing module documentation. "
+    "You receive child component summaries AND their inter-dependencies. "
+    "Generate a cohesive module overview with these sections:\n"
+    "1. **Purpose & Responsibility**\n"
+    "2. **Architecture Overview** (with Mermaid diagram)\n"
+    "3. **Key Data Flows**\n"
+    "4. **Entry Points**\n"
+    "5. **Design Patterns**"
 )
 
 _REPO_OVERVIEW_SYSTEM = (
@@ -328,6 +332,7 @@ class WikiComposer:
         page_type: PageType,
         config: WikiConfig,
         child_summaries: list[WikiPageSummary],
+        inter_child_edges: list[dict[str, str]] | None = None,
     ) -> WikiPage:
         """Compose a parent module page using child summaries instead of raw code."""
         title = _primary_name(page_data.node)
@@ -349,15 +354,25 @@ class WikiComposer:
                 for s in child_summaries
             )
             lang_directive = "Generate documentation in English." if eff_lang == "en" else "请用中文生成文档。"
+            deps_text = ""
+            if inter_child_edges:
+                deps_lines = [
+                    f"  {e.get('source', '?')} --{e.get('edge_type', 'CALLS')}--> {e.get('target', '?')}"
+                    for e in inter_child_edges[:20]
+                ]
+                deps_text = "\n\n### Inter-component dependencies:\n" + "\n".join(deps_lines)
+
             prompt = (
                 f"## Module: {title}\n\n"
-                f"### Child Components ({len(child_summaries)} total):\n{children_context}\n\n"
+                f"### Child Components ({len(child_summaries)} total):\n{children_context}"
+                f"{deps_text}\n\n"
                 f"## Task\n{lang_directive}\n\n"
                 "Write a module overview that:\n"
                 "1. Describes the module's overall purpose and responsibility\n"
                 "2. Explains how the child components work together\n"
                 "3. Identifies key design patterns and architectural decisions\n"
                 "4. Notes important entry points and external interfaces\n"
+                "5. Shows the architecture with a Mermaid diagram\n"
             )
             description = (await self._llm.generate(prompt, system=_PARENT_SYSTEM_PROMPT)).strip()
             tier = 2

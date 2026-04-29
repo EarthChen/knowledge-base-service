@@ -1,3 +1,5 @@
+import inspect
+
 from wiki.service import _extract_summary, _collect_nodes_by_depth
 from wiki.models import WikiPage, WikiPageMetadata, PageType, WikiStructureNode
 
@@ -74,3 +76,28 @@ def test_collect_nodes_flat_structure():
     leaves, parents = _collect_nodes_by_depth(root)
     assert len(leaves) == 1
     assert len(parents) == 1
+
+
+class TestParentComposeV2:
+    def test_parent_prompt_mentions_architecture(self):
+        """V2 system prompt should mention architecture."""
+        from wiki.composer import _PARENT_SYSTEM_PROMPT
+
+        assert "Architecture" in _PARENT_SYSTEM_PROMPT or "architect" in _PARENT_SYSTEM_PROMPT.lower()
+
+    def test_compose_parent_accepts_inter_child_edges(self):
+        """compose_parent_page should accept inter_child_edges parameter."""
+        from wiki.composer import WikiComposer
+
+        sig = inspect.signature(WikiComposer.compose_parent_page)
+        assert "inter_child_edges" in sig.parameters
+
+
+class TestGlossaryAlignment:
+    def test_glossary_accepts_two_string_lists(self):
+        """build_glossary should accept module_names and entry_points as lists of strings."""
+        from wiki.context import WikiContextBuilder
+
+        sig = inspect.signature(WikiContextBuilder.build_glossary)
+        params = list(sig.parameters.keys())
+        assert len(params) >= 3  # self + 2 params

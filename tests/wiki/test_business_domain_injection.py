@@ -68,3 +68,16 @@ class TestFindDescendants:
                 )
 
         assert result == []
+
+
+class TestDomainEntryPoints:
+    def test_entry_points_not_hardcoded_empty(self):
+        """Verify that generate_business_wiki source code no longer has 'domain_entry_points: list[str] = []'."""
+        import inspect
+
+        from wiki.service import WikiService
+
+        source = inspect.getsource(WikiService.generate_business_wiki)
+        assert "all_entry_point_names" in source, (
+            "generate_business_wiki should reference all_entry_point_names"
+        )

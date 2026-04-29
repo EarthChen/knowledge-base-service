@@ -1267,6 +1267,17 @@ class WikiService:
                 ],
             }
 
+        from wiki.dependency_graph import ModuleDependencyGraph
+
+        all_entry_point_names: set[str] = set()
+        for repo_name, _repo_modules in all_modules.items():
+            try:
+                dep_graph = ModuleDependencyGraph(self._graph)
+                module_graph = await dep_graph.build(repo_name)
+                all_entry_point_names.update(module_graph.entry_points)
+            except Exception:
+                log.warning("entry_point_collection_failed", repository=repo_name, exc_info=True)
+
         log.info(
             "domain_classification_done",
             business_id=business_id,
@@ -1316,7 +1327,10 @@ class WikiService:
                 if node is not None
             ]
             domain_subtree = None
-            domain_entry_points: list[str] = []
+            domain_module_names_set = {mod_name for _, mod_name in repo_module_pairs}
+            domain_entry_points = [
+                ep for ep in all_entry_point_names if ep in domain_module_names_set
+            ]
             if domain_tree:
                 domain_subtree = [d for d in domain_tree if d.name == domain_name]
             overview_page = await overview_composer.compose(

@@ -14,9 +14,15 @@
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 目录结构、`uv` / `pnpm`、测试、新增语言与扩展 MCP |
 | [ONBOARDING.md](ONBOARDING.md) | 产品导览、功能发现、首次索引、MCP 设置 |
 | [wiki-generation-architecture.md](wiki-generation-architecture.md) | Wiki 管道、Ingest/自动化、LLM Wiki v2（置信度/矛盾/主张/记忆层） |
-| [superpowers/archive/specs/2026-04-26-llm-wiki-v2-upgrade-design.md](superpowers/archive/specs/2026-04-26-llm-wiki-v2-upgrade-design.md) | **已批准** LLM Wiki v2（三阶段、**SP1–SP7**，与下一条的 SP 含义不同） |
-| [superpowers/archive/specs/2026-04-26-llm-wiki-full-upgrade-design.md](superpowers/archive/specs/2026-04-26-llm-wiki-full-upgrade-design.md) | 草案：LLM Wiki 全面升级路线图（**SP1–SP6**） |
-| [superpowers/specs/PROPOSAL_20260429_130536_unified-llm-token-budget.md](superpowers/specs/PROPOSAL_20260429_130536_unified-llm-token-budget.md) | **草案** Unified LLM Token Budget — 统一上下文大小配置体系 |
+
+## 已完成设计文档（归档）
+
+| 文档 | 内容 |
+|------|------|
+| [superpowers/archive/specs/2026-04-26-llm-wiki-v2-upgrade-design.md](superpowers/archive/specs/2026-04-26-llm-wiki-v2-upgrade-design.md) | **已完成** LLM Wiki v2（三阶段、**SP1–SP7**） |
+| [superpowers/archive/specs/2026-04-29-wiki-graph-foundation-and-nested-domain-tree-design.md](superpowers/archive/specs/2026-04-29-wiki-graph-foundation-and-nested-domain-tree-design.md) | **已完成** Wiki Graph Foundation & Nested Domain Tree（22 tasks, 4 layers） |
+| [superpowers/archive/specs/PROPOSAL_20260429_130536_unified-llm-token-budget.md](superpowers/archive/specs/PROPOSAL_20260429_130536_unified-llm-token-budget.md) | **已完成** Unified LLM Token Budget — TokenBudgetResolver + 自动派生 |
+| [superpowers/archive/wiki-gap-analysis-deepwiki-codewiki.md](superpowers/archive/wiki-gap-analysis-deepwiki-codewiki.md) | Wiki 系统缺陷分析：对比 CodeWiki/DeepWiki |
 
 ## 技术栈概览
 

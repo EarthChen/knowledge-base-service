@@ -1,6 +1,6 @@
 # Unified LLM Token Budget Configuration
 
-> **Status:** Draft — Awaiting Approval  
+> **Status:** ✅ Approved & Implemented  
 > **Created:** 2026-04-29  
 > **Author:** AI Assistant  
 > **Priority:** Medium  
@@ -213,4 +213,4 @@ class TokenBudgetResolver:
 | D2 | **比例因子为代码常量** | 不同组件的预算差异是合理设计（非"不一致"），不应暴露为用户配置 |
 | D3 | **仅新增 1 个配置字段** | `default_llm_budget` — 一处配置，全局生效，最小运维成本 |
 
-> Awaiting user approval.
+> ✅ Approved and fully implemented. See commits: c31e3a4..3130f5c

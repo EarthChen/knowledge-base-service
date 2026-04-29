@@ -808,9 +808,10 @@ async def wiki_enrich_trigger(
     repository: str,
     wiki_svc: WikiService = Depends(get_wiki_service_dep),
 ) -> dict[str, Any]:
-    """Dry-run estimate: how many persisted wiki pages are at BASE and eligible for enrichment.
+    """Trigger enrichment for eligible wiki pages at BASE level.
 
-    Does not start async enrichment; enrichment runs during wiki generation when tiers exist.
+    Returns a task_id and starts a background enrichment job when eligible pages exist.
+    When no pages are eligible or enrichment is disabled, returns status 'skipped'.
     """
     repo = normalize_repo_name(repository)
     try:

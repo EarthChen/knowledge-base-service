@@ -102,11 +102,39 @@ class DomainOverviewComposer:
     def __init__(self, llm: LLMPort | None = None) -> None:
         self._llm = llm
 
+    def _build_nested_navigation(self, domain_tree: list) -> str:
+        """Generate nested sub-domain navigation links."""
+        if not domain_tree:
+            return ""
+        lines = ["## Sub-Domains", ""]
+        for domain in domain_tree:
+            desc = f": {domain.description}" if hasattr(domain, "description") and domain.description else ""
+            lines.append(f"- **{domain.name}**{desc}")
+            children = getattr(domain, "children", [])
+            for child in children:
+                child_desc = (
+                    f": {child.description}" if hasattr(child, "description") and child.description else ""
+                )
+                lines.append(f"  - {child.name}{child_desc}")
+        return "\n".join(lines) + "\n"
+
+    def _build_entry_points_section(self, entry_points: list[str]) -> str:
+        """List module entry points."""
+        if not entry_points:
+            return ""
+        lines = ["## Entry Points", ""]
+        for ep in entry_points:
+            lines.append(f"- `{ep}`")
+        return "\n".join(lines) + "\n"
+
     async def compose(
         self,
         domain_name: str,
         modules: list[tuple[str, str, GraphNode]],
         language: str = "en",
+        *,
+        domain_tree: list | None = None,
+        entry_points: list[str] | None = None,
     ) -> WikiPage:
         grouped = _group_modules(modules)
         repositories = sorted(grouped.keys())
@@ -136,6 +164,18 @@ class DomainOverviewComposer:
                 )
                 content = structural
                 diagrams = []
+
+        extra_sections: list[str] = []
+        if domain_tree:
+            nav = self._build_nested_navigation(domain_tree)
+            if nav:
+                extra_sections.append(nav)
+        if entry_points:
+            ep_section = self._build_entry_points_section(entry_points)
+            if ep_section:
+                extra_sections.append(ep_section)
+        if extra_sections:
+            content = content.rstrip() + "\n\n" + "\n".join(extra_sections)
 
         path = f"/{domain_name}/_overview"
         title = f"{domain_name} — overview" if lang == "en" else f"{domain_name} — 概述"

@@ -21,6 +21,7 @@ import WikiNavigationLinks from "./WikiNavigationLinks";
 import { parseMarkdownHeadings, type ParsedHeading } from "./headingUtils";
 import { getErrorMessage } from "../../utils/errorUtils";
 import WikiCallChainSection from "./WikiCallChainSection";
+import { RelatedPages } from "./RelatedPages";
 import MobileTocBar from "./MobileTocBar";
 import WikiSourceLocRow from "./WikiSourceLocRow";
 import { WikiVersionPicker } from "./WikiVersionPicker";
@@ -339,6 +340,10 @@ export default function WikiContent({
             {detail && (
               <WikiCallChainSection repository={repository} detail={detail} wikiLinkParams={wikiLinkParams} />
             )}
+
+            {detail?.related_pages && detail.related_pages.length > 0 ? (
+              <RelatedPages pages={detail.related_pages} />
+            ) : null}
 
             <WikiSuggestedQuestions
               questions={parseSuggestedQuestions(detail.context?.suggested_questions)}

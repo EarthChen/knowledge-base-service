@@ -21,6 +21,13 @@ export type WikiSourceLocation = {
   entity_uid?: string;
 };
 
+export type WikiRelatedPage = {
+  uid: string;
+  title: string;
+  page_type: string;
+  business_domain: string | null;
+};
+
 export type WikiPageDetail = {
   path: string;
   title: string;
@@ -37,6 +44,8 @@ export type WikiPageDetail = {
   };
   /** ISO timestamp from page metadata when the server provides it. */
   generated_at?: string | null;
+  /** RELATED_TO neighbors from graph (see Sprint 3 related pages API). */
+  related_pages?: WikiRelatedPage[];
 };
 
 export type WikiSearchResult = {

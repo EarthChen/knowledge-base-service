@@ -13,7 +13,13 @@ from store.wiki_store import WikiStore
 from wiki.context import LLMPort, WikiContextBuilder
 from wiki.doc_wiki_fusion import create_source_doc_edges, find_related_docs, format_related_docs_for_prompt
 from wiki.data_collector import PageData
-from wiki.diagram_gen import generate_call_flowchart, generate_class_diagram, generate_dependency_graph
+from wiki.diagram_gen import (
+    generate_call_flowchart,
+    generate_class_diagram,
+    generate_data_flow_diagram,
+    generate_dependency_graph,
+    generate_layered_architecture_diagram,
+)
 from wiki.memory_loop import MemoryLoop
 from wiki.models import (
     ImportanceTier,
@@ -130,6 +136,49 @@ def _sorted_method_names(methods: list[GraphNode]) -> list[str]:
         n = m.properties.get("name")
         names.append(str(n) if isinstance(n, str) else _display_name(m.uid))
     return sorted(names)
+
+
+def _diagram_content_substantial(content: str) -> bool:
+    return len(content.strip().splitlines()) > 2
+
+
+def _primary_uid_map(page_data: PageData) -> dict[str, str]:
+    m: dict[str, str] = {page_data.node.uid: _primary_name(page_data.node)}
+    for c in page_data.children:
+        m[c.uid] = _primary_name(c)
+    for meth in page_data.methods:
+        m[meth.uid] = _primary_name(meth)
+    return m
+
+
+def _data_flow_inputs_from_calls(page_data: PageData) -> tuple[list[str], list[tuple[str, str]]] | None:
+    names = _primary_uid_map(page_data)
+    pairs: list[tuple[str, str]] = []
+    for e in page_data.edges:
+        if e.edge_type != EdgeType.CALLS:
+            continue
+        s, t = names.get(e.source_uid), names.get(e.target_uid)
+        if s and t:
+            pairs.append((s, t))
+    if not pairs:
+        return None
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for s, t in pairs:
+        if s not in seen:
+            seen.add(s)
+            ordered.append(s)
+        if t not in seen:
+            seen.add(t)
+            ordered.append(t)
+    return ordered, pairs
+
+
+def _module_layer_dict(page_data: PageData) -> dict[str, list[str]] | None:
+    if not page_data.children:
+        return None
+    labels = sorted({_primary_name(c) for c in page_data.children}, key=lambda x: x.lower())
+    return {_primary_name(page_data.node): labels}
 
 
 class WikiComposer:
@@ -1067,20 +1116,55 @@ class WikiComposer:
 
         if page_type == PageType.MODULE_OVERVIEW or node.label == NodeLabel.MODULE:
             dg = generate_dependency_graph(node, edges)
-            dg = WikiDiagram(diagram_type=dg.diagram_type, content=dg.content, title="Dependency graph")
-            out.append(dg)
+            out.append(WikiDiagram(diagram_type=dg.diagram_type, content=dg.content, title="Dependency graph"))
+
+            layers = _module_layer_dict(page_data)
+            if layers:
+                try:
+                    la = generate_layered_architecture_diagram(layers)
+                    if la.content and _diagram_content_substantial(la.content):
+                        out.append(
+                            WikiDiagram(
+                                diagram_type=la.diagram_type,
+                                content=la.content,
+                                title="Architecture layers",
+                            )
+                        )
+                except Exception:
+                    log.debug("layered_arch_diagram_failed", entity=node.uid, exc_info=True)
+
+            try:
+                flow = _data_flow_inputs_from_calls(page_data)
+                if flow is not None:
+                    stages, df_edges = flow
+                    df = generate_data_flow_diagram(stages, df_edges)
+                    if df.content and _diagram_content_substantial(df.content):
+                        out.append(
+                            WikiDiagram(diagram_type=df.diagram_type, content=df.content, title="Data flow"),
+                        )
+            except Exception:
+                log.debug("data_flow_diagram_failed", entity=node.uid, exc_info=True)
+
             return out
 
         cd = generate_class_diagram(node, edges)
-        cd = WikiDiagram(diagram_type=cd.diagram_type, content=cd.content, title="Class diagram")
-        out.append(cd)
+        out.append(WikiDiagram(diagram_type=cd.diagram_type, content=cd.content, title="Class diagram"))
 
         calls = [e for e in edges if e.edge_type == EdgeType.CALLS]
         if calls:
             fc = generate_call_flowchart(node, edges)
-            out.append(
-                WikiDiagram(diagram_type=fc.diagram_type, content=fc.content, title="Call flow"),
-            )
+            out.append(WikiDiagram(diagram_type=fc.diagram_type, content=fc.content, title="Call flow"))
+
+        try:
+            flow = _data_flow_inputs_from_calls(page_data)
+            if flow is not None:
+                stages, df_edges = flow
+                df = generate_data_flow_diagram(stages, df_edges)
+                if df.content and _diagram_content_substantial(df.content):
+                    out.append(WikiDiagram(diagram_type=df.diagram_type, content=df.content, title="Data flow"))
+        except Exception:
+            log.debug("data_flow_diagram_failed", entity=node.uid, exc_info=True)
+
         return out
 
 

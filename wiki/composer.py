@@ -759,6 +759,13 @@ class WikiComposer:
         sig = n.properties.get("signature")
         if isinstance(sig, str) and sig:
             lines.append(f"- Signature: {sig}")
+        if n.label == NodeLabel.FUNCTION:
+            params = n.properties.get("parameters")
+            if params:
+                lines.append(f"- Parameters: {str(params)[:300]}")
+            ret = n.properties.get("return_type")
+            if ret:
+                lines.append(f"- Return type: {str(ret)[:100]}")
         doc = n.properties.get("docstring")
         if isinstance(doc, str) and doc and _comment_filter.classify(doc) != CommentTier.NEVER:
             lines.append(f"- Docstring: {doc[:comment_budget]}")
@@ -831,8 +838,15 @@ class WikiComposer:
         calls_in = [e for e in page_data.edges if e.edge_type == EdgeType.CALLS and e.target_uid == n.uid]
         inherits = [e for e in page_data.edges if e.edge_type == EdgeType.INHERITS]
         if calls_out:
-            targets = [_display_name(e.target_uid) for e in calls_out[:10]]
-            lines.append(f"- Calls out to: {', '.join(targets)}")
+            lines.append("- Calls out to:")
+            for e in calls_out[:10]:
+                target = _display_name(e.target_uid)
+                tier_raw = e.properties.get("neighbor_tier", "")
+                tier = str(tier_raw).strip() if tier_raw else ""
+                if tier:
+                    lines.append(f"  -> {target} [{tier}]")
+                else:
+                    lines.append(f"  -> {target}")
         if calls_in:
             sources = [_display_name(e.source_uid) for e in calls_in[:10]]
             lines.append(f"- Called by: {', '.join(sources)}")

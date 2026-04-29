@@ -133,3 +133,81 @@ class TestStructuredSectionTemplates:
     def test_system_prompt_mentions_mermaid(self) -> None:
         source = inspect.getsource(WikiComposer._tier2_llm)
         assert "mermaid" in source.lower()
+
+
+class TestEntityDigestEnhancements:
+    """_entity_digest: neighbor_tier on CALLS out, structured params for functions."""
+
+    def test_neighbor_tier_included_in_calls_out(self) -> None:
+        composer = WikiComposer(llm=None, context_builder=MagicMock())
+        node = GraphNode(
+            label=NodeLabel.FUNCTION,
+            uid="fn-handle",
+            properties={"name": "handle_request"},
+        )
+        edges = [
+            GraphEdge(
+                source_uid="fn-handle",
+                target_uid="validate_card",
+                edge_type=EdgeType.CALLS,
+                properties={"neighbor_tier": "CRITICAL"},
+            ),
+        ]
+        page_data = PageData(
+            node=node,
+            edges=edges,
+            children=[],
+            source_location=_loc("src/handler.py", 1, 20, "handle_request"),
+            method_locations=[],
+            business_summary=None,
+            methods=[],
+        )
+        digest = composer._entity_digest(page_data, PageType.API_REFERENCE)
+        assert "validate_card" in digest
+        assert "[CRITICAL]" in digest
+        assert "-> validate_card [CRITICAL]" in digest
+
+    def test_function_node_has_structured_parameters(self) -> None:
+        composer = WikiComposer(llm=None, context_builder=MagicMock())
+        node = GraphNode(
+            label=NodeLabel.FUNCTION,
+            uid="fn-parse",
+            properties={
+                "name": "parse_user",
+                "parameters": [{"name": "user_id", "type": "str"}],
+                "return_type": "User | None",
+            },
+        )
+        page_data = PageData(
+            node=node,
+            edges=[],
+            children=[],
+            source_location=_loc("src/parse.py", 1, 10, "parse_user"),
+            method_locations=[],
+            business_summary=None,
+            methods=[],
+        )
+        digest = composer._entity_digest(page_data, PageType.API_REFERENCE)
+        assert "- Parameters:" in digest
+        assert "- Return type:" in digest
+        assert "user_id" in digest
+
+    def test_class_node_without_params_omits_line(self) -> None:
+        composer = WikiComposer(llm=None, context_builder=MagicMock())
+        node = GraphNode(
+            label=NodeLabel.CLASS,
+            uid="cls-svc",
+            properties={"name": "AuthService", "path": "src/auth.py"},
+        )
+        page_data = PageData(
+            node=node,
+            edges=[],
+            children=[],
+            source_location=_loc("src/auth.py", 1, 40, "AuthService"),
+            method_locations=[],
+            business_summary=None,
+            methods=[],
+        )
+        digest = composer._entity_digest(page_data, PageType.CLASS_DETAIL)
+        assert not any(line.startswith("- Parameters:") for line in digest.splitlines())
+        assert not any(line.startswith("- Return type:") for line in digest.splitlines())

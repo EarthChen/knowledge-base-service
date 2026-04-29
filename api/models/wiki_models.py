@@ -57,6 +57,7 @@ class BusinessWikiGenerateBody(BaseModel):
     language: str = Field(default="en", pattern="^(en|zh)$")
     llm_provider: str | None = None
     incremental: bool = True
+    force_reclassify: bool = False
     mode: str = Field(
         default="full",
         pattern="^(structure|full)$",

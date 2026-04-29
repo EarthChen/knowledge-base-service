@@ -65,7 +65,9 @@ async def test_gateway_adapter_close() -> None:
 
 @pytest.mark.asyncio
 async def test_gateway_adapter_complete_stream() -> None:
-    inner = MagicMock()
+    # spec avoids MagicMock auto-adding complete_stream (adapter would otherwise
+    # delegate to a mock async iterator that yields nothing).
+    inner = MagicMock(spec=["complete"])
     inner.complete = AsyncMock(return_value="full")
     adapter = GatewayLLMProviderAdapter(inner)
     chunks: list[str] = []

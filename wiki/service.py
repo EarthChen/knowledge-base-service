@@ -1771,7 +1771,28 @@ class WikiService:
                         max_code_lines=getattr(self._wiki_cfg, "delegation_max_code_lines", 5000),
                     )
                     if decision.should_delegate and child_summaries:
-                        edges: list[tuple[str, str]] = []  # TODO: populate from graph in future
+                        child_paths = [
+                            ch.path for ch in parent_node.children if ch.path in summary_index
+                        ]
+                        edges: list[tuple[str, str]] = []
+                        if (
+                            child_paths
+                            and self._store is not None
+                            and callable(getattr(self._store, "find_edges_between", None))
+                        ):
+                            try:
+                                edges = await self._store.find_edges_between(
+                                    repository,
+                                    child_paths,
+                                    edge_types=["CALLS", "IMPORTS"],
+                                )
+                            except Exception:
+                                log.warning(
+                                    "delegation_edge_query_failed",
+                                    path=parent_node.path,
+                                    exc_info=True,
+                                )
+                                edges = []
                         groups = group_children_by_graph(
                             [ch for ch in parent_node.children if ch.path in summary_index],
                             edges,

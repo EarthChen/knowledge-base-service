@@ -42,6 +42,20 @@ def _cypher_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
+def _wiki_structure_path_case_cypher(var: str) -> str:
+    """OpenCypher CASE for wiki layout path aligned with WikiStructurePlanner._structure_path."""
+
+    return (
+        f"CASE "
+        f"WHEN {var}:Module THEN coalesce({var}.path, toString({var}.name), {var}.uid) "
+        f"WHEN {var}:Class THEN coalesce({var}.fqn, toString({var}.name), {var}.uid) "
+        f"WHEN {var}.file IS NOT NULL AND {var}.name IS NOT NULL "
+        f"AND toString({var}.file) <> '' AND toString({var}.name) <> '' "
+        f"THEN toString({var}.file) + '#' + toString({var}.name) "
+        f"ELSE coalesce(toString({var}.fqn), toString({var}.name), {var}.uid) END"
+    )
+
+
 # Cross-file REFERENCES rebuild: FQN match, then same-name + doc directory prefix, then name-only.
 REFERENCES_CROSS_FILE_CYPHER = """
 MATCH (d:Document)
@@ -448,6 +462,47 @@ class FalkorDBStore:
         header = [col[1] if isinstance(col, (list, tuple)) else str(col) for col in (result.header or [])]
         data = [dict(zip(header, row)) for row in (result.result_set or [])]
         return QueryResultWrapper(data=data, raw=result.result_set)
+
+    async def find_edges_between(
+        self,
+        repository: str,
+        paths: list[str],
+        edge_types: list[str] | None = None,
+    ) -> list[tuple[str, str]]:
+        """Find CALLS/IMPORTS-style edges whose endpoints resolve to wiki structure paths.
+
+        Each returned tuple is ``(source_path, target_path)`` matching
+        :meth:`wiki.structure_planner.WikiStructurePlanner._structure_path` string rules
+        so they can be fed to :func:`wiki.delegation.group_children_by_graph`.
+
+        Empty *paths* returns immediately (no scan).
+        """
+        if not paths:
+            return []
+        types = edge_types or ["CALLS", "IMPORTS"]
+        repo = (repository or "").strip()
+        sa_expr = _wiki_structure_path_case_cypher("a")
+        sb_expr = _wiki_structure_path_case_cypher("b")
+        cypher = (
+            "MATCH (a)-[r]->(b) "
+            "WHERE a.repository = $repo AND b.repository = $repo "
+            "AND type(r) IN $edge_types "
+            "AND (a:Function OR a:Class OR a:Module) "
+            "AND (b:Function OR b:Class OR b:Module) "
+            f"WITH a, b, {sa_expr} AS sa, {sb_expr} AS sb "
+            "WHERE sa IN $paths AND sb IN $paths AND sa <> sb "
+            "RETURN DISTINCT sa AS source, sb AS target"
+        )
+        result = await self.execute_query(
+            cypher,
+            {"repo": repo, "paths": paths, "edge_types": types},
+        )
+        out: list[tuple[str, str]] = []
+        for row in result.data:
+            s, t = row.get("source"), row.get("target")
+            if s is not None and t is not None and str(s) and str(t):
+                out.append((str(s), str(t)))
+        return out
 
     async def get_repository_index_freshness(self, repository: str) -> dict[str, Any]:
         """Aggregate index freshness for nodes stamped with ``repository``."""

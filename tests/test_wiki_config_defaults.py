@@ -21,3 +21,12 @@ def test_wiki_supersession_default_enabled() -> None:
 
 def test_wiki_compose_concurrency_default() -> None:
     assert AppWikiFlags().compose_concurrency == 3
+
+
+def test_config_has_entity_filter_flags() -> None:
+    cfg = AppWikiFlags()
+    assert hasattr(cfg, "entity_filter_enabled")
+    assert hasattr(cfg, "max_domain_depth")
+    assert hasattr(cfg, "hub_detection_percentile")
+    assert cfg.entity_filter_enabled is True
+    assert cfg.max_domain_depth == 4

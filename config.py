@@ -304,6 +304,20 @@ class AppWikiFlags(BaseModel):
     #: When True, skip composing pages whose source matches the last saved wiki baseline (full compose).
     resume_from_saved: bool = Field(default=False)
 
+    # Layer 0: Cross-file resolution
+    cross_file_resolution_enabled: bool = Field(default=True)
+
+    # Layer 1: Entity filtering
+    entity_filter_enabled: bool = Field(default=True)
+    large_class_method_threshold: int = Field(default=30)
+    large_class_top_methods: int = Field(default=20)
+
+    # Layer 2: Domain tree
+    max_domain_depth: int = Field(default=4)
+    min_modules_for_nesting: int = Field(default=3)
+    hub_detection_percentile: float = Field(default=90.0)
+    decomposition_max_tokens_per_batch: int = Field(default=30000)
+
     # Phase 3 SP7: forgetting curve + YAML schema lint
     forgetting_enabled: bool = True
     schema_validation_enabled: bool = True

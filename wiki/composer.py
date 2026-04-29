@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from log import get_logger
+from indexer.comment_filter import CommentFilter, CommentTier
 from store.schema import EdgeType, GraphNode, NodeLabel
 from store.wiki_store import WikiStore
 from wiki.context import LLMPort, WikiContextBuilder
@@ -31,6 +32,8 @@ if TYPE_CHECKING:
     from wiki.wikilink_cache import WikiLinkCache
 
 log = get_logger(__name__)
+
+_comment_filter = CommentFilter()
 
 _PARENT_SYSTEM_PROMPT = (
     "You are a senior engineer writing a module overview. "
@@ -680,7 +683,7 @@ class WikiComposer:
         if isinstance(sig, str) and sig:
             lines.append(f"- Signature: {sig}")
         doc = n.properties.get("docstring")
-        if isinstance(doc, str) and doc:
+        if isinstance(doc, str) and doc and _comment_filter.classify(doc) != CommentTier.NEVER:
             lines.append(f"- Docstring: {doc[:comment_budget]}")
         bs = n.properties.get("business_summary")
         if isinstance(bs, str) and bs:
@@ -728,7 +731,9 @@ class WikiComposer:
                 if m_bs:
                     detail += f" | summary: {str(m_bs)[:100]}"
                 elif m_doc:
-                    detail += f" | doc: {str(m_doc)[:100]}"
+                    md = str(m_doc)
+                    if _comment_filter.classify(md) != CommentTier.NEVER:
+                        detail += f" | doc: {md[:100]}"
                 m_params = m.properties.get("parameters", "")
                 m_ret = m.properties.get("return_type", "")
                 if m_params:

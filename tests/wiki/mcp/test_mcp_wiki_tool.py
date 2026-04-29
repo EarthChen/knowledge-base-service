@@ -120,6 +120,7 @@ class TestWikiToolsRegistered:
             "wiki_get_related",
             "wiki_get_domain_overview",
             "wiki_get_snapshot",
+            "wiki_find_implementing_modules",
         }
 
     def test_wiki_search_tool_registered(self):
@@ -132,7 +133,7 @@ class TestWikiToolsRegistered:
         assert "query" in req
 
     def test_wiki_manifest_has_expected_tools(self):
-        assert len(WIKI_MCP_TOOLS_MANIFEST) == 8
+        assert len(WIKI_MCP_TOOLS_MANIFEST) == 9
 
     @pytest.mark.asyncio
     async def test_wiki_export_without_cache_returns_error(self) -> None:

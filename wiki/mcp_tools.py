@@ -211,6 +211,28 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
             "required": ["repository"],
         },
     },
+    {
+        "name": "wiki_find_implementing_modules",
+        "description": (
+            "Find code modules that implement a given business domain/capability. "
+            "Returns modules with their wiki page paths for reverse lookup from business to code."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain_name": {
+                    "type": "string",
+                    "description": "Business domain name to search for",
+                },
+                "business_id": {
+                    "type": "string",
+                    "description": "Business ID (default: 'default')",
+                    "default": "default",
+                },
+            },
+            "required": ["domain_name"],
+        },
+    },
 ]
 
 
@@ -638,3 +660,32 @@ class WikiMCPHandler:
         except Exception as exc:
             return self._mcp_error("internal_error", str(exc))
         return {"repository": repository, "format": "markdown", "content": md}
+
+    async def handle_wiki_find_implementing_modules(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if self._store is None:
+            return self._mcp_error("service_unavailable", "Store not configured")
+        domain_name = str(arguments.get("domain_name", "")).strip()
+        if not domain_name:
+            return self._mcp_error("invalid_params", "domain_name parameter is required")
+        business_id = str(arguments.get("business_id", "default")).strip()
+
+        from store.wiki_store import WikiStore
+
+        ws = WikiStore(self._store)
+        result = await ws.find_modules_by_domain(domain_name, business_id)
+        modules = []
+        if result and result.result_set:
+            for row in result.result_set:
+                modules.append({
+                    "uid": row[0],
+                    "name": row[1],
+                    "path": row[2],
+                    "repository": row[3],
+                    "wiki_page_path": row[4],
+                })
+        return {
+            "domain_name": domain_name,
+            "business_id": business_id,
+            "modules": modules,
+            "count": len(modules),
+        }

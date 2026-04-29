@@ -122,6 +122,8 @@ class QueryResultWrapper:
 class FalkorDBStore:
     """Thin wrapper over FalkorDB for code knowledge graph operations."""
 
+    _ALLOWED_EDGE_TYPES = frozenset({"CONTAINS", "HAS_CHILD"})
+
     def __init__(self, config: FalkorDBConfig, embedding_dim: int = 1024) -> None:
         self._config = config
         self._embedding_dim = embedding_dim
@@ -944,10 +946,13 @@ class FalkorDBStore:
         self, uid: str, *, edge_type: str = "CONTAINS", max_depth: int = 3
     ) -> list[str]:
         """Return UIDs of all descendants reachable via edge_type up to max_depth."""
+        if edge_type not in self._ALLOWED_EDGE_TYPES:
+            raise ValueError(f"Edge type '{edge_type}' not allowed for traversal")
+        max_depth = max(1, min(max_depth, 10))
         loop = asyncio.get_running_loop()
         query = (
             f"MATCH (root {{uid: $uid}})-[:{edge_type}*1..{max_depth}]->(desc) "
-            f"RETURN desc.uid AS uid"
+            f"RETURN DISTINCT desc.uid AS uid"
         )
         result = await loop.run_in_executor(
             _graph_executor,

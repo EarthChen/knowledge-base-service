@@ -1269,12 +1269,13 @@ class WikiService:
 
         from wiki.dependency_graph import ModuleDependencyGraph
 
-        all_entry_point_names: set[str] = set()
+        all_entry_point_pairs: set[tuple[str, str]] = set()
         for repo_name, _repo_modules in all_modules.items():
             try:
                 dep_graph = ModuleDependencyGraph(self._graph)
                 module_graph = await dep_graph.build(repo_name)
-                all_entry_point_names.update(module_graph.entry_points)
+                for ep in module_graph.entry_points:
+                    all_entry_point_pairs.add((repo_name, ep))
             except Exception:
                 log.warning("entry_point_collection_failed", repository=repo_name, exc_info=True)
 
@@ -1327,9 +1328,10 @@ class WikiService:
                 if node is not None
             ]
             domain_subtree = None
-            domain_module_names_set = {mod_name for _, mod_name in repo_module_pairs}
+            domain_module_pairs_set = set(repo_module_pairs)
             domain_entry_points = [
-                ep for ep in all_entry_point_names if ep in domain_module_names_set
+                ep_name for ep_repo, ep_name in all_entry_point_pairs
+                if (ep_repo, ep_name) in domain_module_pairs_set
             ]
             if domain_tree:
                 domain_subtree = [d for d in domain_tree if d.name == domain_name]

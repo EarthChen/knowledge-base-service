@@ -78,8 +78,8 @@ class TestDomainEntryPoints:
         from wiki.service import WikiService
 
         source = inspect.getsource(WikiService.generate_business_wiki)
-        assert "all_entry_point_names" in source, (
-            "generate_business_wiki should reference all_entry_point_names"
+        assert "all_entry_point_pairs" in source, (
+            "generate_business_wiki should reference all_entry_point_pairs"
         )
 
 

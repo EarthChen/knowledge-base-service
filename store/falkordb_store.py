@@ -249,8 +249,8 @@ class FalkorDBStore:
         await asyncio.gather(*[_one(u, lb, e) for u, lb, e in items])
 
     _ALLOWED_PROPERTIES = frozenset({
-        "business_summary", "description", "embedding", "fqn", "content_hash",
-        "confidence_score", "category", "source", "aliases",
+        "business_summary", "business_domain", "description", "embedding", "fqn",
+        "content_hash", "confidence_score", "category", "source", "aliases",
         "memory_status", "stability_factor", "last_accessed",
     })
 

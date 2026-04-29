@@ -115,15 +115,26 @@ class WikiEntityFilter:
         roles_raw = props.get("semantic_roles", [])
         roles = set(roles_raw) if isinstance(roles_raw, list) else set()
 
+        # Core entities always get full pages
         if roles & self.CORE_ROLES or edge_count >= self.CORE_EDGE_THRESHOLD:
             return EntityStrategy.FULL_PAGE
 
+        # MERGE conditions for CLASS
         if node.label == NodeLabel.CLASS:
+            # Enum-like: no interface, no methods, small
             if not is_interface and methods_count == 0 and loc < 20:
                 return EntityStrategy.MERGE_TO_PARENT
+            # Constant holder: no methods, typically only static fields
+            if not is_interface and methods_count == 0 and children_count == 0 and loc < 50:
+                return EntityStrategy.MERGE_TO_PARENT
 
+        # MERGE conditions for FUNCTION
         if node.label == NodeLabel.FUNCTION:
             if loc < self.TRIVIAL_LOC_THRESHOLD and edge_count == 0:
                 return EntityStrategy.MERGE_TO_PARENT
+
+        # Entities with children or many methods deserve standard pages
+        if children_count > 0 or methods_count > 3:
+            return EntityStrategy.STANDARD_PAGE
 
         return EntityStrategy.STANDARD_PAGE

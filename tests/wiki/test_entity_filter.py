@@ -109,6 +109,40 @@ class TestWikiEntityFilter:
         )
 
 
+def test_constant_holder_merges() -> None:
+    node = GraphNode(
+        label=NodeLabel.CLASS,
+        properties={
+            "name": "Constants",
+            "is_interface": False,
+            "methods_count": 0,
+            "start_line": 1,
+            "end_line": 10,
+        },
+        uid="cls-constants",
+    )
+    assert (
+        _filter().classify(node, edge_count=0, children_count=0)
+        == EntityStrategy.MERGE_TO_PARENT
+    )
+
+
+def test_class_with_children_is_standard() -> None:
+    node = GraphNode(
+        label=NodeLabel.CLASS,
+        properties={
+            "name": "BaseService",
+            "methods_count": 1,
+            "start_line": 1,
+            "end_line": 30,
+        },
+        uid="cls-basesvc",
+    )
+    assert (
+        _filter().classify(node, edge_count=0, children_count=3) == EntityStrategy.STANDARD_PAGE
+    )
+
+
 class TestLargeClassStrategy:
     def test_groups_methods_by_annotation(self):
         from wiki.entity_filter import LargeClassStrategy

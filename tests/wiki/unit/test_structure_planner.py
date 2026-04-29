@@ -19,7 +19,7 @@ def _module(uid: str, path: str, name: str) -> GraphNode:
     )
 
 
-def _class_node(uid: str, fqn: str, name: str, file_path: str = "src/Foo.java") -> GraphNode:
+def _class_node(uid: str, fqn: str, name: str, file_path: str = "src/Foo.java", *, methods_count: int = 5) -> GraphNode:
     return GraphNode(
         label=NodeLabel.CLASS,
         properties={
@@ -28,6 +28,7 @@ def _class_node(uid: str, fqn: str, name: str, file_path: str = "src/Foo.java") 
             "file": file_path,
             "start_line": 1,
             "end_line": 30,
+            "methods_count": methods_count,
         },
         uid=uid,
     )

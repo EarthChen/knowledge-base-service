@@ -112,6 +112,15 @@ class WikiStructurePlanner:
             )
         return node
 
+    def _classification_children_count_estimate(self, node: GraphNode) -> int:
+        """Structural child count surrogate when callers skip edge queries (see spec §7)."""
+
+        if node.label == NodeLabel.CLASS:
+            mc = node.properties.get("methods_count")
+            if isinstance(mc, int) and mc >= 0:
+                return mc
+        return 0
+
     async def _build_module_tree(self, repository: str, module_node: GraphNode) -> WikiStructureNode:
         raw_children = await self._graph.find_children(repository, module_node.uid)
         wiki_children: list[WikiStructureNode] = []
@@ -119,15 +128,17 @@ class WikiStructurePlanner:
             if child.label == NodeLabel.MODULE:
                 wiki_children.append(await self._build_module_tree(repository, child))
             elif child.label == NodeLabel.CLASS:
+                child_count = self._classification_children_count_estimate(child)
                 if (
-                    self._entity_filter.classify(child, edge_count=0, children_count=0)
+                    self._entity_filter.classify(child, edge_count=0, children_count=child_count)
                     == EntityStrategy.MERGE_TO_PARENT
                 ):
                     continue
                 wiki_children.append(self._leaf_wiki_node(child, PageType.CLASS_DETAIL))
             elif child.label == NodeLabel.FUNCTION:
+                child_count = self._classification_children_count_estimate(child)
                 if (
-                    self._entity_filter.classify(child, edge_count=0, children_count=0)
+                    self._entity_filter.classify(child, edge_count=0, children_count=child_count)
                     == EntityStrategy.MERGE_TO_PARENT
                 ):
                     continue

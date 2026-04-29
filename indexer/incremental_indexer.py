@@ -30,6 +30,7 @@ from indexer.chunk_hash import apply_content_hash_to_nodes
 from indexer.index_report import IndexReport
 from log import get_logger
 from store.falkordb_store import FalkorDBStore
+from store.indexer_store import IndexerStore
 from store.schema import GraphNode, NodeLabel
 from wiki.incremental import WikiIncrementalUpdater
 from wiki.models import WikiConfig
@@ -249,8 +250,20 @@ class IncrementalIndexer:
 
         _sentinel_sent = False
         try:
-            for fpath, nodes, edges in self._builder.iter_directory(directory):
+            for fpath, nodes, edges in self._builder.iter_directory_with_cross_file(directory):
                 try:
+                    if fpath == CodeGraphBuilder.CROSS_FILE_RESOLUTION_PATH:
+                        if edges:
+                            idx_store = IndexerStore(self._store)
+                            await idx_store.upsert_edges_batch(repository or "", edges)
+                            total_edges += len(edges)
+                            for e in edges:
+                                etype = str(e.edge_type)
+                                report.edge_counts[etype] = (
+                                    report.edge_counts.get(etype, 0) + 1
+                                )
+                        continue
+
                     apply_content_hash_to_nodes(nodes)
                     _stamp_repository_metadata(nodes, repository, commit_sha=commit_sha)
                     await self._store.batch_upsert(nodes, edges)

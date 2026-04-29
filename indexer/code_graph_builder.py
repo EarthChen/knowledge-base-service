@@ -19,6 +19,9 @@ from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_
 
 log = get_logger(__name__)
 
+# Sentinel ``file_path`` yielded last by :meth:`CodeGraphBuilder.iter_directory_with_cross_file`;
+# ``nodes`` is empty and ``edges`` holds cross-file CALLS / INHERITS / IMPLEMENTS.
+CROSS_FILE_RESOLUTION_PATH = "__cross_file_resolution__"
 
 _JAVA_SRC_MARKERS = ("src/main/java/", "src/test/java/")
 
@@ -213,6 +216,8 @@ class _CrossFileData:
 class CodeGraphBuilder:
     """Builds graph nodes and edges from parsed code AST."""
 
+    CROSS_FILE_RESOLUTION_PATH = CROSS_FILE_RESOLUTION_PATH
+
     def __init__(
         self,
         parser: TreeSitterParser,
@@ -285,9 +290,25 @@ class CodeGraphBuilder:
             return [], []
 
         parse_result = self._parser.parse_file(file_path, language, content)
-        return self._build_graph(
+        return self.build_from_parse_result(
             parse_result,
             store_path or file_path,
+            language,
+            import_resolver=import_resolver,
+        )
+
+    def build_from_parse_result(
+        self,
+        parse_result: ParseResult,
+        store_path: str,
+        language: str,
+        *,
+        import_resolver: ImportResolver | None = None,
+    ) -> tuple[list[GraphNode], list[GraphEdge]]:
+        """Build nodes and edges from an already-parsed :class:`ParseResult` (no second parse)."""
+        return self._build_graph(
+            parse_result,
+            store_path,
             language,
             import_resolver=import_resolver,
         )
@@ -328,6 +349,64 @@ class CodeGraphBuilder:
             except Exception as exc:
                 log.warning("file_parse_error", file=str(fpath), error=str(exc))
 
+    def iter_directory_with_cross_file(
+        self,
+        directory: str,
+        exclude_patterns: list[str] | None = None,
+    ) -> Iterator[tuple[str, list[GraphNode], list[GraphEdge]]]:
+        """Like :meth:`iter_directory`, then yield one extra tuple for cross-file edges.
+
+        Yields ``(rel_path, nodes, edges)`` per source file, then
+        ``(CROSS_FILE_RESOLUTION_PATH, [], cross_file_edges)`` if any cross-file
+        edges were resolved (otherwise the final yield is omitted).
+        """
+        if exclude_patterns is not None:
+            exclude = set(exclude_patterns)
+        else:
+            from config import get_settings
+            exclude = set(get_settings().exclude_dirs)
+
+        base = Path(directory)
+        tasks: list[tuple[str, Path]] = []
+        for ext in self._ext_to_lang:
+            for fpath in base.rglob(f"*{ext}"):
+                if any(part in exclude for part in fpath.parts):
+                    continue
+                rel = str(fpath.relative_to(base))
+                tasks.append((rel, fpath))
+
+        resolver: ImportResolver | None = None
+        if tasks:
+            resolver = ImportResolver(ImportResolver.build_file_index([t[0] for t in tasks]))
+
+        all_nodes: list[GraphNode] = []
+        per_file_data: list[_CrossFileData] = []
+
+        for rel, fpath in tasks:
+            try:
+                language = self.detect_language(str(fpath))
+                if not language:
+                    continue
+                parse_result = self._parser.parse_file(str(fpath), language, None)
+                nodes, edges = self.build_from_parse_result(
+                    parse_result,
+                    rel,
+                    language,
+                    import_resolver=resolver,
+                )
+                all_nodes.extend(nodes)
+                per_file_data.append(
+                    self._cross_file_data_from_parse(rel, language, nodes, parse_result),
+                )
+                yield rel, nodes, edges
+            except Exception as exc:
+                log.warning("file_parse_error", file=str(fpath), error=str(exc))
+
+        symbol_tables = self._build_global_symbol_table(all_nodes)
+        cross_edges = self._resolve_cross_file_edges(per_file_data, symbol_tables, all_nodes)
+        if cross_edges:
+            yield CROSS_FILE_RESOLUTION_PATH, [], cross_edges
+
     def build_from_directory(
         self,
         directory: str,
@@ -358,6 +437,10 @@ class CodeGraphBuilder:
 
         FQN entries take precedence. If a node has both fqn and name,
         both are stored but fqn wins (setdefault avoids overwriting).
+
+        Scope: one repository only. Cross-repo resolution (shared libraries used by
+        multiple services) could later persist a per-repo SymbolIndex in FalkorDB and
+        query it during enrichment (alongside RPC/DI/Kafka edges in cross_repo_enricher).
         """
         tables: dict[str, dict[str, str]] = {}
         for node in all_nodes:
@@ -452,7 +535,7 @@ class CodeGraphBuilder:
                     if uid:
                         return uid
                 method_fqn = f"{receiver_name}.{callee_name}"
-                return symbol_table.get(method_fqn) or receiver_class_uid
+                return symbol_table.get(method_fqn)
         return import_map.get(callee_name) or symbol_table.get(callee_name)
 
     def _resolve_cross_file_edges(
@@ -512,13 +595,84 @@ class CodeGraphBuilder:
 
         return edges
 
+    def _cross_file_data_from_parse(
+        self,
+        file_path: str,
+        lang: str,
+        nodes: list[GraphNode],
+        result: ParseResult,
+    ) -> _CrossFileData:
+        func_uid_by_name: dict[str, list[str]] = {}
+        for n in nodes:
+            if n.label == NodeLabel.FUNCTION:
+                name = n.properties.get("name", "")
+                func_uid_by_name.setdefault(str(name), []).append(n.uid)
+
+        unresolved_calls: list[tuple[str, str, str, int]] = []
+        for call in result.calls:
+            caller_uids = func_uid_by_name.get(call.caller_name, [])
+            callee_uids = func_uid_by_name.get(call.callee_name, [])
+            if caller_uids and not callee_uids:
+                caller_uid = self._resolve_closest_uid(caller_uids, call.line, result)
+                unresolved_calls.append((
+                    caller_uid,
+                    call.callee_name,
+                    getattr(call, "receiver_expr", ""),
+                    call.line,
+                ))
+
+        unresolved_inherits: list[tuple[str, str]] = []
+        for n in nodes:
+            if n.label != NodeLabel.CLASS:
+                continue
+            bases = n.properties.get("base_classes", [])
+            if isinstance(bases, str):
+                bases = [bases]
+            for base in bases:
+                base_simple = base.rsplit(".", 1)[-1] if "." in str(base) else str(base)
+                same_file_match = any(
+                    nn.label == NodeLabel.CLASS
+                    and nn.properties.get("name") == base_simple
+                    and nn.properties.get("file") == n.properties.get("file")
+                    for nn in nodes
+                )
+                if not same_file_match:
+                    unresolved_inherits.append((n.uid, base_simple))
+
+        unresolved_implements: list[tuple[str, str]] = []
+        for n in nodes:
+            if n.label != NodeLabel.CLASS:
+                continue
+            interfaces = n.properties.get("interfaces", [])
+            if isinstance(interfaces, str):
+                interfaces = [interfaces]
+            for iface in interfaces:
+                iface_simple = iface.rsplit(".", 1)[-1] if "." in str(iface) else str(iface)
+                same_file_match = any(
+                    nn.label == NodeLabel.CLASS
+                    and nn.properties.get("name") == iface_simple
+                    and nn.properties.get("file") == n.properties.get("file")
+                    for nn in nodes
+                )
+                if not same_file_match:
+                    unresolved_implements.append((n.uid, iface_simple))
+
+        return _CrossFileData(
+            file_path=file_path,
+            language=lang,
+            imports=result.imports,
+            unresolved_calls=unresolved_calls,
+            unresolved_inherits=unresolved_inherits,
+            unresolved_implements=unresolved_implements,
+            fields=result.fields,
+        )
+
     def build_from_files(
         self, files: dict[str, str],
     ) -> tuple[list[GraphNode], list[GraphEdge]]:
         """Two-phase build: per-file parsing + cross-file resolution.
 
-        Phase 1: Parse each file individually (existing build_from_file).
-        Collect symbol table entries and unresolved references.
+        Phase 1: Parse each file once, build graph, collect unresolved references.
 
         Phase 2: Use the global symbol table to resolve cross-file
         CALLS, INHERITS, and IMPLEMENTS edges.
@@ -532,76 +686,15 @@ class CodeGraphBuilder:
             if not lang:
                 continue
 
-            nodes, edges = self.build_from_file(file_path, content=content)
+            parse_result = self._parser.parse_file(file_path, lang, content)
+            nodes, edges = self.build_from_parse_result(
+                parse_result, file_path, lang, import_resolver=None,
+            )
             all_nodes.extend(nodes)
             all_edges.extend(edges)
-
-            result = self._parser.parse_file(file_path, lang, content)
-
-            func_uid_by_name: dict[str, list[str]] = {}
-            for n in nodes:
-                if n.label == NodeLabel.FUNCTION:
-                    name = n.properties.get("name", "")
-                    func_uid_by_name.setdefault(str(name), []).append(n.uid)
-
-            unresolved_calls = []
-            for call in result.calls:
-                caller_uids = func_uid_by_name.get(call.caller_name, [])
-                callee_uids = func_uid_by_name.get(call.callee_name, [])
-                if caller_uids and not callee_uids:
-                    caller_uid = self._resolve_closest_uid(caller_uids, call.line, result)
-                    unresolved_calls.append((
-                        caller_uid,
-                        call.callee_name,
-                        getattr(call, "receiver_expr", ""),
-                        call.line,
-                    ))
-
-            unresolved_inherits = []
-            for n in nodes:
-                if n.label != NodeLabel.CLASS:
-                    continue
-                bases = n.properties.get("base_classes", [])
-                if isinstance(bases, str):
-                    bases = [bases]
-                for base in bases:
-                    base_simple = base.rsplit(".", 1)[-1] if "." in str(base) else str(base)
-                    same_file_match = any(
-                        nn.label == NodeLabel.CLASS
-                        and nn.properties.get("name") == base_simple
-                        and nn.properties.get("file") == n.properties.get("file")
-                        for nn in nodes
-                    )
-                    if not same_file_match:
-                        unresolved_inherits.append((n.uid, base_simple))
-
-            unresolved_implements = []
-            for n in nodes:
-                if n.label != NodeLabel.CLASS:
-                    continue
-                interfaces = n.properties.get("interfaces", [])
-                if isinstance(interfaces, str):
-                    interfaces = [interfaces]
-                for iface in interfaces:
-                    iface_simple = iface.rsplit(".", 1)[-1] if "." in str(iface) else str(iface)
-                    same_file_match = any(
-                        nn.label == NodeLabel.CLASS
-                        and nn.properties.get("name") == iface_simple
-                        and nn.properties.get("file") == n.properties.get("file")
-                        for nn in nodes
-                    )
-                    if not same_file_match:
-                        unresolved_implements.append((n.uid, iface_simple))
-
-            per_file_data.append(_CrossFileData(
-                file_path=file_path,
-                language=lang,
-                imports=result.imports,
-                unresolved_calls=unresolved_calls,
-                unresolved_inherits=unresolved_inherits,
-                unresolved_implements=unresolved_implements,
-                fields=result.fields,
-            ))
+            per_file_data.append(
+                self._cross_file_data_from_parse(file_path, lang, nodes, parse_result),
+            )
 
         symbol_tables = self._build_global_symbol_table(all_nodes)
         cross_edges = self._resolve_cross_file_edges(per_file_data, symbol_tables, all_nodes)

@@ -438,13 +438,19 @@ class WikiPageStoreMixin:
             "OPTIONAL MATCH (n)-[out_e]->() "
             "OPTIONAL MATCH (n)-[:CONTAINS]->(child) "
             "OPTIONAL MATCH (sub)-[:INHERITS]->(n) "
-            "RETURN n.uid AS uid, labels(n)[0] AS label, "
-            "coalesce(n.start_line, 0) AS start_line, "
-            "coalesce(n.end_line, 0) AS end_line, "
+            "WITH n, labels(n)[0] AS label, "
             "count(DISTINCT in_e) AS in_degree, "
             "count(DISTINCT out_e) AS out_degree, "
             "count(DISTINCT child) AS children_count, "
-            "count(DISTINCT sub) AS subclass_count"
+            "count(DISTINCT sub) AS subclass_count "
+            "OPTIONAL MATCH (caller)-[:CALLS]->(n) "
+            "WHERE caller.business_domain IS NOT NULL "
+            "RETURN n.uid AS uid, label, "
+            "coalesce(n.start_line, 0) AS start_line, "
+            "coalesce(n.end_line, 0) AS end_line, "
+            "in_degree, out_degree, children_count, "
+            "subclass_count, "
+            "count(DISTINCT caller.business_domain) AS cross_domain_callers"
         )
         return await self._store.execute_query(q, {"repo": repository})
 

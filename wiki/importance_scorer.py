@@ -31,7 +31,7 @@ class ImportanceScorer:
 
         scores: dict[str, float] = {}
         for row in result.result_set:
-            uid, label, start_line, end_line, in_deg, out_deg, children, subclass_count = row
+            uid, label, start_line, end_line, in_deg, out_deg, children, subclass_count, cross_domain = row
             code_lines = max(0, int(end_line) - int(start_line))
             has_subclasses = str(label) == "Class" and int(subclass_count) > 0
             scores[str(uid)] = self.compute_score(
@@ -41,6 +41,7 @@ class ImportanceScorer:
                 children_count=int(children),
                 code_lines=code_lines,
                 has_subclasses=has_subclasses,
+                cross_domain_callers=int(cross_domain),
             )
 
         return self.classify_by_percentile(scores)
@@ -53,12 +54,14 @@ class ImportanceScorer:
         children_count: int,
         code_lines: int,
         has_subclasses: bool,
+        cross_domain_callers: int = 0,
     ) -> float:
         score = (
             (in_degree * 3)
             + (out_degree * 1)
             + (children_count * 2)
             + math.log2(code_lines + 1) * 2
+            + (cross_domain_callers * 4)
         )
         if label == "Module":
             score += 5

@@ -796,6 +796,34 @@ class WikiComposer:
                 lines.append(f"From `{chunk.parent_name}` ({chunk.file_path}:{chunk.start_line}-{chunk.end_line}, score={chunk.score:.2f}):")
                 lines.append(f"```\n{chunk.text}\n```")
 
+        # LLM Semantic Diagram Instructions
+        is_entry_point = n.properties.get("is_entry_point", False)
+        methods_count = len(getattr(page_data, "methods", []) or [])
+
+        if is_entry_point:
+            lines.append(
+                "\n### Diagram Requirement\n"
+                "Generate a Mermaid **sequence diagram** showing the request processing flow "
+                "for this entry point. Use business-level labels.\n"
+                "Example: User → Controller → Service → Repository → Database"
+            )
+        elif page_type == PageType.MODULE_OVERVIEW:
+            lines.append(
+                "\n### Diagram Requirement\n"
+                "Generate a Mermaid **flowchart** showing how sub-components collaborate "
+                "to fulfill the module's business purpose. Use business-level labels."
+            )
+        elif (
+            page_type == PageType.CLASS_DETAIL
+            and n.label == NodeLabel.CLASS
+            and methods_count > 5
+        ):
+            lines.append(
+                "\n### Diagram Requirement\n"
+                "Generate a Mermaid **sequence diagram** showing the key method interaction flow "
+                "within this class. Focus on the primary business workflow."
+            )
+
         return "\n".join(lines)
 
     def _tier3_structural(self, page_data: PageData, page_type: PageType, language: str) -> str:

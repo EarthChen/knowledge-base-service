@@ -220,9 +220,11 @@ class WikiService:
         self._planner = WikiStructurePlanner(graph)
         self._wiki_store = wiki_store
         self._wiki_cfg = wiki_config
+        _llm_budget = self._wiki_cfg.default_llm_budget or None
+        _ctx_window = getattr(get_settings().llm, "max_context_tokens", 128_000)
         self._budget_resolver = TokenBudgetResolver(
-            base=self._wiki_cfg.default_llm_budget,
-            ceiling=getattr(get_settings().llm, "max_context_tokens", 128_000),
+            base=_llm_budget,
+            ceiling=_ctx_window,
         )
         set_default_resolver(self._budget_resolver)
         self._embedding_cfg = embedding_config

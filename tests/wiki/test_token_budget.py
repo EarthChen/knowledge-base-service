@@ -36,6 +36,34 @@ class TestTokenBudgetResolver:
         assert r.budget("compact") >= 512
 
 
+class TestAutoDerivation:
+    """When base is None, derive it from ceiling (context window)."""
+
+    def test_128k_model(self):
+        r = TokenBudgetResolver(ceiling=128_000)
+        assert 28_000 <= r._base <= 32_000
+
+    def test_8k_model_uses_floor(self):
+        r = TokenBudgetResolver(ceiling=8_000)
+        assert r._base == 4_000
+
+    def test_200k_model(self):
+        r = TokenBudgetResolver(ceiling=200_000)
+        assert r._base == 46_000
+
+    def test_1m_model_uses_cap(self):
+        r = TokenBudgetResolver(ceiling=1_000_000)
+        assert r._base == 60_000
+
+    def test_no_base_no_ceiling_fallback(self):
+        r = TokenBudgetResolver()
+        assert r._base == 30_000
+
+    def test_explicit_base_ignores_auto(self):
+        r = TokenBudgetResolver(base=50_000, ceiling=128_000)
+        assert r._base == 50_000
+
+
 def test_resolver_from_config():
     from config import get_settings
     from wiki.token_budget import TokenBudgetResolver

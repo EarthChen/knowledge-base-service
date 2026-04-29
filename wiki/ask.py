@@ -10,7 +10,7 @@ import uuid
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from log import get_logger
 from store.conversation_store import SqliteConversationStore
@@ -22,6 +22,9 @@ from wiki.reasoning_path import (
     extract_entities_in_answer,
 )
 from wiki.search import SearchResponse, SearchResult
+
+if TYPE_CHECKING:
+    from wiki.token_budget import TokenBudgetResolver
 
 log = get_logger(__name__)
 
@@ -147,6 +150,24 @@ _WIKI_TYPE_TOKEN_BUDGET: dict[str, int] = {
     "general": 8000,
 }
 
+_default_resolver: TokenBudgetResolver | None = None
+
+
+def set_default_resolver(resolver: TokenBudgetResolver) -> None:
+    global _default_resolver
+    _default_resolver = resolver
+
+
+def wiki_context_token_budget_from_resolver(
+    question: str,
+    question_type: str | None,
+    resolver: TokenBudgetResolver,
+) -> int:
+    qt = question_type if question_type is not None else detect_question_type(question)
+    base = resolver.ask_budget(qt)
+    q_tokens = max(len(question) // 4, 0)
+    return min(base + q_tokens, resolver.budget("decomposition"))
+
 
 def wiki_context_token_budget(question: str, question_type: str | None = None) -> int:
     """Token budget for graph-enhanced wiki context collection.
@@ -154,6 +175,10 @@ def wiki_context_token_budget(question: str, question_type: str | None = None) -
     Combines a base allowance per ``question_type`` with the estimated token count of
     ``question`` (complexity). Capped to avoid runaway prompts.
     """
+    if _default_resolver is not None:
+        return wiki_context_token_budget_from_resolver(
+            question, question_type, _default_resolver
+        )
     qt = question_type if question_type is not None else detect_question_type(question)
     base = _WIKI_TYPE_TOKEN_BUDGET.get(qt, 8000)
     q_tokens = max(len(question) // 4, 0)

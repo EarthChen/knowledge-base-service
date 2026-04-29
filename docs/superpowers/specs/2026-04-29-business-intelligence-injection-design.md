@@ -172,71 +172,93 @@ if description and description != business_summary:
 
 ### 2.3 Sprint 2: Repo Overview — 入口叙事层
 
-#### S2-1: RepoOverviewComposer
+#### S2-1: SystemOverviewComposer（跨仓库系统级概览）
 
-**目标**：为每个仓库生成一个架构概览页，作为 Wiki 树的入口叙事。
+**目标**：为整个业务 Wiki 生成一个**跨仓库统一概览页**，作为读者（人类和 Agent）的入口叙事。
 
-**树位置**：RepoOverview 作为 WikiSpace 根节点的第一个子节点（`sort_index=0`），在所有 Domain Section 之前：
+> **设计决策**：在微服务多仓库场景下，生成**系统级**概览（而非 per-repo 概览）。每个仓库作为概览页内的一个小节。这样读者一页就能理解整体架构。
+
+**树位置**：System Overview 作为 WikiSpace 根节点的第一个子节点（`sort_index=0`），在所有 Domain Section 之前：
 
 ```
-WikiSpace (root)
-├── ⭐ Repo Overview (WikiPage, page_type=REPO_OVERVIEW, sort_index=0)
+WikiSpace (cross-repo business wiki root)
+├── ⭐ System Architecture Overview (WikiPage, page_type=REPO_OVERVIEW, sort_index=0)
+│   - 系统整体业务定位
+│   - 微服务列表及职责（每个仓库一小节）
+│   - 业务域总览 + 域间依赖 Mermaid 图
+│   - 跨仓库入口点汇总
+│   - 技术栈总览
 ├── Domain: User Management (WikiSection, sort_index=1)
-│   ├── UserController (WikiPage)
-│   └── UserService (WikiPage)
+│   ├── DomainOverview (已有)
+│   ├── user-service/UserController
+│   └── common-lib/UserDTO
 └── Domain: Payment (WikiSection, sort_index=2)
-    └── PaymentService (WikiPage)
+    ├── DomainOverview (已有)
+    └── payment-service/PaymentService
 ```
 
-**新文件**：`wiki/repo_overview_composer.py`
+**新文件**：`wiki/system_overview_composer.py`
 
 **输入**：
 
-| 数据 | 来源 |
-|------|------|
-| `domain_tree` | `CrossRepoBusinessDomainPlanner.classify_hierarchical` |
-| `entry_points` | `ModuleDependencyGraph.build().entry_points` |
-| `domain_overviews` | 已生成的 DomainOverview 页面 summaries |
-| `module_count` / `class_count` / `function_count` | 图统计查询 |
-| `languages` | 从 Module 节点的 language 属性聚合 |
-| `annotations_summary` | 高频 annotations 统计（如 @RestController × 15） |
+| 数据 | 来源 | 说明 |
+|------|------|------|
+| `repositories` | `generate_business_wiki` 参数 | 所有参与的仓库列表 |
+| `domain_tree` | `CrossRepoBusinessDomainPlanner` | 跨仓库业务域树 |
+| `entry_points_by_repo` | `ModuleDependencyGraph` per repo | 每个仓库的入口点 |
+| `domain_overviews` | 已生成的 DomainOverview summaries | 域级摘要 |
+| `stats_by_repo` | 图统计查询 | 每仓库的模块/类/函数数 |
+| `languages_by_repo` | Module 节点 language 属性 | 每仓库技术栈 |
 
 **LLM Prompt 策略**：
 
 System:
 ```
-You are a senior architect writing a repository architecture overview.
-Generate a comprehensive Markdown document with these sections:
-1. **System Purpose** — What this system does in business terms
-2. **Architecture Overview** — High-level design (MUST include a Mermaid architecture diagram)
-3. **Business Domains** — List each domain with its purpose and key modules
-4. **Key Entry Points** — API endpoints, RPC providers, message listeners
-5. **Technology Stack** — Languages, frameworks, storage, messaging
-6. **Code Statistics** — Module/class/function counts by domain
+You are a senior architect writing a system architecture overview for a microservice platform.
+This system spans multiple repositories. Generate a comprehensive Markdown document with:
+1. **System Purpose** — What this platform does in business terms
+2. **Microservice Architecture** — MUST include a Mermaid graph showing how repos/services interact
+3. **Repositories** — For EACH repository: its role, key modules, tech stack, entry points
+4. **Business Domains** — Each domain with its purpose, which repos contribute to it
+5. **Cross-Service Communication** — How services communicate (RPC, messaging, shared DB, etc.)
+6. **Key Entry Points** — All API endpoints, RPC providers, message listeners across all repos
+7. **Technology Stack Summary** — Languages, frameworks, databases, messaging systems
 ```
 
-User: 注入 domain_tree + entry_points + domain_overviews + 统计数据
+User: 注入 repositories + domain_tree + entry_points_by_repo + domain_overviews + stats
 
-**输出**：`WikiPage` (page_type=`REPO_OVERVIEW`)
+**输出**：`WikiPage` (page_type=`REPO_OVERVIEW`)，entity_uid 设为特殊值如 `system_overview_{business_id}`
 
-**Token Budget**：`resolver.budget("decomposition")` — 架构概览需要全局视角。
+**Token Budget**：`resolver.budget("decomposition")` — 系统概览需要全局视角。
 
 #### S2-2: 集成到 generate_business_wiki
 
 在所有 domain overview 生成完成后、`_link_pages_to_tree` 之前调用：
 
 ```python
-repo_overview = await self._repo_overview_composer.compose(
-    repository=repo,
+# 收集所有仓库的入口点和统计
+entry_points_by_repo = {}
+stats_by_repo = {}
+for repo in repositories:
+    module_graph = await dep_graph.build(repo)
+    entry_points_by_repo[repo] = module_graph.entry_points
+    stats_by_repo[repo] = await self._store.get_repo_stats(repo)
+
+system_overview = await self._system_overview_composer.compose(
+    business_id=business_id,
+    repositories=repositories,
     domain_tree=domain_tree,
-    entry_points=module_graph.entry_points,
+    entry_points_by_repo=entry_points_by_repo,
     domain_overviews=domain_overview_summaries,
+    stats_by_repo=stats_by_repo,
     language=language,
 )
-await self._wiki_store.upsert_page(repository, repo_overview)
+await self._wiki_store.upsert_page(business_id, system_overview)
+# 链接为 WikiSpace 的第一个子节点
+await self._wiki_store.add_has_child_edge(wiki_space_uid, system_overview.uid, sort_index=0)
 ```
 
-**文件变更**：`wiki/repo_overview_composer.py`（新建）, `wiki/service.py`, `wiki/models.py`（新增 `REPO_OVERVIEW` page_type）
+**文件变更**：`wiki/system_overview_composer.py`（新建）, `wiki/service.py`, `store/falkordb_store.py`（新增 `get_repo_stats` 统计查询）
 
 ---
 
@@ -433,9 +455,9 @@ elif page_type == "class" and methods_count > 5:
 | 1 | `wiki/service.py` | Modify | 修复 entry_points []；传递 business_domain 和 is_entry_point 到 compose_page；持久化 domain 到节点属性 |
 | 1 | `wiki/composer.py` | Modify | compose_page 新增 business_domain/is_entry_point 参数；_entity_digest 注入域+描述 |
 | 1 | `store/falkordb_store.py` | Modify | 复用已有 `set_node_property` 方法持久化 business_domain |
-| 2 | `wiki/repo_overview_composer.py` | **New** | RepoOverviewComposer：LLM 驱动仓库架构概览 |
-| 2 | `wiki/service.py` | Modify | 集成 RepoOverviewComposer 到 generate_business_wiki |
-| 2 | `wiki/models.py` | — | `REPO_OVERVIEW` page_type 已存在，无需修改 |
+| 2 | `wiki/system_overview_composer.py` | **New** | SystemOverviewComposer：LLM 驱动跨仓库系统架构概览 |
+| 2 | `wiki/service.py` | Modify | 集成 SystemOverviewComposer 到 generate_business_wiki；收集 per-repo stats |
+| 2 | `store/falkordb_store.py` | Modify | 新增 `get_repo_stats` 统计查询 |
 | 3 | `wiki/related_pages_builder.py` | **New** | RelatedPagesBuilder：图近邻 + 域共属 + 结构兄弟 |
 | 3 | `store/falkordb_store.py` | Modify | 新增 RELATED_TO 边的 Cypher 查询和写入 |
 | 3 | `wiki/service.py` | Modify | 集成 RelatedPagesBuilder |
@@ -462,10 +484,12 @@ elif page_type == "class" and methods_count > 5:
 
 | Test | Description |
 |------|-------------|
-| `test_repo_overview_composer_output` | 验证概览页包含 System Purpose + Architecture + Domains + Entry Points |
-| `test_repo_overview_has_mermaid` | 验证概览页包含 Mermaid 架构图 |
-| `test_repo_overview_integrated` | 验证 generate_business_wiki 生成并持久化 repo overview |
-| `test_repo_overview_token_budget` | 验证使用 decomposition budget |
+| `test_system_overview_includes_all_repos` | 验证概览页包含所有仓库的信息 |
+| `test_system_overview_has_mermaid` | 验证概览页包含 Mermaid 微服务架构图 |
+| `test_system_overview_cross_repo_domains` | 验证概览页展示跨仓库的业务域 |
+| `test_system_overview_integrated` | 验证 generate_business_wiki 生成并持久化 system overview |
+| `test_system_overview_tree_position` | 验证 overview 位于 WikiSpace 根的 sort_index=0 |
+| `test_system_overview_token_budget` | 验证使用 decomposition budget |
 
 ### Sprint 3 Tests
 
@@ -503,6 +527,9 @@ elif page_type == "class" and methods_count > 5:
 | D3 | 前端直接渲染 See Also，不用 content fallback | 保持 content 干净；前端改动包含在提案中 |
 | D4 | LLM 图表使用 Prompt-Inline 而非独立管线 | YAGNI：先验证 Prompt-Inline 质量，不足时再升级 |
 | D5 | domain 分类持久化到节点属性 | 增量路径需要访问域信息，避免重新分类 |
-| D6 | Repo Overview 使用 decomposition budget | 架构概览需要全局视角，与域树分解预算一致 |
+| D6 | System Overview 使用 decomposition budget | 架构概览需要全局视角，与域树分解预算一致 |
+| D7 | 系统级概览而非 per-repo 概览 | 微服务场景下读者需要跨仓库全局视角；per-repo 信息作为概览页的小节 |
+| D8 | RELATED_TO 边在代码实体间创建 | 代码实体已在图中；WikiPage 可能不在图数据库中；通过 entity_uid JOIN |
+| D9 | business_domain 沿 CONTAINS 向下传播 | compose_page 处理所有层级实体，非 Module 也需要域信息 |
 
 > Awaiting user approval.

@@ -34,3 +34,16 @@ class TestTokenBudgetResolver:
     def test_floor_prevents_zero(self):
         r = TokenBudgetResolver(base=100)
         assert r.budget("compact") >= 512
+
+
+def test_resolver_from_config():
+    from config import get_settings
+    from wiki.token_budget import TokenBudgetResolver
+
+    settings = get_settings()
+    r = TokenBudgetResolver(
+        base=settings.wiki.default_llm_budget,
+        ceiling=getattr(settings.llm, "max_context_tokens", 128_000),
+    )
+    assert r.budget("decomposition") == 30_000
+    assert r.budget("decomposition") <= int(128_000 * 0.8)

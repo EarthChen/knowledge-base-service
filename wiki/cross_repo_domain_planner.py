@@ -31,12 +31,14 @@ class CrossRepoBusinessDomainPlanner:
         batch_threshold: int = 100,
         sub_batch_size: int = 80,
         max_concurrency: int = 3,
+        max_tokens_per_batch: int = 30_000,
     ) -> None:
         self._llm = llm
         self._infrastructure_label = infrastructure_label
         self._batch_threshold = batch_threshold
         self._sub_batch_size = sub_batch_size
         self._max_concurrency = max_concurrency
+        self._max_tokens_per_batch = max_tokens_per_batch
         self._metadata_cache: dict[tuple[str, str], dict[str, str | int | float | list[str]]] = {}
 
     def create_hierarchical_decomposer(
@@ -44,16 +46,21 @@ class CrossRepoBusinessDomainPlanner:
         *,
         max_depth: int = 4,
         min_modules_for_nesting: int = 3,
-        max_tokens_per_batch: int = 30_000,
+        max_tokens_per_batch: int | None = None,
     ) -> HierarchicalDecomposer | None:
         """Future pipeline hook for nested LLM domain trees; flat `classify()` remains default."""
         if self._llm is None:
             return None
+        mtpb = (
+            max_tokens_per_batch
+            if max_tokens_per_batch is not None
+            else self._max_tokens_per_batch
+        )
         return HierarchicalDecomposer(
             self._llm,
             max_depth=max_depth,
             min_modules_for_nesting=min_modules_for_nesting,
-            max_tokens_per_batch=max_tokens_per_batch,
+            max_tokens_per_batch=mtpb,
         )
 
     async def classify_hierarchical(

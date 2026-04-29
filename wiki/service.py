@@ -10,11 +10,12 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from config import AppWikiFlags as WikiAppConfig, EmbeddingConfig
+from config import AppWikiFlags as WikiAppConfig, EmbeddingConfig, get_settings
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
 from store.schema import EdgeType, GraphNode, NodeLabel
+from wiki.ask import set_default_resolver
 from wiki.backlink_builder import BacklinkBuilder
 from wiki.composer import WikiComposer
 from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
@@ -42,6 +43,7 @@ from wiki.models import (
     parse_scope,
 )
 from wiki.structure_planner import WikiScopeError, WikiStructurePlanner
+from wiki.token_budget import TokenBudgetResolver
 from wiki.tree_builder import WikiTreeBuilder
 from wiki.wikilink_cache import WikiLinkCache
 
@@ -218,6 +220,11 @@ class WikiService:
         self._planner = WikiStructurePlanner(graph)
         self._wiki_store = wiki_store
         self._wiki_cfg = wiki_config
+        self._budget_resolver = TokenBudgetResolver(
+            base=self._wiki_cfg.default_llm_budget,
+            ceiling=getattr(get_settings().llm, "max_context_tokens", 128_000),
+        )
+        set_default_resolver(self._budget_resolver)
         self._embedding_cfg = embedding_config
         self._collector = WikiDataCollector(
             graph,
@@ -1230,6 +1237,7 @@ class WikiService:
             batch_threshold=app_cfg.business_wiki_batch_threshold,
             sub_batch_size=app_cfg.business_domain_sub_batch_size,
             max_concurrency=app_cfg.business_domain_max_concurrency,
+            max_tokens_per_batch=self._budget_resolver.budget("decomposition"),
         )
         try:
             _sbs = max(1, app_cfg.business_domain_sub_batch_size)

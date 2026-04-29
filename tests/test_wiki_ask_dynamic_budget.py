@@ -3,7 +3,8 @@
 from wiki.ask import wiki_context_token_budget
 
 
-def test_question_types_use_distinct_base_budgets():
+def test_question_types_use_distinct_base_budgets(monkeypatch):
+    monkeypatch.setattr("wiki.ask._default_resolver", None)
     q = "sample"
     concept = wiki_context_token_budget(q, "concept")
     flow = wiki_context_token_budget(q, "flow")

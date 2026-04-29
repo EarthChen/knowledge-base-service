@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from api.exceptions import KbNotFound, KbServiceUnavailable
 from auth import Role, require_role
 from services.git_manager import normalize_repo_name
+from store.schema import EdgeType
 from store.wiki_store import WikiStore
 from wiki.coverage_analyzer import WikiCoverageAnalyzer
 from wiki.models import ImportanceTier, PageType, WikiPage, WikiPageMetadata
@@ -49,6 +50,77 @@ from wiki.editing_store import WikiEditingStore
 from wiki.models import navigation_context_api_from_stored_json
 
 router = APIRouter(tags=["wiki", "pages"])
+
+
+async def _resolve_primary_source_entity_uid(
+    raw_store: Any,
+    repository: str,
+    path: str,
+    props: dict[str, Any],
+) -> str:
+    """Primary code entity uid for RELATED_TO lookups (WikiPage SOURCE_ENTITY targets)."""
+    eu = str(props.get("entity_uid") or "").strip()
+    if eu:
+        return eu
+    try:
+        ws = WikiStore(raw_store)
+        q = (
+            f"MATCH (wp:WikiPage {{repository: $repo, path: $path}})"
+            f"-[:{EdgeType.SOURCE_ENTITY.value}]->(e) "
+            "RETURN e.uid AS uid LIMIT 1"
+        )
+        r = await ws.execute_query(q, {"repo": repository, "path": path})
+        rows = getattr(r, "data", None) or []
+        row0 = rows[0] if rows else {}
+        uid = str((row0 or {}).get("uid") or "").strip()
+        return uid
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+async def _build_related_pages(
+    raw_store: Any,
+    repository: str,
+    entity_uid: str,
+) -> list[dict[str, Any]]:
+    """Fetch RELATED_TO neighbors as lightweight dicts for page detail APIs."""
+    related_pages: list[dict[str, Any]] = []
+    if not entity_uid or not getattr(raw_store, "find_related_entities", None):
+        return related_pages
+    repo_norm = normalize_repo_name(repository)
+    try:
+        related = await raw_store.find_related_entities(
+            entity_uid,
+            edge_types=["RELATED_TO"],
+            max_hops=1,
+        )
+    except Exception:  # noqa: BLE001
+        return related_pages
+    pairs = related[:10]
+    for rel_uid, _ in pairs:
+        title = rel_uid
+        page_type_str = ""
+        biz: Any = None
+        if getattr(raw_store, "find_node_by_uid", None):
+            try:
+                rel_node = await raw_store.find_node_by_uid(repo_norm, rel_uid)
+                if rel_node:
+                    rn_props = dict(rel_node.properties) if hasattr(rel_node, "properties") else {}
+                    title = str(rn_props.get("name", rel_uid) or rel_uid)
+                    lab = rel_node.label
+                    page_type_str = lab.value if hasattr(lab, "value") else str(lab)
+                    biz = rn_props.get("business_domain")
+            except Exception:  # noqa: BLE001
+                pass
+        related_pages.append(
+            {
+                "uid": rel_uid,
+                "title": title,
+                "page_type": page_type_str,
+                "business_domain": biz,
+            }
+        )
+    return related_pages
 
 
 def _wiki_quality_rows_to_pages_and_tiers(
@@ -253,6 +325,10 @@ async def wiki_get_page_by_path(
             d0 = c_rows[0].get("description") or ""
             ctx["contradiction_summary"] = str(d0)[:500]
 
+    repo_for_graph = str(row.get("repository") or "")
+    entity_for_related = source_entity_uids[0] if source_entity_uids else ""
+    related_pages = await _build_related_pages(raw_store, repo_for_graph, entity_for_related)
+
     return {
         "path": str(row.get("path") or ""),
         "title": str(row.get("title") or ""),
@@ -263,6 +339,7 @@ async def wiki_get_page_by_path(
         "method_locations": [],
         "context": ctx,
         "generated_at": str(row.get("generated_at") or "") or None,
+        "related_pages": related_pages,
     }
 
 
@@ -796,6 +873,8 @@ async def wiki_get_page_detail(
     wp = row.get("wp")
     props = dict(wp.properties) if hasattr(wp, "properties") else (wp if isinstance(wp, dict) else {})
     ctx = {"repository": repository, "module": "", "page": decoded_path}
+    entity_uid = await _resolve_primary_source_entity_uid(store, repository, decoded_path, props)
+    related_pages = await _build_related_pages(store, repository, entity_uid)
     return {
         "path": props.get("path", ""),
         "title": props.get("title", ""),
@@ -805,6 +884,7 @@ async def wiki_get_page_detail(
         "method_locations": [],
         "context": ctx,
         "generated_at": props.get("generated_at"),
+        "related_pages": related_pages,
     }
 
 

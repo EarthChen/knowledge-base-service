@@ -2,7 +2,7 @@
 import pytest
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.tree_sitter_parser import TreeSitterParser
-from store.schema import EdgeType
+from store.schema import EdgeType, NodeLabel
 
 
 @pytest.fixture
@@ -84,9 +84,57 @@ class TestCrossFileCallsPython:
         _, all_edges = python_builder.build_from_files(files)
         cross_calls = [
             e for e in all_edges
-            if e.edge_type == EdgeType.CALLS and e.properties.get("cross_file")
+            if e.edge_type == EdgeType.CALLS and e.properties.get("cross_file") is True
         ]
-        assert isinstance(cross_calls, list)
+        assert len(cross_calls) >= 1, (
+            f"Expected cross-file CALLS from service to repository; got {len(cross_calls)}. "
+            f"All CALLS: {[(e.source_uid, e.target_uid, e.properties) for e in all_edges if e.edge_type == EdgeType.CALLS]}"
+        )
+
+
+class TestCrossFileImplementsJava:
+    def test_class_implements_interface_across_files(self, java_builder):
+        iface_code = (
+            "package com.example;\n"
+            "public interface OrderRepository {\n"
+            "    void save();\n"
+            "}\n"
+        )
+        impl_code = (
+            "package com.example;\n"
+            "import com.example.OrderRepository;\n"
+            "public class OrderRepositoryImpl implements OrderRepository {\n"
+            "    public void save() {}\n"
+            "}\n"
+        )
+        files = {
+            "com/example/OrderRepository.java": iface_code,
+            "com/example/OrderRepositoryImpl.java": impl_code,
+        }
+        _, all_edges = java_builder.build_from_files(files)
+        implements = [e for e in all_edges if e.edge_type == EdgeType.IMPLEMENTS]
+        assert len(implements) >= 1, (
+            f"Expected cross-file IMPLEMENTS edge; got {len(implements)}"
+        )
+
+
+class TestBuildFromFilesMultiModule:
+    """Layer 0: ensure two-phase build scales to a small multi-file batch."""
+
+    def test_build_from_files_eight_python_modules(self, python_builder):
+        files = {"mod0.py": "def f0():\n    pass\n"}
+        for i in range(1, 8):
+            files[f"mod{i}.py"] = (
+                f"import mod{i - 1}\n\n"
+                f"def f{i}():\n"
+                f"    mod{i - 1}.f{i - 1}()\n"
+            )
+
+        nodes, edges = python_builder.build_from_files(files)
+        assert len(files) == 8
+        funcs = [n for n in nodes if n.label == NodeLabel.FUNCTION]
+        assert len(funcs) >= 8
+        assert len(edges) >= 1
 
 
 class TestBackwardCompatibility:

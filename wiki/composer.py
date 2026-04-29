@@ -242,10 +242,11 @@ class WikiComposer:
                 memory_block = await self._memory_loop.inject_into_generation(title, config.repository)
             except Exception as exc:  # noqa: BLE001 — optional enrichment
                 log.warning("wiki_memory_inject_failed", error=str(exc))
-        if page_data.business_summary and page_data.business_summary.strip():
+        _has_summary = bool(page_data.business_summary and page_data.business_summary.strip())
+        if config.mode == "structure" and _has_summary:
             tier = 1
             description = page_data.business_summary.strip()
-            log.debug("compose_page_tier_decision", entity=title, tier=1, reason="business_summary")
+            log.debug("compose_page_tier_decision", entity=title, tier=1, reason="structure_with_summary")
         elif config.mode == "structure":
             tier = 3
             description = self._tier3_structural(page_data, page_type, eff_lang)
@@ -261,9 +262,7 @@ class WikiComposer:
                 related_docs_block=related_docs_block,
                 memory_block=memory_block,
             )
-            if self._wiki_store is not None and not (
-                page_data.business_summary and page_data.business_summary.strip()
-            ):
+            if self._wiki_store is not None and not _has_summary:
                 short_summary = description[:100].split("\n")[0].strip()
                 if short_summary and page_data.node.uid:
                     try:
@@ -279,6 +278,10 @@ class WikiComposer:
                             uid=page_data.node.uid,
                             error=str(exc),
                         )
+        elif _has_summary:
+            tier = 1
+            description = page_data.business_summary.strip()
+            log.debug("compose_page_tier_decision", entity=title, tier=1, reason="no_llm_with_summary")
         else:
             tier = 3
             description = self._tier3_structural(page_data, page_type, eff_lang)

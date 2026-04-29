@@ -672,7 +672,11 @@ class WikiMCPHandler:
         from store.wiki_store import WikiStore
 
         ws = WikiStore(self._store)
-        result = await ws.find_modules_by_domain(domain_name, business_id)
+        try:
+            result = await ws.find_modules_by_domain(domain_name, business_id)
+        except Exception:
+            log.exception("mcp_find_implementing_modules_failed", domain=domain_name)
+            return self._mcp_error("internal_error", "Failed to query implementing modules")
         modules = []
         if result and result.result_set:
             for row in result.result_set:

@@ -270,12 +270,16 @@ class WikiTreeStoreMixin:
     async def find_modules_by_domain(
         self, domain_name: str, business_id: str = "default"
     ) -> QueryResultWrapper:
-        """Find modules matching a business domain, with optional wiki page paths."""
+        """Find modules matching a business domain, with optional wiki page paths.
+
+        Uses COLLECT to deduplicate when multiple WikiPages reference the same Module.
+        """
         q = (
             "MATCH (m:Module {business_domain: $domain}) "
             "OPTIONAL MATCH (wp:WikiPage)-[:SOURCE_ENTITY]->(m) "
+            "WITH m, COLLECT(DISTINCT wp.path) AS wiki_paths "
             "RETURN m.uid AS uid, m.name AS name, m.path AS path, "
-            "m.repository AS repository, wp.path AS wiki_page_path "
+            "m.repository AS repository, wiki_paths[0] AS wiki_page_path "
             "ORDER BY m.repository, m.path"
         )
         return await self._store.execute_query(q, {"domain": domain_name})

@@ -960,6 +960,27 @@ class FalkorDBStore:
         )
         return [row[0] for row in (result.result_set or []) if row[0]]
 
+    async def get_repo_stats(self, repository: str) -> dict[str, int]:
+        """Return entity counts per label for a repository."""
+        loop = asyncio.get_running_loop()
+        counts: dict[str, int] = {"module_count": 0, "class_count": 0, "function_count": 0}
+        for label_name, key in [
+            ("Module", "module_count"),
+            ("Class", "class_count"),
+            ("Function", "function_count"),
+        ]:
+            query = f"MATCH (n:{label_name} {{repository: $repo}}) RETURN count(n) AS cnt"
+            try:
+                result = await loop.run_in_executor(
+                    _graph_executor,
+                    lambda q=query: self._graph.query(q, params={"repo": repository}),  # type: ignore[union-attr]
+                )
+                if result.result_set:
+                    counts[key] = result.result_set[0][0]
+            except Exception:
+                pass
+        return counts
+
     async def find_top_level_modules(self, repository: str) -> list[GraphNode]:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(

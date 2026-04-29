@@ -22,7 +22,13 @@ def _module(uid: str, path: str, name: str) -> GraphNode:
 def _class_node(uid: str, fqn: str, name: str, file_path: str = "src/Foo.java") -> GraphNode:
     return GraphNode(
         label=NodeLabel.CLASS,
-        properties={"fqn": fqn, "name": name, "file": file_path, "start_line": 1},
+        properties={
+            "fqn": fqn,
+            "name": name,
+            "file": file_path,
+            "start_line": 1,
+            "end_line": 30,
+        },
         uid=uid,
     )
 
@@ -201,7 +207,12 @@ class TestPageTree:
         root_mod = _module("mod-root", "svc/main.py", "main")
         func = GraphNode(
             label=NodeLabel.FUNCTION,
-            properties={"name": "run", "file": "svc/main.py", "start_line": 42},
+            properties={
+                "name": "run",
+                "file": "svc/main.py",
+                "start_line": 42,
+                "end_line": 52,
+            },
             uid="fn-1",
         )
         graph = AsyncMock(spec=GraphQueryPort)
@@ -217,6 +228,44 @@ class TestPageTree:
         assert leaf.page_type == PageType.API_REFERENCE
         assert leaf.path == "svc/main.py#run"
         assert leaf.title == "run"
+
+    async def test_merge_to_parent_skips_enum_like_class_and_trivial_function(self) -> None:
+        root_mod = _module("mod-merge", "pkg/__init__.py", "pkg")
+        enum_like = GraphNode(
+            label=NodeLabel.CLASS,
+            properties={
+                "fqn": "pkg.State",
+                "name": "State",
+                "file": "pkg/State.kt",
+                "start_line": 1,
+                "end_line": 8,
+                "methods_count": 0,
+                "is_interface": False,
+                "semantic_roles": [],
+            },
+            uid="cls-state",
+        )
+        trivial_fn = GraphNode(
+            label=NodeLabel.FUNCTION,
+            properties={
+                "name": "ok",
+                "file": "pkg/x.py",
+                "start_line": 1,
+                "end_line": 2,
+            },
+            uid="fn-y",
+        )
+        kept_class = _class_node("cls-big", "pkg.Big", "Big")
+        graph = AsyncMock(spec=GraphQueryPort)
+        graph.find_node_by_path = AsyncMock(return_value=root_mod)
+        graph.find_node_by_fqn = AsyncMock(return_value=None)
+        graph.find_children = AsyncMock(return_value=[enum_like, trivial_fn, kept_class])
+
+        planner = WikiStructurePlanner(graph)
+        result = await planner.plan("r", parse_scope("module:pkg/__init__.py"))
+
+        titles = sorted(c.title for c in result.root.children)
+        assert titles == ["Big"]
 
 
 class TestStructurePathHelpers:

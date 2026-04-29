@@ -6,7 +6,8 @@ from typing import Protocol
 
 from log import get_logger
 from store.schema import GraphEdge, GraphNode, NodeLabel
-from wiki.models import PageType, ScopeParam, WikiStructure, WikiStructureNode
+from wiki.entity_filter import WikiEntityFilter
+from wiki.models import EntityStrategy, PageType, ScopeParam, WikiStructure, WikiStructureNode
 
 log = get_logger(__name__)
 
@@ -38,6 +39,7 @@ class WikiStructurePlanner:
 
     def __init__(self, graph: GraphQueryPort) -> None:
         self._graph = graph
+        self._entity_filter = WikiEntityFilter()
 
     async def plan(self, repository: str, scope: ScopeParam) -> WikiStructure:
         log.info("structure_plan_start", repository=repository, scope_type=scope.scope_type, scope_value=scope.value)
@@ -117,7 +119,19 @@ class WikiStructurePlanner:
             if child.label == NodeLabel.MODULE:
                 wiki_children.append(await self._build_module_tree(repository, child))
             elif child.label == NodeLabel.CLASS:
+                if (
+                    self._entity_filter.classify(child, edge_count=0, children_count=0)
+                    == EntityStrategy.MERGE_TO_PARENT
+                ):
+                    continue
                 wiki_children.append(self._leaf_wiki_node(child, PageType.CLASS_DETAIL))
+            elif child.label == NodeLabel.FUNCTION:
+                if (
+                    self._entity_filter.classify(child, edge_count=0, children_count=0)
+                    == EntityStrategy.MERGE_TO_PARENT
+                ):
+                    continue
+                wiki_children.append(self._leaf_wiki_node(child, PageType.API_REFERENCE))
             else:
                 wiki_children.append(self._leaf_wiki_node(child, PageType.API_REFERENCE))
 

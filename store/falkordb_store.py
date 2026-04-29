@@ -940,6 +940,21 @@ class FalkorDBStore:
                 nodes.append(n)
         return nodes
 
+    async def find_descendants(
+        self, uid: str, *, edge_type: str = "CONTAINS", max_depth: int = 3
+    ) -> list[str]:
+        """Return UIDs of all descendants reachable via edge_type up to max_depth."""
+        loop = asyncio.get_running_loop()
+        query = (
+            f"MATCH (root {{uid: $uid}})-[:{edge_type}*1..{max_depth}]->(desc) "
+            f"RETURN desc.uid AS uid"
+        )
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(query, params={"uid": uid}),  # type: ignore[union-attr]
+        )
+        return [row[0] for row in (result.result_set or []) if row[0]]
+
     async def find_top_level_modules(self, repository: str) -> list[GraphNode]:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(

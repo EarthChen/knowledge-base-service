@@ -459,6 +459,12 @@ class WikiService:
             repository, pages, language=language,
             skip_claim_tracking=(config.mode == "structure"),
         )
+        await self._sync_graph_references_into_page_content(
+            repository,
+            pages,
+            language=language,
+            skip_claim_tracking=(config.mode == "structure"),
+        )
         await self._run_compilation_snapshot("default", repository)
         if self._deferred_enrichment:
             refreshed = await self._deferred_enrichment.refresh_stale_embeddings(repository)
@@ -509,6 +515,57 @@ class WikiService:
             {"repo": repository},
         )
         log.info("bulk_wiki_code_hashes_set", repository=repository)
+
+    async def inject_wikilinks(self, repository: str, pages: list[WikiPage]) -> None:
+        """Append ``## Related Pages`` using outgoing ``WIKI_REFERENCES`` from the graph."""
+        if self._wiki_store is None or not pages:
+            return
+        from wiki.reference_generator import WikiReferenceGenerator
+
+        ref_gen = WikiReferenceGenerator(self._wiki_store)
+        for page in pages:
+            uid = f"WikiPage:{repository}:{page.path}"
+            try:
+                out = await self._wiki_store.get_wiki_page_references(uid)
+            except Exception:
+                log.debug("wiki_page_references_lookup_failed", page_uid=uid, exc_info=True)
+                continue
+            rows = getattr(out, "data", None) or []
+            paths: list[str] = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                p = str(row.get("path", "") or "").strip()
+                if p:
+                    paths.append(p)
+            page.content = ref_gen.inject_wikilinks(page.content or "", paths)
+
+    async def _sync_graph_references_into_page_content(
+        self,
+        repository: str,
+        pages: list[WikiPage],
+        *,
+        language: str,
+        skip_claim_tracking: bool,
+    ) -> None:
+        """Build ``WIKI_REFERENCES`` from the code graph, inject related links into page bodies, re-persist."""
+        if self._wiki_store is None or not pages:
+            return
+        try:
+            from wiki.reference_generator import WikiReferenceGenerator
+
+            ref_gen = WikiReferenceGenerator(self._wiki_store)
+            n = await ref_gen.generate(repository)
+            log.info("wiki_reference_edges_generated", repository=repository, count=n)
+            await self.inject_wikilinks(repository, pages)
+            await self._persist_pages_to_graph(
+                repository,
+                pages,
+                language=language,
+                skip_claim_tracking=skip_claim_tracking,
+            )
+        except Exception:
+            log.warning("wiki_sync_references_inject_failed", repository=repository, exc_info=True)
 
     async def _update_wiki_code_hashes(self, repository: str, uids: list[str]) -> None:
         """After successful wiki page generation, set wiki_code_hash = code_hash."""
@@ -935,7 +992,16 @@ class WikiService:
             yield {"page": page.to_dict()}
 
         await self._enrich_pages_after_compose(pages, page_tier_map, config, llm_provider)
-        await self._persist_pages_to_graph(repository, pages, language=language)
+        await self._persist_pages_to_graph(
+            repository, pages, language=language,
+            skip_claim_tracking=(config.mode == "structure"),
+        )
+        await self._sync_graph_references_into_page_content(
+            repository,
+            pages,
+            language=language,
+            skip_claim_tracking=(config.mode == "structure"),
+        )
         await self._run_compilation_snapshot("default", repository)
         for page in pages:
             if page.page_type == PageType.REPO_OVERVIEW:

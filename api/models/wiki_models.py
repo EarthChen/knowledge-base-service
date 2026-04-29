@@ -58,7 +58,7 @@ class BusinessWikiGenerateBody(BaseModel):
     llm_provider: str | None = None
     incremental: bool = True
     mode: str = Field(
-        default="structure",
+        default="full",
         pattern="^(structure|full)$",
         description="Wiki generation mode: 'structure' for fast code-only, 'full' for LLM-enriched content",
     )

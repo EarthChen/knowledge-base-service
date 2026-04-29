@@ -7,6 +7,7 @@ into graph nodes and edges for storage in FalkorDB.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass, field as dc_field
 from pathlib import Path
 
 from indexer.annotation_semantics import classify_annotations, lookup_annotation
@@ -198,6 +199,17 @@ def compute_fqn(file_path: str, entity_name: str, label: str, parent_class: str 
     return ""
 
 
+@dataclass
+class _CrossFileData:
+    file_path: str
+    language: str
+    imports: list  # list[ParsedImport]
+    unresolved_calls: list  # (caller_uid, callee_name, receiver_expr, line)
+    unresolved_inherits: list  # (child_uid, base_name)
+    unresolved_implements: list = dc_field(default_factory=list)  # (child_uid, iface_name)
+    fields: list = dc_field(default_factory=list)  # list[ParsedField] — map field names → types
+
+
 class CodeGraphBuilder:
     """Builds graph nodes and edges from parsed code AST."""
 
@@ -361,7 +373,241 @@ class CodeGraphBuilder:
             if name:
                 # Use setdefault so FQN entry isn't overwritten by simple name
                 tables.setdefault(lang, {}).setdefault(name, node.uid)
+            if fqn and node.label == NodeLabel.FUNCTION and "#" in fqn:
+                cls_fqn, meth = fqn.split("#", 1)
+                simple_cls = cls_fqn.rsplit(".", 1)[-1]
+                if simple_cls and meth:
+                    tables.setdefault(lang, {}).setdefault(f"{simple_cls}.{meth}", node.uid)
         return tables
+
+    def _build_import_map(
+        self,
+        imports: list,
+        file_path: str,
+        symbol_table: dict[str, str],
+    ) -> dict[str, str]:
+        """Map imported symbol names to their uid for this file's scope."""
+        del file_path  # reserved for future file-relative resolution
+        result: dict[str, str] = {}
+        for imp in imports:
+            symbols = getattr(imp, "symbols", []) or getattr(imp, "names", [])
+            for sym in symbols:
+                candidate_fqn = f"{imp.module}.{sym}" if imp.module else sym
+                if candidate_fqn in symbol_table:
+                    result[sym] = symbol_table[candidate_fqn]
+                elif sym in symbol_table:
+                    result[sym] = symbol_table[sym]
+        return result
+
+    def _enrich_import_map_from_fields(
+        self,
+        import_map: dict[str, str],
+        fields: list,
+        symbol_table: dict[str, str],
+    ) -> None:
+        """Map field/instance names (e.g. userService) to class UIDs via declared types."""
+        for fld in fields:
+            ftype = (getattr(fld, "field_type", "") or "").strip()
+            if not ftype:
+                continue
+            simple = _java_simple_type_name_from_string(ftype)
+            if not simple:
+                continue
+            type_uid = import_map.get(simple) or symbol_table.get(simple)
+            if not type_uid:
+                continue
+            fname = (getattr(fld, "name", "") or "").strip()
+            if fname:
+                import_map.setdefault(fname, type_uid)
+
+    def _resolve_call_target(
+        self,
+        callee_name: str,
+        receiver_expr: str,
+        import_map: dict[str, str],
+        symbol_table: dict[str, str],
+        uid_to_class_fqn: dict[str, str],
+    ) -> str | None:
+        """Resolve a callee to a target uid using receiver type + import map."""
+        if receiver_expr:
+            receiver_name = receiver_expr.rsplit(".", 1)[-1] if "." in receiver_expr else receiver_expr
+            if receiver_name in ("self", "this"):
+                if "." in receiver_expr:
+                    parts = receiver_expr.split(".")
+                    if len(parts) >= 2:
+                        receiver_name = parts[1]
+            receiver_class_uid = import_map.get(receiver_name) or symbol_table.get(receiver_name)
+            if receiver_class_uid:
+                cls_fqn = uid_to_class_fqn.get(receiver_class_uid, "")
+                if cls_fqn and callee_name:
+                    for candidate in (
+                        f"{cls_fqn}#{callee_name}",
+                        f"{cls_fqn}.{callee_name}",
+                    ):
+                        uid = symbol_table.get(candidate)
+                        if uid:
+                            return uid
+                    simple = cls_fqn.rsplit(".", 1)[-1]
+                    uid = symbol_table.get(f"{simple}.{callee_name}")
+                    if uid:
+                        return uid
+                method_fqn = f"{receiver_name}.{callee_name}"
+                return symbol_table.get(method_fqn) or receiver_class_uid
+        return import_map.get(callee_name) or symbol_table.get(callee_name)
+
+    def _resolve_cross_file_edges(
+        self,
+        per_file_data: list[_CrossFileData],
+        symbol_tables: dict[str, dict[str, str]],
+        all_nodes: list[GraphNode],
+    ) -> list[GraphEdge]:
+        uid_to_class_fqn: dict[str, str] = {}
+        for n in all_nodes:
+            if n.label != NodeLabel.CLASS:
+                continue
+            fqn = n.properties.get("fqn", "")
+            if isinstance(fqn, str) and fqn:
+                uid_to_class_fqn[n.uid] = fqn
+
+        edges: list[GraphEdge] = []
+        for data in per_file_data:
+            lang = data.language
+            table = symbol_tables.get(lang, {})
+            import_map = self._build_import_map(data.imports, data.file_path, table)
+            self._enrich_import_map_from_fields(import_map, data.fields, table)
+
+            for caller_uid, callee_name, receiver_expr, line in data.unresolved_calls:
+                target_uid = self._resolve_call_target(
+                    callee_name,
+                    receiver_expr,
+                    import_map,
+                    table,
+                    uid_to_class_fqn,
+                )
+                if target_uid and caller_uid != target_uid:
+                    edges.append(GraphEdge(
+                        edge_type=EdgeType.CALLS,
+                        source_uid=caller_uid,
+                        target_uid=target_uid,
+                        properties={"line": line, "cross_file": True},
+                    ))
+
+            for child_uid, base_name in data.unresolved_inherits:
+                target_uid = import_map.get(base_name) or table.get(base_name)
+                if target_uid and child_uid != target_uid:
+                    edges.append(GraphEdge(
+                        edge_type=EdgeType.INHERITS,
+                        source_uid=child_uid,
+                        target_uid=target_uid,
+                    ))
+
+            for child_uid, iface_name in data.unresolved_implements:
+                target_uid = import_map.get(iface_name) or table.get(iface_name)
+                if target_uid and child_uid != target_uid:
+                    edges.append(GraphEdge(
+                        edge_type=EdgeType.IMPLEMENTS,
+                        source_uid=child_uid,
+                        target_uid=target_uid,
+                    ))
+
+        return edges
+
+    def build_from_files(
+        self, files: dict[str, str],
+    ) -> tuple[list[GraphNode], list[GraphEdge]]:
+        """Two-phase build: per-file parsing + cross-file resolution.
+
+        Phase 1: Parse each file individually (existing build_from_file).
+        Collect symbol table entries and unresolved references.
+
+        Phase 2: Use the global symbol table to resolve cross-file
+        CALLS, INHERITS, and IMPLEMENTS edges.
+        """
+        all_nodes: list[GraphNode] = []
+        all_edges: list[GraphEdge] = []
+        per_file_data: list[_CrossFileData] = []
+
+        for file_path, content in files.items():
+            lang = self.detect_language(file_path)
+            if not lang:
+                continue
+
+            nodes, edges = self.build_from_file(file_path, content=content)
+            all_nodes.extend(nodes)
+            all_edges.extend(edges)
+
+            result = self._parser.parse_file(file_path, lang, content)
+
+            func_uid_by_name: dict[str, list[str]] = {}
+            for n in nodes:
+                if n.label == NodeLabel.FUNCTION:
+                    name = n.properties.get("name", "")
+                    func_uid_by_name.setdefault(str(name), []).append(n.uid)
+
+            unresolved_calls = []
+            for call in result.calls:
+                caller_uids = func_uid_by_name.get(call.caller_name, [])
+                callee_uids = func_uid_by_name.get(call.callee_name, [])
+                if caller_uids and not callee_uids:
+                    caller_uid = self._resolve_closest_uid(caller_uids, call.line, result)
+                    unresolved_calls.append((
+                        caller_uid,
+                        call.callee_name,
+                        getattr(call, "receiver_expr", ""),
+                        call.line,
+                    ))
+
+            unresolved_inherits = []
+            for n in nodes:
+                if n.label != NodeLabel.CLASS:
+                    continue
+                bases = n.properties.get("base_classes", [])
+                if isinstance(bases, str):
+                    bases = [bases]
+                for base in bases:
+                    base_simple = base.rsplit(".", 1)[-1] if "." in str(base) else str(base)
+                    same_file_match = any(
+                        nn.label == NodeLabel.CLASS
+                        and nn.properties.get("name") == base_simple
+                        and nn.properties.get("file") == n.properties.get("file")
+                        for nn in nodes
+                    )
+                    if not same_file_match:
+                        unresolved_inherits.append((n.uid, base_simple))
+
+            unresolved_implements = []
+            for n in nodes:
+                if n.label != NodeLabel.CLASS:
+                    continue
+                interfaces = n.properties.get("interfaces", [])
+                if isinstance(interfaces, str):
+                    interfaces = [interfaces]
+                for iface in interfaces:
+                    iface_simple = iface.rsplit(".", 1)[-1] if "." in str(iface) else str(iface)
+                    same_file_match = any(
+                        nn.label == NodeLabel.CLASS
+                        and nn.properties.get("name") == iface_simple
+                        and nn.properties.get("file") == n.properties.get("file")
+                        for nn in nodes
+                    )
+                    if not same_file_match:
+                        unresolved_implements.append((n.uid, iface_simple))
+
+            per_file_data.append(_CrossFileData(
+                file_path=file_path,
+                language=lang,
+                imports=result.imports,
+                unresolved_calls=unresolved_calls,
+                unresolved_inherits=unresolved_inherits,
+                unresolved_implements=unresolved_implements,
+                fields=result.fields,
+            ))
+
+        symbol_tables = self._build_global_symbol_table(all_nodes)
+        cross_edges = self._resolve_cross_file_edges(per_file_data, symbol_tables, all_nodes)
+        all_edges.extend(cross_edges)
+
+        return all_nodes, all_edges
 
     @staticmethod
     def _resolve_closest_uid(uids: list[str], call_line: int, result: ParseResult) -> str:

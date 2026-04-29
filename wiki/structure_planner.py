@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Protocol
 
 from log import get_logger
@@ -34,11 +36,24 @@ class GraphQueryPort(Protocol):
     async def find_repository_calls_edges(self, repository: str) -> list[GraphEdge]: ...
 
 
+class LLMPort(Protocol):
+    """Minimal LLM interface for optional semantic grouping."""
+
+    async def generate(self, prompt: str, system: str = "") -> str: ...
+
+
 class WikiStructurePlanner:
     """Builds a `WikiStructure` for a repository scope using graph CONTAINS edges."""
 
-    def __init__(self, graph: GraphQueryPort) -> None:
+    def __init__(
+        self,
+        graph: GraphQueryPort,
+        llm: LLMPort | None = None,
+        semantic_group_threshold: int = 12,
+    ) -> None:
         self._graph = graph
+        self._llm = llm
+        self._semantic_group_threshold = semantic_group_threshold
         self._entity_filter = WikiEntityFilter()
 
     async def plan(self, repository: str, scope: ScopeParam) -> WikiStructure:
@@ -79,10 +94,16 @@ class WikiStructurePlanner:
     async def _plan_repo(self, repository: str) -> WikiStructure:
         modules = await self._graph.find_top_level_modules(repository)
         log.info("plan_repo_modules_found", repository=repository, module_count=len(modules))
-        children = [
-            self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
-            for m in sorted(modules, key=self._sort_key_for_module_list)
-        ]
+        if (
+            self._llm is not None
+            and len(modules) >= self._semantic_group_threshold
+        ):
+            children = await self._semantic_group_modules(repository, modules)
+        else:
+            children = [
+                self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
+                for m in sorted(modules, key=self._sort_key_for_module_list)
+            ]
         root = WikiStructureNode(
             path="/",
             title=repository,
@@ -96,6 +117,122 @@ class WikiStructurePlanner:
         )
         log.info("structure_plan_done", repository=repository, scope_type="repo", total_pages=structure.total_pages)
         return structure
+
+    @staticmethod
+    def _strip_json_code_fences(text: str) -> str:
+        t = text.strip()
+        fence = re.match(r"^```(?:json)?\s*\n?", t, re.IGNORECASE)
+        if fence:
+            t = t[fence.end() :]
+        if t.endswith("```"):
+            t = t[: -3]
+        return t.strip()
+
+    def _module_display_name(self, m: GraphNode) -> str:
+        name = m.properties.get("name")
+        if isinstance(name, str) and name:
+            return name
+        return self._node_title(m)
+
+    def _semantic_group_path(self, group_name: str) -> str:
+        safe = group_name.replace("/", "_").strip() or "group"
+        return f"__semantic__/{safe}"
+
+    async def _semantic_group_modules(
+        self, repository: str, modules: list[GraphNode]
+    ) -> list[WikiStructureNode]:
+        if self._llm is None:
+            return [
+                self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
+                for m in sorted(modules, key=self._sort_key_for_module_list)
+            ]
+
+        lines: list[str] = []
+        for m in modules:
+            name = self._module_display_name(m)
+            raw = m.properties.get("business_summary") or m.properties.get("docstring") or ""
+            desc = raw.strip() if isinstance(raw, str) else str(raw or "")
+            lines.append(f"- {name}: {desc or '(no description)'}")
+
+        prompt = (
+            "You are organizing repository top-level modules into 3-7 thematic groups "
+            "for wiki navigation.\nModules list:\n"
+            + "\n".join(lines)
+            + "\n\nReturn ONLY a JSON array of objects. Each object must have "
+            '"group_name" (string) and "modules" (array of module names exactly as listed above, '
+            "without the description part).\n"
+            "Assign every module to exactly one group."
+        )
+        system = "Respond with valid JSON only: a single JSON array. No markdown fences or explanation."
+
+        try:
+            raw = await self._llm.generate(prompt, system=system)
+        except Exception as exc:
+            log.warning("semantic_group_llm_failed", repository=repository, error=str(exc))
+            return [
+                self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
+                for m in sorted(modules, key=self._sort_key_for_module_list)
+            ]
+
+        try:
+            parsed = json.loads(self._strip_json_code_fences(raw))
+        except (json.JSONDecodeError, TypeError) as exc:
+            log.warning("semantic_group_json_parse_failed", repository=repository, error=str(exc))
+            return [
+                self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
+                for m in sorted(modules, key=self._sort_key_for_module_list)
+            ]
+
+        if not isinstance(parsed, list):
+            return [
+                self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
+                for m in sorted(modules, key=self._sort_key_for_module_list)
+            ]
+
+        name_to_node: dict[str, GraphNode] = {}
+        for m in modules:
+            n = self._module_display_name(m)
+            name_to_node.setdefault(n, m)
+
+        assigned: set[str] = set()
+        group_nodes: list[WikiStructureNode] = []
+
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            gname = item.get("group_name")
+            mod_names = item.get("modules")
+            if not isinstance(gname, str) or not isinstance(mod_names, list):
+                continue
+
+            mod_children: list[WikiStructureNode] = []
+            for mn in mod_names:
+                if not isinstance(mn, str):
+                    continue
+                node = name_to_node.get(mn)
+                if node is None or mn in assigned:
+                    continue
+                assigned.add(mn)
+                mod_children.append(self._leaf_wiki_node(node, PageType.MODULE_OVERVIEW))
+
+            mod_children.sort(key=lambda c: (c.path, c.title))
+            if mod_children:
+                group_nodes.append(
+                    WikiStructureNode(
+                        path=self._semantic_group_path(gname),
+                        title=gname,
+                        page_type=PageType.DOMAIN_OVERVIEW,
+                        children=mod_children,
+                    )
+                )
+
+        flat: list[WikiStructureNode] = []
+        for m in sorted(modules, key=self._sort_key_for_module_list):
+            mn = self._module_display_name(m)
+            if mn not in assigned:
+                flat.append(self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW))
+
+        return group_nodes + flat
 
     def _sort_key_for_module_list(self, node: GraphNode) -> tuple[str, str]:
         path = str(node.properties.get("path") or "")

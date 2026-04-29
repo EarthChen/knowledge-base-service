@@ -123,6 +123,14 @@ class FalkorDBStore:
     """Thin wrapper over FalkorDB for code knowledge graph operations."""
 
     _ALLOWED_EDGE_TYPES = frozenset({"CONTAINS", "HAS_CHILD"})
+    _ALLOWED_RELATED_EDGE_TYPES = frozenset({
+        "CALLS",
+        "IMPORTS",
+        "INHERITS",
+        "IMPLEMENTS",
+        "CONTAINS",
+        "RELATED_TO",
+    })
 
     def __init__(self, config: FalkorDBConfig, embedding_dim: int = 1024) -> None:
         self._config = config
@@ -985,6 +993,92 @@ class FalkorDBStore:
                     exc_info=True,
                 )
         return counts
+
+    async def find_related_entities(
+        self,
+        uid: str,
+        *,
+        edge_types: list[str] | None = None,
+        max_hops: int = 1,
+    ) -> list[tuple[str, str]]:
+        """Find entities related via specified edge types (bidirectional). Returns (uid, edge_type) pairs."""
+        _ = max_hops  # single-hop match; parameter reserved for API evolution
+        loop = asyncio.get_running_loop()
+        et_filter = ""
+        if edge_types:
+            invalid = set(edge_types) - self._ALLOWED_RELATED_EDGE_TYPES
+            if invalid:
+                raise ValueError(f"Edge types not allowed: {invalid}")
+            et_list = "|".join(edge_types)
+            et_filter = f":{et_list}"
+
+        query_out = (
+            f"MATCH (a {{uid: $uid}})-[r{et_filter}]->(b) "
+            f"RETURN b.uid AS uid, type(r) AS etype"
+        )
+        query_in = (
+            f"MATCH (a {{uid: $uid}})<-[r{et_filter}]-(b) "
+            f"RETURN b.uid AS uid, type(r) AS etype"
+        )
+        results: list[tuple[str, str]] = []
+        for q in (query_out, query_in):
+            try:
+                res = await loop.run_in_executor(
+                    _graph_executor,
+                    lambda query=q: self._graph.query(query, params={"uid": uid}),  # type: ignore[union-attr]
+                )
+                for row in (res.result_set or []):
+                    if row[0] and row[0] != uid:
+                        results.append((row[0], row[1]))
+            except Exception:
+                log.debug("find_related_entities_query_failed", uid=uid, exc_info=True)
+        return results
+
+    async def find_entities_by_domain(
+        self,
+        domain: str,
+        *,
+        exclude_uid: str = "",
+        limit: int = 20,
+    ) -> list[str]:
+        """Find entity UIDs with matching business_domain property."""
+        loop = asyncio.get_running_loop()
+        query = (
+            "MATCH (n {business_domain: $domain}) "
+            "WHERE n.uid <> $exclude "
+            "RETURN n.uid AS uid LIMIT $limit"
+        )
+        try:
+            result = await loop.run_in_executor(
+                _graph_executor,
+                lambda: self._graph.query(  # type: ignore[union-attr]
+                    query,
+                    params={"domain": domain, "exclude": exclude_uid, "limit": limit},
+                ),
+            )
+            return [row[0] for row in (result.result_set or []) if row[0]]
+        except Exception:
+            log.debug("find_entities_by_domain_failed", domain=domain, exc_info=True)
+            return []
+
+    async def find_siblings(self, uid: str) -> list[str]:
+        """Find sibling entities under the same CONTAINS parent."""
+        loop = asyncio.get_running_loop()
+        query = (
+            "MATCH (parent)-[:CONTAINS]->(me {uid: $uid}) "
+            "MATCH (parent)-[:CONTAINS]->(sibling) "
+            "WHERE sibling.uid <> $uid "
+            "RETURN DISTINCT sibling.uid AS uid LIMIT 20"
+        )
+        try:
+            result = await loop.run_in_executor(
+                _graph_executor,
+                lambda: self._graph.query(query, params={"uid": uid}),  # type: ignore[union-attr]
+            )
+            return [row[0] for row in (result.result_set or []) if row[0]]
+        except Exception:
+            log.debug("find_siblings_failed", uid=uid, exc_info=True)
+            return []
 
     async def find_top_level_modules(self, repository: str) -> list[GraphNode]:
         loop = asyncio.get_running_loop()

@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import inspect
 from unittest.mock import MagicMock, patch
 
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
-from wiki.composer import WikiComposer
+from wiki.composer import (
+    WikiComposer,
+    _STRUCTURED_SECTIONS_CLASS,
+    _STRUCTURED_SECTIONS_FUNCTION,
+    _STRUCTURED_SECTIONS_MODULE,
+)
 from wiki.data_collector import PageData
 from wiki.models import DiagramType, PageType, SourceLocation, WikiDiagram
 
@@ -107,3 +113,23 @@ class TestBuildDiagramsEnhanced:
             diagrams = composer._build_diagrams(page_data, PageType.MODULE_OVERVIEW)
         titles = {d.title for d in diagrams}
         assert "Architecture layers" not in titles, "Empty diagram should be filtered out"
+
+
+class TestStructuredSectionTemplates:
+    """Tests for LLM structured section templates and tier-2 system prompt."""
+
+    def test_module_template_includes_how_it_works(self) -> None:
+        assert "How it Works" in _STRUCTURED_SECTIONS_MODULE
+
+    def test_class_template_includes_how_it_works(self) -> None:
+        assert "How it Works" in _STRUCTURED_SECTIONS_CLASS
+
+    def test_module_template_includes_mermaid_guidance(self) -> None:
+        assert "mermaid" in _STRUCTURED_SECTIONS_MODULE.lower()
+
+    def test_function_template_includes_calling_patterns(self) -> None:
+        assert "calling patterns" in _STRUCTURED_SECTIONS_FUNCTION.lower()
+
+    def test_system_prompt_mentions_mermaid(self) -> None:
+        source = inspect.getsource(WikiComposer._tier2_llm)
+        assert "mermaid" in source.lower()

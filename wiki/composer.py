@@ -64,25 +64,27 @@ _STRUCTURED_SECTIONS_MODULE = (
     "\n\nStructure your documentation with these sections (adapt as appropriate):\n"
     "1. **Purpose & Responsibility** — What this module does and why it exists\n"
     "2. **Key Components** — Main classes/functions and their roles\n"
-    "3. **Integration Points** — How this connects to other parts of the system\n"
-    "4. **Data Flow** — Input/output, transformations, side effects\n"
-    "5. **Design Decisions** — Notable trade-offs, patterns, constraints\n"
+    "3. **How it Works** — Key execution flows and processing steps\n"
+    "4. **Integration Points** — How this connects to other parts of the system\n"
+    "5. **Data Flow** — Input/output, transformations, side effects. Include a Mermaid diagram if helpful.\n"
+    "6. **Design Decisions** — Notable trade-offs, patterns, constraints\n"
 )
 
 _STRUCTURED_SECTIONS_CLASS = (
     "\n\nStructure your documentation with these sections (adapt as appropriate):\n"
     "1. **Purpose & Responsibility** — What this class does and why it exists\n"
     "2. **Methods & Properties** — Key methods, their parameters, and behavior\n"
-    "3. **Integration Points** — How this connects to other classes/modules\n"
-    "4. **Data Flow** — Input/output, state management, side effects\n"
-    "5. **Design Decisions** — Notable trade-offs, patterns, constraints\n"
+    "3. **How it Works** — Key interaction patterns between methods, lifecycle\n"
+    "4. **Integration Points** — How this connects to other classes/modules\n"
+    "5. **Data Flow** — Input/output, state management, side effects\n"
+    "6. **Design Decisions** — Notable trade-offs, patterns, constraints\n"
 )
 
 _STRUCTURED_SECTIONS_FUNCTION = (
     "\n\nStructure your documentation with these sections (adapt as appropriate):\n"
     "1. **Purpose** — What this function does\n"
     "2. **Parameters & Return** — Input parameters and return value semantics\n"
-    "3. **Usage Context** — Where and how this function is called\n"
+    "3. **Usage Context** — Where and how this function is called, with typical calling patterns\n"
     "4. **Design Notes** — Edge cases, constraints, performance considerations\n"
 )
 
@@ -727,7 +729,9 @@ class WikiComposer:
         system = (
             "You are a senior engineer writing internal technical documentation. "
             "Focus on business logic and workflow understanding. "
-            "Use clear section headings (##). Output Markdown."
+            "Use clear section headings (##). Output Markdown. "
+            "When describing data flows or complex interactions, include Mermaid diagrams "
+            "(```mermaid blocks) to visualize the process."
         )
         log.debug("tier2_llm_prompt_built", entity=entity_name, prompt_len=len(prompt))
         result = (await self._llm.generate(prompt, system=system)).strip()

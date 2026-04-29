@@ -83,7 +83,7 @@ async def _build_related_pages(
     repository: str,
     entity_uid: str,
 ) -> list[dict[str, Any]]:
-    """Fetch RELATED_TO neighbors as lightweight dicts for page detail APIs."""
+    """Fetch related neighbors (RELATED_TO plus structural edges) as lightweight dicts."""
     related_pages: list[dict[str, Any]] = []
     if not entity_uid or not getattr(raw_store, "find_related_entities", None):
         return related_pages
@@ -91,7 +91,7 @@ async def _build_related_pages(
     try:
         related = await raw_store.find_related_entities(
             entity_uid,
-            edge_types=["RELATED_TO"],
+            edge_types=["RELATED_TO", "CALLS", "IMPORTS", "INHERITS"],
             max_hops=1,
         )
     except Exception:  # noqa: BLE001

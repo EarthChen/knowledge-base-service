@@ -1540,6 +1540,8 @@ class WikiService:
                 )
 
         # Build cross-page references (RELATED_TO edges)
+        # Scope: Module-level only — modules are navigation hubs.
+        # Class/Function entities inherit reachability through graph proximity.
         from wiki.related_pages_builder import RelatedPagesBuilder
 
         related_builder = RelatedPagesBuilder(self._graph)

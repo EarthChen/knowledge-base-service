@@ -407,9 +407,9 @@ class TestWikiPagesGraphBacked:
         assert data["context"] == {"repository": "r1", "module": "", "page": "README.md"}
         assert data["generated_at"] == "2024-01-01T00:00:00Z"
         mock_svc.generate.assert_not_called()
-        store.execute_query.assert_awaited_once()
-        _cypher, params = store.execute_query.await_args.args
-        assert params == {"repo": "r1", "path": "README.md"}
+        assert store.execute_query.await_count == 2
+        first_args = store.execute_query.await_args_list[0].args
+        assert first_args[1] == {"repo": "r1", "path": "README.md"}
 
     def test_get_page_detail_dict_node_properties(self) -> None:
         store = MagicMock()

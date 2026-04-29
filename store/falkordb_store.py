@@ -1001,16 +1001,19 @@ class FalkorDBStore:
         edge_types: list[str] | None = None,
         max_hops: int = 1,
     ) -> list[tuple[str, str]]:
-        """Find entities related via specified edge types (bidirectional). Returns (uid, edge_type) pairs."""
+        """Find entities related via specified edge types (bidirectional). Returns (uid, edge_type) pairs.
+
+        When ``edge_types`` is omitted or empty, defaults to RELATED_TO only (avoids matching every edge).
+        Results are deduplicated by neighbor uid (first edge type retained).
+        """
         _ = max_hops  # single-hop match; parameter reserved for API evolution
         loop = asyncio.get_running_loop()
-        et_filter = ""
-        if edge_types:
-            invalid = set(edge_types) - self._ALLOWED_RELATED_EDGE_TYPES
-            if invalid:
-                raise ValueError(f"Edge types not allowed: {invalid}")
-            et_list = "|".join(edge_types)
-            et_filter = f":{et_list}"
+        effective_types = edge_types if edge_types else ["RELATED_TO"]
+        invalid = set(effective_types) - self._ALLOWED_RELATED_EDGE_TYPES
+        if invalid:
+            raise ValueError(f"Edge types not allowed: {invalid}")
+        et_list = "|".join(effective_types)
+        et_filter = f":{et_list}"
 
         query_out = (
             f"MATCH (a {{uid: $uid}})-[r{et_filter}]->(b) "
@@ -1032,7 +1035,13 @@ class FalkorDBStore:
                         results.append((row[0], row[1]))
             except Exception:
                 log.debug("find_related_entities_query_failed", uid=uid, exc_info=True)
-        return results
+        seen: set[str] = set()
+        deduped: list[tuple[str, str]] = []
+        for uid_val, etype in results:
+            if uid_val not in seen:
+                seen.add(uid_val)
+                deduped.append((uid_val, etype))
+        return deduped
 
     async def find_entities_by_domain(
         self,

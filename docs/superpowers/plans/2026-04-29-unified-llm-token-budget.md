@@ -1,6 +1,6 @@
 # Unified LLM Token Budget Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Consolidate scattered token budget hardcodes into a single `default_llm_budget` config with ratio-based derivation and safety ceiling.
 
@@ -41,7 +41,7 @@
 - Create: `tests/wiki/test_token_budget.py`
 - Modify: `config.py:110-120` (AppLlmSettings), `config.py:300-320` (AppWikiFlags)
 
-- [ ] **Step 1: Write failing tests for TokenBudgetResolver**
+- [x] **Step 1: Write failing tests for TokenBudgetResolver**
 
 ```python
 # tests/wiki/test_token_budget.py
@@ -83,12 +83,12 @@ class TestTokenBudgetResolver:
         assert r.budget("compact") >= 512
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/wiki/test_token_budget.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'wiki.token_budget'`
 
-- [ ] **Step 3: Implement TokenBudgetResolver**
+- [x] **Step 3: Implement TokenBudgetResolver**
 
 ```python
 # wiki/token_budget.py
@@ -131,7 +131,7 @@ class TokenBudgetResolver:
         return self.budget(key)
 ```
 
-- [ ] **Step 4: Add config fields**
+- [x] **Step 4: Add config fields**
 
 In `config.py`, add to `AppLlmSettings` (after existing fields around line 116):
 
@@ -154,17 +154,17 @@ default_llm_budget: int = Field(
 )
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/wiki/test_token_budget.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 6: Run full test suite to check for regressions**
+- [x] **Step 6: Run full test suite to check for regressions**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/ -q --tb=short 2>&1 | tail -5`
 Expected: 2015+ passed
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add wiki/token_budget.py tests/wiki/test_token_budget.py config.py
@@ -179,7 +179,7 @@ git commit -m "feat(wiki): add TokenBudgetResolver with ratio-based budget deriv
 - Modify: `wiki/ask.py:142-160`
 - Modify: `tests/test_wiki_ask_dynamic_budget.py`
 
-- [ ] **Step 1: Write failing test for resolver integration**
+- [x] **Step 1: Write failing test for resolver integration**
 
 ```python
 # In tests/test_wiki_ask_dynamic_budget.py, add:
@@ -198,12 +198,12 @@ def test_ask_budget_uses_resolver_proportions():
     assert concept_small < concept  # smaller base = smaller budget
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/test_wiki_ask_dynamic_budget.py::test_ask_budget_uses_resolver_proportions -v`
 Expected: FAIL — `ImportError`
 
-- [ ] **Step 3: Add resolver-based budget function to wiki/ask.py**
+- [x] **Step 3: Add resolver-based budget function to wiki/ask.py**
 
 In `wiki/ask.py`, after the existing `wiki_context_token_budget` function (around line 160), add:
 
@@ -247,17 +247,17 @@ def wiki_context_token_budget(question: str, question_type: str | None = None) -
     return min(base + q_tokens, 16000)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/test_wiki_ask_dynamic_budget.py -v`
 Expected: ALL PASS
 
-- [ ] **Step 5: Run full test suite**
+- [x] **Step 5: Run full test suite**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/ -q --tb=short 2>&1 | tail -5`
 Expected: All existing tests still pass (backward compat: `_default_resolver` is None by default)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add wiki/ask.py tests/test_wiki_ask_dynamic_budget.py
@@ -273,7 +273,7 @@ git commit -m "feat(wiki): integrate TokenBudgetResolver into wiki Q&A budget"
 - Modify: `query/context_assembler.py:55-60`
 - Test: `tests/wiki/test_compact_formatter.py`, `tests/test_context_assembler.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```python
 # tests/wiki/test_compact_formatter.py, add:
@@ -300,16 +300,16 @@ def test_assembler_accepts_resolver_budget():
     assert budget == 8_100
 ```
 
-- [ ] **Step 2: Run tests to verify they pass**
+- [x] **Step 2: Run tests to verify they pass**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/wiki/test_compact_formatter.py::test_formatter_accepts_resolver_budget tests/test_context_assembler.py::test_assembler_accepts_resolver_budget -v`
 Expected: PASS (these tests just verify the resolver provides correct values; no code change needed yet)
 
-- [ ] **Step 3: Update compact_formatter default**
+- [x] **Step 3: Update compact_formatter default**
 
 In `wiki/compact_formatter.py`, no signature change needed. The `max_tokens` param stays as-is. The caller (`wiki/service.py`) will pass `resolver.budget("compact")` when constructing the formatter. This is wired in Task 5.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/wiki/test_compact_formatter.py tests/test_context_assembler.py
@@ -324,7 +324,7 @@ git commit -m "test: add token budget resolver integration tests for formatter a
 - Modify: `wiki/dependency_graph.py:152`
 - Test: `tests/wiki/test_dependency_graph.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 ```python
 # tests/wiki/test_dependency_graph.py, add:
@@ -342,12 +342,12 @@ def test_module_repr_builder_respects_external_budget():
     assert budget.used > 0
 ```
 
-- [ ] **Step 2: Run test**
+- [x] **Step 2: Run test**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/wiki/test_dependency_graph.py::test_module_repr_builder_respects_external_budget -v`
 Expected: PASS (the builder already respects external TokenBudget)
 
-- [ ] **Step 3: Remove hardcoded MAX_TOKENS_PER_BATCH from ModuleReprBuilder**
+- [x] **Step 3: Remove hardcoded MAX_TOKENS_PER_BATCH from ModuleReprBuilder**
 
 In `wiki/dependency_graph.py`, the `MAX_TOKENS_PER_BATCH = 30_000` class constant on `ModuleReprBuilder` is not used internally by the builder itself (it only uses the passed `TokenBudget`). It's referenced by `HierarchicalDecomposer.__init__` which receives `max_tokens_per_batch` as a constructor param. Remove the class constant:
 
@@ -364,16 +364,16 @@ class ModuleReprBuilder:
 
 Actually, keep the class body as-is but just remove the constant line. The `build` method and other content remain.
 
-- [ ] **Step 4: Update HierarchicalDecomposer default**
+- [x] **Step 4: Update HierarchicalDecomposer default**
 
 In `wiki/dependency_graph.py`, the `HierarchicalDecomposer.__init__` has `max_tokens_per_batch: int = 30_000`. This stays as-is for now — it becomes the fallback when no resolver is available. The caller (`wiki/cross_repo_domain_planner.py`) will pass `resolver.budget("decomposition")` in Task 5.
 
-- [ ] **Step 5: Run full suite**
+- [x] **Step 5: Run full suite**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/ -q --tb=short 2>&1 | tail -5`
 Expected: All pass
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add wiki/dependency_graph.py tests/wiki/test_dependency_graph.py
@@ -389,7 +389,7 @@ git commit -m "refactor(wiki): remove hardcoded MAX_TOKENS_PER_BATCH from Module
 - Modify: `wiki/bootstrap.py` (if resolver needs to be available at startup)
 - Test: `tests/wiki/test_token_budget.py` (add integration test)
 
-- [ ] **Step 1: Write failing integration test**
+- [x] **Step 1: Write failing integration test**
 
 ```python
 # tests/wiki/test_token_budget.py, add:
@@ -406,12 +406,12 @@ def test_resolver_from_config():
     assert r.budget("decomposition") <= int(128_000 * 0.8)
 ```
 
-- [ ] **Step 2: Run test**
+- [x] **Step 2: Run test**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/wiki/test_token_budget.py::test_resolver_from_config -v`
 Expected: PASS (config fields already added in Task 1)
 
-- [ ] **Step 3: Instantiate resolver in WikiService.__init__**
+- [x] **Step 3: Instantiate resolver in WikiService.__init__**
 
 In `wiki/service.py`, in the `WikiService.__init__` method, add after the existing config loading:
 
@@ -424,7 +424,7 @@ self._budget_resolver = TokenBudgetResolver(
 )
 ```
 
-- [ ] **Step 4: Wire resolver to wiki/ask.py**
+- [x] **Step 4: Wire resolver to wiki/ask.py**
 
 In `wiki/service.py`, where `WikiAsk` or wiki context is assembled, call:
 
@@ -435,7 +435,7 @@ set_default_resolver(self._budget_resolver)
 
 This ensures the global resolver is set when `WikiService` initializes.
 
-- [ ] **Step 5: Wire resolver to cross_repo_domain_planner**
+- [x] **Step 5: Wire resolver to cross_repo_domain_planner**
 
 In `wiki/service.py:generate_business_wiki`, when constructing `CrossRepoBusinessDomainPlanner`, pass the decomposition budget:
 
@@ -450,12 +450,12 @@ planner = CrossRepoBusinessDomainPlanner(
 )
 ```
 
-- [ ] **Step 6: Run full test suite**
+- [x] **Step 6: Run full test suite**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/ -q --tb=short 2>&1 | tail -5`
 Expected: All pass
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add wiki/service.py wiki/ask.py
@@ -470,7 +470,7 @@ git commit -m "feat(wiki): wire TokenBudgetResolver into WikiService and downstr
 - Modify: `config.py:319`
 - Test: `tests/test_wiki_config_defaults.py`
 
-- [ ] **Step 1: Write test for deprecation warning**
+- [x] **Step 1: Write test for deprecation warning**
 
 ```python
 # tests/test_wiki_config_defaults.py, add:
@@ -483,12 +483,12 @@ def test_decomposition_max_tokens_deprecated_field_still_works():
     assert cfg.default_llm_budget == 30_000
 ```
 
-- [ ] **Step 2: Run test**
+- [x] **Step 2: Run test**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/test_wiki_config_defaults.py -v`
 Expected: PASS
 
-- [ ] **Step 3: Add deprecation comment to config field**
+- [x] **Step 3: Add deprecation comment to config field**
 
 In `config.py`, update the `decomposition_max_tokens_per_batch` field:
 
@@ -497,12 +497,12 @@ In `config.py`, update the `decomposition_max_tokens_per_batch` field:
 decomposition_max_tokens_per_batch: int = Field(default=30000)
 ```
 
-- [ ] **Step 4: Run full test suite**
+- [x] **Step 4: Run full test suite**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && uv run pytest tests/ -q --tb=short 2>&1 | tail -5`
 Expected: All pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add config.py tests/test_wiki_config_defaults.py

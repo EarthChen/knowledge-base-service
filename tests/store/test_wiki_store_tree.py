@@ -82,6 +82,32 @@ async def test_add_has_child_edge_rejects_invalid_child_label(mock_store):
         )
 
 @pytest.mark.asyncio
+async def test_get_nested_tree(mock_store):
+    mock_store._store.execute_query = AsyncMock(
+        return_value=MagicMock(
+            data=[{"uid": "c1", "title": "A", "depth": 1}],
+        ),
+    )
+    rows = await mock_store.get_nested_tree("WikiSection:root:domain:__root__", max_depth=3)
+    assert rows == [{"uid": "c1", "title": "A", "depth": 1}]
+    mock_store._store.execute_query.assert_awaited()
+    call = mock_store._store.execute_query.call_args
+    assert "HAS_CHILD" in call[0][0]
+
+
+@pytest.mark.asyncio
+async def test_get_nested_tree_with_view_type(mock_store):
+    mock_store._store.execute_query = AsyncMock(return_value=MagicMock(data=[]))
+    await mock_store.get_nested_tree(
+        "WikiSection:root:domain:__root__",
+        max_depth=2,
+        view_type="business_domain",
+    )
+    cypher = mock_store._store.execute_query.call_args[0][0]
+    assert "view_type" in cypher
+
+
+@pytest.mark.asyncio
 async def test_get_wiki_tree(mock_store):
     await mock_store.get_wiki_tree("default", "business_domain")
     call_args = mock_store._store.execute_query.call_args

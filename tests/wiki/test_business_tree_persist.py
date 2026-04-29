@@ -247,3 +247,102 @@ async def test_domain_and_repo_same_name_distinct_section_uids():
     }
     assert domain_uid in section_uids
     assert repo_uid in section_uids
+
+
+class TestRecursiveTreeLinking:
+    @pytest.mark.asyncio
+    async def test_nested_domains_create_nested_sections(self):
+        """Nested domain tree upserts WikiSection nodes and HAS_CHILD edges recursively."""
+        from wiki.dependency_graph import DomainNode
+
+        module_by_repo = {"svc": [_graph_module("svc", "x")]}
+        graph = _mock_graph_for_business_wiki(module_by_repo)
+        mock_wiki_store = _wiki_store_mock([{"repository": "svc", "module_count": 1}])
+        mock_store = AsyncMock()
+        mock_store.persist_wiki_pages = AsyncMock()
+        mock_store.execute_query = AsyncMock()
+        mock_store.set_node_embedding = AsyncMock()
+
+        mock_wiki_cfg = MagicMock()
+        mock_wiki_cfg.cross_repo_domain_enabled = True
+        mock_wiki_cfg.business_domain_enabled = True
+        mock_wiki_cfg.business_domain_infrastructure_label = "__infrastructure__"
+        mock_wiki_cfg.enrichment_enabled = False
+        mock_wiki_cfg.code_budget_enabled = False
+        mock_wiki_cfg.rag_enabled = False
+        mock_wiki_cfg.business_wiki_batch_threshold = 100
+        mock_wiki_cfg.business_domain_sub_batch_size = 80
+        mock_wiki_cfg.business_domain_classify_timeout = 600
+        mock_wiki_cfg.business_domain_max_concurrency = 3
+        mock_wiki_cfg.business_domain_cache_ttl = 3600
+        mock_wiki_cfg.confidence_scoring_enabled = False
+
+        tb = WikiTreeBuilder()
+        business_id = "biz-nested"
+
+        _, emb = inject_wiki_embedding()
+        svc = WikiService(
+            graph=graph,
+            llm=None,
+            repository_exists=AsyncMock(return_value=True),
+            store=mock_store,
+            wiki_store=mock_wiki_store,
+            wiki_config=mock_wiki_cfg,
+            embedding_config=emb,
+        )
+
+        domain_tree = [
+            DomainNode(
+                name="User Management",
+                description="Dom",
+                modules=["UserController"],
+                children=[
+                    DomainNode(name="Authentication", modules=["AuthService", "TokenService"]),
+                    DomainNode(name="Profile", modules=["ProfileService"]),
+                ],
+            ),
+        ]
+        pages_by_entity_uid = {
+            "UserController": {"uid": "wp:UserController"},
+            "AuthService": {"uid": "wp:AuthService"},
+            "TokenService": {"uid": "wp:TokenService"},
+            "ProfileService": {"uid": "wp:ProfileService"},
+        }
+
+        await svc._link_pages_to_nested_tree(
+            business_id, domain_tree, pages_by_entity_uid, tb,
+        )
+
+        roots = tb.generate_domain_section_uid(business_id, "__root__")
+        assert roots in {
+            c.kwargs.get("uid") for c in mock_wiki_store.upsert_wiki_section.await_args_list
+        }
+
+        section_names = [
+            c.kwargs["title"] for c in mock_wiki_store.upsert_wiki_section.await_args_list
+        ]
+        assert "User Management" in section_names
+        assert "Authentication" in section_names
+        assert "Profile" in section_names
+
+        edges = mock_wiki_store.add_has_child_edge.await_args_list
+
+        um_uid = tb.generate_domain_section_uid(business_id, "User Management")
+        auth_uid = tb.generate_domain_section_uid(business_id, "Authentication")
+        profile_uid = tb.generate_domain_section_uid(business_id, "Profile")
+
+        assert any(
+            e.kwargs.get("parent_uid") == tb.generate_space_uid(business_id)
+            and e.kwargs.get("child_uid") == roots
+            for e in edges
+        )
+        parent_child = {(e.kwargs["parent_uid"], e.kwargs["child_uid"]) for e in edges}
+        assert (roots, um_uid) in parent_child
+        assert (um_uid, auth_uid) in parent_child
+        assert (um_uid, profile_uid) in parent_child
+
+        page_edges = {(e.kwargs["parent_uid"], e.kwargs["child_uid"]) for e in edges}
+        assert (um_uid, "wp:UserController") in page_edges
+        assert (auth_uid, "wp:AuthService") in page_edges
+        assert (auth_uid, "wp:TokenService") in page_edges
+        assert (profile_uid, "wp:ProfileService") in page_edges

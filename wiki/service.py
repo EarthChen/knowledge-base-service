@@ -20,6 +20,7 @@ from wiki.composer import WikiComposer
 from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
 from wiki.community_context import format_communities_markdown
 from wiki.confidence_scorer import confidence_scorer_from_wiki_app_config
+from wiki.dependency_graph import DomainNode
 from wiki.deferred_enrichment import DeferredEnrichmentService
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
@@ -1536,6 +1537,100 @@ class WikiService:
             linked_business_domain=linked_domain,
             total_pages=len(pages_result),
         )
+
+    async def _link_pages_to_nested_tree(
+        self,
+        business_id: str,
+        domain_tree: list[DomainNode],
+        pages_by_entity_uid: dict[str, dict[str, Any]],
+        tree_builder: WikiTreeBuilder,
+    ) -> None:
+        """Create nested HAS_CHILD edges for WikiSection hierarchy (business_domain view).
+
+        Builds a subtree under an internal ``__root__`` section (linked from WikiSpace).
+        Modules are matched to persisted pages via ``pages_by_entity_uid`` (keys are
+        module identifiers as emitted in :class:`DomainNode`.modules — typically
+        simple module names consumed by callers).
+        """
+        if self._wiki_store is None:
+            return
+
+        root_uid = tree_builder.generate_domain_section_uid(business_id, "__root__")
+        space_uid = tree_builder.generate_space_uid(business_id)
+
+        async def _ensure_root() -> None:
+            try:
+                await self._wiki_store.upsert_wiki_section(
+                    uid=root_uid,
+                    title="__root__",
+                    description="Nested domain tree root",
+                    section_type="business_domain",
+                    sort_order=-1,
+                    auto_generated=True,
+                )
+                await self._wiki_store.add_has_child_edge(
+                    parent_uid=space_uid,
+                    parent_label="WikiSpace",
+                    child_uid=root_uid,
+                    child_label="WikiSection",
+                    view_type="business_domain",
+                    sort_order=0,
+                )
+            except Exception:
+                log.warning("nested_tree_root_failed", business_id=business_id, exc_info=True)
+
+        await _ensure_root()
+
+        async def _link_domain(parent_uid: str, domain: DomainNode, sort_idx: int) -> None:
+            section_uid = tree_builder.generate_domain_section_uid(business_id, domain.name)
+            try:
+                await self._wiki_store.upsert_wiki_section(
+                    uid=section_uid,
+                    title=domain.name,
+                    description=domain.description or "",
+                    section_type="business_domain",
+                    sort_order=sort_idx,
+                    auto_generated=True,
+                )
+                await self._wiki_store.add_has_child_edge(
+                    parent_uid=parent_uid,
+                    parent_label="WikiSection",
+                    child_uid=section_uid,
+                    child_label="WikiSection",
+                    view_type="business_domain",
+                    sort_order=sort_idx,
+                )
+            except Exception:
+                log.warning("nested_tree_section_failed", domain=domain.name, exc_info=True)
+                return
+
+            for i, module_name in enumerate(domain.modules):
+                page = pages_by_entity_uid.get(module_name)
+                if page:
+                    page_uid = (
+                        page.get("uid", "") if isinstance(page, dict) else getattr(page, "uid", "")
+                    )
+                    if page_uid:
+                        try:
+                            await self._wiki_store.add_has_child_edge(
+                                parent_uid=section_uid,
+                                parent_label="WikiSection",
+                                child_uid=page_uid,
+                                child_label="WikiPage",
+                                view_type="business_domain",
+                                sort_order=i,
+                            )
+                        except Exception:
+                            log.warning(
+                                "nested_tree_page_link_failed", page_uid=page_uid,
+                                exc_info=True,
+                            )
+
+            for i, child in enumerate(domain.children):
+                await _link_domain(section_uid, child, i)
+
+        for i, domain in enumerate(domain_tree):
+            await _link_domain(root_uid, domain, i)
 
     def _budget_for_tier(self, tier: ImportanceTier | None, *, multiplier: float = 1.0) -> int:
         """Return the token budget for a given importance tier from app config."""

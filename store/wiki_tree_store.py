@@ -144,6 +144,48 @@ class WikiTreeStoreMixin:
             q, {"business_id": business_id, "view_type": view_type},
         )
 
+    async def get_nested_tree(
+        self,
+        root_uid: str,
+        max_depth: int = 5,
+        view_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Traverse nested :HAS_CHILD hierarchy from ``root_uid`` up to ``max_depth`` levels.
+
+        Returns one row per reachable child (WikiSection or WikiPage) with graph distance
+        ``depth`` from ``root``. When ``view_type`` is set, only paths whose every
+        :HAS_CHILD relationship has that ``view_type`` are included (same semantics as
+        ``get_wiki_tree``).
+        """
+        depth = max(1, min(int(max_depth), 50))
+        if view_type is not None:
+            q = (
+                f"MATCH (root {{uid: $root_uid}})"
+                f"MATCH path = (root)-[:HAS_CHILD*1..{depth}]->(child) "
+                "WHERE ALL(r IN relationships(path) WHERE r.view_type = $view_type) "
+                "RETURN child.uid AS uid, child.title AS title, length(path) AS depth "
+                "ORDER BY depth, uid"
+            )
+            params: dict[str, Any] = {"root_uid": root_uid, "view_type": view_type}
+        else:
+            q = (
+                f"MATCH path = (root {{uid: $root_uid}})"
+                f"-[:HAS_CHILD*1..{depth}]->(child) "
+                "RETURN child.uid AS uid, child.title AS title, length(path) AS depth "
+                "ORDER BY depth, uid"
+            )
+            params = {"root_uid": root_uid}
+
+        result = await self._store.execute_query(q, params)
+        rows: list[dict[str, Any]] = []
+        for row in result.data or []:
+            rows.append({
+                "uid": row.get("uid"),
+                "title": row.get("title"),
+                "depth": row.get("depth"),
+            })
+        return rows
+
     async def get_wiki_pages_for_business(
         self, business_id: str, min_tier: str = "skeleton"
     ) -> list[dict[str, Any]]:

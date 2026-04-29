@@ -12,7 +12,11 @@ from wiki.composer import WikiComposer
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import PageData
 from wiki.models import PageType, SourceLocation, WikiConfig
-from wiki.service import WikiService
+from wiki.service import (
+    WikiService,
+    _build_lightweight_glossary,
+    _build_lightweight_parent_context,
+)
 
 
 def _page_data(*, summary: str | None, uid: str) -> PageData:
@@ -122,3 +126,50 @@ async def test_no_llm_falls_back_to_business_summary() -> None:
 
     assert "Fallback summary" in page.content
     assert page.metadata.fallback_tier == 1
+
+
+def test_build_lightweight_glossary() -> None:
+    nodes = [
+        GraphNode(
+            label=NodeLabel.MODULE,
+            properties={"name": "AuthService", "business_summary": "Handles user authentication"},
+            uid="mod:1",
+        ),
+        GraphNode(
+            label=NodeLabel.MODULE,
+            properties={"name": "PaymentGateway", "business_summary": "Processes payments"},
+            uid="mod:2",
+        ),
+        GraphNode(
+            label=NodeLabel.MODULE,
+            properties={"name": "Utils"},
+            uid="mod:3",
+        ),
+    ]
+    glossary = _build_lightweight_glossary(nodes)
+    assert isinstance(glossary, dict)
+    assert "AuthService" in glossary
+    assert glossary["AuthService"] == "Handles user authentication"
+    assert "PaymentGateway" in glossary
+    assert glossary["PaymentGateway"] == "Processes payments"
+    assert "Utils" not in glossary  # no business_summary → excluded
+
+
+def test_build_lightweight_parent_context() -> None:
+    parent = GraphNode(
+        label=NodeLabel.MODULE,
+        properties={
+            "name": "auth_module",
+            "business_summary": "Core authentication subsystem",
+            "description": "Handles login, OAuth, JWT token management",
+        },
+        uid="mod:parent",
+    )
+    ctx = _build_lightweight_parent_context(parent)
+    assert "auth_module" in ctx
+    assert "Core authentication subsystem" in ctx
+    assert "Handles login" in ctx
+
+
+def test_build_lightweight_parent_context_none() -> None:
+    assert _build_lightweight_parent_context(None) == ""

@@ -188,6 +188,35 @@ def _enrichment_level_for_api(level: object | None) -> str | None:
     return str(level)
 
 
+def _build_lightweight_glossary(entities: list[GraphNode]) -> dict[str, str]:
+    """Build a glossary dict from entity names and business_summary without LLM calls."""
+    terms: dict[str, str] = {}
+    for node in entities:
+        name = node.properties.get("name", "")
+        bs = (node.properties.get("business_summary", "") or "")[:80]
+        if name and bs:
+            terms[name] = bs
+    return terms
+
+
+def _build_lightweight_parent_context(parent_node: GraphNode | None) -> str:
+    """Extract parent context from graph node properties."""
+    if parent_node is None:
+        return ""
+    props = parent_node.properties
+    parts: list[str] = []
+    name = props.get("name", "")
+    if name:
+        parts.append(f"Parent module: {name}")
+    bs = props.get("business_summary", "")
+    if bs:
+        parts.append(f"Context: {bs}")
+    desc = props.get("description", "")
+    if desc and desc != bs:
+        parts.append(f"Description: {desc[:200]}")
+    return ". ".join(parts)
+
+
 class WikiRepoNotFoundError(Exception):
     """Raised when the repository is not present in the index."""
 
@@ -1954,6 +1983,54 @@ class WikiService:
                 },
             )
 
+        # Build lightweight glossary from graph entities
+        _glossary: dict[str, str] = {}
+        if self._store is not None:
+            try:
+                _gq = (
+                    "MATCH (n {repository: $repo}) "
+                    "WHERE n.business_summary IS NOT NULL AND n.business_summary <> '' "
+                    "AND n.name IS NOT NULL AND n.name <> '' "
+                    "RETURN n.name, n.business_summary LIMIT 500"
+                )
+                _gres = await self._store.execute_query(_gq, {"repo": repository})
+                _glossary_nodes: list[GraphNode] = []
+                for row in getattr(_gres, "raw", []) or []:
+                    _glossary_nodes.append(
+                        GraphNode(
+                            label=NodeLabel.MODULE,
+                            properties={
+                                "name": str(row[0] or ""),
+                                "business_summary": str(row[1] or ""),
+                            },
+                            uid="",
+                        )
+                    )
+                _glossary = _build_lightweight_glossary(_glossary_nodes)
+            except Exception:
+                log.debug("glossary_build_failed", repository=repository, exc_info=True)
+
+        # Build leaf → parent structure node map for parent context
+        _parent_struct_map: dict[str, WikiStructureNode] = {}
+
+        def _map_parents(node: WikiStructureNode) -> None:
+            for child in node.children:
+                if child.is_leaf:
+                    _parent_struct_map[child.path] = node
+                _map_parents(child)
+
+        _map_parents(structure.root)
+
+        # Pre-resolve parent graph nodes
+        _parent_graph_cache: dict[str, GraphNode | None] = {}
+        _unique_parents = {id(n): n for n in _parent_struct_map.values()}.values()
+        for _pnode in _unique_parents:
+            try:
+                _pg = await self._resolve_structure_node(repository, _pnode)
+                _parent_graph_cache[_pnode.path] = _pg
+            except Exception:
+                _parent_graph_cache[_pnode.path] = None
+
         async def compose_leaf(node: WikiStructureNode) -> WikiPage | None:
             nonlocal degraded
             async with sem:
@@ -2006,12 +2083,19 @@ class WikiService:
                         set(graph_node.properties.get("semantic_roles", []) or [])
                         & {"http_controller", "rpc_provider", "message_listener", "scheduled_task"}
                     )
+                    _parent_sn = _parent_struct_map.get(node.path)
+                    _parent_gn = (
+                        _parent_graph_cache.get(_parent_sn.path) if _parent_sn else None
+                    )
+                    _parent_ctx = _build_lightweight_parent_context(_parent_gn)
                     try:
                         page = await asyncio.wait_for(
                             composer.compose_page(
                                 page_data,
                                 node.page_type,
                                 config,
+                                parent_context=_parent_ctx,
+                                glossary=_glossary,
                                 importance_tier=tier,
                                 skeleton_strategy=skeleton_strat,
                                 skeleton_light_model=skeleton_light_model,

@@ -98,3 +98,124 @@ class TestGetRepoStats:
         assert stats["module_count"] == 3
         assert stats["class_count"] == 0
         assert stats["function_count"] == 10
+
+
+class TestSystemOverviewComposer:
+    @pytest.mark.asyncio
+    async def test_compose_returns_wiki_page(self):
+        """SystemOverviewComposer.compose should return a WikiPage with REPO_OVERVIEW type."""
+        from wiki.system_overview_composer import SystemOverviewComposer
+        from wiki.models import WikiPage, PageType
+
+        mock_llm = AsyncMock()
+        mock_llm.generate = AsyncMock(return_value=(
+            "## System Purpose\nE-commerce platform\n\n"
+            "## Microservice Architecture\n```mermaid\ngraph TD\nA-->B\n```\n\n"
+            "## Repositories\n### user-service\nHandles user management\n\n"
+            "## Business Domains\n- User Management\n\n"
+            "## Cross-Service Communication\nRPC via Dubbo\n\n"
+            "## Key Entry Points\n- UserController\n\n"
+            "## Technology Stack Summary\nJava, Spring Boot, MySQL"
+        ))
+        composer = SystemOverviewComposer(mock_llm)
+        page = await composer.compose(
+            business_id="test_biz",
+            repositories=["user-service", "order-service"],
+            domain_tree=[],
+            entry_points_by_repo={"user-service": ["UserController"], "order-service": ["OrderController"]},
+            domain_overviews={"User Management": "Handles users"},
+            stats_by_repo={"user-service": {"module_count": 5, "class_count": 20, "function_count": 100}},
+            language="en",
+        )
+        assert isinstance(page, WikiPage)
+        assert page.page_type == PageType.REPO_OVERVIEW
+        assert "system_overview_" in page.path
+
+    @pytest.mark.asyncio
+    async def test_compose_includes_all_repos(self):
+        """LLM prompt should mention all repositories."""
+        from wiki.system_overview_composer import SystemOverviewComposer
+
+        captured_prompts = []
+        mock_llm = AsyncMock()
+
+        async def tracking_generate(prompt, system="", **kwargs):
+            captured_prompts.append(prompt)
+            return "# Overview\nTest content"
+
+        mock_llm.generate = tracking_generate
+        composer = SystemOverviewComposer(mock_llm)
+        await composer.compose(
+            business_id="test_biz",
+            repositories=["user-service", "order-service", "payment-service"],
+            domain_tree=[],
+            entry_points_by_repo={},
+            domain_overviews={},
+            stats_by_repo={},
+            language="en",
+        )
+        assert len(captured_prompts) >= 1
+        prompt = captured_prompts[0]
+        assert "user-service" in prompt
+        assert "order-service" in prompt
+        assert "payment-service" in prompt
+
+    @pytest.mark.asyncio
+    async def test_compose_has_mermaid(self):
+        """Output should contain a Mermaid diagram."""
+        from wiki.system_overview_composer import SystemOverviewComposer
+
+        mock_llm = AsyncMock()
+        mock_llm.generate = AsyncMock(return_value="# Overview\n```mermaid\ngraph TD\nA-->B\n```\nDone.")
+        composer = SystemOverviewComposer(mock_llm)
+        page = await composer.compose(
+            business_id="test_biz",
+            repositories=["svc-a"],
+            domain_tree=[],
+            entry_points_by_repo={},
+            domain_overviews={},
+            stats_by_repo={},
+            language="en",
+        )
+        assert "mermaid" in page.content.lower()
+
+    @pytest.mark.asyncio
+    async def test_compose_fallback_on_llm_failure(self):
+        """If LLM fails, should produce fallback content."""
+        from wiki.system_overview_composer import SystemOverviewComposer
+        from wiki.models import WikiPage
+
+        mock_llm = AsyncMock()
+        mock_llm.generate = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
+        composer = SystemOverviewComposer(mock_llm)
+        page = await composer.compose(
+            business_id="test_biz",
+            repositories=["svc-a", "svc-b"],
+            domain_tree=[],
+            entry_points_by_repo={},
+            domain_overviews={},
+            stats_by_repo={"svc-a": {"module_count": 3, "class_count": 10, "function_count": 30}},
+            language="en",
+        )
+        assert isinstance(page, WikiPage)
+        assert "svc-a" in page.content
+        assert "svc-b" in page.content
+
+    @pytest.mark.asyncio
+    async def test_compose_without_llm(self):
+        """When no LLM is provided, should produce structural content."""
+        from wiki.system_overview_composer import SystemOverviewComposer
+        from wiki.models import WikiPage
+
+        composer = SystemOverviewComposer(None)
+        page = await composer.compose(
+            business_id="test_biz",
+            repositories=["svc-a"],
+            domain_tree=[],
+            entry_points_by_repo={"svc-a": ["Main"]},
+            domain_overviews={"Core": "Core domain"},
+            stats_by_repo={"svc-a": {"module_count": 2, "class_count": 5, "function_count": 10}},
+            language="en",
+        )
+        assert isinstance(page, WikiPage)
+        assert "svc-a" in page.content

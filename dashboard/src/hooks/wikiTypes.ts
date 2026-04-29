@@ -28,11 +28,17 @@ export type WikiRelatedPage = {
   business_domain: string | null;
 };
 
+export interface WikiDiagram {
+  diagram_type: string;
+  content: string;
+  title: string;
+}
+
 export type WikiPageDetail = {
   path: string;
   title: string;
   content: string;
-  diagrams: unknown[];
+  diagrams: WikiDiagram[];
   source_locations: WikiSourceLocation[];
   /** Graph uids of code entities linked via SOURCE_ENTITY. */
   source_entity_uids?: string[];

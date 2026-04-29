@@ -13,7 +13,7 @@ import { getMermaid } from "./mermaidLoader";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
-function MermaidBlock({ chart }: { chart: string }) {
+export function MermaidBlock({ chart }: { chart: string }) {
   const { t } = useI18n();
   const id = useId().replace(/:/g, "");
   const ref = useRef<HTMLDivElement>(null);

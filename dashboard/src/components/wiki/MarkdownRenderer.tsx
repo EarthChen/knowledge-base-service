@@ -10,6 +10,8 @@ import { parseMarkdownHeadings, type ParsedHeading } from "./headingUtils";
 import { replaceWikilinksWithHtml } from "./wikilinkParser";
 import WikiLinkPreview from "./WikiLinkPreview";
 import { getMermaid } from "./mermaidLoader";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 function MermaidBlock({ chart }: { chart: string }) {
   const { t } = useI18n();
@@ -126,22 +128,35 @@ const MarkdownCode: Components["code"] = ({
     return <MermaidBlock chart={text} />;
   }
 
+  if (isInline) {
+    return (
+      <code
+        className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[0.9em] text-rose-800 dark:bg-gray-800 dark:text-rose-300"
+        {...props}
+      >
+        {children}
+      </code>
+    );
+  }
+
   return (
-    <code
-      className={
-        isInline
-          ? "rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[0.9em] text-rose-800 dark:bg-gray-800 dark:text-rose-300"
-          : `block overflow-x-auto rounded-lg bg-gray-900 p-4 font-mono text-sm text-gray-100 ${className ?? ""}`
-      }
-      {...props}
+    <SyntaxHighlighter
+      style={oneDark}
+      language={lang || "text"}
+      PreTag="div"
+      customStyle={{
+        margin: 0,
+        borderRadius: "0.5rem",
+        fontSize: "0.875rem",
+      }}
     >
-      {children}
-    </code>
+      {text}
+    </SyntaxHighlighter>
   );
 };
 
 const MarkdownPre: Components["pre"] = ({ children }) => (
-  <pre className="my-4 overflow-x-auto">{children}</pre>
+  <div className="my-4 overflow-x-auto">{children}</div>
 );
 
 type Props = {

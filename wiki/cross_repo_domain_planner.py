@@ -9,9 +9,11 @@ from typing import TYPE_CHECKING
 from log import get_logger
 from store.schema import GraphNode
 from wiki.business_domain_planner import BusinessDomainPlanner
+from wiki.dependency_graph import HierarchicalDecomposer
 
 if TYPE_CHECKING:
     from wiki.context import LLMPort
+    from wiki.dependency_graph import DomainNode, ModuleGraph, ModuleInfo
 
 log = get_logger(__name__)
 
@@ -36,6 +38,23 @@ class CrossRepoBusinessDomainPlanner:
         self._sub_batch_size = sub_batch_size
         self._max_concurrency = max_concurrency
         self._metadata_cache: dict[tuple[str, str], dict[str, str | int | float | list[str]]] = {}
+
+    def create_hierarchical_decomposer(
+        self,
+        *,
+        max_depth: int = 4,
+        min_modules_for_nesting: int = 3,
+        max_tokens_per_batch: int = 30_000,
+    ) -> HierarchicalDecomposer | None:
+        """Future pipeline hook for nested LLM domain trees; flat `classify()` remains default."""
+        if self._llm is None:
+            return None
+        return HierarchicalDecomposer(
+            self._llm,
+            max_depth=max_depth,
+            min_modules_for_nesting=min_modules_for_nesting,
+            max_tokens_per_batch=max_tokens_per_batch,
+        )
 
     async def classify(
         self,

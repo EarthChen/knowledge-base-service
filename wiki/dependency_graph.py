@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -169,3 +171,128 @@ class ModuleReprBuilder:
             if module.annotations:
                 lines.append(f"  Annotations: {module.annotations[:5]}")
         return "\n".join(lines)
+
+
+@dataclass
+class DomainNode:
+    name: str
+    description: str = ""
+    modules: list[str] = field(default_factory=list)
+    children: list[DomainNode] = field(default_factory=list)
+
+
+class HierarchicalDecomposer:
+    def __init__(
+        self,
+        llm: Any,
+        *,
+        max_depth: int = 4,
+        min_modules_for_nesting: int = 3,
+        max_tokens_per_batch: int = 30_000,
+    ) -> None:
+        self._llm = llm
+        self._max_depth = max_depth
+        self._min_modules = min_modules_for_nesting
+        self._max_tokens = max_tokens_per_batch
+        self._repr_builder = ModuleReprBuilder()
+
+    async def decompose(
+        self,
+        modules: list[ModuleInfo],
+        graph: ModuleGraph,
+    ) -> list[DomainNode]:
+        estimated = self._estimate_tokens(modules, graph)
+        if estimated <= self._max_tokens:
+            return await self._single_pass(modules, graph)
+        batch_count = max(2, estimated // self._max_tokens)
+        pre_clusters = self._pre_cluster_by_imports(modules, graph, batch_count)
+        trees: list[DomainNode] = []
+        for cluster in pre_clusters:
+            tree = await self._single_pass(cluster, graph)
+            trees.extend(tree)
+        return trees
+
+    async def _single_pass(
+        self,
+        modules: list[ModuleInfo],
+        graph: ModuleGraph,
+    ) -> list[DomainNode]:
+        budget = TokenBudget(total=self._max_tokens, used=0)
+        module_texts = []
+        for m in modules:
+            text = self._repr_builder.build(m, budget)
+            budget.used += len(text) // 4
+            module_texts.append(text)
+        prompt = self._build_decomposition_prompt(module_texts, graph.entry_points)
+        response = await self._llm.generate(prompt, system="Reply with JSON only. No markdown fences.")
+        return self._parse_domain_tree(response, modules)
+
+    def _build_decomposition_prompt(
+        self,
+        module_texts: list[str],
+        entry_points: list[str],
+    ) -> str:
+        modules_block = "\n---\n".join(module_texts)
+        return (
+            f"Analyze the following code modules and organize them into a hierarchical "
+            f"business domain tree.\n\n"
+            f"Entry points: {entry_points}\n\n"
+            f"Modules:\n{modules_block}\n\n"
+            f"## Constraints\n"
+            f"- Maximum tree depth: {self._max_depth} levels\n"
+            f"- Only create a sub-domain if it contains >= {self._min_modules} modules\n"
+            f"- Prefer flatter trees when modules are loosely related\n\n"
+            f"## Output Format\n"
+            f"Return a JSON object:\n"
+            f'{{"domains": [{{"name": "...", "description": "...", '
+            f'"modules": ["module_name", ...], '
+            f'"children": [... nested domains ...]}}]}}'
+        )
+
+    def _parse_domain_tree(self, response: str, modules: list[ModuleInfo]) -> list[DomainNode]:
+        text = response.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+            text = re.sub(r"\s*```$", "", text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if match:
+                try:
+                    data = json.loads(match.group())
+                except json.JSONDecodeError:
+                    return [DomainNode(name="Uncategorized", modules=[m.name for m in modules])]
+            else:
+                return [DomainNode(name="Uncategorized", modules=[m.name for m in modules])]
+        if not isinstance(data, dict):
+            return [DomainNode(name="Uncategorized", modules=[m.name for m in modules])]
+        domains_raw = data.get("domains", [])
+        if not isinstance(domains_raw, list):
+            return [DomainNode(name="Uncategorized", modules=[m.name for m in modules])]
+        nodes = [self._parse_node(d) for d in domains_raw if isinstance(d, dict)]
+        if not nodes:
+            return [DomainNode(name="Uncategorized", modules=[m.name for m in modules])]
+        return nodes
+
+    def _parse_node(self, raw: dict[str, Any]) -> DomainNode:
+        return DomainNode(
+            name=raw.get("name", "Unknown"),
+            description=raw.get("description", ""),
+            modules=raw.get("modules", []),
+            children=[self._parse_node(c) for c in raw.get("children", [])],
+        )
+
+    def _estimate_tokens(self, modules: list[ModuleInfo], _graph: ModuleGraph) -> int:
+        return len(modules) * 150
+
+    def _pre_cluster_by_imports(
+        self,
+        modules: list[ModuleInfo],
+        _graph: ModuleGraph,
+        batch_count: int,
+    ) -> list[list[ModuleInfo]]:
+        if batch_count <= 1:
+            return [modules]
+        chunk_size = max(1, len(modules) // batch_count)
+        return [modules[i : i + chunk_size] for i in range(0, len(modules), chunk_size)]

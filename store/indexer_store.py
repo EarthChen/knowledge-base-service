@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from store.falkordb_store import FalkorDBStore, QueryResultWrapper
+from store.schema import GraphEdge
 
 
 class IndexerStore:
@@ -10,6 +11,22 @@ class IndexerStore:
 
     def __init__(self, base_store: FalkorDBStore) -> None:
         self._store = base_store
+
+    async def upsert_edges_batch(
+        self,
+        repository: str,
+        edges: list[GraphEdge],
+        batch_size: int = 500,
+    ) -> int:
+        """Batch upsert edges to the graph store. Returns count of edges written."""
+        _ = repository  # reserved for future repository-scoped edge writes
+        count = 0
+        for i in range(0, len(edges), batch_size):
+            batch = edges[i : i + batch_size]
+            for edge in batch:
+                await self._store.upsert_edge(edge)
+                count += 1
+        return count
 
     # --- indexer/business_flow_inferencer.py ---
     async def entry_points_semantic_functions(self) -> QueryResultWrapper:

@@ -2857,17 +2857,25 @@ class WikiService:
         return {"repository": repository, "total_pages": total, **counts}
 
     async def trigger_enrichment(self, repository: str) -> dict[str, Any]:
-        """Dry-run: count wiki pages persisted at BASE that would be eligible for enrichment.
+        """Trigger enrichment for eligible wiki pages.
 
-        Does not enqueue or run enrichment; that happens during wiki generation when
-        importance tiers are available.
+        Counts pages at BASE enrichment level and starts a background
+        enrichment task if eligible pages exist.
         """
         await self._ensure_repo(repository)
+        if not getattr(self._wiki_cfg, "enrichment_enabled", True):
+            return {
+                "eligible_pages": 0,
+                "repository": repository,
+                "status": "skipped",
+                "reason": "Enrichment is disabled",
+            }
         llm_port = self._resolve_llm_port(None)
         if self._store is None or llm_port is None:
             return {
                 "eligible_pages": 0,
                 "repository": repository,
+                "status": "skipped",
                 "reason": "LLM or store not available",
             }
         q = (
@@ -2879,11 +2887,152 @@ class WikiService:
         result = await self._store.execute_query(q, {"repo": repository})
         rows = getattr(result, "raw", []) or []
         eligible_pages = int(rows[0][0]) if rows else 0
+
+        if eligible_pages == 0:
+            return {
+                "eligible_pages": 0,
+                "repository": repository,
+                "status": "skipped",
+            }
+
+        import uuid as _uuid
+
+        task_id = f"enrich-{_uuid.uuid4().hex[:12]}"
+        asyncio.create_task(
+            self._run_enrichment_background(repository, llm_port, task_id),
+            name=f"enrichment-{task_id}",
+        )
         return {
+            "task_id": task_id,
             "eligible_pages": eligible_pages,
             "repository": repository,
-            "note": (
-                "Enrichment runs automatically during wiki generation. "
-                "This endpoint reports pages eligible for enrichment."
-            ),
+            "status": "started",
         }
+
+    async def _run_enrichment_background(
+        self,
+        repository: str,
+        llm_port: Any,
+        task_id: str,
+    ) -> None:
+        """Background task: enrich eligible pages using AsyncEnrichmentPipeline."""
+        try:
+            from wiki.async_enrichment import AsyncEnrichmentPipeline
+
+            if self._store is None:
+                log.info("enrichment_bg_no_store", task_id=task_id, repository=repository)
+                return
+
+            q = (
+                "MATCH (p:WikiPage {repository: $repo}) "
+                "WHERE p.enrichment_level IS NULL OR p.enrichment_level = 'base' "
+                "OR p.enrichment_level = '' "
+                "RETURN p.path AS path, p.content AS content, p.title AS title, "
+                "coalesce(p.page_type, '') AS pt, coalesce(p.importance_tier, '') AS tier"
+            )
+            result = await self._store.execute_query(q, {"repo": repository})
+            rows = getattr(result, "raw", []) or []
+            if not rows:
+                log.info("enrichment_bg_no_pages", task_id=task_id, repository=repository)
+                return
+
+            pages: list[WikiPage] = []
+            page_tier_map: dict[str, ImportanceTier] = {}
+            for row in rows:
+                page_path = str(row[0] or "")
+                if not page_path:
+                    continue
+                content = str(row[1] or "")
+                title = str(row[2] or "")
+                pt_raw = str(row[3] or "").strip()
+                tier_raw = row[4]
+                try:
+                    pt = PageType(pt_raw) if pt_raw else PageType.MODULE_OVERVIEW
+                except ValueError:
+                    pt = PageType.MODULE_OVERVIEW
+                if tier_raw is None or str(tier_raw).strip() == "":
+                    tier = ImportanceTier.STANDARD
+                else:
+                    try:
+                        tier = ImportanceTier(str(tier_raw).lower())
+                    except ValueError:
+                        tier = ImportanceTier.STANDARD
+                page_tier_map[page_path] = tier
+                pages.append(
+                    WikiPage(
+                        path=page_path,
+                        title=title,
+                        page_type=pt,
+                        content=content,
+                        diagrams=[],
+                        source_locations=[],
+                        metadata=WikiPageMetadata(
+                            node_count=0,
+                            edge_count=0,
+                            generation_mode="full",
+                            fallback_tier=None,
+                        ),
+                        method_locations=[],
+                    )
+                )
+
+            pipeline = AsyncEnrichmentPipeline(
+                llm_port,
+                round1_enabled=getattr(self._wiki_cfg, "enrichment_round1_enabled", True),
+                round2_enabled=getattr(self._wiki_cfg, "enrichment_round2_enabled", False),
+            )
+
+            targets = [
+                (page, page_tier_map.get(page.path, ImportanceTier.STANDARD))
+                for page in pages
+                if page.page_type != PageType.REPO_OVERVIEW
+            ]
+            if not targets:
+                log.info(
+                    "enrichment_bg_no_targets",
+                    task_id=task_id,
+                    repository=repository,
+                )
+                return
+
+            enrich_limit = max(1, int(getattr(self._wiki_cfg, "compose_concurrency", 3)))
+            enrich_sem = asyncio.Semaphore(enrich_limit)
+
+            async def _enrich_one(page: WikiPage, tier: ImportanceTier) -> None:
+                async with enrich_sem:
+                    await pipeline.enrich_page(
+                        page,
+                        entity_name=page.title,
+                        entity_label=page.page_type.value,
+                        tier=tier,
+                        language="en",
+                    )
+
+            tasks = [_enrich_one(p, t) for p, t in targets]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            work_pages: list[WikiPage] = []
+            for (page, _tier), r in zip(targets, results, strict=True):
+                if isinstance(r, Exception):
+                    log.warning(
+                        "enrichment_bg_enrich_failed",
+                        path=page.path,
+                        error=str(r),
+                        exc_info=r,
+                    )
+                else:
+                    work_pages.append(page)
+
+            for p in work_pages:
+                try:
+                    await self._persist_pages_to_graph(repository, [p], language="en")
+                except Exception:
+                    log.warning("enrichment_bg_persist_failed", path=p.path, exc_info=True)
+
+            log.info(
+                "enrichment_bg_done",
+                task_id=task_id,
+                repository=repository,
+                enriched_count=len(work_pages),
+            )
+        except Exception:
+            log.error("enrichment_bg_error", task_id=task_id, repository=repository, exc_info=True)

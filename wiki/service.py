@@ -228,6 +228,8 @@ class WikiRepoNotFoundError(Exception):
 class WikiService:
     """Wiki generation pipeline with injectable graph and optional LLM."""
 
+    _enrichment_running: dict[str, str] = {}
+
     def __init__(
         self,
         graph: DataCollectorPort,
@@ -1991,7 +1993,7 @@ class WikiService:
                     "MATCH (n {repository: $repo}) "
                     "WHERE n.business_summary IS NOT NULL AND n.business_summary <> '' "
                     "AND n.name IS NOT NULL AND n.name <> '' "
-                    "RETURN n.name, n.business_summary LIMIT 500"
+                    "RETURN n.name, n.business_summary ORDER BY n.name LIMIT 500"
                 )
                 _gres = await self._store.execute_query(_gq, {"repo": repository})
                 _glossary_nodes: list[GraphNode] = []
@@ -2895,9 +2897,19 @@ class WikiService:
                 "status": "skipped",
             }
 
+        existing_task = self._enrichment_running.get(repository)
+        if existing_task is not None:
+            return {
+                "task_id": existing_task,
+                "eligible_pages": eligible_pages,
+                "repository": repository,
+                "status": "already_running",
+            }
+
         import uuid as _uuid
 
         task_id = f"enrich-{_uuid.uuid4().hex[:12]}"
+        self._enrichment_running[repository] = task_id
         asyncio.create_task(
             self._run_enrichment_background(repository, llm_port, task_id),
             name=f"enrichment-{task_id}",
@@ -2928,7 +2940,8 @@ class WikiService:
                 "WHERE p.enrichment_level IS NULL OR p.enrichment_level = 'base' "
                 "OR p.enrichment_level = '' "
                 "RETURN p.path AS path, p.content AS content, p.title AS title, "
-                "coalesce(p.page_type, '') AS pt, coalesce(p.importance_tier, '') AS tier"
+                "coalesce(p.page_type, '') AS pt, coalesce(p.importance_tier, '') AS tier, "
+                "coalesce(p.language, 'zh') AS lang"
             )
             result = await self._store.execute_query(q, {"repo": repository})
             rows = getattr(result, "raw", []) or []
@@ -2938,6 +2951,7 @@ class WikiService:
 
             pages: list[WikiPage] = []
             page_tier_map: dict[str, ImportanceTier] = {}
+            _wiki_language = "zh"
             for row in rows:
                 page_path = str(row[0] or "")
                 if not page_path:
@@ -2946,6 +2960,9 @@ class WikiService:
                 title = str(row[2] or "")
                 pt_raw = str(row[3] or "").strip()
                 tier_raw = row[4]
+                _row_lang = str(row[5] or "").strip() if len(row) > 5 else ""
+                if _row_lang:
+                    _wiki_language = _row_lang
                 try:
                     pt = PageType(pt_raw) if pt_raw else PageType.MODULE_OVERVIEW
                 except ValueError:
@@ -3005,7 +3022,7 @@ class WikiService:
                         entity_name=page.title,
                         entity_label=page.page_type.value,
                         tier=tier,
-                        language="en",
+                        language=_wiki_language,
                     )
 
             tasks = [_enrich_one(p, t) for p, t in targets]
@@ -3024,7 +3041,7 @@ class WikiService:
 
             for p in work_pages:
                 try:
-                    await self._persist_pages_to_graph(repository, [p], language="en")
+                    await self._persist_pages_to_graph(repository, [p], language=_wiki_language)
                 except Exception:
                     log.warning("enrichment_bg_persist_failed", path=p.path, exc_info=True)
 
@@ -3036,3 +3053,5 @@ class WikiService:
             )
         except Exception:
             log.error("enrichment_bg_error", task_id=task_id, repository=repository, exc_info=True)
+        finally:
+            self._enrichment_running.pop(repository, None)

@@ -15,6 +15,12 @@
 | [ONBOARDING.md](ONBOARDING.md) | 产品导览、功能发现、首次索引、MCP 设置 |
 | [wiki-generation-architecture.md](wiki-generation-architecture.md) | Wiki 管道、Ingest/自动化、LLM Wiki v2（置信度/矛盾/主张/记忆层） |
 
+## 活跃设计文档
+
+| 文档 | 内容 |
+|------|------|
+| [superpowers/specs/2026-04-29-business-intelligence-injection-design.md](superpowers/specs/2026-04-29-business-intelligence-injection-design.md) | **草案** Business Intelligence Injection — Wiki 业务含义增强（3 Sprint: 接线修复 + Repo Overview + 交叉引用 + LLM 图表） |
+
 ## 已完成设计文档（归档）
 
 | 文档 | 内容 |

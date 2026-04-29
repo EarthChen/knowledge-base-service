@@ -1295,7 +1295,7 @@ class WikiService:
 
         domain_names: list[str] = []
         all_pages: list[WikiPage] = []
-        sort_idx = 0
+        sort_idx = 1
 
         for domain_name, repo_module_pairs in domain_mapping.items():
             section_uid = tree_builder.generate_domain_section_uid(business_id, domain_name)
@@ -1413,6 +1413,54 @@ class WikiService:
 
         if all_pages:
             await self._persist_pages_to_graph(business_id, all_pages, language=language)
+
+        # Generate System Architecture Overview (cross-repo)
+        from wiki.system_overview_composer import SystemOverviewComposer
+
+        entry_points_by_repo: dict[str, list[str]] = {}
+        stats_by_repo: dict[str, dict[str, int]] = {}
+        for repo_name in all_modules:
+            try:
+                dep_graph = ModuleDependencyGraph(self._graph)
+                module_graph = await dep_graph.build(repo_name)
+                entry_points_by_repo[repo_name] = module_graph.entry_points
+            except Exception:
+                entry_points_by_repo[repo_name] = []
+            try:
+                stats_by_repo[repo_name] = await self._graph.get_repo_stats(repo_name)
+            except Exception:
+                stats_by_repo[repo_name] = {"module_count": 0, "class_count": 0, "function_count": 0}
+
+        domain_overview_summaries: dict[str, str] = {}
+        for p in all_pages:
+            if p.page_type in (PageType.DOMAIN_OVERVIEW, PageType.MODULE_OVERVIEW) or "overview" in p.path.lower():
+                domain_overview_summaries[p.title] = p.content[:500]
+
+        system_overview_composer = SystemOverviewComposer(llm_port)
+        try:
+            system_overview_page = await system_overview_composer.compose(
+                business_id=business_id,
+                repositories=list(all_modules.keys()),
+                domain_tree=domain_tree or [],
+                entry_points_by_repo=entry_points_by_repo,
+                domain_overviews=domain_overview_summaries,
+                stats_by_repo=stats_by_repo,
+                language=language,
+            )
+            await self._persist_pages_to_graph(
+                business_id, [system_overview_page], language=language,
+            )
+            await self._wiki_store.add_has_child_edge(
+                parent_uid=space_uid,
+                parent_label="WikiSpace",
+                child_uid=f"WikiPage:{business_id}:{system_overview_page.path}",
+                child_label="WikiPage",
+                view_type="system_overview",
+                sort_order=0,
+            )
+            log.info("system_overview_created", business_id=business_id)
+        except Exception:
+            log.warning("system_overview_failed", business_id=business_id, exc_info=True)
 
         log.info("per_repo_generation_starting", business_id=business_id, repo_count=len(all_modules))
 

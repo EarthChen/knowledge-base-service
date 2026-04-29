@@ -219,3 +219,24 @@ class TestSystemOverviewComposer:
         )
         assert isinstance(page, WikiPage)
         assert "svc-a" in page.content
+
+
+class TestSystemOverviewIntegration:
+    def test_service_creates_system_overview(self):
+        """generate_business_wiki source should reference SystemOverviewComposer."""
+        import inspect
+
+        from wiki.service import WikiService
+
+        source = inspect.getsource(WikiService.generate_business_wiki)
+        assert "SystemOverviewComposer" in source
+        assert "system_overview" in source
+
+    def test_domain_sort_idx_starts_from_1(self):
+        """Domain section sort_idx should start from 1 (not 0) since system overview takes position 0."""
+        import inspect
+
+        from wiki.service import WikiService
+
+        source = inspect.getsource(WikiService.generate_business_wiki)
+        assert "sort_idx = 1" in source

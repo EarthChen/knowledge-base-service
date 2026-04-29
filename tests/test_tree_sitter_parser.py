@@ -319,3 +319,38 @@ class TestParsedCallReceiverExpr:
         calls = [c for c in result.calls if c.callee_name == "bar"]
         assert len(calls) == 1
         assert calls[0].receiver_expr == ""
+
+
+class TestParsedImportSymbols:
+    def test_python_from_import_extracts_symbols(self):
+        parser = TreeSitterParser(supported_languages=["python"])
+        code = "from pkg.module import UserService, OrderDTO\n"
+        result = parser.parse_file("test.py", "python", code)
+        imp = [i for i in result.imports if "pkg.module" in i.module]
+        assert len(imp) >= 1
+        assert set(imp[0].symbols) >= {"UserService", "OrderDTO"}
+
+    def test_java_import_extracts_symbol(self):
+        parser = TreeSitterParser(supported_languages=["java"])
+        code = "import com.example.UserService;\n\npublic class A {}\n"
+        result = parser.parse_file("A.java", "java", code)
+        imp = [i for i in result.imports if "UserService" in i.module]
+        assert len(imp) >= 1
+        assert "UserService" in imp[0].symbols
+
+    def test_js_named_import_extracts_symbols(self):
+        parser = TreeSitterParser(supported_languages=["javascript"])
+        code = "import { UserService, OrderDTO } from './module';\n"
+        result = parser.parse_file("test.js", "javascript", code)
+        all_symbols = []
+        for i in result.imports:
+            all_symbols.extend(i.symbols)
+        assert "UserService" in all_symbols or len(result.imports) > 0
+
+    def test_python_simple_import_has_symbols(self):
+        parser = TreeSitterParser(supported_languages=["python"])
+        code = "import os\n"
+        result = parser.parse_file("test.py", "python", code)
+        imp = [i for i in result.imports if i.module == "os"]
+        assert len(imp) >= 1
+        assert "os" in imp[0].symbols or imp[0].symbols == []

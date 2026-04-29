@@ -63,6 +63,7 @@ class ParsedImport:
     line: int
     language: str
     alias: str = ""
+    symbols: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -309,6 +310,9 @@ class TreeSitterParser:
     def _extract_imports(
         self, tree: Tree, source: bytes, file_path: str, language: str, query_str: str,
     ) -> list[ParsedImport]:
+        if language == "python":
+            return self._extract_imports_python(tree, file_path)
+
         imports: list[ParsedImport] = []
         lang = get_language(language)
         try:
@@ -325,16 +329,205 @@ class TreeSitterParser:
                 continue
 
             import_node = import_nodes[0]
-            module = name_nodes[0].text.decode("utf-8").strip("'\"") if name_nodes[0].text else ""
-            imports.append(ParsedImport(
-                module=module,
-                names=[],
-                file=file_path,
-                line=import_node.start_point[0] + 1,
-                language=language,
-            ))
+            line = import_node.start_point[0] + 1
+
+            if language == "java":
+                module = name_nodes[0].text.decode("utf-8").strip() if name_nodes[0].text else ""
+                imp = ParsedImport(
+                    module=module,
+                    names=[],
+                    file=file_path,
+                    line=line,
+                    language=language,
+                )
+            elif language in ("javascript", "typescript"):
+                imp = self._parsed_import_js_ts(import_node, file_path, language)
+            elif language == "go":
+                raw = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
+                module = TreeSitterParser._strip_string_delimiters(raw)
+                imp = ParsedImport(
+                    module=module,
+                    names=[],
+                    file=file_path,
+                    line=line,
+                    language=language,
+                )
+            else:
+                module = name_nodes[0].text.decode("utf-8").strip("'\"") if name_nodes[0].text else ""
+                imp = ParsedImport(
+                    module=module,
+                    names=[],
+                    file=file_path,
+                    line=line,
+                    language=language,
+                )
+
+            TreeSitterParser._finalize_import_symbols(imp)
+            imports.append(imp)
 
         return imports
+
+    @staticmethod
+    def _finalize_import_symbols(imp: ParsedImport) -> None:
+        if imp.symbols:
+            return
+        if imp.names:
+            imp.symbols = list(imp.names)
+            return
+        if imp.language == "java" and imp.module:
+            simple = imp.module.rsplit(".", 1)[-1]
+            if simple and simple[0].isupper():
+                imp.symbols = [simple]
+
+    @staticmethod
+    def _strip_string_delimiters(raw: str) -> str:
+        s = raw.strip()
+        if len(s) >= 2 and s[0] in "'\"`" and s[-1] == s[0]:
+            return s[1:-1]
+        return s
+
+    def _extract_imports_python(self, tree: Tree, file_path: str) -> list[ParsedImport]:
+        imports: list[ParsedImport] = []
+
+        def visit(node: Node) -> None:
+            if node.type == "import_statement":
+                imports.extend(self._python_import_statement_entries(node, file_path))
+            elif node.type == "import_from_statement":
+                imports.append(self._python_import_from_statement_entry(node, file_path))
+            for child in node.children:
+                visit(child)
+
+        visit(tree.root_node)
+        for imp in imports:
+            TreeSitterParser._finalize_import_symbols(imp)
+        return imports
+
+    def _python_import_statement_entries(self, node: Node, file_path: str) -> list[ParsedImport]:
+        line = node.start_point[0] + 1
+        out: list[ParsedImport] = []
+        for child in node.children:
+            if child.type in ("import", ","):
+                continue
+            if child.type == "dotted_name":
+                mod = TreeSitterParser._python_dotted_name_text(child)
+                loc = TreeSitterParser._python_import_stmt_local_name(child)
+                out.append(ParsedImport(
+                    module=mod,
+                    names=[loc],
+                    file=file_path,
+                    line=line,
+                    language="python",
+                ))
+            elif child.type == "aliased_import":
+                dn = child.child_by_field_name("name")
+                al = child.child_by_field_name("alias")
+                mod = TreeSitterParser._python_dotted_name_text(dn) if dn else ""
+                loc = TreeSitterParser._node_text(al) if al else mod
+                out.append(ParsedImport(
+                    module=mod,
+                    names=[loc],
+                    file=file_path,
+                    line=line,
+                    language="python",
+                ))
+        return out
+
+    def _python_import_from_statement_entry(self, node: Node, file_path: str) -> ParsedImport:
+        mod = TreeSitterParser._python_import_from_module_string(node)
+        line = node.start_point[0] + 1
+        bindings = TreeSitterParser._python_from_import_bindings(node)
+        return ParsedImport(
+            module=mod,
+            names=bindings,
+            file=file_path,
+            line=line,
+            language="python",
+        )
+
+    @staticmethod
+    def _python_dotted_name_text(dn: Node) -> str:
+        return dn.text.decode("utf-8").strip() if dn.text else ""
+
+    @staticmethod
+    def _python_import_stmt_local_name(dn: Node) -> str:
+        ids = [TreeSitterParser._node_text(c) for c in dn.children if c.type == "identifier"]
+        if not ids:
+            t = dn.text.decode("utf-8") if dn.text else ""
+            return t.split(".")[0] if t else ""
+        if len(ids) == 1:
+            return ids[0]
+        return ids[0]
+
+    @staticmethod
+    def _python_import_from_module_string(node: Node) -> str:
+        parts: list[str] = []
+        for child in node.children:
+            if child.type == "import":
+                break
+            if child.type == "from":
+                continue
+            if child.text:
+                parts.append(child.text.decode("utf-8"))
+        return "".join(parts)
+
+    @staticmethod
+    def _python_from_import_bindings(node: Node) -> list[str]:
+        bindings: list[str] = []
+        seen_import = False
+        for child in node.children:
+            if child.type == "import":
+                seen_import = True
+                continue
+            if not seen_import:
+                continue
+            if child.type in (",", "wildcard_import"):
+                continue
+            if child.type == "dotted_name":
+                ids = [TreeSitterParser._node_text(c) for c in child.children if c.type == "identifier"]
+                bindings.append(ids[-1] if ids else TreeSitterParser._python_dotted_name_text(child))
+            elif child.type == "aliased_import":
+                al = child.child_by_field_name("alias")
+                bindings.append(TreeSitterParser._node_text(al) if al else "")
+        return [b for b in bindings if b]
+
+    def _parsed_import_js_ts(self, import_node: Node, file_path: str, language: str) -> ParsedImport:
+        line = import_node.start_point[0] + 1
+        src = import_node.child_by_field_name("source")
+        raw_src = TreeSitterParser._node_text(src)
+        module = TreeSitterParser._strip_string_delimiters(raw_src)
+        clause = next((c for c in import_node.children if c.type == "import_clause"), None)
+        syms = TreeSitterParser._js_ts_import_clause_symbols(clause)
+        return ParsedImport(
+            module=module,
+            names=list(syms),
+            file=file_path,
+            line=line,
+            language=language,
+        )
+
+    @staticmethod
+    def _js_ts_import_clause_symbols(clause: Node | None) -> list[str]:
+        if clause is None:
+            return []
+        syms: list[str] = []
+        for ch in clause.children:
+            if ch.type == "identifier":
+                syms.append(TreeSitterParser._node_text(ch))
+            elif ch.type == "named_imports":
+                for sub in ch.children:
+                    if sub.type != "import_specifier":
+                        continue
+                    name_n = sub.child_by_field_name("name")
+                    alias_n = sub.child_by_field_name("alias")
+                    if alias_n is not None and TreeSitterParser._node_text(alias_n):
+                        syms.append(TreeSitterParser._node_text(alias_n))
+                    elif name_n is not None:
+                        syms.append(TreeSitterParser._node_text(name_n))
+            elif ch.type == "namespace_import":
+                for sub in ch.children:
+                    if sub.type == "identifier":
+                        syms.append(TreeSitterParser._node_text(sub))
+        return syms
 
     @staticmethod
     def _extract_receiver_expr(call_node: Node, language: str) -> str:

@@ -149,8 +149,6 @@ class TokenBudget:
 
 
 class ModuleReprBuilder:
-    MAX_TOKENS_PER_BATCH = 30_000
-
     def build(self, module: ModuleInfo, budget: TokenBudget) -> str:
         lines = [f"Module: {module.name}"]
         if module.semantic_roles:

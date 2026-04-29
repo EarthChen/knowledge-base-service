@@ -978,7 +978,12 @@ class FalkorDBStore:
                 if result.result_set:
                     counts[key] = result.result_set[0][0]
             except Exception:
-                pass
+                log.debug(
+                    "get_repo_stats_query_failed",
+                    label=label_name,
+                    repository=repository,
+                    exc_info=True,
+                )
         return counts
 
     async def find_top_level_modules(self, repository: str) -> list[GraphNode]:

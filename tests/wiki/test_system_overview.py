@@ -162,7 +162,7 @@ class TestSystemOverviewComposer:
 
     @pytest.mark.asyncio
     async def test_compose_has_mermaid(self):
-        """Output should contain a Mermaid diagram."""
+        """Mermaid blocks are extracted to diagrams, not duplicated in page body."""
         from wiki.system_overview_composer import SystemOverviewComposer
 
         mock_llm = AsyncMock()
@@ -177,7 +177,10 @@ class TestSystemOverviewComposer:
             stats_by_repo={},
             language="en",
         )
-        assert "mermaid" in page.content.lower()
+        assert "mermaid" not in page.content.lower()
+        assert page.diagrams
+        assert "graph td" in page.diagrams[0].content.lower()
+        assert "overview" in page.content.lower() and "done" in page.content.lower()
 
     @pytest.mark.asyncio
     async def test_compose_fallback_on_llm_failure(self):

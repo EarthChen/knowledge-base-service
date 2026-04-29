@@ -1279,6 +1279,10 @@ class WikiService:
             except Exception:
                 log.warning("entry_point_collection_failed", repository=repo_name, exc_info=True)
 
+        entry_points_by_repo: dict[str, list[str]] = {}
+        for ep_repo, ep_name in all_entry_point_pairs:
+            entry_points_by_repo.setdefault(ep_repo, []).append(ep_name)
+
         log.info(
             "domain_classification_done",
             business_id=business_id,
@@ -1417,15 +1421,8 @@ class WikiService:
         # Generate System Architecture Overview (cross-repo)
         from wiki.system_overview_composer import SystemOverviewComposer
 
-        entry_points_by_repo: dict[str, list[str]] = {}
         stats_by_repo: dict[str, dict[str, int]] = {}
         for repo_name in all_modules:
-            try:
-                dep_graph = ModuleDependencyGraph(self._graph)
-                module_graph = await dep_graph.build(repo_name)
-                entry_points_by_repo[repo_name] = module_graph.entry_points
-            except Exception:
-                entry_points_by_repo[repo_name] = []
             try:
                 stats_by_repo[repo_name] = await self._graph.get_repo_stats(repo_name)
             except Exception:

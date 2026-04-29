@@ -61,7 +61,8 @@ def _extract_mermaid(raw: str) -> tuple[str, list[WikiDiagram]]:
                     title="System architecture",
                 ),
             )
-    return raw, diagrams
+    body = pattern.sub("", raw).strip()
+    return body, diagrams
 
 
 class SystemOverviewComposer:
@@ -92,11 +93,14 @@ class SystemOverviewComposer:
 
         content: str = ""
         diagrams: list[WikiDiagram] = []
+        llm_succeeded = False
 
         if self._llm is not None:
             try:
                 raw = (await self._llm.generate(prompt, system=system)).strip()
                 content, diagrams = _extract_mermaid(raw)
+                if content.strip():
+                    llm_succeeded = True
             except Exception:
                 log.warning("system_overview_llm_failed", exc_info=True)
                 content = ""
@@ -121,7 +125,7 @@ class SystemOverviewComposer:
             ),
             edge_count=0,
             generation_mode="business",
-            enrichment_level=EnrichmentLevel.ENRICHED if self._llm else EnrichmentLevel.BASE,
+            enrichment_level=EnrichmentLevel.ENRICHED if llm_succeeded else EnrichmentLevel.BASE,
         )
         return WikiPage(
             path=path,

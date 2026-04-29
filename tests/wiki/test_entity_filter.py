@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from store.schema import GraphNode, NodeLabel
+from wiki.dependency_graph import ModuleEdge, ModuleGraph, ModuleInfo
 from wiki.entity_filter import WikiEntityFilter
 from wiki.models import EntityStrategy
 
@@ -106,3 +107,62 @@ class TestWikiEntityFilter:
         assert (
             _filter().classify(heavy, edge_count=10, children_count=0) == EntityStrategy.FULL_PAGE
         )
+
+
+class TestLargeClassStrategy:
+    def test_groups_methods_by_annotation(self):
+        from wiki.entity_filter import LargeClassStrategy
+
+        methods = [
+            GraphNode(
+                label=NodeLabel.FUNCTION,
+                properties={"name": "createUser", "annotations": ["@PostMapping"]},
+            ),
+            GraphNode(
+                label=NodeLabel.FUNCTION,
+                properties={"name": "getUser", "annotations": ["@GetMapping"]},
+            ),
+            GraphNode(
+                label=NodeLabel.FUNCTION,
+                properties={"name": "scheduledCleanup", "annotations": ["@Scheduled"]},
+            ),
+        ] + [GraphNode(label=NodeLabel.FUNCTION, properties={"name": f"helper_{i}"}) for i in range(30)]
+        strategy = LargeClassStrategy()
+        groups = strategy.group_methods(methods)
+        assert len(groups) >= 2
+        group_names = [g.name for g in groups]
+        assert any("API" in n or "Endpoint" in n for n in group_names)
+
+    def test_below_threshold_returns_single_group(self):
+        from wiki.entity_filter import LargeClassStrategy
+
+        methods = [GraphNode(label=NodeLabel.FUNCTION, properties={"name": f"m{i}"}) for i in range(5)]
+        strategy = LargeClassStrategy()
+        groups = strategy.group_methods(methods)
+        assert len(groups) == 1
+
+
+class TestHubNodeDetector:
+    def test_high_degree_detected_as_hub(self):
+        from wiki.entity_filter import HubNodeDetector
+
+        modules = [ModuleInfo(name=f"m{i}", path=f"m{i}.py", uid=f"uid_{i}") for i in range(10)]
+        edges = [ModuleEdge(source="m0", target=f"m{i}", edge_type="CALLS") for i in range(1, 10)]
+        edges += [ModuleEdge(source=f"m{i}", target="m0", edge_type="CALLS") for i in range(1, 10)]
+        graph = ModuleGraph(modules=modules, edges=edges, entry_points=[])
+        detector = HubNodeDetector()
+        hubs = detector.detect_hubs(graph, percentile=90)
+        assert "m0" in hubs
+
+    def test_rpc_provider_whitelisted(self):
+        from wiki.entity_filter import HubNodeDetector
+
+        modules = [
+            ModuleInfo(name="RpcProv", path="rpc.py", uid="uid_rpc", semantic_roles=["rpc_provider"]),
+        ] + [ModuleInfo(name=f"m{i}", path=f"m{i}.py", uid=f"uid_{i}") for i in range(9)]
+        edges = [ModuleEdge(source="RpcProv", target=f"m{i}", edge_type="CALLS") for i in range(9)]
+        edges += [ModuleEdge(source=f"m{i}", target="RpcProv", edge_type="CALLS") for i in range(9)]
+        graph = ModuleGraph(modules=modules, edges=edges, entry_points=["RpcProv"])
+        detector = HubNodeDetector()
+        hubs = detector.detect_hubs(graph, percentile=90)
+        assert "RpcProv" not in hubs

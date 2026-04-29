@@ -1162,7 +1162,7 @@ class WikiService:
         *,
         token_budget_multiplier: float = 1.0,
         incremental: bool = True,
-        mode: str = "structure",
+        mode: str = "full",
         progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """Generate cross-repo business-level wiki.

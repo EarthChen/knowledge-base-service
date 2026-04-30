@@ -15,6 +15,7 @@ from wiki.pipeline_nodes import (
     create_links_node,
     decompose_hierarchy_node,
     detect_reorg_node,
+    heal_pages_node,
     plan_structure_node,
     synthesize_overviews_node,
 )
@@ -23,6 +24,7 @@ from wiki.quality_evaluator import WikiQualityEvaluator
 
 log = get_logger(__name__)
 
+HEAL_LOOP_MAX_TOTAL_ATTEMPTS = 10
 
 # ---------------------------------------------------------------------------
 # Conditional edges
@@ -39,6 +41,14 @@ def route_by_reorg_type(state: WikiPipelineState) -> str:
 def should_heal(state: WikiPipelineState) -> str:
     """Route to heal_pages if quality_gate_node identified pages to heal."""
     if state.get("pages_to_heal"):
+        total_heal_attempts = sum(state.get("heal_attempts", {}).values())
+        if total_heal_attempts > HEAL_LOOP_MAX_TOTAL_ATTEMPTS:
+            log.warning(
+                "heal_loop_safety_limit",
+                total_attempts=total_heal_attempts,
+                limit=HEAL_LOOP_MAX_TOTAL_ATTEMPTS,
+            )
+            return "synthesize_overviews"
         return "heal_pages"
     return "synthesize_overviews"
 
@@ -89,39 +99,6 @@ async def quality_gate_node(state: WikiPipelineState) -> dict[str, Any]:
         to_heal=len(pages_to_heal),
     )
     return {"quality_scores": scores, "pages_to_heal": pages_to_heal}
-
-
-async def heal_pages_node(state: WikiPipelineState) -> dict[str, Any]:
-    """Increment heal attempts and persist heal hints for recomposition."""
-    evaluator = WikiQualityEvaluator()
-    heal_attempts = dict(state.get("heal_attempts", {}))
-    heal_hints: dict[str, str] = dict(state.get("heal_hints", {}))
-    seen: set[str] = set()
-
-    for page_path in state.get("pages_to_heal", []):
-        if page_path in seen:
-            continue
-        seen.add(page_path)
-        heal_attempts[page_path] = heal_attempts.get(page_path, 0) + 1
-
-        page_dict = next((p for p in state.get("pages", []) if p.get("path") == page_path), None)
-        if page_dict:
-            try:
-                page = WikiPage.from_dict(page_dict)
-                score = evaluator.structural_check(page)
-                hint = evaluator.build_heal_prompt_hint(score)
-                heal_hints[page_path] = hint
-                log.info(
-                    "page_heal_scheduled",
-                    page=page_path,
-                    attempt=heal_attempts[page_path],
-                    hint_length=len(hint),
-                )
-            except Exception:
-                log.warning("heal_page_analysis_failed", page=page_path, exc_info=True)
-
-    log.info("heal_pages_done", healed_count=len(seen))
-    return {"pages_to_heal": [], "heal_attempts": heal_attempts, "heal_hints": heal_hints}
 
 
 async def finalize_node(state: WikiPipelineState) -> dict[str, Any]:
@@ -182,7 +159,7 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
         should_heal,
         {"heal_pages": "heal_pages", "synthesize_overviews": "synthesize_overviews"},
     )
-    graph.add_edge("heal_pages", "compose_pages")
+    graph.add_edge("heal_pages", "quality_gate")
     graph.add_edge("synthesize_overviews", "create_links")
     graph.add_edge("create_links", "finalize")
 

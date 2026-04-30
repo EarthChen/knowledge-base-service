@@ -7,6 +7,8 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from log import get_logger
 from store.schema import GraphNode, NodeLabel
+from wiki.models import WikiPage
+from wiki.quality_evaluator import WikiQualityEvaluator
 from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
 from wiki.dependency_graph import HierarchicalDecomposer, ModuleGraph, ModuleInfo
 from wiki.entity_role_classifier import EntityRoleClassifier, WikiEntityRole
@@ -32,7 +34,17 @@ async def classify_entities_node(state: dict[str, Any]) -> dict[str, Any]:
             except ValueError:
                 label = NodeLabel.MODULE
             node = GraphNode(label=label, properties=props, uid=uid)
-            role = classifier.classify(node, edge_count=0, children_count=0)
+
+            calls = props.get("calls", []) or []
+            imports = props.get("imports", []) or []
+            if isinstance(calls, list) and isinstance(imports, list):
+                edge_count = len(calls) + len(imports)
+            else:
+                edge_count = 0
+
+            children_count = int(props.get("inner_class_count", 0) or 0)
+
+            role = classifier.classify(node, edge_count=edge_count, children_count=children_count)
             entity_roles[uid] = role
             role_counter[role] += 1
 
@@ -295,6 +307,70 @@ async def compose_pages_node(
     return {"pages": all_pages, "generated_topic_pages": generated_uids}
 
 
+async def heal_pages_node(
+    state: dict[str, Any], config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Regenerate pages that failed the quality gate (replaces them via merge_wiki_pages)."""
+    llm = (config or {}).get("configurable", {}).get("llm")
+    evaluator = WikiQualityEvaluator()
+    heal_attempts = dict(state.get("heal_attempts", {}))
+    heal_hints: dict[str, str] = dict(state.get("heal_hints", {}))
+    healed_pages: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for page_path in state.get("pages_to_heal", []):
+        if page_path in seen:
+            continue
+        seen.add(page_path)
+        heal_attempts[page_path] = heal_attempts.get(page_path, 0) + 1
+
+        page_dict = next(
+            (p for p in state.get("pages", []) if p.get("path") == page_path),
+            None,
+        )
+        if not page_dict:
+            continue
+
+        try:
+            page = WikiPage.from_dict(page_dict)
+            score = evaluator.structural_check(page)
+            hint = evaluator.build_heal_prompt_hint(score)
+            heal_hints[page_path] = hint
+        except Exception:
+            log.warning("heal_page_analysis_failed", page=page_path, exc_info=True)
+            continue
+
+        if llm:
+            heal_prompt = (
+                f"Improve this wiki page. Issues: {hint}\n\n"
+                f"Current content:\n{page_dict.get('content', '')[:2000]}\n\n"
+                "Generate an improved version with the same structure but better quality."
+            )
+            try:
+                new_content = await llm.generate(
+                    heal_prompt,
+                    system=(
+                        "You are a technical wiki author. Output Markdown with Mermaid. "
+                        "Use Chinese for business descriptions."
+                    ),
+                )
+                healed_page = {**page_dict, "content": new_content}
+                healed_pages.append(healed_page)
+                log.info("page_healed", page=page_path, attempt=heal_attempts[page_path])
+            except Exception:
+                log.warning("heal_page_regen_failed", page=page_path, exc_info=True)
+        else:
+            log.info("page_heal_skip_no_llm", page=page_path)
+
+    log.info("heal_pages_done", healed_count=len(healed_pages))
+    return {
+        "pages_to_heal": [],
+        "heal_attempts": heal_attempts,
+        "heal_hints": heal_hints,
+        "pages": healed_pages,
+    }
+
+
 async def synthesize_overviews_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
@@ -339,19 +415,37 @@ async def synthesize_overviews_node(
 
 
 async def create_links_node(state: dict[str, Any]) -> dict[str, Any]:
-    """Phase 4c-4d: programmatic cross-link resolution and knowledge graph edge creation."""
+    """Phase 4c-4d: resolve cross-links and prepare link metadata for persistence."""
     pages = state.get("pages", [])
     page_titles = {p.get("title", "").lower(): p.get("path", "") for p in pages}
+    page_paths = {
+        p.get("path", "").rsplit("/", 1)[-1].lower(): p.get("path", "")
+        for p in pages
+        if p.get("path")
+    }
 
     link_pattern = re.compile(r"\[\[([^\]]+)\]\]")
+    resolved_links: dict[str, list[dict[str, str]]] = {}
 
     for page in pages:
+        page_path = page.get("path", "")
         content = page.get("content", "")
-        for match in link_pattern.finditer(content):
-            link_title = match.group(1).lower()
-            if link_title in page_titles:
-                target_path = page_titles[link_title]
-                log.debug("wiki_link_resolved", source=page.get("path"), target=target_path)
+        links: list[dict[str, str]] = []
 
-    # Do not return pages: state uses operator.add and would duplicate the full list.
-    return {}
+        for match in link_pattern.finditer(content):
+            link_text = match.group(1)
+            key = link_text.lower()
+            target = page_titles.get(key) or page_paths.get(key)
+            if target and target != page_path:
+                links.append({"from_text": link_text, "target_path": target})
+                log.debug("wiki_link_resolved", source=page_path, target=target)
+
+        if links:
+            resolved_links[page_path] = links
+
+    log.info(
+        "create_links_done",
+        pages_with_links=len(resolved_links),
+        total_links=sum(len(v) for v in resolved_links.values()),
+    )
+    return {"resolved_links": resolved_links}

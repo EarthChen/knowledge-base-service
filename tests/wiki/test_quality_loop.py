@@ -130,7 +130,7 @@ async def test_quality_gate_respects_max_retries() -> None:
 
 @pytest.mark.asyncio
 async def test_heal_pages_increments_attempts() -> None:
-    from wiki.pipeline_graph import heal_pages_node
+    from wiki.pipeline_nodes import heal_pages_node
 
     page_dict = _make_page("fix_me", BAD_CONTENT)
     state: WikiPipelineState = {

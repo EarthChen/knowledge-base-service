@@ -1,8 +1,35 @@
 """Wiki generation pipeline state for LangGraph StateGraph."""
 from __future__ import annotations
 
-import operator
 from typing import Annotated, Any, TypedDict
+
+
+def merge_wiki_pages(
+    left: list[dict[str, Any]], right: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Merge wiki page dicts by ``path``; newer entries replace older with the same path.
+
+    Preserves order: paths first seen in ``left``, then new paths introduced in ``right``.
+    Used instead of ``operator.add`` so heal cycles can return only updated pages
+    without growing the list with duplicates.
+    """
+    by_path: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for p in left:
+        path = str(p.get("path") or "")
+        if not path:
+            continue
+        if path not in by_path:
+            order.append(path)
+        by_path[path] = p
+    for p in right:
+        path = str(p.get("path") or "")
+        if not path:
+            continue
+        if path not in by_path:
+            order.append(path)
+        by_path[path] = p
+    return [by_path[path] for path in order]
 
 
 class WikiPipelineState(TypedDict):
@@ -22,7 +49,7 @@ class WikiPipelineState(TypedDict):
     domain_mapping: dict[str, list[Any]]
     domain_tree: list[dict[str, Any]] | None
     topic_structure: list[dict[str, Any]] | None
-    pages: Annotated[list[dict[str, Any]], operator.add]
+    pages: Annotated[list[dict[str, Any]], merge_wiki_pages]
 
     # --- Quality tracking ---
     quality_scores: dict[str, float]
@@ -52,3 +79,5 @@ class WikiPipelineState(TypedDict):
     generated_topic_pages: list[str]
     overview_pages: list[str]
     system_overview_uid: str
+    # wiki [[link]] resolution metadata (applied when persisting pages)
+    resolved_links: dict[str, list[dict[str, str]]]

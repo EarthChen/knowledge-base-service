@@ -27,6 +27,16 @@ def test_should_heal_returns_heal_when_pages_need_healing():
     assert should_heal(state) == "heal_pages"
 
 
+def test_should_heal_respects_global_attempt_budget():
+    from wiki.pipeline_graph import HEAL_LOOP_MAX_TOTAL_ATTEMPTS, should_heal
+
+    state = {
+        "pages_to_heal": ["page/a"],
+        "heal_attempts": {"page/a": HEAL_LOOP_MAX_TOTAL_ATTEMPTS, "page/b": 1},
+    }
+    assert should_heal(state) == "synthesize_overviews"
+
+
 def test_should_heal_routes_to_heal_when_pages_present():
     """should_heal trusts quality_gate_node — if pages_to_heal is non-empty, route to heal."""
     from wiki.pipeline_graph import should_heal

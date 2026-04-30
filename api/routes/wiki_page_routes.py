@@ -52,6 +52,10 @@ from wiki.models import navigation_context_api_from_stored_json
 router = APIRouter(tags=["wiki", "pages"])
 
 
+async def _get_wiki_service(request: Request) -> WikiService:
+    return await get_wiki_service_dep(request)
+
+
 async def _resolve_primary_source_entity_uid(
     raw_store: Any,
     repository: str,
@@ -463,6 +467,40 @@ async def wiki_get_tree(
             roots.append(n)
 
     return {"tree": roots, "view_type": view, "business_id": business_id}
+
+
+@router.get("/domain-tree", response_model=None)
+async def get_domain_tree(
+    request: Request,
+    business_id: str = Query(..., description="Business ID"),
+) -> dict[str, Any]:
+    """Return the hierarchical domain tree for a business wiki.
+
+    Used by Dashboard domain review panel. Returns the domain tree
+    from the latest pipeline run, along with review status.
+    """
+    svc = await _get_wiki_service(request)
+    try:
+        return await svc.get_domain_tree(business_id)
+    except AttributeError:
+        return {"tree": [], "review_status": {}}
+
+
+@router.get("/topic-tree", response_model=None)
+async def get_topic_tree(
+    request: Request,
+    business_id: str = Query(..., description="Business ID"),
+) -> dict[str, Any]:
+    """Return the topic page tree for dashboard wiki navigation.
+
+    Structure: Domain → SubDomain → TopicPage (leaf).
+    Built from the wiki pages that have page_type='topic' or 'domain_overview'.
+    """
+    svc = await _get_wiki_service(request)
+    try:
+        return await svc.get_topic_tree(business_id)
+    except AttributeError:
+        return {"tree": []}
 
 
 @router.post(

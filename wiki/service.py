@@ -341,6 +341,21 @@ class WikiService:
         """Raise ``WikiRepoNotFoundError`` when the repository is not indexed."""
         await self._ensure_repo(repository)
 
+    async def get_domain_tree(self, business_id: str) -> dict[str, Any]:
+        """Hierarchical domain tree and review status from the latest pipeline run (when persisted)."""
+        if self._store is None:
+            return {"tree": [], "review_status": {}}
+        ws = WikiStore(self._store)
+        return await ws.get_pipeline_domain_tree_snapshot(business_id)
+
+    async def get_topic_tree(self, business_id: str) -> dict[str, Any]:
+        """Topic and domain-overview pages as a nested tree for dashboard wiki navigation."""
+        if self._store is None:
+            return {"tree": []}
+        ws = WikiStore(self._store)
+        nested = await ws.get_topic_navigation_tree(business_id)
+        return {"tree": nested}
+
     def _config_for(
         self,
         mode: str,

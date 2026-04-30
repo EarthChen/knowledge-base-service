@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
+_TOPIC_PAGE_TYPES = frozenset({"topic", "domain_overview"})
+
 from store.falkordb_store import QueryResultWrapper
+
+
 class WikiTreeStoreMixin:
     """HAS_CHILD / WIKI_REFERENCES and business-scoped page listing."""
 
@@ -143,6 +148,109 @@ class WikiTreeStoreMixin:
         return await self._store.execute_query(
             q, {"business_id": business_id, "view_type": view_type},
         )
+
+    def _nested_trees_from_wiki_tree_rows(
+        self, flat_rows: list[list[Any]],
+    ) -> list[dict[str, Any]]:
+        """Turn positional rows from ``get_wiki_tree`` into nested dicts with ``children``."""
+        flat_nodes: list[dict[str, Any]] = []
+        for row in flat_rows:
+            flat_nodes.append(
+                {
+                    "uid": row[0],
+                    "title": str(row[1] or ""),
+                    "label": str(row[2] or ""),
+                    "depth": row[3],
+                    "sort_order": row[4],
+                    "path": str(row[5] or ""),
+                    "page_type": str(row[6] or ""),
+                    "children": [],
+                    "_parent_uid": row[7] if len(row) > 7 else None,
+                }
+            )
+        node_map: dict[str, dict[str, Any]] = {str(n["uid"]): n for n in flat_nodes if n.get("uid")}
+        roots: list[dict[str, Any]] = []
+        for n in flat_nodes:
+            parent_uid = n.pop("_parent_uid", None)
+            puid = str(parent_uid) if parent_uid is not None else ""
+            if puid and puid in node_map:
+                node_map[puid]["children"].append(n)
+            else:
+                roots.append(n)
+        return roots
+
+    def _prune_wiki_tree_to_topic_pages(self, nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Keep ``WikiPage`` nodes whose ``page_type`` is topic or domain_overview; keep sections with topic leaves."""
+
+        def visit(n: dict[str, Any]) -> dict[str, Any] | None:
+            label = str(n.get("label") or "")
+            pt = str(n.get("page_type") or "").strip().lower()
+            pruned_children: list[dict[str, Any]] = []
+            for ch in n.get("children") or []:
+                pc = visit(ch)
+                if pc is not None:
+                    pruned_children.append(pc)
+            if label == "WikiPage":
+                if pt in _TOPIC_PAGE_TYPES:
+                    out = {k: v for k, v in n.items() if k != "children"}
+                    out["children"] = pruned_children
+                    out.setdefault("name", str(out.get("title") or ""))
+                    return out
+                return None
+            if pruned_children:
+                out = {k: v for k, v in n.items() if k != "children"}
+                out["children"] = pruned_children
+                out.setdefault("name", str(out.get("title") or ""))
+                return out
+            return None
+
+        out: list[dict[str, Any]] = []
+        for n in nodes:
+            pr = visit(n)
+            if pr is not None:
+                out.append(pr)
+        return out
+
+    async def get_pipeline_domain_tree_snapshot(self, business_id: str) -> dict[str, Any]:
+        """Load pipeline domain tree + review status persisted on ``WikiSpace`` (JSON blobs).
+
+        Properties (optional): ``pipeline_domain_tree``, ``pipeline_review_status``.
+        """
+        q = (
+            "MATCH (ws:WikiSpace {business_id: $business_id}) "
+            "RETURN coalesce(ws.pipeline_domain_tree, '') AS tree_raw, "
+            "coalesce(ws.pipeline_review_status, '') AS status_raw "
+            "LIMIT 1"
+        )
+        result = await self._store.execute_query(q, {"business_id": business_id})
+        rows = getattr(result, "data", None) or []
+        tree: list[Any] = []
+        review_status: dict[str, Any] = {}
+        if rows and isinstance(rows[0], dict):
+            tr = str(rows[0].get("tree_raw") or "").strip()
+            sr = str(rows[0].get("status_raw") or "").strip()
+            if tr:
+                try:
+                    parsed = json.loads(tr)
+                    if isinstance(parsed, list):
+                        tree = parsed
+                except json.JSONDecodeError:
+                    pass
+            if sr:
+                try:
+                    parsed = json.loads(sr)
+                    if isinstance(parsed, dict):
+                        review_status = parsed
+                except json.JSONDecodeError:
+                    pass
+        return {"tree": tree, "review_status": review_status}
+
+    async def get_topic_navigation_tree(self, business_id: str) -> list[dict[str, Any]]:
+        """Business-domain wiki tree filtered to topic and domain_overview pages (dashboard navigation)."""
+        result = await self.get_wiki_tree(business_id, "business_domain", wiki_tier=None)
+        flat = list(result.result_set or []) if result else []
+        roots = self._nested_trees_from_wiki_tree_rows(flat)
+        return self._prune_wiki_tree_to_topic_pages(roots)
 
     async def get_nested_tree(
         self,

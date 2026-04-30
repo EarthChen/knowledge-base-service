@@ -133,6 +133,7 @@ class LLMPortBridge:
         system: str = "",
         *,
         model: str | None = None,
+        max_tokens: int | None = None,
         extra_params: dict[str, Any] | None = None,
     ) -> str:
         messages: list[dict[str, str]] = []
@@ -141,6 +142,8 @@ class LLMPortBridge:
         messages.append({"role": "user", "content": prompt})
 
         kwargs: dict[str, Any] = {"model": model}
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
         if extra_params:
             kwargs.update(extra_params)
 

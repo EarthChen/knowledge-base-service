@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from log import get_logger
+from wiki.json_robust import parse_json_robust_sync
 
 log = get_logger(__name__)
 
@@ -19,7 +20,14 @@ _SYSTEM_WIKI = (
 
 
 class LLMPort(Protocol):
-    async def generate(self, prompt: str, system: str = "", *, model: str | None = None) -> str: ...
+    async def generate(
+        self,
+        prompt: str,
+        system: str = "",
+        *,
+        model: str | None = None,
+        max_tokens: int | None = None,
+    ) -> str: ...
 
 
 class TopicPageComposer:
@@ -29,6 +37,9 @@ class TopicPageComposer:
     def __init__(self, llm: LLMPort, *, token_budget: int = 8000) -> None:
         self._llm = llm
         self._token_budget = token_budget
+
+    def _token_budget_instruction(self) -> str:
+        return f"\n\nIMPORTANT: Keep response under {self._token_budget} tokens.\n"
 
     async def compose_leaf_domain(self, domain: dict[str, Any]) -> list[dict[str, Any]]:
         """Generate wiki pages for a single leaf domain.
@@ -48,7 +59,9 @@ class TopicPageComposer:
     async def _compose_single_page(self, domain: dict[str, Any]) -> list[dict[str, Any]]:
         name = domain["name"]
         prompt = self._build_single_page_prompt(domain)
-        content = await self._llm.generate(prompt, system=_SYSTEM_WIKI)
+        content = await self._llm.generate(
+            prompt, system=_SYSTEM_WIKI, max_tokens=self._token_budget,
+        )
 
         data_table = self.format_data_model_table(domain.get("data_models", []))
         if data_table and "## 数据模型" not in content:
@@ -62,13 +75,20 @@ class TopicPageComposer:
         pages: list[dict[str, Any]] = []
 
         overview_prompt = self._build_overview_prompt(domain)
-        overview_content = await self._llm.generate(overview_prompt, system=_SYSTEM_WIKI)
+        overview_content = await self._llm.generate(
+            overview_prompt, system=_SYSTEM_WIKI, max_tokens=self._token_budget,
+        )
         pages.append({"title": name, "content": overview_content, "path": f"wiki/{name}", "page_type": "domain_overview", "domain": name})
 
         chunk_size = max(self.SIMPLE_THRESHOLD, 1)
         for i in range(0, len(biz_entities), chunk_size):
             chunk = biz_entities[i:i + chunk_size]
-            sub_name = chunk[0]["name"] if chunk else f"{name}-part-{i}"
+            if not chunk:
+                sub_name = f"{name}-part-{i}"
+            elif len(chunk) == 1:
+                sub_name = chunk[0]["name"]
+            else:
+                sub_name = f"{name}-{chunk[0]['name']}-group"
             sibling_titles = [e["name"] for e in biz_entities if e not in chunk]
 
             sub_domain = {
@@ -80,7 +100,9 @@ class TopicPageComposer:
                 "overview_summary": overview_content[:500],
             }
             sub_prompt = self._build_sub_page_prompt(sub_domain)
-            sub_content = await self._llm.generate(sub_prompt, system=_SYSTEM_WIKI)
+            sub_content = await self._llm.generate(
+                sub_prompt, system=_SYSTEM_WIKI, max_tokens=self._token_budget,
+            )
             pages.append({"title": sub_name, "content": sub_content, "path": f"wiki/{name}/{sub_name}", "page_type": "topic", "domain": name})
 
         return pages
@@ -90,9 +112,11 @@ class TopicPageComposer:
         biz_entities = domain.get("biz_entities", [])
 
         group_prompt = self._build_grouping_prompt(biz_entities)
-        raw_groups = await self._llm.generate(group_prompt, system="Reply with JSON only. No markdown fences.")
-
-        from wiki.json_robust import parse_json_robust_sync
+        raw_groups = await self._llm.generate(
+            group_prompt,
+            system="Reply with JSON only. No markdown fences.",
+            max_tokens=self._token_budget,
+        )
 
         groups = parse_json_robust_sync(raw_groups)
         if not isinstance(groups, list):
@@ -101,7 +125,9 @@ class TopicPageComposer:
         pages: list[dict[str, Any]] = []
 
         overview_prompt = self._build_overview_prompt(domain)
-        overview_content = await self._llm.generate(overview_prompt, system=_SYSTEM_WIKI)
+        overview_content = await self._llm.generate(
+            overview_prompt, system=_SYSTEM_WIKI, max_tokens=self._token_budget,
+        )
         pages.append({"title": name, "content": overview_content, "path": f"wiki/{name}", "page_type": "domain_overview", "domain": name})
 
         entity_by_name = {e["name"]: e for e in biz_entities}
@@ -120,7 +146,9 @@ class TopicPageComposer:
                 "overview_summary": overview_content[:500],
             }
             sub_prompt = self._build_sub_page_prompt(sub_domain)
-            sub_content = await self._llm.generate(sub_prompt, system=_SYSTEM_WIKI)
+            sub_content = await self._llm.generate(
+                sub_prompt, system=_SYSTEM_WIKI, max_tokens=self._token_budget,
+            )
             pages.append({"title": group_name, "content": sub_content, "path": f"wiki/{name}/{group_name}", "page_type": "topic", "domain": name})
 
         return pages
@@ -145,7 +173,7 @@ class TopicPageComposer:
             "3. ## 核心服务详情 (### per service: responsibilities, key APIs, params)\n"
             "4. ## 数据模型 (inline table of related DTOs/enums)\n"
             "5. ## 关联主题 ([[wiki-link]] to sibling domains referenced via CALLS)\n"
-        )
+        ) + self._token_budget_instruction()
 
     def _build_overview_prompt(self, domain: dict[str, Any]) -> str:
         name = domain["name"]
@@ -158,7 +186,7 @@ class TopicPageComposer:
             "1. ## 域概览 (overall business capability description)\n"
             "2. ## 架构关系图 (Mermaid diagram showing service relationships)\n"
             "3. ## 子主题 (list sub-topic pages that will be generated)\n"
-        )
+        ) + self._token_budget_instruction()
 
     def _build_sub_page_prompt(self, sub_domain: dict[str, Any]) -> str:
         name = sub_domain["name"]
@@ -175,7 +203,7 @@ class TopicPageComposer:
             f"Sibling pages: {siblings or 'none'}\n\n"
             f"Services in this sub-page:\n{entities_desc}\n\n"
             "Format: same as main topic page (业务概述, 核心业务流程 with Mermaid, 核心服务详情, 关联主题)"
-        )
+        ) + self._token_budget_instruction()
 
     def _build_grouping_prompt(self, entities: list[dict[str, Any]]) -> str:
         entity_list = "\n".join(
@@ -186,7 +214,7 @@ class TopicPageComposer:
             f"Group these {len(entities)} services into 3-7 logical sub-groups based on business functionality:\n"
             f"{entity_list}\n\n"
             'Return JSON: [{"name": "group-name", "entities": ["ServiceA", "ServiceB"]}, ...]'
-        )
+        ) + self._token_budget_instruction()
 
     @staticmethod
     def format_data_model_table(data_models: list[dict[str, Any]]) -> str:

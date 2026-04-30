@@ -48,5 +48,7 @@ async def test_create_links_processes_wikilinks():
         "modules": {},
     }
     result = await create_links_node(state)
-    assert result == {}
+    assert result["resolved_links"] == {
+        "wiki/payment": [{"from_text": "messaging", "target_path": "wiki/messaging"}],
+    }
     assert len(state["pages"]) == 2

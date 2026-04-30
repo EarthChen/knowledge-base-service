@@ -80,6 +80,7 @@ async def test_heal_loop_does_not_duplicate_pages() -> None:
         "generated_topic_pages": [],
         "overview_pages": [],
         "system_overview_uid": "",
+        "resolved_links": {},
     }
 
     result = await pipeline.ainvoke(

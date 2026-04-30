@@ -13,34 +13,30 @@ def _mock_llm_generate(prompt: str, system: str = "", **kwargs) -> str:
     """Route LLM responses based on prompt content."""
     lower = prompt.lower()
 
+    if "organize them into a hierarchical" in lower:
+        return json.dumps({
+            "domains": [
+                {
+                    "name": "payment",
+                    "description": "Payment processing",
+                    "modules": ["PaymentService", "RefundService"],
+                    "children": [],
+                },
+                {
+                    "name": "user-management",
+                    "description": "User management",
+                    "modules": ["UserService"],
+                    "children": [],
+                },
+            ],
+        })
+
     if "group these" in lower and "sub-groups" in lower:
         return json.dumps([
             {"name": "core-payment", "entities": ["PaymentService", "RefundService"]},
         ])
 
-    if "classify" in lower or "domain" in lower or "business_id" in lower:
-        return json.dumps({
-            "payment": [["test-repo", "PaymentService"], ["test-repo", "RefundService"]],
-            "user-management": [["test-repo", "UserService"]],
-        })
-
-    if "decompose" in lower or "hierarchy" in lower or "nested" in lower:
-        return json.dumps([
-            {
-                "name": "payment",
-                "description": "Payment processing",
-                "modules": ["PaymentService", "RefundService"],
-                "children": [],
-            },
-            {
-                "name": "user-management",
-                "description": "User management",
-                "modules": ["UserService"],
-                "children": [],
-            },
-        ])
-
-    if "system overview" in lower or "系统概览" in lower:
+    if "generate a system overview" in lower:
         return (
             "# System Overview\n\n"
             "## 系统概览\nPayment and user management system.\n\n"
@@ -48,13 +44,25 @@ def _mock_llm_generate(prompt: str, system: str = "", **kwargs) -> str:
             "## 域列表\n- [[payment]]\n- [[user-management]]"
         )
 
-    if "overview" in lower or "域概览" in lower:
+    if "generate a domain overview" in lower or "域概览" in lower:
         return (
             "# Domain Overview\n\n"
             "## 域概览\nThis domain handles core business.\n\n"
             "## 架构关系图\n```mermaid\ngraph TD\nA-->B\n```\n\n"
             "## 子主题\n- PaymentService\n- RefundService"
         )
+
+    if "classify the following modules" in lower:
+        return json.dumps({
+            "payment": [["test-repo", "PaymentService"], ["test-repo", "RefundService"]],
+            "user-management": [["test-repo", "UserService"]],
+        })
+
+    if "unify the following per-repository" in lower:
+        return json.dumps({
+            "payment": {"test-repo": "payment"},
+            "user-management": {"test-repo": "user-management"},
+        })
 
     return (
         "# Business Wiki Page\n\n"
@@ -188,6 +196,7 @@ async def test_full_pipeline_e2e_with_mock_llm():
         "generated_topic_pages": [],
         "overview_pages": [],
         "system_overview_uid": "",
+        "resolved_links": {},
     }
 
     result = await pipeline.ainvoke(
@@ -203,6 +212,16 @@ async def test_full_pipeline_e2e_with_mock_llm():
     roles = result["entity_roles"]
     assert roles.get("Module::PaymentService:0") == "has_business_logic"
     assert roles.get("Module::PaymentDTO:0") == "data_model"
+    # Outgoing calls → edge_count for dim_graph (PaymentService: 2; BaseController: none).
+    assert roles.get("Module::BaseController:0") == "supporting"
+
+    # Resolved wiki links from [[...]] without mutating pages (operator.add safe).
+    resolved = result.get("resolved_links") or {}
+    sys_path = "wiki/_system_overview"
+    assert sys_path in resolved
+    targets = {entry["target_path"] for entry in resolved[sys_path]}
+    assert "wiki/payment" in targets
+    assert "wiki/user-management" in targets
 
     # Phase 1: detect_reorg should return first_run
     assert result.get("reorg_type") == "first_run"
@@ -259,6 +278,7 @@ async def test_pipeline_empty_modules_completes():
         "generated_topic_pages": [],
         "overview_pages": [],
         "system_overview_uid": "",
+        "resolved_links": {},
     }
 
     result = await pipeline.ainvoke(
@@ -315,6 +335,7 @@ async def test_pipeline_incremental_no_change_skips():
         "generated_topic_pages": [],
         "overview_pages": [],
         "system_overview_uid": "",
+        "resolved_links": {},
     }
 
     result = await pipeline.ainvoke(

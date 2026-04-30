@@ -21,6 +21,8 @@ import WikiActiveTasks from "./WikiActiveTasks";
 import WikiGenerationProgress from "./WikiGenerationProgress";
 import WikiUpdateNotification from "./WikiUpdateNotification";
 import WikiTreeNav from "./WikiTreeNav";
+import WikiTopicTreeNav from "./WikiTopicTreeNav";
+import { useWikiTopicTree } from "../../hooks/useWikiDomainTree";
 
 export { WikiToolSuspenseFallback };
 
@@ -87,6 +89,23 @@ export default function WikiShell() {
       return false;
     }
   });
+
+  const [treeViewMode, setTreeViewMode] = useState<"topic" | "code">("topic");
+  const topicTreeQuery = useWikiTopicTree(businessId);
+
+  const onTopicTreeSelect = useCallback(
+    (path: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("path", path);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
@@ -199,14 +218,65 @@ export default function WikiShell() {
           className={`transition-all duration-300 ${sidebarCollapsed ? "w-0 overflow-hidden lg:w-0" : "w-full lg:w-64 xl:w-72"}`}
         >
           {!sidebarCollapsed && (
-            <WikiTreeNav
-              businessId={businessId}
-              viewType={viewType}
-              activePath={pagePath}
-              onViewChange={setViewType}
-              wikiTier={wikiTier}
-              onWikiTierChange={setWikiTier}
-            />
+            <div className="flex w-full flex-col gap-0">
+              <div className="flex gap-1 border-b border-gray-200 p-2 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => setTreeViewMode("topic")}
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                    treeViewMode === "topic"
+                      ? "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400"
+                      : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  }`}
+                >
+                  主题树
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTreeViewMode("code")}
+                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                    treeViewMode === "code"
+                      ? "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400"
+                      : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  }`}
+                >
+                  代码结构
+                </button>
+              </div>
+              {treeViewMode === "topic" ? (
+                <aside className="flex w-full shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
+                  <div className="max-h-[min(70vh,560px)] overflow-y-auto p-2">
+                    {topicTreeQuery.isLoading && (
+                      <p className="flex items-center gap-2 px-2 py-4 text-sm text-gray-500 dark:text-gray-400">
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                        {t.wiki.loadingPages}
+                      </p>
+                    )}
+                    {topicTreeQuery.isError && (
+                      <p className="px-2 py-3 text-sm text-red-600 dark:text-red-400">
+                        {getErrorMessage(topicTreeQuery.error, t.common.unexpectedError)}
+                      </p>
+                    )}
+                    {!topicTreeQuery.isLoading && !topicTreeQuery.isError && (
+                      <WikiTopicTreeNav
+                        tree={topicTreeQuery.data?.tree ?? []}
+                        selectedPath={pagePath || null}
+                        onSelect={onTopicTreeSelect}
+                      />
+                    )}
+                  </div>
+                </aside>
+              ) : (
+                <WikiTreeNav
+                  businessId={businessId}
+                  viewType={viewType}
+                  activePath={pagePath}
+                  onViewChange={setViewType}
+                  wikiTier={wikiTier}
+                  onWikiTierChange={setWikiTier}
+                />
+              )}
+            </div>
           )}
         </div>
 

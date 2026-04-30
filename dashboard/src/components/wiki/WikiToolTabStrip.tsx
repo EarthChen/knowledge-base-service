@@ -1,6 +1,7 @@
 import { useCallback, type ReactNode } from "react";
 import {
   Activity,
+  Atom,
   FileOutput,
   GitBranch,
   LayoutGrid,
@@ -65,6 +66,11 @@ export default function WikiToolTabStrip({ toolTab, onToolTabChange }: Props) {
         "refgraph",
         t.wiki.tabRefGraph,
         <GitBranch size={14} className="text-cyan-600 dark:text-cyan-400" aria-hidden />,
+      )}
+      {tabBtn(
+        "knowledge_graph",
+        t.wiki.tabKnowledgeGraph,
+        <Atom size={14} className="text-fuchsia-600 dark:text-fuchsia-400" aria-hidden />,
       )}
       {tabBtn(
         "research",

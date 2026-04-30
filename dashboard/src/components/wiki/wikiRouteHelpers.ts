@@ -24,6 +24,7 @@ const TOOL_TABS = new Set([
   "refgraph",
   "research",
   "flows",
+  "knowledge_graph",
 ]);
 
 const WIKI_TIERS = new Set(["standard", "essential", "comprehensive"] as const);
@@ -48,7 +49,8 @@ export function parseWikiSearchParams(search: URLSearchParams) {
     | "insights"
     | "refgraph"
     | "research"
-    | "flows" =
+    | "flows"
+    | "knowledge_graph" =
     rawTool && TOOL_TABS.has(rawTool)
       ? (rawTool as
           | "page"
@@ -58,7 +60,8 @@ export function parseWikiSearchParams(search: URLSearchParams) {
           | "insights"
           | "refgraph"
           | "research"
-          | "flows")
+          | "flows"
+          | "knowledge_graph")
       : "page";
   return {
     path: search.get("path") || null,

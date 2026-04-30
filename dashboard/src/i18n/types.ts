@@ -634,6 +634,7 @@ export interface Translations {
     tabInsights: string;
     tabExport: string;
     tabRefGraph: string;
+    tabKnowledgeGraph: string;
     tabResearch: string;
     tabFlows: string;
     businessView: string;

@@ -620,6 +620,7 @@ const en: Translations = {
     tabInsights: "Insights",
     tabExport: "Export",
     tabRefGraph: "Reference graph",
+    tabKnowledgeGraph: "Knowledge graph",
     tabResearch: "Research",
     tabFlows: "Flows",
     businessView: "Business",

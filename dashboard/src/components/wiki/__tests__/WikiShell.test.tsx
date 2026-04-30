@@ -32,9 +32,19 @@ vi.mock("../WikiBusinessExportPanel", () => ({ default: () => <div data-testid="
 vi.mock("../WikiLandingPage", () => ({ default: () => <div data-testid="mock-landing" /> }));
 vi.mock("../WikiLintPanel", () => ({ default: () => <div data-testid="mock-lint" /> }));
 vi.mock("../WikiTreeNav", () => ({ default: () => <div data-testid="mock-tree" /> }));
+vi.mock("../WikiTopicTreeNav", () => ({ default: () => <div data-testid="mock-topic-tree" /> }));
 vi.mock("../WikiSearchBar", () => ({ default: () => <div data-testid="mock-search" /> }));
 vi.mock("../WikiGenerationProgress", () => ({ default: () => <div data-testid="mock-gen-progress" /> }));
 vi.mock("../WikiUpdateNotification", () => ({ default: () => <div data-testid="mock-update" /> }));
+
+vi.mock("../../../hooks/useWikiDomainTree", () => ({
+  useWikiTopicTree: () => ({ data: { tree: [] }, isLoading: false, isError: false }),
+  useWikiDomainTree: () => ({ data: undefined, isLoading: false, isError: false }),
+}));
+
+vi.mock("../WikiKnowledgeGraph", () => ({
+  default: () => <div data-testid="mock-knowledge-graph" />,
+}));
 
 const generateMock = vi.fn().mockResolvedValue({ task_id: null as string | null });
 vi.mock("../../../api/client", async (importOriginal) => {
@@ -67,7 +77,7 @@ describe("WikiShell", () => {
 
   it("renders shell with landing on page tab and no path", () => {
     renderShell("/wiki?business_id=b1");
-    expect(screen.getByTestId("mock-tree")).toBeInTheDocument();
+    expect(screen.getByTestId("mock-topic-tree")).toBeInTheDocument();
     expect(screen.getByTestId("mock-search")).toBeInTheDocument();
     expect(screen.getByTestId("mock-landing")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Page" })).toBeInTheDocument();
@@ -86,7 +96,7 @@ describe("WikiShell", () => {
     const user = userEvent.setup();
     renderShell("/wiki?business_id=b1");
     await user.click(screen.getByRole("button", { name: "Regenerate" }));
-    expect(generateMock).toHaveBeenCalledWith("b1", "en", true);
+    expect(generateMock).toHaveBeenCalledWith("b1", "en", true, "full");
   });
 
   it("wiki tool Suspense fallback uses i18n loading string", () => {

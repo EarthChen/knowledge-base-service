@@ -40,4 +40,9 @@ describe("parseWikiSearchParams", () => {
     expect(result.toolTab).toBe("export");
     expect(result.wikiTier).toBe("standard");
   });
+
+  it("parses knowledge_graph tool tab", () => {
+    const sp = new URLSearchParams("tool=knowledge_graph");
+    expect(parseWikiSearchParams(sp).toolTab).toBe("knowledge_graph");
+  });
 });

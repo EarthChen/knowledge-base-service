@@ -1,15 +1,21 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useI18n } from "../../i18n/context";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { WikiPageDetail } from "../../hooks/wikiTypes";
 import { useWikiDocumentationQualitySummary } from "../../hooks/useWikiQualityScore";
+import { useWikiDomainTree, type TopicTreeNode } from "../../hooks/useWikiDomainTree";
+import { useSetPageReview, useRegeneratePage } from "../../hooks/useWikiReview";
 import ErrorBoundary from "../ErrorBoundary";
 import AskPanel from "./AskPanel";
 import WikiContent from "./WikiContent";
+import WikiTopicContent from "./WikiTopicContent";
 import WikiCoverageCard from "./WikiCoverageCard";
 import WikiQualityScoreCard from "./WikiQualityScoreCard";
 import WikiQualitySummary from "./WikiQualitySummary";
 import WikiLandingPage from "./WikiLandingPage";
+import WikiDomainReviewPanel from "./WikiDomainReviewPanel";
+import WikiKnowledgeGraph from "./WikiKnowledgeGraph";
 
 const WikiReferenceGraph = lazy(() => import("./WikiReferenceGraph"));
 const GraphInsightsPanel = lazy(() => import("./GraphInsightsPanel"));
@@ -26,7 +32,8 @@ export type WikiToolTab =
   | "insights"
   | "refgraph"
   | "research"
-  | "flows";
+  | "flows"
+  | "knowledge_graph";
 
 /** Used as Suspense fallback for lazy wiki tool panels. Exported for i18n tests. */
 export function WikiToolSuspenseFallback() {
@@ -56,6 +63,25 @@ function panelBoundary(children: ReactNode) {
   return <ErrorBoundary fallbackLabel="Wiki tool panel failed to render">{children}</ErrorBoundary>;
 }
 
+function mapTopicTreeToDomainPanelNodes(
+  nodes: TopicTreeNode[],
+): { name: string; description?: string; modules: string[]; children: ReturnType<typeof mapTopicTreeToDomainPanelNodes> }[] {
+  return nodes.map((n) => ({
+    name: n.name,
+    modules: [],
+    children: mapTopicTreeToDomainPanelNodes(n.children ?? []),
+  }));
+}
+
+function findTopicPathByName(nodes: TopicTreeNode[], name: string): string | null {
+  for (const n of nodes) {
+    if (n.name === name) return n.path;
+    const nested = findTopicPathByName(n.children ?? [], name);
+    if (nested) return nested;
+  }
+  return null;
+}
+
 export default function WikiToolPanel({
   toolTab,
   businessId,
@@ -67,12 +93,89 @@ export default function WikiToolPanel({
   wikiLinkParams,
   onAskQuestion,
 }: Props) {
+  const [, setSearchParams] = useSearchParams();
+  const [domainReviewOpen, setDomainReviewOpen] = useState(false);
+  const domainTreeQuery = useWikiDomainTree(businessId);
+  const setPageReview = useSetPageReview();
+  const regeneratePage = useRegeneratePage();
+
   const docQualityRepo =
     pageQuery.data?.context?.repository?.trim() || businessId.trim();
   const docQualitySummary = useWikiDocumentationQualitySummary(docQualityRepo, toolTab === "coverage");
 
+  const pageType = pageQuery.data?.context?.page_type?.trim() ?? "";
+  const useTopicLayout = useMemo(
+    () => ["topic", "domain_overview", "system_overview"].includes(pageType),
+    [pageType],
+  );
+
+  const pendingDomainReview = domainTreeQuery.data?.review_status?.domain_tree === "pending_review";
+
+  const handleKnowledgeGraphNodeClick = useCallback(
+    (domainId: string) => {
+      const tree = domainTreeQuery.data?.tree ?? [];
+      const path = findTopicPathByName(tree, domainId);
+      if (!path) return;
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("path", path);
+          next.delete("tool");
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [domainTreeQuery.data?.tree, setSearchParams],
+  );
+
+  const domainGraphDomains = useMemo(
+    () =>
+      (domainTreeQuery.data?.tree ?? []).map((d) => ({
+        id: d.name,
+        label: d.name,
+        children: [] as string[],
+      })),
+    [domainTreeQuery.data?.tree],
+  );
+
   return (
     <>
+      {pendingDomainReview && !domainReviewOpen && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          <span>域树待审阅 — 请确认域划分是否合理。</span>
+          <button
+            type="button"
+            onClick={() => setDomainReviewOpen(true)}
+            className="font-medium text-sky-700 underline decoration-sky-600/60 hover:text-sky-800 dark:text-sky-400 dark:hover:text-sky-300"
+          >
+            展开域审阅面板
+          </button>
+        </div>
+      )}
+
+      {pendingDomainReview && domainReviewOpen && (
+        <div className="mb-4 space-y-2">
+          <button
+            type="button"
+            onClick={() => setDomainReviewOpen(false)}
+            className="text-xs font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+          >
+            收起域审阅
+          </button>
+          {panelBoundary(
+            <WikiDomainReviewPanel
+              domainTree={mapTopicTreeToDomainPanelNodes(domainTreeQuery.data?.tree ?? [])}
+              reviewStatus={domainTreeQuery.data?.review_status ?? {}}
+              onApprove={() => setDomainReviewOpen(false)}
+              onRegenerate={() => {
+                /* Per-domain regenerate API not wired yet */
+              }}
+            />,
+          )}
+        </div>
+      )}
+
       {toolTab === "page" && !pagePath && (
         <div role="tabpanel" id="wiki-panel-page" aria-labelledby="wiki-tab-page">
           {panelBoundary(<WikiLandingPage businessId={businessId} viewType={viewType} wikiTier={wikiTier} />)}
@@ -83,16 +186,42 @@ export default function WikiToolPanel({
         <div role="tabpanel" id="wiki-panel-page" aria-labelledby="wiki-tab-page">
           {panelBoundary(
             <>
-              <WikiContent
-                repository={pageQuery.data?.context?.repository ?? businessId}
-                businessId={businessId}
-                pagePath={pagePath}
-                detail={pageQuery.data ?? undefined}
-                isLoading={pageQuery.isLoading}
-                error={contentError}
-                wikiLinkParams={wikiLinkParams}
-                onAskQuestion={onAskQuestion}
-              />
+              {useTopicLayout && pageQuery.data ? (
+                <WikiTopicContent
+                  page={{
+                    title: pageQuery.data.title,
+                    content: pageQuery.data.content,
+                    path: pageQuery.data.path || pagePath,
+                    page_type: pageType,
+                    domain: pageQuery.data.context?.business_domain,
+                    review_status: pageQuery.data.context?.review_status,
+                  }}
+                  onReviewAction={(action, notes) => {
+                    if (action === "approve") {
+                      setPageReview.mutate({ pagePath, status: "approved", notes: "" });
+                    } else if (action === "needs_revision") {
+                      setPageReview.mutate({
+                        pagePath,
+                        status: "needs_revision",
+                        notes: notes ?? "",
+                      });
+                    } else {
+                      regeneratePage.mutate({ pagePath });
+                    }
+                  }}
+                />
+              ) : (
+                <WikiContent
+                  repository={pageQuery.data?.context?.repository ?? businessId}
+                  businessId={businessId}
+                  pagePath={pagePath}
+                  detail={pageQuery.data ?? undefined}
+                  isLoading={pageQuery.isLoading}
+                  error={contentError}
+                  wikiLinkParams={wikiLinkParams}
+                  onAskQuestion={onAskQuestion}
+                />
+              )}
               <AskPanel repository={businessId} />
             </>,
           )}
@@ -182,6 +311,18 @@ export default function WikiToolPanel({
             <Suspense fallback={<WikiToolSuspenseFallback />}>
               <WikiBusinessFlowGraph businessId={businessId} />
             </Suspense>,
+          )}
+        </div>
+      )}
+
+      {toolTab === "knowledge_graph" && (
+        <div role="tabpanel" id="wiki-panel-knowledge_graph" aria-labelledby="wiki-tab-knowledge_graph">
+          {panelBoundary(
+            <WikiKnowledgeGraph
+              domains={domainGraphDomains}
+              domainEdges={[]}
+              onNodeClick={handleKnowledgeGraphNodeClick}
+            />,
           )}
         </div>
       )}

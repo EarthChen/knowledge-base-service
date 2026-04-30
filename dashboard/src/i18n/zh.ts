@@ -613,6 +613,7 @@ const zh: Translations = {
     tabInsights: "洞察",
     tabExport: "导出",
     tabRefGraph: "引用图",
+    tabKnowledgeGraph: "知识图谱",
     tabResearch: "深度研究",
     tabFlows: "业务流",
     businessView: "业务视角",

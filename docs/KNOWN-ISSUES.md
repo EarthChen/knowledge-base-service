@@ -6,32 +6,35 @@
 
 ## Issue 1: Wiki 页面粒度过细（P0 — 核心质量问题）
 
-**状态:** 未解决  
+**状态:** ✅ 已实现（待生产验证）  
 **影响:** Wiki 为每个 Java 类/枚举创建独立页面（如 AtTypeEnum, Assertions, AssertUtil），产生 ~967 个页面，缺乏业务语义聚合。
 
-**现象:**
-- 每个代码实体一个 `module_overview` 页面
-- 基础类、枚举、工具类占据大量页面，无业务价值
-- 缺少按业务主题聚合的概览页面
+**解决方案（Sprint 1-3 已实现）:**
 
-**期望:**
-- 按业务域（用户系统、支付系统、消息系统等）组织 Wiki 树
-- 每个域有概览页 + 关键模块详情页，而非每个类一页
-- 类似 DeepWiki 风格：8-12 个顶层主题，每主题 3-5 个子页面
+1. **EntityRoleClassifier (Phase 1)** — 两阶段实体分类器 (`wiki/entity_role_classifier.py`)
+   - Phase 1: 确定性规则过滤框架噪音（@Data, @Resource 注解; DTO/VO/PO 命名; 枚举; LOC<10）
+   - Phase 2: 业务逻辑密度评分（方法数、图谱连接度、语义角色、代码量）→ HAS_BUSINESS_LOGIC / SUPPORTING / DATA_MODEL / FRAMEWORK_NOISE
 
-**根因分析:**
-- `WikiStructurePlanner` 为每个图谱中的 MODULE 节点创建页面
-- 无重要性过滤 — 所有模块（包括枚举、工具类）都生成页面
-- 缺少业务主题聚合层 — 域分类只分桶，不做内容聚合
+2. **LangGraph 4 阶段管道** (`wiki/pipeline_graph.py`, `wiki/pipeline_nodes.py`)
+   - Phase 1: 实体分类 → Phase 2: 域规划（LLM 驱动业务域分组）→ Phase 3: 叶子域内容生成 → Phase 4: 综合与关联
+   - 非阻塞审阅：域树标记 `pending_review`，用户可在 Dashboard 后续审阅
+
+3. **TopicPageComposer (Phase 3)** — 动态内容策略 (`wiki/topic_page_composer.py`)
+   - ≤5 实体: 单页 → 6-15 实体: 概览 + 子页 → >15 实体: LLM 分组 + 子页
+   - DTO/枚举内联为数据模型表格，不再独立成页
+
+4. **Business 管理 API** — 用户显式绑定仓库 (`api/routes/business_routes.py`)
+   - CRUD 管理 Business 实体
+   - 显式绑定仓库到 Business，废弃自动推断
+
+5. **Dashboard 配套** — Sprint 3 全部完成
+   - 主题树导航 (`WikiTopicTreeNav`)、主题内容显示 (`WikiTopicContent`)
+   - 域审阅面板 (`WikiDomainReviewPanel`)、页面审阅栏 (`WikiPageReviewBar`)
+   - 知识图谱可视化 (`WikiKnowledgeGraph`)、WikiShell 集成
 
 **参考:**
 - DeepWiki: LLM 分析文件树 → 生成 XML wiki 结构（8-12 页），每页覆盖一个功能主题
 - CodeWiki: 层级分解 → 特征导向模块树，递归文档生成 + 父模块综合
-
-**可能的解决方向:**
-1. 在 `WikiStructurePlanner` 中添加重要性过滤（仅为 core/standard 模块创建页面）
-2. 添加业务域聚合层：每个域生成一个综合概览页而非 N 个类页面
-3. 参考 DeepWiki 方式：让 LLM 根据域分类结果确定 Wiki 结构（主题 + 子主题）
 
 ---
 

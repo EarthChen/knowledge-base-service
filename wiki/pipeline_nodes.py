@@ -6,6 +6,7 @@ from typing import Any
 
 from log import get_logger
 from store.schema import GraphNode, NodeLabel
+from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
 from wiki.entity_role_classifier import EntityRoleClassifier, WikiEntityRole
 
 log = get_logger(__name__)
@@ -40,6 +41,45 @@ async def classify_entities_node(state: dict[str, Any]) -> dict[str, Any]:
         "entity_roles": entity_roles,
         "role_stats": dict(role_counter),
     }
+
+
+async def classify_domains_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Phase 2a-2b: classify modules into business domains using LLM.
+
+    Filters to HAS_BUSINESS_LOGIC entities only, then delegates to
+    CrossRepoBusinessDomainPlanner for per-repo classification + cross-repo merge.
+    """
+    llm = state.get("llm")
+    business_id = state.get("business_id", "")
+    entity_roles = state.get("entity_roles", {})
+    modules = state.get("modules", {})
+
+    biz_modules: dict[str, list[GraphNode]] = {}
+    for repo, mod_list in modules.items():
+        filtered: list[GraphNode] = []
+        for mod_dict in mod_list:
+            uid = mod_dict.get("uid", "")
+            if entity_roles.get(uid) == "has_business_logic":
+                props = mod_dict.get("properties", {})
+                label_str = mod_dict.get("label", "Module")
+                try:
+                    label = NodeLabel(label_str)
+                except ValueError:
+                    label = NodeLabel.MODULE
+                filtered.append(GraphNode(label=label, properties=props, uid=uid))
+        if filtered:
+            biz_modules[repo] = filtered
+
+    planner = CrossRepoBusinessDomainPlanner(llm)
+    domain_mapping = await planner.classify(business_id, biz_modules)
+
+    log.info(
+        "classify_domains_done",
+        business_id=business_id,
+        domains=len(domain_mapping),
+        total_modules=sum(len(v) for v in domain_mapping.values()),
+    )
+    return {"domain_mapping": domain_mapping}
 
 
 async def detect_reorg_node(state: dict[str, Any]) -> dict[str, Any]:

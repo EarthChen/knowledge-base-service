@@ -8,7 +8,7 @@ from langgraph.graph import StateGraph
 
 from log import get_logger
 from wiki.models import ImportanceTier, WikiPage
-from wiki.pipeline_nodes import classify_entities_node
+from wiki.pipeline_nodes import classify_entities_node, classify_domains_node as classify_domains_real
 from wiki.pipeline_state import WikiPipelineState
 from wiki.quality_evaluator import WikiQualityEvaluator
 
@@ -29,11 +29,6 @@ def should_heal(state: WikiPipelineState) -> str:
 # ---------------------------------------------------------------------------
 # Stub nodes (to be replaced with real logic in later Sprints)
 # ---------------------------------------------------------------------------
-
-async def classify_domains_node(state: WikiPipelineState) -> dict[str, Any]:
-    log.info("pipeline_node_stub", node="classify_domains")
-    return {}
-
 
 async def decompose_hierarchy_node(state: WikiPipelineState) -> dict[str, Any]:
     log.info("pipeline_node_stub", node="decompose_hierarchy")
@@ -158,7 +153,7 @@ def build_wiki_pipeline(checkpointer: Any | None = None) -> Any:
     graph = StateGraph(WikiPipelineState)
 
     graph.add_node("collect_modules", classify_entities_node)
-    graph.add_node("classify_domains", classify_domains_node)
+    graph.add_node("classify_domains", classify_domains_real)
     graph.add_node("decompose_hierarchy", decompose_hierarchy_node)
     graph.add_node("plan_structure", plan_structure_node)
     graph.add_node("compose_pages", compose_pages_node)

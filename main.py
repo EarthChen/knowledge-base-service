@@ -24,6 +24,7 @@ from api.rate_limiter import install_rate_limiter
 # Import route modules for side effects (registers handlers on shared routers)
 import api.routes.admin_graph_mcp_routes  # noqa: F401
 import api.routes.business_sync_routes  # noqa: F401
+from api.routes.business_routes import router as business_router
 import api.routes.indexing_routes  # noqa: F401
 import api.routes.public_health_routes  # noqa: F401
 import api.routes.repository_routes  # noqa: F401
@@ -42,12 +43,25 @@ from log import get_logger, setup_logging
 from services.repo_registry import RepoRegistry
 from services.scheduler import SyncScheduler
 from services.service_registry import ServiceRegistry
+from store.falkordb_store import FalkorDBStore, QueryResultWrapper
 from wiki.bootstrap import bootstrap_wiki, teardown_wiki
 
 # Backward-compatible names for tests and external imports
 from api.routes.kb_dependencies import get_service as _get_service
 
 log = get_logger(__name__)
+
+
+class _AppGraphQuery:
+    """Expose ``FalkorDBStore.execute_query`` as ``async graph.query`` for business routes."""
+
+    __slots__ = ("_store",)
+
+    def __init__(self, store: FalkorDBStore) -> None:
+        self._store = store
+
+    async def query(self, cypher: str, params: dict[str, Any] | None = None) -> QueryResultWrapper:
+        return await self._store.execute_query(cypher, params or {})
 
 
 def _startup_auth_gate(settings: Settings) -> None:
@@ -117,6 +131,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         repo_registry=kb_state.repo_registry,
     )
     await kb_state.registry.start()
+
+    _default_kb = await kb_state.registry.get_service("default")
+    app.state.graph = _AppGraphQuery(_default_kb.store)
 
     kb_state.scheduler = SyncScheduler(
         kb_state.registry,
@@ -260,6 +277,7 @@ def create_app() -> FastAPI:
     app.include_router(editor_router)
     app.include_router(admin_router)
     app.include_router(settings_router)
+    app.include_router(business_router)
 
     if _STATIC_DIR.is_dir():
         app.mount("/assets", StaticFiles(directory=_STATIC_DIR / "assets"), name="static-assets")

@@ -40,6 +40,7 @@ vi.mock("../WikiUpdateNotification", () => ({ default: () => <div data-testid="m
 vi.mock("../../../hooks/useWikiDomainTree", () => ({
   useWikiTopicTree: () => ({ data: { tree: [] }, isLoading: false, isError: false }),
   useWikiDomainTree: () => ({ data: undefined, isLoading: false, isError: false }),
+  useWikiDomainEdges: () => ({ data: undefined, isLoading: false, isError: false }),
 }));
 
 vi.mock("../WikiKnowledgeGraph", () => ({

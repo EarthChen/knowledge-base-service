@@ -4,7 +4,7 @@ import { useI18n } from "../../i18n/context";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { WikiPageDetail } from "../../hooks/wikiTypes";
 import { useWikiDocumentationQualitySummary } from "../../hooks/useWikiQualityScore";
-import { useWikiDomainTree, type TopicTreeNode } from "../../hooks/useWikiDomainTree";
+import { useWikiDomainTree, useWikiDomainEdges, type TopicTreeNode } from "../../hooks/useWikiDomainTree";
 import { useSetPageReview, useRegeneratePage } from "../../hooks/useWikiReview";
 import ErrorBoundary from "../ErrorBoundary";
 import AskPanel from "./AskPanel";
@@ -96,6 +96,7 @@ export default function WikiToolPanel({
   const [, setSearchParams] = useSearchParams();
   const [domainReviewOpen, setDomainReviewOpen] = useState(false);
   const domainTreeQuery = useWikiDomainTree(businessId);
+  const domainEdgesQuery = useWikiDomainEdges(businessId);
   const setPageReview = useSetPageReview();
   const regeneratePage = useRegeneratePage();
 
@@ -320,7 +321,7 @@ export default function WikiToolPanel({
           {panelBoundary(
             <WikiKnowledgeGraph
               domains={domainGraphDomains}
-              domainEdges={[]}
+              domainEdges={domainEdgesQuery.data?.edges ?? []}
               onNodeClick={handleKnowledgeGraphNodeClick}
             />,
           )}

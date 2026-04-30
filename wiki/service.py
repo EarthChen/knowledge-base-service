@@ -356,6 +356,13 @@ class WikiService:
         nested = await ws.get_topic_navigation_tree(business_id)
         return {"tree": nested}
 
+    async def get_domain_edges(self, business_id: str) -> dict[str, Any]:
+        """Compute cross-domain CALLS edges for knowledge graph."""
+        if self._store is None:
+            return {"edges": []}
+        ws = WikiStore(self._store)
+        return await ws.get_domain_edges(business_id)
+
     def _config_for(
         self,
         mode: str,

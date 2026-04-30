@@ -1,4 +1,4 @@
-"""HTTP tests for GET /api/v1/wiki/domain-tree and /topic-tree."""
+"""HTTP tests for GET /api/v1/wiki/domain-tree, /topic-tree, and /domain-edges."""
 
 from __future__ import annotations
 
@@ -78,3 +78,58 @@ async def test_get_topic_tree_returns_tree() -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert "tree" in data
+
+
+@pytest.mark.asyncio
+async def test_get_domain_edges_returns_empty_on_fallback() -> None:
+    """GET /wiki/domain-edges should return empty edges on AttributeError."""
+
+    class _SvcWithoutDomainEdges:
+        pass
+
+    with patch(
+        "api.routes.wiki_page_routes._get_wiki_service",
+        new=AsyncMock(return_value=_SvcWithoutDomainEdges()),
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(
+                "/api/v1/wiki/domain-edges",
+                params={"business_id": "test-biz"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("edges") == []
+
+
+@pytest.mark.asyncio
+async def test_get_domain_edges_returns_edges() -> None:
+    """GET /wiki/domain-edges should return edges from the wiki service."""
+    mock_svc = AsyncMock()
+    mock_svc.get_domain_edges = AsyncMock(
+        return_value={
+            "edges": [
+                {"source": "payment", "target": "orders", "label": "CALLS (3)"},
+            ],
+        },
+    )
+
+    with patch(
+        "api.routes.wiki_page_routes._get_wiki_service",
+        new=AsyncMock(return_value=mock_svc),
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(
+                "/api/v1/wiki/domain-edges",
+                params={"business_id": "test-biz"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["edges"]) == 1
+    assert data["edges"][0]["source"] == "payment"
+    assert data["edges"][0]["target"] == "orders"

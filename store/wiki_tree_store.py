@@ -252,6 +252,52 @@ class WikiTreeStoreMixin:
         roots = self._nested_trees_from_wiki_tree_rows(flat)
         return self._prune_wiki_tree_to_topic_pages(roots)
 
+    async def get_domain_edges(self, business_id: str) -> dict[str, Any]:
+        """Compute cross-domain relationship edges.
+
+        Finds CALLS edges between entities whose wiki pages sit under different
+        top-level WikiSection buckets in the business_domain view (first section
+        on the path from WikiSpace to the page).
+        """
+        q = (
+            "MATCH (ws:WikiSpace {business_id: $bid}) "
+            "MATCH pth1 = (ws)-[:HAS_CHILD*1..10]->(wp1:WikiPage) "
+            "WHERE ALL(r IN relationships(pth1) WHERE r.view_type = 'business_domain') "
+            "MATCH (wp1)-[:SOURCE_ENTITY]->(e1)-[:CALLS]->(e2)<-[:SOURCE_ENTITY]-(wp2:WikiPage) "
+            "MATCH pth2 = (ws)-[:HAS_CHILD*1..10]->(wp2) "
+            "WHERE ALL(r IN relationships(pth2) WHERE r.view_type = 'business_domain') "
+            "WITH "
+            "head([n IN tail(nodes(pth1)) WHERE 'WikiSection' IN labels(n) | coalesce(n.title, '')]) AS domain1, "
+            "head([n IN tail(nodes(pth2)) WHERE 'WikiSection' IN labels(n) | coalesce(n.title, '')]) AS domain2 "
+            "WHERE domain1 <> '' AND domain2 <> '' AND domain1 <> domain2 "
+            "RETURN domain1 AS source, domain2 AS target, count(*) AS weight "
+            "ORDER BY weight DESC "
+            "LIMIT 50"
+        )
+        try:
+            result = await self._store.execute_query(q, {"bid": business_id})
+            rows = list(getattr(result, "data", None) or [])
+            edges: list[dict[str, Any]] = []
+            seen: set[tuple[str, str]] = set()
+            for row in rows:
+                src = row.get("source") if isinstance(row, dict) else None
+                tgt = row.get("target") if isinstance(row, dict) else None
+                weight = row.get("weight") if isinstance(row, dict) else None
+                if not isinstance(src, str) or not isinstance(tgt, str):
+                    continue
+                key = (src, tgt)
+                if key not in seen and (tgt, src) not in seen:
+                    seen.add(key)
+                    w = int(weight) if weight is not None else 0
+                    edges.append({
+                        "source": src,
+                        "target": tgt,
+                        "label": f"CALLS ({w})",
+                    })
+            return {"edges": edges}
+        except Exception:
+            return {"edges": []}
+
     async def get_nested_tree(
         self,
         root_uid: str,

@@ -35,3 +35,22 @@ export function useWikiDomainTree(businessId: string) {
     staleTime: 30_000,
   });
 }
+
+interface DomainEdge {
+  source: string;
+  target: string;
+  label: string;
+}
+
+interface DomainEdgesResponse {
+  edges: DomainEdge[];
+}
+
+export function useWikiDomainEdges(businessId: string) {
+  return useQuery<DomainEdgesResponse>({
+    queryKey: ["wiki", "domain-edges", businessId],
+    queryFn: () => api(`/wiki/domain-edges?business_id=${encodeURIComponent(businessId)}`),
+    enabled: !!businessId,
+    staleTime: 60_000,
+  });
+}

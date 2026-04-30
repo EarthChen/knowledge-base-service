@@ -505,6 +505,24 @@ async def get_topic_tree(
         return {"tree": []}
 
 
+@router.get("/domain-edges", response_model=None)
+async def get_domain_edges(
+    request: Request,
+    business_id: str = Query(..., description="Business ID"),
+) -> dict[str, Any]:
+    """Return cross-domain relationship edges for knowledge graph.
+
+    Computes CALLS relationships between entities in different domains
+    to build an edge list: [{source: domain_a, target: domain_b, label: "CALLS"}].
+    """
+    svc = await _get_wiki_service(request)
+    try:
+        return await svc.get_domain_edges(business_id)
+    except AttributeError:
+        log.warning("domain_edges_not_implemented", business_id=business_id)
+        return {"edges": []}
+
+
 @router.post(
     "/export",
     response_model=None,

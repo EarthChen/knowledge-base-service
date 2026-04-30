@@ -17,6 +17,17 @@ describe("WikiTopicContent", () => {
     review_status: "pending_review",
   };
 
+  it("shows fallback when page is null or undefined", () => {
+    // Props widened to allow null — verifies no crash and placeholder copy
+    const { rerender } = render(
+      <WikiTopicContent page={null} onReviewAction={vi.fn()} />,
+    );
+    expect(screen.getByText("请选择一个主题页面")).toBeInTheDocument();
+
+    rerender(<WikiTopicContent page={undefined} onReviewAction={vi.fn()} />);
+    expect(screen.getByText("请选择一个主题页面")).toBeInTheDocument();
+  });
+
   it("renders page title", () => {
     render(<WikiTopicContent page={page} onReviewAction={vi.fn()} />);
     expect(screen.getByText("Payment Service")).toBeInTheDocument();

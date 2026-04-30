@@ -60,7 +60,7 @@ describe("WikiPageReviewBar", () => {
     expect(onRegen).toHaveBeenCalledWith("wiki/p");
   });
 
-  it("shows inline notes for 📝 and submits needs_revision with notes", () => {
+  it("shows inline notes for 📝 and submits needs_revision with captured trimmed notes on Enter", () => {
     const onChange = vi.fn();
     render(
       <WikiPageReviewBar
@@ -73,13 +73,15 @@ describe("WikiPageReviewBar", () => {
     fireEvent.click(screen.getByTitle("添加意见"));
     const input = screen.getByPlaceholderText("审阅意见...");
     expect(input).toBeInTheDocument();
-    fireEvent.change(input, { target: { value: "Add diagrams" } });
+    fireEvent.change(input, { target: { value: "  Add diagrams  " } });
     fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith("wiki/p", "needs_revision", "Add diagrams");
+    expect(onChange.mock.calls[0][2]).toBe("Add diagrams");
     expect(screen.getByTitle("添加意见")).toBeInTheDocument();
   });
 
-  it("submits inline notes via 确定 and closes on ✕", () => {
+  it("submits inline notes via 确定 with captured trimmed text and closes on ✕", () => {
     const onChange = vi.fn();
     render(
       <WikiPageReviewBar
@@ -91,10 +93,12 @@ describe("WikiPageReviewBar", () => {
     );
     fireEvent.click(screen.getByTitle("添加意见"));
     fireEvent.change(screen.getByPlaceholderText("审阅意见..."), {
-      target: { value: "Minor typos" },
+      target: { value: "  Minor typos  " },
     });
     fireEvent.click(screen.getByText("确定"));
+    expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith("wiki/x", "needs_revision", "Minor typos");
+    expect(onChange.mock.calls[0][2]).toBe("Minor typos");
 
     fireEvent.click(screen.getByTitle("添加意见"));
     fireEvent.change(screen.getByPlaceholderText("审阅意见..."), { target: { value: "n" } });

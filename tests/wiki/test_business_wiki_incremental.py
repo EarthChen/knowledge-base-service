@@ -9,13 +9,14 @@ from config import AppWikiFlags as WikiAppConfig, EmbeddingConfig
 @pytest.fixture
 def wiki_service_deps():
     graph = AsyncMock()
-    # Non-empty modules so each indexed repo appears in all_modules
     graph.list_repository_modules = AsyncMock(return_value=[MagicMock()])
+    graph.get_repo_stats = AsyncMock(return_value={"module_count": 0, "class_count": 0, "function_count": 0})
     store = MagicMock()
     store.execute_query = AsyncMock(return_value=MagicMock(data=[], raw=[]))
     store.persist_wiki_pages = AsyncMock()
     wiki_store = MagicMock()
     wiki_store._store = store
+    wiki_store.execute_query = AsyncMock(return_value=MagicMock(data=[], raw=[]))
     wiki_store.list_indexed_repositories = AsyncMock(return_value=[
         {"repository": "repo-a", "module_count": 5},
         {"repository": "repo-b", "module_count": 3},

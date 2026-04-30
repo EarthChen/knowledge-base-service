@@ -3,6 +3,10 @@ from __future__ import annotations
 
 from typing import Annotated, Any, TypedDict
 
+from log import get_logger
+
+log = get_logger(__name__)
+
 
 def merge_wiki_pages(
     left: list[dict[str, Any]], right: list[dict[str, Any]]
@@ -18,6 +22,7 @@ def merge_wiki_pages(
     for p in left:
         path = str(p.get("path") or "")
         if not path:
+            log.warning("merge_wiki_pages_skip_no_path", page_title=p.get("title", ""))
             continue
         if path not in by_path:
             order.append(path)
@@ -25,6 +30,7 @@ def merge_wiki_pages(
     for p in right:
         path = str(p.get("path") or "")
         if not path:
+            log.warning("merge_wiki_pages_skip_no_path", page_title=p.get("title", ""))
             continue
         if path not in by_path:
             order.append(path)

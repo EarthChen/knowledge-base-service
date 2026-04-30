@@ -278,7 +278,7 @@ async def compose_pages_node(
                     "name": mod_name,
                     "summary": str(props.get("business_summary", "") or props.get("docstring", "") or ""),
                     "methods": [str(m) for m in (props.get("methods", []) or [])[:10]],
-                    "calls": [],
+                    "calls": [str(c) for c in (props.get("calls", []) or [])[:15]],
                 })
             elif role == "data_model":
                 data_models.append({
@@ -287,6 +287,9 @@ async def compose_pages_node(
                     "type": "DTO",
                     "fields": [str(f) for f in (props.get("fields", []) or [])[:8]],
                 })
+
+        if len(data_models) > 20:
+            log.info("data_models_truncated", domain=domain_name, total=len(data_models), kept=20)
 
         domain_input = {
             "name": domain_name,
@@ -341,9 +344,11 @@ async def heal_pages_node(
             continue
 
         if llm:
+            heal_budget = TokenBudgetResolver().budget("topic_page_generate")
+            content_char_limit = heal_budget * 3
             heal_prompt = (
                 f"Improve this wiki page. Issues: {hint}\n\n"
-                f"Current content:\n{page_dict.get('content', '')[:2000]}\n\n"
+                f"Current content:\n{page_dict.get('content', '')[:content_char_limit]}\n\n"
                 "Generate an improved version with the same structure but better quality."
             )
             try:
@@ -353,6 +358,7 @@ async def heal_pages_node(
                         "You are a technical wiki author. Output Markdown with Mermaid. "
                         "Use Chinese for business descriptions."
                     ),
+                    max_tokens=heal_budget,
                 )
                 healed_page = {**page_dict, "content": new_content}
                 healed_pages.append(healed_page)

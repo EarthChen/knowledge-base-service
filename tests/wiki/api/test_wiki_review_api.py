@@ -99,9 +99,4 @@ def test_set_page_review_fallback_when_method_missing() -> None:
         "/api/v1/wiki/pages/wiki%2Fpayment/review",
         json={"status": "pending_review", "notes": ""},
     )
-    assert resp.status_code == 200
-    assert resp.json() == {
-        "status": "ok",
-        "page": "wiki/payment",
-        "review_status": "pending_review",
-    }
+    assert resp.status_code == 501

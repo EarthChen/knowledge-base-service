@@ -54,9 +54,10 @@ export default function WikiPageReviewBar({
             autoFocus
             onKeyDown={(e) => {
               if (e.key === "Enter" && notesText.trim()) {
-                onStatusChange(pagePath, "needs_revision", notesText.trim());
+                const text = notesText.trim();
                 setNotesText("");
                 setShowNotes(false);
+                onStatusChange(pagePath, "needs_revision", text);
               }
               if (e.key === "Escape") {
                 setShowNotes(false);
@@ -68,9 +69,10 @@ export default function WikiPageReviewBar({
             type="button"
             onClick={() => {
               if (notesText.trim()) {
-                onStatusChange(pagePath, "needs_revision", notesText.trim());
+                const text = notesText.trim();
                 setNotesText("");
                 setShowNotes(false);
+                onStatusChange(pagePath, "needs_revision", text);
               }
             }}
             className="rounded-md bg-amber-500 px-1.5 py-0.5 text-xs text-white"

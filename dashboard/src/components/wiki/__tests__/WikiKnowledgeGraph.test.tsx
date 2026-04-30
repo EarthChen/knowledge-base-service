@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import WikiKnowledgeGraph from "../WikiKnowledgeGraph";
 
@@ -15,6 +15,10 @@ vi.mock("@xyflow/react", () => ({
 }));
 
 describe("WikiKnowledgeGraph", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   const domains = [
     { id: "payment", label: "Payment", children: [] },
     { id: "user", label: "User", children: [] },
@@ -35,5 +39,28 @@ describe("WikiKnowledgeGraph", () => {
   it("shows empty state when no domains", () => {
     render(<WikiKnowledgeGraph domains={[]} domainEdges={[]} onNodeClick={vi.fn()} />);
     expect(screen.getByText(/暂无域关系数据/)).toBeInTheDocument();
+  });
+
+  it("observes documentElement class changes for dark mode via MutationObserver", () => {
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+
+    class MockMutationObserver {
+      observe = observe;
+      disconnect = disconnect;
+      constructor(_cb: MutationCallback) {}
+    }
+
+    vi.stubGlobal("MutationObserver", MockMutationObserver);
+
+    render(<WikiKnowledgeGraph domains={domains} domainEdges={edges} onNodeClick={vi.fn()} />);
+
+    expect(observe).toHaveBeenCalledWith(
+      document.documentElement,
+      expect.objectContaining({
+        attributes: true,
+        attributeFilter: ["class"],
+      }),
+    );
   });
 });

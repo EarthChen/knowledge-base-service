@@ -11,7 +11,7 @@ interface TopicPage {
 }
 
 interface Props {
-  page: TopicPage;
+  page: TopicPage | null | undefined;
   onReviewAction: (action: "approve" | "needs_revision" | "regenerate", notes?: string) => void;
 }
 
@@ -39,6 +39,7 @@ export default function WikiTopicContent({ page, onReviewAction }: Props) {
   const [notes, setNotes] = useState("");
 
   const reviewBadge = useMemo(() => {
+    if (!page) return null;
     const entry = REVIEW_LABELS[page.review_status ?? ""];
     if (!entry) return null;
     return (
@@ -46,7 +47,15 @@ export default function WikiTopicContent({ page, onReviewAction }: Props) {
         {entry.text}
       </span>
     );
-  }, [page.review_status]);
+  }, [page]);
+
+  if (!page) {
+    return (
+      <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 text-sm text-gray-400 dark:border-gray-600 dark:text-gray-500">
+        请选择一个主题页面
+      </div>
+    );
+  }
 
   return (
     <article className="space-y-6">

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from wiki.pipeline_graph import build_wiki_pipeline
+from wiki.pipeline_nodes import heal_pages_node
 
 _HEAL_GOOD_MARKDOWN = (
     "## Overview\nDetailed description of the business domain and responsibilities.\n\n"
@@ -95,3 +96,53 @@ async def test_heal_loop_does_not_duplicate_pages() -> None:
             continue
         count = paths.count(path)
         assert count == 1, f"Page '{path}' appears {count} times (should be 1)"
+
+
+@pytest.mark.asyncio
+async def test_heal_pages_truncates_content_via_token_budget_and_passes_max_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Heal prompt truncates content using topic_page_generate budget (chars ≈ tokens * 3) and passes max_tokens."""
+    fixed_budget = 100
+    char_limit = fixed_budget * 3
+
+    class FixedResolver:
+        def budget(self, component: str) -> int:
+            assert component == "topic_page_generate"
+            return fixed_budget
+
+    monkeypatch.setattr(
+        "wiki.pipeline_nodes.TokenBudgetResolver",
+        lambda *args, **kwargs: FixedResolver(),
+    )
+
+    long_body = "Z" * 5000
+    page_dict = {
+        "path": "/wiki/heal-budget-test",
+        "title": "Heal budget test",
+        "page_type": "topic",
+        "content": long_body,
+        "diagrams": [],
+        "source_locations": [],
+        "metadata": {"node_count": 0, "edge_count": 0},
+    }
+    state = {
+        "pages_to_heal": ["/wiki/heal-budget-test"],
+        "pages": [page_dict],
+        "heal_attempts": {},
+        "heal_hints": {},
+    }
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(return_value="## Overview\n" + "x" * 250)
+
+    await heal_pages_node(state, {"configurable": {"llm": mock_llm}})
+
+    mock_llm.generate.assert_called_once()
+    call_args, call_kwargs = mock_llm.generate.call_args
+    assert call_kwargs.get("max_tokens") == fixed_budget
+
+    prompt = call_args[0]
+    marker = "Current content:\n"
+    start = prompt.index(marker) + len(marker)
+    end = prompt.index("\n\nGenerate an improved", start)
+    assert len(prompt[start:end]) == char_limit

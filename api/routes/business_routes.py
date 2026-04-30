@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from pydantic import BaseModel, Field, ValidationError
 
 from auth import Role, require_role
 from log import get_logger
@@ -26,7 +26,7 @@ class BusinessUpdate(BaseModel):
 
 
 class RepositoryBind(BaseModel):
-    repositories: list[str]
+    repositories: list[str] = Field(..., min_length=1)
 
 
 @router.get("/businesses")
@@ -95,21 +95,36 @@ async def delete_business(request: Request, business_id: str) -> dict[str, str]:
 
 
 @router.put("/businesses/{business_id}/repositories", dependencies=[Depends(require_role(Role.EDITOR))])
-async def bind_repositories(request: Request, business_id: str, body: RepositoryBind) -> dict[str, Any]:
+async def bind_repositories(
+    request: Request,
+    business_id: str,
+    payload: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
     graph = request.app.state.graph
+    if payload.get("repositories") == []:
+        raise HTTPException(
+            status_code=400,
+            detail="repositories list must not be empty; use DELETE to unbind",
+        )
+    try:
+        body = RepositoryBind.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
     check = "MATCH (b:Business {uid: $bid}) RETURN b.uid"
     result = await graph.query(check, params={"bid": business_id})
     if not result.result_set:
         raise HTTPException(404, f"Business {business_id} not found")
-    q = (
+    await graph.query(
+        "MATCH (b:Business {uid: $bid})-[r:CONTAINS_REPO]->() DELETE r",
+        params={"bid": business_id},
+    )
+    bind_q = (
         "MATCH (b:Business {uid: $bid}) "
-        "OPTIONAL MATCH (b)-[old:CONTAINS_REPO]->() DELETE old "
-        "WITH b "
         "UNWIND $repos AS repo_name "
         "MERGE (r:Repository {name: repo_name}) "
         "MERGE (b)-[:CONTAINS_REPO]->(r)"
     )
-    await graph.query(q, params={"bid": business_id, "repos": body.repositories})
+    await graph.query(bind_q, params={"bid": business_id, "repos": body.repositories})
     return {"business_id": business_id, "repositories": body.repositories}
 
 

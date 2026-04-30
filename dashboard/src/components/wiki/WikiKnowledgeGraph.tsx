@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useState, useEffect } from "react";
 import {
   ReactFlow,
   Background,
@@ -9,6 +9,21 @@ import {
   type NodeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+
+function useDarkMode(): boolean {
+  const [isDark, setIsDark] = useState(() =>
+    document.documentElement.classList.contains("dark"),
+  );
+  useEffect(() => {
+    const el = document.documentElement;
+    const observer = new MutationObserver(() => {
+      setIsDark(el.classList.contains("dark"));
+    });
+    observer.observe(el, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return isDark;
+}
 
 interface DomainInfo {
   id: string;
@@ -29,7 +44,7 @@ interface Props {
 }
 
 export default function WikiKnowledgeGraph({ domains, domainEdges, onNodeClick }: Props) {
-  const isDark = document.documentElement.classList.contains("dark");
+  const isDark = useDarkMode();
 
   const nodes: Node[] = useMemo(() => {
     const cols = Math.max(Math.ceil(Math.sqrt(domains.length)), 1);

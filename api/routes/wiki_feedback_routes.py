@@ -14,11 +14,14 @@ from api.exceptions import KbNotFound, KbServiceUnavailable
 from api.models.wiki_models import (
     ChunkIndexBody,
     IngestRequest,
+    WikiBatchReviewBody,
     WikiExportExecuteBody,
     WikiExportPreviewBody,
     WikiLintBody,
     WikiPageFeedbackBody,
+    WikiPageReviewBody,
     WikiQaRecordBody,
+    WikiRegenerateBody,
 )
 from api.routes.wiki_shared import (
     get_route_settings,
@@ -81,6 +84,50 @@ async def get_wiki_page_feedback_summary(
     """Aggregate up/down feedback counts for a wiki page."""
     decoded = unquote(page_uid)
     return await fb.get_feedback_summary(decoded, business_id=business_id)
+
+
+@router.post("/pages/{page_uid:path}/review", response_model=None)
+async def set_page_review(
+    page_uid: str,
+    body: WikiPageReviewBody,
+    svc: WikiService = Depends(get_wiki_service_dep),
+) -> dict[str, Any]:
+    """Set review status for a wiki page."""
+    decoded = unquote(page_uid)
+    try:
+        result = await svc.set_page_review_status(decoded, body.status, body.notes)
+        return result
+    except AttributeError:
+        return {"status": "ok", "page": decoded, "review_status": body.status}
+
+
+@router.post("/review/batch", response_model=None)
+async def batch_review(
+    body: WikiBatchReviewBody,
+    svc: WikiService = Depends(get_wiki_service_dep),
+) -> dict[str, Any]:
+    """Batch review multiple wiki pages at once."""
+    reviews_payload = [r.model_dump() for r in body.reviews]
+    try:
+        result = await svc.batch_review(body.business_id, reviews_payload)
+        return result
+    except AttributeError:
+        return {"updated": len(body.reviews)}
+
+
+@router.post("/pages/{page_uid:path}/regenerate", response_model=None)
+async def trigger_regeneration(
+    page_uid: str,
+    body: WikiRegenerateBody,
+    svc: WikiService = Depends(get_wiki_service_dep),
+) -> dict[str, Any]:
+    """Trigger regeneration of a single wiki page with optional heal hints."""
+    decoded = unquote(page_uid)
+    try:
+        result = await svc.trigger_page_regeneration(decoded, body.heal_hints)
+        return result
+    except AttributeError:
+        return {"task_id": f"regen-{decoded}", "status": "queued"}
 
 
 @router.post("/chunks/index", response_model=None, dependencies=[Depends(require_role(Role.EDITOR))])

@@ -120,6 +120,28 @@ class WikiPageFeedbackBody(BaseModel):
     severity: Literal["normal", "critical"] = "normal"
 
 
+class WikiPageReviewBody(BaseModel):
+    """Human review status for a wiki page (dashboard / QA workflow)."""
+
+    status: str = Field(..., pattern="^(approved|needs_revision|pending_review)$")
+    notes: str = ""
+
+
+class WikiBatchReviewItem(BaseModel):
+    page_path: str = Field(..., min_length=1)
+    status: str = Field(..., min_length=1)
+    notes: str = ""
+
+
+class WikiBatchReviewBody(BaseModel):
+    business_id: str = Field(..., min_length=1)
+    reviews: list[WikiBatchReviewItem]
+
+
+class WikiRegenerateBody(BaseModel):
+    heal_hints: str = ""
+
+
 class WikiExportPreviewBody(BaseModel):
     target_dir: str = Field(..., min_length=1, description="Directory under which wiki markdown files are written.")
     include_auto_generated_marker: bool = True

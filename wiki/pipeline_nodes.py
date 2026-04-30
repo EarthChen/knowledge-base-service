@@ -9,6 +9,8 @@ from store.schema import GraphNode, NodeLabel
 from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
 from wiki.dependency_graph import HierarchicalDecomposer, ModuleGraph, ModuleInfo
 from wiki.entity_role_classifier import EntityRoleClassifier, WikiEntityRole
+from wiki.token_budget import TokenBudgetResolver
+from wiki.topic_page_composer import TopicPageComposer
 
 log = get_logger(__name__)
 
@@ -201,3 +203,86 @@ async def plan_structure_node(state: dict[str, Any]) -> dict[str, Any]:
 
     log.info("plan_structure_marked_review", tree_size=len(state.get("domain_tree") or []))
     return {"review_status": review_status}
+
+
+def _collect_leaf_domains(tree: list[dict[str, Any]], parent: str = "root") -> list[dict[str, Any]]:
+    """Recursively collect leaf domains (no children or children are empty)."""
+    leaves: list[dict[str, Any]] = []
+    for node in tree:
+        children = node.get("children", [])
+        node_with_parent = {**node, "parent": parent}
+        if not children:
+            leaves.append(node_with_parent)
+        else:
+            leaves.extend(_collect_leaf_domains(children, parent=node.get("name", "unknown")))
+    return leaves
+
+
+async def compose_pages_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Phase 3: generate topic pages for each leaf domain."""
+    llm = state.get("llm")
+    domain_tree = state.get("domain_tree") or []
+    entity_roles = state.get("entity_roles", {})
+    modules = state.get("modules", {})
+
+    module_index: dict[str, dict] = {}
+    for _repo, mod_list in modules.items():
+        for mod_dict in mod_list:
+            name = mod_dict.get("properties", {}).get("name", "")
+            if name:
+                module_index[name] = mod_dict
+
+    budget_resolver = TokenBudgetResolver()
+    budget = budget_resolver.budget("topic_page_generate")
+    composer = TopicPageComposer(llm, token_budget=budget)
+
+    all_pages: list[dict[str, Any]] = []
+    generated_uids: list[str] = []
+
+    leaf_domains = _collect_leaf_domains(domain_tree)
+
+    for leaf in leaf_domains:
+        domain_name = leaf.get("name", "unknown")
+        module_names = leaf.get("modules", [])
+
+        biz_entities = []
+        data_models = []
+        for mod_name in module_names:
+            mod_dict = module_index.get(mod_name, {})
+            uid = mod_dict.get("uid", f"Module::{mod_name}:0")
+            role = entity_roles.get(uid, "supporting")
+            props = mod_dict.get("properties", {})
+
+            if role == "has_business_logic":
+                biz_entities.append({
+                    "uid": uid,
+                    "name": mod_name,
+                    "summary": str(props.get("business_summary", "") or props.get("docstring", "") or ""),
+                    "methods": [str(m) for m in (props.get("methods", []) or [])[:10]],
+                    "calls": [],
+                })
+            elif role == "data_model":
+                data_models.append({
+                    "uid": uid,
+                    "name": mod_name,
+                    "type": "DTO",
+                    "fields": [str(f) for f in (props.get("fields", []) or [])[:8]],
+                })
+
+        domain_input = {
+            "name": domain_name,
+            "parent": leaf.get("parent", "root"),
+            "biz_entities": biz_entities,
+            "data_models": data_models[:20],
+            "sibling_summaries": [],
+        }
+
+        try:
+            pages = await composer.compose_leaf_domain(domain_input)
+            all_pages.extend(pages)
+            generated_uids.extend(p.get("path", "") for p in pages)
+        except Exception:
+            log.warning("compose_pages_domain_failed", domain=domain_name, exc_info=True)
+
+    log.info("compose_pages_done", total_pages=len(all_pages), domains_processed=len(leaf_domains))
+    return {"pages": all_pages, "generated_topic_pages": generated_uids}

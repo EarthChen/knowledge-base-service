@@ -11,6 +11,7 @@ from wiki.models import ImportanceTier, WikiPage
 from wiki.pipeline_nodes import (
     classify_entities_node,
     classify_domains_node as classify_domains_real,
+    compose_pages_node as compose_pages_real,
     decompose_hierarchy_node as decompose_hierarchy_real,
     plan_structure_node as plan_structure_real,
 )
@@ -34,11 +35,6 @@ def should_heal(state: WikiPipelineState) -> str:
 # ---------------------------------------------------------------------------
 # Stub nodes (to be replaced with real logic in later Sprints)
 # ---------------------------------------------------------------------------
-
-async def compose_pages_node(state: WikiPipelineState) -> dict[str, Any]:
-    log.info("pipeline_node_stub", node="compose_pages")
-    return {}
-
 
 async def quality_gate_node(state: WikiPipelineState) -> dict[str, Any]:
     """Evaluate page quality, identify pages needing healing."""
@@ -151,7 +147,7 @@ def build_wiki_pipeline(checkpointer: Any | None = None) -> Any:
     graph.add_node("classify_domains", classify_domains_real)
     graph.add_node("decompose_hierarchy", decompose_hierarchy_real)
     graph.add_node("plan_structure", plan_structure_real)
-    graph.add_node("compose_pages", compose_pages_node)
+    graph.add_node("compose_pages", compose_pages_real)
     graph.add_node("quality_gate", quality_gate_node)
     graph.add_node("heal_pages", heal_pages_node)
     graph.add_node("finalize", finalize_node)

@@ -31,7 +31,7 @@ query/               # Hybrid search, blast radius, NL→Cypher (UI)
 | Phase 1 | `wiki/compilation_snapshot.py`, `wiki/feedback_loop.py`, `wiki/event_bus.py`, `wiki/agents_md_generator.py` | `wiki_get_snapshot` on main + HTTP MCP；SSE event bus |
 | Phase 2 | `wiki/community_context.py`, `store/graph_queries.py`（`shortest_path_between_names`）, `store/wiki_page_store.py`（`update_wiki_page_content`, 版本/ diff） | HTTP：`PATCH …/content`，`GET …/versions`，`GET …/diff` |
 | Phase 3 | `wiki/reasoning_path.py`, `wiki/offline_pack.py`, `store/wiki_tree_store.py`（`wiki_tier`） | HTTP：`GET …/offline-pack`，`wiki_tier` on tree |
-| P0 / P1 | `docs/superpowers/plans/2026-04-27-p0-tech-debt-cleanup.md`, `2026-04-27-p1-frontend-completion.md` | 历史计划；完成状态以 IMPLEMENTATION-STATUS 为准 |
+| P0 / P1 | (历史计划文件已清理) | 完成状态以 IMPLEMENTATION-STATUS 为准 |
 | Wiki async gen (2026-04-27) | `wiki/task_store.py`, `api/routes/wiki_task_routes.py`, `store/wiki_page_store.py`（`get_repo_wiki_freshness`）, `dashboard/src/hooks/useWikiRegenerate.ts` | 业务 Wiki **202** + 任务轮询；见 [spec](../superpowers/specs/2026-04-27-wiki-generation-architecture-improvement-design.md) 与 [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md) |
 
 ## Wiki subsystem (focused)

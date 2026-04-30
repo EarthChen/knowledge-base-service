@@ -136,7 +136,7 @@ flowchart TB
 
 ## Wiki 生成管道（Phase 0–6）
 
-本节概括 **Wiki 元模型重置**、**代码感知 → RAG → 分层生成 → 跨仓业务 Wiki**、**导出与 Git 推送**、**质量保障** 的后端能力。上述主题曾计划拆成独立 spec 文档；当前以 [wiki-generation-architecture.md](wiki-generation-architecture.md) 与 [superpowers/specs/2026-04-26-llm-wiki-v2-upgrade-design.md](superpowers/specs/2026-04-26-llm-wiki-v2-upgrade-design.md) 为**主要设计引用**。实现与规划差异见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。
+本节概括 **Wiki 元模型重置**、**代码感知 → RAG → 分层生成 → 跨仓业务 Wiki**、**导出与 Git 推送**、**质量保障** 的后端能力。上述主题曾计划拆成独立 spec 文档；当前以 [wiki-generation-architecture.md](wiki-generation-architecture.md) 为**主要设计引用**。实现与规划差异见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。
 
 ### Wiki 数据模型（FalkorDB）
 
@@ -209,7 +209,7 @@ flowchart LR
 
 ## 增量 / MCP / 质量 v2 扩展（概览；非 Phase 0–6 的「SP3–SP6」编号）
 
-> **注意**：下表中的「增量 Ingest、MCP、质量引擎」等对应 **全量升级草案** [llm-wiki-full-upgrade-design](superpowers/specs/2026-04-26-llm-wiki-full-upgrade-design.md) 中 **SP3–SP6** 的叙述；[v2 已批准 spec](superpowers/specs/2026-04-26-llm-wiki-v2-upgrade-design.md) 使用**另一套** SP1–SP7 编号。详见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。
+> **注意**：下表中的「增量 Ingest、MCP、质量引擎」等能力均已实现。详见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。
 
 以下能力与 Phase 0–6 **正交**：通过 `WikiConfig`（环境前缀 `WIKI__`）与独立 HTTP/MCP 面启用；细节见 [wiki-generation-architecture.md](wiki-generation-architecture.md) 与 [DEPLOYMENT.md](DEPLOYMENT.md)。
 

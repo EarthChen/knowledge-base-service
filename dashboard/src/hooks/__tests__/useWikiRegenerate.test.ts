@@ -65,7 +65,7 @@ describe("useWikiRegenerate", () => {
     await act(async () => {
       await result.current.regenerate(true);
     });
-    expect(vi.mocked(client.businessWikiGenerate)).toHaveBeenCalledWith("biz-1", "en", true);
+    expect(vi.mocked(client.businessWikiGenerate)).toHaveBeenCalledWith("biz-1", "en", true, "full");
     expect(toast).toHaveBeenCalledWith("success", en.wiki.regenerateStarted);
   });
 
@@ -80,7 +80,7 @@ describe("useWikiRegenerate", () => {
     await act(async () => {
       await result.current.regenerate(true);
     });
-    expect(vi.mocked(client.businessWikiGenerate)).toHaveBeenCalledWith("biz-1", "zh", true);
+    expect(vi.mocked(client.businessWikiGenerate)).toHaveBeenCalledWith("biz-1", "zh", true, "full");
   });
 
   it("polls until task completes and shows success", async () => {

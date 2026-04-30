@@ -6,8 +6,10 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from log import get_logger
-from store.schema import GraphNode, NodeLabel
-from wiki.models import WikiPage
+from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
+from wiki.data_collector import PageData
+from wiki.models import PageType, SourceLocation, WikiPage
+from wiki.semantic_diagram_gen import SemanticDiagramGenerator
 from wiki.quality_evaluator import WikiQualityEvaluator
 from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
 from wiki.dependency_graph import HierarchicalDecomposer, ModuleGraph, ModuleInfo
@@ -222,6 +224,86 @@ async def plan_structure_node(state: dict[str, Any]) -> dict[str, Any]:
     return {"review_status": review_status}
 
 
+def _call_target_module(call: str) -> str | None:
+    c = str(call).strip()
+    if "." in c:
+        return c.split(".", 1)[0]
+    return None
+
+
+def _build_page_data_for_semantic_diagrams(
+    domain_name: str,
+    module_names: list[str],
+    module_index: dict[str, dict],
+) -> PageData:
+    """Minimal PageData for SemanticDiagramGenerator (domain modules + CALLS edges)."""
+    children: list[GraphNode] = []
+    edges: list[GraphEdge] = []
+    summaries: list[str] = []
+    name_to_uid: dict[str, str] = {}
+
+    for mod_name in module_names:
+        mod_dict = module_index.get(mod_name, {})
+        props_raw = mod_dict.get("properties", {})
+        props: dict[str, str | int | float | list[str]] = dict(props_raw) if isinstance(props_raw, dict) else {}
+        uid = mod_dict.get("uid", f"Module::{mod_name}:0")
+        name_to_uid[mod_name] = uid
+        label_str = mod_dict.get("label", "Module")
+        try:
+            label = NodeLabel(label_str)
+        except ValueError:
+            label = NodeLabel.MODULE
+        children.append(GraphNode(label=label, properties=props, uid=uid))
+        bs = props.get("business_summary", "")
+        if isinstance(bs, str) and bs.strip():
+            summaries.append(bs)
+
+    for mod_name in module_names:
+        mod_dict = module_index.get(mod_name, {})
+        src_uid = mod_dict.get("uid", f"Module::{mod_name}:0")
+        calls = mod_dict.get("properties", {}).get("calls", []) or []
+        if not isinstance(calls, list):
+            continue
+        for call in calls:
+            tgt_mod = _call_target_module(str(call))
+            if not tgt_mod or tgt_mod not in name_to_uid:
+                continue
+            tgt_uid = name_to_uid[tgt_mod]
+            if tgt_uid == src_uid:
+                continue
+            edges.append(
+                GraphEdge(
+                    edge_type=EdgeType.CALLS,
+                    source_uid=src_uid,
+                    target_uid=tgt_uid,
+                )
+            )
+
+    joined_summary = " ".join(summaries)[:4000]
+    center_props: dict[str, str | int | float | list[str]] = {
+        "name": domain_name,
+        "business_summary": joined_summary,
+        "description": f"Business domain {domain_name}",
+    }
+    center = GraphNode(
+        label=NodeLabel.MODULE,
+        properties=center_props,
+        uid=f"Domain::{domain_name}",
+    )
+    empty_loc = SourceLocation(
+        file_path="", start_line=0, end_line=0, fqn=domain_name, repository=""
+    )
+    return PageData(
+        node=center,
+        edges=edges,
+        children=children,
+        source_location=empty_loc,
+        method_locations=[],
+        business_summary=joined_summary if joined_summary else None,
+        methods=[],
+    )
+
+
 def _collect_leaf_domains(tree: list[dict[str, Any]], parent: str = "root") -> list[dict[str, Any]]:
     """Recursively collect leaf domains (no children or children are empty)."""
     leaves: list[dict[str, Any]] = []
@@ -301,6 +383,47 @@ async def compose_pages_node(
 
         try:
             pages = await composer.compose_leaf_domain(domain_input)
+            if llm and pages:
+                diag_gen = SemanticDiagramGenerator(llm)
+                page_data = _build_page_data_for_semantic_diagrams(
+                    domain_name, module_names, module_index
+                )
+                try:
+                    digest = diag_gen._build_entity_digest(page_data)
+                except Exception:
+                    log.warning(
+                        "diagram_digest_build_failed",
+                        domain=domain_name,
+                        exc_info=True,
+                    )
+                    digest = ""
+                for page_dict in pages:
+                    page_type = (
+                        PageType.DOMAIN_OVERVIEW
+                        if page_dict.get("page_type") == "domain_overview"
+                        else PageType.TOPIC
+                    )
+                    try:
+                        diagrams = await diag_gen.generate_for_page(
+                            page_data, page_type, digest, "full"
+                        )
+                        if diagrams:
+                            page_dict["diagrams"] = [
+                                {
+                                    "title": d.title,
+                                    "diagram_type": d.diagram_type.value
+                                    if hasattr(d.diagram_type, "value")
+                                    else str(d.diagram_type),
+                                    "content": d.content,
+                                }
+                                for d in diagrams
+                            ]
+                    except Exception:
+                        log.warning(
+                            "diagram_generation_failed",
+                            page=page_dict.get("title"),
+                            exc_info=True,
+                        )
             all_pages.extend(pages)
             generated_uids.extend(p.get("path", "") for p in pages)
         except Exception:
@@ -336,8 +459,13 @@ async def heal_pages_node(
 
         try:
             page = WikiPage.from_dict(page_dict)
-            score = evaluator.structural_check(page)
-            hint = evaluator.build_heal_prompt_hint(score)
+            try:
+                bench = evaluator.bench_score(page)
+                hint = evaluator.build_heal_prompt_hint_v2(bench)
+            except Exception:
+                log.warning("heal_bench_score_failed", page=page_path, exc_info=True)
+                score = evaluator.structural_check(page)
+                hint = evaluator.build_heal_prompt_hint(score)
             heal_hints[page_path] = hint
         except Exception:
             log.warning("heal_page_analysis_failed", page=page_path, exc_info=True)
@@ -346,17 +474,40 @@ async def heal_pages_node(
         if llm:
             heal_budget = TokenBudgetResolver().budget("topic_page_generate")
             content_char_limit = heal_budget * 3
+            domain_name = page_dict.get("domain", "unknown")
+            domain_context = ""
+            for d in state.get("domain_tree", []) or []:
+                if d.get("name") == domain_name:
+                    modules = d.get("modules", [])
+                    domain_context = (
+                        f"Domain: {domain_name}, Modules: {', '.join(str(m) for m in modules[:10])}"
+                    )
+                    break
+
             heal_prompt = (
-                f"Improve this wiki page. Issues: {hint}\n\n"
+                f"Improve this wiki page for domain '{domain_name}'.\n\n"
+                f"Domain context: {domain_context}\n\n"
+                f"Quality issues found:{hint}\n\n"
                 f"Current content:\n{page_dict.get('content', '')[:content_char_limit]}\n\n"
-                "Generate an improved version with the same structure but better quality."
+                "Generate an improved version with these required sections:\n"
+                "1. ## 业务概述 (business overview)\n"
+                "2. ## 核心业务流程 (include Mermaid sequenceDiagram or flowchart)\n"
+                "3. ## 核心服务详情 (detailed service descriptions)\n"
+                "4. ## 数据模型 (data models table if applicable)\n"
+                "5. ## 关联主题 ([[wiki-link]] to related domains)\n\n"
+                "Requirements:\n"
+                "- Include at least one Mermaid diagram\n"
+                "- Use Chinese for business descriptions\n"
+                "- Focus on business logic, not framework details\n"
             )
             try:
                 new_content = await llm.generate(
                     heal_prompt,
                     system=(
-                        "You are a technical wiki author. Output Markdown with Mermaid. "
-                        "Use Chinese for business descriptions."
+                        "You are a technical wiki author specializing in business domain documentation. "
+                        "Output Markdown with Mermaid diagrams. Use Chinese for business descriptions. "
+                        "Focus on business logic and service interactions. "
+                        "Do NOT explain frameworks or annotations."
                     ),
                     max_tokens=heal_budget,
                 )

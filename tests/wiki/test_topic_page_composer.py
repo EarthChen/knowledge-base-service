@@ -74,7 +74,7 @@ async def test_very_complex_domain_grouped(mock_llm):
         "name": "messaging",
         "parent": "communication",
         "biz_entities": [
-            {"uid": f"Module::Svc{i}:0", "name": f"Svc{i}", "summary": f"Service {i}", "methods": ["m1"], "calls": []}
+            {"uid": f"Module::Svc{i}:0", "name": f"Svc{i}", "summary": f"Service {i}", "methods": ["m1", "m2", "m3"], "calls": []}
             for i in range(16)
         ],
         "data_models": [],

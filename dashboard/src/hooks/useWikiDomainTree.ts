@@ -7,6 +7,9 @@ export interface TopicTreeNode {
   path: string;
   children: TopicTreeNode[];
   review_status?: string;
+  description?: string;
+  module_count?: number;
+  quality_score?: number;
 }
 
 interface TopicTreeResponse {

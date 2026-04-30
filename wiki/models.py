@@ -34,6 +34,9 @@ class DiagramType(StrEnum):
     FLOWCHART = "flowchart"
     DEPENDENCY_GRAPH = "dependencyGraph"
     SEQUENCE_DIAGRAM = "sequenceDiagram"
+    STATE = "stateDiagram-v2"
+    DATA_FLOW = "dataFlow"
+    ARCHITECTURE = "architecture"
 
 
 class ImportanceTier(StrEnum):

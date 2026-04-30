@@ -142,7 +142,7 @@ class TestShouldGenerate:
     def test_unsupported_page_type_skips(self):
         gen = SemanticDiagramGenerator(llm=MagicMock())
         pd = _make_page_data(edges=_make_edges(10))
-        assert gen._should_generate(pd, PageType.REPO_OVERVIEW, "full") is False
+        assert gen._should_generate(pd, PageType.API_REFERENCE, "full") is False
 
 
 class TestGenerate:

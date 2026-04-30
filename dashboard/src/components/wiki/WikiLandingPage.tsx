@@ -62,15 +62,32 @@ export default function WikiLandingPage({ businessId, viewType, wikiTier }: Prop
                 <li key={node.uid}>
                   <Link
                     to={href}
-                    className="flex h-full flex-col justify-between rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:border-sky-200 hover:bg-sky-50/40 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-sky-800 dark:hover:bg-sky-950/30"
+                    className="flex min-h-[7rem] h-full flex-col justify-between rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-colors hover:border-sky-200 hover:bg-sky-50/40 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-sky-800 dark:hover:bg-sky-950/30"
                   >
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="font-medium text-gray-900 dark:text-gray-100">
                         {node.title || node.label}
                       </div>
-                      {subCount > 0 ? (
-                        <div className="mt-1 text-xs tabular-nums text-gray-500 dark:text-gray-400">
-                          {subCount}
+                      {node.description ? (
+                        <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-gray-600 dark:text-gray-400">
+                          {node.description}
+                        </p>
+                      ) : null}
+                      {subCount > 0 || node.module_count != null ? (
+                        <div className="mt-2 text-xs tabular-nums text-gray-500 dark:text-gray-400">
+                          {subCount > 0 && node.module_count != null ? (
+                            <span>
+                              {subCount}
+                              <span className="mx-1.5 text-gray-400 dark:text-gray-500" aria-hidden>
+                                ·
+                              </span>
+                              {node.module_count}
+                            </span>
+                          ) : subCount > 0 ? (
+                            <span>{subCount}</span>
+                          ) : (
+                            <span>{node.module_count}</span>
+                          )}
                         </div>
                       ) : null}
                     </div>

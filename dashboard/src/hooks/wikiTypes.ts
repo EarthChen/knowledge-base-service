@@ -110,6 +110,10 @@ export type WikiTreeNode = {
   path: string;
   page_type: string;
   children?: WikiTreeNode[];
+  /** Domain overview description when the API provides it. */
+  description?: string;
+  module_count?: number;
+  quality_score?: number;
 };
 
 export type WikiTreeResponse = {

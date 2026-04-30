@@ -178,6 +178,10 @@ class TestWikiDiagram:
         assert DiagramType.CLASS_DIAGRAM == "classDiagram"
         assert DiagramType.FLOWCHART == "flowchart"
         assert DiagramType.DEPENDENCY_GRAPH == "dependencyGraph"
+        assert DiagramType.SEQUENCE_DIAGRAM == "sequenceDiagram"
+        assert DiagramType.STATE == "stateDiagram-v2"
+        assert DiagramType.DATA_FLOW == "dataFlow"
+        assert DiagramType.ARCHITECTURE == "architecture"
 
 
 class TestWikiPageMetadata:

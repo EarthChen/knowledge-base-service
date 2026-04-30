@@ -15,24 +15,11 @@
 | [ONBOARDING.md](ONBOARDING.md) | 产品导览、功能发现、首次索引、MCP 设置 |
 | [wiki-generation-architecture.md](wiki-generation-architecture.md) | Wiki 管道、Ingest/自动化、LLM Wiki v2（置信度/矛盾/主张/记忆层） |
 
-## 活跃设计文档
+## 审计与分析
 
 | 文档 | 内容 |
 |------|------|
-| [superpowers/specs/PROPOSAL_20260429_163353_wiki-content-quality-pipeline-repair.md](superpowers/specs/PROPOSAL_20260429_163353_wiki-content-quality-pipeline-repair.md) | **Draft** Wiki Content Quality Sprint — Pipeline Repair（mode 默认值 + Tier-1 陷阱 + glossary 注入 + 富化 API + 语法高亮 + 源码链接） |
-
-## 已完成设计文档（归档）
-
-| 文档 | 内容 |
-|------|------|
-| [superpowers/specs/2026-04-29-business-intelligence-injection-design.md](superpowers/specs/2026-04-29-business-intelligence-injection-design.md) | **已完成** Business Intelligence Injection — Wiki 业务含义增强（3 Sprint: 接线修复 + System Overview + 交叉引用 + LLM 图表） |
-
-| 文档 | 内容 |
-|------|------|
-| [superpowers/archive/specs/2026-04-26-llm-wiki-v2-upgrade-design.md](superpowers/archive/specs/2026-04-26-llm-wiki-v2-upgrade-design.md) | **已完成** LLM Wiki v2（三阶段、**SP1–SP7**） |
-| [superpowers/archive/specs/2026-04-29-wiki-graph-foundation-and-nested-domain-tree-design.md](superpowers/archive/specs/2026-04-29-wiki-graph-foundation-and-nested-domain-tree-design.md) | **已完成** Wiki Graph Foundation & Nested Domain Tree（22 tasks, 4 layers） |
-| [superpowers/archive/specs/PROPOSAL_20260429_130536_unified-llm-token-budget.md](superpowers/archive/specs/PROPOSAL_20260429_130536_unified-llm-token-budget.md) | **已完成** Unified LLM Token Budget — TokenBudgetResolver + 自动派生 |
-| [superpowers/archive/wiki-gap-analysis-deepwiki-codewiki.md](superpowers/archive/wiki-gap-analysis-deepwiki-codewiki.md) | Wiki 系统缺陷分析：对比 CodeWiki/DeepWiki |
+| [superpowers/wiki-audit-20260430_222403.md](superpowers/wiki-audit-20260430_222403.md) | **最新** Wiki 系统深度审计（P0-P2 问题清单 + 竞品对标 DeepWiki/CodeWiki + 测试覆盖） |
 
 ## 技术栈概览
 

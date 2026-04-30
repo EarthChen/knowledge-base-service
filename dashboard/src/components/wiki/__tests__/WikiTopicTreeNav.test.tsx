@@ -8,7 +8,19 @@ const mockTree = [
     page_type: "domain_overview",
     path: "wiki/payment",
     children: [
-      { name: "payment-core", page_type: "topic", path: "wiki/payment/payment-core", children: [] },
+      {
+        name: "payment-core",
+        page_type: "topic",
+        path: "wiki/payment/payment-core",
+        children: [
+          {
+            name: "deep-leaf",
+            page_type: "topic",
+            path: "wiki/payment/payment-core/deep",
+            children: [],
+          },
+        ],
+      },
       { name: "refund", page_type: "topic", path: "wiki/payment/refund", children: [] },
     ],
   },
@@ -30,9 +42,9 @@ describe("WikiTopicTreeNav", () => {
   it("sets aria-expanded on nodes with children", () => {
     render(<WikiTopicTreeNav tree={mockTree} selectedPath={null} onSelect={vi.fn()} />);
     const paymentBtn = screen.getByText("payment").closest("button");
-    expect(paymentBtn).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(paymentBtn!);
     expect(paymentBtn).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(paymentBtn!);
+    expect(paymentBtn).toHaveAttribute("aria-expanded", "false");
     const leafBtn = screen.getByText("user-management").closest("button");
     expect(leafBtn).not.toHaveAttribute("aria-expanded");
   });
@@ -43,17 +55,22 @@ describe("WikiTopicTreeNav", () => {
     expect(screen.getByText("user-management")).toBeInTheDocument();
   });
 
-  it("expands domain to show children on click", () => {
+  it("root nodes are expanded by default so first-level children are visible", () => {
     render(<WikiTopicTreeNav tree={mockTree} selectedPath={null} onSelect={vi.fn()} />);
-    fireEvent.click(screen.getByText("payment"));
     expect(screen.getByText("payment-core")).toBeInTheDocument();
     expect(screen.getByText("refund")).toBeInTheDocument();
+  });
+
+  it("non-root nodes with children start collapsed", () => {
+    render(<WikiTopicTreeNav tree={mockTree} selectedPath={null} onSelect={vi.fn()} />);
+    expect(screen.queryByText("deep-leaf")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("payment-core"));
+    expect(screen.getByText("deep-leaf")).toBeInTheDocument();
   });
 
   it("calls onSelect when clicking a leaf node", () => {
     const onSelect = vi.fn();
     render(<WikiTopicTreeNav tree={mockTree} selectedPath={null} onSelect={onSelect} />);
-    fireEvent.click(screen.getByText("payment"));
     fireEvent.click(screen.getByText("payment-core"));
     expect(onSelect).toHaveBeenCalledWith("wiki/payment/payment-core");
   });

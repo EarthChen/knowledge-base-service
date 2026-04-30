@@ -1,4 +1,5 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, afterEach, vi } from "vitest";
 import MarkdownRenderer from "../MarkdownRenderer";
 import { TestI18nProvider } from "../../../i18n/context";
@@ -38,6 +39,23 @@ describe("MarkdownRenderer XSS / sanitize", () => {
     if (img) {
       expect(img.getAttribute("onerror")).toBeFalsy();
     }
+  });
+
+  it("sanitizeSchema allows only data-path on wikilink; strips arbitrary data-* attributes", () => {
+    const path = encodeURIComponent("wiki/payment/core");
+    const { container } = render(
+      <MemoryRouter>
+        <TestI18nProvider>
+          <MarkdownRenderer
+            content={`<wikilink data-path="${path}" data-html="<script>alert(1)</script>" data-x-evil="1">Label</wikilink>`}
+            businessId="biz"
+          />
+        </TestI18nProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Label")).toBeInTheDocument();
+    expect(container.querySelector("[data-x-evil]")).toBeNull();
+    expect(container.querySelector("[data-html]")).toBeNull();
   });
 
   it("keeps mermaid code fences; mermaid is loaded and run via MermaidBlock", async () => {

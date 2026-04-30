@@ -57,7 +57,7 @@ const sanitizeSchema = {
   tagNames: [...(defaultSchema.tagNames ?? []), "wikilink"],
   attributes: {
     ...defaultSchema.attributes,
-    wikilink: ["data-path", "data*"],
+    wikilink: ["data-path"],
   },
 };
 

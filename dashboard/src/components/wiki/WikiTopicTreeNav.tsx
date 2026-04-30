@@ -37,7 +37,7 @@ function TreeNode({
   selectedPath: string | null;
   onSelect: (path: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(depth === 0);
   const hasChildren = node.children.length > 0;
   const isSelected = selectedPath === node.path;
   const isDomain = node.page_type === "domain_overview";

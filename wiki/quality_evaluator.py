@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 from typing import Any
 
 from log import get_logger
@@ -14,6 +15,60 @@ from wiki.models import (
 )
 
 log = get_logger(__name__)
+
+_MERMAID_FENCE = re.compile(r"```mermaid\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+_MERMAID_VALID_PREFIXES = (
+    "sequencediagram",
+    "flowchart",
+    "graph",
+    "classdiagram",
+    "statediagram",
+)
+_TECH_CAMEL = re.compile(r"\b[A-Z][a-z]+(?:[A-Z][a-zA-Z0-9]*)+\b")
+_TECH_METHOD = re.compile(r"\b[a-zA-Z_][a-zA-Z0-9_]*\s*\(\s*\)")
+_TECH_KEYWORDS = re.compile(
+    r"\b(?:JWT|DTO|CRUD|API|HTTP|HTTPS|SQL|JSON|XML|UUID|OAuth|async|await|"
+    r"interface|namespace|token|register|validate|sequenceDiagram)\b",
+    re.IGNORECASE,
+)
+_WIKILINK = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
+_SOURCE_REF = re.compile(r"source://[^\s)\]>]+")
+_HTTP_LINK = re.compile(r"https?://[^\s)\]>]+")
+_CODE_FENCE = re.compile(r"```")
+
+
+@dataclass
+class DepthScore:
+    avg_section_length: float  # 平均段落字数（字符计）
+    technical_density: float  # 技术术语占比 (0-1)
+    has_examples: bool  # 是否包含代码示例
+    section_count: int  # 段落数
+    overall: float  # 综合得分 (0-1)
+
+
+@dataclass
+class DiagramScore:
+    mermaid_block_count: int  # Mermaid 代码块数量
+    diagram_types: list[str] = field(default_factory=list)  # 图表类型 (sequence, flowchart 等)
+    valid_syntax: bool = False  # 语法是否可能有效
+    overall: float = 0.0
+
+
+@dataclass
+class LinkScore:
+    wikilink_count: int  # [[wiki-link]] 数量
+    source_ref_count: int  # source:// 引用数
+    external_link_count: int  # http 链接数
+    overall: float = 0.0
+
+
+@dataclass
+class BenchScore:
+    structure: Any  # WikiPageQualityScore from structural_check
+    depth: DepthScore
+    diagrams: DiagramScore
+    links: LinkScore
+    overall: float  # 加权平均
 
 
 class WikiQualityEvaluator:
@@ -44,6 +99,127 @@ class WikiQualityEvaluator:
             truthfulness=1.0,
             overall=round(completeness * 0.9, 2),
             issues=issues,
+        )
+
+    def content_depth_check(self, page: WikiPage) -> DepthScore:
+        """WikiQualityBench: depth from section size, technical density, and code examples."""
+        raw = page.content or ""
+        parts = [s.strip() for s in raw.split("## ") if s.strip()]
+        section_count = len(parts)
+        if section_count == 0:
+            avg_len = 0.0
+        else:
+            avg_len = sum(len(s) for s in parts) / section_count
+
+        words = re.findall(r"\S+", raw)
+        word_n = max(len(words), 1)
+        tech_hits = (
+            len(_TECH_CAMEL.findall(raw))
+            + len(_TECH_METHOD.findall(raw))
+            + len(_TECH_KEYWORDS.findall(raw))
+        )
+        technical_density = min(tech_hits / max(word_n * 0.12, 6.0), 1.0)
+
+        fence_pairs = raw.count("```")
+        has_examples = fence_pairs >= 2
+
+        avg_length_score = min(avg_len / 100.0, 1.0)
+        section_count_score = min(section_count / 6.0, 1.0)
+        examples_bonus = 1.0 if has_examples else 0.0
+        overall = round(
+            0.35 * avg_length_score
+            + 0.35 * technical_density
+            + 0.15 * examples_bonus
+            + 0.15 * section_count_score,
+            4,
+        )
+        return DepthScore(
+            avg_section_length=round(avg_len, 2),
+            technical_density=round(technical_density, 4),
+            has_examples=has_examples,
+            section_count=section_count,
+            overall=max(0.0, min(1.0, overall)),
+        )
+
+    def diagram_quality_check(self, page: WikiPage) -> DiagramScore:
+        """WikiQualityBench: Mermaid blocks and lightweight syntax cues."""
+        raw = page.content or ""
+        bodies = _MERMAID_FENCE.findall(raw)
+        mermaid_block_count = len(bodies)
+        diagram_types: list[str] = []
+        valid_syntax = False
+        for body in bodies:
+            first_line = body.strip().split("\n", 1)[0].strip()
+            lead = first_line.lower()
+            matched = False
+            if lead.startswith("sequencediagram"):
+                diagram_types.append("sequenceDiagram")
+                valid_syntax = True
+                matched = True
+            elif lead.startswith("flowchart"):
+                diagram_types.append("flowchart")
+                valid_syntax = True
+                matched = True
+            elif lead.startswith("classdiagram"):
+                diagram_types.append("classDiagram")
+                valid_syntax = True
+                matched = True
+            elif lead.startswith("statediagram"):
+                diagram_types.append("stateDiagram")
+                valid_syntax = True
+                matched = True
+            elif lead.startswith("graph"):
+                diagram_types.append("graph")
+                valid_syntax = True
+                matched = True
+            if not matched and first_line:
+                diagram_types.append("unknown")
+
+        diversity_bonus = min(len(set(diagram_types)) / 2.0, 1.0) if diagram_types else 0.0
+        count_part = min(mermaid_block_count / 2.0, 1.0) * 0.6
+        syntax_bonus = 0.02 if valid_syntax and mermaid_block_count > 0 else 0.0
+        overall = round(count_part + diversity_bonus * 0.4 + syntax_bonus, 4)
+        return DiagramScore(
+            mermaid_block_count=mermaid_block_count,
+            diagram_types=diagram_types,
+            valid_syntax=valid_syntax,
+            overall=max(0.0, min(1.0, overall)),
+        )
+
+    def link_quality_check(self, page: WikiPage) -> LinkScore:
+        """WikiQualityBench: wikilinks, source:// refs, and HTTP links."""
+        raw = page.content or ""
+        wikilink_count = len(_WIKILINK.findall(raw))
+        source_ref_count = len(_SOURCE_REF.findall(raw))
+        external_link_count = len(_HTTP_LINK.findall(raw))
+        total_links = wikilink_count + source_ref_count + external_link_count
+        overall = round(min(total_links / 5.0, 1.0), 4)
+        return LinkScore(
+            wikilink_count=wikilink_count,
+            source_ref_count=source_ref_count,
+            external_link_count=external_link_count,
+            overall=max(0.0, min(1.0, overall)),
+        )
+
+    def bench_score(self, page: WikiPage) -> BenchScore:
+        """Aggregate WikiQualityBench dimensions with fixed weights."""
+        structure = self.structural_check(page)
+        depth = self.content_depth_check(page)
+        diagrams = self.diagram_quality_check(page)
+        links = self.link_quality_check(page)
+        overall = round(
+            structure.overall * 0.25
+            + depth.overall * 0.35
+            + diagrams.overall * 0.2
+            + links.overall * 0.2,
+            4,
+        )
+        return BenchScore(
+            structure=structure,
+            depth=depth,
+            diagrams=diagrams,
+            links=links,
+            overall=max(0.0, min(1.0, overall)),
         )
 
     async def llm_judge_evaluate(
@@ -167,4 +343,51 @@ class WikiQualityEvaluator:
             "The previous version of this documentation was flagged for quality issues. "
             "Please specifically address:\n"
             + "\n".join(f"- {h}" for h in hints)
+        )
+
+    def build_heal_prompt_hint_v2(self, bench: BenchScore) -> str:
+        """Actionable hints from multi-dimensional WikiQualityBench scores."""
+        lines: list[str] = []
+        threshold = 0.55
+
+        struct = bench.structure
+        if hasattr(struct, "issues") and struct.issues:
+            lines.append(
+                "Structure: fix checklist gaps — "
+                + ", ".join(str(i) for i in struct.issues)
+                + "."
+            )
+        elif getattr(struct, "overall", 1.0) < threshold:
+            lines.append(
+                "Structure: add Overview, components/methods, relationships, "
+                "substantial prose, or embedded diagrams per template."
+            )
+
+        if bench.depth.overall < threshold:
+            lines.append(
+                "Depth: expand sections under ## headings with more explanation; "
+                "include API/type names and fenced code examples where helpful."
+            )
+
+        if bench.diagrams.overall < threshold:
+            lines.append(
+                "Diagrams: add ```mermaid blocks (sequenceDiagram, flowchart, "
+                "graph, classDiagram, or stateDiagram) for key flows."
+            )
+
+        if bench.links.overall < threshold:
+            lines.append(
+                "Links: add [[wikilinks]] to related pages, source:// references "
+                "to code, and optional https links for external context."
+            )
+
+        if not lines:
+            lines.append(
+                "All WikiQualityBench dimensions look acceptable; polish wording "
+                "and verify accuracy against source."
+            )
+
+        return (
+            "\n\n## WikiQualityBench improvement hints\n"
+            + "\n".join(f"- {h}" for h in lines)
         )

@@ -1,6 +1,6 @@
 # Wiki 生成架构
 
-本文档描述**生成式 Wiki 页面**如何融入 Knowledge Base Service：从**索引代码图**和**嵌入**中获取输入，经过**组合管道**；在**全量升级草案**（[llm-wiki-full-upgrade-design](superpowers/specs/2026-04-26-llm-wiki-full-upgrade-design.md)）的 **SP3–SP6** 叙述范围内，**HTTP 增量子系统**、**双 MCP 面**、**质量与记忆（LLM Wiki v2）** 等能力已可启用；*SP 编号*与 [v2 已批准 spec](superpowers/specs/2026-04-26-llm-wiki-v2-upgrade-design.md) 中的 **SP1–SP7** **不是**同一套标签（见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)）。并说明自动化（Webhook、**Lint 调度**、**AutoHealer 库**）与 **混合 Wiki 搜索** 的关系。
+本文档描述**生成式 Wiki 页面**如何融入 Knowledge Base Service：从**索引代码图**和**嵌入**中获取输入，经过**组合管道**；**HTTP 增量子系统**、**双 MCP 面**、**质量与记忆（LLM Wiki v2）** 等能力已可启用（见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)）。并说明自动化（Webhook、**Lint 调度**、**AutoHealer 库**）与 **混合 Wiki 搜索** 的关系。
 
 ## 目标
 
@@ -52,7 +52,7 @@ Wiki 行为的功能开关位于 `config.py` 的 **`WIKI__*`**（`WikiConfig`）
 
 ## Phase 0–6 能力扩展（后端）
 
-在既有「结构规划 → 数据收集 → 组合」流水线之上，实现分阶段增强：**元模型与树 API**、**代码感知与重要性**、**Chunk 级 RAG**、**百科式分层异步丰富化**、**跨仓业务 Wiki 与交叉引用**、**多格式导出与 Git 推送**、**覆盖率与探索问题**。架构总览见 [ARCHITECTURE.md](ARCHITECTURE.md) § Wiki 生成管道。旧版曾引用独立 spec 文件 `2026-04-24-wiki-enhancement-design.md`、`2026-04-26-wiki-tree-architecture-design.md`；二者**未**以独立文件随仓库提供，请改用 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) 中的「与代码一致的高层次快照」与 [2026-04-26-llm-wiki-v2-upgrade-design.md](superpowers/specs/2026-04-26-llm-wiki-v2-upgrade-design.md) 等现存设计文。
+在既有「结构规划 → 数据收集 → 组合」流水线之上，实现分阶段增强：**元模型与树 API**、**代码感知与重要性**、**Chunk 级 RAG**、**百科式分层异步丰富化**、**跨仓业务 Wiki 与交叉引用**、**多格式导出与 Git 推送**、**覆盖率与探索问题**。架构总览见 [ARCHITECTURE.md](ARCHITECTURE.md) § Wiki 生成管道。旧版曾引用独立 spec 文件 `2026-04-24-wiki-enhancement-design.md`、`2026-04-26-wiki-tree-architecture-design.md`；二者**未**以独立文件随仓库提供，请改用 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) 中的「与代码一致的高层次快照」。
 
 | 阶段 | 要点 |
 |------|------|

@@ -9,6 +9,14 @@ interface Props {
 }
 
 export default function WikiTopicTreeNav({ tree, selectedPath, onSelect }: Props) {
+  if (tree.length === 0) {
+    return (
+      <div className="flex items-center justify-center p-4 text-sm text-gray-400 dark:text-gray-500">
+        暂无主题内容
+      </div>
+    );
+  }
+
   return (
     <nav className="space-y-0.5 text-sm">
       {tree.map((node) => (
@@ -44,6 +52,7 @@ function TreeNode({
       <button
         type="button"
         onClick={handleClick}
+        aria-expanded={hasChildren ? expanded : undefined}
         className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors ${
           isSelected
             ? "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400"

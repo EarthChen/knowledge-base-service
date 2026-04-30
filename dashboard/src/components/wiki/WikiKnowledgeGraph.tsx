@@ -29,6 +29,8 @@ interface Props {
 }
 
 export default function WikiKnowledgeGraph({ domains, domainEdges, onNodeClick }: Props) {
+  const isDark = document.documentElement.classList.contains("dark");
+
   const nodes: Node[] = useMemo(() => {
     const cols = Math.max(Math.ceil(Math.sqrt(domains.length)), 1);
     return domains.map((d, i) => ({
@@ -36,16 +38,17 @@ export default function WikiKnowledgeGraph({ domains, domainEdges, onNodeClick }
       position: { x: (i % cols) * 220, y: Math.floor(i / cols) * 160 },
       data: { label: d.label },
       style: {
-        background: "#e0f2fe",
-        border: "1px solid #7dd3fc",
+        background: isDark ? "#1e293b" : "#e0f2fe",
+        border: `1px solid ${isDark ? "#475569" : "#7dd3fc"}`,
         borderRadius: "8px",
         padding: "10px 14px",
         fontSize: "12px",
         fontWeight: 600,
+        color: isDark ? "#e2e8f0" : "#0c4a6e",
         cursor: "pointer",
       },
     }));
-  }, [domains]);
+  }, [domains, isDark]);
 
   const edges: Edge[] = useMemo(
     () =>

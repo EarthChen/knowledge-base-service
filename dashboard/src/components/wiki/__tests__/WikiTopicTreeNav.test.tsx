@@ -22,6 +22,21 @@ const mockTree = [
 ];
 
 describe("WikiTopicTreeNav", () => {
+  it("renders empty state when tree is empty", () => {
+    render(<WikiTopicTreeNav tree={[]} selectedPath={null} onSelect={vi.fn()} />);
+    expect(screen.getByText("暂无主题内容")).toBeInTheDocument();
+  });
+
+  it("sets aria-expanded on nodes with children", () => {
+    render(<WikiTopicTreeNav tree={mockTree} selectedPath={null} onSelect={vi.fn()} />);
+    const paymentBtn = screen.getByText("payment").closest("button");
+    expect(paymentBtn).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(paymentBtn!);
+    expect(paymentBtn).toHaveAttribute("aria-expanded", "true");
+    const leafBtn = screen.getByText("user-management").closest("button");
+    expect(leafBtn).not.toHaveAttribute("aria-expanded");
+  });
+
   it("renders domain nodes", () => {
     render(<WikiTopicTreeNav tree={mockTree} selectedPath={null} onSelect={vi.fn()} />);
     expect(screen.getByText("payment")).toBeInTheDocument();

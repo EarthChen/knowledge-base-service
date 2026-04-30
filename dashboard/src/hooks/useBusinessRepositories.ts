@@ -25,5 +25,8 @@ export function useBindRepositories(businessId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["business", businessId, "repositories"] });
     },
+    onError: (error) => {
+      console.error("Failed to bind repositories:", error.message);
+    },
   });
 }

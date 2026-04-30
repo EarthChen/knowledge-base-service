@@ -45,4 +45,32 @@ describe("WikiTopicContent", () => {
     fireEvent.click(screen.getByText("重新生成"));
     expect(onAction).toHaveBeenCalledWith("regenerate");
   });
+
+  it("shows inline notes input for 标记修改 and submits on Enter", () => {
+    const onAction = vi.fn();
+    render(<WikiTopicContent page={page} onReviewAction={onAction} />);
+    fireEvent.click(screen.getByText("标记修改"));
+    const input = screen.getByPlaceholderText("输入修改意见...");
+    expect(input).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "Fix the intro" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onAction).toHaveBeenCalledWith("needs_revision", "Fix the intro");
+    expect(screen.getByText("标记修改")).toBeInTheDocument();
+  });
+
+  it("submits inline notes via 提交 button and cancels with 取消", () => {
+    const onAction = vi.fn();
+    render(<WikiTopicContent page={page} onReviewAction={onAction} />);
+    fireEvent.click(screen.getByText("标记修改"));
+    const input = screen.getByPlaceholderText("输入修改意见...");
+    fireEvent.change(input, { target: { value: "Need examples" } });
+    fireEvent.click(screen.getByText("提交"));
+    expect(onAction).toHaveBeenCalledWith("needs_revision", "Need examples");
+
+    fireEvent.click(screen.getByText("标记修改"));
+    fireEvent.change(screen.getByPlaceholderText("输入修改意见..."), { target: { value: "x" } });
+    fireEvent.click(screen.getByText("取消"));
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("标记修改")).toBeInTheDocument();
+  });
 });

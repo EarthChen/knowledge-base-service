@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
 
 interface TopicPage {
@@ -35,6 +35,9 @@ const REVIEW_LABELS: Record<string, { text: string; className: string }> = {
 };
 
 export default function WikiTopicContent({ page, onReviewAction }: Props) {
+  const [showNotesInput, setShowNotesInput] = useState(false);
+  const [notes, setNotes] = useState("");
+
   const reviewBadge = useMemo(() => {
     const entry = REVIEW_LABELS[page.review_status ?? ""];
     if (!entry) return null;
@@ -59,16 +62,60 @@ export default function WikiTopicContent({ page, onReviewAction }: Props) {
             >
               通过
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                const notes = window.prompt("请输入修改意见:");
-                if (notes) onReviewAction("needs_revision", notes);
-              }}
-              className="rounded-md bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-400 dark:hover:bg-amber-900/60"
-            >
-              标记修改
-            </button>
+            {showNotesInput ? (
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="输入修改意见..."
+                  className="w-48 rounded-md border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && notes.trim()) {
+                      onReviewAction("needs_revision", notes.trim());
+                      setNotes("");
+                      setShowNotesInput(false);
+                    }
+                    if (e.key === "Escape") {
+                      setShowNotesInput(false);
+                      setNotes("");
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (notes.trim()) {
+                      onReviewAction("needs_revision", notes.trim());
+                      setNotes("");
+                      setShowNotesInput(false);
+                    }
+                  }}
+                  className="rounded-md bg-amber-500 px-2 py-1 text-xs text-white hover:bg-amber-400"
+                >
+                  提交
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNotesInput(false);
+                    setNotes("");
+                  }}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  取消
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowNotesInput(true)}
+                className="rounded-md bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-400 dark:hover:bg-amber-900/60"
+              >
+                标记修改
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onReviewAction("regenerate")}

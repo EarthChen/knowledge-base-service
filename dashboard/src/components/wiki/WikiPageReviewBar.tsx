@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 interface Props {
   pagePath: string;
   currentStatus: string;
@@ -18,6 +20,9 @@ export default function WikiPageReviewBar({
   onStatusChange,
   onRegenerate,
 }: Props) {
+  const [showNotes, setShowNotes] = useState(false);
+  const [notesText, setNotesText] = useState("");
+
   return (
     <div
       className={`flex items-center gap-2 rounded-lg border p-2 text-xs ${STATUS_STYLES[currentStatus] ?? "border-gray-200"}`}
@@ -38,17 +43,61 @@ export default function WikiPageReviewBar({
       >
         ✗
       </button>
-      <button
-        type="button"
-        onClick={() => {
-          const notes = window.prompt("请输入审阅意见:");
-          if (notes) onStatusChange(pagePath, "needs_revision", notes);
-        }}
-        className="rounded-md bg-amber-500 px-2 py-0.5 text-white hover:bg-amber-400"
-        title="添加意见"
-      >
-        📝
-      </button>
+      {showNotes ? (
+        <div className="flex items-center gap-1">
+          <input
+            type="text"
+            value={notesText}
+            onChange={(e) => setNotesText(e.target.value)}
+            placeholder="审阅意见..."
+            className="w-36 rounded-md border border-gray-300 px-1.5 py-0.5 text-xs dark:border-gray-600 dark:bg-gray-800"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && notesText.trim()) {
+                onStatusChange(pagePath, "needs_revision", notesText.trim());
+                setNotesText("");
+                setShowNotes(false);
+              }
+              if (e.key === "Escape") {
+                setShowNotes(false);
+                setNotesText("");
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => {
+              if (notesText.trim()) {
+                onStatusChange(pagePath, "needs_revision", notesText.trim());
+                setNotesText("");
+                setShowNotes(false);
+              }
+            }}
+            className="rounded-md bg-amber-500 px-1.5 py-0.5 text-xs text-white"
+          >
+            确定
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowNotes(false);
+              setNotesText("");
+            }}
+            className="text-xs text-gray-400"
+          >
+            ✕
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowNotes(true)}
+          className="rounded-md bg-amber-500 px-2 py-0.5 text-white hover:bg-amber-400"
+          title="添加意见"
+        >
+          📝
+        </button>
+      )}
       <button
         type="button"
         onClick={() => onRegenerate(pagePath)}

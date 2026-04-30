@@ -12,6 +12,9 @@ export function useSetPageReview() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["wiki"] });
     },
+    onError: (error) => {
+      console.error("Failed to set page review:", error.message);
+    },
   });
 }
 
@@ -30,6 +33,9 @@ export function useBatchReview() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["wiki"] });
     },
+    onError: (error) => {
+      console.error("Failed to batch review:", error.message);
+    },
   });
 }
 
@@ -43,6 +49,9 @@ export function useRegeneratePage() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["wiki"] });
+    },
+    onError: (error) => {
+      console.error("Failed to regenerate page:", error.message);
     },
   });
 }

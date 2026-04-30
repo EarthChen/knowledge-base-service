@@ -21,6 +21,13 @@ class TokenBudgetResolver:
         "ask_general": 0.27,
         "compact": 0.13,
         "assembly": 0.27,
+        "domain_classify": 0.50,
+        "domain_merge": 0.20,
+        "domain_tree_plan": 0.15,
+        "topic_page_generate": 0.60,
+        "domain_overview": 0.30,
+        "system_overview": 0.25,
+        "entity_group": 0.20,
     }
     _FLOOR = 512
     CONTEXT_BUDGET_RATIO = 0.23

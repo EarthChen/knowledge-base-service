@@ -64,6 +64,18 @@ class TestAutoDerivation:
         assert r._base == 50_000
 
 
+def test_pipeline_component_ratios():
+    """New pipeline components should have budget ratios."""
+    r = TokenBudgetResolver(base=30_000)
+    assert r.budget("domain_classify") == 15_000
+    assert r.budget("domain_merge") == 6_000
+    assert r.budget("domain_tree_plan") == 4_500
+    assert r.budget("topic_page_generate") == 18_000
+    assert r.budget("domain_overview") == 9_000
+    assert r.budget("system_overview") == 7_500
+    assert r.budget("entity_group") == 6_000
+
+
 def test_resolver_from_config():
     from config import get_settings
     from wiki.token_budget import TokenBudgetResolver

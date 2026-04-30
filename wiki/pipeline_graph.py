@@ -141,13 +141,14 @@ async def finalize_node(state: WikiPipelineState) -> dict[str, Any]:
 # Graph builder
 # ---------------------------------------------------------------------------
 
-def build_wiki_pipeline(checkpointer: Any | None = None) -> Any:
+def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     """Build and compile the Wiki generation StateGraph.
 
     Args:
         checkpointer: Checkpoint backend. Defaults to in-memory
-            ``MemorySaver``. For production persistence, pass
-            ``AsyncSqliteSaver`` or ``RedisSaver``::
+            ``MemorySaver``. Pass ``False`` to disable checkpointing.
+            For production persistence, pass ``AsyncSqliteSaver``
+            or ``RedisSaver``::
 
                 async with AsyncSqliteSaver.from_conn_string(path) as saver:
                     pipeline = build_wiki_pipeline(checkpointer=saver)
@@ -190,4 +191,6 @@ def build_wiki_pipeline(checkpointer: Any | None = None) -> Any:
 
     if checkpointer is None:
         checkpointer = MemorySaver()
+    elif checkpointer is False:
+        checkpointer = None
     return graph.compile(checkpointer=checkpointer)

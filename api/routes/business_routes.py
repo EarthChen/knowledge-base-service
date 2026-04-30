@@ -5,9 +5,10 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from auth import Role, require_role
 from log import get_logger
 
 log = get_logger(__name__)
@@ -44,7 +45,7 @@ async def list_businesses(request: Request) -> dict[str, Any]:
     return {"businesses": businesses}
 
 
-@router.post("/businesses", status_code=201)
+@router.post("/businesses", status_code=201, dependencies=[Depends(require_role(Role.EDITOR))])
 async def create_business(request: Request, body: BusinessCreate) -> dict[str, Any]:
     graph = request.app.state.graph
     uid = f"business:{uuid4().hex[:12]}"
@@ -57,7 +58,7 @@ async def create_business(request: Request, body: BusinessCreate) -> dict[str, A
     return {"id": uid, "name": body.name, "description": body.description}
 
 
-@router.put("/businesses/{business_id}")
+@router.put("/businesses/{business_id}", dependencies=[Depends(require_role(Role.EDITOR))])
 async def update_business(request: Request, business_id: str, body: BusinessUpdate) -> dict[str, Any]:
     graph = request.app.state.graph
     sets = []
@@ -78,10 +79,14 @@ async def update_business(request: Request, business_id: str, body: BusinessUpda
     return {"id": row[0], "name": row[1], "description": row[2]}
 
 
-@router.delete("/businesses/{business_id}")
+@router.delete("/businesses/{business_id}", dependencies=[Depends(require_role(Role.EDITOR))])
 async def delete_business(request: Request, business_id: str) -> dict[str, str]:
     graph = request.app.state.graph
-    q = "MATCH (b:Business {uid: $bid}) DETACH DELETE b RETURN count(b) AS deleted"
+    await graph.query(
+        "MATCH (b:Business {uid: $bid})-[r:CONTAINS_REPO]->() DELETE r",
+        params={"bid": business_id},
+    )
+    q = "MATCH (b:Business {uid: $bid}) DELETE b RETURN count(b) AS deleted"
     result = await graph.query(q, params={"bid": business_id})
     deleted = result.result_set[0][0] if result.result_set else 0
     if deleted == 0:
@@ -89,24 +94,22 @@ async def delete_business(request: Request, business_id: str) -> dict[str, str]:
     return {"status": "deleted"}
 
 
-@router.put("/businesses/{business_id}/repositories")
+@router.put("/businesses/{business_id}/repositories", dependencies=[Depends(require_role(Role.EDITOR))])
 async def bind_repositories(request: Request, business_id: str, body: RepositoryBind) -> dict[str, Any]:
     graph = request.app.state.graph
     check = "MATCH (b:Business {uid: $bid}) RETURN b.uid"
     result = await graph.query(check, params={"bid": business_id})
     if not result.result_set:
         raise HTTPException(404, f"Business {business_id} not found")
-    await graph.query(
-        "MATCH (b:Business {uid: $bid})-[r:CONTAINS_REPO]->() DELETE r",
-        params={"bid": business_id},
+    q = (
+        "MATCH (b:Business {uid: $bid}) "
+        "OPTIONAL MATCH (b)-[old:CONTAINS_REPO]->() DELETE old "
+        "WITH b "
+        "UNWIND $repos AS repo_name "
+        "MERGE (r:Repository {name: repo_name}) "
+        "MERGE (b)-[:CONTAINS_REPO]->(r)"
     )
-    for repo in body.repositories:
-        await graph.query(
-            "MATCH (b:Business {uid: $bid}) "
-            "MERGE (r:Repository {name: $repo}) "
-            "MERGE (b)-[:CONTAINS_REPO]->(r)",
-            params={"bid": business_id, "repo": repo},
-        )
+    await graph.query(q, params={"bid": business_id, "repos": body.repositories})
     return {"business_id": business_id, "repositories": body.repositories}
 
 

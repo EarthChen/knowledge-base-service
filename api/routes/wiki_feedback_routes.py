@@ -7,7 +7,7 @@ from dataclasses import asdict
 from typing import Any
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from api.exceptions import KbNotFound, KbServiceUnavailable
@@ -86,7 +86,11 @@ async def get_wiki_page_feedback_summary(
     return await fb.get_feedback_summary(decoded, business_id=business_id)
 
 
-@router.post("/pages/{page_uid:path}/review", response_model=None)
+@router.post(
+    "/pages/{page_uid:path}/review",
+    response_model=None,
+    dependencies=[Depends(require_role(Role.EDITOR))],
+)
 async def set_page_review(
     page_uid: str,
     body: WikiPageReviewBody,
@@ -98,10 +102,10 @@ async def set_page_review(
         result = await svc.set_page_review_status(decoded, body.status, body.notes)
         return result
     except AttributeError:
-        return {"status": "ok", "page": decoded, "review_status": body.status}
+        raise HTTPException(501, "This feature is not yet implemented in WikiService")
 
 
-@router.post("/review/batch", response_model=None)
+@router.post("/review/batch", response_model=None, dependencies=[Depends(require_role(Role.EDITOR))])
 async def batch_review(
     body: WikiBatchReviewBody,
     svc: WikiService = Depends(get_wiki_service_dep),
@@ -112,10 +116,14 @@ async def batch_review(
         result = await svc.batch_review(body.business_id, reviews_payload)
         return result
     except AttributeError:
-        return {"updated": len(body.reviews)}
+        raise HTTPException(501, "This feature is not yet implemented in WikiService")
 
 
-@router.post("/pages/{page_uid:path}/regenerate", response_model=None)
+@router.post(
+    "/pages/{page_uid:path}/regenerate",
+    response_model=None,
+    dependencies=[Depends(require_role(Role.EDITOR))],
+)
 async def trigger_regeneration(
     page_uid: str,
     body: WikiRegenerateBody,
@@ -127,7 +135,7 @@ async def trigger_regeneration(
         result = await svc.trigger_page_regeneration(decoded, body.heal_hints)
         return result
     except AttributeError:
-        return {"task_id": f"regen-{decoded}", "status": "queued"}
+        raise HTTPException(501, "This feature is not yet implemented in WikiService")
 
 
 @router.post("/chunks/index", response_model=None, dependencies=[Depends(require_role(Role.EDITOR))])

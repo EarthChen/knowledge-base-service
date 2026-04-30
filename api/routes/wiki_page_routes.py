@@ -483,6 +483,7 @@ async def get_domain_tree(
     try:
         return await svc.get_domain_tree(business_id)
     except AttributeError:
+        log.warning("domain_tree_unavailable_degraded_empty", business_id=business_id)
         return {"tree": [], "review_status": {}}
 
 
@@ -500,6 +501,7 @@ async def get_topic_tree(
     try:
         return await svc.get_topic_tree(business_id)
     except AttributeError:
+        log.warning("topic_tree_unavailable_degraded_empty", business_id=business_id)
         return {"tree": []}
 
 

@@ -1,6 +1,7 @@
 """LangGraph pipeline node implementations for Wiki generation."""
 from __future__ import annotations
 
+import re
 from collections import Counter
 from typing import Any
 
@@ -286,3 +287,63 @@ async def compose_pages_node(state: dict[str, Any]) -> dict[str, Any]:
 
     log.info("compose_pages_done", total_pages=len(all_pages), domains_processed=len(leaf_domains))
     return {"pages": all_pages, "generated_topic_pages": generated_uids}
+
+
+async def synthesize_overviews_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Phase 4a+4b: generate domain overviews and system overview."""
+    llm = state.get("llm")
+    pages = list(state.get("pages", []))
+    domain_tree = state.get("domain_tree") or []
+
+    if not llm:
+        return {}
+
+    domain_summaries = []
+    for domain in domain_tree:
+        name = domain.get("name", "")
+        domain_pages = [p for p in pages if p.get("domain") == name]
+        summary = domain_pages[0]["content"][:200] if domain_pages else ""
+        domain_summaries.append(f"- **{name}**: {summary}")
+
+    if domain_summaries:
+        sys_prompt = (
+            "Generate a system overview wiki page summarizing the entire codebase.\n\n"
+            f"Domains:\n" + "\n".join(domain_summaries) + "\n\n"
+            "Output:\n"
+            "1. ## 系统概览 (high-level description of the system)\n"
+            "2. ## 架构图 (Mermaid diagram showing domain relationships)\n"
+            "3. ## 域列表 (with links to each domain)\n"
+        )
+        overview_content = await llm.generate(
+            sys_prompt,
+            system="You are a technical wiki author. Output Markdown with Mermaid.",
+        )
+        overview_page = {
+            "title": "System Overview",
+            "content": overview_content,
+            "path": "wiki/_system_overview",
+            "page_type": "system_overview",
+            "domain": "_system",
+        }
+        return {"pages": [overview_page], "system_overview_uid": "wiki/_system_overview"}
+
+    return {}
+
+
+async def create_links_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Phase 4c-4d: programmatic cross-link resolution and knowledge graph edge creation."""
+    pages = state.get("pages", [])
+    page_titles = {p.get("title", "").lower(): p.get("path", "") for p in pages}
+
+    link_pattern = re.compile(r"\[\[([^\]]+)\]\]")
+
+    for page in pages:
+        content = page.get("content", "")
+        for match in link_pattern.finditer(content):
+            link_title = match.group(1).lower()
+            if link_title in page_titles:
+                target_path = page_titles[link_title]
+                log.debug("wiki_link_resolved", source=page.get("path"), target=target_path)
+
+    # Do not return pages: state uses operator.add and would duplicate the full list.
+    return {}

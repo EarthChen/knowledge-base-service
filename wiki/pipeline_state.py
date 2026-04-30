@@ -34,3 +34,16 @@ class WikiPipelineState(TypedDict):
     stage_timings: dict[str, float]
     llm_call_count: int
     errors: list[str]
+
+    # --- Entity classification (Phase 1) ---
+    entity_roles: dict[str, str]
+    role_stats: dict[str, int]
+
+    # --- Incremental / reorg ---
+    is_incremental: bool
+    reorg_type: str
+    affected_domains: list[str]
+
+    # --- Review tracking ---
+    review_status: dict[str, str]
+    review_notes: dict[str, str]

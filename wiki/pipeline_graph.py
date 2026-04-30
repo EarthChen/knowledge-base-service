@@ -9,11 +9,14 @@ from langgraph.graph import StateGraph
 from log import get_logger
 from wiki.models import ImportanceTier, WikiPage
 from wiki.pipeline_nodes import (
+    classify_domains_node,
     classify_entities_node,
-    classify_domains_node as classify_domains_real,
-    compose_pages_node as compose_pages_real,
-    decompose_hierarchy_node as decompose_hierarchy_real,
-    plan_structure_node as plan_structure_real,
+    compose_pages_node,
+    create_links_node,
+    decompose_hierarchy_node,
+    detect_reorg_node,
+    plan_structure_node,
+    synthesize_overviews_node,
 )
 from wiki.pipeline_state import WikiPipelineState
 from wiki.quality_evaluator import WikiQualityEvaluator
@@ -25,15 +28,23 @@ log = get_logger(__name__)
 # Conditional edges
 # ---------------------------------------------------------------------------
 
+def route_by_reorg_type(state: WikiPipelineState) -> str:
+    """Route based on detected reorg type."""
+    reorg_type = state.get("reorg_type", "first_run")
+    if reorg_type == "none":
+        return "finalize"
+    return "classify_domains"
+
+
 def should_heal(state: WikiPipelineState) -> str:
     """Route to heal_pages if quality_gate_node identified pages to heal."""
     if state.get("pages_to_heal"):
         return "heal_pages"
-    return "finalize"
+    return "synthesize_overviews"
 
 
 # ---------------------------------------------------------------------------
-# Stub nodes (to be replaced with real logic in later Sprints)
+# Quality / finalize nodes (graph-local)
 # ---------------------------------------------------------------------------
 
 async def quality_gate_node(state: WikiPipelineState) -> dict[str, Any]:
@@ -144,26 +155,35 @@ def build_wiki_pipeline(checkpointer: Any | None = None) -> Any:
     graph = StateGraph(WikiPipelineState)
 
     graph.add_node("collect_modules", classify_entities_node)
-    graph.add_node("classify_domains", classify_domains_real)
-    graph.add_node("decompose_hierarchy", decompose_hierarchy_real)
-    graph.add_node("plan_structure", plan_structure_real)
-    graph.add_node("compose_pages", compose_pages_real)
+    graph.add_node("detect_reorg", detect_reorg_node)
+    graph.add_node("classify_domains", classify_domains_node)
+    graph.add_node("decompose_hierarchy", decompose_hierarchy_node)
+    graph.add_node("plan_structure", plan_structure_node)
+    graph.add_node("compose_pages", compose_pages_node)
     graph.add_node("quality_gate", quality_gate_node)
     graph.add_node("heal_pages", heal_pages_node)
+    graph.add_node("synthesize_overviews", synthesize_overviews_node)
+    graph.add_node("create_links", create_links_node)
     graph.add_node("finalize", finalize_node)
 
-    graph.add_edge("collect_modules", "classify_domains")
+    graph.add_edge("collect_modules", "detect_reorg")
+    graph.add_conditional_edges(
+        "detect_reorg",
+        route_by_reorg_type,
+        {"classify_domains": "classify_domains", "finalize": "finalize"},
+    )
     graph.add_edge("classify_domains", "decompose_hierarchy")
     graph.add_edge("decompose_hierarchy", "plan_structure")
     graph.add_edge("plan_structure", "compose_pages")
     graph.add_edge("compose_pages", "quality_gate")
-
     graph.add_conditional_edges(
         "quality_gate",
         should_heal,
-        {"heal_pages": "heal_pages", "finalize": "finalize"},
+        {"heal_pages": "heal_pages", "synthesize_overviews": "synthesize_overviews"},
     )
     graph.add_edge("heal_pages", "compose_pages")
+    graph.add_edge("synthesize_overviews", "create_links")
+    graph.add_edge("create_links", "finalize")
 
     graph.set_entry_point("collect_modules")
     graph.set_finish_point("finalize")

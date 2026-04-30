@@ -21,6 +21,16 @@ log = get_logger(__name__)
 _SYSTEM_JSON = "Reply with JSON only. No markdown fences."
 
 
+def clean_repo_path(path: str) -> str:
+    """Remove GitLab group prefix from repository path.
+
+    'ultron/ultron-basic-user' → 'ultron-basic-user'
+    """
+    if "/" in path:
+        return path.rsplit("/", 1)[-1]
+    return path
+
+
 class CrossRepoBusinessDomainPlanner:
     """Batch LLM classification across repositories, with per-repo fallback for large inputs."""
 
@@ -237,7 +247,7 @@ class CrossRepoBusinessDomainPlanner:
             path_str = str(path) if path is not None else name
             rows.append(
                 {
-                    "repository": repo_id,
+                    "repository": clean_repo_path(repo_id),
                     "name": name,
                     "summary": self._module_summary(repo_id, name),
                     "path": path_str,
@@ -388,15 +398,33 @@ class CrossRepoBusinessDomainPlanner:
         valid_pairs: set[tuple[str, str]],
         pairs_in_order: list[tuple[str, str]],
     ) -> dict[str, list[tuple[str, str]]]:
+        clean_to_full: dict[str, str] = {}
+        for rid, _ in pairs_in_order:
+            c = clean_repo_path(rid)
+            if c not in clean_to_full:
+                clean_to_full[c] = rid
+
+        def canonical_pair(repo_llm: str, mod_name: str) -> tuple[str, str] | None:
+            p = (repo_llm, mod_name)
+            if p in valid_pairs:
+                return p
+            full = clean_to_full.get(repo_llm)
+            if full is not None:
+                pf = (full, mod_name)
+                if pf in valid_pairs:
+                    return pf
+            return None
+
         assigned: set[tuple[str, str]] = set()
         result: dict[str, list[tuple[str, str]]] = {}
 
         for domain, pairs in parsed.items():
             bucket: list[tuple[str, str]] = []
-            for pair in pairs:
-                if pair in valid_pairs and pair not in assigned:
-                    assigned.add(pair)
-                    bucket.append(pair)
+            for repo_llm, mod_name in pairs:
+                canon = canonical_pair(repo_llm, mod_name)
+                if canon is not None and canon not in assigned:
+                    assigned.add(canon)
+                    bucket.append(canon)
             if bucket:
                 result[domain] = bucket
 

@@ -1,0 +1,86 @@
+import { useState, useCallback } from "react";
+import { ChevronRight, ChevronDown, FileText, FolderOpen } from "lucide-react";
+import type { TopicTreeNode } from "../../hooks/useWikiDomainTree";
+
+interface Props {
+  tree: TopicTreeNode[];
+  selectedPath: string | null;
+  onSelect: (path: string) => void;
+}
+
+export default function WikiTopicTreeNav({ tree, selectedPath, onSelect }: Props) {
+  return (
+    <nav className="space-y-0.5 text-sm">
+      {tree.map((node) => (
+        <TreeNode key={node.path} node={node} depth={0} selectedPath={selectedPath} onSelect={onSelect} />
+      ))}
+    </nav>
+  );
+}
+
+function TreeNode({
+  node,
+  depth,
+  selectedPath,
+  onSelect,
+}: {
+  node: TopicTreeNode;
+  depth: number;
+  selectedPath: string | null;
+  onSelect: (path: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasChildren = node.children.length > 0;
+  const isSelected = selectedPath === node.path;
+  const isDomain = node.page_type === "domain_overview";
+
+  const handleClick = useCallback(() => {
+    if (hasChildren) setExpanded((e) => !e);
+    onSelect(node.path);
+  }, [hasChildren, node.path, onSelect]);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={handleClick}
+        className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors ${
+          isSelected
+            ? "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400"
+            : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+        }`}
+        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+      >
+        {hasChildren ? (
+          expanded ? (
+            <ChevronDown size={14} />
+          ) : (
+            <ChevronRight size={14} />
+          )
+        ) : (
+          <span className="w-3.5" />
+        )}
+        {isDomain ? <FolderOpen size={14} /> : <FileText size={14} />}
+        <span className="truncate">{node.name}</span>
+        {node.review_status === "pending_review" && (
+          <span className="ml-auto rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+            待审阅
+          </span>
+        )}
+      </button>
+      {expanded && hasChildren && (
+        <div>
+          {node.children.map((child) => (
+            <TreeNode
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              selectedPath={selectedPath}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,10 +1,10 @@
 """LangGraph pipeline node implementations for Wiki generation."""
-from __future__ import annotations
 
 import re
 from collections import Counter
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from log import get_logger
 from store.schema import GraphNode, NodeLabel
 from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
@@ -47,13 +47,15 @@ async def classify_entities_node(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def classify_domains_node(state: dict[str, Any]) -> dict[str, Any]:
+async def classify_domains_node(
+    state: dict[str, Any], config: RunnableConfig | None = None
+) -> dict[str, Any]:
     """Phase 2a-2b: classify modules into business domains using LLM.
 
     Filters to HAS_BUSINESS_LOGIC entities only, then delegates to
     CrossRepoBusinessDomainPlanner for per-repo classification + cross-repo merge.
     """
-    llm = state.get("llm")
+    llm = (config or {}).get("configurable", {}).get("llm")
     business_id = state.get("business_id", "")
     entity_roles = state.get("entity_roles", {})
     modules = state.get("modules", {})
@@ -143,9 +145,11 @@ def _normalize_domain_tree(raw_tree: list | None, domain_mapping: dict[str, list
     return result
 
 
-async def decompose_hierarchy_node(state: dict[str, Any]) -> dict[str, Any]:
+async def decompose_hierarchy_node(
+    state: dict[str, Any], config: RunnableConfig | None = None
+) -> dict[str, Any]:
     """Phase 2c: build hierarchical domain tree from flat domain mapping."""
-    llm = state.get("llm")
+    llm = (config or {}).get("configurable", {}).get("llm")
     domain_mapping = state.get("domain_mapping", {})
     modules = state.get("modules", {})
 
@@ -219,9 +223,11 @@ def _collect_leaf_domains(tree: list[dict[str, Any]], parent: str = "root") -> l
     return leaves
 
 
-async def compose_pages_node(state: dict[str, Any]) -> dict[str, Any]:
+async def compose_pages_node(
+    state: dict[str, Any], config: RunnableConfig | None = None
+) -> dict[str, Any]:
     """Phase 3: generate topic pages for each leaf domain."""
-    llm = state.get("llm")
+    llm = (config or {}).get("configurable", {}).get("llm")
     domain_tree = state.get("domain_tree") or []
     entity_roles = state.get("entity_roles", {})
     modules = state.get("modules", {})
@@ -289,9 +295,11 @@ async def compose_pages_node(state: dict[str, Any]) -> dict[str, Any]:
     return {"pages": all_pages, "generated_topic_pages": generated_uids}
 
 
-async def synthesize_overviews_node(state: dict[str, Any]) -> dict[str, Any]:
+async def synthesize_overviews_node(
+    state: dict[str, Any], config: RunnableConfig | None = None
+) -> dict[str, Any]:
     """Phase 4a+4b: generate domain overviews and system overview."""
-    llm = state.get("llm")
+    llm = (config or {}).get("configurable", {}).get("llm")
     pages = list(state.get("pages", []))
     domain_tree = state.get("domain_tree") or []
 

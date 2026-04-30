@@ -23,7 +23,6 @@ async def test_decompose_hierarchy_builds_tree_without_llm():
                 {"uid": "Module::UserService:0", "label": "Module", "properties": {"name": "UserService"}},
             ]
         },
-        "llm": None,
     }
     result = await decompose_hierarchy_node(state)
     assert "domain_tree" in result
@@ -51,9 +50,8 @@ async def test_decompose_hierarchy_with_llm():
                 {"uid": "Module::PaymentService:0", "label": "Module", "properties": {"name": "PaymentService", "path": "/src/payment", "business_summary": "Handles payments"}},
             ]
         },
-        "llm": mock_llm,
     }
-    result = await decompose_hierarchy_node(state)
+    result = await decompose_hierarchy_node(state, {"configurable": {"llm": mock_llm}})
     assert "domain_tree" in result
     assert result["domain_tree"] is not None
 

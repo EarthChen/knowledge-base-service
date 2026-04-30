@@ -52,6 +52,3 @@ class WikiPipelineState(TypedDict):
     generated_topic_pages: list[str]
     overview_pages: list[str]
     system_overview_uid: str
-
-    # --- LLM port (injected at pipeline start) ---
-    llm: Any

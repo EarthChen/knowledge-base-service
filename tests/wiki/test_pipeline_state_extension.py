@@ -21,4 +21,3 @@ def test_phase3_phase4_fields_exist():
     assert "generated_topic_pages" in hints
     assert "overview_pages" in hints
     assert "system_overview_uid" in hints
-    assert "llm" in hints

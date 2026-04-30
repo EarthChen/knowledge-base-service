@@ -25,9 +25,8 @@ async def test_classify_domains_returns_domain_mapping():
             "Module::PaymentService:0": "has_business_logic",
             "Module::UserService:0": "has_business_logic",
         },
-        "llm": mock_llm,
     }
-    result = await classify_domains_node(state)
+    result = await classify_domains_node(state, {"configurable": {"llm": mock_llm}})
     assert "domain_mapping" in result
     assert isinstance(result["domain_mapping"], dict)
 
@@ -52,7 +51,6 @@ async def test_classify_domains_filters_non_biz():
             "Module::PaymentService:0": "has_business_logic",
             "Module::UserDTO:0": "data_model",
         },
-        "llm": mock_llm,
     }
-    result = await classify_domains_node(state)
+    result = await classify_domains_node(state, {"configurable": {"llm": mock_llm}})
     assert "domain_mapping" in result

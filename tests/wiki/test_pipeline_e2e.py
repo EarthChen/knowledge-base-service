@@ -65,11 +65,6 @@ def _mock_llm_generate(prompt: str, system: str = "", **kwargs) -> str:
     )
 
 
-def _build_pipeline_no_checkpoint():
-    """Build pipeline without checkpointer to avoid serializing non-picklable llm."""
-    return build_wiki_pipeline(checkpointer=False)
-
-
 def _build_test_modules() -> dict[str, list[dict]]:
     """Build realistic test module data with mixed entity types."""
     return {
@@ -165,7 +160,7 @@ async def test_full_pipeline_e2e_with_mock_llm():
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(side_effect=_mock_llm_generate)
 
-    pipeline = _build_pipeline_no_checkpoint()
+    pipeline = build_wiki_pipeline()
 
     initial_state = {
         "business_id": "test-e2e",
@@ -193,10 +188,12 @@ async def test_full_pipeline_e2e_with_mock_llm():
         "generated_topic_pages": [],
         "overview_pages": [],
         "system_overview_uid": "",
-        "llm": mock_llm,
     }
 
-    result = await pipeline.ainvoke(initial_state)
+    result = await pipeline.ainvoke(
+        initial_state,
+        config={"configurable": {"thread_id": "e2e-test-1", "llm": mock_llm}},
+    )
 
     assert result is not None
     assert result["business_id"] == "test-e2e"
@@ -262,7 +259,6 @@ async def test_pipeline_empty_modules_completes():
         "generated_topic_pages": [],
         "overview_pages": [],
         "system_overview_uid": "",
-        "llm": None,
     }
 
     result = await pipeline.ainvoke(
@@ -319,7 +315,6 @@ async def test_pipeline_incremental_no_change_skips():
         "generated_topic_pages": [],
         "overview_pages": [],
         "system_overview_uid": "",
-        "llm": None,
     }
 
     result = await pipeline.ainvoke(

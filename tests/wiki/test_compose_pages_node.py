@@ -26,10 +26,9 @@ async def test_compose_pages_generates_topic_pages():
                 {"uid": "Module::PayDTO:0", "label": "Module", "properties": {"name": "PayDTO", "annotations": ["@Data"], "methods_count": 0, "start_line": 0, "end_line": 20}},
             ]
         },
-        "llm": mock_llm,
         "config": {},
     }
-    result = await compose_pages_node(state)
+    result = await compose_pages_node(state, {"configurable": {"llm": mock_llm}})
     assert "pages" in result
     assert len(result["pages"]) >= 1
     assert "generated_topic_pages" in result
@@ -41,8 +40,7 @@ async def test_compose_pages_empty_tree():
         "domain_tree": [],
         "entity_roles": {},
         "modules": {},
-        "llm": AsyncMock(),
         "config": {},
     }
-    result = await compose_pages_node(state)
+    result = await compose_pages_node(state, {"configurable": {"llm": AsyncMock()}})
     assert result["pages"] == []

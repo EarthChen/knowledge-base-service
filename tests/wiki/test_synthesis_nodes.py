@@ -12,7 +12,6 @@ async def test_synthesize_overviews_creates_system_overview():
     mock_llm.generate = AsyncMock(return_value="# System Overview\n\n## 系统概览\nThis system handles payment and messaging.\n\n## 架构图\n```mermaid\ngraph TD\nA-->B\n```")
 
     state = {
-        "llm": mock_llm,
         "domain_tree": [
             {"name": "payment", "modules": ["PaymentService"], "children": []},
             {"name": "messaging", "modules": ["MsgService"], "children": []},
@@ -22,7 +21,7 @@ async def test_synthesize_overviews_creates_system_overview():
             {"title": "messaging", "content": "Messaging wiki content here...", "path": "wiki/messaging", "page_type": "topic", "domain": "messaging"},
         ],
     }
-    result = await synthesize_overviews_node(state)
+    result = await synthesize_overviews_node(state, {"configurable": {"llm": mock_llm}})
     assert "pages" in result
     assert any(p.get("page_type") == "system_overview" for p in result["pages"])
     assert "system_overview_uid" in result
@@ -31,11 +30,10 @@ async def test_synthesize_overviews_creates_system_overview():
 @pytest.mark.asyncio
 async def test_synthesize_overviews_no_llm():
     state = {
-        "llm": None,
         "domain_tree": [{"name": "payment", "modules": [], "children": []}],
         "pages": [],
     }
-    result = await synthesize_overviews_node(state)
+    result = await synthesize_overviews_node(state, {"configurable": {"llm": None}})
     assert result == {}
 
 

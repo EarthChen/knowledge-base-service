@@ -23,6 +23,8 @@ class PageType(StrEnum):
     DOMAIN_OVERVIEW = "domain_overview"
     BUSINESS_FLOW = "business_flow"
     INDEX = "index"
+    TOPIC = "topic"
+    SYSTEM_OVERVIEW = "system_overview"
     # Saved from Q&A session crystallization
     CRYSTALLIZED = "crystallized"
 
@@ -339,6 +341,7 @@ class WikiPage:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WikiPage:
         repo_fallback = data.get("repository", "")
+        meta_raw = data.get("metadata") or {}
         return WikiPage(
             path=data["path"],
             title=data["title"],
@@ -363,12 +366,12 @@ class WikiPage:
                 for s in data.get("source_locations", [])
             ],
             metadata=WikiPageMetadata(
-                node_count=data["metadata"]["node_count"],
-                edge_count=data["metadata"]["edge_count"],
-                generation_mode=data["metadata"].get("generation_mode", "structure"),
-                fallback_tier=data["metadata"].get("fallback_tier"),
-                generated_at=data["metadata"].get("generated_at"),
-                enrichment_level=data["metadata"].get("enrichment_level"),
+                node_count=meta_raw.get("node_count", 0),
+                edge_count=meta_raw.get("edge_count", 0),
+                generation_mode=meta_raw.get("generation_mode", "structure"),
+                fallback_tier=meta_raw.get("fallback_tier"),
+                generated_at=meta_raw.get("generated_at"),
+                enrichment_level=meta_raw.get("enrichment_level"),
             ),
             method_locations=[
                 SourceLocation(

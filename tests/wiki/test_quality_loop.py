@@ -155,3 +155,42 @@ async def test_heal_pages_increments_attempts() -> None:
     assert result["heal_attempts"]["fix_me"] == 1
     assert result["pages_to_heal"] == []
     assert "fix_me" in result.get("heal_hints", {})
+
+
+@pytest.mark.asyncio
+async def test_quality_gate_handles_topic_page_dict() -> None:
+    """quality_gate should evaluate pages produced by compose_pages_node (no metadata)."""
+    from wiki.pipeline_graph import quality_gate_node
+
+    topic_page = {
+        "path": "wiki/payment",
+        "title": "Payment Service",
+        "content": (
+            "## 业务概述\nPayment handling.\n\n"
+            "## 核心业务流程\nSequence of calls.\n\n"
+            "## 核心服务详情\n### PaymentService\nProcesses payments.\n\n"
+            "## 关联主题\n- [[messaging]]"
+        ),
+        "page_type": "topic",
+        "domain": "payment",
+    }
+    state: WikiPipelineState = {
+        "business_id": "biz",
+        "repositories": [],
+        "config": {},
+        "modules": {},
+        "domain_mapping": {},
+        "domain_tree": None,
+        "topic_structure": None,
+        "pages": [topic_page],
+        "quality_scores": {},
+        "pages_to_heal": [],
+        "heal_attempts": {},
+        "heal_hints": {},
+        "stage_timings": {},
+        "llm_call_count": 0,
+        "errors": [],
+    }
+
+    result = await quality_gate_node(state)
+    assert "wiki/payment" in result["quality_scores"]

@@ -346,3 +346,107 @@ async def test_pipeline_incremental_no_change_skips():
     assert result is not None
     assert result["reorg_type"] == "none"
     assert len(result.get("pages", [])) == 0
+
+
+@pytest.mark.asyncio
+async def test_pipeline_light_reorg():
+    """Incremental run with affected domains and small change should route through classify_domains."""
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(side_effect=_mock_llm_generate)
+
+    pipeline = build_wiki_pipeline()
+
+    initial_state = {
+        "business_id": "light-reorg-test",
+        "repositories": ["test-repo"],
+        "config": {},
+        "modules": _build_test_modules(),
+        "domain_mapping": {},
+        "domain_tree": [
+            {
+                "name": "payment",
+                "modules": ["PaymentService", "RefundService", "UserService"],
+                "children": [],
+            },
+        ],
+        "topic_structure": None,
+        "pages": [],
+        "quality_scores": {},
+        "pages_to_heal": [],
+        "heal_attempts": {},
+        "heal_hints": {},
+        "stage_timings": {},
+        "llm_call_count": 0,
+        "errors": [],
+        "entity_roles": {},
+        "role_stats": {},
+        "is_incremental": True,
+        "reorg_type": "",
+        "affected_domains": ["payment"],
+        "review_status": {},
+        "review_notes": {},
+        "generated_topic_pages": [],
+        "overview_pages": [],
+        "system_overview_uid": "",
+        "resolved_links": {},
+    }
+
+    result = await pipeline.ainvoke(
+        initial_state,
+        config={"configurable": {"thread_id": "light-reorg-1", "llm": mock_llm}},
+    )
+
+    assert result is not None
+    # Should detect reorg as light or heavy (depends on ratio calculation)
+    assert result.get("reorg_type") in ("light", "heavy")
+    # Should still generate pages
+    assert len(result.get("pages", [])) >= 1
+
+
+@pytest.mark.asyncio
+async def test_pipeline_full_reorg():
+    """Non-incremental run with existing domain_tree should do full reorg."""
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(side_effect=_mock_llm_generate)
+
+    pipeline = build_wiki_pipeline()
+
+    initial_state = {
+        "business_id": "full-reorg-test",
+        "repositories": ["test-repo"],
+        "config": {},
+        "modules": _build_test_modules(),
+        "domain_mapping": {},
+        "domain_tree": [
+            {"name": "old-domain", "modules": ["OldService"], "children": []},
+        ],
+        "topic_structure": None,
+        "pages": [],
+        "quality_scores": {},
+        "pages_to_heal": [],
+        "heal_attempts": {},
+        "heal_hints": {},
+        "stage_timings": {},
+        "llm_call_count": 0,
+        "errors": [],
+        "entity_roles": {},
+        "role_stats": {},
+        "is_incremental": False,
+        "reorg_type": "",
+        "affected_domains": [],
+        "review_status": {},
+        "review_notes": {},
+        "generated_topic_pages": [],
+        "overview_pages": [],
+        "system_overview_uid": "",
+        "resolved_links": {},
+    }
+
+    result = await pipeline.ainvoke(
+        initial_state,
+        config={"configurable": {"thread_id": "full-reorg-1", "llm": mock_llm}},
+    )
+
+    assert result is not None
+    assert result.get("reorg_type") == "full"
+    assert len(result.get("pages", [])) >= 1

@@ -47,3 +47,11 @@ class WikiPipelineState(TypedDict):
     # --- Review tracking ---
     review_status: dict[str, str]
     review_notes: dict[str, str]
+
+    # --- Phase 3-4 outputs ---
+    generated_topic_pages: list[str]
+    overview_pages: list[str]
+    system_overview_uid: str
+
+    # --- LLM port (injected at pipeline start) ---
+    llm: Any

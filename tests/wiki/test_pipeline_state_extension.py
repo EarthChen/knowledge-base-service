@@ -13,3 +13,12 @@ def test_new_fields_exist_in_typeddict():
     assert "affected_domains" in hints
     assert "review_status" in hints
     assert "review_notes" in hints
+
+
+def test_phase3_phase4_fields_exist():
+    """Sprint 2 fields for content gen and synthesis."""
+    hints = WikiPipelineState.__annotations__
+    assert "generated_topic_pages" in hints
+    assert "overview_pages" in hints
+    assert "system_overview_uid" in hints
+    assert "llm" in hints

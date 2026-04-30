@@ -18,7 +18,7 @@ export default function WikiTopicTreeNav({ tree, selectedPath, onSelect }: Props
   }
 
   return (
-    <nav className="space-y-0.5 text-sm">
+    <nav className="space-y-0.5 text-sm" aria-label="主题导航">
       {tree.map((node) => (
         <TreeNode key={node.path} node={node} depth={0} selectedPath={selectedPath} onSelect={onSelect} />
       ))}
@@ -53,6 +53,11 @@ function TreeNode({
         type="button"
         onClick={handleClick}
         aria-expanded={hasChildren ? expanded : undefined}
+        aria-label={
+          hasChildren
+            ? `${node.name}，${expanded ? "已展开，点击可折叠" : "已折叠，点击可展开"}`
+            : node.name
+        }
         className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors ${
           isSelected
             ? "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400"

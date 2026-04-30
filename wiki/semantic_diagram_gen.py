@@ -168,7 +168,7 @@ class SemanticDiagramGenerator:
     ) -> bool:
         if mode != "full" or self._llm is None:
             return False
-        if page_type in (PageType.DOMAIN_OVERVIEW, PageType.REPO_OVERVIEW):
+        if page_type in (PageType.DOMAIN_OVERVIEW, PageType.REPO_OVERVIEW, PageType.TOPIC):
             return True
         call_edges = sum(1 for e in page_data.edges if e.edge_type == EdgeType.CALLS)
         if page_type == PageType.MODULE_OVERVIEW:
@@ -200,6 +200,10 @@ class SemanticDiagramGenerator:
             parts.append(_display_name(e.target_uid))
             parts.append(_display_name(e.source_uid))
         return "\n".join(parts)
+
+    def build_entity_digest(self, page_data: PageData) -> str:
+        """Build a text digest of page data for diagram generation prompts."""
+        return self._build_entity_digest(page_data)
 
     def decide_diagram_types(self, page_data: PageData, page_type: PageType) -> list[DiagramType]:
         """Decide which semantic diagram kinds to generate for this page."""
@@ -263,7 +267,7 @@ class SemanticDiagramGenerator:
         raw = await llm.generate(prompt, system=_SYSTEM_PROMPT)
         cleaned = self.sanitize_mermaid_output(raw)
         if cleaned is None:
-            log.info("semantic_diagram_invalid_mermaid", diagram_kind="state", entity=name)
+            log.warning("semantic_diagram_invalid_mermaid", diagram_kind="state", entity=name)
             return None
         return WikiDiagram(
             diagram_type=DiagramType.STATE,
@@ -278,7 +282,7 @@ class SemanticDiagramGenerator:
         raw = await llm.generate(prompt, system=_SYSTEM_PROMPT)
         cleaned = self.sanitize_mermaid_output(raw)
         if cleaned is None:
-            log.info("semantic_diagram_invalid_mermaid", diagram_kind="data_flow", entity=name)
+            log.warning("semantic_diagram_invalid_mermaid", diagram_kind="data_flow", entity=name)
             return None
         return WikiDiagram(
             diagram_type=DiagramType.DATA_FLOW,
@@ -293,7 +297,7 @@ class SemanticDiagramGenerator:
         raw = await llm.generate(prompt, system=_SYSTEM_PROMPT)
         cleaned = self.sanitize_mermaid_output(raw)
         if cleaned is None:
-            log.info("semantic_diagram_invalid_mermaid", diagram_kind="architecture", entity=name)
+            log.warning("semantic_diagram_invalid_mermaid", diagram_kind="architecture", entity=name)
             return None
         return WikiDiagram(
             diagram_type=DiagramType.ARCHITECTURE,
@@ -310,7 +314,7 @@ class SemanticDiagramGenerator:
         cleaned = self.sanitize_mermaid_output(raw)
         if cleaned is None:
             entity_name = page_data.node.properties.get("name", page_data.node.uid)
-            log.info("semantic_diagram_invalid_mermaid", diagram_kind="sequence", entity=entity_name)
+            log.warning("semantic_diagram_invalid_mermaid", diagram_kind="sequence", entity=entity_name)
             return None
         title = self._infer_sequence_title(page_type)
         return WikiDiagram(
@@ -351,7 +355,7 @@ class SemanticDiagramGenerator:
                     if arch is not None:
                         diagrams.append(arch)
             except Exception:
-                log.debug("semantic_diagram_kind_failed", diagram_kind=kind.value, exc_info=True)
+                log.warning("semantic_diagram_kind_failed", diagram_kind=kind.value, exc_info=True)
         return diagrams
 
     async def generate(

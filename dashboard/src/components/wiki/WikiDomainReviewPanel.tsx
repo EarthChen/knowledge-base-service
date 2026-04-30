@@ -11,7 +11,8 @@ interface Props {
   domainTree: DomainNode[];
   reviewStatus: Record<string, string>;
   onApprove: () => void;
-  onRegenerate: (domainNames: string[]) => void;
+  /** 按域重新生成的接口尚未接通 — 不传则隐藏各域的重新生成按钮。 */
+  onRegenerate?: (domainNames: string[]) => void;
 }
 
 export default function WikiDomainReviewPanel({
@@ -49,7 +50,7 @@ export default function WikiDomainReviewPanel({
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{domain.description}</p>
             )}
             <div className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-              {domain.modules.length} modules
+              {domain.modules.length} 个模块
             </div>
             <div className="mt-2 flex flex-wrap gap-1">
               {domain.modules.slice(0, 5).map((m) => (
@@ -64,7 +65,7 @@ export default function WikiDomainReviewPanel({
                 <span className="text-[10px] text-gray-400">+{domain.modules.length - 5}</span>
               )}
             </div>
-            {isPending && (
+            {isPending && onRegenerate && (
               <button
                 type="button"
                 onClick={() => onRegenerate([domain.name])}
@@ -75,10 +76,10 @@ export default function WikiDomainReviewPanel({
             )}
             {domain.children.length > 0 && (
               <div className="mt-2 border-t border-gray-100 pt-2 dark:border-gray-800">
-                <div className="text-[10px] font-medium text-gray-400">子域:</div>
+                <div className="text-[10px] font-medium text-gray-400">子域</div>
                 {domain.children.map((child) => (
                   <div key={child.name} className="ml-2 text-[11px] text-gray-500 dark:text-gray-400">
-                    └ {child.name} ({child.modules.length} modules)
+                    └ {child.name}（{child.modules.length} 个模块）
                   </div>
                 ))}
               </div>

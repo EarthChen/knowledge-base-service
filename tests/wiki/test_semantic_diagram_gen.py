@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -144,6 +144,12 @@ class TestShouldGenerate:
         pd = _make_page_data(edges=_make_edges(10))
         assert gen._should_generate(pd, PageType.API_REFERENCE, "full") is False
 
+    def test_topic_with_llm_and_full_mode_triggers(self):
+        """TOPIC pages should run semantic diagram generation like overview pages."""
+        gen = SemanticDiagramGenerator(llm=MagicMock())
+        pd = _make_page_data(edges=[])  # no CALLS edges required for TOPIC
+        assert gen._should_generate(pd, PageType.TOPIC, "full") is True
+
 
 class TestGenerate:
     def test_successful_generation(self):
@@ -217,5 +223,65 @@ class TestGenerate:
             diagrams = await gen.generate(pd, PageType.CLASS_DETAIL, "digest", "full")
             assert len(diagrams) == 1
             assert diagrams[0].title == "Class interaction flow"
+
+        asyncio.run(_run())
+
+    def test_invalid_mermaid_logs_warning(self):
+        mock_llm = AsyncMock()
+        mock_llm.generate = AsyncMock(return_value="This is not valid mermaid")
+
+        async def _run():
+            with patch("wiki.semantic_diagram_gen.log") as mock_log:
+                gen = SemanticDiagramGenerator(llm=mock_llm)
+                pd = _make_page_data(edges=_make_edges(5))
+                await gen.generate(pd, PageType.MODULE_OVERVIEW, "digest", "full")
+                mock_log.warning.assert_called()
+                events = [c.args[0] for c in mock_log.warning.call_args_list if c.args]
+                assert "semantic_diagram_invalid_mermaid" in events
+                mock_log.info.assert_not_called()
+                mock_log.debug.assert_not_called()
+
+        asyncio.run(_run())
+
+    def test_diagram_kind_exception_logs_warning(self):
+        mock_llm = AsyncMock()
+        mock_llm.generate = AsyncMock(
+            side_effect=[
+                "sequenceDiagram\n    A->>B: ok\n    B-->>A: done",
+                RuntimeError("simulated LLM failure"),
+            ]
+        )
+
+        def _two_kinds(_self, _pd, _pt):
+            return [DiagramType.SEQUENCE_DIAGRAM, DiagramType.STATE]
+
+        async def _run():
+            with patch("wiki.semantic_diagram_gen.log") as mock_log:
+                with patch.object(SemanticDiagramGenerator, "decide_diagram_types", _two_kinds):
+                    gen = SemanticDiagramGenerator(llm=mock_llm)
+                    pd = _make_page_data(edges=_make_edges(5))
+                    await gen.generate_for_page(pd, PageType.MODULE_OVERVIEW, "digest", "full")
+                events = [c.args[0] for c in mock_log.warning.call_args_list if c.args]
+                assert "semantic_diagram_kind_failed" in events
+                mock_log.debug.assert_not_called()
+
+        asyncio.run(_run())
+
+    def test_topic_full_mode_generates_sequence_diagram(self):
+        """P0-4: TOPIC pages must not be skipped; LLM path returns diagrams when mermaid is valid."""
+        mock_llm = AsyncMock()
+        mock_llm.generate = AsyncMock(
+            return_value="sequenceDiagram\n    A->>B: step\n    B-->>A: done"
+        )
+
+        async def _run():
+            gen = SemanticDiagramGenerator(llm=mock_llm)
+            pd = _make_page_data(edges=[])
+            diagrams = await gen.generate_for_page(
+                pd, PageType.TOPIC, "topic digest", "full"
+            )
+            assert len(diagrams) >= 1
+            assert diagrams[0].diagram_type == DiagramType.SEQUENCE_DIAGRAM
+            mock_llm.generate.assert_called()
 
         asyncio.run(_run())

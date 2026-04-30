@@ -2,8 +2,22 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from config import AppWikiFlags as WikiAppConfig, EmbeddingConfig
+from wiki.pipeline_orchestrator import PipelineResult
+
+
+def _stub_pipeline_result(**overrides):
+    defaults = dict(
+        domain_mapping={"infra": [("repo-a", "Svc")]},
+        domain_tree=None,
+        pages=[],
+        resolved_links={},
+        entity_roles={},
+        errors=[],
+    )
+    defaults.update(overrides)
+    return PipelineResult(**defaults)
 
 
 @pytest.fixture
@@ -11,6 +25,8 @@ def wiki_service_deps():
     graph = AsyncMock()
     graph.list_repository_modules = AsyncMock(return_value=[MagicMock()])
     graph.get_repo_stats = AsyncMock(return_value={"module_count": 0, "class_count": 0, "function_count": 0})
+    graph.update_node_property = AsyncMock()
+    graph.find_descendants = AsyncMock(return_value=[])
     store = MagicMock()
     store.execute_query = AsyncMock(return_value=MagicMock(data=[], raw=[]))
     store.persist_wiki_pages = AsyncMock()
@@ -39,9 +55,12 @@ def wiki_service_deps():
 
 
 @pytest.mark.asyncio
-async def test_incremental_skips_unchanged_repo(wiki_service_deps):
+@patch("wiki.pipeline_orchestrator.run_langgraph_pipeline", new_callable=AsyncMock)
+async def test_incremental_skips_unchanged_repo(mock_pipeline, wiki_service_deps):
     """When incremental=True, repo-b (not changed) should be skipped."""
     from wiki.service import WikiService
+
+    mock_pipeline.return_value = _stub_pipeline_result()
 
     svc = WikiService(
         graph=wiki_service_deps["graph"],
@@ -62,9 +81,12 @@ async def test_incremental_skips_unchanged_repo(wiki_service_deps):
 
 
 @pytest.mark.asyncio
-async def test_full_regen_all_repos(wiki_service_deps):
+@patch("wiki.pipeline_orchestrator.run_langgraph_pipeline", new_callable=AsyncMock)
+async def test_full_regen_all_repos(mock_pipeline, wiki_service_deps):
     """When incremental=False, all repos are generated."""
     from wiki.service import WikiService
+
+    mock_pipeline.return_value = _stub_pipeline_result()
 
     svc = WikiService(
         graph=wiki_service_deps["graph"],
@@ -83,9 +105,12 @@ async def test_full_regen_all_repos(wiki_service_deps):
 
 
 @pytest.mark.asyncio
-async def test_progress_callback_called(wiki_service_deps):
+@patch("wiki.pipeline_orchestrator.run_langgraph_pipeline", new_callable=AsyncMock)
+async def test_progress_callback_called(mock_pipeline, wiki_service_deps):
     """Progress callback should be called for each repo."""
     from wiki.service import WikiService
+
+    mock_pipeline.return_value = _stub_pipeline_result()
 
     svc = WikiService(
         graph=wiki_service_deps["graph"],

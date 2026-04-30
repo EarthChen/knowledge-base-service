@@ -12,6 +12,8 @@ interface TopicPage {
 
 interface Props {
   page: TopicPage | null | undefined;
+  businessId?: string;
+  wikiLinkParams?: Record<string, string>;
   onReviewAction: (action: "approve" | "needs_revision" | "regenerate", notes?: string) => void;
 }
 
@@ -34,7 +36,12 @@ const REVIEW_LABELS: Record<string, { text: string; className: string }> = {
   },
 };
 
-export default function WikiTopicContent({ page, onReviewAction }: Props) {
+export default function WikiTopicContent({
+  page,
+  businessId,
+  wikiLinkParams,
+  onReviewAction,
+}: Props) {
   const [showNotesInput, setShowNotesInput] = useState(false);
   const [notes, setNotes] = useState("");
 
@@ -136,7 +143,11 @@ export default function WikiTopicContent({ page, onReviewAction }: Props) {
         </div>
       </header>
       <div className="prose prose-sm max-w-none dark:prose-invert">
-        <MarkdownRenderer content={page.content} />
+        <MarkdownRenderer
+          content={page.content}
+          businessId={businessId}
+          wikiLinkParams={wikiLinkParams}
+        />
       </div>
     </article>
   );

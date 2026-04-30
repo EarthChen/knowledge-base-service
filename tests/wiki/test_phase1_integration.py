@@ -71,7 +71,7 @@ async def test_compose_all_pages_warms_cache_and_registers_pages() -> None:
     )
     config = WikiConfig(repository="test-repo", mode="structure", format="json")
 
-    with patch("wiki.service.WikiLinkCache") as mock_wlc_class:
+    with patch("wiki.page_composer_service.WikiLinkCache") as mock_wlc_class:
         cache_instance = MagicMock()
         cache_instance.warm_up = AsyncMock(return_value=2)
         cache_instance.register = MagicMock()
@@ -228,7 +228,7 @@ async def test_compose_all_pages_wikilink_cache_disabled_no_register() -> None:
     )
     config = WikiConfig(repository="test-repo", mode="structure", format="json")
 
-    with patch("wiki.service.WikiLinkCache") as mock_wlc_class:
+    with patch("wiki.page_composer_service.WikiLinkCache") as mock_wlc_class:
         cache_instance = MagicMock()
         cache_instance.warm_up = AsyncMock(return_value=2)
         cache_instance.register = MagicMock()

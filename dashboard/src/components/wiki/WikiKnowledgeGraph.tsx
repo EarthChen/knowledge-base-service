@@ -41,9 +41,19 @@ interface Props {
   domains: DomainInfo[];
   domainEdges: DomainEdge[];
   onNodeClick: (domainId: string) => void;
+  /** When true, shows loading UI (e.g. parent React Query initial fetch). */
+  isLoading?: boolean;
+  /** When set, shows error UI instead of the graph. */
+  error?: unknown;
 }
 
-export default function WikiKnowledgeGraph({ domains, domainEdges, onNodeClick }: Props) {
+export default function WikiKnowledgeGraph({
+  domains,
+  domainEdges,
+  onNodeClick,
+  isLoading = false,
+  error = null,
+}: Props) {
   const isDark = useDarkMode();
 
   const nodes: Node[] = useMemo(() => {
@@ -83,6 +93,22 @@ export default function WikiKnowledgeGraph({ domains, domainEdges, onNodeClick }
     (_event, node) => onNodeClick(node.id),
     [onNodeClick],
   );
+
+  if (isLoading) {
+    return (
+      <div className="flex h-48 items-center justify-center text-sm text-gray-400 dark:text-gray-500">
+        加载中...
+      </div>
+    );
+  }
+  if (error != null) {
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      <div className="flex h-48 items-center justify-center text-sm text-red-400 dark:text-red-400">
+        加载失败: {message}
+      </div>
+    );
+  }
 
   if (domains.length === 0) {
     return (

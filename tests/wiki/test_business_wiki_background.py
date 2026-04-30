@@ -118,3 +118,5 @@ async def test_background_task_unlocks_on_failure(mock_task_store):
     mock_task_store.unlock.assert_called_once_with("default")
     last_status_call = mock_task_store.update_status.call_args_list[-1]
     assert last_status_call[0][1] == "failed"
+    assert last_status_call[1].get("detail") == "boom"
+    assert last_status_call[1].get("error") == "internal_error"

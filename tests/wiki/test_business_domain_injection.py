@@ -217,11 +217,11 @@ class TestDomainPersistence:
 
 class TestComposePageDomainPassing:
     def test_compose_leaf_passes_business_domain(self):
-        """_compose_all_pages should pass business_domain to compose_page."""
+        """compose_all_pages should pass business_domain to compose_page."""
         import inspect
 
-        from wiki.service import WikiService
+        from wiki.page_composer_service import WikiPageComposerService
 
-        source = inspect.getsource(WikiService._compose_all_pages)
+        source = inspect.getsource(WikiPageComposerService.compose_all_pages)
         assert "business_domain" in source
         assert "is_entry_point" in source

@@ -1,15 +1,31 @@
 from unittest.mock import MagicMock
+
 from wiki.models import ImportanceTier
+from wiki.page_composer_service import WikiPageComposerService
+from wiki.service import WikiService
 
 
 def _make_service(core=20000, standard=8000, skeleton=1000):
-    from wiki.service import WikiService
     wiki_cfg = MagicMock()
     wiki_cfg.core_code_budget = core
     wiki_cfg.standard_code_budget = standard
     wiki_cfg.skeleton_code_budget = skeleton
+    composer = WikiPageComposerService(
+        graph=None,
+        collector=None,
+        wiki_store=None,
+        wiki_cfg=wiki_cfg,
+        store=None,
+        budget_resolver=None,
+        llm=None,
+        persistence=MagicMock(),
+        enrichment=MagicMock(),
+        composer_factory=lambda _p: MagicMock(),
+        llm_resolver=lambda _p: None,
+    )
     svc = WikiService.__new__(WikiService)
     svc._wiki_cfg = wiki_cfg
+    svc._page_composer = composer
     return svc
 
 

@@ -36,6 +36,28 @@ _SOURCE_REF = re.compile(r"source://[^\s)\]>]+")
 _HTTP_LINK = re.compile(r"https?://[^\s)\]>]+")
 _CODE_FENCE = re.compile(r"```")
 
+_STRUCT_OVERVIEW_MARKERS = ("## Overview", "## 业务概述", "## 概述")
+_STRUCT_COMPONENT_MARKERS = (
+    "## Key components",
+    "## Methods",
+    "## 核心服务要点",
+    "## 核心服务详情",
+    "## 核心业务流程",
+)
+_STRUCT_RELATIONSHIP_MARKERS = ("## Relationships", "## 关联主题", "## 关联关系")
+
+
+def _structural_has_overview(content: str) -> bool:
+    return any(m in content for m in _STRUCT_OVERVIEW_MARKERS)
+
+
+def _structural_has_components(content: str) -> bool:
+    return any(m in content for m in _STRUCT_COMPONENT_MARKERS)
+
+
+def _structural_has_relationships(content: str) -> bool:
+    return any(m in content for m in _STRUCT_RELATIONSHIP_MARKERS)
+
 
 @dataclass
 class DepthScore:
@@ -80,11 +102,12 @@ class WikiQualityEvaluator:
         """Quick structural quality assessment without LLM."""
         issues: list[str] = []
         completeness = 0.0
+        body = page.content or ""
         checks = [
-            ("## Overview" in page.content, "missing_overview", 0.25),
-            ("## Key components" in page.content or "## Methods" in page.content, "missing_components", 0.25),
-            ("## Relationships" in page.content, "missing_relationships", 0.2),
-            (len(page.content) > 200, "content_too_short", 0.15),
+            (_structural_has_overview(body), "missing_overview", 0.25),
+            (_structural_has_components(body), "missing_components", 0.25),
+            (_structural_has_relationships(body), "missing_relationships", 0.2),
+            (len(body) > 200, "content_too_short", 0.15),
             (len(page.diagrams) > 0, "no_diagrams", 0.15),
         ]
         for present, issue_id, weight in checks:

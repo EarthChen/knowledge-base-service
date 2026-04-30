@@ -14,6 +14,124 @@ from wiki.models import (
 from wiki.quality_evaluator import WikiQualityEvaluator
 
 
+def test_structural_check_chinese_topic_headings_pass():
+    """TopicPageComposer uses Chinese section titles; structural_check must accept them."""
+    long_body = "说明正文。" * 50  # > 200 chars
+    page = WikiPage(
+        path="topic.md",
+        title="Topic",
+        page_type=PageType.TOPIC,
+        content=(
+            "# 主题\n\n## 业务概述\n\n"
+            + long_body
+            + "\n\n## 核心业务流程\n\n步骤与协作。\n\n## 关联主题\n\n[[Other]]"
+        ),
+        diagrams=[
+            WikiDiagram(
+                diagram_type=DiagramType.CLASS_DIAGRAM,
+                content="classDiagram\n  A --> B",
+                title="Relations",
+            )
+        ],
+        source_locations=[],
+        metadata=WikiPageMetadata(1, 1),
+    )
+    evaluator = WikiQualityEvaluator(llm=None)
+    score = evaluator.structural_check(page)
+    assert score.completeness >= 0.7
+    assert not any(
+        i in score.issues
+        for i in ["missing_overview", "missing_components", "missing_relationships"]
+    )
+
+
+def test_structural_check_chinese_heading_variants():
+    """Alternate Chinese labels from composer / docs still satisfy structure."""
+    long_body = "x" * 220
+    page = WikiPage(
+        path="topic2.md",
+        title="T",
+        page_type=PageType.TOPIC,
+        content=(
+            "# T\n\n## 概述\n\n"
+            + long_body
+            + "\n\n## 核心服务要点\n\n细节。\n\n## 关联关系\n\n—"
+        ),
+        diagrams=[
+            WikiDiagram(
+                diagram_type=DiagramType.FLOWCHART,
+                content="flowchart TD\n  A --> B",
+                title="F",
+            )
+        ],
+        source_locations=[],
+        metadata=WikiPageMetadata(1, 1),
+    )
+    evaluator = WikiQualityEvaluator(llm=None)
+    score = evaluator.structural_check(page)
+    assert "missing_overview" not in score.issues
+    assert "missing_components" not in score.issues
+    assert "missing_relationships" not in score.issues
+
+
+def test_structural_check_chinese_core_service_detail_and_related_topics():
+    """P0-1: ## 核心服务详情 and ## 关联主题 must count as components / relationships."""
+    long_body = "y" * 220
+    page = WikiPage(
+        path="topic-detail.md",
+        title="T",
+        page_type=PageType.TOPIC,
+        content=(
+            "# T\n\n## 业务概述\n\n"
+            + long_body
+            + "\n\n## 核心服务详情\n\n服务说明。\n\n## 关联主题\n\n[[Wiki]]"
+        ),
+        diagrams=[
+            WikiDiagram(
+                diagram_type=DiagramType.SEQUENCE_DIAGRAM,
+                content="sequenceDiagram\n  A->>B: x",
+                title="S",
+            )
+        ],
+        source_locations=[],
+        metadata=WikiPageMetadata(1, 1),
+    )
+    evaluator = WikiQualityEvaluator(llm=None)
+    score = evaluator.structural_check(page)
+    assert "missing_overview" not in score.issues
+    assert "missing_components" not in score.issues
+    assert "missing_relationships" not in score.issues
+
+
+def test_structural_check_chinese_core_service_detail_and_related_topics():
+    """P0-1: ## 核心服务详情 and ## 关联主题 must count as components / relationships."""
+    long_body = "y" * 220
+    page = WikiPage(
+        path="topic-detail.md",
+        title="T",
+        page_type=PageType.TOPIC,
+        content=(
+            "# T\n\n## 业务概述\n\n"
+            + long_body
+            + "\n\n## 核心服务详情\n\n服务说明。\n\n## 关联主题\n\n[[Wiki]]"
+        ),
+        diagrams=[
+            WikiDiagram(
+                diagram_type=DiagramType.SEQUENCE_DIAGRAM,
+                content="sequenceDiagram\n  A->>B: x",
+                title="S",
+            )
+        ],
+        source_locations=[],
+        metadata=WikiPageMetadata(1, 1),
+    )
+    evaluator = WikiQualityEvaluator(llm=None)
+    score = evaluator.structural_check(page)
+    assert "missing_overview" not in score.issues
+    assert "missing_components" not in score.issues
+    assert "missing_relationships" not in score.issues
+
+
 def test_structural_check_complete_page():
     page = WikiPage(
         path="test.md",

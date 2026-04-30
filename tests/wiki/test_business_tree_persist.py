@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from store.schema import GraphNode, NodeLabel
 from tests.wiki_config_inject import inject_wiki_embedding
+from wiki.pipeline_orchestrator import PipelineResult
 from wiki.service import WikiService
 from wiki.tree_builder import WikiTreeBuilder
 
@@ -226,14 +227,18 @@ async def test_domain_and_repo_same_name_distinct_section_uids():
     )
     svc.generate = AsyncMock(return_value={})
 
-    planner_inst = MagicMock()
-    planner_inst.classify_hierarchical = AsyncMock(
-        return_value=({shared: [(shared, "core")]}, None),
+    stub_result = PipelineResult(
+        domain_mapping={shared: [(shared, "core")]},
+        domain_tree=None,
+        pages=[],
+        resolved_links={},
+        entity_roles={},
     )
 
     with patch(
-        "wiki.cross_repo_domain_planner.CrossRepoBusinessDomainPlanner",
-        return_value=planner_inst,
+        "wiki.pipeline_orchestrator.run_langgraph_pipeline",
+        new_callable=AsyncMock,
+        return_value=stub_result,
     ):
         await svc.generate_business_wiki("biz-collision", language="en")
 

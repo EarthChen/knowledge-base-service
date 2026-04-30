@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import gc
+import warnings
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,6 +18,16 @@ def _clear_settings_cache() -> None:
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _suppress_stale_loop_warning() -> None:
+    """Force GC after each test so stale event-loop ResourceWarnings surface
+    in the producing test rather than leaking into the next one."""
+    yield
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ResourceWarning)
+        gc.collect()
 
 
 @pytest.fixture

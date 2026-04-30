@@ -52,9 +52,9 @@ async def test_persist_source_entity_single_unwind_query(monkeypatch: pytest.Mon
 
     emb_gen = MagicMock()
     emb_gen.generate_for_docs = AsyncMock(side_effect=fake_emb)
-    monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_k: emb_gen)
-    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
-    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.EmbeddingGenerator.shared", lambda **_k: emb_gen)
+    monkeypatch.setattr("wiki.persistence.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.set_wiki_page_confidence_scores", AsyncMock())
 
     graph = AsyncMock()
     svc = WikiService(
@@ -295,9 +295,9 @@ async def test_persist_source_entity_skips_unwind_when_no_entity_uid(monkeypatch
 
     emb_gen = MagicMock()
     emb_gen.generate_for_docs = AsyncMock(side_effect=fake_emb)
-    monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_k: emb_gen)
-    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
-    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.EmbeddingGenerator.shared", lambda **_k: emb_gen)
+    monkeypatch.setattr("wiki.persistence.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.set_wiki_page_confidence_scores", AsyncMock())
 
     graph = AsyncMock()
     svc = WikiService(
@@ -403,18 +403,20 @@ async def test_generate_business_wiki_partial_errors_on_repo_failure() -> None:
         embedding_config=emb,
     )
 
+    from wiki.pipeline_orchestrator import PipelineResult
+
+    stub_result = PipelineResult(
+        domain_mapping={"__infrastructure__": [("r-ok", "mod"), ("r-fail", "mod")]},
+        domain_tree=None,
+        pages=[],
+        resolved_links={},
+        entity_roles={},
+    )
+
     with (
-        patch("wiki.cross_repo_domain_planner.CrossRepoBusinessDomainPlanner") as Planner,
-        patch("wiki.domain_overview_composer.DomainOverviewComposer") as Comp,
+        patch("wiki.pipeline_orchestrator.run_langgraph_pipeline", new_callable=AsyncMock, return_value=stub_result),
         patch("wiki.reference_generator.WikiReferenceGenerator") as RefGen,
     ):
-        Planner.return_value.classify_hierarchical = AsyncMock(
-            return_value=(
-                {"__infrastructure__": [("r-ok", "mod"), ("r-fail", "mod")]},
-                None,
-            ),
-        )
-        Comp.return_value.compose = AsyncMock(return_value=overview_page)
         RefGen.return_value.generate = AsyncMock(return_value=0)
 
         async def gen_one(

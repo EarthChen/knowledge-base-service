@@ -226,14 +226,13 @@ class TestSystemOverviewComposer:
 
 class TestSystemOverviewIntegration:
     def test_service_creates_system_overview(self):
-        """generate_business_wiki source should reference SystemOverviewComposer."""
+        """generate_business_wiki should use LangGraph pipeline (which includes synthesize_overviews_node)."""
         import inspect
 
         from wiki.service import WikiService
 
         source = inspect.getsource(WikiService.generate_business_wiki)
-        assert "SystemOverviewComposer" in source
-        assert "system_overview" in source
+        assert "run_langgraph_pipeline" in source
 
     def test_domain_sort_idx_starts_from_1(self):
         """Domain section sort_idx should start from 1 (not 0) since system overview takes position 0."""

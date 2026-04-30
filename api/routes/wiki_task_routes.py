@@ -65,6 +65,7 @@ async def _run_business_wiki_background(
     svc: WikiService,
     task_store: WikiTaskStore | None,
     event_bus: WikiEventBus | None,
+    registry: WikiTaskRegistry | None = None,
 ) -> None:
     """Background coroutine: run business wiki generation and update task state."""
     async def _progress(info: dict[str, Any]) -> None:
@@ -130,17 +131,35 @@ async def _run_business_wiki_background(
                     data={"task_id": task_id, "pages_count": result.get("pages_count", 0)},
                 )
             )
-    except Exception:
+    except Exception as e:
         log.exception("business_wiki_background_failed", task_id=task_id)
+        detail = str(e)[:500]
         if task_store:
-            await task_store.update_status(task_id, "failed", error="internal_error")
+            await task_store.update_status(
+                task_id, "failed", error="internal_error", detail=detail
+            )
+        if registry:
+            prev = registry.get_task(task_id) or {}
+            registry.put_task(
+                task_id,
+                {
+                    **prev,
+                    "status": "failed",
+                    "error": "internal_error",
+                    "detail": detail,
+                },
+            )
         if event_bus:
             await event_bus.publish(
                 WikiEvent(
                     event_type="wiki:generation_failed",
                     repository=business_id,
                     business_id=business_id,
-                    data={"task_id": task_id, "error": "internal_error"},
+                    data={
+                        "task_id": task_id,
+                        "error": "internal_error",
+                        "detail": detail,
+                    },
                 )
             )
     finally:
@@ -569,6 +588,7 @@ async def generate_business_wiki(
                 svc=svc,
                 task_store=task_store,
                 event_bus=event_bus,
+                registry=registry,
             )
         )
     except Exception:

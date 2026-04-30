@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import inspect
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
@@ -18,17 +16,18 @@ from store.schema import EdgeType, GraphNode, NodeLabel
 from wiki.ask import set_default_resolver
 from wiki.backlink_builder import BacklinkBuilder
 from wiki.composer import WikiComposer
-from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
 from wiki.community_context import format_communities_markdown
-from wiki.confidence_scorer import confidence_scorer_from_wiki_app_config
+from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
 from wiki.dependency_graph import DomainNode
 from wiki.deferred_enrichment import DeferredEnrichmentService
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
 from wiki.delegation import evaluate_delegation, group_children_by_graph
 from wiki.exporter import WikiExporter
+from wiki.flow_writer import BusinessFlowWriter
 from wiki.incremental_diff import compute_wiki_diff
 from wiki.memory_loop import MemoryLoop
+from wiki.page_composer_service import WikiPageComposerService
 from wiki.models import (
     EnrichmentLevel,
     ImportanceTier,
@@ -42,7 +41,9 @@ from wiki.models import (
     WikiStructureNode,
     parse_scope,
 )
+from wiki.persistence import WikiPagePersistence
 from wiki.structure_planner import WikiScopeError, WikiStructurePlanner
+from wiki.tree_linker import WikiTreeLinker
 from wiki.token_budget import TokenBudgetResolver
 from wiki.tree_builder import WikiTreeBuilder
 from wiki.wikilink_cache import WikiLinkCache
@@ -53,6 +54,7 @@ from store.wiki_store import WikiStore
 if TYPE_CHECKING:
     from indexer.business_flow_inferencer import BusinessFlowInferencer
     from wiki.change_detector import AffectedPageSet
+    from wiki.enrichment_coordinator import WikiEnrichmentCoordinator
 
 log = get_logger(__name__)
 
@@ -217,18 +219,11 @@ def _build_lightweight_parent_context(parent_node: GraphNode | None) -> str:
     return ". ".join(parts)
 
 
-class WikiRepoNotFoundError(Exception):
-    """Raised when the repository is not present in the index."""
-
-    def __init__(self, repository: str) -> None:
-        self.repository = repository
-        super().__init__(repository)
+from wiki.errors import WikiRepoNotFoundError as WikiRepoNotFoundError  # noqa: F401 — re-export for backward compat
 
 
 class WikiService:
     """Wiki generation pipeline with injectable graph and optional LLM."""
-
-    _enrichment_running: dict[str, str] = {}
 
     def __init__(
         self,
@@ -276,6 +271,68 @@ class WikiService:
         self._memory_loop = memory_loop
         self._community_service = community_service
         self._redis = redis_conn
+        self._persistence = WikiPagePersistence(
+            store=store,
+            graph=graph,
+            wiki_store=wiki_store,
+            wiki_cfg=wiki_config,
+            embedding_cfg=embedding_config,
+            llm=llm,
+        )
+        self._tree_linker = WikiTreeLinker(
+            store=store,
+            wiki_store=wiki_store,
+            wiki_cfg=wiki_config,
+            persistence=self._persistence,
+        )
+        self._flow_writer = BusinessFlowWriter(
+            store=store,
+            wiki_cfg=wiki_config,
+            flow_inferencer=flow_inferencer,
+        )
+        from wiki.enrichment_coordinator import WikiEnrichmentCoordinator
+
+        self._enrichment = WikiEnrichmentCoordinator(
+            store=store,
+            graph=graph,
+            wiki_cfg=wiki_config,
+            persistence=self._persistence,
+            llm_resolver=self._resolve_llm_port,
+            repository_exists=repository_exists,
+            deferred_enrichment=deferred_enrichment,
+        )
+        self._page_composer = WikiPageComposerService(
+            graph=graph,
+            collector=self._collector,
+            wiki_store=wiki_store,
+            wiki_cfg=wiki_config,
+            store=store,
+            budget_resolver=self._budget_resolver,
+            llm=llm,
+            persistence=self._persistence,
+            enrichment=self._enrichment,
+            composer_factory=self._composer_for,
+            llm_resolver=self._resolve_llm_port,
+            memory_loop=memory_loop,
+            community_service=community_service,
+        )
+
+    def _get_enrichment(self) -> WikiEnrichmentCoordinator:
+        enc = getattr(self, "_enrichment", None)
+        if enc is not None:
+            return enc
+        from wiki.enrichment_coordinator import WikiEnrichmentCoordinator
+
+        self._enrichment = WikiEnrichmentCoordinator(
+            store=getattr(self, "_store", None),
+            graph=getattr(self, "_graph", None),
+            wiki_cfg=self._wiki_cfg,
+            persistence=getattr(self, "_persistence", None),
+            llm_resolver=self._resolve_llm_port,
+            repository_exists=getattr(self, "_repository_exists", None),
+            deferred_enrichment=getattr(self, "_deferred_enrichment", None),
+        )
+        return self._enrichment
 
     def _composer_for(self, llm_provider: str | None) -> WikiComposer:
         llm_port = self._resolve_llm_port(llm_provider)
@@ -294,7 +351,7 @@ class WikiService:
         return self._llm
 
     def _confidence_scoring_enabled(self) -> bool:
-        return bool(getattr(self._wiki_cfg, "confidence_scoring_enabled", False))
+        return self._persistence.confidence_scoring_enabled()
 
     async def _run_compilation_snapshot(self, business_id: str, repository: str) -> None:
         if not getattr(self._wiki_cfg, "snapshot_enabled", True):
@@ -343,25 +400,15 @@ class WikiService:
 
     async def get_domain_tree(self, business_id: str) -> dict[str, Any]:
         """Hierarchical domain tree and review status from the latest pipeline run (when persisted)."""
-        if self._store is None:
-            return {"tree": [], "review_status": {}}
-        ws = WikiStore(self._store)
-        return await ws.get_pipeline_domain_tree_snapshot(business_id)
+        return await self._tree_linker.get_domain_tree(business_id)
 
     async def get_topic_tree(self, business_id: str) -> dict[str, Any]:
         """Topic and domain-overview pages as a nested tree for dashboard wiki navigation."""
-        if self._store is None:
-            return {"tree": []}
-        ws = WikiStore(self._store)
-        nested = await ws.get_topic_navigation_tree(business_id)
-        return {"tree": nested}
+        return await self._tree_linker.get_topic_tree(business_id)
 
     async def get_domain_edges(self, business_id: str) -> dict[str, Any]:
         """Compute cross-domain CALLS edges for knowledge graph."""
-        if self._store is None:
-            return {"edges": []}
-        ws = WikiStore(self._store)
-        return await ws.get_domain_edges(business_id)
+        return await self._tree_linker.get_domain_edges(business_id)
 
     def _config_for(
         self,
@@ -373,89 +420,13 @@ class WikiService:
         return WikiConfig(repository=repository, mode=mode, format=format, language=language)
 
     async def _generate_business_flows(self, repository: str) -> int:
-        """Infer BusinessFlow nodes from entry-point call chains."""
-        if not self._flow_inferencer:
-            return 0
-        if not self._flow_inferencer._business_flow_enabled:
-            return 0
-
-        entry_points = await self._flow_inferencer.find_entry_points()
-        created = 0
-        for ep in entry_points:
-            chain = await self._build_call_chain(ep)
-            if not chain:
-                continue
-            flow = await self._flow_inferencer.infer_from_chain(chain)
-            if flow:
-                await self._persist_flow(flow, repository)
-                created += 1
-        return created
+        return await self._flow_writer.generate_business_flows(repository)
 
     async def _build_call_chain(self, entry_point: dict[str, Any]) -> list[dict[str, str]]:
-        """Build a call chain starting from an entry point by traversing CALLS edges."""
-        if self._store is None:
-            return []
-        uid = entry_point.get("uid", "")
-        if not uid:
-            return []
-        q = (
-            "MATCH path = (start:Function {uid: $uid})-[:CALLS*1..5]->(callee:Function) "
-            "RETURN callee.uid AS uid, callee.name AS name, "
-            "callee.business_summary AS business_summary, callee.file AS file "
-            "ORDER BY length(path)"
-        )
-        result = await self._store.execute_query(q, {"uid": uid})
-        raw = getattr(result, "raw", None)
-        if isinstance(raw, list):
-            rows = raw
-        else:
-            rs = getattr(result, "result_set", None)
-            rows = list(rs) if isinstance(rs, (list, tuple)) else []
-        chain: list[dict[str, str]] = [
-            {
-                "name": str(entry_point.get("name", "") or ""),
-                "business_summary": str(entry_point.get("business_summary", "") or ""),
-                "file": str(entry_point.get("file", "") or ""),
-            }
-        ]
-        seen: set[str] = {uid}
-        for row in rows:
-            row_uid = row[0]
-            if row_uid in seen:
-                continue
-            seen.add(str(row_uid))
-            chain.append(
-                {
-                    "name": str(row[1] or ""),
-                    "business_summary": str(row[2] or ""),
-                    "file": str(row[3] or ""),
-                }
-            )
-        return chain
+        return await self._flow_writer.build_call_chain(entry_point)
 
     async def _persist_flow(self, flow: dict[str, Any], repository: str) -> None:
-        """Persist a BusinessFlow node to the graph."""
-        if self._store is None:
-            return
-        flow_name = flow.get("flow_name", "unnamed_flow")
-        uid = f"BusinessFlow:{repository}:{flow_name}"
-        q = (
-            "MERGE (bf:BusinessFlow {uid: $uid}) "
-            "SET bf.name = $name, bf.description = $desc, "
-            "bf.category = $cat, bf.repository = $repo, "
-            "bf.steps = $steps"
-        )
-        await self._store.execute_query(
-            q,
-            {
-                "uid": uid,
-                "name": flow_name,
-                "desc": flow.get("description", ""),
-                "cat": flow.get("category", ""),
-                "repo": repository,
-                "steps": json.dumps(flow.get("steps", []), ensure_ascii=False),
-            },
-        )
+        return await self._flow_writer.persist_flow(flow, repository)
 
     async def generate(
         self,
@@ -569,40 +540,11 @@ class WikiService:
 
     async def _bulk_set_wiki_code_hashes(self, repository: str) -> None:
         """After full generation, mark all entities as wiki-synced."""
-        query_port = self._store if self._store is not None else self._graph
-        if query_port is None or not hasattr(query_port, "execute_query"):
-            return
-        await query_port.execute_query(
-            "MATCH (n {repository: $repo}) "
-            "WHERE n.code_hash IS NOT NULL "
-            "SET n.wiki_code_hash = n.code_hash",
-            {"repo": repository},
-        )
-        log.info("bulk_wiki_code_hashes_set", repository=repository)
+        return await self._persistence.bulk_set_wiki_code_hashes(repository)
 
     async def inject_wikilinks(self, repository: str, pages: list[WikiPage]) -> None:
         """Append ``## Related Pages`` using outgoing ``WIKI_REFERENCES`` from the graph."""
-        if self._wiki_store is None or not pages:
-            return
-        from wiki.reference_generator import WikiReferenceGenerator
-
-        ref_gen = WikiReferenceGenerator(self._wiki_store)
-        for page in pages:
-            uid = f"WikiPage:{repository}:{page.path}"
-            try:
-                out = await self._wiki_store.get_wiki_page_references(uid)
-            except Exception:
-                log.debug("wiki_page_references_lookup_failed", page_uid=uid, exc_info=True)
-                continue
-            rows = getattr(out, "data", None) or []
-            paths: list[str] = []
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                p = str(row.get("path", "") or "").strip()
-                if p:
-                    paths.append(p)
-            page.content = ref_gen.inject_wikilinks(page.content or "", paths)
+        return await self._persistence.inject_wikilinks(repository, pages)
 
     async def _sync_graph_references_into_page_content(
         self,
@@ -613,38 +555,13 @@ class WikiService:
         skip_claim_tracking: bool,
     ) -> None:
         """Build ``WIKI_REFERENCES`` from the code graph, inject related links into page bodies, re-persist."""
-        if self._wiki_store is None or not pages:
-            return
-        try:
-            from wiki.reference_generator import WikiReferenceGenerator
-
-            ref_gen = WikiReferenceGenerator(self._wiki_store)
-            n = await ref_gen.generate(repository)
-            log.info("wiki_reference_edges_generated", repository=repository, count=n)
-            await self.inject_wikilinks(repository, pages)
-            await self._persist_pages_to_graph(
-                repository,
-                pages,
-                language=language,
-                skip_claim_tracking=skip_claim_tracking,
-            )
-        except Exception:
-            log.warning("wiki_sync_references_inject_failed", repository=repository, exc_info=True)
+        return await self._persistence.sync_graph_references_into_page_content(
+            repository, pages, language=language, skip_claim_tracking=skip_claim_tracking
+        )
 
     async def _update_wiki_code_hashes(self, repository: str, uids: list[str]) -> None:
         """After successful wiki page generation, set wiki_code_hash = code_hash."""
-        if not uids:
-            return
-        query_port = self._store if self._store is not None else self._graph
-        if query_port is None or not hasattr(query_port, "execute_query"):
-            return
-        await query_port.execute_query(
-            "MATCH (n {repository: $repo}) "
-            "WHERE n.uid IN $uids AND n.code_hash IS NOT NULL "
-            "SET n.wiki_code_hash = n.code_hash",
-            {"repo": repository, "uids": uids},
-        )
-        log.info("wiki_code_hashes_updated", repository=repository, count=len(uids))
+        return await self._persistence.update_wiki_code_hashes(repository, uids)
 
     @staticmethod
     def _sort_by_depth(
@@ -652,35 +569,11 @@ class WikiService:
         contains_edges: list[dict[str, str]],
     ) -> list[str]:
         """Sort uids by graph depth — leaves first, roots last."""
-
-        children: dict[str, set[str]] = {}
-        for edge in contains_edges:
-            src = str(edge.get("source", "") or "")
-            tgt = str(edge.get("target", "") or "")
-            children.setdefault(src, set()).add(tgt)
-
-        uid_set = set(uids)
-
-        def depth(uid: str, visited: set[str] | None = None) -> int:
-            if visited is None:
-                visited = set()
-            if uid in visited:
-                return 0
-            visited.add(uid)
-            kids = children.get(uid, set()) & uid_set
-            if not kids:
-                return 0
-            return 1 + max(depth(k, visited) for k in kids)
-
-        return sorted(uids, key=lambda u: depth(u))
+        return WikiPageComposerService.sort_by_depth(uids, contains_edges)
 
     def _resume_source_content_hash(self, graph_node: GraphNode, source_content: str) -> str:
         """Prefer graph ``code_hash`` (matches incremental ``wiki_code_hash``); fallback to hashed sources."""
-        props = graph_node.properties or {}
-        ch = props.get("code_hash")
-        if isinstance(ch, str) and ch.strip():
-            return ch.strip()
-        return hashlib.sha256(source_content.encode()).hexdigest()
+        return self._page_composer.resume_source_content_hash(graph_node, source_content)
 
     async def _load_wikipage_for_resume_entity(
         self,
@@ -693,49 +586,14 @@ class WikiService:
         config: WikiConfig,
     ) -> WikiPage | None:
         """Load persisted markdown from DB when compose is skipped via resume-from-saved."""
-        if self._wiki_store is None:
-            return None
-        if not hasattr(self._wiki_store, "execute_query"):
-            return None
-        try:
-            from store.schema import EdgeType
-
-            _se = EdgeType.SOURCE_ENTITY.value
-            q = (
-                f"MATCH (wp:WikiPage {{repository: $repo}})-[:{_se}]->(e {{uid: $uid}}) "
-                "RETURN coalesce(wp.path, '') AS path, coalesce(wp.title, '') AS title, "
-                "coalesce(wp.content, '') AS content, coalesce(wp.page_type, '') AS pt LIMIT 1"
-            )
-            r = await self._wiki_store.execute_query(
-                q, {"repo": repository, "uid": graph_node.uid},
-            )
-            rows = getattr(r, "data", []) or []
-            if not rows or not isinstance(rows[0], dict):
-                return None
-            row = rows[0]
-            pt_raw = str(row.get("pt") or structure_page_type.value)
-            try:
-                pt = PageType(pt_raw)
-            except ValueError:
-                pt = structure_page_type
-            return WikiPage(
-                path=str(row.get("path") or structure_path),
-                title=str(row.get("title") or structure_title),
-                page_type=pt,
-                content=str(row.get("content") or ""),
-                diagrams=[],
-                source_locations=[],
-                metadata=WikiPageMetadata(
-                    node_count=0,
-                    edge_count=0,
-                    generation_mode=config.mode,
-                    fallback_tier=None,
-                ),
-                method_locations=[],
-            )
-        except Exception:
-            log.debug("resume_load_wikipage_failed", uid=graph_node.uid, exc_info=True)
-            return None
+        return await self._page_composer.load_wikipage_for_resume_entity(
+            repository,
+            graph_node,
+            structure_path=structure_path,
+            structure_title=structure_title,
+            structure_page_type=structure_page_type,
+            config=config,
+        )
 
     async def generate_incremental(
         self,
@@ -1222,10 +1080,10 @@ class WikiService:
 
         1. List all indexed repositories
         2. Collect all modules from each repo
-        3. Classify modules into business domains (CrossRepoBusinessDomainPlanner)
+        3. Run LangGraph pipeline (entity classification, domain classification,
+           page composition, quality gate, overview synthesis, link resolution)
         4. Create WikiSpace + WikiSection tree
-        5. Generate domain overview pages (DomainOverviewComposer)
-        6. Generate cross-references (WikiReferenceGenerator)
+        5. Persist pages and build cross-references
         """
         app_cfg = self._wiki_cfg
 
@@ -1283,42 +1141,20 @@ class WikiService:
                 "phase": "classifying_domains",
             })
 
-        from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
-
         llm_port = self._resolve_llm_port(llm_provider)
-        planner = CrossRepoBusinessDomainPlanner(
-            llm_port,
-            infrastructure_label=app_cfg.business_domain_infrastructure_label,
-            batch_threshold=app_cfg.business_wiki_batch_threshold,
-            sub_batch_size=app_cfg.business_domain_sub_batch_size,
-            max_concurrency=app_cfg.business_domain_max_concurrency,
-            max_tokens_per_batch=self._budget_resolver.budget("decomposition"),
+
+        from wiki.pipeline_orchestrator import run_langgraph_pipeline
+
+        pipeline_result = await run_langgraph_pipeline(
+            business_id=business_id,
+            repositories=list(all_modules.keys()),
+            all_modules=all_modules,
+            llm=llm_port,
+            is_incremental=incremental and bool(skipped_repos),
         )
-        try:
-            _sbs = max(1, app_cfg.business_domain_sub_batch_size)
-            _mc = max(1, app_cfg.business_domain_max_concurrency)
-            per_repo_waves = sum(
-                max(1, -(-(-(-len(mods) // _sbs)) // _mc))
-                for mods in all_modules.values()
-                if mods
-            )
-            per_batch_timeout = app_cfg.business_domain_classify_timeout
-            classify_budget = per_batch_timeout * (per_repo_waves + 1) + 300
-            domain_mapping, domain_tree = await asyncio.wait_for(
-                planner.classify_hierarchical(business_id, all_modules, self._store),
-                timeout=classify_budget,
-            )
-        except TimeoutError:
-            log.warning("domain_classification_timeout", business_id=business_id)
-            domain_tree = None
-            domain_mapping = {
-                app_cfg.business_domain_infrastructure_label: [
-                    (repo, mod.properties.get("name", ""))
-                    for repo, mods in all_modules.items()
-                    for mod in mods
-                    if isinstance(mod.properties.get("name"), str)
-                ],
-            }
+        domain_mapping = pipeline_result.domain_mapping
+        domain_tree = pipeline_result.domain_tree
+        all_pages: list[WikiPage] = list(pipeline_result.pages)
 
         from wiki.dependency_graph import ModuleDependencyGraph
 
@@ -1351,7 +1187,6 @@ class WikiService:
         )
 
         domain_names: list[str] = []
-        all_pages: list[WikiPage] = []
         sort_idx = 1
 
         has_nested_tree = domain_tree is not None and len(domain_tree) > 0
@@ -1377,30 +1212,6 @@ class WikiService:
                 )
             sort_idx += 1
             domain_names.append(domain_name)
-
-            from wiki.domain_overview_composer import DomainOverviewComposer
-
-            overview_composer = DomainOverviewComposer(llm_port)
-            domain_modules = [
-                (repo, mod_name, node)
-                for repo, mod_name in repo_module_pairs
-                for node in [self._find_module_node(all_modules, repo, mod_name)]
-                if node is not None
-            ]
-            domain_subtree = None
-            domain_module_pairs_set = set(repo_module_pairs)
-            domain_entry_points = [
-                ep_name for ep_repo, ep_name in all_entry_point_pairs
-                if (ep_repo, ep_name) in domain_module_pairs_set
-            ]
-            if domain_tree:
-                domain_subtree = [d for d in domain_tree if d.name == domain_name]
-            overview_page = await overview_composer.compose(
-                domain_name, domain_modules, language=language,
-                domain_tree=domain_subtree,
-                entry_points=domain_entry_points,
-            )
-            all_pages.append(overview_page)
 
         # Persist business_domain to graph nodes (Module + descendants)
         for domain_name, repo_module_pairs in domain_mapping.items():
@@ -1473,47 +1284,6 @@ class WikiService:
 
         if all_pages:
             await self._persist_pages_to_graph(business_id, all_pages, language=language)
-
-        # Generate System Architecture Overview (cross-repo)
-        from wiki.system_overview_composer import SystemOverviewComposer
-
-        stats_by_repo: dict[str, dict[str, int]] = {}
-        for repo_name in all_modules:
-            try:
-                stats_by_repo[repo_name] = await self._graph.get_repo_stats(repo_name)
-            except Exception:
-                stats_by_repo[repo_name] = {"module_count": 0, "class_count": 0, "function_count": 0}
-
-        domain_overview_summaries: dict[str, str] = {}
-        for p in all_pages:
-            if p.page_type in (PageType.DOMAIN_OVERVIEW, PageType.MODULE_OVERVIEW) or "overview" in p.path.lower():
-                domain_overview_summaries[p.title] = p.content[:500]
-
-        system_overview_composer = SystemOverviewComposer(llm_port)
-        try:
-            system_overview_page = await system_overview_composer.compose(
-                business_id=business_id,
-                repositories=list(all_modules.keys()),
-                domain_tree=domain_tree or [],
-                entry_points_by_repo=entry_points_by_repo,
-                domain_overviews=domain_overview_summaries,
-                stats_by_repo=stats_by_repo,
-                language=language,
-            )
-            await self._persist_pages_to_graph(
-                business_id, [system_overview_page], language=language,
-            )
-            await self._wiki_store.add_has_child_edge(
-                parent_uid=space_uid,
-                parent_label="WikiSpace",
-                child_uid=f"WikiPage:{business_id}:{system_overview_page.path}",
-                child_label="WikiPage",
-                view_type="system_overview",
-                sort_order=0,
-            )
-            log.info("system_overview_created", business_id=business_id)
-        except Exception:
-            log.warning("system_overview_failed", business_id=business_id, exc_info=True)
 
         log.info("per_repo_generation_starting", business_id=business_id, repo_count=len(all_modules))
 
@@ -1638,442 +1408,25 @@ class WikiService:
             "skipped_repos": skipped_repos,
         }
 
-    def _find_module_node(
-        self,
-        all_modules: dict[str, list[GraphNode]],
-        repo: str,
-        module_name: str,
-    ) -> GraphNode | None:
-        for m in all_modules.get(repo, []):
-            name = m.properties.get("name")
-            if isinstance(name, str) and name == module_name:
-                return m
-        return None
+    async def _link_pages_to_tree(self, *args: Any, **kwargs: Any) -> None:
+        return await self._tree_linker.link_pages_to_tree(*args, **kwargs)
 
-    async def _link_pages_to_tree(
-        self,
-        business_id: str,
-        domain_mapping: dict[str, list[tuple[str, str]]],
-        repo_names: list[str],
-        tree_builder: WikiTreeBuilder,
-        *,
-        skip_business_domain: bool = False,
-    ) -> None:
-        """Create HAS_CHILD edges from WikiSection to WikiPage for both view types.
-
-        - code_structure: WikiSection:repo → WikiPage (all pages of that repo)
-        - business_domain: WikiSection:domain → WikiPage (pages mixed across repos)
-
-        When ``skip_business_domain`` is True, only code_structure edges are created.
-        This is used when a nested domain tree (``__root__``) handles the
-        business_domain view separately via ``_link_pages_to_nested_tree``.
-
-        NOTE: queries WikiPage nodes directly by repository instead of traversing
-        HAS_CHILD from WikiSpace, because HAS_CHILD edges do not exist yet at
-        this point — this function is responsible for creating them.
-        """
-        if self._wiki_store is None:
-            return
-
-        module_to_domain: dict[tuple[str, str], str] = {}
-        for domain_name, pairs in domain_mapping.items():
-            for repo, mod_name in pairs:
-                module_to_domain[(repo, mod_name)] = domain_name
-
-        pages_by_repo: dict[str, list[dict[str, Any]]] = {}
-        for repo_name in repo_names:
-            q = (
-                "MATCH (wp:WikiPage {repository: $repo}) "
-                "OPTIONAL MATCH (wp)-[:SOURCE_ENTITY]->(e) "
-                "RETURN wp.uid AS uid, wp.title AS title, wp.path AS path, "
-                "wp.page_type AS page_type, wp.repository AS repository, "
-                "coalesce(e.uid, '') AS entity_uid "
-                "ORDER BY wp.path"
-            )
-            result = await self._wiki_store.execute_query(q, {"repo": repo_name})
-            rows = getattr(result, "data", None) or []
-            if rows:
-                pages_by_repo[repo_name] = [
-                    {
-                        "uid": str(r.get("uid") or ""),
-                        "title": str(r.get("title") or ""),
-                        "path": str(r.get("path") or ""),
-                        "page_type": str(r.get("page_type") or ""),
-                        "repository": str(r.get("repository") or ""),
-                        "entity_uid": str(r.get("entity_uid") or ""),
-                    }
-                    for r in rows
-                    if r.get("uid")
-                ]
-
-        linked_code = 0
-        linked_domain = 0
-        domain_page_counters: dict[str, int] = {}
-
-        for repo_name in repo_names:
-            repo_pages = pages_by_repo.get(repo_name, [])
-            if not repo_pages:
-                continue
-
-            repo_section_uid = tree_builder.generate_repo_section_uid(business_id, repo_name)
-
-            for idx, page in enumerate(repo_pages):
-                page_uid = page.get("uid", "")
-                if not page_uid:
-                    continue
-
-                try:
-                    await self._wiki_store.add_has_child_edge(
-                        parent_uid=repo_section_uid,
-                        parent_label="WikiSection",
-                        child_uid=page_uid,
-                        child_label="WikiPage",
-                        view_type="code_structure",
-                        sort_order=idx,
-                    )
-                    linked_code += 1
-                except Exception:
-                    log.warning("link_page_code_structure_failed", page_uid=page_uid, exc_info=True)
-
-                if not skip_business_domain:
-                    mod_name = page.get("title", "")
-                    entity_uid = str(page.get("entity_uid", "") or "")
-
-                    domain_name = None
-                    if entity_uid:
-                        for (r, m), d in module_to_domain.items():
-                            if r == repo_name and entity_uid.endswith(m):
-                                domain_name = d
-                                break
-                    if not domain_name:
-                        domain_name = module_to_domain.get((repo_name, mod_name))
-                    if not domain_name:
-                        for (r, m), d in module_to_domain.items():
-                            if r == repo_name:
-                                domain_name = d
-                                break
-                    if not domain_name:
-                        domain_name = self._wiki_cfg.business_domain_infrastructure_label
-
-                    domain_section_uid = tree_builder.generate_domain_section_uid(
-                        business_id, domain_name,
-                    )
-                    sort_idx = domain_page_counters.get(domain_name, 0)
-                    domain_page_counters[domain_name] = sort_idx + 1
-
-                    try:
-                        await self._wiki_store.add_has_child_edge(
-                            parent_uid=domain_section_uid,
-                            parent_label="WikiSection",
-                            child_uid=page_uid,
-                            child_label="WikiPage",
-                            view_type="business_domain",
-                            sort_order=sort_idx,
-                        )
-                        linked_domain += 1
-                    except Exception:
-                        log.warning("link_page_business_domain_failed", page_uid=page_uid, exc_info=True)
-
-        total_pages = sum(len(pages) for pages in pages_by_repo.values())
-        log.info(
-            "wiki_tree_pages_linked",
-            business_id=business_id,
-            linked_code_structure=linked_code,
-            linked_business_domain=linked_domain,
-            total_pages=total_pages,
-        )
-
-    async def _link_pages_to_nested_tree(
-        self,
-        business_id: str,
-        domain_tree: list[DomainNode],
-        pages_by_entity_uid: dict[str, dict[str, Any]],
-        tree_builder: WikiTreeBuilder,
-        *,
-        language: str = "zh",
-    ) -> None:
-        """Create nested HAS_CHILD edges for WikiSection hierarchy (business_domain view).
-
-        Builds a subtree under an internal ``__root__`` section (linked from WikiSpace).
-        For each domain node, generates a rich overview WikiPage aggregating its
-        modules and sub-domain descriptions, linked as the first child of the section.
-        """
-        if self._wiki_store is None:
-            return
-
-        root_uid = tree_builder.generate_domain_section_uid(business_id, "__root__")
-        space_uid = tree_builder.generate_space_uid(business_id)
-
-        async def _ensure_root() -> None:
-            try:
-                await self._wiki_store.upsert_wiki_section(
-                    uid=root_uid,
-                    title="__root__",
-                    description="Nested domain tree root",
-                    section_type="business_domain",
-                    sort_order=-1,
-                    auto_generated=True,
-                )
-                await self._wiki_store.add_has_child_edge(
-                    parent_uid=space_uid,
-                    parent_label="WikiSpace",
-                    child_uid=root_uid,
-                    child_label="WikiSection",
-                    view_type="business_domain",
-                    sort_order=0,
-                )
-            except Exception:
-                log.warning("nested_tree_root_failed", business_id=business_id, exc_info=True)
-
-        await _ensure_root()
-
-        overview_pages: list[WikiPage] = []
-
-        def _build_domain_overview_content(domain: DomainNode, depth: int = 0) -> str:
-            """Build a rich structural overview document for a nested domain."""
-            is_zh = language.startswith("zh")
-            lines: list[str] = []
-            lines.append(f"# {domain.name}")
-            lines.append("")
-            if domain.description:
-                lines.append(domain.description)
-                lines.append("")
-
-            if domain.children:
-                heading = "## 子域概览" if is_zh else "## Sub-Domains"
-                lines.append(heading)
-                lines.append("")
-                for child in domain.children:
-                    desc = f" — {child.description}" if child.description else ""
-                    mod_count = len(child.modules)
-                    child_count = len(child.children)
-                    meta_parts: list[str] = []
-                    if mod_count > 0:
-                        meta_parts.append(f"{mod_count} {'个模块' if is_zh else 'modules'}")
-                    if child_count > 0:
-                        meta_parts.append(f"{child_count} {'个子域' if is_zh else 'sub-domains'}")
-                    meta = f" ({', '.join(meta_parts)})" if meta_parts else ""
-                    lines.append(f"- **{child.name}**{desc}{meta}")
-                lines.append("")
-
-            if domain.modules:
-                heading = "## 核心模块" if is_zh else "## Key Modules"
-                lines.append(heading)
-                lines.append("")
-                for mod_name in domain.modules:
-                    page = pages_by_entity_uid.get(mod_name)
-                    summary = ""
-                    if page:
-                        content = page.get("content", "") if isinstance(page, dict) else ""
-                        if content:
-                            overview_start = content.find("## Overview")
-                            if overview_start >= 0:
-                                after = content[overview_start + len("## Overview"):].strip()
-                                next_h = after.find("\n## ")
-                                snippet = after[:next_h].strip() if next_h > 0 else after[:200].strip()
-                                non_heading = [
-                                    l for l in snippet.split("\n")
-                                    if l.strip() and not l.strip().startswith("#")
-                                ]
-                                summary = " ".join(non_heading)[:150]
-                    if summary:
-                        lines.append(f"- **{mod_name}**: {summary}")
-                    else:
-                        lines.append(f"- **{mod_name}**")
-                lines.append("")
-
-            total_modules = self._count_domain_modules(domain)
-            if total_modules > len(domain.modules):
-                remaining = total_modules - len(domain.modules)
-                if is_zh:
-                    lines.append(f"_此域及其子域共包含 {total_modules} 个模块。_")
-                else:
-                    lines.append(f"_This domain and sub-domains contain {total_modules} modules in total._")
-                lines.append("")
-
-            return "\n".join(lines)
-
-        async def _link_domain(parent_uid: str, domain: DomainNode, sort_idx: int) -> None:
-            section_uid = tree_builder.generate_domain_section_uid(business_id, domain.name)
-            try:
-                await self._wiki_store.upsert_wiki_section(
-                    uid=section_uid,
-                    title=domain.name,
-                    description=domain.description or "",
-                    section_type="business_domain",
-                    sort_order=sort_idx,
-                    auto_generated=True,
-                )
-                await self._wiki_store.add_has_child_edge(
-                    parent_uid=parent_uid,
-                    parent_label="WikiSection",
-                    child_uid=section_uid,
-                    child_label="WikiSection",
-                    view_type="business_domain",
-                    sort_order=sort_idx,
-                )
-            except Exception:
-                log.warning("nested_tree_section_failed", domain=domain.name, exc_info=True)
-                return
-
-            child_sort = 0
-
-            if domain.modules or domain.children:
-                overview_content = _build_domain_overview_content(domain)
-                overview_path = f"/__domains__/{domain.name}/_overview"
-                from wiki.models import PageType, WikiPage, WikiPageMetadata, EnrichmentLevel
-                overview_page = WikiPage(
-                    path=overview_path,
-                    title=f"{domain.name}" if language.startswith("zh") else f"{domain.name} Overview",
-                    page_type=PageType.DOMAIN_OVERVIEW,
-                    content=overview_content,
-                    diagrams=[],
-                    source_locations=[],
-                    metadata=WikiPageMetadata(
-                        node_count=self._count_domain_modules(domain),
-                        edge_count=0,
-                        generation_mode="business",
-                        enrichment_level=EnrichmentLevel.BASE,
-                    ),
-                )
-                overview_pages.append(overview_page)
-                overview_uid = f"WikiPage:{business_id}:{overview_path}"
-                await self._persist_pages_to_graph(
-                    business_id, [overview_page], language=language,
-                )
-                try:
-                    await self._wiki_store.add_has_child_edge(
-                        parent_uid=section_uid,
-                        parent_label="WikiSection",
-                        child_uid=overview_uid,
-                        child_label="WikiPage",
-                        view_type="business_domain",
-                        sort_order=child_sort,
-                    )
-                    child_sort += 1
-                except Exception:
-                    log.warning("nested_tree_overview_link_failed", domain=domain.name, exc_info=True)
-
-            for i, module_name in enumerate(domain.modules):
-                page = pages_by_entity_uid.get(module_name)
-                if page:
-                    page_uid = (
-                        page.get("uid", "") if isinstance(page, dict) else getattr(page, "uid", "")
-                    )
-                    if page_uid:
-                        try:
-                            await self._wiki_store.add_has_child_edge(
-                                parent_uid=section_uid,
-                                parent_label="WikiSection",
-                                child_uid=page_uid,
-                                child_label="WikiPage",
-                                view_type="business_domain",
-                                sort_order=child_sort + i,
-                            )
-                        except Exception:
-                            log.warning(
-                                "nested_tree_page_link_failed", page_uid=page_uid,
-                                exc_info=True,
-                            )
-
-            for i, child in enumerate(domain.children):
-                await _link_domain(section_uid, child, i)
-
-        for i, domain in enumerate(domain_tree):
-            await _link_domain(root_uid, domain, i)
-
-        if overview_pages:
-            await self._persist_pages_to_graph(
-                business_id, overview_pages, language=language,
-            )
-            log.info(
-                "nested_tree_overview_pages_generated",
-                business_id=business_id,
-                count=len(overview_pages),
-            )
+    async def _link_pages_to_nested_tree(self, *args: Any, **kwargs: Any) -> None:
+        return await self._tree_linker.link_pages_to_nested_tree(*args, **kwargs)
 
     @staticmethod
     def _count_domain_modules(domain: DomainNode) -> int:
-        """Recursively count modules in a domain and all its children."""
-        count = len(domain.modules)
-        for child in domain.children:
-            count += WikiService._count_domain_modules(child)
-        return count
+        return WikiTreeLinker.count_domain_modules(domain)
 
     def _budget_for_tier(self, tier: ImportanceTier | None, *, multiplier: float = 1.0) -> int:
         """Return the token budget for a given importance tier from app config."""
-        app_cfg = self._wiki_cfg
-        if tier == ImportanceTier.CORE:
-            base = app_cfg.core_code_budget
-        elif tier == ImportanceTier.STANDARD:
-            base = app_cfg.standard_code_budget
-        elif tier == ImportanceTier.SKELETON:
-            base = app_cfg.skeleton_code_budget
-        else:
-            base = app_cfg.standard_code_budget
-        return int(base * multiplier)
+        return self._page_composer.budget_for_tier(tier, multiplier=multiplier)
 
-    async def _enrich_pages_after_compose(
-        self,
-        pages: list[WikiPage],
-        page_tier_map: dict[str, ImportanceTier],
-        config: WikiConfig,
-        llm_provider: str | None = None,
-    ) -> None:
-        app_cfg = self._wiki_cfg
-        if not app_cfg.enrichment_enabled:
-            return
-        if config.mode == "structure":
-            log.info(
-                "enrichment_skipped_structure_mode",
-                repository=config.repository,
-                page_count=len(pages),
-            )
-            return
-        llm_port = self._resolve_llm_port(llm_provider)
-        if llm_port is None:
-            return
-        from wiki.async_enrichment import AsyncEnrichmentPipeline
-
-        pipeline = AsyncEnrichmentPipeline(
-            llm_port,
-            round1_enabled=app_cfg.enrichment_round1_enabled,
-            round2_enabled=app_cfg.enrichment_round2_enabled,
-        )
-        if not page_tier_map:
-            log.info(
-                "enrichment_skipped_no_tiers",
-                reason="ImportanceScorer did not run; enrichment requires tier data",
-            )
-            return
-        enrich_limit = max(1, int(getattr(self._wiki_cfg, "compose_concurrency", 3)))
-        enrich_sem = asyncio.Semaphore(enrich_limit)
-
-        async def _enrich_one(page: WikiPage, tier: ImportanceTier) -> None:
-            async with enrich_sem:
-                await pipeline.enrich_page(
-                    page,
-                    entity_name=page.title,
-                    entity_label=page.page_type.value,
-                    tier=tier,
-                    language=config.language,
-                )
-
-        targets = [
-            (page, page_tier_map.get(page.path, ImportanceTier.STANDARD))
-            for page in pages
-            if page.page_type != PageType.REPO_OVERVIEW
-        ]
-        await asyncio.gather(*(_enrich_one(p, t) for p, t in targets))
+    async def _enrich_pages_after_compose(self, *args: Any, **kwargs: Any) -> None:
+        return await self._get_enrichment().enrich_pages_after_compose(*args, **kwargs)
 
     def _resolve_skeleton_strategy(self, tier: ImportanceTier | None) -> SkeletonStrategy | None:
-        if tier != ImportanceTier.SKELETON:
-            return None
-        raw = getattr(self._wiki_cfg, "skeleton_strategy", "template")
-        try:
-            return SkeletonStrategy(raw)
-        except ValueError:
-            return SkeletonStrategy.TEMPLATE
+        return self._page_composer.resolve_skeleton_strategy(tier)
 
     async def _compose_all_pages(
         self,
@@ -2088,641 +1441,20 @@ class WikiService:
         token_budget_multiplier: float = 1.0,
         progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> tuple[list[WikiPage], bool]:
-        import time as _time
-
-        pages: list[WikiPage] = []
-        degraded = False
-        tiers = importance_tiers or {}
-        page_tier_map: dict[str, ImportanceTier] = {}
-        summary_index: dict[str, WikiPageSummary] = {}
-        _t0 = _time.monotonic()
-        _PAGE_TIMEOUT = 120
-
-        wikilink_cache = WikiLinkCache()
-        cache_active = False
-        if getattr(self._wiki_cfg, "wikilink_cache_enabled", True) and composer._wiki_store:
-            try:
-                loaded = await wikilink_cache.warm_up(composer._wiki_store, repository)
-                log.info("wikilink_cache_warm_up", repository=repository, loaded=loaded)
-                composer._wikilink_cache = wikilink_cache
-                cache_active = True
-            except Exception:
-                log.warning(
-                    "wikilink_cache_warm_up_failed",
-                    repository=repository,
-                    exc_info=True,
-                )
-
-        leaves, parents_by_depth = _collect_nodes_by_depth(structure.root)
-        _total_nodes = len(leaves) + len(parents_by_depth)
-        log.info(
-            "compose_all_pages_start",
-            repository=repository,
-            total_nodes=_total_nodes,
-            leaves=len(leaves),
-            parents=len(parents_by_depth),
+        return await self._page_composer.compose_all_pages(
+            repository,
+            structure,
+            config,
+            composer,
+            importance_tiers,
+            llm_provider,
+            community_markdown=community_markdown,
+            token_budget_multiplier=token_budget_multiplier,
+            progress_callback=progress_callback,
         )
-
-        sem_limit = max(1, int(getattr(self._wiki_cfg, "compose_concurrency", 3)))
-        sem = asyncio.Semaphore(sem_limit)
-
-        _sk_light_raw = str(getattr(self._wiki_cfg, "skeleton_light_model", "") or "").strip()
-        skeleton_light_model = _sk_light_raw if _sk_light_raw else None
-
-        resume_enabled = getattr(self._wiki_cfg, "resume_from_saved", False)
-        existing_page_hashes: dict[str, str] = {}
-        if resume_enabled and self._store is not None and hasattr(self._store, "execute_query"):
-            try:
-                rhq = (
-                    "MATCH (wp:WikiPage {repository: $repo})-[:SOURCE_ENTITY]->(e) "
-                    "RETURN coalesce(wp.path, '') AS path, coalesce(e.wiki_code_hash, '') AS wiki_h"
-                )
-                rhres = await self._store.execute_query(rhq, {"repo": repository})
-                for row in getattr(rhres, "data", None) or []:
-                    if isinstance(row, dict):
-                        pth = str(row.get("path") or "")
-                        wh = str(row.get("wiki_h") or "")
-                        if pth and wh:
-                            existing_page_hashes[pth] = wh
-            except Exception:
-                log.debug("resume_hash_preload_failed", repository=repository, exc_info=True)
-
-        log.info(
-            "compose_phase_start",
-            repository=repository,
-            phase="leaf_compose",
-            count=len(leaves),
-        )
-        if progress_callback:
-            await progress_callback(
-                {
-                    "repository": repository,
-                    "phase": "wiki_compose",
-                    "subphase": "leaf_compose",
-                    "status": "started",
-                    "total_leaves": len(leaves),
-                    "total_parents": len(parents_by_depth),
-                },
-            )
-
-        # Build lightweight glossary from graph entities
-        _glossary: dict[str, str] = {}
-        if self._store is not None:
-            try:
-                _gq = (
-                    "MATCH (n {repository: $repo}) "
-                    "WHERE n.business_summary IS NOT NULL AND n.business_summary <> '' "
-                    "AND n.name IS NOT NULL AND n.name <> '' "
-                    "RETURN n.name, n.business_summary ORDER BY n.name LIMIT 500"
-                )
-                _gres = await self._store.execute_query(_gq, {"repo": repository})
-                _glossary_nodes: list[GraphNode] = []
-                for row in getattr(_gres, "raw", []) or []:
-                    _glossary_nodes.append(
-                        GraphNode(
-                            label=NodeLabel.MODULE,
-                            properties={
-                                "name": str(row[0] or ""),
-                                "business_summary": str(row[1] or ""),
-                            },
-                            uid="",
-                        )
-                    )
-                _glossary = _build_lightweight_glossary(_glossary_nodes)
-            except Exception:
-                log.debug("glossary_build_failed", repository=repository, exc_info=True)
-
-        # Build leaf → parent structure node map for parent context
-        _parent_struct_map: dict[str, WikiStructureNode] = {}
-
-        def _map_parents(node: WikiStructureNode) -> None:
-            for child in node.children:
-                if child.is_leaf:
-                    _parent_struct_map[child.path] = node
-                _map_parents(child)
-
-        _map_parents(structure.root)
-
-        # Pre-resolve parent graph nodes
-        _parent_graph_cache: dict[str, GraphNode | None] = {}
-        _unique_parents = {id(n): n for n in _parent_struct_map.values()}.values()
-        for _pnode in _unique_parents:
-            try:
-                _pg = await self._resolve_structure_node(repository, _pnode)
-                _parent_graph_cache[_pnode.path] = _pg
-            except Exception:
-                _parent_graph_cache[_pnode.path] = None
-
-        async def compose_leaf(node: WikiStructureNode) -> WikiPage | None:
-            nonlocal degraded
-            async with sem:
-                try:
-                    graph_node = await asyncio.wait_for(
-                        self._resolve_structure_node(repository, node),
-                        timeout=30,
-                    )
-                except TimeoutError:
-                    log.warning("resolve_leaf_timeout", path=node.path)
-                    return None
-                except Exception:
-                    log.warning("resolve_leaf_error", path=node.path, exc_info=True)
-                    return None
-                tier = tiers.get(graph_node.uid)
-                code_budget = self._budget_for_tier(
-                    tier, multiplier=token_budget_multiplier,
-                )
-                try:
-                    page_data = await asyncio.wait_for(
-                        self._collector.collect(repository, graph_node, code_budget=code_budget),
-                        timeout=60,
-                    )
-                except TimeoutError:
-                    log.warning("collector_leaf_timeout", path=node.path)
-                    return None
-                if tier is not None:
-                    page_data.importance_tier = tier
-                skeleton_strat = self._resolve_skeleton_strategy(tier)
-
-                src_concat = "".join(cs.source for cs in page_data.code_snippets)
-                page_res: WikiPage | None = None
-                if resume_enabled and existing_page_hashes and composer._wiki_store is not None:
-                    ex_h = existing_page_hashes.get(node.path)
-                    cur_h = self._resume_source_content_hash(graph_node, src_concat)
-                    if ex_h and cur_h and ex_h == cur_h:
-                        log.debug("resume_skip_unchanged", path=node.path)
-                        page_res = await self._load_wikipage_for_resume_entity(
-                            repository,
-                            graph_node,
-                            structure_path=node.path,
-                            structure_title=node.title,
-                            structure_page_type=node.page_type,
-                            config=config,
-                        )
-                page: WikiPage | None = page_res
-                if page is None:
-                    _biz_domain = graph_node.properties.get("business_domain")
-                    _is_entry = bool(
-                        set(graph_node.properties.get("semantic_roles", []) or [])
-                        & {"http_controller", "rpc_provider", "message_listener", "scheduled_task"}
-                    )
-                    _parent_sn = _parent_struct_map.get(node.path)
-                    _parent_gn = (
-                        _parent_graph_cache.get(_parent_sn.path) if _parent_sn else None
-                    )
-                    _parent_ctx = _build_lightweight_parent_context(_parent_gn)
-                    try:
-                        page = await asyncio.wait_for(
-                            composer.compose_page(
-                                page_data,
-                                node.page_type,
-                                config,
-                                parent_context=_parent_ctx,
-                                glossary=_glossary,
-                                importance_tier=tier,
-                                skeleton_strategy=skeleton_strat,
-                                skeleton_light_model=skeleton_light_model,
-                                business_domain=_biz_domain,
-                                is_entry_point=_is_entry,
-                            ),
-                            timeout=_PAGE_TIMEOUT,
-                        )
-                    except TimeoutError:
-                        log.warning("compose_leaf_timeout", path=node.path)
-                        return None
-                if page is None:
-                    return None
-                page.metadata.enrichment_level = EnrichmentLevel.BASE
-                page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
-                page._structure_path = node.path  # type: ignore[attr-defined]
-                if tier is not None:
-                    page_tier_map[page.path] = tier
-                if config.mode == "full" and page.metadata.fallback_tier == 3:
-                    degraded = True
-                if cache_active:
-                    wikilink_cache.register(page.title, page.path)
-                return page
-
-        batch_size = int(getattr(self._wiki_cfg, "progressive_persist_batch_size", 20))
-        progressive = getattr(self._wiki_cfg, "progressive_persist_enabled", True)
-
-        for batch_start in range(0, len(leaves), batch_size):
-            batch = leaves[batch_start : batch_start + batch_size]
-            leaf_results = await asyncio.gather(*(compose_leaf(n) for n in batch))
-
-            batch_pages: list[WikiPage] = []
-            for page in leaf_results:
-                if page is not None:
-                    pages.append(page)
-                    batch_pages.append(page)
-                    uid = getattr(page, "_source_entity_uid", "")
-                    struct_path = getattr(page, "_structure_path", page.path)
-                    _sum = _extract_summary(page, entity_uid=uid)
-                    summary_index[struct_path] = _sum
-                    if page.path != struct_path:
-                        summary_index[page.path] = _sum
-
-            if progressive and batch_pages and self._store is not None:
-                try:
-                    await self._persist_pages_to_graph(
-                        repository,
-                        batch_pages,
-                        language=config.language,
-                        skip_claim_tracking=(config.mode == "structure"),
-                    )
-                    log.info(
-                        "progressive_persist_leaf_batch",
-                        repository=repository,
-                        batch_start=batch_start,
-                        batch_saved=len(batch_pages),
-                    )
-                except Exception:
-                    log.warning(
-                        "progressive_persist_leaf_failed",
-                        repository=repository,
-                        batch_start=batch_start,
-                        exc_info=True,
-                    )
-
-        log.info(
-            "compose_phase_complete",
-            repository=repository,
-            phase="leaf_compose",
-            pages_composed=len(pages),
-            elapsed_s=round(_time.monotonic() - _t0, 1),
-        )
-        if progress_callback:
-            await progress_callback(
-                {
-                    "repository": repository,
-                    "phase": "wiki_compose",
-                    "subphase": "leaf_compose",
-                    "status": "complete",
-                    "pages": len(pages),
-                },
-            )
-
-        log.info(
-            "compose_phase_start",
-            repository=repository,
-            phase="parent_aggregate",
-            count=len(parents_by_depth),
-        )
-        if progress_callback:
-            await progress_callback(
-                {
-                    "repository": repository,
-                    "phase": "wiki_compose",
-                    "subphase": "parent_aggregate",
-                    "status": "started",
-                    "total_parents": len(parents_by_depth),
-                },
-            )
-
-        progressive_parents = getattr(self._wiki_cfg, "progressive_persist_enabled", True)
-        prev_depth: int | None = None
-        depth_batch: list[WikiPage] = []
-
-        for _depth, parent_node in parents_by_depth:
-            if (
-                progressive_parents
-                and prev_depth is not None
-                and _depth != prev_depth
-                and depth_batch
-                and self._store is not None
-            ):
-                try:
-                    await self._persist_pages_to_graph(
-                        repository,
-                        depth_batch,
-                        language=config.language,
-                        skip_claim_tracking=(config.mode == "structure"),
-                    )
-                    log.info(
-                        "progressive_persist_parent_depth",
-                        repository=repository,
-                        completed_depth=prev_depth,
-                        batch_saved=len(depth_batch),
-                    )
-                except Exception:
-                    log.warning(
-                        "progressive_persist_parent_depth_failed",
-                        repository=repository,
-                        completed_depth=prev_depth,
-                        exc_info=True,
-                    )
-                depth_batch.clear()
-
-            try:
-                if parent_node.page_type == PageType.REPO_OVERVIEW:
-                    page = self._make_repo_overview_page(
-                        repository, structure, config, community_markdown=community_markdown,
-                    )
-                    page.metadata.enrichment_level = EnrichmentLevel.BASE
-                    page._structure_path = parent_node.path  # type: ignore[attr-defined]
-                    pages.append(page)
-                    if progressive_parents:
-                        depth_batch.append(page)
-                    continue
-                try:
-                    graph_node = await asyncio.wait_for(
-                        self._resolve_structure_node(repository, parent_node),
-                        timeout=30,
-                    )
-                except TimeoutError:
-                    log.warning("resolve_parent_timeout", path=parent_node.path)
-                    continue
-                except Exception:
-                    log.warning("resolve_parent_error", path=parent_node.path, exc_info=True)
-                    continue
-                tier = tiers.get(graph_node.uid)
-                code_budget = self._budget_for_tier(
-                    tier, multiplier=token_budget_multiplier,
-                )
-                try:
-                    page_data = await asyncio.wait_for(
-                        self._collector.collect(repository, graph_node, code_budget=code_budget),
-                        timeout=60,
-                    )
-                except TimeoutError:
-                    log.warning("collector_parent_timeout", path=parent_node.path)
-                    continue
-                if tier is not None:
-                    page_data.importance_tier = tier
-
-                resume_src_concat = "".join(cs.source for cs in page_data.code_snippets)
-                page_early: WikiPage | None = None
-                if resume_enabled and existing_page_hashes and composer._wiki_store is not None:
-                    rex = existing_page_hashes.get(parent_node.path)
-                    rcur = self._resume_source_content_hash(graph_node, resume_src_concat)
-                    if rex and rcur and rex == rcur:
-                        log.debug("resume_skip_unchanged", path=parent_node.path)
-                        page_early = await self._load_wikipage_for_resume_entity(
-                            repository,
-                            graph_node,
-                            structure_path=parent_node.path,
-                            structure_title=parent_node.title,
-                            structure_page_type=parent_node.page_type,
-                            config=config,
-                        )
-
-                child_summaries = [
-                    summary_index[ch.path] for ch in parent_node.children if ch.path in summary_index
-                ]
-                edges: list[tuple[str, str]] = []
-
-                page: WikiPage | None = page_early
-                if page is None:
-                    if getattr(self._wiki_cfg, "delegation_enabled", True):
-                        decision = evaluate_delegation(
-                            children_count=len(parent_node.children),
-                            total_code_lines=0,  # code lines not tracked on structure nodes
-                            max_children=getattr(self._wiki_cfg, "delegation_max_children", 30),
-                            max_code_lines=getattr(self._wiki_cfg, "delegation_max_code_lines", 5000),
-                        )
-                        if decision.should_delegate and child_summaries:
-                            child_paths = [
-                                ch.path for ch in parent_node.children if ch.path in summary_index
-                            ]
-                            edges = []
-                            if (
-                                child_paths
-                                and self._store is not None
-                                and callable(getattr(self._store, "find_edges_between", None))
-                            ):
-                                try:
-                                    edges = await self._store.find_edges_between(
-                                        repository,
-                                        child_paths,
-                                        edge_types=["CALLS", "IMPORTS"],
-                                    )
-                                except Exception:
-                                    log.warning(
-                                        "delegation_edge_query_failed",
-                                        path=parent_node.path,
-                                        exc_info=True,
-                                    )
-                                    edges = []
-                            groups = group_children_by_graph(
-                                [ch for ch in parent_node.children if ch.path in summary_index],
-                                edges,
-                                max_group_size=getattr(self._wiki_cfg, "delegation_max_children", 30),
-                            )
-                            if len(groups) > 1:
-                                group_summaries: list[WikiPageSummary] = []
-                                for group in groups:
-                                    group_child_sums = [
-                                        summary_index[ch.path]
-                                        for ch in group
-                                        if ch.path in summary_index
-                                    ]
-                                    if group_child_sums:
-                                        combined = "; ".join(s.summary[:50] for s in group_child_sums)
-                                        group_summaries.append(
-                                            WikiPageSummary(
-                                                entity_uid=f"virtual:{parent_node.path}:{len(group_summaries)}",
-                                                title=f"Group: {group_child_sums[0].title} etc.",
-                                                path=parent_node.path,
-                                                summary=combined[:200],
-                                                importance_tier=None,
-                                                page_type=PageType.MODULE_OVERVIEW,
-                                            )
-                                        )
-                                if group_summaries:
-                                    child_summaries = group_summaries
-                                    log.info(
-                                        "delegation_applied",
-                                        path=parent_node.path,
-                                        groups=len(groups),
-                                        reason=decision.reason,
-                                    )
-                    skeleton_strat = self._resolve_skeleton_strategy(tier)
-                    if tier == ImportanceTier.SKELETON and skeleton_strat == SkeletonStrategy.SKIP:
-                        continue
-                    try:
-                        if child_summaries:
-                            inter_child_edges_dicts = (
-                                [
-                                    {"source": s, "edge_type": "CALLS", "target": t}
-                                    for s, t in edges
-                                ]
-                                if edges
-                                else None
-                            )
-                            page = await asyncio.wait_for(
-                                composer.compose_parent_page(
-                                    page_data,
-                                    parent_node.page_type,
-                                    config,
-                                    child_summaries,
-                                    inter_child_edges=inter_child_edges_dicts,
-                                ),
-                                timeout=_PAGE_TIMEOUT,
-                            )
-                        else:
-                            skeleton_strat = self._resolve_skeleton_strategy(tier)
-                            page = await asyncio.wait_for(
-                                composer.compose_page(
-                                    page_data,
-                                    parent_node.page_type,
-                                    config,
-                                    importance_tier=tier,
-                                    skeleton_strategy=skeleton_strat,
-                                    skeleton_light_model=skeleton_light_model,
-                                ),
-                                timeout=_PAGE_TIMEOUT,
-                            )
-                    except TimeoutError:
-                        log.warning("compose_parent_timeout", path=parent_node.path)
-                        continue
-                if page is None:
-                    continue
-                page.metadata.enrichment_level = EnrichmentLevel.BASE
-                page._source_entity_uid = graph_node.uid  # type: ignore[attr-defined]
-                page._structure_path = parent_node.path  # type: ignore[attr-defined]
-                if tier is not None:
-                    page_tier_map[page.path] = tier
-                if config.mode == "full" and page.metadata.fallback_tier == 3:
-                    degraded = True
-                pages.append(page)
-                _psum = _extract_summary(page, entity_uid=graph_node.uid)
-                summary_index[parent_node.path] = _psum
-                if page.path != parent_node.path:
-                    summary_index[page.path] = _psum
-                if cache_active:
-                    wikilink_cache.register(page.title, page.path)
-                if progressive_parents:
-                    depth_batch.append(page)
-            finally:
-                prev_depth = _depth
-
-        if (
-            progressive_parents
-            and depth_batch
-            and self._store is not None
-        ):
-            try:
-                await self._persist_pages_to_graph(
-                    repository,
-                    depth_batch,
-                    language=config.language,
-                    skip_claim_tracking=(config.mode == "structure"),
-                )
-                log.info(
-                    "progressive_persist_parent_depth",
-                    repository=repository,
-                    completed_depth=prev_depth,
-                    batch_saved=len(depth_batch),
-                )
-            except Exception:
-                log.warning(
-                    "progressive_persist_parent_depth_failed",
-                    repository=repository,
-                    completed_depth=prev_depth,
-                    exc_info=True,
-                )
-
-        log.info(
-            "compose_phase_complete",
-            repository=repository,
-            phase="parent_aggregate",
-            pages_composed=len(pages),
-            elapsed_s=round(_time.monotonic() - _t0, 1),
-        )
-        if progress_callback:
-            await progress_callback(
-                {
-                    "repository": repository,
-                    "phase": "wiki_compose",
-                    "subphase": "parent_aggregate",
-                    "status": "complete",
-                    "pages": len(pages),
-                },
-            )
-
-        if getattr(self._wiki_cfg, "business_flow_aggregation_enabled", True):
-            try:
-                from wiki.business_flow_composer import BusinessFlowPageComposer
-
-                community_svc = getattr(self, "_community_service", None)
-                llm_bridge = self._resolve_llm_port(llm_provider)
-                if community_svc:
-                    flow_composer = BusinessFlowPageComposer(llm_bridge, community_svc)
-                    uid_to_path: dict[str, str] = {}
-                    for page in pages:
-                        uid = getattr(page, "_source_entity_uid", "")
-                        if uid:
-                            uid_to_path[uid] = page.path
-                    min_size = getattr(self._wiki_cfg, "business_flow_min_community_size", 3)
-                    flow_pages = await flow_composer.compose_flows(
-                        repository,
-                        summary_index,
-                        uid_to_path,
-                        config,
-                        min_community_size=min_size,
-                    )
-                    pages.extend(flow_pages)
-                    log.info(
-                        "business_flow_phase_complete",
-                        repository=repository,
-                        flow_pages=len(flow_pages),
-                    )
-                else:
-                    log.warning(
-                        "business_flow_phase_skipped",
-                        repository=repository,
-                        reason="community_service_unavailable",
-                    )
-            except Exception:
-                log.warning(
-                    "business_flow_phase_failed",
-                    repository=repository,
-                    exc_info=True,
-                )
-
-        path_order = {p: i for i, p in enumerate(_expected_wiki_page_paths_dfs(structure.root))}
-        pages.sort(
-            key=lambda pg: path_order.get(getattr(pg, "_structure_path", pg.path), 1 << 30),
-        )
-
-        pages_by_struct_path = {getattr(p, "_structure_path", p.path): p for p in pages}
-        _populate_navigation_context(structure.root, pages_by_struct_path)
-
-        backlink_builder = BacklinkBuilder()
-        try:
-            await backlink_builder.build_backlinks(pages, self._graph, wikilink_cache, repository)
-        except Exception:
-            log.warning("backlink_building_failed", repository=repository, exc_info=True)
-
-        _elapsed = _time.monotonic() - _t0
-        log.info(
-            "compose_all_pages_done",
-            repository=repository,
-            pages_composed=len(pages),
-            total_time_s=round(_elapsed, 1),
-        )
-        if progress_callback:
-            await progress_callback(
-                {
-                    "repository": repository,
-                    "phase": "wiki_compose",
-                    "subphase": "navigation",
-                    "status": "complete",
-                    "pages": len(pages),
-                },
-            )
-        await self._enrich_pages_after_compose(pages, page_tier_map, config, llm_provider)
-        return pages, degraded
 
     async def _resolve_structure_node(self, repository: str, node: WikiStructureNode) -> GraphNode:
-        if node.page_type == PageType.MODULE_OVERVIEW:
-            g = await self._graph.find_node_by_path(repository, node.path)
-        else:
-            g = await self._graph.find_node_by_fqn(repository, node.path)
-            if g is None:
-                g = await self._graph.find_node_by_path(repository, node.path)
-        if g is None:
-            raise WikiScopeError(f"No graph node for wiki path {node.path!r} in repository {repository!r}")
-        return g
+        return await self._page_composer.resolve_structure_node(repository, node)
 
     def _make_repo_overview_page(
         self,
@@ -2731,29 +1463,8 @@ class WikiService:
         config: WikiConfig,
         community_markdown: str = "",
     ) -> WikiPage:
-        lines = [
-            f"# {structure.repository}",
-            "",
-            "Repository overview generated from the knowledge graph.",
-            "",
-            f"- Planned wiki pages: {structure.total_pages}",
-        ]
-        content = "\n".join(lines)
-        if community_markdown.strip():
-            content = f"{content}\n\n{community_markdown.rstrip()}\n"
-        return WikiPage(
-            path="README.md",
-            title=structure.repository,
-            page_type=PageType.REPO_OVERVIEW,
-            content=content,
-            diagrams=[],
-            source_locations=[],
-            metadata=WikiPageMetadata(
-                node_count=0,
-                edge_count=0,
-                generation_mode=config.mode,
-                fallback_tier=None,
-            ),
+        return self._page_composer.make_repo_overview_page(
+            repository, structure, config, community_markdown=community_markdown,
         )
 
     async def _persist_pages_to_graph(
@@ -2764,291 +1475,17 @@ class WikiService:
         language: str = "en",
         skip_claim_tracking: bool = False,
     ) -> None:
-        import time as _time
-
-        if self._store is None or not hasattr(self._store, "persist_wiki_pages"):
-            return
-        _t0 = _time.monotonic()
-        log.info("persist_pages_start", repository=repository, page_count=len(pages))
-
-        old_contents: dict[str, str] = {}
-        if (
-            self._wiki_cfg.supersession_tracking_enabled
-            and self._llm is not None
-            and self._wiki_store is not None
-        ):
-            for i, p in enumerate(pages):
-                wuid = f"WikiPage:{repository}:{p.path}"
-                try:
-                    r = await asyncio.wait_for(
-                        self._store.execute_query(
-                            "MATCH (w:WikiPage {uid: $uid}) RETURN coalesce(w.content, '') AS c LIMIT 1",
-                            {"uid": wuid},
-                        ),
-                        timeout=10,
-                    )
-                except TimeoutError:
-                    log.warning("supersession_query_timeout", path=p.path, page_num=i)
-                    continue
-                rows = getattr(r, "data", None) or []
-                if rows:
-                    r0 = rows[0]
-                    if isinstance(r0, dict):
-                        old_contents[p.path] = str(r0.get("c", "") or "")
-                    else:
-                        old_contents[p.path] = ""
-                else:
-                    old_contents[p.path] = ""
-            log.info("supersession_tracking_done", repository=repository, elapsed_s=round(_time.monotonic() - _t0, 1))
-
-        ts = datetime.now(timezone.utc).isoformat()
-        page_dicts = [
-            {
-                "path": p.path,
-                "title": p.title,
-                "content": p.content,
-                "page_type": p.page_type.value,
-                "generated_at": ts,
-                "importance_tier": getattr(p.metadata, "importance_tier", None),
-                "enrichment_level": getattr(p.metadata, "enrichment_level", None),
-                "entity_uid": getattr(p, "_source_entity_uid", None),
-                "navigation_json": (
-                    json.dumps(p.navigation.to_api_dict(), ensure_ascii=False)
-                    if p.navigation
-                    else ""
-                ),
-            }
-            for p in pages
-        ]
-
-        _PERSIST_CHUNK = 200
-        _t_persist = _time.monotonic()
-        total_persisted = 0
-        for chunk_start in range(0, len(page_dicts), _PERSIST_CHUNK):
-            chunk = page_dicts[chunk_start : chunk_start + _PERSIST_CHUNK]
-            try:
-                await asyncio.wait_for(
-                    self._store.persist_wiki_pages(repository, chunk),
-                    timeout=120,
-                )
-                total_persisted += len(chunk)
-                if chunk_start > 0:
-                    log.info(
-                        "persist_pages_chunk",
-                        repository=repository,
-                        persisted=total_persisted,
-                        total=len(page_dicts),
-                    )
-            except TimeoutError:
-                log.warning(
-                    "persist_pages_chunk_timeout",
-                    repository=repository,
-                    chunk_start=chunk_start,
-                    chunk_size=len(chunk),
-                )
-            except Exception as exc:
-                log.warning("wiki_page_persist_failed", repository=repository, chunk_start=chunk_start, error=str(exc)[:200])
-
-        log.info(
-            "persist_pages_write_done",
-            repository=repository,
-            persisted=total_persisted,
-            elapsed_s=round(_time.monotonic() - _t_persist, 1),
+        return await self._persistence.persist_pages_to_graph(
+            repository, pages, language=language, skip_claim_tracking=skip_claim_tracking
         )
-
-        pairs: list[dict[str, str]] = [
-            {
-                "wiki_uid": f"WikiPage:{repository}:{pd['path']}",
-                "entity_uid": pd["entity_uid"],
-            }
-            for pd in page_dicts
-            if pd.get("entity_uid")
-        ]
-        if pairs:
-            _EDGE_CHUNK = 200
-            for edge_start in range(0, len(pairs), _EDGE_CHUNK):
-                edge_chunk = pairs[edge_start : edge_start + _EDGE_CHUNK]
-                batch_q = (
-                    "UNWIND $pairs AS pair "
-                    "MATCH (wp:WikiPage {uid: pair.wiki_uid}) "
-                    "MATCH (e {uid: pair.entity_uid}) "
-                    "MERGE (wp)-[:SOURCE_ENTITY]->(e)"
-                )
-                try:
-                    await asyncio.wait_for(
-                        self._store.execute_query(batch_q, {"pairs": edge_chunk}),
-                        timeout=120,
-                    )
-                except TimeoutError:
-                    log.warning("source_entity_chunk_timeout", repository=repository, edge_start=edge_start)
-                except Exception as exc:
-                    log.warning("source_entity_batch_failed", repository=repository, error=str(exc)[:200])
-
-        log.info("persist_pages_complete", repository=repository, total_time_s=round(_time.monotonic() - _t0, 1))
-
-        if self._confidence_scoring_enabled() and self._store is not None:
-            _cs_t0 = _time.monotonic()
-            log.info("confidence_scoring_start", repository=repository, page_count=len(page_dicts))
-            try:
-                scorer = confidence_scorer_from_wiki_app_config(self._wiki_cfg)
-                scores: list[tuple[str, float]] = []
-                for i, pd in enumerate(page_dicts):
-                    uid = f"WikiPage:{repository}:{pd['path']}"
-                    gen_at = str(pd.get("generated_at", "") or ts)
-                    try:
-                        inputs = await asyncio.wait_for(
-                            gather_confidence_inputs(
-                                self._store, uid, repository, gen_at,
-                            ),
-                            timeout=10,
-                        )
-                        scores.append((pd["path"], scorer.compute(inputs)))
-                    except TimeoutError:
-                        log.warning("confidence_input_timeout", path=pd["path"], page_num=i)
-                        continue
-                    if (i + 1) % 200 == 0:
-                        log.info("confidence_scoring_progress", repository=repository, scored=i + 1, total=len(page_dicts))
-                await set_wiki_page_confidence_scores(
-                    self._store, scores, repository=repository,
-                )
-                log.info("confidence_scoring_done", repository=repository, scored=len(scores), elapsed_s=round(_time.monotonic() - _cs_t0, 1))
-            except Exception as exc:
-                log.warning("wiki_confidence_persist_failed", repository=repository, error=str(exc))
-
-        if total_persisted > 0:
-            _emb_t0 = _time.monotonic()
-            log.info("wiki_page_embedding_start", repository=repository, page_count=len(page_dicts))
-            try:
-                emb_gen = EmbeddingGenerator.shared(config=self._embedding_cfg)
-                items = [
-                    doc_dict_for_embedding(
-                        {"title": d["title"], "content": d["content"][:3000]},
-                    )
-                    for d in page_dicts
-                ]
-                embeddings = await emb_gen.generate_for_docs(items)
-                log.info("wiki_page_embedding_vectors_done", repository=repository, count=len(embeddings), elapsed_s=round(_time.monotonic() - _emb_t0, 1))
-                emb_items: list[tuple[str, NodeLabel, list[float]]] = [
-                    (
-                        f"WikiPage:{repository}:{page_dict['path']}",
-                        NodeLabel.WIKI_PAGE,
-                        embedding,
-                    )
-                    for page_dict, embedding in zip(page_dicts, embeddings, strict=True)
-                ]
-                _batch = getattr(self._store, "batch_set_node_embeddings", None)
-                _f = getattr(_batch, "__func__", _batch) if _batch is not None else None
-                if _f is not None and inspect.iscoroutinefunction(_f):
-                    await self._store.batch_set_node_embeddings(emb_items)
-                else:
-                    for page_dict, embedding in zip(page_dicts, embeddings, strict=True):
-                        uid = f"WikiPage:{repository}:{page_dict['path']}"
-                        await self._store.set_node_embedding(uid, NodeLabel.WIKI_PAGE, embedding)
-                log.info("wiki_page_embedding_done", repository=repository, elapsed_s=round(_time.monotonic() - _emb_t0, 1))
-            except Exception as exc:
-                log.warning("wiki_page_embedding_failed", repository=repository, error=str(exc))
-        else:
-            log.info("wiki_page_embedding_skipped", repository=repository, reason="no_pages_persisted")
-
-        if (
-            self._wiki_cfg.supersession_tracking_enabled
-            and self._llm is not None
-            and self._wiki_store is not None
-            and not skip_claim_tracking
-        ):
-            log.info("claim_tracking_start", repository=repository, page_count=len(pages))
-            from wiki.claim_extractor import extract_claims
-            from wiki.claim_tracker import ClaimTracker
-
-            now_ts = int(_time.time())
-            conc_raw = getattr(self._wiki_cfg, "claim_tracking_concurrency", 5)
-            conc = max(1, int(conc_raw))
-            sem = asyncio.Semaphore(conc)
-
-            async def _track_claims_one_page(page: WikiPage) -> None:
-                async with sem:
-                    try:
-                        old_c = old_contents.get(page.path, "")
-                        wiki_uid = f"WikiPage:{repository}:{page.path}"
-                        old_claims = (
-                            await extract_claims(self._llm, old_c, language) if old_c.strip() else []
-                        )
-                        new_claims = await extract_claims(self._llm, page.content, language)
-                        pairs = ClaimTracker.find_supersedions(old_claims, new_claims)
-                        next_v = await self._wiki_store.next_claim_version(wiki_uid)
-                        by_text: dict[str, str] = {}
-                        for cl in new_claims:
-                            proposed = f"WikiClaimHistory:{wiki_uid}:{next_v}"
-                            cuid = await self._wiki_store.find_or_create_wiki_claim(
-                                wiki_uid,
-                                cl.claim_text,
-                                next_v,
-                                new_claim_uid=proposed,
-                                created_at=now_ts,
-                            )
-                            if cuid == proposed:
-                                next_v += 1
-                            by_text[cl.claim_text.strip()] = cuid
-                        for pr in pairs:
-                            old_u = await self._wiki_store.find_wiki_claim_by_text(
-                                wiki_uid, pr.old_claim_text,
-                            )
-                            nu = by_text.get(pr.new_claim_text.strip())
-                            if old_u and nu:
-                                await self._wiki_store.set_wiki_claim_superseded(
-                                    old_u, nu, now_ts,
-                                )
-                        sup_list = [pair.new_claim_text for pair in pairs]
-                        if sup_list:
-                            await self._wiki_store.set_wiki_page_supersedes(
-                                wiki_uid,
-                                json.dumps(sup_list, ensure_ascii=False),
-                            )
-                    except Exception as exc:
-                        log.warning(
-                            "wiki_claim_tracking_failed",
-                            repository=repository,
-                            path=page.path,
-                            error=str(exc),
-                        )
-
-            _ct_t0 = _time.monotonic()
-            await asyncio.gather(*[_track_claims_one_page(p) for p in pages])
-            log.info(
-                "claim_tracking_done",
-                repository=repository,
-                elapsed_s=round(_time.monotonic() - _ct_t0, 1),
-                pages=len(pages),
-            )
 
     async def get_enrichment_status(self, repository: str) -> dict[str, Any]:
         """Return enrichment level distribution for wiki pages."""
         await self._ensure_repo(repository)
-        if self._store is None or not hasattr(self._store, "execute_query"):
-            return {
-                "repository": repository,
-                "total_pages": 0,
-                "base": 0,
-                "enriched": 0,
-                "encyclopedia": 0,
-            }
-        q = (
-            "MATCH (p:WikiPage {repository: $repo}) "
-            "RETURN p.enrichment_level AS level, count(p) AS cnt"
+        return await self._get_enrichment().get_enrichment_status(
+            repository,
+            verify_repository=False,
         )
-        result = await self._store.execute_query(q, {"repo": repository})
-        counts: dict[str, int] = {"base": 0, "enriched": 0, "encyclopedia": 0}
-        total = 0
-        for row in getattr(result, "raw", []) or []:
-            raw_level = row[0]
-            if raw_level is None or raw_level == "":
-                level = "base"
-            else:
-                level = str(raw_level)
-            cnt = int(row[1])
-            counts[level] = counts.get(level, 0) + cnt
-            total += cnt
-        return {"repository": repository, "total_pages": total, **counts}
 
     async def trigger_enrichment(self, repository: str) -> dict[str, Any]:
         """Trigger enrichment for eligible wiki pages.
@@ -3057,193 +1494,10 @@ class WikiService:
         enrichment task if eligible pages exist.
         """
         await self._ensure_repo(repository)
-        if not getattr(self._wiki_cfg, "enrichment_enabled", True):
-            return {
-                "eligible_pages": 0,
-                "repository": repository,
-                "status": "skipped",
-                "reason": "Enrichment is disabled",
-            }
-        llm_port = self._resolve_llm_port(None)
-        if self._store is None or llm_port is None:
-            return {
-                "eligible_pages": 0,
-                "repository": repository,
-                "status": "skipped",
-                "reason": "LLM or store not available",
-            }
-        q = (
-            "MATCH (p:WikiPage {repository: $repo}) "
-            "WHERE p.enrichment_level IS NULL OR p.enrichment_level = 'base' "
-            "OR p.enrichment_level = '' "
-            "RETURN count(p) AS cnt"
+        return await self._get_enrichment().trigger_enrichment(
+            repository,
+            verify_repository=False,
         )
-        result = await self._store.execute_query(q, {"repo": repository})
-        rows = getattr(result, "raw", []) or []
-        eligible_pages = int(rows[0][0]) if rows else 0
 
-        if eligible_pages == 0:
-            return {
-                "eligible_pages": 0,
-                "repository": repository,
-                "status": "skipped",
-            }
-
-        existing_task = self._enrichment_running.get(repository)
-        if existing_task is not None:
-            return {
-                "task_id": existing_task,
-                "eligible_pages": eligible_pages,
-                "repository": repository,
-                "status": "already_running",
-            }
-
-        import uuid as _uuid
-
-        task_id = f"enrich-{_uuid.uuid4().hex[:12]}"
-        self._enrichment_running[repository] = task_id
-        asyncio.create_task(
-            self._run_enrichment_background(repository, llm_port, task_id),
-            name=f"enrichment-{task_id}",
-        )
-        return {
-            "task_id": task_id,
-            "eligible_pages": eligible_pages,
-            "repository": repository,
-            "status": "started",
-        }
-
-    async def _run_enrichment_background(
-        self,
-        repository: str,
-        llm_port: Any,
-        task_id: str,
-    ) -> None:
-        """Background task: enrich eligible pages using AsyncEnrichmentPipeline."""
-        try:
-            from wiki.async_enrichment import AsyncEnrichmentPipeline
-
-            if self._store is None:
-                log.info("enrichment_bg_no_store", task_id=task_id, repository=repository)
-                return
-
-            q = (
-                "MATCH (p:WikiPage {repository: $repo}) "
-                "WHERE p.enrichment_level IS NULL OR p.enrichment_level = 'base' "
-                "OR p.enrichment_level = '' "
-                "RETURN p.path AS path, p.content AS content, p.title AS title, "
-                "coalesce(p.page_type, '') AS pt, coalesce(p.importance_tier, '') AS tier, "
-                "coalesce(p.language, 'zh') AS lang"
-            )
-            result = await self._store.execute_query(q, {"repo": repository})
-            rows = getattr(result, "raw", []) or []
-            if not rows:
-                log.info("enrichment_bg_no_pages", task_id=task_id, repository=repository)
-                return
-
-            pages: list[WikiPage] = []
-            page_tier_map: dict[str, ImportanceTier] = {}
-            _wiki_language = "zh"
-            for row in rows:
-                page_path = str(row[0] or "")
-                if not page_path:
-                    continue
-                content = str(row[1] or "")
-                title = str(row[2] or "")
-                pt_raw = str(row[3] or "").strip()
-                tier_raw = row[4]
-                _row_lang = str(row[5] or "").strip() if len(row) > 5 else ""
-                if _row_lang:
-                    _wiki_language = _row_lang
-                try:
-                    pt = PageType(pt_raw) if pt_raw else PageType.MODULE_OVERVIEW
-                except ValueError:
-                    pt = PageType.MODULE_OVERVIEW
-                if tier_raw is None or str(tier_raw).strip() == "":
-                    tier = ImportanceTier.STANDARD
-                else:
-                    try:
-                        tier = ImportanceTier(str(tier_raw).lower())
-                    except ValueError:
-                        tier = ImportanceTier.STANDARD
-                page_tier_map[page_path] = tier
-                pages.append(
-                    WikiPage(
-                        path=page_path,
-                        title=title,
-                        page_type=pt,
-                        content=content,
-                        diagrams=[],
-                        source_locations=[],
-                        metadata=WikiPageMetadata(
-                            node_count=0,
-                            edge_count=0,
-                            generation_mode="full",
-                            fallback_tier=None,
-                        ),
-                        method_locations=[],
-                    )
-                )
-
-            pipeline = AsyncEnrichmentPipeline(
-                llm_port,
-                round1_enabled=getattr(self._wiki_cfg, "enrichment_round1_enabled", True),
-                round2_enabled=getattr(self._wiki_cfg, "enrichment_round2_enabled", False),
-            )
-
-            targets = [
-                (page, page_tier_map.get(page.path, ImportanceTier.STANDARD))
-                for page in pages
-                if page.page_type != PageType.REPO_OVERVIEW
-            ]
-            if not targets:
-                log.info(
-                    "enrichment_bg_no_targets",
-                    task_id=task_id,
-                    repository=repository,
-                )
-                return
-
-            enrich_limit = max(1, int(getattr(self._wiki_cfg, "compose_concurrency", 3)))
-            enrich_sem = asyncio.Semaphore(enrich_limit)
-
-            async def _enrich_one(page: WikiPage, tier: ImportanceTier) -> None:
-                async with enrich_sem:
-                    await pipeline.enrich_page(
-                        page,
-                        entity_name=page.title,
-                        entity_label=page.page_type.value,
-                        tier=tier,
-                        language=_wiki_language,
-                    )
-
-            tasks = [_enrich_one(p, t) for p, t in targets]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            work_pages: list[WikiPage] = []
-            for (page, _tier), r in zip(targets, results, strict=True):
-                if isinstance(r, Exception):
-                    log.warning(
-                        "enrichment_bg_enrich_failed",
-                        path=page.path,
-                        error=str(r),
-                        exc_info=r,
-                    )
-                else:
-                    work_pages.append(page)
-
-            for p in work_pages:
-                try:
-                    await self._persist_pages_to_graph(repository, [p], language=_wiki_language)
-                except Exception:
-                    log.warning("enrichment_bg_persist_failed", path=p.path, exc_info=True)
-
-            log.info(
-                "enrichment_bg_done",
-                task_id=task_id,
-                repository=repository,
-                enriched_count=len(work_pages),
-            )
-        except Exception:
-            log.error("enrichment_bg_error", task_id=task_id, repository=repository, exc_info=True)
-        finally:
-            self._enrichment_running.pop(repository, None)
+    async def _run_enrichment_background(self, *args: Any, **kwargs: Any) -> None:
+        return await self._get_enrichment().run_enrichment_background(*args, **kwargs)

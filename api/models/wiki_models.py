@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WikiGenerateBody(BaseModel):
@@ -192,3 +192,12 @@ class BusinessWikiExportBody(BaseModel):
     view_type: str = Field(default="business_domain", pattern="^(business_domain|code_structure|both)$")
     min_tier: str = Field(default="standard", pattern="^(core|standard|skeleton)$")
     git_config: GitPushConfig | None = None
+
+
+class McpToolCallBody(BaseModel):
+    """MCP HTTP tool invocation body (``name`` + ``arguments``)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = Field(..., min_length=1, max_length=256)
+    arguments: dict[str, Any] = Field(default_factory=dict)

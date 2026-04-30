@@ -28,7 +28,10 @@ async def test_trigger_enrichment_returns_task_id() -> None:
         coro.close()
         return MagicMock()
 
-    with patch("wiki.service.asyncio.create_task", side_effect=_stub_create_task) as mock_ct:
+    with patch(
+        "wiki.enrichment_coordinator.asyncio.create_task",
+        side_effect=_stub_create_task,
+    ) as mock_ct:
         result = await svc.trigger_enrichment("test-repo")
 
     assert "task_id" in result

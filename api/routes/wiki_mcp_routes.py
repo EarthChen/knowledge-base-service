@@ -8,16 +8,16 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from api.exceptions import KbServiceUnavailable
+from api.models.wiki_models import McpToolCallBody
 
 router = APIRouter(tags=["mcp", "wiki", "tools"])
 
 
 @router.post("/tools/call")
-async def mcp_tool_call(request: Request) -> dict[str, Any]:
+async def mcp_tool_call(body: McpToolCallBody, request: Request) -> dict[str, Any]:
     """MCP-compatible tool call endpoint."""
-    body = await request.json()
-    tool_name = body.get("name", "")
-    arguments = body.get("arguments", {})
+    tool_name = body.name
+    arguments = body.arguments
 
     mcp_server = getattr(request.app.state, "mcp_wiki_server", None)
     if mcp_server is None:

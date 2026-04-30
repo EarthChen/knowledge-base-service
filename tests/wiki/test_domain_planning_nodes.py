@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock
 
-from wiki.pipeline_nodes import decompose_hierarchy_node, plan_structure_node
+from wiki.pipeline_nodes import decompose_hierarchy_node, set_review_status_node
 
 
 @pytest.mark.asyncio
@@ -57,11 +57,11 @@ async def test_decompose_hierarchy_with_llm():
 
 
 @pytest.mark.asyncio
-async def test_plan_structure_marks_pending_review():
+async def test_set_review_status_marks_domain_tree_pending_review():
     state = {
         "domain_tree": [{"name": "payment", "children": []}],
         "review_status": {},
     }
-    result = await plan_structure_node(state)
+    result = await set_review_status_node(state)
     assert "review_status" in result
     assert result["review_status"].get("domain_tree") == "pending_review"

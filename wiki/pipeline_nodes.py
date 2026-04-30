@@ -1,5 +1,6 @@
 """LangGraph pipeline node implementations for Wiki generation."""
 
+import asyncio
 import re
 from collections import Counter
 from typing import Any
@@ -18,6 +19,8 @@ from wiki.token_budget import TokenBudgetResolver
 from wiki.topic_page_composer import TopicPageComposer
 
 log = get_logger(__name__)
+
+_COMPOSE_CONCURRENCY = 5
 
 
 async def classify_entities_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -215,12 +218,12 @@ async def decompose_hierarchy_node(
     return {"domain_tree": domain_tree}
 
 
-async def plan_structure_node(state: dict[str, Any]) -> dict[str, Any]:
+async def set_review_status_node(state: dict[str, Any]) -> dict[str, Any]:
     """Mark domain tree as pending_review and continue (non-blocking)."""
     review_status = dict(state.get("review_status", {}))
     review_status["domain_tree"] = "pending_review"
 
-    log.info("plan_structure_marked_review", tree_size=len(state.get("domain_tree") or []))
+    log.info("set_review_status_marked_review", tree_size=len(state.get("domain_tree") or []))
     return {"review_status": review_status}
 
 
@@ -317,6 +320,101 @@ def _collect_leaf_domains(tree: list[dict[str, Any]], parent: str = "root") -> l
     return leaves
 
 
+async def _compose_single_leaf_domain(
+    leaf: dict[str, Any],
+    composer: TopicPageComposer,
+    module_index: dict[str, dict],
+    entity_roles: dict[str, Any],
+    llm: Any,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Compose pages for one leaf domain (and optional diagrams when llm is set)."""
+    domain_name = leaf.get("name", "unknown")
+    module_names = leaf.get("modules", [])
+
+    biz_entities = []
+    data_models = []
+    for mod_name in module_names:
+        mod_dict = module_index.get(mod_name, {})
+        uid = mod_dict.get("uid", f"Module::{mod_name}:0")
+        role = entity_roles.get(uid, "supporting")
+        props = mod_dict.get("properties", {})
+
+        if role == "has_business_logic":
+            biz_entities.append({
+                "uid": uid,
+                "name": mod_name,
+                "summary": str(props.get("business_summary", "") or props.get("docstring", "") or ""),
+                "methods": [str(m) for m in (props.get("methods", []) or [])[:10]],
+                "calls": [str(c) for c in (props.get("calls", []) or [])[:15]],
+            })
+        elif role == "data_model":
+            data_models.append({
+                "uid": uid,
+                "name": mod_name,
+                "type": "DTO",
+                "fields": [str(f) for f in (props.get("fields", []) or [])[:8]],
+            })
+
+    if len(data_models) > 20:
+        log.info("data_models_truncated", domain=domain_name, total=len(data_models), kept=20)
+
+    domain_input = {
+        "name": domain_name,
+        "parent": leaf.get("parent", "root"),
+        "biz_entities": biz_entities,
+        "data_models": data_models[:20],
+        "sibling_summaries": [],
+    }
+
+    try:
+        pages = await composer.compose_leaf_domain(domain_input)
+        if llm and pages:
+            diag_gen = SemanticDiagramGenerator(llm)
+            page_data = _build_page_data_for_semantic_diagrams(
+                domain_name, module_names, module_index
+            )
+            try:
+                digest = diag_gen.build_entity_digest(page_data)
+            except Exception:
+                log.warning(
+                    "diagram_digest_build_failed",
+                    domain=domain_name,
+                    exc_info=True,
+                )
+                digest = ""
+            for page_dict in pages:
+                page_type = (
+                    PageType.DOMAIN_OVERVIEW
+                    if page_dict.get("page_type") == "domain_overview"
+                    else PageType.TOPIC
+                )
+                try:
+                    diagrams = await diag_gen.generate_for_page(
+                        page_data, page_type, digest, "full"
+                    )
+                    if diagrams:
+                        page_dict["diagrams"] = [
+                            {
+                                "title": d.title,
+                                "diagram_type": d.diagram_type.value
+                                if hasattr(d.diagram_type, "value")
+                                else str(d.diagram_type),
+                                "content": d.content,
+                            }
+                            for d in diagrams
+                        ]
+                except Exception:
+                    log.warning(
+                        "diagram_generation_failed",
+                        page=page_dict.get("title"),
+                        exc_info=True,
+                    )
+        return pages, [p.get("path", "") for p in pages]
+    except Exception:
+        log.warning("compose_pages_domain_failed", domain=domain_name, exc_info=True)
+        return [], []
+
+
 async def compose_pages_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
@@ -342,92 +440,25 @@ async def compose_pages_node(
 
     leaf_domains = _collect_leaf_domains(domain_tree)
 
-    for leaf in leaf_domains:
-        domain_name = leaf.get("name", "unknown")
-        module_names = leaf.get("modules", [])
+    sem = asyncio.Semaphore(_COMPOSE_CONCURRENCY)
 
-        biz_entities = []
-        data_models = []
-        for mod_name in module_names:
-            mod_dict = module_index.get(mod_name, {})
-            uid = mod_dict.get("uid", f"Module::{mod_name}:0")
-            role = entity_roles.get(uid, "supporting")
-            props = mod_dict.get("properties", {})
+    async def _bounded(leaf: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+        async with sem:
+            return await _compose_single_leaf_domain(
+                leaf, composer, module_index, entity_roles, llm
+            )
 
-            if role == "has_business_logic":
-                biz_entities.append({
-                    "uid": uid,
-                    "name": mod_name,
-                    "summary": str(props.get("business_summary", "") or props.get("docstring", "") or ""),
-                    "methods": [str(m) for m in (props.get("methods", []) or [])[:10]],
-                    "calls": [str(c) for c in (props.get("calls", []) or [])[:15]],
-                })
-            elif role == "data_model":
-                data_models.append({
-                    "uid": uid,
-                    "name": mod_name,
-                    "type": "DTO",
-                    "fields": [str(f) for f in (props.get("fields", []) or [])[:8]],
-                })
-
-        if len(data_models) > 20:
-            log.info("data_models_truncated", domain=domain_name, total=len(data_models), kept=20)
-
-        domain_input = {
-            "name": domain_name,
-            "parent": leaf.get("parent", "root"),
-            "biz_entities": biz_entities,
-            "data_models": data_models[:20],
-            "sibling_summaries": [],
-        }
-
-        try:
-            pages = await composer.compose_leaf_domain(domain_input)
-            if llm and pages:
-                diag_gen = SemanticDiagramGenerator(llm)
-                page_data = _build_page_data_for_semantic_diagrams(
-                    domain_name, module_names, module_index
-                )
-                try:
-                    digest = diag_gen._build_entity_digest(page_data)
-                except Exception:
-                    log.warning(
-                        "diagram_digest_build_failed",
-                        domain=domain_name,
-                        exc_info=True,
-                    )
-                    digest = ""
-                for page_dict in pages:
-                    page_type = (
-                        PageType.DOMAIN_OVERVIEW
-                        if page_dict.get("page_type") == "domain_overview"
-                        else PageType.TOPIC
-                    )
-                    try:
-                        diagrams = await diag_gen.generate_for_page(
-                            page_data, page_type, digest, "full"
-                        )
-                        if diagrams:
-                            page_dict["diagrams"] = [
-                                {
-                                    "title": d.title,
-                                    "diagram_type": d.diagram_type.value
-                                    if hasattr(d.diagram_type, "value")
-                                    else str(d.diagram_type),
-                                    "content": d.content,
-                                }
-                                for d in diagrams
-                            ]
-                    except Exception:
-                        log.warning(
-                            "diagram_generation_failed",
-                            page=page_dict.get("title"),
-                            exc_info=True,
-                        )
-            all_pages.extend(pages)
-            generated_uids.extend(p.get("path", "") for p in pages)
-        except Exception:
-            log.warning("compose_pages_domain_failed", domain=domain_name, exc_info=True)
+    results = await asyncio.gather(
+        *[_bounded(leaf) for leaf in leaf_domains],
+        return_exceptions=True,
+    )
+    for item in results:
+        if isinstance(item, BaseException):
+            log.warning("compose_pages_domain_failed", exc_info=item)
+            continue
+        pages, uids = item
+        all_pages.extend(pages)
+        generated_uids.extend(uids)
 
     log.info("compose_pages_done", total_pages=len(all_pages), domains_processed=len(leaf_domains))
     return {"pages": all_pages, "generated_topic_pages": generated_uids}

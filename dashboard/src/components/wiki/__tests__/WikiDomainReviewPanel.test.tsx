@@ -40,8 +40,8 @@ describe("WikiDomainReviewPanel", () => {
         onRegenerate={vi.fn()}
       />,
     );
-    expect(screen.getByText("2 modules")).toBeInTheDocument();
-    expect(screen.getByText("1 modules")).toBeInTheDocument();
+    expect(screen.getByText(/2 个模块/)).toBeInTheDocument();
+    expect(screen.getByText(/1 个模块/)).toBeInTheDocument();
   });
 
   it("shows pending_review banner", () => {

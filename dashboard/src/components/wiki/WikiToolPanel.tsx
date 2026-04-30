@@ -5,7 +5,7 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import type { WikiPageDetail } from "../../hooks/wikiTypes";
 import { useWikiDocumentationQualitySummary } from "../../hooks/useWikiQualityScore";
 import { useWikiDomainTree, useWikiDomainEdges, type TopicTreeNode } from "../../hooks/useWikiDomainTree";
-import { useSetPageReview, useRegeneratePage } from "../../hooks/useWikiReview";
+import { useBatchReview, useSetPageReview, useRegeneratePage } from "../../hooks/useWikiReview";
 import ErrorBoundary from "../ErrorBoundary";
 import AskPanel from "./AskPanel";
 import WikiContent from "./WikiContent";
@@ -82,6 +82,18 @@ function findTopicPathByName(nodes: TopicTreeNode[], name: string): string | nul
   return null;
 }
 
+function collectDomainApprovalReviews(
+  nodes: TopicTreeNode[],
+): Array<{ page_path: string; status: string }> {
+  const reviews: Array<{ page_path: string; status: string }> = [];
+  for (const node of nodes) {
+    const page_path = node.path?.trim() || node.name;
+    if (page_path) reviews.push({ page_path, status: "approved" });
+    if (node.children?.length) reviews.push(...collectDomainApprovalReviews(node.children));
+  }
+  return reviews;
+}
+
 export default function WikiToolPanel({
   toolTab,
   businessId,
@@ -99,6 +111,7 @@ export default function WikiToolPanel({
   const domainEdgesQuery = useWikiDomainEdges(businessId);
   const setPageReview = useSetPageReview();
   const regeneratePage = useRegeneratePage();
+  const batchReview = useBatchReview();
 
   const docQualityRepo =
     pageQuery.data?.context?.repository?.trim() || businessId.trim();
@@ -140,6 +153,12 @@ export default function WikiToolPanel({
     [domainTreeQuery.data?.tree],
   );
 
+  const knowledgeGraphLoading = domainTreeQuery.isLoading || domainEdgesQuery.isLoading;
+  const knowledgeGraphError =
+    domainTreeQuery.isError || domainEdgesQuery.isError
+      ? (domainTreeQuery.error ?? domainEdgesQuery.error)
+      : null;
+
   return (
     <>
       {pendingDomainReview && !domainReviewOpen && (
@@ -168,9 +187,13 @@ export default function WikiToolPanel({
             <WikiDomainReviewPanel
               domainTree={mapTopicTreeToDomainPanelNodes(domainTreeQuery.data?.tree ?? [])}
               reviewStatus={domainTreeQuery.data?.review_status ?? {}}
-              onApprove={() => setDomainReviewOpen(false)}
-              onRegenerate={() => {
-                /* Per-domain regenerate API not wired yet */
+              onApprove={() => {
+                const tree = domainTreeQuery.data?.tree ?? [];
+                const reviews = collectDomainApprovalReviews(tree);
+                if (reviews.length > 0) {
+                  batchReview.mutate({ businessId, reviews });
+                }
+                setDomainReviewOpen(false);
               }}
             />,
           )}
@@ -197,6 +220,8 @@ export default function WikiToolPanel({
                     domain: pageQuery.data.context?.business_domain,
                     review_status: pageQuery.data.context?.review_status,
                   }}
+                  businessId={businessId}
+                  wikiLinkParams={wikiLinkParams}
                   onReviewAction={(action, notes) => {
                     if (action === "approve") {
                       setPageReview.mutate({ pagePath, status: "approved", notes: "" });
@@ -323,6 +348,8 @@ export default function WikiToolPanel({
               domains={domainGraphDomains}
               domainEdges={domainEdgesQuery.data?.edges ?? []}
               onNodeClick={handleKnowledgeGraphNodeClick}
+              isLoading={knowledgeGraphLoading}
+              error={knowledgeGraphError}
             />,
           )}
         </div>

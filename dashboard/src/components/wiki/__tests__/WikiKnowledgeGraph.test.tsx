@@ -41,6 +41,33 @@ describe("WikiKnowledgeGraph", () => {
     expect(screen.getByText(/暂无域关系数据/)).toBeInTheDocument();
   });
 
+  it("shows loading state when isLoading", () => {
+    render(
+      <WikiKnowledgeGraph
+        domains={domains}
+        domainEdges={edges}
+        onNodeClick={vi.fn()}
+        isLoading
+      />,
+    );
+    expect(screen.getByText("加载中...")).toBeInTheDocument();
+    expect(screen.queryByTestId("react-flow")).not.toBeInTheDocument();
+  });
+
+  it("shows error state when error is set", () => {
+    render(
+      <WikiKnowledgeGraph
+        domains={domains}
+        domainEdges={edges}
+        onNodeClick={vi.fn()}
+        error={new Error("network down")}
+      />,
+    );
+    expect(screen.getByText(/加载失败:/)).toBeInTheDocument();
+    expect(screen.getByText(/network down/)).toBeInTheDocument();
+    expect(screen.queryByTestId("react-flow")).not.toBeInTheDocument();
+  });
+
   it("observes documentElement class changes for dark mode via MutationObserver", () => {
     const observe = vi.fn();
     const disconnect = vi.fn();

@@ -32,6 +32,7 @@ async def test_compose_pages_biz_entities_include_calls_from_props() -> None:
             ]
 
     mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(return_value="")
     with patch("wiki.pipeline_nodes.TopicPageComposer", FakeComposer):
         state = {
             "domain_tree": [
@@ -93,6 +94,7 @@ async def test_compose_pages_logs_when_data_models_truncated() -> None:
             ]
 
     mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(return_value="")
     with (
         patch("wiki.pipeline_nodes.TopicPageComposer", FakeComposer),
         patch("wiki.pipeline_nodes.log") as mock_log,

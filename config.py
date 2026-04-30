@@ -301,6 +301,8 @@ class AppWikiFlags(BaseModel):
 
     # Phase 2 SP5: claim supersession history
     supersession_tracking_enabled: bool = True
+    #: Max concurrent wiki pages during claim extraction in persist (bounded parallelism).
+    claim_tracking_concurrency: int = Field(default=5, ge=1)
 
     # Phase 3 (LLM Wiki v2 — Memory Evolution)
     memory_tiers_enabled: bool = True

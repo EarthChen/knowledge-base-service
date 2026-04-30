@@ -13,13 +13,14 @@ export interface NavigationContext {
 export function useWikiNavigation(repository: string, pagePath: string) {
   const trimmedRepo = repository.trim();
   const trimmedPath = pagePath.trim();
+  const looksLikeRepo = trimmedRepo.includes("/");
   return useQuery<NavigationContext>({
     queryKey: ["wiki", "navigation", trimmedRepo, trimmedPath],
     queryFn: () =>
       api<NavigationContext>(
-        `/wiki/${encodeURIComponent(trimmedRepo)}/navigation?path=${encodeURIComponent(trimmedPath)}`,
+        `/wiki/navigation/by-path?repository=${encodeURIComponent(trimmedRepo)}&path=${encodeURIComponent(trimmedPath)}`,
       ),
-    enabled: Boolean(trimmedRepo && trimmedPath),
+    enabled: Boolean(trimmedRepo && trimmedPath && looksLikeRepo),
     staleTime: 300_000,
   });
 }

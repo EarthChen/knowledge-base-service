@@ -173,6 +173,7 @@ async def test_factory_close_all() -> None:
 @pytest.mark.asyncio
 async def test_bridge_generate_with_system() -> None:
     prov = MagicMock()
+    prov.supports_streaming = False
     prov.complete = AsyncMock(return_value="out")
     bridge = LLMPortBridge(prov)
     result = await bridge.generate("user text", system="sys")
@@ -189,6 +190,7 @@ async def test_bridge_generate_with_system() -> None:
 @pytest.mark.asyncio
 async def test_bridge_generate_no_system() -> None:
     prov = MagicMock()
+    prov.supports_streaming = False
     prov.complete = AsyncMock(return_value="only user")
     bridge = LLMPortBridge(prov)
     result = await bridge.generate("hello")
@@ -202,6 +204,7 @@ async def test_bridge_generate_no_system() -> None:
 @pytest.mark.asyncio
 async def test_bridge_generate_passes_model_to_complete() -> None:
     prov = MagicMock()
+    prov.supports_streaming = False
     prov.complete = AsyncMock(return_value="out")
     bridge = LLMPortBridge(prov)
     result = await bridge.generate("q", system="s", model="cheap-model")
@@ -213,3 +216,57 @@ async def test_bridge_generate_passes_model_to_complete() -> None:
         model="cheap-model",
     )
     assert result == "out"
+
+
+@pytest.mark.asyncio
+async def test_bridge_generate_always_uses_complete() -> None:
+    """generate() always uses complete(), even when streaming is available."""
+    provider = MagicMock()
+    provider.supports_streaming = True
+    provider.complete = AsyncMock(return_value="complete result")
+
+    bridge = LLMPortBridge(provider)
+    result = await bridge.generate("test prompt", system="sys")
+
+    assert result == "complete result"
+    provider.complete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_bridge_generate_fallback_no_streaming() -> None:
+    """When provider does not support streaming, generate() falls back to complete()."""
+    provider = MagicMock()
+    provider.supports_streaming = False
+    provider.complete = AsyncMock(return_value="non-stream result")
+
+    bridge = LLMPortBridge(provider)
+    result = await bridge.generate("prompt")
+
+    assert result == "non-stream result"
+    provider.complete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_bridge_collect_stream_retries_on_transport_error() -> None:
+    """_collect_stream retries on httpx.TransportError, returns result on success."""
+    import httpx
+
+    provider = MagicMock()
+    provider.supports_streaming = True
+    call_count = 0
+
+    async def flaky_stream(messages, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise httpx.ReadError("connection reset")
+        for chunk in ["retry", " ", "ok"]:
+            yield chunk
+
+    provider.complete_stream = MagicMock(side_effect=flaky_stream)
+
+    bridge = LLMPortBridge(provider)
+    result = await bridge.generate_stream("prompt", system="sys")
+
+    assert result == "retry ok"
+    assert call_count == 2

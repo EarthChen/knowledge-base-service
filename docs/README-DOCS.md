@@ -19,9 +19,13 @@
 
 | 文档 | 内容 |
 |------|------|
-| [superpowers/specs/2026-04-29-business-intelligence-injection-design.md](superpowers/specs/2026-04-29-business-intelligence-injection-design.md) | **草案** Business Intelligence Injection — Wiki 业务含义增强（3 Sprint: 接线修复 + Repo Overview + 交叉引用 + LLM 图表） |
+| [superpowers/specs/PROPOSAL_20260429_163353_wiki-content-quality-pipeline-repair.md](superpowers/specs/PROPOSAL_20260429_163353_wiki-content-quality-pipeline-repair.md) | **Draft** Wiki Content Quality Sprint — Pipeline Repair（mode 默认值 + Tier-1 陷阱 + glossary 注入 + 富化 API + 语法高亮 + 源码链接） |
 
 ## 已完成设计文档（归档）
+
+| 文档 | 内容 |
+|------|------|
+| [superpowers/specs/2026-04-29-business-intelligence-injection-design.md](superpowers/specs/2026-04-29-business-intelligence-injection-design.md) | **已完成** Business Intelligence Injection — Wiki 业务含义增强（3 Sprint: 接线修复 + System Overview + 交叉引用 + LLM 图表） |
 
 | 文档 | 内容 |
 |------|------|

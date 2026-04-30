@@ -11,6 +11,7 @@ import type { WikiEvent, WikiEventType } from "../../hooks/wikiTypes";
 import { useWikiEvents } from "../../hooks/useWikiEvents";
 import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
 import { invalidateWikiQueriesForBusiness } from "../../hooks/invalidateWikiQueries";
+import { getErrorMessage } from "../../utils/errorUtils";
 import { useWikiRegenerate } from "../../hooks/useWikiRegenerate";
 import WikiIncrementalTrigger from "./WikiIncrementalTrigger";
 import WikiToolTabStrip from "./WikiToolTabStrip";
@@ -185,7 +186,7 @@ export default function WikiShell() {
     pagePath && pageQuery.isError
       ? pageQuery.error instanceof Error
         ? pageQuery.error
-        : new Error(String(pageQuery.error))
+        : new Error(getErrorMessage(pageQuery.error, t.common.unexpectedError))
       : null;
 
   const repoForIncremental =

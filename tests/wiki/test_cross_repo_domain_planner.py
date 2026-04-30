@@ -51,7 +51,10 @@ async def test_classify_large_batch_splits_by_repo():
         side_effect=[
             '{"域A": ["a1"], "__infrastructure__": ["a2"]}',
             '{"域A": ["b1"], "__infrastructure__": ["b2"]}',
-            '{"域A": [["r1", "a1"], ["r2", "b1"]], "__infrastructure__": [["r1", "a2"], ["r2", "b2"]]}',
+            (
+                '{"域A": {"r1": "域A", "r2": "域A"}, '
+                '"__infrastructure__": {"r1": "__infrastructure__", "r2": "__infrastructure__"}}'
+            ),
         ]
     )
     planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=3)
@@ -125,7 +128,10 @@ async def test_classify_large_batch_forwards_sub_batch_size_and_concurrency():
         side_effect=[
             '{"域A": ["a1"], "__infrastructure__": ["a2"]}',
             '{"域B": ["b1"], "__infrastructure__": ["b2"]}',
-            '{"域A": [["r1", "a1"], ["r2", "b1"]], "__infrastructure__": [["r1", "a2"], ["r2", "b2"]]}',
+            (
+                '{"域A": {"r1": "域A", "r2": "域B"}, '
+                '"__infrastructure__": {"r1": "__infrastructure__", "r2": "__infrastructure__"}}'
+            ),
         ]
     )
 
@@ -138,3 +144,104 @@ async def test_classify_large_batch_forwards_sub_batch_size_and_concurrency():
     }
     result = await planner.classify("biz-7", all_modules)
     assert "域A" in result or "__infrastructure__" in result
+
+
+@pytest.mark.asyncio
+async def test_lightweight_merge_sends_domain_names_only():
+    """Multi-batch merge prompt should send domain names, not full module lists."""
+    prompts_received = []
+
+    async def capture_generate(prompt, system=""):
+        prompts_received.append(prompt)
+        if "Classify" in prompt:
+            return '{"Auth": ["mod1"], "Pay": ["mod2"]}'
+        # Lightweight merge response: maps unified names to per-repo names
+        return (
+            '{"Authentication": {"r1": "Auth", "r2": "Auth"}, '
+            '"Payments": {"r1": "Pay", "r2": "Pay"}}'
+        )
+
+    llm = AsyncMock()
+    llm.generate = AsyncMock(side_effect=capture_generate)
+
+    planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=2)
+    all_modules = {
+        "r1": [_make_module("mod1"), _make_module("mod2")],
+        "r2": [_make_module("mod1"), _make_module("mod2")],
+    }
+    result = await planner.classify("biz", all_modules)
+
+    # The merge prompt (last one) should NOT contain individual module names
+    # in the format of module assignment lists
+    merge_prompt = prompts_received[-1]
+    assert "Align" in merge_prompt or "Unify" in merge_prompt or "domain names" in merge_prompt.lower()
+
+    # All modules must still be assigned
+    all_assigned = []
+    for pairs in result.values():
+        all_assigned.extend(pairs)
+    assert len(all_assigned) == 4
+
+
+@pytest.mark.asyncio
+async def test_merge_failure_preserves_per_repo_domains():
+    """When merge LLM call fails, per-repo classification results should be preserved."""
+    call_count = 0
+
+    async def failing_merge(prompt, system=""):
+        nonlocal call_count
+        call_count += 1
+        if "Classify" in prompt:
+            return '{"Auth": ["mod1"], "Pay": ["mod2"]}'
+        raise Exception("LLM merge failed")
+
+    llm = AsyncMock()
+    llm.generate = AsyncMock(side_effect=failing_merge)
+
+    planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=2)
+    all_modules = {
+        "r1": [_make_module("mod1"), _make_module("mod2")],
+        "r2": [_make_module("mod1"), _make_module("mod2")],
+    }
+    result = await planner.classify("biz", all_modules)
+
+    # Per-repo domains should be preserved (Auth and Pay from each repo)
+    assert "Auth" in result
+    assert "Pay" in result
+    # All modules assigned
+    all_assigned = []
+    for pairs in result.values():
+        all_assigned.extend(pairs)
+    assert len(all_assigned) == 4
+
+
+@pytest.mark.asyncio
+async def test_apply_domain_name_mapping_preserves_all_modules():
+    """Programmatic reassignment should not lose any modules."""
+    llm = AsyncMock()
+
+    async def mock_generate(prompt, system=""):
+        if "Classify" in prompt:
+            return '{"Authentication": ["mod1"], "Payments": ["mod2"], "Logging": ["mod3"]}'
+        # Merge: unify "Authentication" across repos, leave Payments and Logging separate
+        return (
+            '{"Auth": {"r1": "Authentication", "r2": "Authentication"}, '
+            '"Pay": {"r1": "Payments", "r2": "Payments"}, '
+            '"Infra": {"r1": "Logging", "r2": "Logging"}}'
+        )
+
+    llm.generate = AsyncMock(side_effect=mock_generate)
+
+    planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=4)
+    all_modules = {
+        "r1": [_make_module("mod1"), _make_module("mod2"), _make_module("mod3")],
+        "r2": [_make_module("mod1"), _make_module("mod2"), _make_module("mod3")],
+    }
+    result = await planner.classify("biz", all_modules)
+
+    all_assigned = set()
+    for pairs in result.values():
+        for pair in pairs:
+            all_assigned.add(pair)
+    # 6 modules total (3 per repo x 2 repos)
+    assert len(all_assigned) == 6

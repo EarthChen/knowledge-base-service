@@ -37,7 +37,7 @@ export default function WikiActiveTasks({ businessId }: WikiActiveTasksProps) {
     try {
       const res = await listActiveWikiTasks();
       if (!mountedRef.current) return;
-      setTasks(res.tasks.filter((tk) => tk.status === "pending" || tk.status === "running"));
+      setTasks(res.tasks.filter((tk) => ["pending", "queued", "running"].includes(tk.status)));
     } catch {
       // silently ignore polling errors
     }
@@ -171,7 +171,7 @@ export default function WikiActiveTasks({ businessId }: WikiActiveTasksProps) {
               </div>
             )}
 
-            {task.status === "pending" && !currentRepo && (
+            {(task.status === "pending" || task.status === "queued") && !currentRepo && (
               <p className="mt-1 flex items-center gap-1 text-xs text-sky-600 dark:text-sky-400">
                 <AlertTriangle size={12} />
                 {t.wiki.activeTaskPending}

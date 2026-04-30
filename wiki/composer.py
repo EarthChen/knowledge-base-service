@@ -13,6 +13,7 @@ from store.wiki_store import WikiStore
 from wiki.context import LLMPort, WikiContextBuilder
 from wiki.doc_wiki_fusion import create_source_doc_edges, find_related_docs, format_related_docs_for_prompt
 from wiki.data_collector import PageData
+from wiki.semantic_diagram_gen import SemanticDiagramGenerator
 from wiki.diagram_gen import (
     generate_call_flowchart,
     generate_class_diagram,
@@ -201,6 +202,7 @@ class WikiComposer:
         self._wiki_store = wiki_store or (WikiStore(store) if store is not None else None)
         self._memory_loop = memory_loop
         self._wikilink_cache = wikilink_cache
+        self._semantic_gen = SemanticDiagramGenerator(llm)
 
     async def compose_page(
         self,
@@ -345,6 +347,12 @@ class WikiComposer:
             entity_index = await self._wikilink_entity_index(config.repository)
         content = resolve_wikilinks(content, entity_index)
         diagrams = self._build_diagrams(page_data, page_type)
+        if self._semantic_gen._should_generate(page_data, page_type, config.mode):
+            digest = self._entity_digest(page_data, page_type, config=config)
+            semantic_diagrams = await self._semantic_gen.generate(
+                page_data, page_type, digest, config.mode,
+            )
+            diagrams.extend(semantic_diagrams)
         meta = WikiPageMetadata(
             node_count=self._estimate_node_count(page_data),
             edge_count=len(page_data.edges),
@@ -739,10 +747,12 @@ class WikiComposer:
         return result
 
     def _entity_digest(
-        self, page_data: PageData, page_type: PageType, *, config: WikiConfig | None = None,
+        self, page_data: PageData, page_type: PageType, *,
+        config: WikiConfig | None = None, max_tokens: int = 4000,
     ) -> str:
         n = page_data.node
         comment_budget = config.comment_max_chars if config else 500
+        max_chars = max_tokens * 3
         lines = [
             f"- Label: {n.label.value}",
             f"- UID: {n.uid}",
@@ -811,8 +821,9 @@ class WikiComposer:
                     detail += f" | annotations: {ann_str[:80]}"
                 lines.append(detail)
         else:
+            method_limit = 15
             lines.append(f"- Methods: {len(page_data.methods)}")
-            for m in page_data.methods[:30]:
+            for m in page_data.methods[:method_limit]:
                 m_name = m.properties.get("name", m.uid)
                 m_sig = m.properties.get("signature", "")
                 m_doc = m.properties.get("docstring", "")
@@ -833,6 +844,8 @@ class WikiComposer:
                 if m_ret:
                     detail += f" | returns: {str(m_ret)[:60]}"
                 lines.append(detail)
+            if len(page_data.methods) > method_limit:
+                lines.append(f"  ... ({len(page_data.methods) - method_limit} more methods omitted)")
 
         calls_out = [e for e in page_data.edges if e.edge_type == EdgeType.CALLS and e.source_uid == n.uid]
         calls_in = [e for e in page_data.edges if e.edge_type == EdgeType.CALLS and e.target_uid == n.uid]
@@ -854,17 +867,28 @@ class WikiComposer:
             parents = [_display_name(e.target_uid) for e in inherits[:5]]
             lines.append(f"- Inherits from: {', '.join(parents)}")
 
+        code_snippet_budget = max(500, max_chars // 4)
         if page_data.code_snippets:
             lines.append(f"\n### Source Code ({page_data.code_snippets[0].origin})")
+            code_chars_used = 0
             for snippet in page_data.code_snippets:
-                lines.append(f"```\n{snippet.source}\n```")
+                src = snippet.source
+                if code_chars_used + len(src) > code_snippet_budget:
+                    src = src[:code_snippet_budget - code_chars_used] + "\n... (truncated)"
+                lines.append(f"```\n{src}\n```")
                 lines.append(f"- File: {snippet.file_path}:{snippet.start_line}-{snippet.end_line}")
+                code_chars_used += len(src)
+                if code_chars_used >= code_snippet_budget:
+                    break
 
+        related_chunk_limit = 3
         if page_data.related_chunks:
             lines.append(f"\n### Related Code (semantic, {len(page_data.related_chunks)} chunks)")
-            for chunk in page_data.related_chunks[:5]:
+            for chunk in page_data.related_chunks[:related_chunk_limit]:
                 lines.append(f"From `{chunk.parent_name}` ({chunk.file_path}:{chunk.start_line}-{chunk.end_line}, score={chunk.score:.2f}):")
-                lines.append(f"```\n{chunk.text}\n```")
+                lines.append(f"```\n{chunk.text[:1000]}\n```")
+            if len(page_data.related_chunks) > related_chunk_limit:
+                lines.append(f"... ({len(page_data.related_chunks) - related_chunk_limit} more chunks omitted)")
 
         # LLM Semantic Diagram Instructions
         is_entry_point = n.properties.get("is_entry_point", False)
@@ -894,7 +918,14 @@ class WikiComposer:
                 "within this class. Focus on the primary business workflow."
             )
 
-        return "\n".join(lines)
+        result = "\n".join(lines)
+        if len(result) > max_chars:
+            cut = result[:max_chars].rfind("\n")
+            if cut > 0:
+                result = result[:cut] + "\n... (digest truncated to fit token budget)"
+            else:
+                result = result[:max_chars] + "\n... (digest truncated to fit token budget)"
+        return result
 
     def _tier3_structural(self, page_data: PageData, page_type: PageType, language: str) -> str:
         node = page_data.node

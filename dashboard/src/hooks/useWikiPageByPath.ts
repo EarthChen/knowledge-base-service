@@ -1,6 +1,34 @@
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import type { WikiPageDetail } from "./wikiTypes";
+
+/** Path segments encoded for ``GET /wiki/{repository}/pages/{path}``. */
+export function encodeWikiPathSegments(path: string): string {
+  return path
+    .split("/")
+    .filter(Boolean)
+    .map((seg) => encodeURIComponent(seg))
+    .join("/");
+}
+
+/**
+ * Load page via business WikiSpace tree; on 404 fall back to repository-scoped lookup
+ * (module pages may exist on ``WikiPage`` without ``WikiSpace`` HAS_CHILD linkage).
+ */
+export async function fetchWikiPageByPath(businessId: string, path: string): Promise<WikiPageDetail> {
+  try {
+    return await api<WikiPageDetail>(
+      `/wiki/pages/by-path?business_id=${encodeURIComponent(businessId)}&path=${encodeURIComponent(path)}`,
+    );
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) {
+      return await api<WikiPageDetail>(
+        `/wiki/${encodeURIComponent(businessId)}/pages/${encodeWikiPathSegments(path)}`,
+      );
+    }
+    throw e;
+  }
+}
 
 export function useWikiPageByPath(
   businessId: string,
@@ -12,10 +40,7 @@ export function useWikiPageByPath(
   const userEnabled = options?.enabled ?? true;
   return useQuery<WikiPageDetail>({
     queryKey: ["wiki", "page-by-path", businessId, trimmed],
-    queryFn: () =>
-      api<WikiPageDetail>(
-        `/wiki/pages/by-path?business_id=${encodeURIComponent(businessId)}&path=${encodeURIComponent(trimmed)}`,
-      ),
+    queryFn: () => fetchWikiPageByPath(businessId, trimmed),
     enabled: pathEnabled && userEnabled,
     staleTime: 30_000,
   });

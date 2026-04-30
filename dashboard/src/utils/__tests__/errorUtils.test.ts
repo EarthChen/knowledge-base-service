@@ -17,4 +17,14 @@ describe("getErrorMessage", () => {
   it("returns empty string for unknown values without fallback", () => {
     expect(getErrorMessage(null)).toBe("");
   });
+
+  it("uses fallback when Error message is the object stringification artifact", () => {
+    expect(getErrorMessage(new Error("[object Object]"), "Something went wrong")).toBe(
+      "Something went wrong",
+    );
+  });
+
+  it("reads message from plain object shapes", () => {
+    expect(getErrorMessage({ message: "from object" })).toBe("from object");
+  });
 });

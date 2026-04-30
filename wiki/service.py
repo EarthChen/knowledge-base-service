@@ -1332,6 +1332,8 @@ class WikiService:
         all_pages: list[WikiPage] = []
         sort_idx = 1
 
+        has_nested_tree = domain_tree is not None and len(domain_tree) > 0
+
         for domain_name, repo_module_pairs in domain_mapping.items():
             section_uid = tree_builder.generate_domain_section_uid(business_id, domain_name)
             await self._wiki_store.upsert_wiki_section(
@@ -1342,14 +1344,15 @@ class WikiService:
                 sort_order=sort_idx,
                 auto_generated=True,
             )
-            await self._wiki_store.add_has_child_edge(
-                parent_uid=space_uid,
-                parent_label="WikiSpace",
-                child_uid=section_uid,
-                child_label="WikiSection",
-                view_type="business_domain",
-                sort_order=sort_idx,
-            )
+            if not has_nested_tree:
+                await self._wiki_store.add_has_child_edge(
+                    parent_uid=space_uid,
+                    parent_label="WikiSpace",
+                    child_uid=section_uid,
+                    child_label="WikiSection",
+                    view_type="business_domain",
+                    sort_order=sort_idx,
+                )
             sort_idx += 1
             domain_names.append(domain_name)
 
@@ -1547,6 +1550,7 @@ class WikiService:
 
         await self._link_pages_to_tree(
             business_id, domain_mapping, list(all_modules.keys()), tree_builder,
+            skip_business_domain=has_nested_tree,
         )
 
         if domain_tree:
@@ -1562,6 +1566,7 @@ class WikiService:
                         pages_by_entity[str(title)] = page
                 await self._link_pages_to_nested_tree(
                     business_id, domain_tree, pages_by_entity, tree_builder,
+                    language=language,
                 )
             except Exception:
                 log.warning(
@@ -1629,11 +1634,21 @@ class WikiService:
         domain_mapping: dict[str, list[tuple[str, str]]],
         repo_names: list[str],
         tree_builder: WikiTreeBuilder,
+        *,
+        skip_business_domain: bool = False,
     ) -> None:
         """Create HAS_CHILD edges from WikiSection to WikiPage for both view types.
 
         - code_structure: WikiSection:repo → WikiPage (all pages of that repo)
         - business_domain: WikiSection:domain → WikiPage (pages mixed across repos)
+
+        When ``skip_business_domain`` is True, only code_structure edges are created.
+        This is used when a nested domain tree (``__root__``) handles the
+        business_domain view separately via ``_link_pages_to_nested_tree``.
+
+        NOTE: queries WikiPage nodes directly by repository instead of traversing
+        HAS_CHILD from WikiSpace, because HAS_CHILD edges do not exist yet at
+        this point — this function is responsible for creating them.
         """
         if self._wiki_store is None:
             return
@@ -1643,13 +1658,31 @@ class WikiService:
             for repo, mod_name in pairs:
                 module_to_domain[(repo, mod_name)] = domain_name
 
-        pages_result = await self._wiki_store.get_wiki_pages_for_business(business_id)
-
         pages_by_repo: dict[str, list[dict[str, Any]]] = {}
-        for page in pages_result:
-            repo = page.get("repository", "")
-            if repo:
-                pages_by_repo.setdefault(repo, []).append(page)
+        for repo_name in repo_names:
+            q = (
+                "MATCH (wp:WikiPage {repository: $repo}) "
+                "OPTIONAL MATCH (wp)-[:SOURCE_ENTITY]->(e) "
+                "RETURN wp.uid AS uid, wp.title AS title, wp.path AS path, "
+                "wp.page_type AS page_type, wp.repository AS repository, "
+                "coalesce(e.uid, '') AS entity_uid "
+                "ORDER BY wp.path"
+            )
+            result = await self._wiki_store.execute_query(q, {"repo": repo_name})
+            rows = getattr(result, "data", None) or []
+            if rows:
+                pages_by_repo[repo_name] = [
+                    {
+                        "uid": str(r.get("uid") or ""),
+                        "title": str(r.get("title") or ""),
+                        "path": str(r.get("path") or ""),
+                        "page_type": str(r.get("page_type") or ""),
+                        "repository": str(r.get("repository") or ""),
+                        "entity_uid": str(r.get("entity_uid") or ""),
+                    }
+                    for r in rows
+                    if r.get("uid")
+                ]
 
         linked_code = 0
         linked_domain = 0
@@ -1680,50 +1713,52 @@ class WikiService:
                 except Exception:
                     log.warning("link_page_code_structure_failed", page_uid=page_uid, exc_info=True)
 
-                mod_name = page.get("title", "")
-                entity_uid = str(page.get("entity_uid", "") or "")
+                if not skip_business_domain:
+                    mod_name = page.get("title", "")
+                    entity_uid = str(page.get("entity_uid", "") or "")
 
-                domain_name = None
-                if entity_uid:
-                    for (r, m), d in module_to_domain.items():
-                        if r == repo_name and entity_uid.endswith(m):
-                            domain_name = d
-                            break
-                if not domain_name:
-                    domain_name = module_to_domain.get((repo_name, mod_name))
-                if not domain_name:
-                    for (r, m), d in module_to_domain.items():
-                        if r == repo_name:
-                            domain_name = d
-                            break
-                if not domain_name:
-                    domain_name = self._wiki_cfg.business_domain_infrastructure_label
+                    domain_name = None
+                    if entity_uid:
+                        for (r, m), d in module_to_domain.items():
+                            if r == repo_name and entity_uid.endswith(m):
+                                domain_name = d
+                                break
+                    if not domain_name:
+                        domain_name = module_to_domain.get((repo_name, mod_name))
+                    if not domain_name:
+                        for (r, m), d in module_to_domain.items():
+                            if r == repo_name:
+                                domain_name = d
+                                break
+                    if not domain_name:
+                        domain_name = self._wiki_cfg.business_domain_infrastructure_label
 
-                domain_section_uid = tree_builder.generate_domain_section_uid(
-                    business_id, domain_name,
-                )
-                sort_idx = domain_page_counters.get(domain_name, 0)
-                domain_page_counters[domain_name] = sort_idx + 1
-
-                try:
-                    await self._wiki_store.add_has_child_edge(
-                        parent_uid=domain_section_uid,
-                        parent_label="WikiSection",
-                        child_uid=page_uid,
-                        child_label="WikiPage",
-                        view_type="business_domain",
-                        sort_order=sort_idx,
+                    domain_section_uid = tree_builder.generate_domain_section_uid(
+                        business_id, domain_name,
                     )
-                    linked_domain += 1
-                except Exception:
-                    log.warning("link_page_business_domain_failed", page_uid=page_uid, exc_info=True)
+                    sort_idx = domain_page_counters.get(domain_name, 0)
+                    domain_page_counters[domain_name] = sort_idx + 1
 
+                    try:
+                        await self._wiki_store.add_has_child_edge(
+                            parent_uid=domain_section_uid,
+                            parent_label="WikiSection",
+                            child_uid=page_uid,
+                            child_label="WikiPage",
+                            view_type="business_domain",
+                            sort_order=sort_idx,
+                        )
+                        linked_domain += 1
+                    except Exception:
+                        log.warning("link_page_business_domain_failed", page_uid=page_uid, exc_info=True)
+
+        total_pages = sum(len(pages) for pages in pages_by_repo.values())
         log.info(
             "wiki_tree_pages_linked",
             business_id=business_id,
             linked_code_structure=linked_code,
             linked_business_domain=linked_domain,
-            total_pages=len(pages_result),
+            total_pages=total_pages,
         )
 
     async def _link_pages_to_nested_tree(
@@ -1732,13 +1767,14 @@ class WikiService:
         domain_tree: list[DomainNode],
         pages_by_entity_uid: dict[str, dict[str, Any]],
         tree_builder: WikiTreeBuilder,
+        *,
+        language: str = "zh",
     ) -> None:
         """Create nested HAS_CHILD edges for WikiSection hierarchy (business_domain view).
 
         Builds a subtree under an internal ``__root__`` section (linked from WikiSpace).
-        Modules are matched to persisted pages via ``pages_by_entity_uid`` (keys are
-        module identifiers as emitted in :class:`DomainNode`.modules — typically
-        simple module names consumed by callers).
+        For each domain node, generates a rich overview WikiPage aggregating its
+        modules and sub-domain descriptions, linked as the first child of the section.
         """
         if self._wiki_store is None:
             return
@@ -1769,6 +1805,72 @@ class WikiService:
 
         await _ensure_root()
 
+        overview_pages: list[WikiPage] = []
+
+        def _build_domain_overview_content(domain: DomainNode, depth: int = 0) -> str:
+            """Build a rich structural overview document for a nested domain."""
+            is_zh = language.startswith("zh")
+            lines: list[str] = []
+            lines.append(f"# {domain.name}")
+            lines.append("")
+            if domain.description:
+                lines.append(domain.description)
+                lines.append("")
+
+            if domain.children:
+                heading = "## 子域概览" if is_zh else "## Sub-Domains"
+                lines.append(heading)
+                lines.append("")
+                for child in domain.children:
+                    desc = f" — {child.description}" if child.description else ""
+                    mod_count = len(child.modules)
+                    child_count = len(child.children)
+                    meta_parts: list[str] = []
+                    if mod_count > 0:
+                        meta_parts.append(f"{mod_count} {'个模块' if is_zh else 'modules'}")
+                    if child_count > 0:
+                        meta_parts.append(f"{child_count} {'个子域' if is_zh else 'sub-domains'}")
+                    meta = f" ({', '.join(meta_parts)})" if meta_parts else ""
+                    lines.append(f"- **{child.name}**{desc}{meta}")
+                lines.append("")
+
+            if domain.modules:
+                heading = "## 核心模块" if is_zh else "## Key Modules"
+                lines.append(heading)
+                lines.append("")
+                for mod_name in domain.modules:
+                    page = pages_by_entity_uid.get(mod_name)
+                    summary = ""
+                    if page:
+                        content = page.get("content", "") if isinstance(page, dict) else ""
+                        if content:
+                            overview_start = content.find("## Overview")
+                            if overview_start >= 0:
+                                after = content[overview_start + len("## Overview"):].strip()
+                                next_h = after.find("\n## ")
+                                snippet = after[:next_h].strip() if next_h > 0 else after[:200].strip()
+                                non_heading = [
+                                    l for l in snippet.split("\n")
+                                    if l.strip() and not l.strip().startswith("#")
+                                ]
+                                summary = " ".join(non_heading)[:150]
+                    if summary:
+                        lines.append(f"- **{mod_name}**: {summary}")
+                    else:
+                        lines.append(f"- **{mod_name}**")
+                lines.append("")
+
+            total_modules = self._count_domain_modules(domain)
+            if total_modules > len(domain.modules):
+                remaining = total_modules - len(domain.modules)
+                if is_zh:
+                    lines.append(f"_此域及其子域共包含 {total_modules} 个模块。_")
+                else:
+                    lines.append(f"_This domain and sub-domains contain {total_modules} modules in total._")
+                lines.append("")
+
+            return "\n".join(lines)
+
         async def _link_domain(parent_uid: str, domain: DomainNode, sort_idx: int) -> None:
             section_uid = tree_builder.generate_domain_section_uid(business_id, domain.name)
             try:
@@ -1792,6 +1894,44 @@ class WikiService:
                 log.warning("nested_tree_section_failed", domain=domain.name, exc_info=True)
                 return
 
+            child_sort = 0
+
+            if domain.modules or domain.children:
+                overview_content = _build_domain_overview_content(domain)
+                overview_path = f"/__domains__/{domain.name}/_overview"
+                from wiki.models import PageType, WikiPage, WikiPageMetadata, EnrichmentLevel
+                overview_page = WikiPage(
+                    path=overview_path,
+                    title=f"{domain.name}" if language.startswith("zh") else f"{domain.name} Overview",
+                    page_type=PageType.DOMAIN_OVERVIEW,
+                    content=overview_content,
+                    diagrams=[],
+                    source_locations=[],
+                    metadata=WikiPageMetadata(
+                        node_count=self._count_domain_modules(domain),
+                        edge_count=0,
+                        generation_mode="business",
+                        enrichment_level=EnrichmentLevel.BASE,
+                    ),
+                )
+                overview_pages.append(overview_page)
+                overview_uid = f"WikiPage:{business_id}:{overview_path}"
+                await self._persist_pages_to_graph(
+                    business_id, [overview_page], language=language,
+                )
+                try:
+                    await self._wiki_store.add_has_child_edge(
+                        parent_uid=section_uid,
+                        parent_label="WikiSection",
+                        child_uid=overview_uid,
+                        child_label="WikiPage",
+                        view_type="business_domain",
+                        sort_order=child_sort,
+                    )
+                    child_sort += 1
+                except Exception:
+                    log.warning("nested_tree_overview_link_failed", domain=domain.name, exc_info=True)
+
             for i, module_name in enumerate(domain.modules):
                 page = pages_by_entity_uid.get(module_name)
                 if page:
@@ -1806,7 +1946,7 @@ class WikiService:
                                 child_uid=page_uid,
                                 child_label="WikiPage",
                                 view_type="business_domain",
-                                sort_order=i,
+                                sort_order=child_sort + i,
                             )
                         except Exception:
                             log.warning(
@@ -1819,6 +1959,24 @@ class WikiService:
 
         for i, domain in enumerate(domain_tree):
             await _link_domain(root_uid, domain, i)
+
+        if overview_pages:
+            await self._persist_pages_to_graph(
+                business_id, overview_pages, language=language,
+            )
+            log.info(
+                "nested_tree_overview_pages_generated",
+                business_id=business_id,
+                count=len(overview_pages),
+            )
+
+    @staticmethod
+    def _count_domain_modules(domain: DomainNode) -> int:
+        """Recursively count modules in a domain and all its children."""
+        count = len(domain.modules)
+        for child in domain.children:
+            count += WikiService._count_domain_modules(child)
+        return count
 
     def _budget_for_tier(self, tier: ImportanceTier | None, *, multiplier: float = 1.0) -> int:
         """Return the token budget for a given importance tier from app config."""
@@ -2777,57 +2935,69 @@ class WikiService:
             and not skip_claim_tracking
         ):
             log.info("claim_tracking_start", repository=repository, page_count=len(pages))
-            import time as _time
-
             from wiki.claim_extractor import extract_claims
             from wiki.claim_tracker import ClaimTracker
 
             now_ts = int(_time.time())
-            for p in pages:
-                try:
-                    old_c = old_contents.get(p.path, "")
-                    wiki_uid = f"WikiPage:{repository}:{p.path}"
-                    old_claims = await extract_claims(self._llm, old_c, language) if old_c.strip() else []
-                    new_claims = await extract_claims(self._llm, p.content, language)
-                    pairs = ClaimTracker.find_supersedions(old_claims, new_claims)
-                    next_v = await self._wiki_store.next_claim_version(wiki_uid)
-                    by_text: dict[str, str] = {}
-                    for cl in new_claims:
-                        proposed = f"WikiClaimHistory:{wiki_uid}:{next_v}"
-                        cuid = await self._wiki_store.find_or_create_wiki_claim(
-                            wiki_uid,
-                            cl.claim_text,
-                            next_v,
-                            new_claim_uid=proposed,
-                            created_at=now_ts,
-                        )
-                        if cuid == proposed:
-                            next_v += 1
-                        by_text[cl.claim_text.strip()] = cuid
-                    for pr in pairs:
-                        old_u = await self._wiki_store.find_wiki_claim_by_text(
-                            wiki_uid, pr.old_claim_text,
-                        )
-                        nu = by_text.get(pr.new_claim_text.strip())
-                        if old_u and nu:
-                            await self._wiki_store.set_wiki_claim_superseded(
-                                old_u, nu, now_ts,
-                            )
-                    sup_list = [p.new_claim_text for p in pairs]
-                    if sup_list:
-                        import json as _json
+            conc_raw = getattr(self._wiki_cfg, "claim_tracking_concurrency", 5)
+            conc = max(1, int(conc_raw))
+            sem = asyncio.Semaphore(conc)
 
-                        await self._wiki_store.set_wiki_page_supersedes(
-                            wiki_uid,
-                            _json.dumps(sup_list, ensure_ascii=False),
+            async def _track_claims_one_page(page: WikiPage) -> None:
+                async with sem:
+                    try:
+                        old_c = old_contents.get(page.path, "")
+                        wiki_uid = f"WikiPage:{repository}:{page.path}"
+                        old_claims = (
+                            await extract_claims(self._llm, old_c, language) if old_c.strip() else []
                         )
-                except Exception as exc:
-                    log.warning(
-                        "wiki_claim_tracking_failed",
-                        repository=repository,
-                        path=p.path,
-                        error=str(exc),
-                    )
+                        new_claims = await extract_claims(self._llm, page.content, language)
+                        pairs = ClaimTracker.find_supersedions(old_claims, new_claims)
+                        next_v = await self._wiki_store.next_claim_version(wiki_uid)
+                        by_text: dict[str, str] = {}
+                        for cl in new_claims:
+                            proposed = f"WikiClaimHistory:{wiki_uid}:{next_v}"
+                            cuid = await self._wiki_store.find_or_create_wiki_claim(
+                                wiki_uid,
+                                cl.claim_text,
+                                next_v,
+                                new_claim_uid=proposed,
+                                created_at=now_ts,
+                            )
+                            if cuid == proposed:
+                                next_v += 1
+                            by_text[cl.claim_text.strip()] = cuid
+                        for pr in pairs:
+                            old_u = await self._wiki_store.find_wiki_claim_by_text(
+                                wiki_uid, pr.old_claim_text,
+                            )
+                            nu = by_text.get(pr.new_claim_text.strip())
+                            if old_u and nu:
+                                await self._wiki_store.set_wiki_claim_superseded(
+                                    old_u, nu, now_ts,
+                                )
+                        sup_list = [pair.new_claim_text for pair in pairs]
+                        if sup_list:
+                            await self._wiki_store.set_wiki_page_supersedes(
+                                wiki_uid,
+                                json.dumps(sup_list, ensure_ascii=False),
+                            )
+                    except Exception as exc:
+                        log.warning(
+                            "wiki_claim_tracking_failed",
+                            repository=repository,
+                            path=page.path,
+                            error=str(exc),
+                        )
+
+            _ct_t0 = _time.monotonic()
+            await asyncio.gather(*[_track_claims_one_page(p) for p in pages])
+            log.info(
+                "claim_tracking_done",
+                repository=repository,
+                elapsed_s=round(_time.monotonic() - _ct_t0, 1),
+                pages=len(pages),
+            )
 
     async def get_enrichment_status(self, repository: str) -> dict[str, Any]:
         """Return enrichment level distribution for wiki pages."""

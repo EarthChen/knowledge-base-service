@@ -42,6 +42,23 @@ export class ApiError extends Error {
   }
 }
 
+/** Prefer FastAPI ``detail``, then unified ``ErrorResponse`` shape ({ error: { message } }). */
+function messageFromFailedResponse(
+  d: Record<string, unknown> | null,
+  res: Response,
+): string {
+  if (d && typeof d.detail === "string") return d.detail;
+  if (d && d.detail != null) return JSON.stringify(d.detail);
+  const errField = d?.error;
+  if (typeof errField === "string") return errField;
+  if (errField && typeof errField === "object" && errField !== null && "message" in errField) {
+    const m = (errField as { message?: unknown }).message;
+    if (typeof m === "string" && m.trim()) return m;
+    if (m != null) return JSON.stringify(m);
+  }
+  return res.statusText || "";
+}
+
 export async function api<T = unknown>(
   path: string,
   options: RequestInit = {},
@@ -69,10 +86,7 @@ export async function api<T = unknown>(
   }
   if (!res.ok) {
     const d = data as Record<string, unknown> | null;
-    let msg = res.statusText;
-    if (d && typeof d.detail === "string") msg = d.detail;
-    else if (d && d.detail != null) msg = JSON.stringify(d.detail);
-    else if (d && d.error) msg = String(d.error);
+    const msg = messageFromFailedResponse(d, res);
     throw new ApiError(msg || "Request failed", res.status, data);
   }
   return data as T;

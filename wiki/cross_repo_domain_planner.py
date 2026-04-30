@@ -10,6 +10,7 @@ from log import get_logger
 from store.schema import GraphNode
 from wiki.business_domain_planner import BusinessDomainPlanner
 from wiki.dependency_graph import HierarchicalDecomposer, ModuleGraph, ModuleInfo
+from wiki.json_robust import parse_json_robust_sync
 
 if TYPE_CHECKING:
     from wiki.context import LLMPort
@@ -209,12 +210,20 @@ class CrossRepoBusinessDomainPlanner:
                 max_concurrency=self._max_concurrency,
             )
 
-        prompt = self._build_merge_prompt(business_id, per_repo)
-        raw = (await self._llm.generate(prompt, system=_SYSTEM_JSON)).strip()
-        parsed = self._parse_cross_repo_map(raw)
-        if not parsed:
-            return self._all_infrastructure(pairs_in_order)
-        return self._merge_llm_assignment(parsed, valid_pairs, pairs_in_order)
+        try:
+            prompt = self._build_lightweight_merge_prompt(business_id, per_repo)
+            raw = (await self._llm.generate(prompt, system=_SYSTEM_JSON)).strip()
+            mapping = self._parse_domain_name_mapping(raw)
+            if mapping:
+                return self._apply_domain_name_mapping(mapping, per_repo, valid_pairs, pairs_in_order)
+        except Exception:
+            log.warning(
+                "cross_repo_lightweight_merge_failed",
+                business_id=business_id,
+                exc_info=True,
+            )
+
+        return self._per_repo_fallback(per_repo, valid_pairs, pairs_in_order)
 
     def _build_single_batch_prompt(
         self,
@@ -265,15 +274,96 @@ class CrossRepoBusinessDomainPlanner:
             "in the input above."
         )
 
+    def _build_lightweight_merge_prompt(
+        self,
+        business_id: str,
+        per_repo: dict[str, dict[str, list[str]]],
+    ) -> str:
+        domain_names_per_repo: dict[str, list[str]] = {}
+        for repo_id, domain_map in per_repo.items():
+            domain_names_per_repo[repo_id] = sorted(domain_map.keys())
+        return (
+            "Unify the following per-repository business domain names into a single "
+            "consistent set of domain names across all repositories.\n"
+            "Map similar domains to the same unified name "
+            "(e.g. 'Auth' and 'Authentication' → pick one).\n"
+            f'Use "{self._infrastructure_label}" for ambiguous infrastructure domains.\n\n'
+            f"Business ID: {business_id}\n\n"
+            f"Domain names per repository:\n{json.dumps(domain_names_per_repo, indent=2, ensure_ascii=False)}\n\n"
+            "Return ONLY valid JSON: an object whose keys are unified domain names and whose "
+            "values are objects mapping repository_id to the original per-repo domain name.\n"
+            "Every per-repo domain name must appear exactly once."
+        )
+
+    def _parse_domain_name_mapping(
+        self,
+        raw: str,
+    ) -> dict[str, dict[str, str]] | None:
+        data = parse_json_robust_sync(raw)
+        if not isinstance(data, dict):
+            return None
+        result: dict[str, dict[str, str]] = {}
+        for unified_name, repo_map in data.items():
+            if not isinstance(unified_name, str) or not isinstance(repo_map, dict):
+                continue
+            clean_map: dict[str, str] = {}
+            for repo_id, per_repo_name in repo_map.items():
+                if isinstance(repo_id, str) and isinstance(per_repo_name, str):
+                    clean_map[repo_id] = per_repo_name
+            if clean_map:
+                result[unified_name] = clean_map
+        return result if result else None
+
+    def _apply_domain_name_mapping(
+        self,
+        mapping: dict[str, dict[str, str]],
+        per_repo: dict[str, dict[str, list[str]]],
+        valid_pairs: set[tuple[str, str]],
+        pairs_in_order: list[tuple[str, str]],
+    ) -> dict[str, list[tuple[str, str]]]:
+        result: dict[str, list[tuple[str, str]]] = {}
+        mapped_domains: set[tuple[str, str]] = set()  # (repo_id, per_repo_domain_name)
+
+        for unified_name, repo_map in mapping.items():
+            bucket: list[tuple[str, str]] = []
+            for repo_id, per_repo_name in repo_map.items():
+                modules = per_repo.get(repo_id, {}).get(per_repo_name, [])
+                if not modules:
+                    continue
+                for mod_name in modules:
+                    pair = (repo_id, mod_name)
+                    if pair in valid_pairs:
+                        bucket.append(pair)
+                mapped_domains.add((repo_id, per_repo_name))
+            if bucket:
+                result[unified_name] = bucket
+
+        # Add unmapped domains as-is
+        for repo_id, domain_map in per_repo.items():
+            for domain_name, modules in domain_map.items():
+                if (repo_id, domain_name) not in mapped_domains:
+                    bucket = [(repo_id, m) for m in modules if (repo_id, m) in valid_pairs]
+                    if bucket:
+                        result.setdefault(domain_name, []).extend(bucket)
+
+        return self._merge_llm_assignment(result, valid_pairs, pairs_in_order)
+
+    def _per_repo_fallback(
+        self,
+        per_repo: dict[str, dict[str, list[str]]],
+        valid_pairs: set[tuple[str, str]],
+        pairs_in_order: list[tuple[str, str]],
+    ) -> dict[str, list[tuple[str, str]]]:
+        result: dict[str, list[tuple[str, str]]] = {}
+        for repo_id, domain_map in per_repo.items():
+            for domain_name, modules in domain_map.items():
+                bucket = [(repo_id, m) for m in modules if (repo_id, m) in valid_pairs]
+                if bucket:
+                    result.setdefault(domain_name, []).extend(bucket)
+        return self._merge_llm_assignment(result, valid_pairs, pairs_in_order)
+
     def _parse_cross_repo_map(self, raw: str) -> dict[str, list[tuple[str, str]]]:
-        text = raw.strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-            text = re.sub(r"\s*```$", "", text)
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            return {}
+        data = parse_json_robust_sync(raw)
         if not isinstance(data, dict):
             return {}
         out: dict[str, list[tuple[str, str]]] = {}

@@ -9,7 +9,7 @@ from typing import Protocol
 from log import get_logger
 from store.schema import GraphEdge, GraphNode, NodeLabel
 from wiki.entity_filter import WikiEntityFilter
-from wiki.models import EntityStrategy, PageType, ScopeParam, WikiStructure, WikiStructureNode
+from wiki.models import EntityStrategy, ImportanceTier, PageType, ScopeParam, WikiStructure, WikiStructureNode
 
 log = get_logger(__name__)
 
@@ -56,10 +56,16 @@ class WikiStructurePlanner:
         self._semantic_group_threshold = semantic_group_threshold
         self._entity_filter = WikiEntityFilter()
 
-    async def plan(self, repository: str, scope: ScopeParam) -> WikiStructure:
+    async def plan(
+        self,
+        repository: str,
+        scope: ScopeParam,
+        *,
+        importance_tiers: dict[str, ImportanceTier] | None = None,
+    ) -> WikiStructure:
         log.info("structure_plan_start", repository=repository, scope_type=scope.scope_type, scope_value=scope.value)
         if scope.scope_type == "repo":
-            return await self._plan_repo(repository)
+            return await self._plan_repo(repository, importance_tiers=importance_tiers)
 
         if scope.scope_type == "module":
             node = await self._resolve_scope_node(repository, scope.value or "")
@@ -67,7 +73,7 @@ class WikiStructurePlanner:
                 raise WikiScopeError(
                     f"Scope type 'module' resolved to {node.label}, expected Module"
                 )
-            root = await self._build_module_tree(repository, node)
+            root = await self._build_module_tree(repository, node, importance_tiers=importance_tiers)
             structure = WikiStructure(
                 repository=repository,
                 root=root,
@@ -91,8 +97,24 @@ class WikiStructurePlanner:
 
         raise WikiScopeError(f"Unsupported scope type: {scope.scope_type!r}")
 
-    async def _plan_repo(self, repository: str) -> WikiStructure:
+    def _is_skeleton(self, node: GraphNode, importance_tiers: dict[str, ImportanceTier] | None) -> bool:
+        if importance_tiers is None:
+            return False
+        tier = importance_tiers.get(node.uid)
+        if tier is None:
+            name = self._module_display_name(node) if node.label == NodeLabel.MODULE else self._node_title(node)
+            tier = importance_tiers.get(name)
+        return tier == ImportanceTier.SKELETON
+
+    async def _plan_repo(
+        self,
+        repository: str,
+        *,
+        importance_tiers: dict[str, ImportanceTier] | None = None,
+    ) -> WikiStructure:
         modules = await self._graph.find_top_level_modules(repository)
+        if importance_tiers:
+            modules = [m for m in modules if not self._is_skeleton(m, importance_tiers)]
         log.info("plan_repo_modules_found", repository=repository, module_count=len(modules))
         if (
             self._llm is not None
@@ -258,12 +280,20 @@ class WikiStructurePlanner:
                 return mc
         return 0
 
-    async def _build_module_tree(self, repository: str, module_node: GraphNode) -> WikiStructureNode:
+    async def _build_module_tree(
+        self,
+        repository: str,
+        module_node: GraphNode,
+        *,
+        importance_tiers: dict[str, ImportanceTier] | None = None,
+    ) -> WikiStructureNode:
         raw_children = await self._graph.find_children(repository, module_node.uid)
         wiki_children: list[WikiStructureNode] = []
         for child in sorted(raw_children, key=self._node_sort_key):
+            if self._is_skeleton(child, importance_tiers):
+                continue
             if child.label == NodeLabel.MODULE:
-                wiki_children.append(await self._build_module_tree(repository, child))
+                wiki_children.append(await self._build_module_tree(repository, child, importance_tiers=importance_tiers))
             elif child.label == NodeLabel.CLASS:
                 child_count = self._classification_children_count_estimate(child)
                 if (

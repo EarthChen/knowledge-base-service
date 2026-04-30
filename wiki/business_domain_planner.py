@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import time
 from typing import TYPE_CHECKING
 
 from log import get_logger
 from store.schema import GraphNode
+from wiki.adaptive_batch import AdaptiveBatchSizer
+from wiki.json_robust import parse_json_robust_sync
 
 if TYPE_CHECKING:
     from wiki.context import LLMPort
@@ -36,6 +37,7 @@ class BusinessDomainPlanner:
         *,
         sub_batch_size: int = 80,
         max_concurrency: int = 3,
+        batch_timeout: float = 120.0,
     ) -> dict[str, list[str]]:
         if not modules:
             return {}
@@ -53,25 +55,22 @@ class BusinessDomainPlanner:
         max_concurrency = max(1, max_concurrency)
 
         if len(modules) <= sub_batch_size:
-            try:
-                return await self._classify_single_batch(
-                    repository_id,
-                    modules,
-                    names_in_order,
-                    valid_names,
-                )
-            except Exception:
-                log.warning(
-                    "business_domain_classification_failed",
-                    repository_id=repository_id,
-                    exc_info=True,
-                )
-                return self._all_infrastructure(names_in_order)
+            return await self._run_batch_with_retry(
+                repository_id, modules, names_in_order, valid_names,
+                timeout=batch_timeout,
+            )
 
-        batches = [
-            modules[i : i + sub_batch_size]
-            for i in range(0, len(modules), sub_batch_size)
-        ]
+        sizer = AdaptiveBatchSizer(
+            initial_size=sub_batch_size,
+            min_size=min(20, sub_batch_size),
+            max_size=max(sub_batch_size * 2, 20),
+        )
+        batches: list[list[GraphNode]] = []
+        offset = 0
+        while offset < len(modules):
+            chunk_size = sizer.next_size()
+            batches.append(modules[offset : offset + chunk_size])
+            offset += chunk_size
         total_batches = len(batches)
         log.info(
             "domain_classify_start",
@@ -92,6 +91,7 @@ class BusinessDomainPlanner:
             async with sem:
                 batch_names = self._module_names_in_order(batch)
                 batch_valid = set(batch_names)
+                bt = time.monotonic()
                 try:
                     log.debug(
                         "domain_classify_batch_start",
@@ -99,23 +99,23 @@ class BusinessDomainPlanner:
                         batch_index=idx,
                         batch_size=len(batch),
                     )
-                    bt = time.monotonic()
-                    batch_results[idx] = await self._classify_single_batch(
-                        repository_id,
-                        batch,
-                        batch_names,
-                        batch_valid,
+                    batch_results[idx] = await self._run_batch_with_retry(
+                        repository_id, batch, batch_names, batch_valid,
+                        timeout=batch_timeout,
                     )
-                    elapsed_ms = int((time.monotonic() - bt) * 1000)
+                    elapsed_s = time.monotonic() - bt
+                    sizer.record(len(batch), elapsed_s, success=True)
                     log.info(
                         "domain_classify_batch_done",
                         repository_id=repository_id,
                         batch_index=idx,
                         domains_found=len(batch_results[idx]),
-                        elapsed_ms=elapsed_ms,
+                        elapsed_ms=int(elapsed_s * 1000),
                     )
                 except Exception:
                     failed_count += 1
+                    elapsed_s = time.monotonic() - bt
+                    sizer.record(len(batch), elapsed_s, success=False)
                     log.warning(
                         "domain_classify_batch_failed",
                         repository_id=repository_id,
@@ -144,6 +144,60 @@ class BusinessDomainPlanner:
 
         return self._ensure_all_assigned(merged, valid_names, names_in_order)
 
+    async def _run_batch_with_retry(
+        self,
+        repository_id: str,
+        modules: list[GraphNode],
+        names_in_order: list[str],
+        valid_names: set[str],
+        *,
+        timeout: float = 120.0,
+    ) -> dict[str, list[str]]:
+        """Run a single batch with timeout-split-retry."""
+        try:
+            return await asyncio.wait_for(
+                self._classify_single_batch(
+                    repository_id, modules, names_in_order, valid_names,
+                ),
+                timeout=timeout,
+            )
+        except TimeoutError:
+            if len(modules) <= 20:
+                log.warning(
+                    "batch_timeout_min_size_fallback",
+                    repository_id=repository_id,
+                    batch_size=len(modules),
+                )
+                return self._all_infrastructure(names_in_order)
+
+            mid = len(modules) // 2
+            log.warning(
+                "batch_timeout_split",
+                repository_id=repository_id,
+                original_size=len(modules),
+                split_sizes=[mid, len(modules) - mid],
+            )
+            left = modules[:mid]
+            right = modules[mid:]
+            left_names = self._module_names_in_order(left)
+            right_names = self._module_names_in_order(right)
+            r1 = await self._run_batch_with_retry(
+                repository_id, left, left_names, set(left_names), timeout=timeout,
+            )
+            r2 = await self._run_batch_with_retry(
+                repository_id, right, right_names, set(right_names), timeout=timeout,
+            )
+            return self._merge_results(r1, r2)
+        except Exception:
+            log.error(
+                "business_domain_classification_failed",
+                repository_id=repository_id,
+                batch_size=len(modules),
+                error_type=type(Exception).__name__,
+                exc_info=True,
+            )
+            return self._all_infrastructure(names_in_order)
+
     async def _classify_single_batch(
         self,
         repository_id: str,
@@ -158,10 +212,14 @@ class BusinessDomainPlanner:
                 prompt, system="Reply with JSON only. No markdown fences.",
             )
         ).strip()
-        parsed = self._parse_domain_map(raw)
-        if not parsed:
+        parsed = parse_json_robust_sync(raw)
+        if not parsed or not isinstance(parsed, dict):
+            log.warning("domain_classify_json_parse_failed", repository=repository_id)
             return self._all_infrastructure(names_in_order)
-        return self._merge_llm_assignment(parsed, valid_names, names_in_order)
+        domain_map = self._validate_domain_map(parsed)
+        if not domain_map:
+            return self._all_infrastructure(names_in_order)
+        return self._merge_llm_assignment(domain_map, valid_names, names_in_order)
 
     def _all_infrastructure(self, names_in_order: list[str]) -> dict[str, list[str]]:
         return {self._infrastructure_label: list(names_in_order)}
@@ -217,17 +275,8 @@ class BusinessDomainPlanner:
             'arrays of module names (each must match a "name" from the input).'
         )
 
-    def _parse_domain_map(self, raw: str) -> dict[str, list[str]]:
-        text = raw.strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-            text = re.sub(r"\s*```$", "", text)
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            return {}
-        if not isinstance(data, dict):
-            return {}
+    def _validate_domain_map(self, data: dict) -> dict[str, list[str]]:
+        """Extract {str: [str]} from parsed JSON, filtering invalid entries."""
         out: dict[str, list[str]] = {}
         for k, v in data.items():
             if not isinstance(k, str):
@@ -241,6 +290,14 @@ class BusinessDomainPlanner:
             if names:
                 out[k] = names
         return out
+
+    @staticmethod
+    def _merge_results(r1: dict[str, list[str]], r2: dict[str, list[str]]) -> dict[str, list[str]]:
+        merged: dict[str, list[str]] = {}
+        for r in (r1, r2):
+            for domain, modules in r.items():
+                merged.setdefault(domain, []).extend(modules)
+        return merged
 
     def _merge_llm_assignment(
         self,

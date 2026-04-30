@@ -89,6 +89,26 @@ describe("api client", () => {
     expect.fail("expected throw");
   });
 
+  it("reads nested error.message from unified ErrorResponse body", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      mockResponse(
+        JSON.stringify({
+          error: { code: "kb_not_found", message: "Wiki page not found: /a.md", request_id: "r1" },
+        }),
+        { status: 404 },
+      ),
+    );
+    try {
+      await api(`${API_BASE}/x`);
+    } catch (e) {
+      const err = e as ApiError;
+      expect(err.status).toBe(404);
+      expect(err.message).toBe("Wiki page not found: /a.md");
+      return;
+    }
+    expect.fail("expected throw");
+  });
+
   it("parses non-JSON error body to raw wrapper", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       mockResponse("not-json", { status: 500 }),

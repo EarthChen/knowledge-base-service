@@ -889,6 +889,25 @@ async def wiki_get_page_detail(
     }
 
 
+@router.get("/navigation/by-path", response_model=None)
+async def get_wiki_page_navigation_by_query(
+    repository: str = Query(..., description="Repository name (e.g. ultron/ultron-composite)"),
+    path: str = Query(..., description="Wiki page path"),
+    store: Any = Depends(get_wiki_store_dep),
+) -> dict[str, Any]:
+    """Query-parameter variant of navigation, safe for repos with slashes."""
+    repo = normalize_repo_name(repository)
+    decoded_path = unquote(path).lstrip("/")
+    ws = WikiStore(store)
+    result = await ws.get_wiki_page_navigation_row(repo, decoded_path)
+    if not result.data:
+        raise KbNotFound(f"No wiki page at path {decoded_path!r}")
+    raw = result.data[0].get("navigation_json")
+    return navigation_context_api_from_stored_json(
+        str(raw) if raw is not None else None,
+    )
+
+
 @router.get("/{repository}/navigation", response_model=None)
 async def get_wiki_page_navigation(
     repository: str,

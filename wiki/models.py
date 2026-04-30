@@ -31,6 +31,7 @@ class DiagramType(StrEnum):
     CLASS_DIAGRAM = "classDiagram"
     FLOWCHART = "flowchart"
     DEPENDENCY_GRAPH = "dependencyGraph"
+    SEQUENCE_DIAGRAM = "sequenceDiagram"
 
 
 class ImportanceTier(StrEnum):

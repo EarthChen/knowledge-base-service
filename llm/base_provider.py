@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any, Protocol
+
+import httpx
 
 from llm.provider import LLMProvider
 
@@ -130,22 +133,48 @@ class LLMPortBridge:
         system: str = "",
         *,
         model: str | None = None,
+        extra_params: dict[str, Any] | None = None,
     ) -> str:
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        return await self._provider.complete(messages, model=model)
+
+        kwargs: dict[str, Any] = {"model": model}
+        if extra_params:
+            kwargs.update(extra_params)
+
+        return await self._provider.complete(messages, **kwargs)
+
+    async def _collect_stream(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_retries: int = 3,
+        **kwargs: Any,
+    ) -> str:
+        """Collect an SSE stream into a string with bridge-level retry."""
+        last_exc: Exception | None = None
+        for attempt in range(max_retries):
+            try:
+                parts: list[str] = []
+                async for chunk in self._provider.complete_stream(
+                    messages, **kwargs
+                ):
+                    if chunk:
+                        parts.append(chunk)
+                return "".join(parts)
+            except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+                last_exc = exc
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(min(2**attempt, 10))
+        raise last_exc  # type: ignore[misc]
 
     async def generate_stream(self, prompt: str, system: str = "", **kwargs: Any) -> str:
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        if getattr(type(self._provider), "complete_stream", None) is None:
+        if not getattr(self._provider, "supports_streaming", False):
             return await self.generate(prompt, system)
-        parts: list[str] = []
-        async for chunk in self._provider.complete_stream(messages, **kwargs):
-            if chunk:
-                parts.append(chunk)
-        return "".join(parts)
+        return await self._collect_stream(messages, **kwargs)

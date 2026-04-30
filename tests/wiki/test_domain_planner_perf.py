@@ -186,6 +186,13 @@ async def test_cross_repo_per_repo_timeout() -> None:
                     "__infrastructure__": [["slow-repo", "x"]],
                 }
             )
+        if "Unify the following" in prompt:
+            return json.dumps(
+                {
+                    "Z": {"fast-repo": "Z"},
+                    "__infrastructure__": {"slow-repo": "Z"},
+                }
+            )
         return json.dumps({"Z": []})
 
     llm = AsyncMock()

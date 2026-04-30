@@ -21,11 +21,14 @@ export default function WikiNavigationLinks({ repository, pagePath, wikiLinkPara
   if (isLoading || !nav) return null;
   if (isError) return null;
 
+  const siblingPaths = nav.sibling_paths ?? [];
+  const childPaths = nav.child_paths ?? [];
+  const relatedFlowPaths = nav.related_flow_paths ?? [];
   const hasAnyLinks =
     nav.parent_path ||
-    nav.sibling_paths.length > 0 ||
-    nav.child_paths.length > 0 ||
-    nav.related_flow_paths.length > 0;
+    siblingPaths.length > 0 ||
+    childPaths.length > 0 ||
+    relatedFlowPaths.length > 0;
   if (!hasAnyLinks) return null;
 
   const params = wikiLinkParams ?? { business_id: repository };
@@ -47,14 +50,14 @@ export default function WikiNavigationLinks({ repository, pagePath, wikiLinkPara
           </Link>
         </div>
       )}
-      {nav.child_paths.length > 0 && (
+      {childPaths.length > 0 && (
         <div className="text-sm">
           <div className="flex items-center gap-2 text-gray-500">
             <ArrowDown size={14} className="shrink-0" />
-            <span>{t.wiki.navChildren.replace("{count}", String(nav.child_paths.length))}</span>
+            <span>{t.wiki.navChildren.replace("{count}", String(childPaths.length))}</span>
           </div>
           <ul className="ml-6 mt-1 space-y-0.5">
-            {nav.child_paths.slice(0, 10).map((p) => (
+            {childPaths.slice(0, 10).map((p) => (
               <li key={p}>
                 <Link
                   to={wikiHref(p, params)}
@@ -64,22 +67,22 @@ export default function WikiNavigationLinks({ repository, pagePath, wikiLinkPara
                 </Link>
               </li>
             ))}
-            {nav.child_paths.length > 10 && (
+            {childPaths.length > 10 && (
               <li className="text-xs text-gray-400">
-                {t.wiki.navMore.replace("{count}", String(nav.child_paths.length - 10))}
+                {t.wiki.navMore.replace("{count}", String(childPaths.length - 10))}
               </li>
             )}
           </ul>
         </div>
       )}
-      {nav.sibling_paths.length > 0 && (
+      {siblingPaths.length > 0 && (
         <div className="text-sm">
           <div className="flex items-center gap-2 text-gray-500">
             <ArrowRight size={14} className="shrink-0" />
-            <span>{t.wiki.navSiblings.replace("{count}", String(nav.sibling_paths.length))}</span>
+            <span>{t.wiki.navSiblings.replace("{count}", String(siblingPaths.length))}</span>
           </div>
           <ul className="ml-6 mt-1 space-y-0.5">
-            {nav.sibling_paths.slice(0, 8).map((p) => (
+            {siblingPaths.slice(0, 8).map((p) => (
               <li key={p}>
                 <Link
                   to={wikiHref(p, params)}
@@ -89,22 +92,22 @@ export default function WikiNavigationLinks({ repository, pagePath, wikiLinkPara
                 </Link>
               </li>
             ))}
-            {nav.sibling_paths.length > 8 && (
+            {siblingPaths.length > 8 && (
               <li className="text-xs text-gray-400">
-                {t.wiki.navMore.replace("{count}", String(nav.sibling_paths.length - 8))}
+                {t.wiki.navMore.replace("{count}", String(siblingPaths.length - 8))}
               </li>
             )}
           </ul>
         </div>
       )}
-      {nav.related_flow_paths.length > 0 && (
+      {relatedFlowPaths.length > 0 && (
         <div className="text-sm">
           <div className="flex items-center gap-2 text-gray-500">
             <GitBranch size={14} className="shrink-0" />
             <span>{t.wiki.navBusinessFlows}</span>
           </div>
           <ul className="ml-6 mt-1 space-y-0.5">
-            {nav.related_flow_paths.map((p) => (
+            {relatedFlowPaths.map((p) => (
               <li key={p}>
                 <Link
                   to={wikiHref(p, params)}

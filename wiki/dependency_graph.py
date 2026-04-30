@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass, field
@@ -200,14 +201,41 @@ class HierarchicalDecomposer:
         graph: ModuleGraph,
     ) -> list[DomainNode]:
         estimated = self._estimate_tokens(modules, graph)
+        log.info(
+            "hierarchical_decompose_start",
+            module_count=len(modules),
+            estimated_tokens=estimated,
+            max_tokens=self._max_tokens,
+        )
         if estimated <= self._max_tokens:
             return await self._single_pass(modules, graph)
         batch_count = max(2, estimated // self._max_tokens)
         pre_clusters = self._pre_cluster_by_imports(modules, graph, batch_count)
+        log.info("hierarchical_decompose_batches", batch_count=len(pre_clusters))
         trees: list[DomainNode] = []
-        for cluster in pre_clusters:
-            tree = await self._single_pass(cluster, graph)
-            trees.extend(tree)
+        for idx, cluster in enumerate(pre_clusters):
+            log.info(
+                "hierarchical_decompose_batch_start",
+                batch_index=idx,
+                cluster_size=len(cluster),
+            )
+            try:
+                tree = await asyncio.wait_for(
+                    self._single_pass(cluster, graph), timeout=120,
+                )
+                log.info(
+                    "hierarchical_decompose_batch_done",
+                    batch_index=idx,
+                    domains_found=len(tree),
+                )
+                trees.extend(tree)
+            except (TimeoutError, Exception):
+                log.warning(
+                    "hierarchical_decompose_batch_failed",
+                    batch_index=idx,
+                    cluster_size=len(cluster),
+                    exc_info=True,
+                )
         return trees
 
     async def _single_pass(

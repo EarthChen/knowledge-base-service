@@ -3,10 +3,13 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useWikiPageByPath } from "../useWikiPageByPath";
-import { api } from "../../api/client";
+import { ApiError, api } from "../../api/client";
 import type { WikiPageDetail } from "../wikiTypes";
 
-vi.mock("../../api/client", () => ({ api: vi.fn() }));
+vi.mock("../../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/client")>();
+  return { ...actual, api: vi.fn() };
+});
 
 function createWrapper() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -58,5 +61,20 @@ describe("useWikiPageByPath", () => {
     expect(noPath.current.fetchStatus).toBe("idle");
     const { result: noBiz } = renderHook(() => useWikiPageByPath("   ", "/a"), { wrapper: createWrapper() });
     expect(noBiz.current.fetchStatus).toBe("idle");
+  });
+
+  it("falls back to repository-scoped /pages/... when by-path returns 404", async () => {
+    vi.mocked(api)
+      .mockRejectedValueOnce(new ApiError("Wiki page not found: m/x.md", 404, null))
+      .mockResolvedValueOnce({ ...detail, path: "m/x.md" });
+    const { result } = renderHook(() => useWikiPageByPath("my/repo", "m/x.md"), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(vi.mocked(api).mock.calls.length).toBe(2);
+    expect(String(vi.mocked(api).mock.calls[0]?.[0])).toContain("/wiki/pages/by-path");
+    expect(String(vi.mocked(api).mock.calls[1]?.[0])).toContain(
+      `/wiki/${encodeURIComponent("my/repo")}/pages/m/x.md`,
+    );
   });
 });

@@ -42,7 +42,12 @@ class BusinessFlowPageComposer:
         for community in communities:
             if community.get("size", 0) < min_community_size:
                 continue
-            member_uids = community.get("members", [])
+            raw_members = community.get("members", [])
+            member_uids = [
+                str(m) if isinstance(m, str) else str(m.get("uid", "")) if isinstance(m, dict) else str(m)
+                for m in raw_members
+            ]
+            member_uids = [u for u in member_uids if u]
             member_summaries = [
                 summary_index[uid_to_path[uid]]
                 for uid in member_uids

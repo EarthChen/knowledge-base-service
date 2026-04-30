@@ -428,6 +428,13 @@ const zh: Translations = {
     switchTo: "切换",
     cancel: "取消",
     empty: "暂无业务。点击上方按钮创建。",
+    manageRepos: "管理仓库",
+    collapseRepos: "收起仓库",
+    boundRepos: "已绑定仓库",
+    addRepo: "添加",
+    noRepos: "尚未绑定任何仓库。",
+    repoIdPlaceholder: "仓库 ID",
+    bindReposFailed: "更新仓库绑定失败",
   },
   settings: {
     title: "设置",

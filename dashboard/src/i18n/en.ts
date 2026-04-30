@@ -432,6 +432,13 @@ const en: Translations = {
     switchTo: "Switch",
     cancel: "Cancel",
     empty: "No businesses yet. Click above to create one.",
+    manageRepos: "Manage repositories",
+    collapseRepos: "Collapse",
+    boundRepos: "Bound repositories",
+    addRepo: "Add",
+    noRepos: "No repositories bound yet.",
+    repoIdPlaceholder: "repository-id",
+    bindReposFailed: "Failed to update repository bindings",
   },
   settings: {
     title: "Settings",

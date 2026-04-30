@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Plus, Trash2 } from "lucide-react";
+import { Building2, Plus, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
 import type { Business, BusinessesResponse } from "../api/types";
 import { useI18n } from "../i18n/context";
@@ -8,6 +8,118 @@ import { getErrorMessage } from "../utils/errorUtils";
 import { useBusiness } from "../contexts/BusinessContext";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../components/Toast";
+import { useBindRepositories, useBusinessRepositories } from "../hooks/useBusinessRepositories";
+
+function RepoBindingPanel({
+  businessId,
+  newRepoInput,
+  setNewRepoInput,
+}: {
+  businessId: string;
+  newRepoInput: string;
+  setNewRepoInput: (v: string) => void;
+}) {
+  const { t } = useI18n();
+  const { toast } = useToast();
+  const { data, isLoading, isError, refetch } = useBusinessRepositories(businessId);
+  const bindMut = useBindRepositories(businessId);
+  const repos = data?.repositories ?? [];
+
+  const handleAdd = async () => {
+    const trimmed = newRepoInput.trim();
+    if (!trimmed || bindMut.isPending) return;
+    if (repos.includes(trimmed)) {
+      setNewRepoInput("");
+      return;
+    }
+    try {
+      await bindMut.mutateAsync([...repos, trimmed]);
+      setNewRepoInput("");
+    } catch (err: unknown) {
+      toast("error", getErrorMessage(err, t.common.unexpectedError) || t.businesses.bindReposFailed);
+    }
+  };
+
+  const handleRemove = async (repoId: string) => {
+    try {
+      await bindMut.mutateAsync(repos.filter((r) => r !== repoId));
+    } catch (err: unknown) {
+      toast("error", getErrorMessage(err, t.common.unexpectedError) || t.businesses.bindReposFailed);
+    }
+  };
+
+  if (isLoading) {
+    return <div className="mt-3 text-xs text-gray-400 dark:text-gray-500">{t.common.loading}</div>;
+  }
+  if (isError) {
+    return (
+      <div className="mt-3 flex flex-col gap-2">
+        <p className="text-xs text-red-600 dark:text-red-400">{t.businesses.bindReposFailed}</p>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          className="self-start text-xs text-sky-600 hover:text-sky-500 dark:text-sky-400"
+        >
+          {t.common.retry}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 space-y-3 rounded-lg border border-gray-200 bg-gray-50/80 p-3 dark:border-gray-600 dark:bg-gray-800/50">
+      <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{t.businesses.boundRepos}</p>
+      {repos.length === 0 ? (
+        <p className="text-xs text-gray-400 dark:text-gray-500">{t.businesses.noRepos}</p>
+      ) : (
+        <ul className="flex flex-wrap gap-2">
+          {repos.map((repo) => (
+            <li
+              key={repo}
+              className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+            >
+              <span className="max-w-[180px] truncate" title={repo}>
+                {repo}
+              </span>
+              <button
+                type="button"
+                disabled={bindMut.isPending}
+                onClick={() => void handleRemove(repo)}
+                className="rounded p-0.5 text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+                aria-label={`Remove ${repo}`}
+              >
+                <X size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-2">
+        <input
+          value={newRepoInput}
+          onChange={(e) => setNewRepoInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void handleAdd();
+            }
+          }}
+          placeholder={t.businesses.repoIdPlaceholder}
+          disabled={bindMut.isPending}
+          className="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900 placeholder-gray-400 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-sky-500 dark:focus:ring-sky-600"
+        />
+        <button
+          type="button"
+          disabled={bindMut.isPending || !newRepoInput.trim()}
+          onClick={() => void handleAdd()}
+          className="shrink-0 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+        >
+          {bindMut.isPending ? t.common.loading : t.businesses.addRepo}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function Businesses() {
   const { t } = useI18n();
@@ -41,6 +153,9 @@ export default function Businesses() {
   const [formId, setFormId] = useState("");
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
+
+  const [expandedBiz, setExpandedBiz] = useState<string | null>(null);
+  const [newRepoInput, setNewRepoInput] = useState("");
 
   const handleCreate = async () => {
     if (!formId.trim() || !formName.trim()) return;
@@ -189,6 +304,27 @@ export default function Businesses() {
                 <p className="mt-3 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
                   {biz.description}
                 </p>
+              )}
+              {biz.id !== "default" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExpandedBiz(expandedBiz === biz.id ? null : biz.id);
+                      setNewRepoInput("");
+                    }}
+                    className="mt-2 text-xs text-sky-600 hover:text-sky-500 dark:text-sky-400"
+                  >
+                    {expandedBiz === biz.id ? t.businesses.collapseRepos : t.businesses.manageRepos}
+                  </button>
+                  {expandedBiz === biz.id && (
+                    <RepoBindingPanel
+                      businessId={biz.id}
+                      newRepoInput={newRepoInput}
+                      setNewRepoInput={setNewRepoInput}
+                    />
+                  )}
+                </>
               )}
               <div className="mt-4 flex items-center justify-between">
                 <span className="text-[11px] text-gray-500 dark:text-gray-400">

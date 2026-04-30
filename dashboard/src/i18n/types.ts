@@ -446,6 +446,13 @@ export interface Translations {
     switchTo: string;
     cancel: string;
     empty: string;
+    manageRepos: string;
+    collapseRepos: string;
+    boundRepos: string;
+    addRepo: string;
+    noRepos: string;
+    repoIdPlaceholder: string;
+    bindReposFailed: string;
   };
   settings: {
     title: string;

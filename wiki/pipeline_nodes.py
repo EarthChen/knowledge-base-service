@@ -7,6 +7,7 @@ from typing import Any
 from log import get_logger
 from store.schema import GraphNode, NodeLabel
 from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
+from wiki.dependency_graph import HierarchicalDecomposer, ModuleGraph, ModuleInfo
 from wiki.entity_role_classifier import EntityRoleClassifier, WikiEntityRole
 
 log = get_logger(__name__)
@@ -111,3 +112,92 @@ async def detect_reorg_node(state: dict[str, Any]) -> dict[str, Any]:
 
     log.info("detect_reorg_done", reorg_type=reorg_type, is_incremental=is_incremental)
     return {"reorg_type": reorg_type}
+
+
+def _normalize_domain_tree(raw_tree: list | None, domain_mapping: dict[str, list]) -> list[dict[str, Any]]:
+    """Convert HierarchicalDecomposer output (DomainNode list) to plain dicts."""
+    if not raw_tree:
+        return []
+    result = []
+    for node in raw_tree:
+        if hasattr(node, "name"):
+            d = {
+                "name": getattr(node, "name", ""),
+                "description": getattr(node, "description", ""),
+                "modules": [m.name if hasattr(m, "name") else str(m) for m in getattr(node, "modules", [])],
+                "children": _normalize_domain_tree(getattr(node, "children", []), domain_mapping),
+            }
+        elif isinstance(node, dict):
+            d = {
+                "name": node.get("name", ""),
+                "description": node.get("description", ""),
+                "modules": node.get("modules", []),
+                "children": _normalize_domain_tree(node.get("children", []), domain_mapping),
+            }
+        else:
+            continue
+        result.append(d)
+    return result
+
+
+async def decompose_hierarchy_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Phase 2c: build hierarchical domain tree from flat domain mapping."""
+    llm = state.get("llm")
+    domain_mapping = state.get("domain_mapping", {})
+    modules = state.get("modules", {})
+
+    if not llm or not domain_mapping:
+        log.info("decompose_hierarchy_skip", reason="no llm or empty domain_mapping")
+        flat_tree = [
+            {"name": domain, "modules": [m for _, m in pairs], "children": []}
+            for domain, pairs in domain_mapping.items()
+        ]
+        return {"domain_tree": flat_tree}
+
+    module_lookup: dict[str, dict] = {}
+    for repo, mod_list in modules.items():
+        for mod_dict in mod_list:
+            name = mod_dict.get("properties", {}).get("name", "")
+            if name:
+                module_lookup[name] = mod_dict
+
+    all_module_infos: list[ModuleInfo] = []
+    for domain, pairs in domain_mapping.items():
+        for repo_id, mod_name in pairs:
+            mod_dict = module_lookup.get(mod_name, {})
+            props = mod_dict.get("properties", {})
+            all_module_infos.append(ModuleInfo(
+                name=mod_name,
+                path=str(props.get("path", "")),
+                uid=mod_dict.get("uid", f"Module::{mod_name}:0"),
+                summary=str(props.get("business_summary", "") or props.get("docstring", "") or ""),
+                semantic_roles=list(props.get("semantic_roles", []) or []),
+            ))
+
+    if not all_module_infos:
+        return {"domain_tree": []}
+
+    decomposer = HierarchicalDecomposer(llm, max_depth=3, min_modules_for_nesting=3)
+    module_graph = ModuleGraph(modules=all_module_infos, edges=[], entry_points=[])
+
+    try:
+        raw_tree = await decomposer.decompose(all_module_infos, module_graph)
+        domain_tree = _normalize_domain_tree(raw_tree, domain_mapping)
+    except Exception:
+        log.warning("decompose_hierarchy_failed", exc_info=True)
+        domain_tree = [
+            {"name": domain, "modules": [m for _, m in pairs], "children": []}
+            for domain, pairs in domain_mapping.items()
+        ]
+
+    log.info("decompose_hierarchy_done", domains=len(domain_tree) if domain_tree else 0)
+    return {"domain_tree": domain_tree}
+
+
+async def plan_structure_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Mark domain tree as pending_review and continue (non-blocking)."""
+    review_status = dict(state.get("review_status", {}))
+    review_status["domain_tree"] = "pending_review"
+
+    log.info("plan_structure_marked_review", tree_size=len(state.get("domain_tree") or []))
+    return {"review_status": review_status}

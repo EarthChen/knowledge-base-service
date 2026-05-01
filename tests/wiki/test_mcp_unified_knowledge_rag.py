@@ -44,3 +44,31 @@ async def test_unified_knowledge_query_requires_question(mock_rag_engine):
     handler = WikiMCPHandler(pipeline=MagicMock(), rag_engine=mock_rag_engine)
     result = await handler.handle_unified_knowledge_query({"question": ""})
     assert "error" in result or "invalid_params" in str(result)
+
+
+@pytest.mark.asyncio
+async def test_unified_knowledge_query_with_repository(mock_rag_engine):
+    handler = WikiMCPHandler(pipeline=MagicMock(), rag_engine=mock_rag_engine)
+    result = await handler.handle_unified_knowledge_query(
+        {
+            "question": "How does auth work?",
+            "repository": "my-repo",
+            "max_rounds": 3,
+        }
+    )
+    call_args = mock_rag_engine.arun.call_args
+    scope = call_args.kwargs["scope"]
+    assert scope.scope_type == "repository"
+    assert scope.repository == "my-repo"
+
+
+@pytest.mark.asyncio
+async def test_unified_knowledge_query_no_engine():
+    handler = WikiMCPHandler(pipeline=MagicMock())
+    result = await handler.handle_unified_knowledge_query(
+        {
+            "question": "test question",
+        }
+    )
+    assert "error" in result
+    assert result["error"]["code"] == "not_configured"

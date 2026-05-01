@@ -462,8 +462,9 @@ class WikiMCPHandler:
         from wiki.rag.protocol import RetrievalScope
 
         scope = RetrievalScope(
-            scope_type="business" if repository_raw else "global",
+            scope_type="repository" if repository_raw else "global",
             business_id=repository_raw if repository_raw else None,
+            repository=str(repository_raw).strip() if repository_raw else None,
         )
 
         try:

@@ -280,6 +280,7 @@ class WikiMCPHandler:
         wiki_cache: Any | None = None,
         repo_registry: Any | None = None,
         wiki_config: Any | None = None,
+        rag_engine: Any | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._graph = graph
@@ -287,6 +288,7 @@ class WikiMCPHandler:
         self._wiki_cache = wiki_cache
         self._repo_registry = repo_registry
         self._wiki_config = wiki_config
+        self._rag_engine = rag_engine
 
     @staticmethod
     def _mcp_error(code: str, message: str) -> dict[str, Any]:
@@ -442,33 +444,47 @@ class WikiMCPHandler:
     handle_wiki_search = handle_search_wiki  # alias after the method definition
 
     async def handle_unified_knowledge_query(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        """Handle unified_knowledge_query MCP tool call."""
-        if self._pipeline is None:
-            return self._not_configured()
+        """Handle unified_knowledge_query MCP tool call via IterativeRAGEngine."""
         question = str(arguments.get("question", "")).strip()
         if not question:
             return self._mcp_error("invalid_params", "question parameter is required")
-        scope = str(arguments.get("scope", "global") or "global").strip() or "global"
+
+        if self._rag_engine is None:
+            return self._mcp_error("not_configured", "RAG engine not available")
+
+        scope_raw = str(arguments.get("scope", "global") or "global").strip() or "global"
         repository_raw = arguments.get("repository")
-        repository = str(repository_raw).strip() if repository_raw else ""
         try:
             max_rounds = int(arguments.get("max_rounds", 5))
         except (ValueError, TypeError):
             return self._mcp_error("invalid_params", "max_rounds must be an integer")
-        _ = max_rounds  # reserved for full iterative RAG integration
 
-        if repository:
-            try:
-                result = await self._pipeline.search_wiki(repository, question, limit=10)
-            except Exception as exc:
-                return self._mcp_error("internal_error", str(exc))
-            sources = result.get("results", []) if isinstance(result, dict) else []
-            return {"answer": f"Search results for: {question}", "sources": sources, "scope": scope}
+        from wiki.rag.protocol import RetrievalScope
+
+        scope = RetrievalScope(
+            scope_type="business" if repository_raw else "global",
+            business_id=repository_raw if repository_raw else None,
+        )
+
+        try:
+            state = await self._rag_engine.arun(
+                question=question,
+                scope=scope,
+                max_rounds=max_rounds,
+            )
+        except Exception as exc:
+            return self._mcp_error("internal_error", str(exc))
+
+        sources = []
+        for chunk in state.get("accumulated_context", []):
+            sources.append({"title": chunk.title, "path": chunk.source})
 
         return {
-            "answer": f"Query received: {question}",
-            "scope": scope,
-            "note": "Full iterative RAG integration pending",
+            "answer": state.get("current_draft", ""),
+            "sources": sources,
+            "scope": scope_raw,
+            "rounds": state.get("round", 1),
+            "confidence": state.get("confidence", 0.0),
         }
 
     async def handle_ask_about_code(self, arguments: dict[str, Any]) -> dict[str, Any]:

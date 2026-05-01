@@ -52,12 +52,19 @@ function useStageLabel(s: StageEvent): string {
     case "planning": {
       const round = (s.data.round as number) ?? 0;
       const subQueries = (s.data.sub_queries as string[]) ?? [];
-      return `Planning sub-queries (Round ${round})${subQueries.length ? `: ${subQueries.join(", ")}` : ""}`;
+      if (subQueries.length) {
+        return t.search.ragPlanningWithQueries
+          .replace("{round}", String(round))
+          .replace("{queries}", subQueries.join(", "));
+      }
+      return t.search.ragPlanning.replace("{round}", String(round));
     }
     case "evaluating": {
       const round = (s.data.round as number) ?? 0;
       const score = (s.data.score as number) ?? 0;
-      return `Evaluating quality (Round ${round}) — Score: ${(score * 100).toFixed(0)}%`;
+      return t.search.ragEvaluating
+        .replace("{round}", String(round))
+        .replace("{score}", (score * 100).toFixed(0));
     }
     default:
       return s.type;

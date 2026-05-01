@@ -134,6 +134,7 @@ function ConversationRelativeWhen({
 }
 
 function RagTimeline({ stages }: { stages: Record<string, unknown>[] }) {
+  const { t: i18n } = useI18n();
   if (!stages.length) return null;
   return (
     <details
@@ -145,35 +146,42 @@ function RagTimeline({ stages }: { stages: Record<string, unknown>[] }) {
       </summary>
       <div className="space-y-1 border-t border-gray-100 px-3 pb-3 pt-2 dark:border-gray-700">
         {stages.map((s, i) => {
-          const t = String(s.type ?? "unknown");
+          const stageType = String(s.type ?? "unknown");
           const color =
-            t === "searching"
+            stageType === "searching"
               ? "bg-blue-400"
-              : t === "draft"
+              : stageType === "draft"
                 ? "bg-amber-400"
-                : t === "planning"
+                : stageType === "planning"
                   ? "bg-purple-400"
-                  : t === "evaluating"
+                  : stageType === "evaluating"
                     ? "bg-orange-400"
-                    : t === "refining"
+                    : stageType === "refining"
                       ? "bg-violet-400"
-                      : t === "done"
+                      : stageType === "done"
                         ? "bg-green-400"
                         : "bg-gray-400";
           const label =
-            t === "searching"
-              ? "Searching"
-              : t === "draft"
-                ? "Drafting"
-                : t === "planning"
-                  ? "Planning sub-queries"
-                  : t === "evaluating"
-                    ? "Evaluating quality"
-                    : t === "refining"
-                      ? "Refining"
-                      : t === "done"
-                        ? "Complete"
-                        : t;
+            stageType === "searching"
+              ? i18n.search.ragSearching
+              : stageType === "draft"
+                ? i18n.search.ragDrafting
+                : stageType === "planning"
+                  ? i18n.search.ragPlanning.replace("{round}", String(s.round ?? ""))
+                  : stageType === "evaluating"
+                    ? i18n.search.ragEvaluating
+                        .replace("{round}", String(s.round ?? ""))
+                        .replace(
+                          "{score}",
+                          typeof s.score === "number"
+                            ? ((s.score as number) * 100).toFixed(0)
+                            : "",
+                        )
+                    : stageType === "refining"
+                      ? i18n.search.ragRefining
+                      : stageType === "done"
+                        ? i18n.search.ragComplete
+                        : stageType;
           return (
             <div key={i}>
               <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
@@ -191,7 +199,7 @@ function RagTimeline({ stages }: { stages: Record<string, unknown>[] }) {
                   </span>
                 )}
               </div>
-              {t === "planning" && Array.isArray(s.sub_queries) && (
+              {stageType === "planning" && Array.isArray(s.sub_queries) && (
                 <ul className="ml-6 mt-0.5 space-y-0.5">
                   {(s.sub_queries as string[]).map((q, qi) => (
                     <li key={qi} className="text-xs text-gray-400">• {q}</li>

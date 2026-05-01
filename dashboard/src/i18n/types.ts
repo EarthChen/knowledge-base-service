@@ -215,6 +215,16 @@ export interface Translations {
     /** Use {message} */
     deepResearchError: string;
     deepResearchUnknown: string;
+    /** Use {round} */
+    ragPlanning: string;
+    /** Use {round}, {queries} */
+    ragPlanningWithQueries: string;
+    /** Use {round}, {score} */
+    ragEvaluating: string;
+    ragSearching: string;
+    ragDrafting: string;
+    ragRefining: string;
+    ragComplete: string;
   };
   graph: {
     title: string;

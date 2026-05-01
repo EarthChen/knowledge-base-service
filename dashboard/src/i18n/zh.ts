@@ -197,6 +197,13 @@ const zh: Translations = {
     deepResearchConclusion: "综合结论",
     deepResearchError: "错误：{message}",
     deepResearchUnknown: "未知",
+    ragPlanning: "规划子查询（第 {round} 轮）",
+    ragPlanningWithQueries: "规划子查询（第 {round} 轮）：{queries}",
+    ragEvaluating: "评估质量（第 {round} 轮）— 得分：{score}%",
+    ragSearching: "检索中",
+    ragDrafting: "生成草稿",
+    ragRefining: "优化中",
+    ragComplete: "完成",
   },
   graph: {
     title: "图查询",

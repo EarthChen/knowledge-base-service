@@ -200,6 +200,13 @@ const en: Translations = {
     deepResearchConclusion: "Final Conclusion",
     deepResearchError: "Error: {message}",
     deepResearchUnknown: "Unknown",
+    ragPlanning: "Planning sub-queries (Round {round})",
+    ragPlanningWithQueries: "Planning sub-queries (Round {round}): {queries}",
+    ragEvaluating: "Evaluating quality (Round {round}) — Score: {score}%",
+    ragSearching: "Searching",
+    ragDrafting: "Drafting",
+    ragRefining: "Refining",
+    ragComplete: "Complete",
   },
   graph: {
     title: "Graph Query",

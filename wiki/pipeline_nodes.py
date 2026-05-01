@@ -1,12 +1,12 @@
 """LangGraph pipeline node implementations for Wiki generation."""
 
 import asyncio
-import os
 import re
 from collections import Counter
 from dataclasses import asdict
 from typing import Any
 
+from config import get_settings
 from langchain_core.runnables import RunnableConfig
 from log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
@@ -38,7 +38,7 @@ from wiki.token_budget import TokenBudgetCalculator, TokenBudgetResolver
 
 log = get_logger(__name__)
 
-_COMPOSE_CONCURRENCY = int(os.environ.get("WIKI__COMPOSE_CONCURRENCY", "5"))
+_COMPOSE_CONCURRENCY = get_settings().wiki.compose_concurrency
 
 
 async def classify_entities_node(state: dict[str, Any]) -> dict[str, Any]:

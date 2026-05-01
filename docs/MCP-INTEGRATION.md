@@ -4,7 +4,7 @@
 
 | 表面 | 列出 | 调用 | 工具数 |
 |------|------|------|--------|
-| **主服务 MCP** | `GET /api/v1/mcp/tools` | `POST /api/v1/mcp/tool`，体为 `{"tool_name":"...","arguments":{...}}` | **20**（`MCP_TOOLS_MANIFEST` 12 个 + `WIKI_MCP_TOOLS_MANIFEST` 8 个） |
+| **主服务 MCP** | `GET /api/v1/mcp/tools` | `POST /api/v1/mcp/tool`，体为 `{"tool_name":"...","arguments":{...}}` | **22**（`MCP_TOOLS_MANIFEST` 12 个 + `WIKI_MCP_TOOLS_MANIFEST` 10 个） |
 | **Wiki 专用 MCP** | `GET /api/v1/mcp/tools/list` | `POST /api/v1/mcp/tools/call`，体为 `{"name":"...","arguments":{...}}` | **6**；仅当 `WIKI__MCP_SERVER_ENABLED=true` 且已 `bootstrap_wiki` 时可用 |
 
 > 主清单在 `api/mcp_server.py` 末尾与 `wiki/mcp_tools.py` 的 `WIKI_MCP_TOOLS_MANIFEST` 合并；**独立 Wiki HTTP** 的六工具定义在 `api/mcp_wiki_server.py` 的 `TOOL_DEFINITIONS`（与主清单的 Wiki 能力互补，非重复计数）。
@@ -23,9 +23,9 @@
 
 ## 工具参考
 
-### A. 主服务 MCP（20 个工具）
+### A. 主服务 MCP（22 个工具）
 
-第 1–12 为图谱/检索类，第 13–20 为 Wiki 管线类（`wiki/mcp_tools.py`）。
+第 1–12 为图谱/检索类，第 13–22 为 Wiki 管线类（`wiki/mcp_tools.py`）。
 
 #### 1. `rag_query`
 
@@ -251,6 +251,25 @@
 | **描述** | 获取某仓库下全部 Wiki 页的**编译快照**：结构化 Markdown，含页摘要、置信度、交叉引用与模块组织。 |
 | **最低角色** | Viewer |
 | **参数** | `repository`（**必填**）。 |
+
+#### 21. `unified_knowledge_query`
+
+Unified knowledge query across wiki and code. Uses iterative RAG for comprehensive answers.
+
+**Parameters:**
+
+- `question` (string, required) — The question to answer
+- `scope` (string) — Search scope: "global", "page", "business", "repository"
+- `repository` (string) — Repository name (for repository scope)
+- `max_rounds` (integer) — Max iterative RAG rounds (default: 5)
+
+#### 22. `wiki_find_implementing_modules`
+
+| | |
+|--|--|
+| **描述** | 按业务域/能力查找实现该域的代码模块，返回模块及其 Wiki 页路径（业务→代码反向查证）。 |
+| **最低角色** | Viewer |
+| **参数** | `domain_name`（**必填**）、`business_id`（默认 `default`）。 |
 
 ### B. Wiki 专用 HTTP MCP（6 个工具、2 个端点，`WIKI__MCP_SERVER_ENABLED=true`）
 

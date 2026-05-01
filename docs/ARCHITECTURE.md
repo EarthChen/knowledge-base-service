@@ -207,6 +207,38 @@ flowchart LR
 - **Phase 5**：`WikiLinkConverter` 将 `[[wikilink]]` 转为多种格式；`BusinessWikiExporter` 导出扁平文件树；`ObsidianExporter`（含 `.obsidian/`）、`MkDocsExporter`（含 `mkdocs.yml`）；`GitPublisher` 增量 Git 推送与注释回写；**`POST /api/v1/wiki/export`**（`markdown` / `zip` / `git` / `obsidian` / `mkdocs` 等）。
 - **Phase 6**：`WikiCoverageAnalyzer` 覆盖率、知识缺口与陈旧检测；`SuggestedQuestionsGenerator` 模板化探索问题；**`GET /api/v1/wiki/coverage-report`**。
 
+## Phase 6 — Iterative RAG & Dynamic Model Strategy
+
+### New Components
+
+- **`wiki/rag/`** — Unified iterative RAG engine
+  - `protocol.py` — `Chunk`, `Source`, `RetrievalScope`, `Retriever` Protocol
+  - `wiki_retriever.py` — Adapts `WikiSearchService` to `Retriever`
+  - `code_retriever.py` — Adapts `HybridQueryService` to `Retriever`
+  - `composite_retriever.py` — Merges multiple retrievers
+  - `engine.py` — `IterativeRAGEngine` (LangGraph StateGraph)
+  - `events.py` — SSE event protocol for real-time progress
+
+- **`wiki/model_strategy.py`** — Dynamic LLM model routing
+  - Reads `llm.strategy.<task_type>` from `SettingsStore`
+  - Supports complexity-based fallback via `ComplexityMetrics`
+  - Returns `LLMPort`-compatible wrappers with model defaults
+
+- **Dashboard UI** — New settings sections
+  - `LLMProviderPoolSection` — Multi-provider JSON editor
+  - `ModelStrategySection` — Task-to-model routing config
+
+### Feature Flags
+
+- `WIKI__ITERATIVE_RAG_ENABLED` — Enable iterative RAG in WikiAskService
+- `WIKI__CODE_STRUCTURE_SEMANTIC_GROUP` — Enable LLM semantic grouping
+
+### API Changes
+
+- `GET /api/v1/llm/providers/{name}/models` — Discover models per provider
+- `GET /api/v1/wiki/ask/stream?page_context=...` — Page context for RAG scope
+- MCP: `unified_knowledge_query` tool added
+
 ## 增量 / MCP / 质量 v2 扩展（概览；非 Phase 0–6 的「SP3–SP6」编号）
 
 > **注意**：下表中的「增量 Ingest、MCP、质量引擎」等能力均已实现。详见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。

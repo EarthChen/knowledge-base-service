@@ -136,6 +136,10 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
                     "type": "string",
                     "description": "Optional wiki page path prefix to filter results (exact path or subtree).",
                 },
+                "page_context": {
+                    "type": "string",
+                    "description": "Optional page path to boost context from linked pages",
+                },
             },
             "required": ["repository", "query"],
         },
@@ -379,6 +383,15 @@ class WikiMCPHandler:
             s = str(raw_scope).strip()
             if s:
                 scope_filter = s
+        raw_page_context = arguments.get("page_context")
+        page_context: str | None = None
+        if raw_page_context is not None:
+            pc = str(raw_page_context).strip()
+            if pc:
+                page_context = pc
+                log.info("wiki_search_page_context", repository=repository, page_context=pc)
+                if scope_filter is None:
+                    scope_filter = pc
         try:
             payload = await self._pipeline.search_wiki(
                 repository,
@@ -391,7 +404,10 @@ class WikiMCPHandler:
         except Exception as exc:
             return self._mcp_error("internal_error", str(exc))
         if isinstance(payload, dict):
-            return {**payload, "synthesized": True}
+            out = {**payload, "synthesized": True}
+            if page_context is not None:
+                out["page_context"] = page_context
+            return out
         return payload
 
     handle_wiki_search = handle_search_wiki  # alias after the method definition

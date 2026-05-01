@@ -26,9 +26,9 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 | 类别 | 数量 | 状态 |
 |------|------|------|
 | 确认的运行时 Bug | **11** (5 后端 + 6 前端) | ✅ **11/11 全部已修复** |
-| 架构问题 | **10** | ✅ 8/10 已修复，2 待处理(A4 CoT/A6 质量门) |
+| 架构问题 | **10** | ✅ 9/10 已修复，1 待处理(A6 质量门) |
 | 产品能力缺口 | **7** | 🟡 P1/P3/P4 已修复，4 待处理 |
-| 技术能力缺口 | **8** | 🟡 T4/T6 已完成，6 待处理 (T1-T3/T5/T7/T8) |
+| 技术能力缺口 | **8** | 🟡 T1/T2/T4/T6 已完成，4 待处理 (T3/T5/T7/T8) |
 | Agent 能力缺口 | **6** | 待处理（功能开发） |
 | 前端体验问题 | i18n + SSE + AskPanel | ✅ 全部已修复 |
 | 测试补全 | 后端 +38 测试 + 前端 +69 测试 | ✅ **全部关键缺口已补全** |
@@ -130,7 +130,7 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 | A1 | ~~两套并行的 System Overview 实现~~ | ✅ 已修复 | pipeline 复用 `SystemOverviewComposer`，带 fallback |
 | A2 | ~~循环依赖 page_composer_service ↔ service~~ | ✅ 已修复 | 共享函数提取到 `wiki/helpers.py` |
 | A3 | ~~prompts.py 废弃模板~~ | ✅ 已修复 | 删除 `TOPIC_STRUCTURE_PROMPT`，保留基础设施 |
-| A4 | CoT 已实现但未接入管道 | 待处理 | 高成本，需要单独 Sprint |
+| A4 | ~~CoT 已实现但未接入管道~~ | ✅ 已完成 | 3 级 ReasoningLevel (NONE/GUIDED/MULTI_STEP) 替代旧 cot_generator，已删除废弃代码 |
 | A5 | ~~LLMPort Protocol 多处重复定义~~ | ✅ 已修复 | 合并为 `context.py` 单一定义 |
 | A6 | quality_gate 仅用 structural_check | 待处理 | 高成本，需要单独 Sprint |
 | A7 | ~~pipeline 节点命名与实际功能不符~~ | ✅ 已修复 | 重命名为 `classify_entity_roles` |
@@ -167,7 +167,7 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 |------|-----------|----------|----------|------|
 | **图表生成** | 6种确定性 + LLM多模态 (4类型) | LLM Mermaid | 多模态综合 | ✅ **已追平** |
 | **结构规划** | 业务域 LLM 分类 + 层级分解 | LLM 语义 TOC | DP 入口点驱动 | 🟡 业务视图赶超，代码视图落后 |
-| **内容生成** | 三级策略 + 复杂度自适应 + 叙事性prompt + TargetedHeal (无 CoT) | 每页独立 LLM，叙事性强 | 递归多智能体 | 🟡 **差距缩小** (CoT/底层递归待实现) |
+| **内容生成** | 三级策略 + 复杂度自适应 + 叙事性prompt + TargetedHeal + 3级ReasoningLevel | 每页独立 LLM，叙事性强 | 递归多智能体 | 🟢 **接近追平** (底层递归待实现) |
 | **质量保证** | 多维度 Bench + 置信度 + 矛盾 + heal | 无 | CodeWikiBench | ✅ **架构领先**（但 LLM 评审未上线）|
 | **增量更新** | webhook + diff + scheduler + SSE | ❌ | ❌ | ✅ **强大领先** |
 | **多视图** | business_domain / code_structure / overview | ❌ | ❌ | ✅ **独有** |
@@ -181,8 +181,8 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 
 | # | 缺失能力 | 现状 | 竞品对标 | 优先级 |
 |---|---------|------|---------|--------|
-| T1 | **思维链推理 (CoT)** | `cot_generator.py` 存在但 `cot_enabled=False`，未接入 LangGraph | CodeWiki 多智能体递归 | P0 |
-| T2 | **自适应推理深度** | 固定提示词，不根据复杂度调整 | 提案已设计 ReasoningLevel 四级 | P0 |
+| T1 | ~~**思维链推理 (CoT)**~~ | ✅ `wiki/reasoning.py` 替代废弃 `cot_generator.py`，MultiStepReasoner 实现多步推理 | CodeWiki 多智能体递归 | ✅ 已完成 |
+| T2 | ~~**自适应推理深度**~~ | ✅ 3 级 ReasoningLevel + DomainComplexityScorer 自动驱动 | 提案已设计 → 已实现 3 级 | ✅ 已完成 |
 | T3 | **分层质量门** | 仅 structural_check，未接入 llm_judge | KB 架构领先但未充分利用 | P1 |
 | T4 | ~~**定向修复 (Targeted Heal)**~~ | ✅ `wiki/targeted_healer.py` + heal_pages_node 集成 | 诊断+JSON patch+fallback | ✅ 已完成 |
 | T5 | **Mermaid 语义验证** | 仅检查格式（起始关键字+行数） | - | P2 |
@@ -361,14 +361,15 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 | ~~prompt 集中化管理~~ | 测试与生产一致性 | ✅ 已完成 — `SYSTEM_JSON_ONLY`/`SYSTEM_WIKI_AUTHOR`/`SYSTEM_WIKI_HEAL` 集中到 `prompts.py`，6 个模块改为导入 |
 | ~~嵌套域遍历修复 (heal/synthesize)~~ | 嵌套域信息不再丢失 | ✅ 已完成 (BUG-B2/B3) |
 
-### Phase 2: CoT 与自适应推理 [2-3周]
+### Phase 2: CoT 与自适应推理 ✅ 已完成
 
-| 任务 | 预期效果 |
-|------|---------|
-| ReasoningLevel 架构 (NONE/NATIVE/GUIDED/MULTI_STEP) | 推理深度可控 |
-| 域分类 GUIDED/MULTI_STEP prompt | 分类 confidence 提升 |
-| Topic 生成 GUIDED prompt | 内容深度提升 |
-| 复杂度评估器接入 | 自动选择推理深度 |
+| 任务 | 预期效果 | 状态 |
+|------|---------|------|
+| ~~ReasoningLevel 架构 (NONE/GUIDED/MULTI_STEP)~~ | 推理深度可控 | ✅ `wiki/reasoning.py` |
+| ~~域分类 GUIDED prompt~~ | 分类 confidence 提升 | ✅ classify_domains_node 集成 |
+| ~~Topic 生成 MULTI_STEP~~ | 内容深度提升 | ✅ TopicPageComposer + MultiStepReasoner |
+| ~~复杂度评估器接入~~ | 自动选择推理深度 | ✅ DomainComplexityScorer 驱动 |
+| ~~删除废弃 cot_generator.py~~ | 代码清洁 | ✅ 已删除 + config/UI 清理 |
 
 ### Phase 3: Bottom-up 与代码注入 [2周]
 
@@ -410,4 +411,4 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 6. **质量保证架构**: 置信度 + 矛盾检测 + 主张追踪（虽然质量门未充分利用）
 7. **版本控制与 Diff**: 页面级版本历史和差异对比
 
-**核心结论**: KB Service 的"基础设施"和"可扩展性"远超竞品。Phase 1 已完成叙事性 prompt 增强和 TargetedHeal，内容质量差距明显缩小。剩余"内容生成智能度"差距主要来自 CoT 推理和 Bottom-up 递归生成，需要 Phase 2-3 实施。
+**核心结论**: KB Service 的"基础设施"和"可扩展性"远超竞品。Phase 1 完成叙事性 prompt + TargetedHeal，Phase 2 完成 3 级自适应推理 + MultiStepReasoner + 废弃代码清理。内容生成能力接近追平竞品。剩余差距主要来自 Bottom-up 递归生成和代码注入（Phase 3）。

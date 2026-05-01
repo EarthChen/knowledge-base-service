@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,7 +13,26 @@ from wiki.ask import (
     WikiAskService,
     detect_question_type,
 )
+from wiki.rag.engine import IterativeRAGEngine
+from wiki.rag.protocol import Chunk
+from wiki.rag.wiki_retriever import WikiRetriever
 from wiki.search import SearchResponse, SearchResult
+
+
+def _llm_rag_json_answer(answer: str) -> str:
+    return json.dumps(
+        {
+            "answer": answer,
+            "gaps": [],
+            "next_queries": [],
+            "confidence": 0.9,
+            "is_complete": True,
+        }
+    )
+
+
+def _wiki_rag_engine(search: object, llm: object) -> IterativeRAGEngine:
+    return IterativeRAGEngine(retriever=WikiRetriever(search), llm=llm)  # type: ignore[arg-type]
 
 
 def _sr(
@@ -262,21 +282,33 @@ class TestWikiAskServiceGraphIntegration:
         llm = AsyncMock()
         llm.complete = AsyncMock(side_effect=capture_llm)
 
-        async def exec_q(cypher: str, params: dict | None = None) -> list[dict]:
-            if "WikiPage" in cypher:
-                return [{"page_path": "classes/Foo.md", "title": "Foo", "content": "ENRICHED_WIKI_FULL"}]
-            return []
-
         graph = AsyncMock()
-        graph.execute_query = AsyncMock(side_effect=exec_q)
 
-        svc = WikiAskService(search, llm, graph=graph)
+        rag = AsyncMock()
+        rag.arun = AsyncMock(
+            return_value={
+                "current_draft": "ok",
+                "accumulated_context": [
+                    Chunk(
+                        content="ENRICHED_WIKI_FULL",
+                        source="wiki",
+                        title="Foo",
+                        relevance=0.9,
+                        metadata={"page_path": "classes/Foo.md"},
+                    ),
+                ],
+                "sse_events": [],
+                "round": 1,
+                "confidence": 0.9,
+            }
+        )
+
+        svc = WikiAskService(search, llm, graph=graph, rag_engine=rag)
         await svc.ask("repo", "Foo是什么?")
 
-        assert captured
-        blob = "\n".join(str(m.get("content", "")) for m in captured[0])
-        assert "ENRICHED_WIKI_FULL" in blob
-        graph.execute_query.assert_awaited()
+        assert captured == []
+        rag.arun.assert_awaited()
+        graph.execute_query.assert_not_awaited()
 
     async def test_without_graph_backward_compatible_no_graph_queries(self) -> None:
         search = AsyncMock()
@@ -291,13 +323,14 @@ class TestWikiAskServiceGraphIntegration:
 
         async def capture_llm(messages: list[dict], **kwargs: object) -> str:
             captured.append(messages)
-            return "ok"
+            return _llm_rag_json_answer("ok")
 
         llm = AsyncMock()
         llm.complete = AsyncMock(side_effect=capture_llm)
 
-        svc = WikiAskService(search, llm)
+        svc = WikiAskService(search, llm, rag_engine=_wiki_rag_engine(search, llm))
         await svc.ask("repo", "Foo是什么?")
 
         blob = "\n".join(str(m.get("content", "")) for m in captured[0])
         assert "SNIPPET_ONLY" in blob
+        llm.complete.assert_awaited()

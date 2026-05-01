@@ -301,9 +301,18 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
     app.state.wiki_search_service = wiki_search
 
     if kb.llm_provider is not None:
+        from wiki.rag.engine import IterativeRAGEngine
+        from wiki.rag.wiki_retriever import WikiRetriever
+
+        wrapped_llm = _wrap_llm(kb.llm_provider)
+        rag_engine = IterativeRAGEngine(
+            retriever=WikiRetriever(wiki_search),
+            llm=wrapped_llm,
+        )
         app.state.wiki_ask_service = WikiAskService(
             search=wiki_search,
-            llm=_wrap_llm(kb.llm_provider),
+            llm=wrapped_llm,
+            rag_engine=rag_engine,
             graph=kb.store,
             memory_loop=wiki_mem,
             conversation_store=conv_store,

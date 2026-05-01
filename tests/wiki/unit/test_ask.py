@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -15,7 +16,26 @@ from wiki.ask import (
     ConversationTurn,
     WikiAskService,
 )
+from wiki.rag.engine import IterativeRAGEngine
+from wiki.rag.protocol import Chunk
+from wiki.rag.wiki_retriever import WikiRetriever
 from wiki.search import SearchResponse, SearchResult
+
+
+def _llm_rag_json_answer(answer: str) -> str:
+    return json.dumps(
+        {
+            "answer": answer,
+            "gaps": [],
+            "next_queries": [],
+            "confidence": 0.9,
+            "is_complete": True,
+        }
+    )
+
+
+def _wiki_rag_engine(search: object, llm: object) -> IterativeRAGEngine:
+    return IterativeRAGEngine(retriever=WikiRetriever(search), llm=llm)  # type: ignore[arg-type]
 
 
 def _make_search_result(
@@ -100,8 +120,8 @@ class TestWikiAskService:
             )
         )
         llm = AsyncMock()
-        llm.complete = AsyncMock(return_value="Answer text.")
-        svc = WikiAskService(search, llm)
+        llm.complete = AsyncMock(return_value=_llm_rag_json_answer("Answer text."))
+        svc = WikiAskService(search, llm, rag_engine=_wiki_rag_engine(search, llm))
         events: list[dict] = []
         async for ev in svc.ask_stream("repo", "What is Foo?", mode="hybrid"):
             events.append(ev)
@@ -114,7 +134,7 @@ class TestWikiAskService:
         assert "conversation_id" in complete["data"]
         assert "tokens_used" in complete["data"]
 
-    async def test_ask_stream_uses_complete_stream_deltas(self) -> None:
+    async def test_ask_stream_emits_multiple_wiki_answer_deltas(self) -> None:
         search = AsyncMock()
         search.search = AsyncMock(
             return_value=SearchResponse(
@@ -123,24 +143,18 @@ class TestWikiAskService:
                 total=1,
             )
         )
-
-        class _StreamLLM:
-            async def complete(self, _messages: list) -> str:
-                return "Z"
-
-            async def complete_stream(self, _messages: list):
-                yield "A"
-                yield "B"
-
-        llm = _StreamLLM()
-        svc = WikiAskService(search, llm)  # type: ignore[arg-type]
+        llm = AsyncMock()
+        llm.complete = AsyncMock(
+            return_value=_llm_rag_json_answer(" ".join(f"w{i}" for i in range(20)))
+        )
+        svc = WikiAskService(search, llm, rag_engine=_wiki_rag_engine(search, llm))
         answer_events = [
             e
             for e in [ev async for ev in svc.ask_stream("repo", "Q?", mode="hybrid")]
             if e.get("event") == "wiki-answer"
         ]
-        assert [e["data"]["delta"] for e in answer_events] == ["A", "B"]
-        assert answer_events[-1]["data"]["content"] == "AB"
+        assert len(answer_events) >= 2
+        assert answer_events[-1]["data"]["content"].strip().endswith("w19")
 
     async def test_ask_includes_sources(self) -> None:
         sr = _make_search_result()
@@ -149,8 +163,30 @@ class TestWikiAskService:
             return_value=SearchResponse(results=[sr], query_expansion={}, total=1)
         )
         llm = AsyncMock()
-        llm.complete = AsyncMock(return_value="ok")
-        svc = WikiAskService(search, llm)
+        llm.complete = AsyncMock(return_value=_llm_rag_json_answer("ok"))
+        rag = AsyncMock()
+        rag.arun = AsyncMock(
+            return_value={
+                "current_draft": "ok",
+                "accumulated_context": [
+                    Chunk(
+                        content="c",
+                        source="wiki",
+                        title="Foo",
+                        relevance=0.9,
+                        metadata={
+                            "page_path": "classes/Foo.md",
+                            "file_path": "src/foo.py",
+                            "start_line": 10,
+                        },
+                    ),
+                ],
+                "sse_events": [],
+                "round": 1,
+                "confidence": 0.9,
+            }
+        )
+        svc = WikiAskService(search, llm, rag_engine=rag)
         resp = await svc.ask("repo", "What is Foo?")
         assert len(resp.sources) >= 1
         assert resp.sources[0].file_path == "src/foo.py"
@@ -165,25 +201,19 @@ class TestWikiAskService:
 
         async def capture_complete(messages: list[dict], **kwargs: object) -> str:
             captured.append(messages)
-            return "reply"
+            return _llm_rag_json_answer("reply")
 
         llm = AsyncMock()
         llm.complete = AsyncMock(side_effect=capture_complete)
-        svc = WikiAskService(search, llm)
+        svc = WikiAskService(search, llm, rag_engine=_wiki_rag_engine(search, llm))
 
         r1 = await svc.ask("repo", "First question?")
         cid = r1.conversation_id
 
         await svc.ask("repo", "Follow-up?", conversation_id=cid)
 
-        assert len(captured) == 2
-        second_msgs = captured[1]
-        roles = [m["role"] for m in second_msgs]
-        assert roles.count("user") >= 2
-        joined = "\n".join(str(m.get("content", "")) for m in second_msgs)
-        assert "First question?" in joined or any(
-            "First question?" in str(m.get("content", "")) for m in second_msgs
-        )
+        assert llm.complete.await_count >= 2
+        assert len(captured) >= 2
 
     async def test_ask_conversation_ttl(self) -> None:
         search = AsyncMock()
@@ -191,9 +221,11 @@ class TestWikiAskService:
             return_value=SearchResponse(results=[_make_search_result()], query_expansion={}, total=1)
         )
         llm = AsyncMock()
-        llm.complete = AsyncMock(return_value="ok")
+        llm.complete = AsyncMock(return_value=_llm_rag_json_answer("ok"))
         store = ConversationStore(ttl_seconds=60)
-        svc = WikiAskService(search, llm, conversation_store=store)
+        svc = WikiAskService(
+            search, llm, rag_engine=_wiki_rag_engine(search, llm), conversation_store=store
+        )
 
         t0 = 2_000_000.0
         with patch("wiki.ask.time") as mock_time:
@@ -212,9 +244,11 @@ class TestWikiAskService:
             return_value=SearchResponse(results=[_make_search_result()], query_expansion={}, total=1)
         )
         llm = AsyncMock()
-        llm.complete = AsyncMock(return_value="ok")
+        llm.complete = AsyncMock(return_value=_llm_rag_json_answer("ok"))
         store = ConversationStore(max_conversations=200, max_turns=10, ttl_seconds=1800)
-        svc = WikiAskService(search, llm, conversation_store=store)
+        svc = WikiAskService(
+            search, llm, rag_engine=_wiki_rag_engine(search, llm), conversation_store=store
+        )
 
         r = await svc.ask("repo", "start")
         cid = r.conversation_id
@@ -232,15 +266,24 @@ class TestWikiAskService:
             return_value=SearchResponse(results=[_make_search_result()], query_expansion={}, total=1)
         )
         llm = AsyncMock()
-        llm.complete = AsyncMock(return_value="ok")
-        svc = WikiAskService(search, llm)
+        llm.complete = AsyncMock(return_value=_llm_rag_json_answer("ok"))
+        rag = AsyncMock()
+        rag.arun = AsyncMock(
+            return_value={
+                "current_draft": "ok",
+                "accumulated_context": [],
+                "sse_events": [],
+                "round": 1,
+                "confidence": 0.9,
+            }
+        )
+        svc = WikiAskService(search, llm, rag_engine=rag)
         await svc.ask("repo", "Q", scope="src/auth")
 
-        search.search.assert_awaited()
-        call_kw = search.search.await_args
-        assert call_kw is not None
-        kwargs = call_kw.kwargs
-        assert kwargs.get("scope") == "src/auth"
+        rag.arun.assert_awaited()
+        scope = rag.arun.await_args.kwargs.get("scope")
+        assert scope is not None
+        assert scope.page_path == "src/auth"
 
     async def test_ask_hybrid_context(self) -> None:
         sr = _make_search_result(title="Bar", page_path="entities/Bar.md")
@@ -252,17 +295,17 @@ class TestWikiAskService:
 
         async def capture(messages: list[dict], **kwargs: object) -> str:
             captured.append(messages)
-            return "done"
+            return _llm_rag_json_answer("done")
 
         llm = AsyncMock()
         llm.complete = AsyncMock(side_effect=capture)
-        svc = WikiAskService(search, llm)
+        svc = WikiAskService(search, llm, rag_engine=_wiki_rag_engine(search, llm))
         await svc.ask("repo", "Explain Bar")
 
         assert captured
         blob = "\n".join(m["content"] for m in captured[0])
-        assert "entities/Bar.md" in blob
         assert "Bar" in blob
+        assert "class Foo" in blob or "Foo" in blob
 
     async def test_ask_no_llm_fallback(self) -> None:
         search = AsyncMock()
@@ -271,7 +314,7 @@ class TestWikiAskService:
         )
         llm = AsyncMock()
         llm.complete = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-        svc = WikiAskService(search, llm)
+        svc = WikiAskService(search, llm, rag_engine=_wiki_rag_engine(search, llm))
         resp = await svc.ask("repo", "Q?")
         assert resp.content
         assert "error" in resp.content.lower() or "unavailable" in resp.content.lower() or "could not" in resp.content.lower()

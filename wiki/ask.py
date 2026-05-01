@@ -463,6 +463,38 @@ def _format_search_results(resp: SearchResponse) -> str:
     return "\n".join(parts).strip()
 
 
+def _chunks_to_ask_sources(chunks: list[Any]) -> list[AskSource]:
+    """Map RAG :class:`~wiki.rag.protocol.Chunk` list to citation rows for SSE."""
+    out: list[AskSource] = []
+    for c in chunks[:20]:
+        meta: dict[str, Any] = {}
+        raw_meta = getattr(c, "metadata", None)
+        if isinstance(raw_meta, dict):
+            meta = raw_meta
+        title = str(getattr(c, "title", "") or "")
+        page = str(meta.get("page_path") or title)
+        fpath = str(meta.get("file_path") or "")
+        ent = title or page
+        try:
+            start_line = int(meta.get("start_line", 0) or 0)
+        except (TypeError, ValueError):
+            start_line = 0
+        try:
+            rel = float(getattr(c, "relevance", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            rel = 0.0
+        out.append(
+            AskSource(
+                entity=ent,
+                file_path=fpath,
+                start_line=start_line,
+                wiki_page=page,
+                relevance_score=rel,
+            )
+        )
+    return out
+
+
 def _results_to_ask_sources(results: list[SearchResult]) -> list[AskSource]:
     out: list[AskSource] = []
     for r in results[:5]:
@@ -633,12 +665,11 @@ class WikiAskService:
         self,
         search: SearchPort,
         llm: LLMPort,
+        rag_engine: Any,
         conversation_store: ConversationStore | SqliteConversationStore | None = None,
         graph: GraphPort | None = None,
         wiki_store: WikiStore | None = None,
         memory_loop: MemoryLoopPort | None = None,
-        rag_engine: Any | None = None,
-        use_iterative_rag: bool = False,
     ) -> None:
         self._search = search
         self._llm = llm
@@ -646,7 +677,6 @@ class WikiAskService:
         self._wiki_store = wiki_store or (WikiStore(graph) if graph is not None else None)
         self._memory_loop = memory_loop
         self._rag_engine = rag_engine
-        self._use_iterative_rag = use_iterative_rag
 
     async def _resolve_conversation(
         self,
@@ -710,128 +740,57 @@ class WikiAskService:
         If ``record_memory`` is true and ``business_id`` is set, persists Q&A via memory loop
         (when configured).
         """
+        from wiki.rag.protocol import RetrievalScope
+
         history = await self._resolve_conversation(repository, scope, conversation_id)
-        prior_turns = list(history.turns)
 
-        search_resp = await self._search.search(
-            repository,
-            question,
-            mode=mode,
-            limit=5,
-            min_score=0.0,
-            scope=scope,
+        scope_obj = RetrievalScope(
+            scope_type="business" if business_id else "global",
+            business_id=business_id,
+            repository=repository,
+            page_path=scope,
         )
-        if not isinstance(search_resp, SearchResponse):
-            raise TypeError("search must return SearchResponse")
-        formatted = _format_search_results(search_resp)
-        qtype = detect_question_type(question)
-        if self._wiki_store is not None:
-            collector = GraphEnhancedContextCollector(self._wiki_store)
-            token_budget = wiki_context_token_budget(question, qtype)
-            try:
-                enriched = await collector.collect(
-                    repository,
-                    search_resp.results,
-                    qtype,
-                    token_budget=token_budget,
-                )
-                if enriched.strip():
-                    formatted = enriched
-            except Exception:
-                log.warning("graph_enrichment_failed", repository=repository, exc_info=True)
-        sources = _results_to_ask_sources(search_resp.results)
-
-        if self._use_iterative_rag and self._rag_engine is not None:
-            from wiki.rag.protocol import RetrievalScope
-
-            scope_obj = RetrievalScope(scope_type="global", page_path=scope)
-            rag_state = await self._rag_engine.arun(
-                question=question,
-                scope=scope_obj,
-                max_rounds=7,
-            )
-            full_text = str(rag_state.get("current_draft", ""))
-            for sse_ev in rag_state.get("sse_events", []):
-                yield {"event": "rag-progress", "data": sse_ev}
-            acc = ""
-            for d in _chunk_deltas(full_text):
-                acc += d
-                yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
-            yield {"event": "wiki-sources", "data": {"sources": [asdict(s) for s in sources]}}
-            tokens_used = _estimate_tokens(full_text)
-            yield {
-                "event": "wiki-answer-complete",
-                "data": {
-                    "conversation_id": history.conversation_id,
-                    "tokens_used": tokens_used,
-                    "iterative_rag": True,
-                    "confidence": rag_state.get("confidence", 0.0),
-                    "total_rounds": rag_state.get("round", 1),
-                },
-            }
-            history.turns.append(ConversationTurn(role="user", content=question))
-            history.turns.append(ConversationTurn(role="assistant", content=full_text))
-            save_result = self._store.save(history)
-            if inspect.isawaitable(save_result):
-                await save_result
-            return
-
-        messages = self._build_messages(repository, formatted, prior_turns, question)
 
         error_out = (
             "I could not generate an answer because the language model is unavailable. "
             "Please try again later."
         )
         full_text = ""
+        rag_state: dict[str, Any] = {}
         try:
-            stream_fn = getattr(self._llm, "complete_stream", None)
-            if _is_async_text_stream_method(stream_fn):
-                acc = ""
-                got_any = False
-                async for chunk in stream_fn(messages):
-                    if not chunk:
-                        continue
-                    got_any = True
-                    acc += chunk
-                    full_text = acc
-                    yield {"event": "wiki-answer", "data": {"content": acc, "delta": chunk}}
-                if not got_any:
-                    full_text = await self._llm.complete(messages)
-                    acc = ""
-                    for d in _chunk_deltas(full_text):
-                        acc += d
-                        yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
-            else:
-                full_text = await self._llm.complete(messages)
-                acc = ""
-                for d in _chunk_deltas(full_text):
-                    acc += d
-                    yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
+            rag_state = await self._rag_engine.arun(
+                question=question,
+                scope=scope_obj,
+                max_rounds=5,
+            )
+            full_text = str(rag_state.get("current_draft", ""))
         except Exception:
-            log.warning("wiki_ask_llm_failed", repository=repository, exc_info=True)
+            log.warning("wiki_ask_rag_failed", repository=repository, exc_info=True)
             full_text = error_out
-            acc = ""
-            for d in _chunk_deltas(full_text):
-                acc += d
-                yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
+
+        chunks_raw = rag_state.get("accumulated_context") if rag_state else None
+        chunks_list: list[Any] = list(chunks_raw) if isinstance(chunks_raw, list) else []
+        sources = _chunks_to_ask_sources(chunks_list)
+
+        if rag_state:
+            for sse_ev in rag_state.get("sse_events", []):
+                yield {"event": "rag-progress", "data": sse_ev}
+
+        acc = ""
+        for d in _chunk_deltas(full_text):
+            acc += d
+            yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
 
         yield {"event": "wiki-sources", "data": {"sources": [asdict(s) for s in sources]}}
         tokens_used = _estimate_tokens(full_text)
-        reasoning = _build_wiki_ask_reasoning_path(
-            search_resp,
-            mode,
-            qtype,
-            full_text,
-            include_graph_stages=(self._wiki_store is not None),
-        )
-        yield {
-            "event": "wiki-answer-complete",
-            "data": {
-                "conversation_id": history.conversation_id,
-                "tokens_used": tokens_used,
-                "reasoning_path": reasoning.to_dict(),
-            },
+        complete_data: dict[str, Any] = {
+            "conversation_id": history.conversation_id,
+            "tokens_used": tokens_used,
+            "iterative_rag": True,
+            "confidence": float(rag_state.get("confidence", 0.0)) if rag_state else 0.0,
+            "total_rounds": int(rag_state.get("round", 1)) if rag_state else 1,
         }
+        yield {"event": "wiki-answer-complete", "data": complete_data}
 
         history.turns.append(ConversationTurn(role="user", content=question))
         history.turns.append(ConversationTurn(role="assistant", content=full_text))

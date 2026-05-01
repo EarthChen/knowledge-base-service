@@ -51,13 +51,12 @@ class _FakeRAGEngine:
 
 
 @pytest.mark.asyncio
-async def test_ask_uses_iterative_rag_when_engine_set():
+async def test_ask_uses_iterative_rag_engine():
     engine = _FakeRAGEngine()
     svc = WikiAskService(
         search=_FakeSearch(),
         llm=_FakeLLM(),
         rag_engine=engine,
-        use_iterative_rag=True,
     )
     events = []
     async for ev in svc.ask_stream(repository="repo", question="what?"):
@@ -66,16 +65,3 @@ async def test_ask_uses_iterative_rag_when_engine_set():
     event_types = [e["event"] for e in events]
     assert "wiki-answer" in event_types
     assert "wiki-answer-complete" in event_types
-
-
-@pytest.mark.asyncio
-async def test_ask_falls_back_to_legacy_when_no_engine():
-    svc = WikiAskService(
-        search=_FakeSearch(),
-        llm=_FakeLLM(),
-    )
-    events = []
-    async for ev in svc.ask_stream(repository="repo", question="what?"):
-        events.append(ev)
-    event_types = [e["event"] for e in events]
-    assert "wiki-answer" in event_types

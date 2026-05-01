@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -9,6 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
+from wiki.rag.engine import IterativeRAGEngine
+from wiki.rag.wiki_retriever import WikiRetriever
 from tests.wiki_config_inject import inject_wiki_embedding, wiki_service_injection
 from llm.base_provider import BaseLLMProvider, GatewayLLMProviderAdapter, LLMPortBridge
 from llm.provider_factory import LLMProviderFactory, ProviderConfig
@@ -497,9 +500,23 @@ async def test_p1_ask_still_works() -> None:
         )
     )
     llm = MagicMock()
-    llm.complete = AsyncMock(return_value="Answer text.")
+    llm.complete = AsyncMock(
+        return_value=json.dumps(
+            {
+                "answer": "Answer text.",
+                "gaps": [],
+                "next_queries": [],
+                "confidence": 0.92,
+                "is_complete": True,
+            }
+        )
+    )
 
-    ask_svc = WikiAskService(search, llm)
+    ask_svc = WikiAskService(
+        search,
+        llm,
+        rag_engine=IterativeRAGEngine(retriever=WikiRetriever(search), llm=llm),
+    )
     answer = await ask_svc.ask(REPO, "What is X?", mode="hybrid")
     assert "Answer" in answer.content
     llm.complete.assert_awaited()

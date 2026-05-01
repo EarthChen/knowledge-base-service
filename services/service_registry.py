@@ -189,9 +189,7 @@ class ServiceRegistry:
 
         wiki_cfg = self._settings.wiki
         wiki_health = {
-            "cot_enabled": bool(wiki_cfg.cot_enabled),
-            "cot_analysis_model": wiki_cfg.cot_analysis_model or "",
-            "cot_generation_model": wiki_cfg.cot_generation_model or "",
+            "reasoning_effort": wiki_cfg.reasoning_effort or "auto",
         }
         return {
             "status": "ok",

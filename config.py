@@ -177,9 +177,7 @@ class RerankConfig(BaseModel):
 class AppWikiFlags(BaseModel):
     """Application-level wiki feature flags (separate from per-run ``wiki.models.WikiConfig``)."""
 
-    cot_enabled: bool = False
-    cot_analysis_model: str = ""
-    cot_generation_model: str = ""
+    reasoning_effort: str | None = None
     auto_update_on_index: bool = False
 
     tree_enabled: bool = True

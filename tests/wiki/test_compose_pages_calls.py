@@ -15,7 +15,7 @@ async def test_compose_pages_biz_entities_include_calls_from_props() -> None:
     captured: dict = {}
 
     class FakeComposer:
-        def __init__(self, llm: object, *, token_budget: int = 8000) -> None:
+        def __init__(self, llm: object, *, token_budget: int = 8000, **kwargs: object) -> None:
             self.llm = llm
             self.token_budget = token_budget
 
@@ -79,7 +79,7 @@ async def test_compose_pages_logs_when_data_models_truncated() -> None:
     entity_roles = {f"Module::{name}:0": "data_model" for name in module_names}
 
     class FakeComposer:
-        def __init__(self, llm: object, *, token_budget: int = 8000) -> None:
+        def __init__(self, llm: object, *, token_budget: int = 8000, **kwargs: object) -> None:
             pass
 
         async def compose_leaf_domain(self, domain: dict) -> list[dict]:

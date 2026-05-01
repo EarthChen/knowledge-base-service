@@ -16,6 +16,7 @@ from log import get_logger
 from store.conversation_store import SqliteConversationStore
 from store.wiki_store import WikiStore
 from wiki.crystallizer import crystallize as crystallize_wiki_page
+from wiki.llm_port import LLMPort
 from wiki.reasoning_path import (
     ReasoningPath,
     ReasoningStage,
@@ -75,11 +76,6 @@ class SearchPort(Protocol):
         *,
         scope: str | None = None,
     ) -> Any: ...
-
-
-@runtime_checkable
-class LLMPort(Protocol):
-    async def complete(self, messages: list[dict], **kwargs: Any) -> str: ...
 
 
 @runtime_checkable

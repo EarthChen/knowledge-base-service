@@ -14,9 +14,17 @@ class _LLMDecomposePort(Protocol):
 
 
 class DeepResearchService:
-    def __init__(self, ask_service: Any, llm: _LLMDecomposePort | Any | None = None) -> None:
+    def __init__(
+        self,
+        ask_service: Any,
+        llm: _LLMDecomposePort | Any | None = None,
+        rag_engine: Any | None = None,
+        use_iterative_rag: bool = False,
+    ) -> None:
         self._ask = ask_service
         self._llm = llm
+        self._rag_engine = rag_engine
+        self._use_iterative_rag = use_iterative_rag
 
     async def decompose_question(self, question: str) -> list[str]:
         """Break a complex question into sub-questions (LLM when configured, else heuristic)."""
@@ -83,6 +91,41 @@ class DeepResearchService:
             }
 
         sub_questions = await self.decompose_question(question)
+
+        if self._use_iterative_rag and self._rag_engine is not None:
+            from wiki.rag.protocol import RetrievalScope
+
+            scope = RetrievalScope(scope_type="global")
+            sub_answers = []
+            for sq in sub_questions:
+                state = await self._rag_engine.arun(question=sq, scope=scope, max_rounds=5)
+                sub_answers.append({"question": sq, "answer": state.get("current_draft", "")})
+
+            synthesis = ""
+            if self._llm is not None:
+                try:
+                    synth_prompt = (
+                        f"Original question: {question}\n\n"
+                        "Sub-question answers:\n"
+                        + "\n".join(f"Q: {sa['question']}\nA: {sa['answer']}" for sa in sub_answers)
+                        + "\n\nSynthesize a comprehensive answer."
+                    )
+                    synthesis = await self._llm.complete(
+                        [{"role": "user", "content": synth_prompt}]
+                    )
+                except Exception:
+                    log.warning("deep_research_synthesis_failed", exc_info=True)
+                    synthesis = "\n\n".join(sa["answer"] for sa in sub_answers)
+            else:
+                synthesis = "\n\n".join(sa["answer"] for sa in sub_answers)
+
+            return {
+                "question": question,
+                "sub_questions": [sa["question"] for sa in sub_answers],
+                "sub_answers": sub_answers,
+                "synthesis": synthesis,
+                "iterative_rag": True,
+            }
 
         sub_answers: list[dict[str, str]] = []
         for sq in sub_questions:

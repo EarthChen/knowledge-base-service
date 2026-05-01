@@ -15,6 +15,7 @@ SENSITIVE_KEYS = frozenset({
     "falkordb.password",
     "falkordb_password",
     "llm.api_key",
+    "llm.providers",
     "git.gitlab_token",
     "git.github_token",
     "wiki.git_token",

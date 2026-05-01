@@ -317,15 +317,15 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
             memory_loop=wiki_mem,
             conversation_store=conv_store,
         )
+        from wiki.deep_research import DeepResearchService
+
+        app.state.wiki_deep_research_service = DeepResearchService(
+            rag_engine=rag_engine,
+            llm=wrapped_llm,
+        )
     else:
         app.state.wiki_ask_service = None
-
-    from wiki.deep_research import DeepResearchService
-
-    app.state.wiki_deep_research_service = DeepResearchService(
-        ask_service=app.state.wiki_ask_service,
-        llm=_wrap_llm(kb.llm_provider) if kb.llm_provider else None,
-    )
+        app.state.wiki_deep_research_service = None
 
     app.state.graph_query_service = kb.graph_query
 

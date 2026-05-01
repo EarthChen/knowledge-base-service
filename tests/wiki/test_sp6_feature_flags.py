@@ -36,7 +36,7 @@ def test_deep_research_disabled_returns_404() -> None:
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(wiki_router)
-    dr = DeepResearchService(ask_service=AsyncMock())
+    dr = DeepResearchService(rag_engine=AsyncMock())
     app.state.wiki_deep_research_service = dr
     app.state.wiki_store = AsyncMock()
 
@@ -56,7 +56,12 @@ def test_deep_research_enabled_calls_service() -> None:
     app.include_router(wiki_router)
     dr = MagicMock(spec=DeepResearchService)
     dr.research = AsyncMock(
-        return_value={"question": "Q", "sub_questions": [], "synthesis": "S", "depth": 2},
+        return_value={
+            "question": "Q",
+            "sub_questions": [],
+            "sub_answers": [],
+            "synthesis": "S",
+        },
     )
     app.state.wiki_deep_research_service = dr
     app.state.wiki_store = AsyncMock()

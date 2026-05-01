@@ -63,3 +63,6 @@ pythonpath = ["."]
 # Full-suite runs reach ~80% line coverage. Omit fail-under from addopts so focused `pytest path::test` runs
 # (single-file coverage is a small fraction of the tree) are not spuriously rejected.
 addopts = "--cov=. --cov-report=term-missing"
+filterwarnings = [
+    "ignore:The 'config' parameter should be typed as:UserWarning",
+]

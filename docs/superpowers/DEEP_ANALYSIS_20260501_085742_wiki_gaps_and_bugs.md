@@ -26,9 +26,9 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 |------|------|------|
 | 确认的运行时 Bug | **11** (5 后端 + 6 前端) | ✅ **11/11 全部已修复** |
 | 架构问题 | **10** | ✅ **10/10 全部已修复** |
-| 产品能力缺口 | **7** | 🟡 P1/P2/P4/C1/C2/C3 已完成，P5 取消（企业级无需即时体验），P3/C4 待处理 |
-| 技术能力缺口 | **8** | 🟡 T1-T6 已完成，T7/T8 待处理 |
-| Agent 能力缺口 | **6** | 🟡 A2/A3/A4/A6 取消（MCP 定位为纯查询层），A1/A5 待处理 |
+| 产品能力缺口 | **7** | ✅ **P1/P2/P3/P4/C1/C2/C3/C4 已完成**，P5 取消（企业级无需即时体验） |
+| 技术能力缺口 | **8** | ✅ **T1–T8 已完成** |
+| Agent 能力缺口 | **6** | 🟡 A2/A3/A4/A6 取消（MCP 定位为纯查询层），**A1/A5 已完成** |
 | 前端体验问题 | i18n + SSE + AskPanel | ✅ 全部已修复 |
 | 测试补全 | 后端 +38 测试 + 前端 +69 测试 | ✅ **全部关键缺口已补全** |
 
@@ -147,7 +147,7 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 |---|------|---------------|-------------|---------|--------|
 | P1 | ~~**叙事性内容质量**~~ | ✅ `_SYSTEM_WIKI` 叙事性改写 + prompt 结构放松 | "像技术博客一样写"，解释 WHY 而非列举 WHAT | 极高 | ✅ 已完成 |
 | P2 | ~~**Bottom-up 递归生成**~~ | ✅ compose_leaf_pages→summarize_leaves→compose_parent_pages→synthesize_overviews | leaf→parent→system 逐层综合 | 高 | ✅ 已完成 |
-| P3 | **页面级 RAG Chat** | AskPanel 全局级，无页面上下文，且 repository 参数有 bug | 每个页面有专属 Chat 窗口，自动注入页面内容 | 高 | P1 |
+| P3 | ~~**页面级 RAG Chat**~~ | ✅ `page_context` + AskPanel 页面上下文；**`GET /api/v1/wiki/ask/stream?page_context=...`** | 每个页面有专属 Chat 窗口，自动注入页面内容 | 高 | ✅ 已完成 |
 | P4 | ~~**灵活内容结构**~~ | ✅ 非concise模式已改为 "Required elements (organize freely)" | 允许 LLM 自由组织结构（仅约束关键节） | 中 | ✅ 已完成 |
 | P5 | ~~**即时生成体验**~~ | — | URL → 自动创建 Wiki | — | ❌ 取消（企业级知识库无需即时体验，需先 index 再生成） |
 
@@ -158,7 +158,7 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 | C1 | ~~**递归深化生成**~~ | ✅ leaf→parent→system 逐层综合 | leaf→parent→system 逐层综合 | 极高 | ✅ 已完成 |
 | C2 | ~~**入口点驱动解构**~~ | ✅ ENTRY_POINT 角色 + DOMAIN_CLASSIFICATION_ENTITY_ROLES | 从 main/handler/endpoint 出发分析业务流程 | 高 | ✅ 已完成 |
 | C3 | ~~**内联代码片段**~~ | ✅ select_key_snippets + snippet_section prompt 注入 | 关键方法签名直接嵌入文档 | 高 | ✅ 已完成 |
-| C4 | **LLM 语义分组** | code_structure view 按目录结构遍历 | LLM 语义分组（跨目录相关模块归入同一主题） | 中 | P1 |
+| C4 | ~~**LLM 语义分组**~~ | ✅ `WIKI__CODE_STRUCTURE_SEMANTIC_GROUP` + code_structure 视图 LLM 语义分组 | LLM 语义分组（跨目录相关模块归入同一主题） | 中 | ✅ 已完成 |
 
 ### 4.3 综合对比矩阵 (2026-05-01)
 
@@ -170,7 +170,7 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 | **质量保证** | 多维度 Bench + 置信度 + 矛盾 + heal + L1/L2/L3 分层门 + Mermaid 语法验证 | 无 | CodeWikiBench | ✅ **架构领先** |
 | **增量更新** | webhook + diff + scheduler + SSE + **索引后自动更新Wiki** (热开关) | ❌ | ❌ | ✅ **强大领先** |
 | **多视图** | business_domain / code_structure / overview | ❌ | ❌ | ✅ **独有** |
-| **Agent MCP** | 16+ 查询工具（纯查询层） | per-page chat | ❌ | ✅ **强大领先** |
+| **Agent MCP** | 22+ 查询工具（纯查询层） | per-page chat | ❌ | ✅ **强大领先** |
 | **记忆演化** | Q&A 循环 + 遗忘曲线 | ❌ | ❌ | ✅ **独有** |
 | **导出** | Markdown/ZIP/Obsidian/MkDocs/Git/离线包 | 在线查看 | 文件系统 | ✅ **强大领先** |
 
@@ -186,8 +186,8 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 | T4 | ~~**定向修复 (Targeted Heal)**~~ | ✅ `wiki/targeted_healer.py` + heal_pages_node 集成 | 诊断+JSON patch+fallback | ✅ 已完成 |
 | T5 | ~~**Mermaid 语法验证**~~ | ✅ `mermaid-syntax-parser` 集成到 `diagram_quality_check` | - | ✅ 已完成 |
 | T6 | ~~**Prompt 集中化管理**~~ | ✅ 共享 prompt 已集中到 `wiki/prompts.py`，6 模块导入 | - | ✅ 已完成 |
-| T7 | **LLM 模型策略分离** | 所有节点用同一个 LLM | 提案已设计快/慢模型分离 | P1 |
-| T8 | **复杂度评估器** | DomainComplexityScorer 未充分利用 | 提案已设计多维度复杂度 | P1 |
+| T7 | ~~**LLM 模型策略分离**~~ | ✅ `wiki/model_strategy.py` + Dashboard `ModelStrategySection`，`llm.strategy.<task_type>` | 提案已设计快/慢模型分离 | ✅ 已完成 |
+| T8 | ~~**复杂度评估器**~~ | ✅ 与模型策略联动，`ComplexityMetrics` 驱动回退 | 提案已设计多维度复杂度 | ✅ 已完成 |
 
 ---
 
@@ -197,24 +197,24 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 
 | # | 缺失能力 | 描述 | 影响 | 状态 |
 |---|---------|------|------|------|
-| A1 | **上下文感知的 Wiki 查询** | Agent 调用 wiki_search 时无法指定"当前页面"上下文 | Agent 回答缺少页面上下文 | 待处理 |
+| A1 | ~~**上下文感知的 Wiki 查询**~~ | ✅ `wiki_search` 支持 `page_context`；流式 Ask 支持页面范围 | Agent 回答缺少页面上下文 | ✅ 已完成 |
 | A2 | ~~多视角 Wiki 生成工具~~ | MCP 无"指定视角生成"能力 | — | ❌ 取消（MCP 不提供生成能力） |
 | A3 | ~~增量生成状态反馈~~ | Agent 触发生成后无法获取实时进度 | — | ❌ 取消（MCP 不提供生成能力） |
 | A4 | ~~质量分析工具~~ | MCP 无专门的"分析 wiki 质量"工具 | — | ❌ 取消（如需要，在现有查询接口附带质量分数） |
-| A5 | **图谱-Wiki 关联查询** | 图谱查询和 Wiki 查询独立 | 知识属性不统一 | 待处理 |
+| A5 | ~~**图谱-Wiki 关联查询**~~ | ✅ MCP **`unified_knowledge_query`**（迭代 RAG，跨 wiki + 代码） | 知识属性不统一 | ✅ 已完成 |
 | A6 | ~~写回能力~~ | Agent 无法通过 MCP 编辑 wiki 内容 | — | ❌ 取消（MCP 定位为只读查询） |
 
 ### Agent 能力对比
 
 | 维度 | KB Service | DeepWiki | CodeWiki |
 |------|-----------|---------|----------|
-| MCP 工具数 | 16+ (纯查询) | per-page chat | 无 |
+| MCP 工具数 | 22+ (纯查询) | per-page chat | 无 |
 | 图谱查询 | ✅ | ✖ | ✖ |
 | Wiki 查询 | ✅ | ✖ | ✖ |
-| 上下文感知查询 | ✖ (待处理 A1) | ✅ (per-page) | ✖ |
-| 图谱-Wiki 关联 | ✖ (待处理 A5) | ✖ | ✖ |
+| 上下文感知查询 | ✅ | ✅ (per-page) | ✖ |
+| 图谱-Wiki 关联 | ✅ | ✖ | ✖ |
 
-**结论**: KB Service 的 Agent MCP 定位为纯查询层，在工具数量和功能广度上领先。待增强上下文感知查询（A1）和图谱-Wiki 关联查询（A5）以提升查询深度。
+**结论**: KB Service 的 Agent MCP 定位为纯查询层，在工具数量和功能广度上领先。**上下文感知查询（A1）与图谱-Wiki 统一查询（A5）** 已通过 `page_context` / 流式范围与 **`unified_knowledge_query`** 落地。
 
 ---
 
@@ -225,13 +225,8 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 #### D1: ~~叙事性内容生成模式~~ ✅ 已完成
 - **修复**: `_SYSTEM_WIKI` + `_build_single_page_prompt` 叙事性改写
 
-#### D2: Per-page RAG Chat (待处理 P3)
-- **现状**: AskPanel 全局级，无页面上下文
-- **借鉴**: 自动注入当前页面 `content` 作为 conversation context
-- **实施**:
-  1. 传入 `currentPageContent` 到 AskPanel
-  2. Ask API 接受可选 `page_context` 参数
-- **预期效果**: 用户在阅读特定页面时提问，获得页面相关的精准回答
+#### D2: ~~Per-page RAG Chat~~ ✅ 已完成
+- **修复**: `page_context`、Ask API / AskPanel 注入当前页上下文；功能开关与迭代 RAG 配合见 Phase 6 文档
 
 #### ~~D3: 即时生成体验~~ ❌ 取消
 - **原因**: 企业级知识库产品，需先完成索引再生成 Wiki，无需降低首次使用门槛
@@ -247,10 +242,8 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 #### C3: ~~内联代码片段注入~~ ✅ 已完成
 - **实施**: select_key_snippets + snippet_section prompt 注入
 
-#### C4: LLM 语义分组 (待处理)
-- **借鉴**: code_structure view 用 LLM 语义分组而非目录结构
-- **实施**: WikiStructurePlanner 增强 LLM 语义分组
-- **预期效果**: 不同目录下的相关模块可以被归入同一主题
+#### C4: ~~LLM 语义分组~~ ✅ 已完成
+- **实施**: `WIKI__CODE_STRUCTURE_SEMANTIC_GROUP`；code_structure 视图 LLM 语义分组
 
 ---
 
@@ -364,7 +357,7 @@ KB Service 在基础设施层面（增量更新、多视图、Agent MCP、记忆
 | 任务 | 预期效果 | 状态 |
 |------|---------|------|
 | ~~i18n 统一 (12+ 组件 + 4 个新组件)~~ | 国际化一致性 | ✅ 已完成 |
-| Per-page RAG Chat (AskPanel 上下文注入) | 页面级精准问答 | 待处理 (P3) |
+| ~~Per-page RAG Chat (AskPanel 上下文注入)~~ | 页面级精准问答 | ✅ **已完成** (P3 / Phase 6) |
 | ~~SSE 断连 UI 反馈~~ | 连接状态可见 | ✅ 已完成 |
 | ~~审批/审查 UX 完善~~ | 操作反馈一致 | ✅ 已完成 |
 | ~~前端测试补全 (isPending/reconnecting/error)~~ | 防止回归 | ✅ 已完成 |
@@ -385,7 +378,7 @@ KB Service 在以下维度保持显著领先：
 
 1. **增量更新体系**: webhook + diff + scheduler + SSE + 索引后自动更新 Wiki（dashboard 热开关），竞品均无此能力
 2. **多视图生成**: business_domain / code_structure / overview，独有
-3. **Agent MCP 生态**: 16+ 查询工具（纯查询层定位），最丰富的 Agent 集成
+3. **Agent MCP 生态**: 22+ 查询工具（纯查询层定位），最丰富的 Agent 集成
 4. **记忆演化系统**: Q&A 循环 + 遗忘曲线，独有
 5. **导出生态**: Markdown/ZIP/Obsidian/MkDocs/Git/离线包，远超竞品
 6. **质量保证架构**: L1/L2/L3 分层质量门 + 置信度 + 矛盾检测 + 主张追踪 + Mermaid 语法验证
@@ -408,15 +401,24 @@ KB Service 在以下维度保持显著领先：
 
 ---
 
-## 13. 剩余工作汇总
+## 13. ~~剩余工作汇总~~ ✅ Phase 6 已完成
 
 | 类别 | 项目 | 描述 | 优先级 |
 |------|------|------|--------|
-| 技术 | T7: LLM 模型策略分离 | 快/慢模型分离，不同节点使用不同级别 LLM | P1 |
-| 技术 | T8: 复杂度评估器深化 | DomainComplexityScorer 多维度利用 | P1 |
-| 产品 | P3: 页面级 RAG Chat | AskPanel 注入当前页面上下文，Ask API 接受 `page_context` | P1 |
-| 产品 | C4: LLM 语义分组 | code_structure view 用 LLM 语义分组替代目录结构 | P1 |
-| Agent | A1: 上下文感知 Wiki 查询 | wiki_search 支持"当前页面"上下文 | P1 |
-| Agent | A5: 图谱-Wiki 关联查询 | 统一图谱和 Wiki 的知识查询 | P2 |
+| 技术 | ~~T7: LLM 模型策略分离~~ | ✅ **已完成** — 快/慢模型与任务路由（`model_strategy.py`、Dashboard） | ✅ |
+| 技术 | ~~T8: 复杂度评估器深化~~ | ✅ **已完成** — 与策略回退联动（`ComplexityMetrics`） | ✅ |
+| 产品 | ~~P3: 页面级 RAG Chat~~ | ✅ **已完成** — `page_context`、流式 Ask、AskPanel | ✅ |
+| 产品 | ~~C4: LLM 语义分组~~ | ✅ **已完成** — `WIKI__CODE_STRUCTURE_SEMANTIC_GROUP` | ✅ |
+| Agent | ~~A1: 上下文感知 Wiki 查询~~ | ✅ **已完成** — `wiki_search` 的 `page_context` 等 | ✅ |
+| Agent | ~~A5: 图谱-Wiki 关联查询~~ | ✅ **已完成** — **`unified_knowledge_query`** | ✅ |
 
-**核心结论**: KB Service 的"基础设施"和"可扩展性"远超竞品。Phase 0–5 已全面完成核心工作：11 个运行时 Bug 全部修复、10 个架构问题全部解决、内容质量提升（叙事性 + CoT + Bottom-up + 代码注入）、可配置分层质量门（L1/L2/L3）+ Mermaid 语法验证、i18n 国际化统一、前端测试补全、**索引后自动更新 Wiki + 热开关**。**内容生成能力和质量保证已追平竞品**。剩余差距集中在 LLM 模型策略分离（T7）、复杂度评估器深化（T8）、页面级 RAG Chat（P3）、LLM 语义分组（C4）和 Agent 查询增强（A1/A5）。
+**核心结论**: KB Service 的"基础设施"和"可扩展性"远超竞品。Phase 0–6 已全面完成核心工作：11 个运行时 Bug 全部修复、10 个架构问题全部解决、内容质量提升（叙事性 + CoT + Bottom-up + 代码注入）、可配置分层质量门（L1/L2/L3）+ Mermaid 语法验证、i18n 国际化统一、前端测试补全、**索引后自动更新 Wiki + 热开关**。**迭代 RAG、动态模型策略、页面级问答与 MCP 统一查询已实现**，内容生成能力与 Agent 查询深度与竞品对齐或领先。
+
+---
+
+## Phase 6 Implementation Complete
+
+All 6 remaining work items (T7, T8, P3, C4, A1, A5) have been implemented in branch `feature/phase6-iterative-rag-model-strategy`.
+
+See implementation plan: `docs/superpowers/plans/2026-05-01-phase6-iterative-rag-and-model-strategy.md`
+See design spec: `docs/superpowers/specs/2026-05-01-wiki-phase6-iterative-rag-and-model-strategy-design.md`

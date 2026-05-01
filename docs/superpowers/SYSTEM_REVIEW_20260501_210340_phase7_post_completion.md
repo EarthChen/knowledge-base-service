@@ -75,21 +75,22 @@ initial_search → generate_draft → [route_after_draft]
 
 ## 3. 已知限制与技术债务
 
-### 3.1 中等优先级
+### 3.1 已修复（Phase 7 追加）
+
+| # | 问题 | 修复方案 | 状态 |
+|---|------|---------|------|
+| 1 | ~~HybridGraphRetriever graph leg 仅做实体名匹配~~ | 智能实体提取（PascalCase/camelCase/snake_case）+ call_chain 关系遍历 | ✅ |
+| 2 | ~~DeepSearchEngine 返回空 business_flows/code_locations~~ | 正则提取文件路径和箭头流程 | ✅ |
+| 3 | ~~全局 scope 无 repository 时检索为空~~ | HybridGraphRetriever 已天然支持；WikiRetriever 记录 warning | ✅ |
+| 4 | ~~LLMPortBridge.generate 签名不匹配 LLMPort.generate~~ | 添加 reasoning_effort 参数 | ✅ |
+| 5 | ~~WikiAskService._build_messages 死代码~~ | 已删除 | ✅ |
+
+### 3.2 剩余低优先级
 
 | # | 问题 | 影响 | 建议 |
 |---|------|------|------|
-| 1 | **HybridGraphRetriever graph leg 使用 find_entity() 而非 NL→Cypher** | 图查询能力有限，仅做实体名匹配 | 实现 NLCypherService 或接入 LLM-to-Cypher 转换 |
-| 2 | **DeepSearchEngine 返回空 business_flows/code_locations** | 依赖这些字段的 Dashboard 功能退化 | 从 RAG draft 中用 LLM 后处理提取结构化字段 |
-| 3 | **全局 scope 无 repository 时 WikiRetriever 返回空** | 跨仓库查询不可用 | 实现跨仓库检索机制 |
-
-### 3.2 低优先级
-
-| # | 问题 | 影响 | 建议 |
-|---|------|------|------|
-| 4 | **LLMPortBridge.generate 签名不匹配 LLMPort.generate** | extra_params vs reasoning_effort，被 _LLMPortWithDefault 遮蔽 | 对齐签名或在 Bridge 中添加 reasoning_effort 转换 |
-| 5 | **WikiAskService._build_messages 是死代码** | 无运行时影响，维护噪声 | 删除或标记 @deprecated |
 | 6 | **compose_concurrency 模块导入时固定** | 运行时修改设置不生效 | 改为每次读取 settings（性能可忽略） |
+| 7 | **NL→Cypher 图查询** | graph leg 目前用实体查找+调用链，非自然语言到Cypher | 未来可接入 LLM-to-Cypher 转换进一步增强 |
 
 ---
 
@@ -97,11 +98,11 @@ initial_search → generate_draft → [route_after_draft]
 
 ### Phase 8 候选项
 
-1. **全局问答增强** — 跨仓库检索 + 无 repository 场景支持
-2. **NL-to-Cypher 图查询** — 让 HybridGraphRetriever 的 graph leg 真正生效
-3. **DeepSearch 结构化输出恢复** — 从 RAG draft 提取 business_flows / code_locations
-4. **LLMPort 签名对齐** — LLMPortBridge.generate 与 LLMPort Protocol 完全一致
-5. **前端 SSE 事件适配** — 确认 planning/evaluating 新事件在 Dashboard 中正确渲染
+1. **NL-to-Cypher 图查询** — LLM 驱动的自然语言到 Cypher 转换，增强 graph leg 语义理解
+2. **前端 SSE 事件适配** — 确认 planning/evaluating 新事件在 Dashboard 中正确渲染
+3. **跨仓库语义检索** — 实现真正的全局语义搜索（跨多个 repository 聚合结果）
+4. **RAG 流式输出** — IterativeRAGEngine 支持实时 SSE 流式而非批量返回
+5. **质量评估闭环** — evaluate 节点反馈自动调整 retriever 策略
 
 ---
 

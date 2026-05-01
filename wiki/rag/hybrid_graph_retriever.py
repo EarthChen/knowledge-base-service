@@ -81,6 +81,42 @@ _SNAKE_RE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
 _WORD_RE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9_]*\b")
 
 
+def _format_cypher_row(row: dict[str, Any]) -> str:
+    """Format a Cypher result row as readable text for retrieval chunks."""
+    if not isinstance(row, dict):
+        return str(row)
+    typ = str(row.get("type") or "").strip()
+    name = str(row.get("name") or "").strip()
+    file = str(row.get("file") or "").strip()
+    line_raw = row.get("line", row.get("start_line"))
+    line: int | None
+    if line_raw is None or (isinstance(line_raw, str) and not line_raw.strip()):
+        line = None
+    else:
+        try:
+            line = int(line_raw)
+        except (TypeError, ValueError):
+            line = None
+    sig_raw = row.get("signature")
+    sig = str(sig_raw).strip() if sig_raw is not None else ""
+
+    head_parts: list[str] = []
+    if typ:
+        head_parts.append(f"[{typ}]")
+    if name:
+        head_parts.append(name)
+    head = " ".join(head_parts) if head_parts else (name or typ or str(row))
+
+    loc = ""
+    if file or line is not None:
+        lnum = line if line is not None else 0
+        loc = f" ({file}:{lnum})" if file else f" (:{lnum})"
+
+    if sig:
+        return f"{head}{loc} - {sig}"
+    return f"{head}{loc}".strip()
+
+
 def _graph_result_rows(result: Any) -> list[dict[str, Any]]:
     if result is None:
         return []
@@ -178,11 +214,40 @@ class HybridGraphRetriever:
         self,
         hybrid_service: Any,
         graph_service: Any | None = None,
+        *,
+        nl_cypher: Any | None = None,
     ) -> None:
         self._hybrid = hybrid_service
         self._graph = graph_service
+        self._nl_cypher = nl_cypher
 
-    async def _append_graph_chunks(self, query: str, chunks: list[Chunk]) -> None:
+    async def _append_graph_chunks(
+        self,
+        query: str,
+        chunks: list[Chunk],
+        *,
+        repository: str | None = None,
+    ) -> None:
+        if self._nl_cypher is not None and hasattr(self._nl_cypher, "query"):
+            try:
+                query_fn = self._nl_cypher.query
+                payload = await query_fn(query, repository=repository)
+                rows = payload.get("results") or []
+                if rows:
+                    for r in rows:
+                        content = _format_cypher_row(r) if isinstance(r, dict) else str(r)
+                        chunks.append(
+                            Chunk(
+                                content=content,
+                                source="graph_cypher",
+                                title="graph_cypher",
+                                relevance=0.4,
+                            ),
+                        )
+                    return
+            except Exception:
+                logger.debug("nl_cypher_retriever_failed", exc_info=True)
+
         if self._graph is None or not hasattr(self._graph, "find_entity"):
             return
         terms = extract_entity_candidates(query, max_lookups=_MAX_ENTITY_LOOKUPS)
@@ -278,5 +343,5 @@ class HybridGraphRetriever:
                     )
                 )
 
-            await self._append_graph_chunks(query, chunks)
+            await self._append_graph_chunks(query, chunks, repository=scope.repository)
         return chunks[:limit]

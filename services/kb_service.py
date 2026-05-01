@@ -267,12 +267,15 @@ class KnowledgeBaseService:
         rag_engine = None
         if settings.llm.enabled and self._llm_provider is not None:
             from query.deep_search import DeepSearchEngine
+            from query.nl_cypher import NLCypherService
             from wiki.rag.engine import IterativeRAGEngine
             from wiki.rag.hybrid_graph_retriever import HybridGraphRetriever
 
+            nl_cypher = NLCypherService(store=self._store, llm=self._llm_provider)
             rag_retriever = HybridGraphRetriever(
                 hybrid_service=self._hybrid_query,
                 graph_service=self._graph_query,
+                nl_cypher=nl_cypher,
             )
             rag_engine = IterativeRAGEngine(
                 retriever=rag_retriever,

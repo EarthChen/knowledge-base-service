@@ -36,6 +36,7 @@ from query.semantic_query import SemanticQueryService
 from store.analysis_store import AnalysisStore
 from store.falkordb_store import FalkorDBStore
 from store.search_store import SearchStore
+from store.settings_store import SettingsStore
 from store.traversal_store import TraversalStore
 
 log = get_logger(__name__)
@@ -55,6 +56,7 @@ class KnowledgeBaseService:
             config=falkordb_config,
             embedding_dim=settings.embedding.dimension,
         )
+        self._settings_store: SettingsStore | None = None
         self._init_components(settings)
 
     @classmethod
@@ -65,6 +67,7 @@ class KnowledgeBaseService:
         *,
         index_task_status_lookup: Callable[[str], dict[str, Any] | None] | None = None,
         repo_registry: Any | None = None,
+        settings_store: SettingsStore | None = None,
     ) -> KnowledgeBaseService:
         """Create a service with a pre-built store (used by ServiceRegistry for per-business instances)."""
         instance = cls.__new__(cls)
@@ -72,6 +75,7 @@ class KnowledgeBaseService:
         instance._store = store
         instance._index_task_status_lookup = index_task_status_lookup
         instance._repo_registry = repo_registry
+        instance._settings_store = settings_store
         instance._init_components(settings)
         return instance
 
@@ -163,6 +167,8 @@ class KnowledgeBaseService:
             doc_indexer=self._doc_indexer,
             enricher=self._enricher,
             repo_task_manager=self._repo_task_mgr,
+            wiki_auto_updater=self._auto_update_wiki,
+            settings_store=getattr(self, "_settings_store", None),
         )
 
         self._traversal_store = TraversalStore(self._store)
@@ -271,6 +277,10 @@ class KnowledgeBaseService:
             task_status_fn=self._index_task_status_lookup,
             repo_registry=getattr(self, "_repo_registry", None),
         )
+
+    async def _auto_update_wiki(self, repository: str) -> Any:
+        """Callback for IncrementalIndexer: triggers WikiService.generate_incremental."""
+        return await self._wiki_service.generate_incremental(repository)
 
     async def ensure_fulltext_indexes(self) -> None:
         await self._search_store.ensure_fulltext_indexes()

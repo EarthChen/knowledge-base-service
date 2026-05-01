@@ -21,6 +21,7 @@ from services.kb_service import KnowledgeBaseService
 from services.redis_startup import await_with_busy_loading_retry, run_sync_with_busy_loading_retry
 from store.business_manager import BusinessManager, graph_name_for
 from store.falkordb_store import FalkorDBStore
+from store.settings_store import SettingsStore
 
 log = get_logger(__name__)
 
@@ -34,10 +35,12 @@ class ServiceRegistry:
         *,
         index_task_status_lookup: Callable[[str], dict[str, Any] | None] | None = None,
         repo_registry: Any | None = None,
+        settings_store: SettingsStore | None = None,
     ) -> None:
         self._settings = settings
         self._index_task_status_lookup = index_task_status_lookup
         self._repo_registry = repo_registry
+        self._settings_store = settings_store
         self._db: FalkorDB | None = None
         self._business_mgr: BusinessManager | None = None
         self._services: dict[str, KnowledgeBaseService] = {}
@@ -160,6 +163,7 @@ class ServiceRegistry:
             settings=self._settings,
             index_task_status_lookup=self._index_task_status_lookup,
             repo_registry=self._repo_registry,
+            settings_store=self._settings_store,
         )
         await svc.ensure_fulltext_indexes()
         return svc

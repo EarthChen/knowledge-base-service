@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -31,6 +31,7 @@ from indexer.index_report import IndexReport
 from log import get_logger
 from store.falkordb_store import FalkorDBStore
 from store.indexer_store import IndexerStore
+from store.settings_store import SettingsStore
 from store.schema import GraphNode, NodeLabel
 from wiki.incremental import WikiIncrementalUpdater
 from wiki.models import WikiConfig
@@ -132,6 +133,8 @@ class IncrementalIndexer:
         enricher: CodeSummaryEnricher | None = None,
         repo_task_manager: RepoTaskManager | None = None,
         wiki_incremental_updater: WikiIncrementalUpdater | None = None,
+        wiki_auto_updater: Callable[[str], Awaitable[Any]] | None = None,
+        settings_store: SettingsStore | None = None,
     ) -> None:
         self._store = store
         self._builder = graph_builder
@@ -140,6 +143,8 @@ class IncrementalIndexer:
         self._enricher = enricher
         self._repo_task_mgr = repo_task_manager
         self._wiki_incremental_updater = wiki_incremental_updater
+        self._wiki_auto_updater = wiki_auto_updater
+        self._settings_store = settings_store
         self._last_report: IndexReport | None = None
 
     def get_last_report(self) -> IndexReport | None:
@@ -151,24 +156,41 @@ class IncrementalIndexer:
         """Whether LLM 摘要（直连或网关）可用于补全 business_summary。"""
         return self._enricher is not None or self._repo_task_mgr is not None
 
+    async def _check_auto_update_enabled(self) -> bool:
+        """Hot-read from DB, fallback to startup config."""
+        try:
+            if self._settings_store is not None:
+                val = await self._settings_store.get("wiki.auto_update_on_index")
+                if val is not None:
+                    return val.strip().lower() in ("true", "1", "yes")
+        except Exception:
+            log.warning("auto_update_settings_read_failed", exc_info=True)
+        return get_settings().wiki.auto_update_on_index
+
     async def _maybe_auto_update_wiki(
         self,
         changed_files: list[tuple[str, str | None, str | None]],
         repository: str | None,
         wiki_config: WikiConfig,
     ) -> None:
-        """When ``wiki.auto_update_on_index`` is enabled, run incremental wiki refresh."""
+        """When wiki auto-update is enabled, run incremental wiki refresh."""
         if repository is None:
             return
-        if self._wiki_incremental_updater is None:
+        if self._wiki_auto_updater is None and self._wiki_incremental_updater is None:
             return
-        if not get_settings().wiki.auto_update_on_index:
+        if not await self._check_auto_update_enabled():
             return
-        await self._wiki_incremental_updater.update_from_index_event(
-            repository,
-            changed_files,
-            wiki_config,
-        )
+        try:
+            if self._wiki_auto_updater is not None:
+                await self._wiki_auto_updater(repository)
+            elif self._wiki_incremental_updater is not None:
+                await self._wiki_incremental_updater.update_from_index_event(
+                    repository,
+                    changed_files,
+                    wiki_config,
+                )
+        except Exception:
+            log.warning("auto_wiki_update_failed", repository=repository, exc_info=True)
 
     def _enrichment_backend_label(self) -> str:
         """Return API progress label for LLM enrichment mode (empty if disabled)."""

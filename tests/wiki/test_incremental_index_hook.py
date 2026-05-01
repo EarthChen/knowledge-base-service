@@ -295,6 +295,126 @@ async def test_incremental_indexer_triggers_wiki_when_auto_update_true() -> None
 
 
 @pytest.mark.asyncio
+async def test_auto_update_calls_generate_incremental() -> None:
+    """wiki_auto_updater callback is invoked when enabled."""
+    from indexer.incremental_indexer import IncrementalIndexer
+
+    store = AsyncMock()
+    builder = MagicMock()
+    embed = MagicMock()
+    callback = AsyncMock(return_value={"status": "ok"})
+
+    indexer = IncrementalIndexer(
+        store=store,
+        graph_builder=builder,
+        embedding_gen=embed,
+        wiki_auto_updater=callback,
+    )
+
+    fake_settings = MagicMock()
+    fake_settings.wiki.auto_update_on_index = True
+
+    with patch("indexer.incremental_indexer.get_settings", return_value=fake_settings):
+        await indexer._maybe_auto_update_wiki(
+            [("M", "a.py", "a.py")],
+            "my-repo",
+            wiki_config=WikiConfig(
+                repository="my-repo", mode="structure", format="markdown", language="en",
+            ),
+        )
+
+    callback.assert_awaited_once_with("my-repo")
+
+
+@pytest.mark.asyncio
+async def test_auto_update_skips_when_disabled() -> None:
+    """wiki_auto_updater callback is NOT invoked when disabled."""
+    from indexer.incremental_indexer import IncrementalIndexer
+
+    callback = AsyncMock()
+    indexer = IncrementalIndexer(
+        store=AsyncMock(),
+        graph_builder=MagicMock(),
+        embedding_gen=MagicMock(),
+        wiki_auto_updater=callback,
+    )
+
+    fake_settings = MagicMock()
+    fake_settings.wiki.auto_update_on_index = False
+
+    with patch("indexer.incremental_indexer.get_settings", return_value=fake_settings):
+        await indexer._maybe_auto_update_wiki(
+            [("M", "a.py", "a.py")],
+            "my-repo",
+            wiki_config=WikiConfig(
+                repository="my-repo", mode="structure", format="markdown", language="en",
+            ),
+        )
+
+    callback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_auto_update_error_does_not_block_indexing() -> None:
+    """Exception in wiki_auto_updater callback is caught and logged."""
+    from indexer.incremental_indexer import IncrementalIndexer
+
+    callback = AsyncMock(side_effect=RuntimeError("wiki broke"))
+    indexer = IncrementalIndexer(
+        store=AsyncMock(),
+        graph_builder=MagicMock(),
+        embedding_gen=MagicMock(),
+        wiki_auto_updater=callback,
+    )
+
+    fake_settings = MagicMock()
+    fake_settings.wiki.auto_update_on_index = True
+
+    with patch("indexer.incremental_indexer.get_settings", return_value=fake_settings):
+        await indexer._maybe_auto_update_wiki(
+            [("M", "a.py", "a.py")],
+            "my-repo",
+            wiki_config=WikiConfig(
+                repository="my-repo", mode="structure", format="markdown", language="en",
+            ),
+        )
+
+    callback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_auto_updater_takes_priority_over_incremental_updater() -> None:
+    """wiki_auto_updater callback takes priority over wiki_incremental_updater."""
+    from indexer.incremental_indexer import IncrementalIndexer
+
+    callback = AsyncMock(return_value={"status": "ok"})
+    old_updater = AsyncMock()
+
+    indexer = IncrementalIndexer(
+        store=AsyncMock(),
+        graph_builder=MagicMock(),
+        embedding_gen=MagicMock(),
+        wiki_incremental_updater=old_updater,
+        wiki_auto_updater=callback,
+    )
+
+    fake_settings = MagicMock()
+    fake_settings.wiki.auto_update_on_index = True
+
+    with patch("indexer.incremental_indexer.get_settings", return_value=fake_settings):
+        await indexer._maybe_auto_update_wiki(
+            [("M", "a.py", "a.py")],
+            "my-repo",
+            wiki_config=WikiConfig(
+                repository="my-repo", mode="structure", format="markdown", language="en",
+            ),
+        )
+
+    callback.assert_awaited_once_with("my-repo")
+    old_updater.update_from_index_event.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_cache_without_glossary_methods_uses_none_previous_glossary(wiki_config: WikiConfig) -> None:
     """Caches that do not implement glossary API behave like previous_glossary=None."""
 
@@ -336,3 +456,136 @@ async def test_cache_without_glossary_methods_uses_none_previous_glossary(wiki_c
 
     await updater.update_from_index_event("r1", [("M", "src/A.java", "src/A.java")], wiki_config)
     assert captured["previous_glossary"] is None
+
+
+@pytest.mark.asyncio
+async def test_dynamic_config_db_true() -> None:
+    """SettingsStore value 'true' enables auto-update regardless of startup config."""
+    from indexer.incremental_indexer import IncrementalIndexer
+    from store.settings_store import SettingsStore
+
+    callback = AsyncMock(return_value={"status": "ok"})
+    settings_store = AsyncMock(spec=SettingsStore)
+    settings_store.get = AsyncMock(return_value="true")
+
+    indexer = IncrementalIndexer(
+        store=AsyncMock(),
+        graph_builder=MagicMock(),
+        embedding_gen=MagicMock(),
+        wiki_auto_updater=callback,
+        settings_store=settings_store,
+    )
+
+    fake_settings = MagicMock()
+    fake_settings.wiki.auto_update_on_index = False  # startup config says NO
+
+    with patch("indexer.incremental_indexer.get_settings", return_value=fake_settings):
+        await indexer._maybe_auto_update_wiki(
+            [("M", "a.py", "a.py")],
+            "my-repo",
+            wiki_config=WikiConfig(
+                repository="my-repo", mode="structure", format="markdown", language="en",
+            ),
+        )
+
+    callback.assert_awaited_once_with("my-repo")
+    settings_store.get.assert_awaited_once_with("wiki.auto_update_on_index")
+
+
+@pytest.mark.asyncio
+async def test_dynamic_config_db_false() -> None:
+    """SettingsStore value 'false' disables auto-update even if startup config says True."""
+    from indexer.incremental_indexer import IncrementalIndexer
+    from store.settings_store import SettingsStore
+
+    callback = AsyncMock()
+    settings_store = AsyncMock(spec=SettingsStore)
+    settings_store.get = AsyncMock(return_value="false")
+
+    indexer = IncrementalIndexer(
+        store=AsyncMock(),
+        graph_builder=MagicMock(),
+        embedding_gen=MagicMock(),
+        wiki_auto_updater=callback,
+        settings_store=settings_store,
+    )
+
+    fake_settings = MagicMock()
+    fake_settings.wiki.auto_update_on_index = True  # startup config says YES
+
+    with patch("indexer.incremental_indexer.get_settings", return_value=fake_settings):
+        await indexer._maybe_auto_update_wiki(
+            [("M", "a.py", "a.py")],
+            "my-repo",
+            wiki_config=WikiConfig(
+                repository="my-repo", mode="structure", format="markdown", language="en",
+            ),
+        )
+
+    callback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_dynamic_config_fallback_no_db_value() -> None:
+    """When SettingsStore has no value, fallback to get_settings() default."""
+    from indexer.incremental_indexer import IncrementalIndexer
+    from store.settings_store import SettingsStore
+
+    callback = AsyncMock(return_value={"status": "ok"})
+    settings_store = AsyncMock(spec=SettingsStore)
+    settings_store.get = AsyncMock(return_value=None)
+
+    indexer = IncrementalIndexer(
+        store=AsyncMock(),
+        graph_builder=MagicMock(),
+        embedding_gen=MagicMock(),
+        wiki_auto_updater=callback,
+        settings_store=settings_store,
+    )
+
+    fake_settings = MagicMock()
+    fake_settings.wiki.auto_update_on_index = True
+
+    with patch("indexer.incremental_indexer.get_settings", return_value=fake_settings):
+        await indexer._maybe_auto_update_wiki(
+            [("M", "a.py", "a.py")],
+            "my-repo",
+            wiki_config=WikiConfig(
+                repository="my-repo", mode="structure", format="markdown", language="en",
+            ),
+        )
+
+    callback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_settings_store_read_failure_falls_back_to_startup_config() -> None:
+    """If SettingsStore.get raises, fallback to get_settings() instead of propagating."""
+    from indexer.incremental_indexer import IncrementalIndexer
+    from store.settings_store import SettingsStore
+
+    callback = AsyncMock(return_value={"status": "ok"})
+    settings_store = AsyncMock(spec=SettingsStore)
+    settings_store.get = AsyncMock(side_effect=OSError("SQLite busy"))
+
+    indexer = IncrementalIndexer(
+        store=AsyncMock(),
+        graph_builder=MagicMock(),
+        embedding_gen=MagicMock(),
+        wiki_auto_updater=callback,
+        settings_store=settings_store,
+    )
+
+    fake_settings = MagicMock()
+    fake_settings.wiki.auto_update_on_index = True
+
+    with patch("indexer.incremental_indexer.get_settings", return_value=fake_settings):
+        await indexer._maybe_auto_update_wiki(
+            [("M", "a.py", "a.py")],
+            "my-repo",
+            wiki_config=WikiConfig(
+                repository="my-repo", mode="structure", format="markdown", language="en",
+            ),
+        )
+
+    callback.assert_awaited_once_with("my-repo")

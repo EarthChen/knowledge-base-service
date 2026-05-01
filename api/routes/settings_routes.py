@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Path
+from fastapi import APIRouter, Body, Depends, Path, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -22,18 +22,19 @@ settings_router = APIRouter(
     dependencies=[Depends(require_settings_admin)],
 )
 
-_settings_store: SettingsStore | None = None
+HOT_RELOAD_KEYS = frozenset({"wiki.auto_update_on_index"})
 
 
-def _get_store() -> SettingsStore:
-    global _settings_store
-    if _settings_store is None:
-        _settings_store = SettingsStore()
-    return _settings_store
+def _get_store(request: Request) -> SettingsStore:
+    store = getattr(request.app.state, "settings_store", None)
+    if store is None:
+        store = SettingsStore()
+        request.app.state.settings_store = store
+    return store
 
 
-def _get_service() -> SettingsService:
-    return SettingsService(_get_store())
+def _get_service(request: Request) -> SettingsService:
+    return SettingsService(_get_store(request))
 
 
 class SettingUpdateItem(BaseModel):
@@ -75,16 +76,18 @@ async def get_category_settings(
 @settings_router.put("")
 async def update_settings_batch(
     body: SettingsBatchUpdate,
+    request: Request,
     service: SettingsService = Depends(_get_service),
 ) -> dict[str, Any]:
     try:
         await service.update_settings([s.model_dump() for s in body.settings])
     except ValueError as e:
         raise KbClientError(str(e)) from e
+    all_hot = all(s.key in HOT_RELOAD_KEYS for s in body.settings)
     return {
         "status": "ok",
         "updated": str(len(body.settings)),
-        "restart_required": True,
+        "restart_required": not all_hot,
     }
 
 

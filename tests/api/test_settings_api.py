@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from cryptography.fernet import Fernet
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 
 import api.routes.settings_routes as settings_routes_module
@@ -42,7 +42,7 @@ def app(tmp_path: Path) -> FastAPI:
     from services.settings_service import SettingsService
     from store.settings_store import SettingsStore
 
-    def _get_service() -> SettingsService:
+    def _get_service(_request: Request) -> SettingsService:
         return SettingsService(SettingsStore(db_path))
 
     application = FastAPI()
@@ -99,6 +99,47 @@ class TestUpdateSettings:
             "/api/v1/settings",
             json={
                 "settings": [
+                    {"key": "host", "value": "127.0.0.1", "category": "system"},
+                ]
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body.get("restart_required") is True
+
+    @pytest.mark.asyncio
+    async def test_batch_hot_reload_key_restart_not_required(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.put(
+            "/api/v1/settings",
+            json={
+                "settings": [
+                    {
+                        "key": "wiki.auto_update_on_index",
+                        "value": "true",
+                        "category": "wiki_generation",
+                    },
+                ]
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body.get("restart_required") is False
+
+    @pytest.mark.asyncio
+    async def test_batch_mixed_keys_restart_required(self, client: AsyncClient) -> None:
+        resp = await client.put(
+            "/api/v1/settings",
+            json={
+                "settings": [
+                    {
+                        "key": "wiki.auto_update_on_index",
+                        "value": "true",
+                        "category": "wiki_generation",
+                    },
                     {"key": "host", "value": "127.0.0.1", "category": "system"},
                 ]
             },

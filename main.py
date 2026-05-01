@@ -44,6 +44,7 @@ from services.repo_registry import RepoRegistry
 from services.scheduler import SyncScheduler
 from services.service_registry import ServiceRegistry
 from store.falkordb_store import FalkorDBStore, QueryResultWrapper
+from store.settings_store import SettingsStore
 from wiki.bootstrap import bootstrap_wiki, teardown_wiki
 
 # Backward-compatible names for tests and external imports
@@ -125,10 +126,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     data_dir = Path(settings.git.clone_base_path).resolve().parent
     kb_state.repo_registry = RepoRegistry(str(data_dir))
+    settings_store = SettingsStore()
+    app.state.settings_store = settings_store
     kb_state.registry = ServiceRegistry(
         settings,
         index_task_status_lookup=_index_task_status_for_mcp,
         repo_registry=kb_state.repo_registry,
+        settings_store=settings_store,
     )
     await kb_state.registry.start()
 

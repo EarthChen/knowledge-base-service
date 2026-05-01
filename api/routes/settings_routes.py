@@ -22,7 +22,20 @@ settings_router = APIRouter(
     dependencies=[Depends(require_settings_admin)],
 )
 
-HOT_RELOAD_KEYS = frozenset({"wiki.auto_update_on_index"})
+HOT_RELOAD_KEYS = frozenset({
+    "wiki.auto_update_on_index",
+    "llm.providers",
+    "llm.strategy.classification",
+    "llm.strategy.generation",
+    "llm.strategy.reasoning",
+    "llm.strategy.evaluation",
+    "llm.strategy.heal",
+    "llm.strategy.diagram",
+    "llm.strategy.rag_plan",
+    "llm.strategy.rag_generate",
+    "llm.strategy.overview",
+    "llm.strategy.context",
+})
 
 
 def _get_store(request: Request) -> SettingsStore:

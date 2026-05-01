@@ -100,6 +100,14 @@ describe("WikiShell", () => {
     expect(generateMock).toHaveBeenCalledWith("b1", "en", true, "full");
   });
 
+  it("shows reconnecting banner when connection status is reconnecting", async () => {
+    const { useWikiEvents } = await import("../../../hooks/useWikiEvents");
+    vi.mocked(useWikiEvents).mockReturnValue({ connectionStatus: "reconnecting" as const });
+    renderShell("/wiki?business_id=b1");
+    expect(screen.getByRole("status")).toHaveTextContent("Reconnecting to live updates");
+    vi.mocked(useWikiEvents).mockReturnValue({ connectionStatus: "connected" as const });
+  });
+
   it("wiki tool Suspense fallback uses i18n loading string", () => {
     renderWithI18n(<WikiToolSuspenseFallback />);
     expect(screen.getByText("Loading…")).toBeInTheDocument();

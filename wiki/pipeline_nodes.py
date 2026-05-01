@@ -4,13 +4,14 @@ import asyncio
 import os
 import re
 from collections import Counter
+from dataclasses import asdict
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 from wiki.data_collector import PageData
-from wiki.models import PageType, SourceLocation, WikiPage
+from wiki.models import LeafSummary, PageType, SourceLocation, WikiPage
 from wiki.semantic_diagram_gen import SemanticDiagramGenerator
 from wiki.quality_evaluator import WikiQualityEvaluator
 from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
@@ -29,9 +30,11 @@ from wiki.reasoning import (
     TaskType,
     select_reasoning_level,
 )
-from wiki.token_budget import TokenBudgetResolver
 from wiki.topic_page_composer import TopicPageComposer
-from wiki.prompts import SYSTEM_WIKI_HEAL
+from wiki.json_robust import parse_json_robust_sync
+from wiki.prompts import SYSTEM_WIKI_HEAL, SYSTEM_WIKI_PARENT_OVERVIEW
+from wiki.snippet_selector import select_key_snippets
+from wiki.token_budget import TokenBudgetCalculator, TokenBudgetResolver
 
 log = get_logger(__name__)
 
@@ -437,14 +440,29 @@ def _extract_summary_from_content(content: str) -> str:
     return text.strip()[:_SUMMARY_MAX_LEN]
 
 
+def _extract_key_entities(page: dict[str, Any]) -> list[str]:
+    """Best-effort entity names from page metadata; empty if unknown."""
+    meta = page.get("metadata") or {}
+    if not isinstance(meta, dict):
+        return []
+    raw = meta.get("key_entities")
+    if not isinstance(raw, list):
+        return []
+    return [str(x) for x in raw if x is not None and str(x).strip()]
+
+
 async def summarize_leaves_node(state: dict[str, Any]) -> dict[str, Any]:
-    """Extract structured summaries for leaf-domain wiki pages (LLM summary or rule-based fallback)."""
+    """Extract structured summaries for leaf-domain wiki pages.
+
+    Prefers ``executive_summary`` from page metadata (populated by earlier compose/LLM
+    steps when available); otherwise falls back to rule-based extraction from Markdown.
+    """
     domain_tree = state.get("domain_tree") or []
     if not isinstance(domain_tree, list):
         domain_tree = []
     pages_by_path = _normalize_pages_map(state.get("pages"))
     leaf_domains = _collect_leaf_domains(domain_tree)
-    leaf_summaries: dict[str, dict[str, str]] = {}
+    leaf_summaries: dict[str, dict[str, Any]] = {}
 
     for leaf in leaf_domains:
         name = str(leaf.get("name") or "").strip()
@@ -456,22 +474,231 @@ async def summarize_leaves_node(state: dict[str, Any]) -> dict[str, Any]:
         metadata = page.get("metadata") or {}
         if not isinstance(metadata, dict):
             metadata = {}
+        module_count = len(leaf.get("modules", [])) if isinstance(leaf.get("modules"), list) else 0
+        key_entities = _extract_key_entities(page)
         exec_summary = metadata.get("executive_summary")
         if isinstance(exec_summary, str) and exec_summary.strip():
-            leaf_summaries[name] = {
-                "summary_text": exec_summary.strip(),
-                "source": "llm",
-            }
+            ls = LeafSummary(
+                domain_name=name,
+                summary_text=exec_summary.strip(),
+                module_count=module_count,
+                key_entities=key_entities,
+                source="llm",
+            )
+            leaf_summaries[name] = asdict(ls)
         else:
             raw_content = page.get("content")
             content = str(raw_content) if raw_content is not None else ""
             extracted = _extract_summary_from_content(content)
-            leaf_summaries[name] = {
-                "summary_text": extracted,
-                "source": "rule_extracted",
-            }
+            ls = LeafSummary(
+                domain_name=name,
+                summary_text=extracted,
+                module_count=module_count,
+                key_entities=key_entities,
+                source="rule_extracted",
+            )
+            leaf_summaries[name] = asdict(ls)
 
     return {"leaf_summaries": leaf_summaries}
+
+
+def has_parent_domains(state: dict[str, Any]) -> bool:
+    """True if any top-level domain node has non-empty children (nested tree)."""
+    domain_tree = state.get("domain_tree", []) or []
+    for domain in domain_tree:
+        children = domain.get("children", []) or []
+        if children:
+            return True
+    return False
+
+
+def _collect_parent_domains_by_level(
+    domain_tree: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    """Collect parent domains (nodes with children) by depth; deepest level first."""
+    levels: list[list[dict[str, Any]]] = []
+
+    def _traverse(nodes: list[Any], depth: int) -> None:
+        while len(levels) <= depth:
+            levels.append([])
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            children = node.get("children", []) or []
+            if not isinstance(children, list):
+                children = []
+            if children:
+                levels[depth].append(node)
+                _traverse(children, depth + 1)
+
+    if not isinstance(domain_tree, list):
+        return []
+    _traverse(domain_tree, 0)
+    levels.reverse()
+    return [lvl for lvl in levels if lvl]
+
+
+def _collect_module_names_in_subtree(domain: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    mods = domain.get("modules", []) or []
+    if isinstance(mods, list):
+        names.extend(str(m) for m in mods)
+    for child in domain.get("children", []) or []:
+        if isinstance(child, dict):
+            names.extend(_collect_module_names_in_subtree(child))
+    return names
+
+
+def _module_dicts_for_names(
+    module_names: list[str],
+    modules_by_repo: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Resolve module dicts from pipeline ``modules`` (first occurrence wins per name)."""
+    index: dict[str, dict[str, Any]] = {}
+    if isinstance(modules_by_repo, dict):
+        for _repo, mod_list in modules_by_repo.items():
+            if not isinstance(mod_list, list):
+                continue
+            for mod_dict in mod_list:
+                if not isinstance(mod_dict, dict):
+                    continue
+                name = mod_dict.get("properties", {}).get("name", "")
+                if name and name not in index:
+                    index[name] = mod_dict
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for mn in module_names:
+        if mn in seen:
+            continue
+        m = index.get(mn)
+        if m:
+            out.append(m)
+            seen.add(mn)
+    return out
+
+
+async def compose_parent_pages_node(
+    state: dict[str, Any], config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Generate overview wiki pages for parent domains from child summaries (bottom-up)."""
+    domain_tree = state.get("domain_tree", []) or []
+    if not isinstance(domain_tree, list):
+        domain_tree = []
+
+    if not has_parent_domains({**state, "domain_tree": domain_tree}):
+        return {"pages": []}
+
+    llm = (config or {}).get("configurable", {}).get("llm")
+    if not llm:
+        log.info("compose_parent_pages_skip", reason="no_llm")
+        return {"pages": []}
+
+    leaf_summaries: dict[str, Any] = dict(state.get("leaf_summaries", {}) or {})
+    modules = state.get("modules", {})
+    entity_roles_raw = state.get("entity_roles", {})
+    entity_roles = entity_roles_raw if isinstance(entity_roles_raw, dict) else {}
+
+    budget_resolver = TokenBudgetResolver()
+    gen_budget = budget_resolver.budget("topic_page_generate")
+    budget_calc = TokenBudgetCalculator()
+
+    parent_levels = _collect_parent_domains_by_level(domain_tree)
+    all_parent_pages: list[dict[str, Any]] = []
+
+    for level_parents in parent_levels:
+        for parent_domain in level_parents:
+            parent_name = str(parent_domain.get("name", "") or "").strip()
+            if not parent_name:
+                continue
+            children = parent_domain.get("children", []) or []
+            if not isinstance(children, list):
+                continue
+            child_names: list[str] = []
+            for c in children:
+                if isinstance(c, dict):
+                    cn = str(c.get("name", "") or "").strip()
+                    if cn:
+                        child_names.append(cn)
+
+            child_summary_lines: list[str] = []
+            for cn in child_names:
+                summary = leaf_summaries.get(cn, {})
+                if not isinstance(summary, dict):
+                    summary = {}
+                raw_text = summary.get("summary_text", f"{cn} domain")
+                text = raw_text if isinstance(raw_text, str) else str(raw_text)
+                child_summary_lines.append(f"- **{cn}**: {text}")
+            child_summaries_text = "\n".join(child_summary_lines)
+
+            mod_names = _collect_module_names_in_subtree(parent_domain)
+            all_mod_dicts = _module_dicts_for_names(mod_names, modules)
+            snippet_budget = budget_calc.budget_for_snippets(len(all_mod_dicts))
+            snippets = select_key_snippets(
+                all_mod_dicts,
+                entity_roles,
+                budget_tokens=snippet_budget,
+            )
+            snippet_lines = [s.format_for_prompt() for s in snippets]
+            snippet_text = (
+                "\n".join(snippet_lines) if snippet_lines else "No code signatures available."
+            )
+
+            prompt = (
+                f'Create a domain overview page for "{parent_name}" that synthesizes '
+                "its sub-domains.\n\n"
+                "## Sub-domain Summaries\n"
+                f"{child_summaries_text}\n\n"
+                "## Key Code Interfaces\n"
+                f"{snippet_text}\n\n"
+                'Return ONLY valid JSON (no markdown fences) with keys: "title", '
+                '"content", "executive_summary", "page_type".\n'
+                "The content should explain how sub-domains relate, describe data flow, "
+                "and reference key interfaces naturally.\n"
+                "executive_summary should be 150-300 chars capturing the domain's core purpose."
+            )
+            try:
+                response = await llm.generate(
+                    prompt,
+                    system=SYSTEM_WIKI_PARENT_OVERVIEW,
+                    max_tokens=gen_budget,
+                )
+                raw = response if isinstance(response, str) else str(response)
+                parsed = parse_json_robust_sync(raw)
+                if not isinstance(parsed, dict):
+                    log.warning("compose_parent_pages_bad_json", domain=parent_name)
+                    continue
+                title = parsed.get("title", parent_name)
+                content = parsed.get("content", "")
+                exec_summary = parsed.get("executive_summary", "")
+                page_type_val = parsed.get("page_type") or "domain_overview"
+                page_type = str(page_type_val)
+                slug = parent_name.strip().lower().replace(" ", "_")
+                page_dict: dict[str, Any] = {
+                    "path": f"wiki/{slug}",
+                    "title": title,
+                    "content": content,
+                    "page_type": page_type,
+                    "domain": parent_name,
+                    "metadata": {"executive_summary": exec_summary},
+                }
+                all_parent_pages.append(page_dict)
+                exec_str = str(exec_summary) if exec_summary is not None else ""
+                parent_ls = LeafSummary(
+                    domain_name=parent_name,
+                    summary_text=exec_str[:300],
+                    module_count=len(mod_names),
+                    key_entities=child_names,
+                    source="llm",
+                )
+                leaf_summaries[parent_name] = asdict(parent_ls)
+            except Exception:
+                log.warning(
+                    "compose_parent_pages_failed",
+                    domain=parent_name,
+                    exc_info=True,
+                )
+
+    return {"pages": all_parent_pages, "leaf_summaries": leaf_summaries}
 
 
 def _find_domain_in_tree(domain_tree: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
@@ -652,7 +879,7 @@ async def _compose_single_leaf_domain(
         role = entity_roles.get(uid, "supporting")
         props = mod_dict.get("properties", {})
 
-        if role == "has_business_logic":
+        if str(role) in ("has_business_logic", "entry_point"):
             biz_entities.append({
                 "uid": uid,
                 "name": mod_name,
@@ -660,13 +887,27 @@ async def _compose_single_leaf_domain(
                 "methods": [str(m) for m in (props.get("methods", []) or [])[:10]],
                 "calls": [str(c) for c in (props.get("calls", []) or [])[:15]],
             })
-        elif role == "data_model":
+        elif str(role) == "data_model":
             data_models.append({
                 "uid": uid,
                 "name": mod_name,
                 "type": "DTO",
                 "fields": [str(f) for f in (props.get("fields", []) or [])[:8]],
             })
+
+    budget_calc = TokenBudgetCalculator()
+    domain_modules = [
+        module_index[m] for m in module_names if m in module_index
+    ]
+    snippets = select_key_snippets(
+        domain_modules,
+        entity_roles,
+        budget_tokens=budget_calc.budget_for_snippets(len(domain_modules)),
+    )
+    snippet_section = ""
+    if snippets:
+        lines = [s.format_for_prompt() for s in snippets]
+        snippet_section = "\n## Key Code Interfaces\n" + "\n".join(lines) + "\n"
 
     if len(data_models) > 20:
         log.info("data_models_truncated", domain=domain_name, total=len(data_models), kept=20)
@@ -677,6 +918,7 @@ async def _compose_single_leaf_domain(
         "biz_entities": biz_entities,
         "data_models": data_models[:20],
         "sibling_summaries": [],
+        "snippet_section": snippet_section,
     }
 
     scorer = DomainComplexityScorer()
@@ -923,17 +1165,28 @@ async def synthesize_overviews_node(
         return {}
 
     flat_domains = _flatten_all_domains(domain_tree if isinstance(domain_tree, list) else [])
-    domain_overviews = {
-        str(d.get("name", "") or ""): _summarize_domain_for_system_overview(str(d.get("name", "") or ""), pages)
-        for d in flat_domains
-        if str(d.get("name", "") or "")
-    }
+    leaf_summaries = state.get("leaf_summaries", {}) or {}
+
+    domain_overviews: dict[str, str] = {}
+    for d in flat_domains:
+        name = str(d.get("name", "") or "")
+        if not name:
+            continue
+        ls = leaf_summaries.get(name, {})
+        if isinstance(ls, dict) and ls.get("summary_text"):
+            domain_overviews[name] = ls["summary_text"]
+        else:
+            domain_overviews[name] = _summarize_domain_for_system_overview(name, pages)
 
     thin_domain_lines = []
     for domain in flat_domains:
         name = domain.get("name", "") or ""
-        domain_pages = [p for p in pages if p.get("domain") == name]
-        summary = domain_pages[0]["content"][:200] if domain_pages else ""
+        ls = leaf_summaries.get(name, {})
+        if isinstance(ls, dict) and ls.get("summary_text"):
+            summary = ls["summary_text"]
+        else:
+            domain_pages = [p for p in pages if p.get("domain") == name]
+            summary = domain_pages[0].get("content", "")[:200] if domain_pages else ""
         thin_domain_lines.append(f"- **{name}**: {summary}")
 
     if not thin_domain_lines:

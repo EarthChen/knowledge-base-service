@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from unittest.mock import AsyncMock
 
 from wiki.domain_complexity import DomainComplexity, DomainComplexityScorer
 from wiki.topic_page_composer import TopicPageComposer
+
+
+def _wiki_json(content: str, summary: str = "Exec summary.") -> str:
+    return json.dumps({"executive_summary": summary, "content": content}, ensure_ascii=False)
 
 
 def _entity(name: str, *, methods: list[str] | None = None, calls: list[str] | None = None, loc: int = 0) -> dict:
@@ -86,7 +92,7 @@ async def test_topic_page_composer_uses_complexity():
 
     async def run_low():
         llm = AsyncMock()
-        llm.generate = AsyncMock(return_value="# L\n\n## 业务概述\nx\n")
+        llm.generate = AsyncMock(return_value=_wiki_json("# L\n\n## 业务概述\nx\n"))
         composer = TopicPageComposer(llm, token_budget=8000)
         domain = {
             "name": "low-domain",
@@ -107,7 +113,7 @@ async def test_topic_page_composer_uses_complexity():
 
     async def run_medium():
         llm = AsyncMock()
-        llm.generate = AsyncMock(return_value="# body\n")
+        llm.generate = AsyncMock(return_value=_wiki_json("# body\n"))
         composer = TopicPageComposer(llm, token_budget=8000)
         entities = []
         for i in range(8):
@@ -133,9 +139,9 @@ async def test_topic_page_composer_uses_complexity():
         llm = AsyncMock()
         llm.generate = AsyncMock(side_effect=[
             '[{"name": "g1", "entities": ["H0","H1"]}, {"name": "g2", "entities": ["H2"]}]',
-            "# ov\n",
-            "# p1\n",
-            "# p2\n",
+            _wiki_json("# ov\n", "Overview exec."),
+            _wiki_json("# p1\n", "Part one."),
+            _wiki_json("# p2\n", "Part two."),
         ])
         composer = TopicPageComposer(llm, token_budget=8000)
         entities = []

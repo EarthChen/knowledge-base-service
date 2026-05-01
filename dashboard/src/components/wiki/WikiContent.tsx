@@ -285,7 +285,7 @@ export default function WikiContent({
                         );
                       }}
                     >
-                      <ErrorBoundary fallbackLabel="Content rendering error">
+                      <ErrorBoundary fallbackLabel={t.wiki.error_boundary.content_error}>
                         <MarkdownRenderer
                           content={detail.content}
                           businessId={businessId}
@@ -295,7 +295,7 @@ export default function WikiContent({
                       </ErrorBoundary>
                     </WikiAnnotationLayer>
                   ) : (
-                    <ErrorBoundary fallbackLabel="Content rendering error">
+                    <ErrorBoundary fallbackLabel={t.wiki.error_boundary.content_error}>
                       <MarkdownRenderer
                         content={detail.content}
                         businessId={businessId}

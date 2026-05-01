@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from unittest.mock import AsyncMock
 
@@ -110,7 +112,11 @@ async def _llm_side_effect_wiki_and_mermaid(prompt: str, system: str = "", **kwa
             "Group these",
         )
     ):
-        return "## 业务概述\n用户管理模块\n## 核心业务流程\n..."
+        body = "## 业务概述\n用户管理模块\n## 核心业务流程\n..."
+        return json.dumps(
+            {"executive_summary": "用户管理域摘要用于测试。", "content": body},
+            ensure_ascii=False,
+        )
     pl = prompt.lower()
     if "overview context" in pl:
         return "graph TD\n  A-->B"
@@ -150,7 +156,11 @@ class TestComposePagesWithDiagrams:
                     "Group these",
                 )
             ):
-                return "## 业务概述\n内容\n## 核心业务流程\n..."
+                body = "## 业务概述\n内容\n## 核心业务流程\n..."
+                return json.dumps(
+                    {"executive_summary": "测试执行摘要。", "content": body},
+                    ensure_ascii=False,
+                )
             raise RuntimeError("LLM diagram generation failed")
 
         mock_llm.generate = AsyncMock(side_effect=side_effect)

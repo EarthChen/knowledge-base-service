@@ -212,7 +212,7 @@ export default function WikiShell() {
     pageQuery.data?.context?.repository?.trim() || businessId.trim();
 
   return (
-    <ErrorBoundary fallbackLabel="Wiki failed to render">
+    <ErrorBoundary fallbackLabel={t.wiki.error_boundary.wiki_failed}>
       <div className="flex min-h-[min(70vh,860px)] flex-col gap-4 lg:flex-row lg:items-stretch">
         <div
           className={`transition-all duration-300 ${sidebarCollapsed ? "w-0 overflow-hidden lg:w-0" : "w-full lg:w-64 xl:w-72"}`}

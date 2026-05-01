@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from unittest.mock import AsyncMock
 
 from wiki.pipeline_nodes import compose_leaf_pages_node
 
 
+def _wiki_json(content: str, summary: str = "Exec summary.") -> str:
+    return json.dumps({"executive_summary": summary, "content": content}, ensure_ascii=False)
+
+
 @pytest.mark.asyncio
 async def test_compose_pages_generates_topic_pages():
     mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(return_value="# Payment\n\n## 业务概述\nPayment service.\n\n## 核心业务流程\nflow\n\n## 核心服务详情\n### PaymentService\nDetails.")
+    mock_llm.generate = AsyncMock(return_value=_wiki_json(
+        "# Payment\n\n## 业务概述\nPayment service.\n\n## 核心业务流程\nflow\n\n## 核心服务详情\n### PaymentService\nDetails.",
+    ))
 
     state = {
         "business_id": "test",

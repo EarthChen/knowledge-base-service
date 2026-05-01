@@ -71,7 +71,10 @@ async def test_quality_gate_identifies_low_quality_pages() -> None:
 
     assert "quality_scores" in result
     assert "pages_to_heal" in result
-    assert result["quality_scores"]["good_page"] > result["quality_scores"]["bad_page"]
+    assert (
+        result["quality_scores"]["good_page"]["overall"]
+        > result["quality_scores"]["bad_page"]["overall"]
+    )
     assert "bad_page" in result["pages_to_heal"]
 
 
@@ -98,7 +101,7 @@ async def test_quality_gate_skips_skeleton_pages() -> None:
     }
 
     result = await quality_gate_node(state)
-    assert result["quality_scores"]["skel_page"] == 1.0
+    assert result["quality_scores"]["skel_page"]["overall"] == 1.0
     assert "skel_page" not in result.get("pages_to_heal", [])
 
 
@@ -142,7 +145,7 @@ async def test_heal_pages_increments_attempts() -> None:
         "domain_tree": None,
         "topic_structure": None,
         "pages": [page_dict],
-        "quality_scores": {"fix_me": 0.3},
+        "quality_scores": {"fix_me": {"overall": 0.3}},
         "pages_to_heal": ["fix_me"],
         "heal_attempts": {},
         "heal_hints": {},

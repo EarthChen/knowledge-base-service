@@ -59,13 +59,7 @@ type Props = {
   onAskQuestion?: (question: string) => void;
 };
 
-function panelBoundary(children: ReactNode) {
-  return <ErrorBoundary fallbackLabel="Wiki tool panel failed to render">{children}</ErrorBoundary>;
-}
-
-function mapTopicTreeToDomainPanelNodes(
-  nodes: TopicTreeNode[],
-): {
+function mapTopicTreeToDomainPanelNodes(nodes: TopicTreeNode[]): {
   name: string;
   description?: string;
   modules: string[];
@@ -74,6 +68,7 @@ function mapTopicTreeToDomainPanelNodes(
 }[] {
   return nodes.map((n) => ({
     name: n.name,
+    description: n.description,
     modules: [],
     moduleCount: n.module_count,
     children: mapTopicTreeToDomainPanelNodes(n.children ?? []),
@@ -113,6 +108,9 @@ export default function WikiToolPanel({
   onAskQuestion,
 }: Props) {
   const { t } = useI18n();
+  const panelBoundary = (children: ReactNode) => (
+    <ErrorBoundary fallbackLabel={t.wiki.error_boundary.tool_panel_failed}>{children}</ErrorBoundary>
+  );
   const dr = t.wiki.domain_review;
   const [, setSearchParams] = useSearchParams();
   const [domainReviewOpen, setDomainReviewOpen] = useState(false);

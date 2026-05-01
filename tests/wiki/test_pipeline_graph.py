@@ -15,7 +15,7 @@ def test_should_heal_returns_synthesize_when_no_pages_to_heal():
         "pages_to_heal": [],
         "heal_attempts": {},
     }
-    assert should_heal(state) == "synthesize_overviews"
+    assert should_heal(state) == "summarize_leaves"
 
 
 def test_should_heal_returns_heal_when_pages_need_healing():
@@ -34,7 +34,7 @@ def test_should_heal_respects_global_attempt_budget():
         "pages_to_heal": ["page/a"],
         "heal_attempts": {"page/a": HEAL_LOOP_MAX_TOTAL_ATTEMPTS, "page/b": 1},
     }
-    assert should_heal(state) == "synthesize_overviews"
+    assert should_heal(state) == "summarize_leaves"
 
 
 def test_should_heal_routes_to_heal_when_pages_present():
@@ -55,7 +55,8 @@ def test_pipeline_graph_has_expected_nodes():
     expected = {
         "classify_entity_roles", "detect_reorg", "classify_domains", "decompose_hierarchy",
         "set_review_status", "compose_leaf_pages", "quality_gate",
-        "heal_pages", "synthesize_overviews", "create_links",
+        "heal_pages", "summarize_leaves", "compose_parent_pages",
+        "synthesize_overviews", "create_links",
         "finalize", "__start__", "__end__",
     }
     assert expected.issubset(node_ids)
@@ -70,8 +71,32 @@ def test_pipeline_has_all_expected_nodes():
     expected = {
         "classify_entity_roles", "detect_reorg", "classify_domains",
         "decompose_hierarchy", "set_review_status", "compose_leaf_pages",
+        "summarize_leaves", "compose_parent_pages",
         "synthesize_overviews", "create_links",
         "quality_gate", "heal_pages", "finalize",
     }
     missing = expected - node_names
     assert not missing, f"Missing nodes: {missing}"
+
+
+def test_route_parent_or_overview_with_parents():
+    from wiki.pipeline_graph import route_parent_or_overview
+    state = {
+        "domain_tree": [
+            {"name": "root", "modules": [], "children": [
+                {"name": "child", "modules": ["A"], "children": []},
+            ]},
+        ],
+    }
+    assert route_parent_or_overview(state) == "compose_parent_pages"
+
+
+def test_route_parent_or_overview_flat():
+    from wiki.pipeline_graph import route_parent_or_overview
+    state = {
+        "domain_tree": [
+            {"name": "d1", "modules": ["A"], "children": []},
+            {"name": "d2", "modules": ["B"], "children": []},
+        ],
+    }
+    assert route_parent_or_overview(state) == "synthesize_overviews"

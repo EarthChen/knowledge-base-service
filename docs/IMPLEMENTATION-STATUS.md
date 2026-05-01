@@ -6,7 +6,7 @@ This file is the **single place** for high-level "what exists in the repo today"
 
 ## Sub-project numbering (read this first)
 
-Historical specs used two independent SP numbering schemes (SP1-SP6 for full-upgrade draft, SP1-SP7 for v2 approved design). Both design documents and their implementation plans have been **completed and removed** (2026-04-30). Current status is captured in the table below and in [wiki-audit-20260430](superpowers/wiki-audit-20260430_222403.md).
+Historical specs used two independent SP numbering schemes (SP1-SP6 for full-upgrade draft, SP1-SP7 for v2 approved design). Both design documents and their implementation plans have been **completed and removed** (2026-04-30). Current status is captured in the table below and in [DEEP_ANALYSIS](superpowers/DEEP_ANALYSIS_20260501_085742_wiki_gaps_and_bugs.md).
 
 Do **not** merge the two SP namespaces when reading older issues or PRs.
 

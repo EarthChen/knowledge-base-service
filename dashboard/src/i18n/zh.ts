@@ -930,6 +930,29 @@ const zh: Translations = {
       loading: "正在加载主张历史…",
       load_failed: "无法加载主张历史。",
     },
+    contradiction_alert: {
+      title: "矛盾警告",
+      description: "此页面关联了 {count} 个未解决的矛盾。",
+    },
+    tier_selector: {
+      comprehensive: "全面",
+      standard: "标准",
+      essential: "精简",
+      aria_label: "Wiki 层级筛选",
+    },
+    memory_tier: {
+      working: "工作记忆",
+      episodic: "情景记忆",
+      semantic: "语义记忆",
+      procedural: "程序记忆",
+      unknown: "未知",
+      aria_label: "记忆层级：{label}",
+    },
+    error_boundary: {
+      wiki_failed: "Wiki 渲染失败",
+      tool_panel_failed: "Wiki 工具面板渲染失败",
+      content_error: "内容渲染错误",
+    },
   },
   sync: {
     title: "定时同步",

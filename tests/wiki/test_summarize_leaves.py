@@ -1,4 +1,7 @@
 import pytest
+from dataclasses import fields
+
+from wiki.models import LeafSummary
 from wiki.pipeline_nodes import summarize_leaves_node
 
 
@@ -13,6 +16,49 @@ def _make_page(path, content, page_type="topic", executive_summary=None):
         "page_type": page_type,
         "metadata": metadata,
     }
+
+
+def _leaf_summary_field_names() -> set[str]:
+    return {f.name for f in fields(LeafSummary)}
+
+
+@pytest.mark.asyncio
+async def test_summarize_leaves_returns_leaf_summary_dicts_with_all_fields():
+    """leaf_summaries entries should contain all LeafSummary fields."""
+    state = {
+        "pages": {
+            "wiki/orders": _make_page(
+                "wiki/orders",
+                "Long content...",
+                executive_summary="Order domain handles e-commerce order lifecycle.",
+            ),
+        },
+        "domain_tree": [{"name": "orders", "modules": ["OrderService", "OrderRepo"], "children": []}],
+    }
+    result = await summarize_leaves_node(state)
+    summaries = result["leaf_summaries"]
+    entry = summaries["orders"]
+    assert _leaf_summary_field_names() == set(entry.keys())
+    assert entry["domain_name"] == "orders"
+    assert entry["module_count"] == 2
+    assert entry["key_entities"] == []
+    assert entry["source"] == "llm"
+
+
+@pytest.mark.asyncio
+async def test_summarize_leaves_key_entities_from_metadata():
+    page = _make_page(
+        "wiki/orders",
+        "Body",
+        executive_summary="Summary.",
+    )
+    page["metadata"]["key_entities"] = ["OrderService", "OrderRepo"]
+    state = {
+        "pages": {"wiki/orders": page},
+        "domain_tree": [{"name": "orders", "modules": ["OrderService"], "children": []}],
+    }
+    result = await summarize_leaves_node(state)
+    assert result["leaf_summaries"]["orders"]["key_entities"] == ["OrderService", "OrderRepo"]
 
 
 @pytest.mark.asyncio

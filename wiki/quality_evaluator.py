@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from log import get_logger
+from wiki.mermaid_validator import validate_mermaid_block
 from wiki.models import (
     ImportanceTier,
     WikiPage,
@@ -170,33 +171,38 @@ class WikiQualityEvaluator:
         bodies = _MERMAID_FENCE.findall(raw)
         mermaid_block_count = len(bodies)
         diagram_types: list[str] = []
-        valid_syntax = False
+        any_type_matched = False
+        all_valid = True
         for body in bodies:
-            first_line = body.strip().split("\n", 1)[0].strip()
+            stripped = body.strip()
+            first_line = stripped.split("\n", 1)[0].strip() if stripped else ""
             lead = first_line.lower()
             matched = False
             if lead.startswith("sequencediagram"):
                 diagram_types.append("sequenceDiagram")
-                valid_syntax = True
                 matched = True
             elif lead.startswith("flowchart"):
                 diagram_types.append("flowchart")
-                valid_syntax = True
                 matched = True
             elif lead.startswith("classdiagram"):
                 diagram_types.append("classDiagram")
-                valid_syntax = True
                 matched = True
             elif lead.startswith("statediagram"):
                 diagram_types.append("stateDiagram")
-                valid_syntax = True
                 matched = True
             elif lead.startswith("graph"):
                 diagram_types.append("graph")
-                valid_syntax = True
                 matched = True
+            if matched:
+                any_type_matched = True
             if not matched and first_line:
                 diagram_types.append("unknown")
+
+            validation = validate_mermaid_block(stripped)
+            if not validation.is_valid:
+                all_valid = False
+
+        valid_syntax = bool(mermaid_block_count > 0 and any_type_matched and all_valid)
 
         diversity_bonus = min(len(set(diagram_types)) / 2.0, 1.0) if diagram_types else 0.0
         count_part = min(mermaid_block_count / 2.0, 1.0) * 0.6

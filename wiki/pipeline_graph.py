@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph
 
@@ -12,11 +13,14 @@ from wiki.pipeline_nodes import (
     classify_domains_node,
     classify_entities_node,
     compose_leaf_pages_node,
+    compose_parent_pages_node,
     create_links_node,
     decompose_hierarchy_node,
     detect_reorg_node,
+    has_parent_domains,
     heal_pages_node,
     set_review_status_node,
+    summarize_leaves_node,
     synthesize_overviews_node,
 )
 from wiki.pipeline_state import WikiPipelineState
@@ -48,8 +52,15 @@ def should_heal(state: WikiPipelineState) -> str:
                 total_attempts=total_heal_attempts,
                 limit=HEAL_LOOP_MAX_TOTAL_ATTEMPTS,
             )
-            return "synthesize_overviews"
+            return "summarize_leaves"
         return "heal_pages"
+    return "summarize_leaves"
+
+
+def route_parent_or_overview(state: WikiPipelineState) -> str:
+    """Route to compose_parent_pages if nested domains exist, else skip."""
+    if has_parent_domains(state):
+        return "compose_parent_pages"
     return "synthesize_overviews"
 
 
@@ -57,13 +68,29 @@ def should_heal(state: WikiPipelineState) -> str:
 # Quality / finalize nodes (graph-local)
 # ---------------------------------------------------------------------------
 
-async def quality_gate_node(state: WikiPipelineState) -> dict[str, Any]:
-    """Evaluate page quality, identify pages needing healing."""
+async def quality_gate_node(
+    state: WikiPipelineState, config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Evaluate page quality with configurable L1/L2/L3 layers.
+
+    Configuration (priority high→low):
+    1. state["config"]["quality_levels"]
+    2. config["configurable"]["quality_levels"]
+    3. Default: ["L1", "L2"]
+    """
+    cfg = state.get("config") or {}
+    levels = (
+        cfg.get("quality_levels")
+        or (config or {}).get("configurable", {}).get("quality_levels")
+        or ["L1", "L2"]
+    )
+
     evaluator = WikiQualityEvaluator()
-    scores: dict[str, float] = {}
-    pages_to_heal: list[str] = []
-    importance_tiers: dict[str, str] = state.get("config", {}).get("importance_tiers", {})
+    importance_tiers: dict[str, str] = cfg.get("importance_tiers", {})
     heal_attempts = state.get("heal_attempts", {})
+
+    quality_scores: dict[str, dict[str, Any]] = {}
+    pages_to_heal: list[str] = []
 
     for page_dict in state.get("pages", []):
         try:
@@ -79,26 +106,55 @@ async def quality_gate_node(state: WikiPipelineState) -> dict[str, Any]:
             tier = ImportanceTier.STANDARD
 
         if tier == ImportanceTier.SKELETON:
-            scores[page.path] = 1.0
+            quality_scores[page.path] = {"l1_structural": 1.0, "overall": 1.0}
             continue
 
-        score = evaluator.structural_check(page)
-        scores[page.path] = score.overall
+        score_dict: dict[str, Any] = {}
+
+        l1 = evaluator.structural_check(page)
+        score_dict["l1_structural"] = l1.overall
+
+        if "L2" in levels:
+            l2 = evaluator.bench_score(page)
+            score_dict["l2_bench"] = l2.overall
+
+        score_dict["l3_llm_judge"] = None
+        if "L3" in levels and tier == ImportanceTier.CORE and l1.overall >= 0.7:
+            llm = (config or {}).get("configurable", {}).get("llm")
+            if llm:
+                evaluator_with_llm = WikiQualityEvaluator(llm=llm)
+                l3 = await evaluator_with_llm.llm_judge_evaluate(page)
+                score_dict["l3_llm_judge"] = l3.overall
+
+        numeric_scores = [
+            v
+            for v in score_dict.values()
+            if isinstance(v, (int, float)) and v is not None
+        ]
+        score_dict["overall"] = (
+            round(sum(numeric_scores) / len(numeric_scores), 4) if numeric_scores else 0.0
+        )
+
+        quality_scores[page.path] = score_dict
 
         threshold = 0.7 if tier == ImportanceTier.CORE else 0.5
         max_retries = 2 if tier == ImportanceTier.CORE else 1
         attempts = heal_attempts.get(page.path, 0)
 
-        if score.overall < threshold and attempts < max_retries:
+        if l1.overall < threshold and attempts < max_retries:
             pages_to_heal.append(page.path)
+
+    if "L2" in levels and len(pages_to_heal) > 1:
+        pages_to_heal.sort(key=lambda p: quality_scores.get(p, {}).get("l2_bench", 0.0))
 
     log.info(
         "quality_gate_done",
         total_pages=len(state.get("pages", [])),
-        evaluated=len(scores),
+        evaluated=len(quality_scores),
         to_heal=len(pages_to_heal),
+        levels=levels,
     )
-    return {"quality_scores": scores, "pages_to_heal": pages_to_heal}
+    return {"quality_scores": quality_scores, "pages_to_heal": pages_to_heal}
 
 
 async def finalize_node(state: WikiPipelineState) -> dict[str, Any]:
@@ -140,6 +196,8 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("compose_leaf_pages", compose_leaf_pages_node)
     graph.add_node("quality_gate", quality_gate_node)
     graph.add_node("heal_pages", heal_pages_node)
+    graph.add_node("summarize_leaves", summarize_leaves_node)
+    graph.add_node("compose_parent_pages", compose_parent_pages_node)
     graph.add_node("synthesize_overviews", synthesize_overviews_node)
     graph.add_node("create_links", create_links_node)
     graph.add_node("finalize", finalize_node)
@@ -157,9 +215,15 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_conditional_edges(
         "quality_gate",
         should_heal,
-        {"heal_pages": "heal_pages", "synthesize_overviews": "synthesize_overviews"},
+        {"heal_pages": "heal_pages", "summarize_leaves": "summarize_leaves"},
     )
     graph.add_edge("heal_pages", "quality_gate")
+    graph.add_conditional_edges(
+        "summarize_leaves",
+        route_parent_or_overview,
+        {"compose_parent_pages": "compose_parent_pages", "synthesize_overviews": "synthesize_overviews"},
+    )
+    graph.add_edge("compose_parent_pages", "synthesize_overviews")
     graph.add_edge("synthesize_overviews", "create_links")
     graph.add_edge("create_links", "finalize")
 

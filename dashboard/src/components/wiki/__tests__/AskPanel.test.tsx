@@ -106,4 +106,24 @@ describe("AskPanel", () => {
     renderAsk("my-repo");
     expect(screen.getByRole("status")).toHaveTextContent("Retrieving context and generating");
   });
+
+  it("shows error message when useWikiAsk returns an error", () => {
+    useWikiAskMock.mockImplementation(() => ({
+      answer: "",
+      sources: [],
+      get isStreaming() {
+        return false;
+      },
+      error: "Something went wrong",
+      reasoningPath: null,
+      ask: askFn,
+      cancel: vi.fn(),
+      reset: vi.fn(),
+      setAnswer: vi.fn(),
+      setSources: vi.fn(),
+      conversationId: undefined as string | undefined,
+    }));
+    renderAsk("my-repo");
+    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+  });
 });

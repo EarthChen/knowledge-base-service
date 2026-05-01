@@ -19,7 +19,7 @@
 
 | 文档 | 内容 |
 |------|------|
-| [superpowers/wiki-audit-20260430_222403.md](superpowers/wiki-audit-20260430_222403.md) | **最新** Wiki 系统深度审计（P0-P2 问题清单 + 竞品对标 DeepWiki/CodeWiki + 测试覆盖） |
+| [superpowers/DEEP_ANALYSIS_20260501_085742_wiki_gaps_and_bugs.md](superpowers/DEEP_ANALYSIS_20260501_085742_wiki_gaps_and_bugs.md) | Wiki 系统深度分析报告（Bug 清单 + 架构问题 + 能力差距 + 竞品对标 + 实施路线 + 剩余工作） |
 
 ## 技术栈概览
 

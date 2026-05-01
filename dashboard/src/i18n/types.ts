@@ -964,6 +964,29 @@ export interface Translations {
       loading: string;
       load_failed: string;
     };
+    contradiction_alert: {
+      title: string;
+      description: string;
+    };
+    tier_selector: {
+      comprehensive: string;
+      standard: string;
+      essential: string;
+      aria_label: string;
+    };
+    memory_tier: {
+      working: string;
+      episodic: string;
+      semantic: string;
+      procedural: string;
+      unknown: string;
+      aria_label: string;
+    };
+    error_boundary: {
+      wiki_failed: string;
+      tool_panel_failed: string;
+      content_error: string;
+    };
   };
   sync: {
     title: string;

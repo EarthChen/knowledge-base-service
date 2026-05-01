@@ -58,7 +58,7 @@ class WikiPipelineState(TypedDict):
     pages: Annotated[list[dict[str, Any]], merge_wiki_pages]
 
     # --- Quality tracking ---
-    quality_scores: dict[str, float]
+    quality_scores: dict[str, dict[str, Any]]
     pages_to_heal: list[str]
     heal_attempts: dict[str, int]
     heal_hints: dict[str, str]

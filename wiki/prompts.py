@@ -27,6 +27,13 @@ SYSTEM_WIKI_HEAL = (
     "Do NOT explain frameworks or annotations."
 )
 
+SYSTEM_WIKI_PARENT_OVERVIEW = (
+    "You are a senior technical writer creating a domain overview page that "
+    "synthesizes information from its sub-domains. Write like a technical blog post "
+    "— explain HOW sub-domains relate and WHY they exist together. "
+    "Output valid JSON only."
+)
+
 
 def versioned_prompt(
     name: str,

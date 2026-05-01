@@ -70,6 +70,21 @@ describe("WikiDomainReviewPanel", () => {
     expect(onApprove).toHaveBeenCalled();
   });
 
+  it("disables approve button and shows processing when isPending", () => {
+    render(
+      <WikiDomainReviewPanel
+        domainTree={domainTree}
+        reviewStatus={{ domain_tree: "pending_review" }}
+        onApprove={vi.fn()}
+        onRegenerate={vi.fn()}
+        isPending={true}
+      />,
+    );
+    const button = screen.getByRole("button", { name: /处理中/ });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+  });
+
   it("calls onRegenerate for specific domain", () => {
     const onRegenerate = vi.fn();
     render(

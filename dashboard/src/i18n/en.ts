@@ -947,6 +947,29 @@ const en: Translations = {
       loading: "Loading claim history…",
       load_failed: "Could not load claim history.",
     },
+    contradiction_alert: {
+      title: "Contradiction warning",
+      description: "{count} open contradiction(s) linked to this page.",
+    },
+    tier_selector: {
+      comprehensive: "Comprehensive",
+      standard: "Standard",
+      essential: "Essential",
+      aria_label: "Wiki tier filter",
+    },
+    memory_tier: {
+      working: "Working",
+      episodic: "Episodic",
+      semantic: "Semantic",
+      procedural: "Procedural",
+      unknown: "Unknown",
+      aria_label: "Memory tier: {label}",
+    },
+    error_boundary: {
+      wiki_failed: "Wiki failed to render",
+      tool_panel_failed: "Wiki tool panel failed to render",
+      content_error: "Content rendering error",
+    },
   },
   sync: {
     title: "Sync schedules",

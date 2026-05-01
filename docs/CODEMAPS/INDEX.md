@@ -10,7 +10,7 @@
 | HTTP app | `main.py` |
 | Public / role-based API | `api/routes/kb_routers.py` → `api/routes/*_routes.py` |
 | Wiki surface | `api/routes/wiki_routes.py` (aggregates `wiki_page_routes`, `wiki_task_routes`, `wiki_ask_routes`, `wiki_feedback_routes`, `wiki_contradiction_routes`, …) |
-| MCP | `api/mcp_server.py`（主清单 20 工具），可选 `api/mcp_wiki_server.py`（HTTP 6 工具 + `wiki_mcp_routes`） |
+| MCP | `api/mcp_server.py`（主清单 22 工具），可选 `api/mcp_wiki_server.py`（HTTP 6 工具 + `wiki_mcp_routes`） |
 | Dashboard | `dashboard/src/main.tsx`, `dashboard/vite.config.ts` |
 
 ## Backend areas
@@ -32,7 +32,7 @@ query/               # Hybrid search, blast radius, NL→Cypher (UI)
 | Phase 2 | `wiki/community_context.py`, `store/graph_queries.py`（`shortest_path_between_names`）, `store/wiki_page_store.py`（`update_wiki_page_content`, 版本/ diff） | HTTP：`PATCH …/content`，`GET …/versions`，`GET …/diff` |
 | Phase 3 | `wiki/reasoning_path.py`, `wiki/offline_pack.py`, `store/wiki_tree_store.py`（`wiki_tier`） | HTTP：`GET …/offline-pack`，`wiki_tier` on tree |
 | P0 / P1 | (历史计划文件已清理) | 完成状态以 IMPLEMENTATION-STATUS 为准 |
-| Wiki async gen (2026-04-27) | `wiki/task_store.py`, `api/routes/wiki_task_routes.py`, `store/wiki_page_store.py`（`get_repo_wiki_freshness`）, `dashboard/src/hooks/useWikiRegenerate.ts` | 业务 Wiki **202** + 任务轮询；见 [spec](../superpowers/specs/2026-04-27-wiki-generation-architecture-improvement-design.md) 与 [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md) |
+| Wiki async gen (2026-04-27) | `wiki/task_store.py`, `api/routes/wiki_task_routes.py`, `store/wiki_page_store.py`（`get_repo_wiki_freshness`）, `dashboard/src/hooks/useWikiRegenerate.ts` | 业务 Wiki **202** + 任务轮询；见 [spec](../wiki-generation-architecture.md) 与 [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md) |
 
 ## Wiki subsystem (focused)
 

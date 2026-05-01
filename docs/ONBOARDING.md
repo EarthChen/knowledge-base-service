@@ -95,7 +95,7 @@
 ## 与 AI Agent 集成（MCP）
 
 1. **Token** — 创建 `viewer` 或 `editor` Token（`tokens.yaml` 或 `API_TOKENS`）。
-2. **主清单** — `GET /api/v1/mcp/tools`（**20** 个工具：**12** 个图谱/检索 + **8** 个 Wiki 管线）+ `POST /api/v1/mcp/tool`，请求体 `{"tool_name":"...","arguments":{...}}`。
+2. **主清单** — `GET /api/v1/mcp/tools`（**22** 个工具：**12** 个图谱/检索 + **10** 个 Wiki 管线）+ `POST /api/v1/mcp/tool`，请求体 `{"tool_name":"...","arguments":{...}}`。
 3. **Wiki HTTP MCP**（可选，**6** 个工具、**2** 个端点）— 设置 `WIKI__MCP_SERVER_ENABLED=true` 后：`GET /api/v1/mcp/tools/list`，调用 `POST /api/v1/mcp/tools/call`，JSON 体为 `{"name":"<tool>","arguments":{...}}`（与主路由字段名不同，见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)）。
 4. **租户** — 多租户图时通过 `X-Business-Id: your-tenant` 选择图（与 Token 能力一致时）。
 

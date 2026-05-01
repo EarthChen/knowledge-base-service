@@ -14,6 +14,14 @@ class DomainComplexity(str, Enum):
 
 
 @dataclass
+class CompositionStrategy:
+    model_task_type: str  # e.g., "generation", "reasoning"
+    max_reasoning_depth: int  # how many RAG rounds
+    page_structure: str  # "flat", "hierarchical", "deep_hierarchical"
+    diagram_richness: str  # "minimal", "standard", "rich"
+
+
+@dataclass
 class ComplexityMetrics:
     entity_count: int
     total_methods: int
@@ -22,6 +30,29 @@ class ComplexityMetrics:
     max_entity_methods: int
     raw_score: float
     complexity: DomainComplexity
+
+    @property
+    def recommended_strategy(self) -> CompositionStrategy:
+        if self.complexity == DomainComplexity.HIGH:
+            return CompositionStrategy(
+                model_task_type="reasoning",
+                max_reasoning_depth=7,
+                page_structure="deep_hierarchical",
+                diagram_richness="rich",
+            )
+        if self.complexity == DomainComplexity.MEDIUM:
+            return CompositionStrategy(
+                model_task_type="generation",
+                max_reasoning_depth=5,
+                page_structure="hierarchical",
+                diagram_richness="standard",
+            )
+        return CompositionStrategy(
+            model_task_type="generation",
+            max_reasoning_depth=3,
+            page_structure="flat",
+            diagram_richness="minimal",
+        )
 
 
 class DomainComplexityScorer:

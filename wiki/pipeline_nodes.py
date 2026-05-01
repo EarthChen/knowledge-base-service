@@ -17,6 +17,14 @@ from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
 from wiki.dependency_graph import DomainNode, HierarchicalDecomposer, ModuleGraph, ModuleInfo
 from wiki.system_overview_composer import SystemOverviewComposer
 from wiki.entity_role_classifier import EntityRoleClassifier, WikiEntityRole
+from wiki.domain_complexity import DomainComplexity, DomainComplexityScorer
+from wiki.reasoning import (
+    GuidedPromptEnhancer,
+    MultiStepReasoner,
+    ReasoningLevel,
+    TaskType,
+    select_reasoning_level,
+)
 from wiki.token_budget import TokenBudgetResolver
 from wiki.topic_page_composer import TopicPageComposer
 from wiki.prompts import SYSTEM_WIKI_HEAL
@@ -95,6 +103,22 @@ async def classify_domains_node(
                 filtered.append(GraphNode(label=label, properties=props, uid=uid))
         if filtered:
             biz_modules[repo] = filtered
+
+    module_total = sum(len(v) for v in biz_modules.values())
+    classify_complexity = (
+        DomainComplexity.LOW
+        if module_total <= 10
+        else DomainComplexity.MEDIUM
+        if module_total <= 40
+        else DomainComplexity.HIGH
+    )
+    classify_reasoning = select_reasoning_level(TaskType.CLASSIFY, classify_complexity)
+    log.info(
+        "classify_reasoning_selection",
+        module_count=module_total,
+        complexity=classify_complexity.value,
+        reasoning_level=classify_reasoning.value,
+    )
 
     planner = CrossRepoBusinessDomainPlanner(llm)
     domain_mapping = await planner.classify(business_id, biz_modules)
@@ -483,10 +507,10 @@ def _count_modules_in_domain_tree(domain_tree: Any) -> int:
 
 async def _compose_single_leaf_domain(
     leaf: dict[str, Any],
-    composer: TopicPageComposer,
     module_index: dict[str, dict],
     entity_roles: dict[str, Any],
     llm: Any,
+    token_budget: int,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Compose pages for one leaf domain (and optional diagrams when llm is set)."""
     domain_name = leaf.get("name", "unknown")
@@ -526,6 +550,16 @@ async def _compose_single_leaf_domain(
         "data_models": data_models[:20],
         "sibling_summaries": [],
     }
+
+    scorer = DomainComplexityScorer()
+    metrics = scorer.score(domain_input)
+    reasoning_level = select_reasoning_level(TaskType.COMPOSE, metrics.complexity)
+    composer = TopicPageComposer(
+        llm,
+        token_budget=token_budget,
+        reasoning_level=reasoning_level,
+        complexity_scorer=scorer,
+    )
 
     try:
         pages = await composer.compose_leaf_domain(domain_input)
@@ -594,7 +628,6 @@ async def compose_pages_node(
 
     budget_resolver = TokenBudgetResolver()
     budget = budget_resolver.budget("topic_page_generate")
-    composer = TopicPageComposer(llm, token_budget=budget)
 
     all_pages: list[dict[str, Any]] = []
     generated_uids: list[str] = []
@@ -606,7 +639,7 @@ async def compose_pages_node(
     async def _bounded(leaf: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
         async with sem:
             return await _compose_single_leaf_domain(
-                leaf, composer, module_index, entity_roles, llm
+                leaf, module_index, entity_roles, llm, budget
             )
 
     results = await asyncio.gather(
@@ -709,8 +742,27 @@ async def heal_pages_node(
                     healed_pages.append(healed_page)
                     log.info("targeted_heal_success", page=page_path)
                 else:
+                    heal_scorer = DomainComplexityScorer()
+                    dmods = (
+                        list(dmatch.get("modules", []))
+                        if isinstance(dmatch, dict)
+                        else []
+                    )
+                    heal_domain = {
+                        "name": domain_name,
+                        "biz_entities": [
+                            {"name": str(m), "methods": [], "calls": []}
+                            for m in dmods[:80]
+                        ],
+                        "data_models": [],
+                    }
+                    heal_metrics = heal_scorer.score(heal_domain)
+                    heal_level = select_reasoning_level(TaskType.HEAL, heal_metrics.complexity)
+                    fallback_prompt = heal_prompt
+                    if heal_level == ReasoningLevel.GUIDED:
+                        fallback_prompt = GuidedPromptEnhancer().enhance_heal_prompt(heal_prompt)
                     new_content = await llm.generate(
-                        heal_prompt,
+                        fallback_prompt,
                         system=SYSTEM_WIKI_HEAL,
                         max_tokens=heal_budget,
                     )
@@ -785,6 +837,48 @@ async def synthesize_overviews_node(
         if isinstance(domain_tree, list)
         else []
     )
+
+    overview_domain_count = len(flat_domains)
+    overview_complexity = (
+        DomainComplexity.LOW
+        if overview_domain_count <= 5
+        else DomainComplexity.MEDIUM
+        if overview_domain_count <= 12
+        else DomainComplexity.HIGH
+    )
+    overview_reasoning_level = select_reasoning_level(
+        TaskType.OVERVIEW,
+        overview_complexity,
+    )
+    overview_budget = TokenBudgetResolver().budget("topic_page_generate")
+    overview_system_prompt = (
+        "你是一位技术文档作者。输出带 Mermaid 的 Markdown。"
+        if str(language) == "zh"
+        else "You are a technical wiki author. Output Markdown with Mermaid."
+    )
+
+    if overview_reasoning_level == ReasoningLevel.MULTI_STEP:
+        log.info(
+            "overview_multi_step_reasoning",
+            domain_count=overview_domain_count,
+            complexity=overview_complexity.value,
+        )
+        domains_summary = "\n".join(thin_domain_lines)
+        reasoner = MultiStepReasoner()
+        overview_markdown = await reasoner.plan_and_overview(
+            domains_summary,
+            llm,
+            system=overview_system_prompt,
+            max_tokens=overview_budget,
+        )
+        overview_multi = {
+            "title": "System Overview",
+            "content": overview_markdown,
+            "path": "wiki/_system_overview",
+            "page_type": PageType.SYSTEM_OVERVIEW.value,
+            "domain": "_system",
+        }
+        return {"pages": [overview_multi], "system_overview_uid": "wiki/_system_overview"}
 
     try:
         composer = SystemOverviewComposer(llm)

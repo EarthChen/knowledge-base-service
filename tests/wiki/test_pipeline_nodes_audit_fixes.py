@@ -28,7 +28,7 @@ async def test_compose_pages_parallelizes_leaf_domains_with_bounded_concurrency(
     lock = asyncio.Lock()
 
     class FakeComposer:
-        def __init__(self, llm: object, *, token_budget: int = 8000) -> None:
+        def __init__(self, llm: object, *, token_budget: int = 8000, **kwargs: object) -> None:
             self.llm = llm
             self.token_budget = token_budget
 

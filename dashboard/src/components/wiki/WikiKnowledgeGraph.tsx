@@ -9,6 +9,7 @@ import {
   type NodeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { useI18n } from "../../i18n/context";
 
 function useDarkMode(): boolean {
   const [isDark, setIsDark] = useState(() =>
@@ -54,6 +55,8 @@ export default function WikiKnowledgeGraph({
   isLoading = false,
   error = null,
 }: Props) {
+  const { t } = useI18n();
+  const kg = t.wiki.knowledge_graph;
   const isDark = useDarkMode();
 
   const nodes: Node[] = useMemo(() => {
@@ -97,7 +100,7 @@ export default function WikiKnowledgeGraph({
   if (isLoading) {
     return (
       <div className="flex h-48 items-center justify-center text-sm text-gray-400 dark:text-gray-500">
-        加载中...
+        {kg.loading}
       </div>
     );
   }
@@ -105,7 +108,7 @@ export default function WikiKnowledgeGraph({
     const message = error instanceof Error ? error.message : String(error);
     return (
       <div className="flex h-48 items-center justify-center text-sm text-red-400 dark:text-red-400">
-        加载失败: {message}
+        {kg.load_failed}: {message}
       </div>
     );
   }
@@ -113,7 +116,7 @@ export default function WikiKnowledgeGraph({
   if (domains.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center rounded-lg border border-gray-200 text-sm text-gray-400 dark:border-gray-700">
-        暂无域关系数据
+        {kg.no_data}
       </div>
     );
   }

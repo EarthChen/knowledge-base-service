@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook } from "@testing-library/react";
+import { renderHook, act } from "@testing-library/react";
 import * as apiClient from "../../api/client";
 import { useWikiEvents } from "../useWikiEvents";
 
@@ -31,6 +31,23 @@ describe("useWikiEvents", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("keeps connectionStatus disconnected when businessId is blank (no EventSource)", () => {
+    const onEvent = vi.fn();
+    const { result } = renderHook(() => useWikiEvents("   ", onEvent));
+    expect(result.current.connectionStatus).toBe("disconnected");
+    expect(instances).toHaveLength(0);
+  });
+
+  it("sets connectionStatus to connected after EventSource onopen", () => {
+    const onEvent = vi.fn();
+    const { result } = renderHook(() => useWikiEvents("biz-1", onEvent));
+    expect(result.current.connectionStatus).toBe("disconnected");
+    act(() => {
+      instances[0].onopen?.(new Event("open"));
+    });
+    expect(result.current.connectionStatus).toBe("connected");
   });
 
   it("connects with business id in url", () => {
@@ -86,5 +103,34 @@ describe("useWikiEvents", () => {
     const es = instances[0];
     unmount();
     expect(es.close).toHaveBeenCalled();
+  });
+
+  it("sets connectionStatus to reconnecting after onerror", () => {
+    const onEvent = vi.fn();
+    const { result } = renderHook(() => useWikiEvents("biz-1", onEvent));
+    const es = instances[0];
+    act(() => {
+      es.onopen?.(new Event("open"));
+    });
+    expect(result.current.connectionStatus).toBe("connected");
+    act(() => {
+      es.onerror?.(new Event("error"));
+    });
+    expect(result.current.connectionStatus).toBe("reconnecting");
+  });
+
+  it("sets connectionStatus to disconnected when the hook cleans up (e.g. businessId cleared)", () => {
+    const onEvent = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => useWikiEvents(id, onEvent),
+      { initialProps: { id: "biz-1" } },
+    );
+    const es = instances[0];
+    act(() => {
+      es.onopen?.(new Event("open"));
+    });
+    expect(result.current.connectionStatus).toBe("connected");
+    rerender({ id: "" });
+    expect(result.current.connectionStatus).toBe("disconnected");
   });
 });

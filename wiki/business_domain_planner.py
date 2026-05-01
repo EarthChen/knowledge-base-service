@@ -11,6 +11,7 @@ from log import get_logger
 from store.schema import GraphNode
 from wiki.adaptive_batch import AdaptiveBatchSizer
 from wiki.json_robust import parse_json_robust_sync
+from wiki.prompts import SYSTEM_JSON_ONLY
 
 if TYPE_CHECKING:
     from wiki.context import LLMPort
@@ -209,7 +210,7 @@ class BusinessDomainPlanner:
         prompt = self._build_prompt(repository_id, metadata)
         raw = (
             await self._llm.generate(
-                prompt, system="Reply with JSON only. No markdown fences.",
+                prompt, system=SYSTEM_JSON_ONLY,
             )
         ).strip()
         parsed = parse_json_robust_sync(raw)

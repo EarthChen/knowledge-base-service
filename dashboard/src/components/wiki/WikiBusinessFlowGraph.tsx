@@ -37,7 +37,7 @@ function FlowInner({ businessId }: Props) {
         data-testid="flow-graph-container"
         className="flex h-64 items-center justify-center text-sm text-gray-400"
       >
-        Loading flows...
+        {t.wiki.business_flow.loading}
       </div>
     );
   }
@@ -60,7 +60,7 @@ function FlowInner({ businessId }: Props) {
         data-testid="flow-graph-container"
         className="flex h-64 items-center justify-center text-sm text-gray-400"
       >
-        No business flows found
+        {t.wiki.business_flow.no_flows}
       </div>
     );
   }

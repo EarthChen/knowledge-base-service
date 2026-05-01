@@ -18,7 +18,7 @@ vi.mock("../../../contexts/BusinessContext", () => ({
 }));
 
 vi.mock("../../../hooks/useWikiEvents", () => ({
-  useWikiEvents: vi.fn(),
+  useWikiEvents: vi.fn(() => ({ connectionStatus: "connected" as const })),
 }));
 
 vi.mock("../WikiContent", () => ({ default: () => <div data-testid="mock-wiki-content" /> }));

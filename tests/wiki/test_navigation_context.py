@@ -1,4 +1,4 @@
-from wiki.service import _populate_navigation_context
+from wiki.helpers import _populate_navigation_context
 from wiki.models import (
     PageType,
     WikiPage,

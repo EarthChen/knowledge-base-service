@@ -36,6 +36,15 @@ def _mock_llm_generate(prompt: str, system: str = "", **kwargs) -> str:
             {"name": "core-payment", "entities": ["PaymentService", "RefundService"]},
         ])
 
+    if "## repositories (" in lower:
+        # SystemOverviewComposer user prompt (`_build_prompt`) — synthesis node path
+        return (
+            "## System Purpose\nPayment and user management platform.\n\n"
+            "## Microservice Architecture\n```mermaid\ngraph TD\nPayment-->User\n```\n\n"
+            "## Business Domains\n- [[payment]]\n- [[user-management]]\n\n"
+            "## Key Entry Points\n- Payments API\n"
+        )
+
     if "generate a system overview" in lower:
         return (
             "# System Overview\n\n"

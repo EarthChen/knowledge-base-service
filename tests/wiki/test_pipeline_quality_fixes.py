@@ -12,11 +12,8 @@ from wiki.composer import WikiComposer
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import PageData
 from wiki.models import PageType, SourceLocation, WikiConfig
-from wiki.service import (
-    WikiService,
-    _build_lightweight_glossary,
-    _build_lightweight_parent_context,
-)
+from wiki.helpers import _build_lightweight_glossary, _build_lightweight_parent_context
+from wiki.service import WikiService
 
 
 def _page_data(*, summary: str | None, uid: str) -> PageData:

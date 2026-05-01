@@ -1,11 +1,12 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 /**
- * Invalidates all wiki-related queries after a business wiki regeneration (or similar broad invalidation).
+ * Invalidates wiki-related queries scoped to `businessId` after regeneration (or similar).
  *
- * Query keys vary: some put `businessId` at index 2, others use `pageUid`, repository, or fixed segments.
- * Matching only `k[2] === businessId` misses `claim-history`, `quality`, `navigation`, etc., so we invalidate
- * every query whose key starts with `"wiki"`.
+ * Most hooks use keys like `["wiki", ..., businessId, ...]`. Queries that omit `businessId` (e.g.
+ * `["wiki","navigation", repo, path]`, `["wiki","quality","documentation-summary", repo]`,
+ * `["wiki","claim-history", pageUid]`) are **not** matched by business id and stay cached until
+ * their own TTL/refetch triggers.
  */
 export function invalidateWikiQueriesForBusiness(
   queryClient: QueryClient,
@@ -16,7 +17,7 @@ export function invalidateWikiQueriesForBusiness(
   return queryClient.invalidateQueries({
     predicate: (q) => {
       const k = q.queryKey as unknown[];
-      return k[0] === "wiki";
+      return k[0] === "wiki" && k.includes(b);
     },
   });
 }

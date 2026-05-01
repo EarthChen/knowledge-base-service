@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { ChevronRight, ChevronDown, FileText, FolderOpen } from "lucide-react";
+import { useI18n } from "../../i18n/context";
 import type { TopicTreeNode } from "../../hooks/useWikiDomainTree";
 
 interface Props {
@@ -9,18 +10,27 @@ interface Props {
 }
 
 export default function WikiTopicTreeNav({ tree, selectedPath, onSelect }: Props) {
+  const { t } = useI18n();
+  const tt = t.wiki.topic_tree;
   if (tree.length === 0) {
     return (
       <div className="flex items-center justify-center p-4 text-sm text-gray-400 dark:text-gray-500">
-        暂无主题内容
+        {tt.no_content}
       </div>
     );
   }
 
   return (
-    <nav className="space-y-0.5 text-sm" aria-label="主题导航">
+    <nav className="space-y-0.5 text-sm" aria-label={tt.nav_label}>
       {tree.map((node) => (
-        <TreeNode key={node.path} node={node} depth={0} selectedPath={selectedPath} onSelect={onSelect} />
+        <TreeNode
+          key={node.path}
+          node={node}
+          depth={0}
+          selectedPath={selectedPath}
+          onSelect={onSelect}
+          topicLabels={tt}
+        />
       ))}
     </nav>
   );
@@ -31,11 +41,17 @@ function TreeNode({
   depth,
   selectedPath,
   onSelect,
+  topicLabels,
 }: {
   node: TopicTreeNode;
   depth: number;
   selectedPath: string | null;
   onSelect: (path: string) => void;
+  topicLabels: {
+    expanded: string;
+    collapsed: string;
+    pending_review: string;
+  };
 }) {
   const [expanded, setExpanded] = useState(depth === 0);
   const hasChildren = node.children.length > 0;
@@ -54,9 +70,7 @@ function TreeNode({
         onClick={handleClick}
         aria-expanded={hasChildren ? expanded : undefined}
         aria-label={
-          hasChildren
-            ? `${node.name}，${expanded ? "已展开，点击可折叠" : "已折叠，点击可展开"}`
-            : node.name
+          hasChildren ? `${node.name}，${expanded ? topicLabels.expanded : topicLabels.collapsed}` : node.name
         }
         className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors ${
           isSelected
@@ -78,7 +92,7 @@ function TreeNode({
         <span className="truncate">{node.name}</span>
         {node.review_status === "pending_review" && (
           <span className="ml-auto rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-            待审阅
+            {topicLabels.pending_review}
           </span>
         )}
       </button>
@@ -91,6 +105,7 @@ function TreeNode({
               depth={depth + 1}
               selectedPath={selectedPath}
               onSelect={onSelect}
+              topicLabels={topicLabels}
             />
           ))}
         </div>

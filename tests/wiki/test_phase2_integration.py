@@ -1,7 +1,7 @@
 """Phase 2 integration: navigation context, summaries, depth collection."""
 
 from wiki.models import PageType, WikiPage, WikiPageMetadata, WikiStructureNode
-from wiki.service import (
+from wiki.helpers import (
     _collect_nodes_by_depth,
     _extract_summary,
     _populate_navigation_context,

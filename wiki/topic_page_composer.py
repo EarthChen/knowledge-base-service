@@ -6,30 +6,15 @@ Generates Markdown with Mermaid business flow diagrams and inline DATA_MODEL tab
 """
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any
 
 from log import get_logger
+from wiki.context import LLMPort
 from wiki.domain_complexity import DomainComplexity, DomainComplexityScorer
 from wiki.json_robust import parse_json_robust_sync
+from wiki.prompts import SYSTEM_JSON_ONLY, SYSTEM_WIKI_AUTHOR
 
 log = get_logger(__name__)
-
-_SYSTEM_WIKI = (
-    "You are a technical wiki author writing business domain documentation. "
-    "Output Markdown with Mermaid diagrams. Use Chinese for business descriptions. "
-    "Do NOT explain frameworks or annotations — focus on business logic."
-)
-
-
-class LLMPort(Protocol):
-    async def generate(
-        self,
-        prompt: str,
-        system: str = "",
-        *,
-        model: str | None = None,
-        max_tokens: int | None = None,
-    ) -> str: ...
 
 
 class TopicPageComposer:
@@ -75,7 +60,7 @@ class TopicPageComposer:
         prompt = self._build_single_page_prompt(domain, concise=concise)
         budget = self._effective_token_budget(complexity)
         content = await self._llm.generate(
-            prompt, system=_SYSTEM_WIKI, max_tokens=budget,
+            prompt, system=SYSTEM_WIKI_AUTHOR, max_tokens=budget,
         )
 
         data_table = self.format_data_model_table(domain.get("data_models", []))
@@ -92,7 +77,7 @@ class TopicPageComposer:
 
         overview_prompt = self._build_overview_prompt(domain, max_tokens=budget)
         overview_content = await self._llm.generate(
-            overview_prompt, system=_SYSTEM_WIKI, max_tokens=budget,
+            overview_prompt, system=SYSTEM_WIKI_AUTHOR, max_tokens=budget,
         )
         pages.append({"title": name, "content": overview_content, "path": f"wiki/{name}", "page_type": "domain_overview", "domain": name})
 
@@ -117,7 +102,7 @@ class TopicPageComposer:
             }
             sub_prompt = self._build_sub_page_prompt(sub_domain, max_tokens=budget)
             sub_content = await self._llm.generate(
-                sub_prompt, system=_SYSTEM_WIKI, max_tokens=budget,
+                sub_prompt, system=SYSTEM_WIKI_AUTHOR, max_tokens=budget,
             )
             pages.append({"title": sub_name, "content": sub_content, "path": f"wiki/{name}/{sub_name}", "page_type": "topic", "domain": name})
 
@@ -131,7 +116,7 @@ class TopicPageComposer:
         group_prompt = self._build_grouping_prompt(biz_entities, max_tokens=budget)
         raw_groups = await self._llm.generate(
             group_prompt,
-            system="Reply with JSON only. No markdown fences.",
+            system=SYSTEM_JSON_ONLY,
             max_tokens=budget,
         )
 
@@ -143,7 +128,7 @@ class TopicPageComposer:
 
         overview_prompt = self._build_overview_prompt(domain, max_tokens=budget)
         overview_content = await self._llm.generate(
-            overview_prompt, system=_SYSTEM_WIKI, max_tokens=budget,
+            overview_prompt, system=SYSTEM_WIKI_AUTHOR, max_tokens=budget,
         )
         pages.append({"title": name, "content": overview_content, "path": f"wiki/{name}", "page_type": "domain_overview", "domain": name})
 
@@ -164,7 +149,7 @@ class TopicPageComposer:
             }
             sub_prompt = self._build_sub_page_prompt(sub_domain, max_tokens=budget)
             sub_content = await self._llm.generate(
-                sub_prompt, system=_SYSTEM_WIKI, max_tokens=budget,
+                sub_prompt, system=SYSTEM_WIKI_AUTHOR, max_tokens=budget,
             )
             pages.append({"title": group_name, "content": sub_content, "path": f"wiki/{name}/{group_name}", "page_type": "topic", "domain": name})
 
@@ -192,17 +177,21 @@ class TopicPageComposer:
                 "3. ## 核心服务要点 (bullet list per service; skip deep API tables)\n"
             ) + self._token_budget_instruction()
         return (
-            f"Generate a wiki page for the business domain: **{name}**\n"
+            f"Write a wiki page for domain: **{name}**\n"
             f"Parent domain: {domain.get('parent', 'root')}\n"
             f"Sibling domains: {siblings or 'none'}\n\n"
             f"Core services:\n{entities_desc}\n\n"
             f"Related data models:\n{data_models or 'none'}\n\n"
-            "Required sections:\n"
-            "1. ## 业务概述 (what this domain does)\n"
-            "2. ## 核心业务流程 (Mermaid sequenceDiagram/flowchart based on CALLS edges)\n"
-            "3. ## 核心服务详情 (### per service: responsibilities, key APIs, params)\n"
-            "4. ## 数据模型 (inline table of related DTOs/enums)\n"
-            "5. ## 关联主题 ([[wiki-link]] to sibling domains referenced via CALLS)\n"
+            "Before writing, analyze:\n"
+            "1. What is each service's primary business role?\n"
+            "2. How do these services interact? (callers, shared data)\n"
+            "3. Which flows deserve Mermaid diagrams?\n\n"
+            "Required elements (organize freely):\n"
+            "- Business overview explaining WHY this domain exists\n"
+            "- Core business flow with Mermaid diagram "
+            "(sequenceDiagram or flowchart based on CALLS relationships)\n"
+            "- Key services with their responsibilities and interactions\n"
+            f"- Related topics using [[wiki-link]] notation for these related domains: {siblings or 'none'}\n"
         ) + self._token_budget_instruction()
 
     def _build_overview_prompt(self, domain: dict[str, Any], *, max_tokens: int | None = None) -> str:
@@ -211,6 +200,8 @@ class TopicPageComposer:
         entity_list = "\n".join(f"- {e['name']}: {e.get('summary', '')}" for e in entities)
         return (
             f"Generate a domain overview for: **{name}**\n"
+            "Write like a technical blog post — motivate WHY this domain exists, "
+            "HOW its services fit together, and WHAT overall business capability it provides.\n"
             f"This domain contains {len(entities)} core services:\n{entity_list}\n\n"
             "Output:\n"
             "1. ## 域概览 (overall business capability description)\n"
@@ -229,10 +220,21 @@ class TopicPageComposer:
         )
         return (
             f"Generate a wiki sub-page for: **{name}** (part of domain: {parent})\n"
+            "Write like a technical blog post — explain WHY this slice matters within the parent domain, "
+            "HOW these services collaborate, and WHAT business outcomes they support.\n"
             f"Domain overview: {overview[:300]}\n"
             f"Sibling pages: {siblings or 'none'}\n\n"
             f"Services in this sub-page:\n{entities_desc}\n\n"
-            "Format: same as main topic page (业务概述, 核心业务流程 with Mermaid, 核心服务详情, 关联主题)"
+            "Before writing, analyze:\n"
+            "1. What is each service's primary business role?\n"
+            "2. How do these services interact? (callers, shared data)\n"
+            "3. Which flows deserve Mermaid diagrams?\n\n"
+            "Required elements (organize freely; use Chinese section titles like the main topic page):\n"
+            "- Business overview explaining WHY this sub-topic exists and how it fits the parent domain\n"
+            "- Core business flow with Mermaid diagram "
+            "(sequenceDiagram or flowchart based on CALLS relationships)\n"
+            "- Key services with their responsibilities and interactions\n"
+            f"- Related topics using [[wiki-link]] notation for these sibling pages: {siblings or 'none'}\n"
         ) + self._token_budget_instruction(max_tokens)
 
     def _build_grouping_prompt(self, entities: list[dict[str, Any]], *, max_tokens: int | None = None) -> str:

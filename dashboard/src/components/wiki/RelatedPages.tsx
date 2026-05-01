@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { explorerGraphHref } from "../../routes/explorerRouteHelpers";
+import { useI18n } from "../../i18n/context";
 
 export interface RelatedPageInfo {
   uid: string;
@@ -14,12 +15,13 @@ interface RelatedPagesProps {
 
 /** See-also / graph neighbors (RELATED_TO) with links into the graph explorer. */
 export function RelatedPages({ pages }: RelatedPagesProps) {
+  const { t } = useI18n();
   if (!pages.length) return null;
 
   return (
     <aside className="mt-8 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
       <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-        See Also
+        {t.wiki.related_pages.see_also}
       </h3>
       <ul className="space-y-2">
         {pages.map((p) => (

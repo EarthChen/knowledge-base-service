@@ -108,6 +108,8 @@ function SourceRef({
 
 type Props = {
   repository: string | undefined;
+  /** Optional wiki page body/title sent with the ask request (not shown in saved history). */
+  pageContext?: string;
 };
 
 /** Relative “time ago” clock that avoids impure Date calls during parent render. */
@@ -131,7 +133,7 @@ function ConversationRelativeWhen({
   return <>{formatAskHistoryTime(createdAt, now, wiki)}</>;
 }
 
-export default function AskPanel({ repository }: Props) {
+export default function AskPanel({ repository, pageContext }: Props) {
   const { t } = useI18n();
   const { toast } = useToast();
   const [open, setOpen] = useState(true);
@@ -152,7 +154,7 @@ export default function AskPanel({ repository }: Props) {
     setAnswer,
     setSources,
     conversationId,
-  } = useWikiAsk(repository);
+  } = useWikiAsk(repository, pageContext);
   const convHistory = useConversationHistory();
   const prevStreamingRef = useRef(false);
   const questionForSaveRef = useRef("");

@@ -123,7 +123,13 @@ async function consumeWikiAskStreamSseV2(
   }
 }
 
-export function useWikiAsk(repository: string | undefined) {
+function questionWithOptionalPageContext(question: string, pageContext: string | undefined): string {
+  const ctx = pageContext?.trim();
+  if (!ctx) return question;
+  return `${ctx}\n\n---\n\n${question}`;
+}
+
+export function useWikiAsk(repository: string | undefined, pageContext?: string) {
   const { t } = useI18n();
   const [answer, setAnswer] = useState("");
   const [sources, setSources] = useState<WikiAskSource[]>([]);
@@ -163,7 +169,7 @@ export function useWikiAsk(repository: string | undefined) {
 
       const payload: WikiAskBody = {
         repository,
-        question: body.question,
+        question: questionWithOptionalPageContext(body.question, pageContext),
         scope: body.scope ?? null,
         conversation_id: body.conversation_id ?? conversationId ?? null,
         mode: body.mode ?? "hybrid",
@@ -215,7 +221,7 @@ export function useWikiAsk(repository: string | undefined) {
         setIsStreaming(false);
       }
     },
-    [repository, conversationId, t],
+    [repository, conversationId, pageContext, t],
   );
 
   const cancel = useCallback(() => {

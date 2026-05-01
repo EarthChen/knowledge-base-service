@@ -123,6 +123,9 @@ export function useWikiRegenerate(businessId: string) {
         const st = await businessWikiTaskStatus(savedTaskId);
         if (cancelled) return;
         if (st.status === "completed" || st.status === "failed") {
+          if (st.status === "completed") {
+            await invalidateWikiQueriesForBusiness(queryClient, businessId);
+          }
           clearActiveTask(businessId);
           return;
         }

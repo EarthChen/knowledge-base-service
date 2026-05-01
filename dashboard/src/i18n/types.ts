@@ -704,6 +704,7 @@ export interface Translations {
     askV2Footnote: string;
     askCrystallize: string;
     askCrystallizeSuccess: string;
+    eventsReconnecting: string;
     deepResearchScopeNote: string;
     /** Wiki tab — deep research panel */
     deepResearchPlaceholder: string;
@@ -914,6 +915,63 @@ export interface Translations {
     phaseBusinessFlow: string;
     phaseNavigation: string;
     phaseQualityEval: string;
+    /** Nested wiki UI strings for topic/domain review and related surfaces */
+    domain_review: {
+      pending_review_message: string;
+      pending_review_banner: string;
+      approve: string;
+      modules_count: string;
+      regenerate_domain: string;
+      sub_domains: string;
+      expand_review: string;
+      collapse_review: string;
+      processing: string;
+      /** Template: `{name}`, `{count}` */
+      child_domain_line: string;
+    };
+    sidebar: {
+      topic_tree: string;
+      code_structure: string;
+    };
+    topic_tree: {
+      no_content: string;
+      nav_label: string;
+      expanded: string;
+      collapsed: string;
+      pending_review: string;
+    };
+    topic_content: {
+      select_page: string;
+      approve: string;
+      submit: string;
+      cancel: string;
+      mark_revision: string;
+      regenerate: string;
+      revision_placeholder: string;
+      pending_review: string;
+      approved: string;
+      needs_revision: string;
+      revised: string;
+    };
+    knowledge_graph: {
+      loading: string;
+      /** Display before error detail */
+      load_failed: string;
+      no_data: string;
+    };
+    business_flow: {
+      loading: string;
+      no_flows: string;
+    };
+    related_pages: {
+      see_also: string;
+    };
+    claims: {
+      history: string;
+      superseded: string;
+      loading: string;
+      load_failed: string;
+    };
   };
   sync: {
     title: string;

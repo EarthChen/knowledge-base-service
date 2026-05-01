@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from log import get_logger
+from wiki.prompts import SYSTEM_JSON_ONLY
 
 log = get_logger(__name__)
 
@@ -27,6 +28,7 @@ class LLMPort(Protocol):
         system: str = "",
         *,
         model: str | None = None,
+        max_tokens: int | None = None,
     ) -> str: ...
 
 
@@ -45,7 +47,7 @@ class WikiContextBuilder:
                 f"Entry points:\n{json.dumps(entry_points, indent=2)}\n\n"
                 "Return ONLY valid JSON: an object whose keys are terms and values are one-line definitions."
             )
-            raw = (await self._llm.generate(prompt, system="Reply with JSON only. No markdown fences.")).strip()
+            raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
             parsed = self._parse_json_object(raw)
             if parsed:
                 log.info("build_glossary_done", term_count=len(parsed), source="llm")

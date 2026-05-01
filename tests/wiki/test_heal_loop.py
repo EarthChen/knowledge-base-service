@@ -137,11 +137,17 @@ async def test_heal_pages_truncates_content_via_token_budget_and_passes_max_toke
 
     await heal_pages_node(state, {"configurable": {"llm": mock_llm}})
 
-    mock_llm.generate.assert_called_once()
-    call_args, call_kwargs = mock_llm.generate.call_args
-    assert call_kwargs.get("max_tokens") == fixed_budget
+    heal_fallback_calls = [
+        c
+        for c in mock_llm.generate.call_args_list
+        if c.args and isinstance(c.args[0], str) and "Improve this wiki page" in c.args[0]
+    ]
+    assert len(heal_fallback_calls) == 1
 
-    prompt = call_args[0]
+    fallback_kw = heal_fallback_calls[0].kwargs
+    assert fallback_kw.get("max_tokens") == fixed_budget
+
+    prompt = heal_fallback_calls[0].args[0]
     marker = "Current content:\n"
     start = prompt.index(marker) + len(marker)
     end = prompt.index("\n\nGenerate an improved", start)

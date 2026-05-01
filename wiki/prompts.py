@@ -5,6 +5,28 @@ import hashlib
 
 from langchain_core.prompts import ChatPromptTemplate
 
+# ---------------------------------------------------------------------------
+# Shared system prompt constants
+# ---------------------------------------------------------------------------
+
+SYSTEM_JSON_ONLY = "Reply with JSON only. No markdown fences."
+
+SYSTEM_WIKI_AUTHOR = (
+    "You are a technical wiki author writing business domain documentation. "
+    "Write like a technical blog post — explain WHY these services exist, "
+    "HOW they collaborate, and WHAT business value they deliver. "
+    "Output Markdown with Mermaid diagrams. Use Chinese for business descriptions. "
+    "Do NOT explain frameworks or annotations — focus on business logic and "
+    "the story behind the architecture."
+)
+
+SYSTEM_WIKI_HEAL = (
+    "You are a technical wiki author specializing in business domain documentation. "
+    "Output Markdown with Mermaid diagrams. Use Chinese for business descriptions. "
+    "Focus on business logic and service interactions. "
+    "Do NOT explain frameworks or annotations."
+)
+
 
 def versioned_prompt(
     name: str,
@@ -54,24 +76,6 @@ DOMAIN_CLASSIFY_PROMPT = versioned_prompt(
             "Modules:\n{modules_json}\n\n"
             "Return ONLY valid JSON: object with domain names as keys "
             "and arrays of module names as values."
-        )),
-    ]),
-)
-
-TOPIC_STRUCTURE_PROMPT = versioned_prompt(
-    name="topic_structure",
-    version="1.0",
-    template=ChatPromptTemplate.from_messages([
-        ("system", "You are a technical documentation planner. Output ONLY valid JSON."),
-        ("human", (
-            "Based on the following business domain classification, plan a Wiki structure.\n\n"
-            "Rules:\n"
-            "1. Generate {min_pages}-{max_pages} topic pages total\n"
-            "2. Each top-level topic = one business domain or a merge of related domains\n"
-            "3. Each topic can have 3-5 sub-pages\n"
-            "4. Assign every module to exactly one page\n\n"
-            "Domains:\n{domain_mapping_json}\n\n"
-            "Output JSON: array of objects with title, description, modules, sub_topics"
         )),
     ]),
 )

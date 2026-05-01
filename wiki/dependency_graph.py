@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from log import get_logger
+from wiki.prompts import SYSTEM_JSON_ONLY
 
 if TYPE_CHECKING:
     from store.falkordb_store import FalkorDBGraphStore
@@ -250,7 +251,7 @@ class HierarchicalDecomposer:
             budget.used += len(text) // 4
             module_texts.append(text)
         prompt = self._build_decomposition_prompt(module_texts, graph.entry_points)
-        response = await self._llm.generate(prompt, system="Reply with JSON only. No markdown fences.")
+        response = await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)
         return self._parse_domain_tree(response, modules)
 
     def _build_decomposition_prompt(

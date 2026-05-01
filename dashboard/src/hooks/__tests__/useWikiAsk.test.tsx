@@ -38,6 +38,34 @@ describe("useWikiAsk", () => {
         Authorization: "Bearer test-token",
       }),
     );
+    const body = JSON.parse(init.body as string) as { question: string };
+    expect(body.question).toBe("hello");
+  });
+
+  it("prepends pageContext to the ask question in the request body", async () => {
+    const { result } = renderHook(() => useWikiAsk("my-repo", "[Current page: A]\nexcerpt"), {
+      wrapper,
+    });
+
+    await act(async () => {
+      void result.current.ask({ question: "hello" });
+    });
+
+    const init = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(init.body as string) as { question: string };
+    expect(body.question).toBe("[Current page: A]\nexcerpt\n\n---\n\nhello");
+  });
+
+  it("sends the question unchanged when pageContext is only whitespace", async () => {
+    const { result } = renderHook(() => useWikiAsk("my-repo", "  \t  "), { wrapper });
+
+    await act(async () => {
+      void result.current.ask({ question: "hello" });
+    });
+
+    const init = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(init.body as string) as { question: string };
+    expect(body.question).toBe("hello");
   });
 
   it("aborts the in-flight request on unmount", async () => {

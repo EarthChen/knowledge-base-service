@@ -149,7 +149,7 @@ export default function WikiShell() {
     [queryClient, businessId],
   );
 
-  useWikiEvents(businessId.trim(), handleWikiEvent);
+  const { connectionStatus } = useWikiEvents(businessId.trim(), handleWikiEvent);
 
   const setViewType = useCallback(
     (v: typeof viewType) => {
@@ -229,7 +229,7 @@ export default function WikiShell() {
                       : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                   }`}
                 >
-                  主题树
+                  {t.wiki.sidebar.topic_tree}
                 </button>
                 <button
                   type="button"
@@ -240,7 +240,7 @@ export default function WikiShell() {
                       : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                   }`}
                 >
-                  代码结构
+                  {t.wiki.sidebar.code_structure}
                 </button>
               </div>
               {treeViewMode === "topic" ? (
@@ -281,6 +281,19 @@ export default function WikiShell() {
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">
+          {connectionStatus === "reconnecting" && (
+            <div
+              className="flex items-center gap-2 rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-1.5 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/25 dark:text-amber-100"
+              role="status"
+              aria-live="polite"
+            >
+              <span
+                className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500 dark:bg-amber-400"
+                aria-hidden
+              />
+              <span>{t.wiki.eventsReconnecting}</span>
+            </div>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-gray-700 dark:bg-gray-900">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <button

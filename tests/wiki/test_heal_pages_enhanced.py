@@ -31,6 +31,16 @@ def state_with_poor_page():
     }
 
 
+def _fallback_heal_prompt(captured_prompts: list[str]) -> str:
+    healing = [
+        p
+        for p in captured_prompts
+        if isinstance(p, str) and "Improve this wiki page" in p
+    ]
+    assert healing, "expected fallback full-regeneration heal prompt among LLM calls"
+    return healing[0]
+
+
 class TestHealPagesEnhanced:
     @pytest.mark.asyncio
     async def test_heal_prompt_includes_structured_sections(self, state_with_poor_page):
@@ -51,8 +61,8 @@ class TestHealPagesEnhanced:
 
         await heal_pages_node(state_with_poor_page, config)
 
-        assert len(captured_prompts) > 0
-        heal_prompt = captured_prompts[0]
+        assert len(captured_prompts) >= 2
+        heal_prompt = _fallback_heal_prompt(captured_prompts)
         assert (
             "业务概述" in heal_prompt
             or "Purpose" in heal_prompt
@@ -75,8 +85,8 @@ class TestHealPagesEnhanced:
 
         await heal_pages_node(state_with_poor_page, config)
 
-        assert len(captured_prompts) > 0
-        heal_prompt = captured_prompts[0]
+        assert len(captured_prompts) >= 2
+        heal_prompt = _fallback_heal_prompt(captured_prompts)
         assert "user-management" in heal_prompt
 
     @pytest.mark.asyncio
@@ -98,7 +108,7 @@ class TestHealPagesEnhanced:
         captured_systems = []
 
         async def capture_system(prompt, system="", **kwargs):
-            captured_systems.append(system)
+            captured_systems.append((prompt, system))
             return "## 业务概述\n改进内容\n"
 
         mock_llm = AsyncMock()
@@ -107,6 +117,12 @@ class TestHealPagesEnhanced:
 
         await heal_pages_node(state_with_poor_page, config)
 
-        assert len(captured_systems) > 0
-        system = captured_systems[0]
+        assert len(captured_systems) >= 2
+        systems_for_heal = [
+            sys
+            for p, sys in captured_systems
+            if isinstance(p, str) and "Improve this wiki page" in p
+        ]
+        assert systems_for_heal
+        system = systems_for_heal[0]
         assert "wiki" in system.lower() or "documentation" in system.lower()

@@ -132,7 +132,7 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     """
     graph = StateGraph(WikiPipelineState)
 
-    graph.add_node("collect_modules", classify_entities_node)
+    graph.add_node("classify_entity_roles", classify_entities_node)
     graph.add_node("detect_reorg", detect_reorg_node)
     graph.add_node("classify_domains", classify_domains_node)
     graph.add_node("decompose_hierarchy", decompose_hierarchy_node)
@@ -144,7 +144,7 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("create_links", create_links_node)
     graph.add_node("finalize", finalize_node)
 
-    graph.add_edge("collect_modules", "detect_reorg")
+    graph.add_edge("classify_entity_roles", "detect_reorg")
     graph.add_conditional_edges(
         "detect_reorg",
         route_by_reorg_type,
@@ -163,7 +163,7 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_edge("synthesize_overviews", "create_links")
     graph.add_edge("create_links", "finalize")
 
-    graph.set_entry_point("collect_modules")
+    graph.set_entry_point("classify_entity_roles")
     graph.set_finish_point("finalize")
 
     if checkpointer is None:

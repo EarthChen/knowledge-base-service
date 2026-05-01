@@ -65,10 +65,17 @@ function panelBoundary(children: ReactNode) {
 
 function mapTopicTreeToDomainPanelNodes(
   nodes: TopicTreeNode[],
-): { name: string; description?: string; modules: string[]; children: ReturnType<typeof mapTopicTreeToDomainPanelNodes> }[] {
+): {
+  name: string;
+  description?: string;
+  modules: string[];
+  moduleCount?: number;
+  children: ReturnType<typeof mapTopicTreeToDomainPanelNodes>;
+}[] {
   return nodes.map((n) => ({
     name: n.name,
     modules: [],
+    moduleCount: n.module_count,
     children: mapTopicTreeToDomainPanelNodes(n.children ?? []),
   }));
 }
@@ -105,6 +112,8 @@ export default function WikiToolPanel({
   wikiLinkParams,
   onAskQuestion,
 }: Props) {
+  const { t } = useI18n();
+  const dr = t.wiki.domain_review;
   const [, setSearchParams] = useSearchParams();
   const [domainReviewOpen, setDomainReviewOpen] = useState(false);
   const domainTreeQuery = useWikiDomainTree(businessId);
@@ -163,13 +172,13 @@ export default function WikiToolPanel({
     <>
       {pendingDomainReview && !domainReviewOpen && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
-          <span>域树待审阅 — 请确认域划分是否合理。</span>
+          <span>{dr.pending_review_banner}</span>
           <button
             type="button"
             onClick={() => setDomainReviewOpen(true)}
             className="font-medium text-sky-700 underline decoration-sky-600/60 hover:text-sky-800 dark:text-sky-400 dark:hover:text-sky-300"
           >
-            展开域审阅面板
+            {dr.expand_review}
           </button>
         </div>
       )}
@@ -181,19 +190,22 @@ export default function WikiToolPanel({
             onClick={() => setDomainReviewOpen(false)}
             className="text-xs font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
           >
-            收起域审阅
+            {dr.collapse_review}
           </button>
           {panelBoundary(
             <WikiDomainReviewPanel
               domainTree={mapTopicTreeToDomainPanelNodes(domainTreeQuery.data?.tree ?? [])}
               reviewStatus={domainTreeQuery.data?.review_status ?? {}}
+              isPending={batchReview.isPending}
               onApprove={() => {
                 const tree = domainTreeQuery.data?.tree ?? [];
                 const reviews = collectDomainApprovalReviews(tree);
                 if (reviews.length > 0) {
-                  batchReview.mutate({ businessId, reviews });
+                  batchReview.mutate(
+                    { businessId, reviews },
+                    { onSuccess: () => setDomainReviewOpen(false) },
+                  );
                 }
-                setDomainReviewOpen(false);
               }}
             />,
           )}
@@ -248,7 +260,14 @@ export default function WikiToolPanel({
                   onAskQuestion={onAskQuestion}
                 />
               )}
-              <AskPanel repository={businessId} />
+              <AskPanel
+                repository={pageQuery.data?.context?.repository?.trim() || businessId.trim()}
+                pageContext={
+                  pageQuery.data?.content
+                    ? `[Current page: ${pageQuery.data?.title}]\n${pageQuery.data?.content?.slice(0, 2000)}`
+                    : undefined
+                }
+              />
             </>,
           )}
         </div>

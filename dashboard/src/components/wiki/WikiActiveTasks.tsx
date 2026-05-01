@@ -2,11 +2,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, XCircle, AlertTriangle } from "lucide-react";
 import { cancelWikiTask, listActiveWikiTasks } from "../../api/client";
 import type { WikiAsyncTask } from "../../api/types";
+import type { Translations } from "../../i18n/types";
 import { useI18n } from "../../i18n/context";
 import { useToast } from "../Toast";
 
 type PhaseKey = "leaf_compose" | "parent_aggregate" | "business_flow" | "navigation" | "quality_eval";
-const phaseI18nKeys: Record<PhaseKey, keyof typeof import("../../i18n/en").default.wiki> = {
+
+type WikiPhaseTranslationKey =
+  | "phaseLeafCompose"
+  | "phaseParentAggregate"
+  | "phaseBusinessFlow"
+  | "phaseNavigation"
+  | "phaseQualityEval";
+
+type WikiPhaseTranslations = Pick<Translations["wiki"], WikiPhaseTranslationKey>;
+
+const phaseI18nKeys: Record<PhaseKey, WikiPhaseTranslationKey> = {
   leaf_compose: "phaseLeafCompose",
   parent_aggregate: "phaseParentAggregate",
   business_flow: "phaseBusinessFlow",
@@ -151,7 +162,7 @@ export default function WikiActiveTasks({ businessId }: WikiActiveTasksProps) {
             {task.current_phase && (
               <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 {phaseI18nKeys[task.current_phase as PhaseKey]
-                  ? t.wiki[phaseI18nKeys[task.current_phase as PhaseKey]]
+                  ? (t.wiki as WikiPhaseTranslations)[phaseI18nKeys[task.current_phase as PhaseKey]]
                   : task.current_phase}
               </div>
             )}

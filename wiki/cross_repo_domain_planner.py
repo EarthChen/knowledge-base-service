@@ -11,14 +11,13 @@ from store.schema import GraphNode
 from wiki.business_domain_planner import BusinessDomainPlanner
 from wiki.dependency_graph import HierarchicalDecomposer, ModuleGraph, ModuleInfo
 from wiki.json_robust import parse_json_robust_sync
+from wiki.prompts import SYSTEM_JSON_ONLY
 
 if TYPE_CHECKING:
     from wiki.context import LLMPort
     from wiki.dependency_graph import DomainNode
 
 log = get_logger(__name__)
-
-_SYSTEM_JSON = "Reply with JSON only. No markdown fences."
 
 
 def clean_repo_path(path: str) -> str:
@@ -193,7 +192,7 @@ class CrossRepoBusinessDomainPlanner:
         assert self._llm is not None
         valid_pairs = set(pairs_in_order)
         prompt = self._build_single_batch_prompt(business_id, pairs_in_order)
-        raw = (await self._llm.generate(prompt, system=_SYSTEM_JSON)).strip()
+        raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
         parsed = self._parse_cross_repo_map(raw)
         if not parsed:
             return self._all_infrastructure(pairs_in_order)
@@ -222,7 +221,7 @@ class CrossRepoBusinessDomainPlanner:
 
         try:
             prompt = self._build_lightweight_merge_prompt(business_id, per_repo)
-            raw = (await self._llm.generate(prompt, system=_SYSTEM_JSON)).strip()
+            raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
             mapping = self._parse_domain_name_mapping(raw)
             if mapping:
                 return self._apply_domain_name_mapping(mapping, per_repo, valid_pairs, pairs_in_order)

@@ -1,6 +1,10 @@
 import inspect
 
-from wiki.service import _extract_summary, _collect_nodes_by_depth
+from wiki.helpers import (
+    _collect_nodes_by_depth,
+    _expected_wiki_page_paths_dfs,
+    _extract_summary,
+)
 from wiki.models import WikiPage, WikiPageMetadata, PageType, WikiStructureNode
 
 
@@ -76,6 +80,31 @@ def test_collect_nodes_flat_structure():
     leaves, parents = _collect_nodes_by_depth(root)
     assert len(leaves) == 1
     assert len(parents) == 1
+
+
+def test_expected_wiki_page_paths_dfs_repo_then_children_depth_first():
+    foo = WikiStructureNode(path="classes/Foo.md", title="Foo", page_type=PageType.CLASS_DETAIL)
+    bar = WikiStructureNode(path="classes/Bar.md", title="Bar", page_type=PageType.CLASS_DETAIL)
+    mod_a = WikiStructureNode(
+        path="modules/api", title="api", page_type=PageType.MODULE_OVERVIEW, children=[foo, bar]
+    )
+    root = WikiStructureNode(
+        path="README.md", title="repo", page_type=PageType.REPO_OVERVIEW, children=[mod_a]
+    )
+    assert _expected_wiki_page_paths_dfs(root) == [
+        "README.md",
+        "modules/api",
+        "classes/Foo.md",
+        "classes/Bar.md",
+    ]
+
+
+def test_expected_wiki_page_paths_dfs_single_leaf():
+    leaf = WikiStructureNode(path="fn/main.md", title="main", page_type=PageType.CLASS_DETAIL)
+    root = WikiStructureNode(
+        path="README.md", title="repo", page_type=PageType.REPO_OVERVIEW, children=[leaf]
+    )
+    assert _expected_wiki_page_paths_dfs(root) == ["README.md", "fn/main.md"]
 
 
 class TestParentComposeV2:

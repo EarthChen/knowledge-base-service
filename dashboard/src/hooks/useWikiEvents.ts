@@ -1,16 +1,26 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { API_BASE, getToken } from "../api/client";
 import type { WikiEvent } from "./wikiTypes";
 
-export function useWikiEvents(businessId: string, onEvent: (event: WikiEvent) => void) {
+export type WikiEventsConnectionStatus = "connected" | "reconnecting" | "disconnected";
+
+export function useWikiEvents(
+  businessId: string,
+  onEvent: (event: WikiEvent) => void,
+  enabled: boolean = true,
+): { connectionStatus: WikiEventsConnectionStatus } {
   const onEventRef = useRef(onEvent);
+  const [connectionStatus, setConnectionStatus] = useState<WikiEventsConnectionStatus>("disconnected");
 
   useEffect(() => {
     onEventRef.current = onEvent;
   }, [onEvent]);
 
   useEffect(() => {
-    if (!businessId) return;
+    if (!businessId.trim() || !enabled) {
+      setConnectionStatus("disconnected");
+      return;
+    }
 
     let source: EventSource | null = null;
     let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -31,6 +41,7 @@ export function useWikiEvents(businessId: string, onEvent: (event: WikiEvent) =>
 
       es.onopen = () => {
         retryMs = 1000;
+        setConnectionStatus("connected");
       };
 
       es.onmessage = (e) => {
@@ -45,6 +56,7 @@ export function useWikiEvents(businessId: string, onEvent: (event: WikiEvent) =>
 
       es.onerror = () => {
         es.close();
+        setConnectionStatus("reconnecting");
         const delay = retryMs;
         retryMs = Math.min(retryMs * 2, 30_000);
         reconnectTimeout = setTimeout(() => {
@@ -61,6 +73,9 @@ export function useWikiEvents(businessId: string, onEvent: (event: WikiEvent) =>
     return () => {
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
       source?.close();
+      setConnectionStatus("disconnected");
     };
-  }, [businessId]);
+  }, [businessId, enabled]);
+
+  return { connectionStatus };
 }

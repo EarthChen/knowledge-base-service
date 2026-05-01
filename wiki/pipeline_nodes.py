@@ -1,6 +1,7 @@
 """LangGraph pipeline node implementations for Wiki generation."""
 
 import asyncio
+import os
 import re
 from collections import Counter
 from typing import Any
@@ -13,14 +14,16 @@ from wiki.models import PageType, SourceLocation, WikiPage
 from wiki.semantic_diagram_gen import SemanticDiagramGenerator
 from wiki.quality_evaluator import WikiQualityEvaluator
 from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
-from wiki.dependency_graph import HierarchicalDecomposer, ModuleGraph, ModuleInfo
+from wiki.dependency_graph import DomainNode, HierarchicalDecomposer, ModuleGraph, ModuleInfo
+from wiki.system_overview_composer import SystemOverviewComposer
 from wiki.entity_role_classifier import EntityRoleClassifier, WikiEntityRole
 from wiki.token_budget import TokenBudgetResolver
 from wiki.topic_page_composer import TopicPageComposer
+from wiki.prompts import SYSTEM_WIKI_HEAL
 
 log = get_logger(__name__)
 
-_COMPOSE_CONCURRENCY = 5
+_COMPOSE_CONCURRENCY = int(os.environ.get("WIKI__COMPOSE_CONCURRENCY", "5"))
 
 
 async def classify_entities_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -120,9 +123,8 @@ async def detect_reorg_node(state: dict[str, Any]) -> dict[str, Any]:
         reorg_type = "full"
     elif affected_domains:
         biz_count = state.get("role_stats", {}).get("has_business_logic", 0)
-        prev_biz = sum(
-            len(d.get("modules", []))
-            for d in (domain_tree if isinstance(domain_tree, list) else [])
+        prev_biz = _count_modules_in_domain_tree(
+            domain_tree if isinstance(domain_tree, list) else []
         )
         ratio = abs(biz_count - prev_biz) / max(prev_biz, 1)
         if ratio > 0.3:
@@ -136,7 +138,7 @@ async def detect_reorg_node(state: dict[str, Any]) -> dict[str, Any]:
     return {"reorg_type": reorg_type}
 
 
-def _normalize_domain_tree(raw_tree: list | None, domain_mapping: dict[str, list]) -> list[dict[str, Any]]:
+def _normalize_domain_tree(raw_tree: list | None) -> list[dict[str, Any]]:
     """Convert HierarchicalDecomposer output (DomainNode list) to plain dicts."""
     if not raw_tree:
         return []
@@ -147,14 +149,14 @@ def _normalize_domain_tree(raw_tree: list | None, domain_mapping: dict[str, list
                 "name": getattr(node, "name", ""),
                 "description": getattr(node, "description", ""),
                 "modules": [m.name if hasattr(m, "name") else str(m) for m in getattr(node, "modules", [])],
-                "children": _normalize_domain_tree(getattr(node, "children", []), domain_mapping),
+                "children": _normalize_domain_tree(getattr(node, "children", [])),
             }
         elif isinstance(node, dict):
             d = {
                 "name": node.get("name", ""),
                 "description": node.get("description", ""),
                 "modules": node.get("modules", []),
-                "children": _normalize_domain_tree(node.get("children", []), domain_mapping),
+                "children": _normalize_domain_tree(node.get("children", [])),
             }
         else:
             continue
@@ -206,7 +208,7 @@ async def decompose_hierarchy_node(
 
     try:
         raw_tree = await decomposer.decompose(all_module_infos, module_graph)
-        domain_tree = _normalize_domain_tree(raw_tree, domain_mapping)
+        domain_tree = _normalize_domain_tree(raw_tree)
     except Exception:
         log.warning("decompose_hierarchy_failed", exc_info=True)
         domain_tree = [
@@ -320,6 +322,165 @@ def _collect_leaf_domains(tree: list[dict[str, Any]], parent: str = "root") -> l
     return leaves
 
 
+def _find_domain_in_tree(domain_tree: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
+    """Recursively find a domain node by name in the domain tree."""
+    for domain in domain_tree:
+        if domain.get("name") == name:
+            return domain
+        found = _find_domain_in_tree(domain.get("children", []) or [], name)
+        if found is not None:
+            return found
+    return None
+
+
+def _flatten_all_domains(domain_tree: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return every domain node in the tree (including nested children), preorder."""
+    nodes: list[dict[str, Any]] = []
+    for domain in domain_tree:
+        nodes.append(domain)
+        nodes.extend(_flatten_all_domains(domain.get("children", []) or []))
+    return nodes
+
+
+_BUSINESS_SUMMARY_SECTION = re.compile(
+    r"^##\s*业务概述\s*$",
+    re.MULTILINE,
+)
+
+
+def _summarize_domain_for_system_overview(domain_name: str, pages: list[dict[str, Any]]) -> str:
+    """Use ## 业务概述 body when present, else first ~300 chars of the best matching page."""
+    domain_pages = [p for p in pages if p.get("domain") == domain_name]
+    if not domain_pages:
+        return ""
+    preferred: str | None = None
+    for type_rank in ("domain_overview", "topic"):
+        for p in domain_pages:
+            if p.get("page_type") == type_rank:
+                preferred = p.get("content") or ""
+                break
+        if preferred is not None:
+            break
+    content = preferred if preferred is not None else (domain_pages[0].get("content") or "")
+    if not content.strip():
+        return ""
+    match = list(_BUSINESS_SUMMARY_SECTION.finditer(content))
+    if match:
+        start = match[-1].end()
+        remainder = content[start:]
+        stop = remainder.find("\n## ")
+        body = remainder if stop < 0 else remainder[:stop]
+        out = body.strip()
+        return out[:800] if out else ""
+    return content.strip()[:300]
+
+
+def _domain_tree_dict_to_nodes(domains: list[dict[str, Any]]) -> list[DomainNode]:
+    """Convert serialized domain_tree dicts to DomainNode hierarchy for SystemOverviewComposer."""
+    nodes: list[DomainNode] = []
+    for d in domains:
+        children_raw = d.get("children") or []
+        kids = (
+            _domain_tree_dict_to_nodes(children_raw)
+            if isinstance(children_raw, list)
+            else []
+        )
+        modules_raw = d.get("modules") or []
+        mods = [str(m) for m in modules_raw] if isinstance(modules_raw, list) else []
+        nodes.append(
+            DomainNode(
+                name=str(d.get("name", "") or ""),
+                description=str(d.get("description", "") or ""),
+                modules=mods,
+                children=kids,
+            ),
+        )
+    return nodes
+
+
+def _stats_by_repo_from_pipeline_modules(modules_by_repo: dict[str, Any]) -> dict[str, dict[str, int]]:
+    """Approximate repo stats from pipeline ``modules`` shape (GraphNode-ish dicts)."""
+    stats: dict[str, dict[str, int]] = {}
+    if not isinstance(modules_by_repo, dict):
+        return stats
+    for repo, mod_list in modules_by_repo.items():
+        if not isinstance(mod_list, list):
+            continue
+        module_count = 0
+        class_count = 0
+        fn_count = 0
+        for mod in mod_list:
+            if not isinstance(mod, dict):
+                continue
+            label = str(mod.get("label") or "Module")
+            props = mod.get("properties") or {}
+            if not isinstance(props, dict):
+                props = {}
+            if label.upper() == "CLASS":
+                class_count += 1
+            elif label.upper() == "FUNCTION":
+                fn_count += 1
+            else:
+                module_count += 1
+            mc = props.get("methods_count")
+            if isinstance(mc, int):
+                fn_count += mc
+            elif isinstance(mc, str) and mc.isdigit():
+                fn_count += int(mc)
+        stats[str(repo)] = {
+            "module_count": module_count,
+            "class_count": class_count,
+            "function_count": fn_count,
+        }
+    return stats
+
+
+def _entry_points_by_repo_from_modules(modules_by_repo: dict[str, Any]) -> dict[str, list[str]]:
+    """Collect likely HTTP / listener entry modules from annotations (pipeline module dicts)."""
+    out: dict[str, list[str]] = {}
+    if not isinstance(modules_by_repo, dict):
+        return out
+    entry_markers = ("@RestController", "@Controller", "@KafkaListener", "@RocketMQMessageListener")
+
+    def _is_entry(props: dict[str, Any]) -> bool:
+        if props.get("is_entry_point"):
+            return True
+        anns = props.get("annotations") or []
+        if not isinstance(anns, list):
+            return False
+        merged = " ".join(str(a) for a in anns)
+        return any(marker in merged for marker in entry_markers)
+
+    for repo, mod_list in modules_by_repo.items():
+        eps: list[str] = []
+        if isinstance(mod_list, list):
+            for mod in mod_list:
+                if not isinstance(mod, dict):
+                    continue
+                props = mod.get("properties") or {}
+                if not isinstance(props, dict):
+                    continue
+                name = props.get("name")
+                if _is_entry(props) and name:
+                    eps.append(str(name))
+        out[str(repo)] = eps
+    return out
+
+
+def _count_modules_in_domain_tree(domain_tree: Any) -> int:
+    """Sum module counts on every domain node at all nesting levels."""
+    if not isinstance(domain_tree, list):
+        return 0
+    total = 0
+    for d in domain_tree:
+        if not isinstance(d, dict):
+            continue
+        mods = d.get("modules", []) or []
+        total += len(mods)
+        total += _count_modules_in_domain_tree(d.get("children", []) or [])
+    return total
+
+
 async def _compose_single_leaf_domain(
     leaf: dict[str, Any],
     composer: TopicPageComposer,
@@ -396,7 +557,7 @@ async def _compose_single_leaf_domain(
                         page_dict["diagrams"] = [
                             {
                                 "title": d.title,
-                                "diagram_type": d.diagram_type.value
+                                "type": d.diagram_type.value
                                 if hasattr(d.diagram_type, "value")
                                 else str(d.diagram_type),
                                 "content": d.content,
@@ -507,13 +668,12 @@ async def heal_pages_node(
             content_char_limit = heal_budget * 3
             domain_name = page_dict.get("domain", "unknown")
             domain_context = ""
-            for d in state.get("domain_tree", []) or []:
-                if d.get("name") == domain_name:
-                    modules = d.get("modules", [])
-                    domain_context = (
-                        f"Domain: {domain_name}, Modules: {', '.join(str(m) for m in modules[:10])}"
-                    )
-                    break
+            dmatch = _find_domain_in_tree(state.get("domain_tree", []) or [], domain_name)
+            if dmatch is not None:
+                modules = dmatch.get("modules", [])
+                domain_context = (
+                    f"Domain: {domain_name}, Modules: {', '.join(str(m) for m in modules[:10])}"
+                )
 
             heal_prompt = (
                 f"Improve this wiki page for domain '{domain_name}'.\n\n"
@@ -532,19 +692,31 @@ async def heal_pages_node(
                 "- Focus on business logic, not framework details\n"
             )
             try:
-                new_content = await llm.generate(
-                    heal_prompt,
-                    system=(
-                        "You are a technical wiki author specializing in business domain documentation. "
-                        "Output Markdown with Mermaid diagrams. Use Chinese for business descriptions. "
-                        "Focus on business logic and service interactions. "
-                        "Do NOT explain frameworks or annotations."
-                    ),
+                # Try targeted heal first
+                from wiki.targeted_healer import TargetedHealer
+
+                healer = TargetedHealer()
+                targeted_result = await healer.heal(
+                    page,
+                    hint,
+                    llm,
+                    domain_context,
+                    content_char_limit=content_char_limit,
                     max_tokens=heal_budget,
                 )
-                healed_page = {**page_dict, "content": new_content}
-                healed_pages.append(healed_page)
-                log.info("page_healed", page=page_path, attempt=heal_attempts[page_path])
+                if targeted_result:
+                    healed_page = {**page_dict, "content": targeted_result.content}
+                    healed_pages.append(healed_page)
+                    log.info("targeted_heal_success", page=page_path)
+                else:
+                    new_content = await llm.generate(
+                        heal_prompt,
+                        system=SYSTEM_WIKI_HEAL,
+                        max_tokens=heal_budget,
+                    )
+                    healed_page = {**page_dict, "content": new_content}
+                    healed_pages.append(healed_page)
+                    log.info("page_healed", page=page_path, attempt=heal_attempts[page_path])
             except Exception:
                 log.warning("heal_page_regen_failed", page=page_path, exc_info=True)
         else:
@@ -570,17 +742,71 @@ async def synthesize_overviews_node(
     if not llm:
         return {}
 
-    domain_summaries = []
-    for domain in domain_tree:
-        name = domain.get("name", "")
+    flat_domains = _flatten_all_domains(domain_tree if isinstance(domain_tree, list) else [])
+    domain_overviews = {
+        str(d.get("name", "") or ""): _summarize_domain_for_system_overview(str(d.get("name", "") or ""), pages)
+        for d in flat_domains
+        if str(d.get("name", "") or "")
+    }
+
+    thin_domain_lines = []
+    for domain in flat_domains:
+        name = domain.get("name", "") or ""
         domain_pages = [p for p in pages if p.get("domain") == name]
         summary = domain_pages[0]["content"][:200] if domain_pages else ""
-        domain_summaries.append(f"- **{name}**: {summary}")
+        thin_domain_lines.append(f"- **{name}**: {summary}")
 
-    if domain_summaries:
+    if not thin_domain_lines:
+        return {}
+
+    cfg = (config or {}).get("configurable") or {}
+    nested_cfg = state.get("config") or {}
+    language = cfg.get("language") or nested_cfg.get("language") or "en"
+    business_id = str(state.get("business_id") or "default")
+
+    modules_dict_raw = state.get("modules") or {}
+    repositories: list[str]
+    if isinstance(modules_dict_raw, dict) and modules_dict_raw:
+        repositories = sorted(str(k) for k in modules_dict_raw.keys())
+    else:
+        repositories = list(str(r) for r in (state.get("repositories") or []) if r)
+    stats_by_repo = (
+        _stats_by_repo_from_pipeline_modules(modules_dict_raw)
+        if isinstance(modules_dict_raw, dict)
+        else {}
+    )
+    entry_points_by_repo = (
+        _entry_points_by_repo_from_modules(modules_dict_raw)
+        if isinstance(modules_dict_raw, dict)
+        else {}
+    )
+    domain_tree_nodes = (
+        _domain_tree_dict_to_nodes(domain_tree)
+        if isinstance(domain_tree, list)
+        else []
+    )
+
+    try:
+        composer = SystemOverviewComposer(llm)
+        wiki_page = await composer.compose(
+            business_id=business_id,
+            repositories=repositories or [],
+            domain_tree=domain_tree_nodes,
+            entry_points_by_repo=entry_points_by_repo,
+            domain_overviews=domain_overviews,
+            stats_by_repo=stats_by_repo,
+            language=str(language),
+        )
+        overview_dict = wiki_page.to_dict()
+        overview_dict["path"] = "wiki/_system_overview"
+        overview_dict["page_type"] = PageType.SYSTEM_OVERVIEW.value
+        overview_dict.setdefault("domain", "_system")
+        return {"pages": [overview_dict], "system_overview_uid": "wiki/_system_overview"}
+    except Exception:
+        log.warning("system_overview_composer_pipeline_failed_falling_back", exc_info=True)
         sys_prompt = (
             "Generate a system overview wiki page summarizing the entire codebase.\n\n"
-            f"Domains:\n" + "\n".join(domain_summaries) + "\n\n"
+            f"Domains:\n" + "\n".join(thin_domain_lines) + "\n\n"
             "Output:\n"
             "1. ## 系统概览 (high-level description of the system)\n"
             "2. ## 架构图 (Mermaid diagram showing domain relationships)\n"
@@ -594,12 +820,10 @@ async def synthesize_overviews_node(
             "title": "System Overview",
             "content": overview_content,
             "path": "wiki/_system_overview",
-            "page_type": "system_overview",
+            "page_type": PageType.SYSTEM_OVERVIEW.value,
             "domain": "_system",
         }
         return {"pages": [overview_page], "system_overview_uid": "wiki/_system_overview"}
-
-    return {}
 
 
 async def create_links_node(state: dict[str, Any]) -> dict[str, Any]:

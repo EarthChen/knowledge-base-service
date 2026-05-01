@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal
 
 from pydantic import BaseModel
+
+from wiki.context import LLMPort
 
 
 @dataclass(frozen=True)
@@ -63,11 +65,6 @@ class LlmVerdict(BaseModel):
     severity: Literal["high", "medium", "low"] = "medium"
 
 
-@runtime_checkable
-class _LlmPort(Protocol):
-    async def generate(self, prompt: str, system: str = "") -> str: ...
-
-
 def _parse_verdict_json(raw: str) -> LlmVerdict | None:
     text = raw.strip()
     if text.startswith("```"):
@@ -92,7 +89,7 @@ class ContradictionDetector:
         self,
         graph: Any,
         embedding_fn: Any,
-        llm: _LlmPort | None,
+        llm: LLMPort | None,
         *,
         similarity_threshold: float = 0.75,
     ) -> None:

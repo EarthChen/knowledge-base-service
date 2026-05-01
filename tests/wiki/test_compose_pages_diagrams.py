@@ -5,7 +5,41 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock
 
+from wiki.models import DiagramType, WikiPage
 from wiki.pipeline_nodes import compose_pages_node
+
+
+def test_compose_pages_diagram_dict_shape_round_trips_via_wiki_page_from_dict():
+    """compose_pages_node uses ``type`` (not diagram_type); WikiPage.from_dict must accept it."""
+    page_dict = {
+        "path": "wiki/domain-acme/topics/overview.md",
+        "title": "Acme Overview",
+        "page_type": "domain_overview",
+        "domain": "acme",
+        "content": "## 业务概述\nExample domain content.",
+        "diagrams": [
+            {
+                "title": "Relationships",
+                "type": DiagramType.CLASS_DIAGRAM.value,
+                "content": "classDiagram\n  class Order\n",
+            },
+            {
+                "title": "Flows",
+                "type": DiagramType.FLOWCHART.value,
+                "content": "flowchart TD\n  A-->B\n",
+            },
+        ],
+        "source_locations": [],
+        "metadata": {"node_count": 0, "edge_count": 0},
+    }
+    page = WikiPage.from_dict(page_dict)
+    assert len(page.diagrams) == 2
+    assert page.diagrams[0].title == "Relationships"
+    assert page.diagrams[0].diagram_type == DiagramType.CLASS_DIAGRAM
+    assert "classDiagram" in page.diagrams[0].content
+    assert page.diagrams[1].title == "Flows"
+    assert page.diagrams[1].diagram_type == DiagramType.FLOWCHART
+    assert page.path == page_dict["path"]
 
 
 def _many_methods(prefix: str, n: int = 11) -> list[str]:

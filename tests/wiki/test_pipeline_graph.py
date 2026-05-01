@@ -53,7 +53,7 @@ def test_pipeline_graph_has_expected_nodes():
     drawable = graph.get_graph()
     node_ids = set(drawable.nodes.keys())
     expected = {
-        "collect_modules", "detect_reorg", "classify_domains", "decompose_hierarchy",
+        "classify_entity_roles", "detect_reorg", "classify_domains", "decompose_hierarchy",
         "set_review_status", "compose_pages", "quality_gate",
         "heal_pages", "synthesize_overviews", "create_links",
         "finalize", "__start__", "__end__",
@@ -68,7 +68,7 @@ def test_pipeline_has_all_expected_nodes():
     graph_data = pipeline.get_graph()
     node_names = set(graph_data.nodes.keys())
     expected = {
-        "collect_modules", "detect_reorg", "classify_domains",
+        "classify_entity_roles", "detect_reorg", "classify_domains",
         "decompose_hierarchy", "set_review_status", "compose_pages",
         "synthesize_overviews", "create_links",
         "quality_gate", "heal_pages", "finalize",

@@ -192,7 +192,7 @@ class WikiPageComposerService:
         token_budget_multiplier: float = 1.0,
         progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> tuple[list[WikiPage], bool]:
-        from wiki.service import (
+        from wiki.helpers import (
             _build_lightweight_glossary,
             _build_lightweight_parent_context,
             _collect_nodes_by_depth,

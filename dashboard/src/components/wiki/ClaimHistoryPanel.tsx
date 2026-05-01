@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
+import { useI18n } from "../../i18n/context";
 
 type ApiRow = {
   uid: string;
@@ -11,6 +12,8 @@ type ApiRow = {
 };
 
 export function ClaimHistoryPanel({ pageUid }: { pageUid: string }) {
+  const { t } = useI18n();
+  const claimI18n = t.wiki.claims;
   const q = useQuery({
     queryKey: ["wiki", "claim-history", pageUid],
     queryFn: () =>
@@ -20,20 +23,34 @@ export function ClaimHistoryPanel({ pageUid }: { pageUid: string }) {
     enabled: Boolean(pageUid.trim()),
   });
   const claims = q.data?.items ?? [];
-  if (!pageUid.trim() || q.isLoading || q.isError) return null;
+  if (!pageUid.trim()) return null;
+  if (q.isLoading) {
+    return (
+      <p className="mt-6 text-xs text-gray-500 dark:text-gray-400" role="status">
+        {claimI18n.loading}
+      </p>
+    );
+  }
+  if (q.isError) {
+    return (
+      <p className="mt-6 text-xs text-red-600 dark:text-red-400" role="alert">
+        {claimI18n.load_failed}
+      </p>
+    );
+  }
   if (!claims.length) return null;
   return (
     <details className="mt-6 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
       <summary className="cursor-pointer text-sm font-semibold text-gray-800 dark:text-gray-200">
-        Claim history
+        {claimI18n.history}
       </summary>
       <ol className="mt-2 space-y-2 text-sm text-gray-700 dark:text-gray-300">
-        {claims.map((c) => (
-          <li key={c.uid}>
-            <span className="font-mono text-xs text-gray-500 dark:text-gray-500">v{c.version}</span>{" "}
-            {c.claim_text}
-            {c.superseded_by ? (
-              <span className="ml-2 text-xs text-amber-700 dark:text-amber-400">(superseded)</span>
+        {claims.map((row) => (
+          <li key={row.uid}>
+            <span className="font-mono text-xs text-gray-500 dark:text-gray-500">v{row.version}</span>{" "}
+            {row.claim_text}
+            {row.superseded_by ? (
+              <span className="ml-2 text-xs text-amber-700 dark:text-amber-400">{claimI18n.superseded}</span>
             ) : null}
           </li>
         ))}

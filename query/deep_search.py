@@ -153,6 +153,8 @@ class DeepSearchEngine:
         task_manager: RepoTaskManager | None = None,
         *,
         synthesis_max_tokens: int | None = None,
+        rag_engine: Any | None = None,
+        use_iterative_rag: bool = False,
     ) -> None:
         self._llm = llm
         self._hybrid = hybrid_svc
@@ -163,6 +165,8 @@ class DeepSearchEngine:
             if synthesis_max_tokens is not None
             else get_settings().llm.synthesis_max_tokens
         )
+        self._rag_engine = rag_engine
+        self._use_iterative_rag = use_iterative_rag
 
     async def search(
         self,

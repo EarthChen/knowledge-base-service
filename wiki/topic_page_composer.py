@@ -13,6 +13,7 @@ from wiki.context import LLMPort
 from wiki.domain_complexity import DomainComplexity, DomainComplexityScorer
 from wiki.json_robust import parse_json_robust_sync
 from wiki.prompts import SYSTEM_JSON_ONLY, SYSTEM_WIKI_AUTHOR
+from wiki.reasoning import MultiStepReasoner, ReasoningLevel
 
 log = get_logger(__name__)
 
@@ -26,10 +27,12 @@ class TopicPageComposer:
         *,
         token_budget: int = 8000,
         complexity_scorer: DomainComplexityScorer | None = None,
+        reasoning_level: ReasoningLevel | None = None,
     ) -> None:
         self._llm = llm
         self._token_budget = token_budget
         self._complexity_scorer = complexity_scorer or DomainComplexityScorer()
+        self._reasoning_level = reasoning_level
 
     def _token_budget_instruction(self, max_tokens: int | None = None) -> str:
         cap = max_tokens if max_tokens is not None else self._token_budget
@@ -57,11 +60,16 @@ class TopicPageComposer:
     async def _compose_single_page(self, domain: dict[str, Any], complexity: DomainComplexity) -> list[dict[str, Any]]:
         name = domain["name"]
         concise = complexity == DomainComplexity.LOW
-        prompt = self._build_single_page_prompt(domain, concise=concise)
         budget = self._effective_token_budget(complexity)
-        content = await self._llm.generate(
-            prompt, system=SYSTEM_WIKI_AUTHOR, max_tokens=budget,
-        )
+
+        if self._reasoning_level == ReasoningLevel.MULTI_STEP and not concise:
+            reasoner = MultiStepReasoner()
+            content = await reasoner.plan_and_compose(
+                domain, self._llm, system=SYSTEM_WIKI_AUTHOR, max_tokens=budget,
+            )
+        else:
+            prompt = self._build_single_page_prompt(domain, concise=concise)
+            content = await self._llm.generate(prompt, system=SYSTEM_WIKI_AUTHOR, max_tokens=budget)
 
         data_table = self.format_data_model_table(domain.get("data_models", []))
         if data_table and "## 数据模型" not in content:
@@ -100,10 +108,19 @@ class TopicPageComposer:
                 "sibling_summaries": [{"name": t, "description": ""} for t in sibling_titles[:5]],
                 "overview_summary": overview_content[:500],
             }
-            sub_prompt = self._build_sub_page_prompt(sub_domain, max_tokens=budget)
-            sub_content = await self._llm.generate(
-                sub_prompt, system=SYSTEM_WIKI_AUTHOR, max_tokens=budget,
-            )
+            if self._reasoning_level == ReasoningLevel.MULTI_STEP:
+                reasoner = MultiStepReasoner()
+                sub_content = await reasoner.plan_and_compose(
+                    sub_domain,
+                    self._llm,
+                    system=SYSTEM_WIKI_AUTHOR,
+                    max_tokens=budget,
+                )
+            else:
+                sub_prompt = self._build_sub_page_prompt(sub_domain, max_tokens=budget)
+                sub_content = await self._llm.generate(
+                    sub_prompt, system=SYSTEM_WIKI_AUTHOR, max_tokens=budget,
+                )
             pages.append({"title": sub_name, "content": sub_content, "path": f"wiki/{name}/{sub_name}", "page_type": "topic", "domain": name})
 
         return pages
@@ -147,10 +164,19 @@ class TopicPageComposer:
                 "sibling_summaries": [{"name": g.get("name", ""), "description": ""} for g in groups if g.get("name") != group_name][:5],
                 "overview_summary": overview_content[:500],
             }
-            sub_prompt = self._build_sub_page_prompt(sub_domain, max_tokens=budget)
-            sub_content = await self._llm.generate(
-                sub_prompt, system=SYSTEM_WIKI_AUTHOR, max_tokens=budget,
-            )
+            if self._reasoning_level == ReasoningLevel.MULTI_STEP:
+                reasoner = MultiStepReasoner()
+                sub_content = await reasoner.plan_and_compose(
+                    sub_domain,
+                    self._llm,
+                    system=SYSTEM_WIKI_AUTHOR,
+                    max_tokens=budget,
+                )
+            else:
+                sub_prompt = self._build_sub_page_prompt(sub_domain, max_tokens=budget)
+                sub_content = await self._llm.generate(
+                    sub_prompt, system=SYSTEM_WIKI_AUTHOR, max_tokens=budget,
+                )
             pages.append({"title": group_name, "content": sub_content, "path": f"wiki/{name}/{group_name}", "page_type": "topic", "domain": name})
 
         return pages

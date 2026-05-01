@@ -142,6 +142,7 @@ class LLMPortBridge:
         *,
         model: str | None = None,
         max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
         extra_params: dict[str, Any] | None = None,
     ) -> str:
         messages: list[dict[str, str]] = []
@@ -152,6 +153,8 @@ class LLMPortBridge:
         kwargs: dict[str, Any] = {"model": model}
         if max_tokens is not None:
             kwargs["max_tokens"] = max_tokens
+        if reasoning_effort:
+            kwargs["reasoning_effort"] = reasoning_effort
         if extra_params:
             kwargs.update(extra_params)
 

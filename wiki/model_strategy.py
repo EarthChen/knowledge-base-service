@@ -74,9 +74,7 @@ class _LLMPortWithDefault:
             system,
             model=m,
             max_tokens=max_tokens,
-            extra_params={"reasoning_effort": reasoning_effort}
-            if reasoning_effort
-            else {},
+            reasoning_effort=reasoning_effort,
         )
 
     async def complete(

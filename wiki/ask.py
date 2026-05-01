@@ -696,32 +696,6 @@ class WikiAskService:
             result = await result
         return result
 
-    def _build_messages(
-        self,
-        repository: str,
-        formatted_results: str,
-        prior_turns: list[ConversationTurn],
-        question: str,
-    ) -> list[dict[str, str]]:
-        system_message = (
-            "You are a code documentation expert. Answer questions about the codebase "
-            "using the provided context.\n"
-            "Always reference source code locations when available.\n"
-            f"Repository: {repository}"
-        )
-
-        context_message = f"""Relevant Wiki pages and code:
-{formatted_results}"""
-
-        messages: list[dict[str, str]] = [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": context_message},
-        ]
-        for t in prior_turns:
-            messages.append({"role": t.role, "content": t.content})
-        messages.append({"role": "user", "content": question})
-        return messages
-
     async def ask_stream(
         self,
         repository: str,

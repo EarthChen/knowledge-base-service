@@ -47,7 +47,10 @@ class WikiRetriever:
     ) -> list[Chunk]:
         repo = self._repo(scope)
         if not repo:
-            log.warning("wiki_retriever_missing_repository")
+            log.warning(
+                "wiki_retriever_missing_repository",
+                scope_type=scope.scope_type,
+            )
             return []
         out: list[Chunk] = []
         seen: set[str] = set()

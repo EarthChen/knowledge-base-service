@@ -38,16 +38,6 @@ admin_router = kb_routers.admin_router
 public_router = kb_routers.public_router
 
 
-@viewer_router.get("/businesses")
-async def list_businesses() -> dict[str, Any]:
-    """List all businesses."""
-    if kb_state.registry is None:
-        raise KbServiceUnavailable("Service not ready")
-    loop = asyncio.get_running_loop()
-    businesses = await loop.run_in_executor(None, kb_state.registry.business_manager.list_businesses)
-    return {"businesses": businesses, "total": len(businesses)}
-
-
 @admin_router.post("/businesses")
 async def create_business(req: CreateBusinessRequest) -> dict[str, Any]:
     """Create a new business with its own isolated graph."""

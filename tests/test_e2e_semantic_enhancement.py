@@ -167,47 +167,30 @@ class TestSearchEngineEnhancement:
 
     @pytest.mark.asyncio
     async def test_deep_search_full_flow(self):
-        """Test deep search engine complete flow: plan -> execute -> synthesize."""
-        from llm.provider import LLMProvider
+        """Test deep search delegates to IterativeRAGEngine (mocked)."""
         from query.deep_search import DeepSearchEngine
-        from query.graph_query import GraphQueryService
-        from query.hybrid_query import HybridQueryService
 
-        mock_llm = MagicMock(spec=LLMProvider)
-        mock_llm.complete_json = AsyncMock(
-            side_effect=[
-                {"intent": "search", "sub_queries": [{"type": "rag_query", "query": "支付"}]},
-                {
-                    "sufficient": True,
-                    "analysis": "找到支付相关代码",
-                    "business_flows": [],
-                    "code_locations": [{"file": "pay.py", "function": "pay"}],
-                },
-            ]
+        mock_rag = MagicMock()
+        mock_rag.arun = AsyncMock(
+            return_value={
+                "current_draft": "找到支付相关代码",
+                "sse_events": [
+                    {"type": "searching", "round": 1},
+                    {"type": "done", "final_answer": "找到支付相关代码"},
+                ],
+                "round": 2,
+                "confidence": 0.91,
+            }
         )
 
-        mock_hybrid = MagicMock(spec=HybridQueryService)
-        mock_hybrid.search_with_context = AsyncMock(return_value={
-            "results": [{"name": "pay", "file": "pay.py"}],
-            "semantic_matches": [{"name": "pay", "file": "pay.py"}],
-            "total": 1,
-            "offset": 0,
-            "limit": 500,
-            "graph_context": [],
-            "query_text": "支付",
-            "confidence": 0.0,
-            "no_results_reason": "",
-        })
-
-        mock_graph = MagicMock(spec=GraphQueryService)
-
-        engine = DeepSearchEngine(llm=mock_llm, hybrid_svc=mock_hybrid, graph_svc=mock_graph)
+        engine = DeepSearchEngine(rag_engine=mock_rag)
         result = await engine.search("支付相关代码在哪里？")
 
         assert result["analysis"] == "找到支付相关代码"
-        assert len(result["code_locations"]) == 1
+        assert result["code_locations"] == []
         assert len(result["search_trace"]) >= 2
-        assert result["search_trace"][0]["step"] == "plan"
+        assert result["search_trace"][0]["stage"] == "searching"
+        mock_rag.arun.assert_awaited_once()
 
 
 class TestMCPToolManifest:

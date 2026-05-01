@@ -236,9 +236,24 @@ class KnowledgeBaseService:
         )
         self._wiki_ask: WikiAskService | None = None
         if self._llm_provider is not None:
+            from llm.base_provider import GatewayLLMProviderAdapter, LLMPortBridge
+            from wiki.rag.engine import IterativeRAGEngine
+            from wiki.rag.wiki_retriever import WikiRetriever
+
+            def _wrap_wiki_llm(raw_llm: object) -> object:
+                if hasattr(raw_llm, "generate"):
+                    return raw_llm
+                return LLMPortBridge(GatewayLLMProviderAdapter(raw_llm))  # type: ignore[arg-type]
+
+            wrapped = _wrap_wiki_llm(self._llm_provider)
+            rag_engine = IterativeRAGEngine(
+                retriever=WikiRetriever(self._wiki_search),
+                llm=wrapped,
+            )
             self._wiki_ask = WikiAskService(
                 search=self._wiki_search,
-                llm=self._llm_provider,
+                llm=wrapped,
+                rag_engine=rag_engine,
                 graph=self._store,
             )
         self._wiki_pipeline = WikiPipelineAdapter(
@@ -251,14 +266,18 @@ class KnowledgeBaseService:
         self._deep_search = None
         if settings.llm.enabled and self._llm_provider is not None:
             from query.deep_search import DeepSearchEngine
+            from wiki.rag.engine import IterativeRAGEngine
+            from wiki.rag.hybrid_graph_retriever import HybridGraphRetriever
 
-            self._deep_search = DeepSearchEngine(
-                llm=self._llm_provider,
-                hybrid_svc=self._hybrid_query,
-                graph_svc=self._graph_query,
-                task_manager=self._repo_task_mgr,
-                synthesis_max_tokens=settings.llm.synthesis_max_tokens,
+            rag_retriever = HybridGraphRetriever(
+                hybrid_service=self._hybrid_query,
+                graph_service=self._graph_query,
             )
+            rag_engine = IterativeRAGEngine(
+                retriever=rag_retriever,
+                llm=self._llm_provider,
+            )
+            self._deep_search = DeepSearchEngine(rag_engine=rag_engine)
 
         self._mcp_handler = KnowledgeBaseMCPHandler(
             hybrid_svc=self._hybrid_query,

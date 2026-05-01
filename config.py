@@ -181,6 +181,8 @@ class AppWikiFlags(BaseModel):
     auto_update_on_index: bool = False
 
     tree_enabled: bool = True
+    code_structure_semantic_group: bool = False
+    code_structure_semantic_group_threshold: int = 8
     dual_view_enabled: bool = True
     cross_reference_enabled: bool = True
     cross_reference_min_confidence: float = 0.5

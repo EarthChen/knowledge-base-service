@@ -467,6 +467,12 @@ const zh: Translations = {
     wikiGenerationTitle: "Wiki 生成",
     wikiGitTitle: "Wiki Git 与导出",
     llmTitle: "大语言模型",
+    llmProviderPool: "LLM 提供商池",
+    llmProviderPoolDesc: "配置多个 LLM 提供商（JSON）",
+    llmProviderPoolHint: "每个提供商包含：api_key、base_url、models[]。更改将立即生效（热重载）。",
+    modelStrategy: "模型策略",
+    modelStrategyDesc:
+      '将各任务路由到指定提供商与模型。格式：{"provider":"名称","model":"模型 ID"}',
     storageTitle: "存储（FalkorDB）",
     embeddingTitle: "向量嵌入",
     systemTitle: "系统",

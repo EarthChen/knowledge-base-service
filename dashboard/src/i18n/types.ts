@@ -485,6 +485,11 @@ export interface Translations {
     wikiGenerationTitle: string;
     wikiGitTitle: string;
     llmTitle: string;
+    llmProviderPool: string;
+    llmProviderPoolDesc: string;
+    llmProviderPoolHint: string;
+    modelStrategy: string;
+    modelStrategyDesc: string;
     storageTitle: string;
     embeddingTitle: string;
     systemTitle: string;

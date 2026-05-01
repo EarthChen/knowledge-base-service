@@ -9,6 +9,8 @@ import { useToast } from "../Toast";
 import { SkeletonLine } from "../Skeleton";
 import EmbeddingSection from "./sections/EmbeddingSection";
 import LLMSection from "./sections/LLMSection";
+import LLMProviderPoolSection from "./sections/LLMProviderPoolSection";
+import ModelStrategySection from "./sections/ModelStrategySection";
 import StorageSection from "./sections/StorageSection";
 import SystemSection from "./sections/SystemSection";
 import WikiFeaturesSection from "./sections/WikiFeaturesSection";
@@ -116,6 +118,8 @@ export default function SystemConfigPanel() {
         onTestConnection={runTest}
         testConnectionPending={testConnection.isPending}
       />
+      <LLMProviderPoolSection {...sectionProps} />
+      <ModelStrategySection {...sectionProps} />
       <StorageSection
         {...sectionProps}
         onTestConnection={runTest}

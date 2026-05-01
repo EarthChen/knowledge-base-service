@@ -472,6 +472,13 @@ const en: Translations = {
     wikiGenerationTitle: "Wiki generation",
     wikiGitTitle: "Wiki Git & export",
     llmTitle: "LLM",
+    llmProviderPool: "LLM Provider Pool",
+    llmProviderPoolDesc: "Configure multiple LLM providers (JSON)",
+    llmProviderPoolHint:
+      "Each provider: {api_key, base_url, models[]}. Changes apply immediately (hot-reload).",
+    modelStrategy: "Model Strategy",
+    modelStrategyDesc:
+      'Route each task to a specific provider + model. Format: {"provider":"name","model":"model-id"}',
     storageTitle: "Storage (FalkorDB)",
     embeddingTitle: "Embedding",
     systemTitle: "System",

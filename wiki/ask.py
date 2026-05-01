@@ -474,7 +474,8 @@ def _chunks_to_ask_sources(chunks: list[Any]) -> list[AskSource]:
             meta = raw_meta
         title = str(getattr(c, "title", "") or "")
         page = str(meta.get("page_path") or title)
-        fpath = str(meta.get("file_path") or "")
+        file_path = meta.get("file_path") or meta.get("path") or ""
+        fpath = str(file_path)
         ent = title or page
         try:
             start_line = int(meta.get("start_line", 0) or 0)
@@ -712,6 +713,9 @@ class WikiAskService:
 
         If ``record_memory`` is true and ``business_id`` is set, persists Q&A via memory loop
         (when configured).
+
+        ``mode`` is accepted for API parity with :meth:`ask` and route handlers; the iterative
+        RAG path does not branch on it.
         """
         from wiki.rag.protocol import RetrievalScope
 

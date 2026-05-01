@@ -199,7 +199,10 @@ function RagTimeline({ stages }: { stages: Record<string, unknown>[] }) {
                 )}
                 {typeof s.score === "number" && stageType !== "evaluating" && (
                   <span className="text-gray-400">
-                    Score: {((s.score as number) * 100).toFixed(0)}%
+                    {i18n.search.ragScore.replace(
+                      "{score}",
+                      ((s.score as number) * 100).toFixed(0),
+                    )}
                   </span>
                 )}
               </div>

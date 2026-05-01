@@ -228,6 +228,8 @@ export interface Translations {
     ragDrafting: string;
     ragRefining: string;
     ragComplete: string;
+    /** Use {score} */
+    ragScore: string;
   };
   graph: {
     title: string;

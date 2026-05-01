@@ -206,6 +206,7 @@ const zh: Translations = {
     ragDrafting: "生成草稿",
     ragRefining: "优化中",
     ragComplete: "完成",
+    ragScore: "得分：{score}%",
   },
   graph: {
     title: "图查询",

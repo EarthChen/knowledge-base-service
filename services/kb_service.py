@@ -42,6 +42,15 @@ from store.traversal_store import TraversalStore
 log = get_logger(__name__)
 
 
+def _wrap_wiki_llm(raw_llm: object) -> object:
+    """Expose a ``.generate``-compatible port for :class:`wiki.rag.engine.IterativeRAGEngine`."""
+    if hasattr(raw_llm, "generate"):
+        return raw_llm
+    from llm.base_provider import GatewayLLMProviderAdapter, LLMPortBridge
+
+    return LLMPortBridge(GatewayLLMProviderAdapter(raw_llm))  # type: ignore[arg-type]
+
+
 class KnowledgeBaseService:
     """Top-level facade for the knowledge base subsystem."""
 
@@ -238,15 +247,9 @@ class KnowledgeBaseService:
         hybrid_rag_retriever: Any = None
         nl_cypher: Any = None
         if self._llm_provider is not None:
-            from llm.base_provider import GatewayLLMProviderAdapter, LLMPortBridge
             from query.nl_cypher import NLCypherService
             from wiki.rag.engine import IterativeRAGEngine
             from wiki.rag.hybrid_graph_retriever import HybridGraphRetriever
-
-            def _wrap_wiki_llm(raw_llm: object) -> object:
-                if hasattr(raw_llm, "generate"):
-                    return raw_llm
-                return LLMPortBridge(GatewayLLMProviderAdapter(raw_llm))  # type: ignore[arg-type]
 
             nl_cypher = NLCypherService(store=self._store, llm=self._llm_provider)
             hybrid_rag_retriever = HybridGraphRetriever(
@@ -293,7 +296,7 @@ class KnowledgeBaseService:
 
             rag_engine = IterativeRAGEngine(
                 retriever=deep_retriever,
-                llm=self._llm_provider,
+                llm=_wrap_wiki_llm(self._llm_provider),
             )
             self._deep_search = DeepSearchEngine(rag_engine=rag_engine)
 

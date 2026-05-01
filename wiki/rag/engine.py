@@ -110,7 +110,11 @@ class IterativeRAGEngine:
                 try:
                     gen_llm = await self._model_strategy.get_llm_port("rag_generate")
                 except Exception:
-                    pass
+                    logger.warning(
+                        "model_strategy_get_llm_port_failed",
+                        role="rag_generate",
+                        exc_info=True,
+                    )
             raw = await gen_llm.complete([{"role": "user", "content": prompt}])
             data = _parse_reflection(raw)
             answer = str(data.get("answer") or raw)

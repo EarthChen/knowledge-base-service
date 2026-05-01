@@ -209,6 +209,7 @@ const en: Translations = {
     ragDrafting: "Drafting",
     ragRefining: "Refining",
     ragComplete: "Complete",
+    ragScore: "Score: {score}%",
   },
   graph: {
     title: "Graph Query",

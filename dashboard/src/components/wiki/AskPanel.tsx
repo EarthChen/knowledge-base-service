@@ -151,23 +151,52 @@ function RagTimeline({ stages }: { stages: Record<string, unknown>[] }) {
               ? "bg-blue-400"
               : t === "draft"
                 ? "bg-amber-400"
-                : t === "refining"
-                  ? "bg-violet-400"
-                  : t === "done"
-                    ? "bg-green-400"
-                    : "bg-gray-400";
+                : t === "planning"
+                  ? "bg-purple-400"
+                  : t === "evaluating"
+                    ? "bg-orange-400"
+                    : t === "refining"
+                      ? "bg-violet-400"
+                      : t === "done"
+                        ? "bg-green-400"
+                        : "bg-gray-400";
+          const label =
+            t === "searching"
+              ? "Searching"
+              : t === "draft"
+                ? "Drafting"
+                : t === "planning"
+                  ? "Planning sub-queries"
+                  : t === "evaluating"
+                    ? "Evaluating quality"
+                    : t === "refining"
+                      ? "Refining"
+                      : t === "done"
+                        ? "Complete"
+                        : t;
           return (
-            <div
-              key={i}
-              className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300"
-            >
-              <span className={`inline-block h-2 w-2 rounded-full ${color}`} />
-              <span className="font-medium">{t}</span>
-              {s.round != null && <span className="text-gray-400">Round {String(s.round)}</span>}
-              {typeof s.confidence === "number" && (
-                <span className="text-gray-400">
-                  {((s.confidence as number) * 100).toFixed(0)}%
-                </span>
+            <div key={i}>
+              <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                <span className={`inline-block h-2 w-2 rounded-full ${color}`} />
+                <span className="font-medium">{label}</span>
+                {s.round != null && <span className="text-gray-400">Round {String(s.round)}</span>}
+                {typeof s.confidence === "number" && (
+                  <span className="text-gray-400">
+                    {((s.confidence as number) * 100).toFixed(0)}%
+                  </span>
+                )}
+                {typeof s.score === "number" && (
+                  <span className="text-gray-400">
+                    Score: {((s.score as number) * 100).toFixed(0)}%
+                  </span>
+                )}
+              </div>
+              {t === "planning" && Array.isArray(s.sub_queries) && (
+                <ul className="ml-6 mt-0.5 space-y-0.5">
+                  {(s.sub_queries as string[]).map((q, qi) => (
+                    <li key={qi} className="text-xs text-gray-400">• {q}</li>
+                  ))}
+                </ul>
               )}
             </div>
           );

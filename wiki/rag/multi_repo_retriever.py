@@ -46,12 +46,11 @@ class MultiRepoRetriever:
         self,
         hybrid_service: Any,
         repo_registry: Any | None = None,
-        graph_service: Any | None = None,
+        *,
         nl_cypher: Any | None = None,
     ) -> None:
         self._hybrid = hybrid_service
         self._registry = repo_registry
-        self._graph = graph_service
         self._nl_cypher = nl_cypher
 
     def _list_repo_names(self) -> list[str]:

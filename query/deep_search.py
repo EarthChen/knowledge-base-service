@@ -101,9 +101,9 @@ class DeepSearchEngine:
         query: str,
         *,
         max_iterations: int = 3,
-        include_code: bool = True,
+        _include_code: bool = True,
         business_id: str = "",
-        model: str | None = None,
+        _model: str | None = None,
         tenant_id: str | None = None,
     ) -> dict[str, Any]:
         from wiki.rag.protocol import RetrievalScope
@@ -135,9 +135,9 @@ class DeepSearchEngine:
         query: str,
         *,
         max_iterations: int = 3,
-        include_code: bool = True,
+        _include_code: bool = True,
         business_id: str = "",
-        model: str | None = None,
+        _model: str | None = None,
         tenant_id: str | None = None,
     ):
         from wiki.rag.protocol import RetrievalScope
@@ -150,6 +150,7 @@ class DeepSearchEngine:
         yield {"type": "plan", "data": {"intent": query, "sub_queries": [query]}}
 
         draft = ""
+        confidence = 0.0
         use_stream = _is_arun_stream_callable(self._engine)
         try:
             if use_stream:
@@ -164,7 +165,7 @@ class DeepSearchEngine:
                     elif t == "draft":
                         draft = str(item.get("content", ""))
                     elif t == "done":
-                        pass
+                        confidence = float(item.get("confidence", 0.0))
             else:
                 state = await self._engine.arun(
                     question=query,
@@ -174,6 +175,7 @@ class DeepSearchEngine:
                 for sse in state.get("sse_events", []):
                     yield {"type": "progress", "data": sse}
                 draft = state.get("current_draft", "") or ""
+                confidence = float(state.get("confidence", 0.0))
         except Exception:
             logger.error("deep_search_stream_rag_failed", exc_info=True)
             yield {
@@ -191,7 +193,7 @@ class DeepSearchEngine:
             "type": "conclusion",
             "data": {
                 "analysis": draft,
-                "sufficient": True,
+                "sufficient": confidence >= 0.5,
                 "business_flows": _extract_business_flows(draft),
                 "code_locations": _extract_code_locations(draft),
             },

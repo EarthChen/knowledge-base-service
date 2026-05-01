@@ -307,6 +307,7 @@ class HybridGraphRetriever:
             hybrid_results = await self._hybrid.search_with_context(
                 query,
                 limit=limit,
+                repository=scope.repository,
             )
             if isinstance(hybrid_results, dict):
                 rows = (

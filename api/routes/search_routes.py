@@ -193,7 +193,7 @@ async def deep_search(
     return await svc.deep_search.search(
         req.query,
         max_iterations=req.max_iterations,
-        include_code=req.include_code,
+        _include_code=req.include_code,
         tenant_id=business_id,
     )
 

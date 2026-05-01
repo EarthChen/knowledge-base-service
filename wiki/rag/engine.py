@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 import re
 from collections.abc import AsyncIterator
 from typing import Any, TypedDict
@@ -11,6 +12,8 @@ from langgraph.graph import END, StateGraph
 from wiki.llm_port import LLMPort
 from wiki.rag.events import rag_sse_append
 from wiki.rag.protocol import Chunk, RetrievalScope, Retriever
+
+logger = logging.getLogger(__name__)
 
 
 class RAGState(TypedDict, total=False):
@@ -24,7 +27,6 @@ class RAGState(TypedDict, total=False):
     next_queries: list[str]
     confidence: float
     is_complete: bool
-    sources: list[dict[str, Any]]
     sse_events: list[dict[str, Any]]
     eval_suggestions: list[str]  # feedback from evaluate node
 
@@ -41,7 +43,6 @@ def _build_init_state(question: str, scope: RetrievalScope, max_rounds: int) -> 
         "next_queries": [],
         "confidence": 0.0,
         "is_complete": False,
-        "sources": [],
         "sse_events": [],
         "eval_suggestions": [],
     }
@@ -161,7 +162,11 @@ class IterativeRAGEngine:
                 try:
                     plan_llm = await self._model_strategy.get_llm_port("rag_plan")
                 except Exception:
-                    pass
+                    logger.warning(
+                        "model_strategy_get_llm_port_failed",
+                        role="rag_plan",
+                        exc_info=True,
+                    )
 
             prompt = (
                 f"Original question:\n{q}\n\n"
@@ -198,7 +203,11 @@ class IterativeRAGEngine:
                 try:
                     eval_llm = await self._model_strategy.get_llm_port("rag_evaluate")
                 except Exception:
-                    pass
+                    logger.warning(
+                        "model_strategy_get_llm_port_failed",
+                        role="rag_evaluate",
+                        exc_info=True,
+                    )
 
             prompt = (
                 f"Question:\n{q}\n\n"

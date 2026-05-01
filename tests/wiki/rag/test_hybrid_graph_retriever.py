@@ -121,3 +121,12 @@ async def test_retrieve_global_scope_no_repository(mock_hybrid):
     chunks = await retriever.retrieve(["general question"], scope)
     assert len(chunks) >= 1
     mock_hybrid.search_with_context.assert_called_once()
+    assert mock_hybrid.search_with_context.await_args.kwargs.get("repository") is None
+
+
+@pytest.mark.asyncio
+async def test_retrieve_passes_scope_repository_to_hybrid(mock_hybrid, mock_graph):
+    retriever = HybridGraphRetriever(mock_hybrid, mock_graph)
+    scope = RetrievalScope(scope_type="repository", repository="repo-one")
+    await retriever.retrieve(["auth"], scope)
+    assert mock_hybrid.search_with_context.await_args.kwargs.get("repository") == "repo-one"

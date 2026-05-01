@@ -19,7 +19,7 @@ class Chunk:
 class Source:
     """Citation / provenance for SSE and final answer."""
 
-    kind: Literal["wiki", "code", "graph"]
+    kind: Literal["wiki", "code", "graph", "graph_cypher"]
     title: str
     path: str
     relevance: float

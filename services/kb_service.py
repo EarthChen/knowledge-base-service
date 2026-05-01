@@ -235,19 +235,28 @@ class KnowledgeBaseService:
             embedding_gen=self._embedding,
         )
         self._wiki_ask: WikiAskService | None = None
+        hybrid_rag_retriever: Any = None
+        nl_cypher: Any = None
         if self._llm_provider is not None:
             from llm.base_provider import GatewayLLMProviderAdapter, LLMPortBridge
+            from query.nl_cypher import NLCypherService
             from wiki.rag.engine import IterativeRAGEngine
-            from wiki.rag.wiki_retriever import WikiRetriever
+            from wiki.rag.hybrid_graph_retriever import HybridGraphRetriever
 
             def _wrap_wiki_llm(raw_llm: object) -> object:
                 if hasattr(raw_llm, "generate"):
                     return raw_llm
                 return LLMPortBridge(GatewayLLMProviderAdapter(raw_llm))  # type: ignore[arg-type]
 
+            nl_cypher = NLCypherService(store=self._store, llm=self._llm_provider)
+            hybrid_rag_retriever = HybridGraphRetriever(
+                hybrid_service=self._hybrid_query,
+                graph_service=self._graph_query,
+                nl_cypher=nl_cypher,
+            )
             wrapped = _wrap_wiki_llm(self._llm_provider)
             rag_engine = IterativeRAGEngine(
-                retriever=WikiRetriever(self._wiki_search),
+                retriever=hybrid_rag_retriever,
                 llm=wrapped,
             )
             self._wiki_ask = WikiAskService(
@@ -267,18 +276,23 @@ class KnowledgeBaseService:
         rag_engine = None
         if settings.llm.enabled and self._llm_provider is not None:
             from query.deep_search import DeepSearchEngine
-            from query.nl_cypher import NLCypherService
             from wiki.rag.engine import IterativeRAGEngine
-            from wiki.rag.hybrid_graph_retriever import HybridGraphRetriever
+            from wiki.rag.multi_repo_retriever import MultiRepoRetriever
 
-            nl_cypher = NLCypherService(store=self._store, llm=self._llm_provider)
-            rag_retriever = HybridGraphRetriever(
-                hybrid_service=self._hybrid_query,
-                graph_service=self._graph_query,
-                nl_cypher=nl_cypher,
-            )
+            repo_registry = getattr(self, "_repo_registry", None)
+            if repo_registry is not None and hasattr(repo_registry, "list_all"):
+                deep_retriever = MultiRepoRetriever(
+                    self._hybrid_query,
+                    repo_registry=repo_registry,
+                    nl_cypher=nl_cypher,
+                )
+            else:
+                # MultiRepoRetriever needs RepoRegistry.list_all() for cross-repo retrieval;
+                # without a registry, HybridGraphRetriever remains the deep-search retriever.
+                deep_retriever = hybrid_rag_retriever
+
             rag_engine = IterativeRAGEngine(
-                retriever=rag_retriever,
+                retriever=deep_retriever,
                 llm=self._llm_provider,
             )
             self._deep_search = DeepSearchEngine(rag_engine=rag_engine)

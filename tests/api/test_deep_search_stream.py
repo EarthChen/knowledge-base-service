@@ -128,3 +128,23 @@ class TestDeepSearchStream:
             pass
 
         assert mock_rag.arun.call_args.kwargs["max_rounds"] == 2
+
+    @pytest.mark.asyncio
+    async def test_stream_conclusion_insufficient_when_low_confidence(self):
+        from query.deep_search import DeepSearchEngine
+
+        mock_rag = MagicMock()
+        mock_rag.arun = AsyncMock(
+            return_value={
+                "current_draft": "Uncertain answer.",
+                "sse_events": [],
+                "confidence": 0.35,
+            },
+        )
+
+        engine = DeepSearchEngine(rag_engine=mock_rag)
+        events = []
+        async for event in engine.search_stream("q"):
+            events.append(event)
+        assert events[-1]["type"] == "conclusion"
+        assert events[-1]["data"]["sufficient"] is False

@@ -133,6 +133,50 @@ function ConversationRelativeWhen({
   return <>{formatAskHistoryTime(createdAt, now, wiki)}</>;
 }
 
+function RagTimeline({ stages }: { stages: Record<string, unknown>[] }) {
+  if (!stages.length) return null;
+  return (
+    <details
+      className="mt-2 rounded-lg border border-gray-200 open:bg-gray-50/50 dark:border-gray-700 dark:open:bg-gray-800/30"
+      open
+    >
+      <summary className="cursor-pointer list-none px-3 py-2 text-xs font-medium text-gray-500 marker:content-none dark:text-gray-400 [&::-webkit-details-marker]:hidden">
+        Iterative RAG Process
+      </summary>
+      <div className="space-y-1 border-t border-gray-100 px-3 pb-3 pt-2 dark:border-gray-700">
+        {stages.map((s, i) => {
+          const t = String(s.type ?? "unknown");
+          const color =
+            t === "searching"
+              ? "bg-blue-400"
+              : t === "draft"
+                ? "bg-amber-400"
+                : t === "refining"
+                  ? "bg-violet-400"
+                  : t === "done"
+                    ? "bg-green-400"
+                    : "bg-gray-400";
+          return (
+            <div
+              key={i}
+              className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300"
+            >
+              <span className={`inline-block h-2 w-2 rounded-full ${color}`} />
+              <span className="font-medium">{t}</span>
+              {s.round != null && <span className="text-gray-400">Round {String(s.round)}</span>}
+              {typeof s.confidence === "number" && (
+                <span className="text-gray-400">
+                  {((s.confidence as number) * 100).toFixed(0)}%
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
 export default function AskPanel({ repository, pageContext }: Props) {
   const { t } = useI18n();
   const { toast } = useToast();
@@ -148,6 +192,7 @@ export default function AskPanel({ repository, pageContext }: Props) {
     isStreaming,
     error,
     reasoningPath,
+    ragStages,
     ask,
     cancel,
     reset,
@@ -432,6 +477,7 @@ export default function AskPanel({ repository, pageContext }: Props) {
                       )}
                     </div>
                   )}
+                  <RagTimeline stages={ragStages} />
                   {answer && !isStreaming && (
                     <div className="mt-3 flex flex-col gap-2 border-t border-gray-100 pt-3 dark:border-gray-700">
                       <div className="flex flex-wrap items-center gap-2">

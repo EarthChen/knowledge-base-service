@@ -76,6 +76,10 @@ async def _wiki_ask_stream_sse_v2(
                     "tokens_used": data.get("tokens_used", 0),
                     "reasoning_path": data.get("reasoning_path"),
                 }
+            elif event_name == "rag-progress":
+                inner = data if isinstance(data, dict) else {}
+                # Nest under "rag" so envelope type rag_progress is not overwritten by stage "type".
+                payload = {"type": "rag_progress", "rag": inner}
             else:
                 continue
             yield f"data: {json.dumps(payload, default=str)}\n\n".encode()
@@ -197,6 +201,7 @@ async def wiki_ask_stream_get(
     ask_svc: WikiAskService = Depends(get_wiki_ask_dep),
     repository: str = Query(..., min_length=1),
     question: str = Query(..., min_length=1),
+    page_context: str | None = None,
     scope: str | None = None,
     conversation_id: str | None = None,
     mode: str = Query(default="hybrid", pattern="^(hybrid|graph|semantic|keyword)$"),
@@ -204,11 +209,14 @@ async def wiki_ask_stream_get(
     business_id: str | None = None,
 ) -> StreamingResponse:
     """Same SSE format as ``POST /ask/stream``; for clients limited to GET (e.g. EventSource)."""
+    q = question
+    if page_context:
+        q = f"{page_context}\n\n---\n\n{question}"
     return StreamingResponse(
         _wiki_ask_stream_sse_v2(
             ask_svc,
             repository=repository,
-            question=question,
+            question=q,
             scope=scope,
             conversation_id=conversation_id,
             mode=mode,

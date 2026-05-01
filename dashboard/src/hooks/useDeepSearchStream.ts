@@ -4,6 +4,16 @@ import { API_BASE, authHeaders } from "../api/client";
 import { useI18n } from "../i18n/context";
 import { getErrorMessage } from "../utils/errorUtils";
 
+/** Ignore unknown SSE event names so new backend events do not affect this hook. */
+const KNOWN_DEEP_SEARCH_EVENTS = new Set<StageEvent["type"]>([
+  "plan",
+  "progress",
+  "search_done",
+  "synthesis",
+  "conclusion",
+  "error",
+]);
+
 type StreamState = {
   stages: StageEvent[];
   conclusion: Record<string, unknown> | null;
@@ -63,6 +73,10 @@ export function useDeepSearchStream() {
             const evType = pendingEventType;
             try {
               const data = JSON.parse(line.slice(6));
+              if (!KNOWN_DEEP_SEARCH_EVENTS.has(evType as StageEvent["type"])) {
+                pendingEventType = "";
+                continue;
+              }
               const status: StageEvent["status"] =
                 evType === "progress" || evType === "plan" ? "active" : "done";
               const event: StageEvent = {

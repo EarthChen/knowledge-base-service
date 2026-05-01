@@ -38,7 +38,7 @@ function parseReasoningPath(raw: unknown): ReasoningPathData | null {
   return { stages, answer_entities };
 }
 
-/** Parse SSE from POST /wiki/ask/stream — `data: { "type": "token" | "sources" | "done" | "error", ... }` */
+/** Parse SSE from POST /wiki/ask/stream — `data: { "type": "token" | "sources" | "done" | "error" | "rag_progress", ... }` */
 async function consumeWikiAskStreamSseV2(
   res: Response,
   handlers: {
@@ -50,6 +50,7 @@ async function consumeWikiAskStreamSseV2(
       reasoning_path: ReasoningPathData | null;
     }) => void;
     onError?: (message: string) => void;
+    onRagProgress?: (data: Record<string, unknown>) => void;
   },
   signal?: AbortSignal,
 ): Promise<void> {
@@ -118,6 +119,13 @@ async function consumeWikiAskStreamSseV2(
               ? data.error
               : JSON.stringify(data);
         handlers.onError?.(detail);
+      } else if (type === "rag_progress") {
+        const rag = data.rag;
+        const payload =
+          rag && typeof rag === "object" && !Array.isArray(rag)
+            ? (rag as Record<string, unknown>)
+            : (data as Record<string, unknown>);
+        handlers.onRagProgress?.(payload);
       }
     }
   }
@@ -137,6 +145,7 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reasoningPath, setReasoningPath] = useState<ReasoningPathData | null>(null);
+  const [ragStages, setRagStages] = useState<Record<string, unknown>[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(
@@ -152,6 +161,7 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
     setError(null);
     setConversationId(undefined);
     setReasoningPath(null);
+    setRagStages([]);
   }, []);
 
   const ask = useCallback(
@@ -166,6 +176,7 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
       setAnswer("");
       setSources([]);
       setReasoningPath(null);
+      setRagStages([]);
 
       const payload: WikiAskBody = {
         repository,
@@ -210,6 +221,9 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
               setReasoningPath(d.reasoning_path);
             },
             onError: (msg) => setError(msg),
+            onRagProgress: (data) => {
+              setRagStages((prev) => [...prev, data]);
+            },
           },
           ac.signal,
         );
@@ -236,6 +250,7 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
     isStreaming,
     error,
     reasoningPath,
+    ragStages,
     ask,
     cancel,
     reset,

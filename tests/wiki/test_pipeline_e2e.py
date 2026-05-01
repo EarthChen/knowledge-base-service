@@ -222,7 +222,7 @@ async def test_full_pipeline_e2e_with_mock_llm():
     assert roles.get("Module::PaymentService:0") == "has_business_logic"
     assert roles.get("Module::PaymentDTO:0") == "data_model"
     # Outgoing calls → edge_count for dim_graph (PaymentService: 2; BaseController: none).
-    assert roles.get("Module::BaseController:0") == "supporting"
+    assert roles.get("Module::BaseController:0") == "entry_point"
 
     # Resolved wiki links from [[...]] without mutating pages (operator.add safe).
     resolved = result.get("resolved_links") or {}

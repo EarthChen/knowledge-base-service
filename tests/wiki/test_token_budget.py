@@ -1,4 +1,4 @@
-from wiki.token_budget import TokenBudgetResolver
+from wiki.token_budget import TokenBudgetCalculator, TokenBudgetResolver
 
 
 class TestTokenBudgetResolver:
@@ -87,3 +87,43 @@ def test_resolver_from_config():
     )
     assert r.budget("decomposition") == 30_000
     assert r.budget("decomposition") <= int(128_000 * 0.8)
+
+
+def test_available_input_default():
+    calc = TokenBudgetCalculator()
+    assert calc.available_input == 128_000 - 4_096 - 2_000
+
+
+def test_available_input_custom_window():
+    calc = TokenBudgetCalculator(context_window=32_000)
+    assert calc.available_input == 32_000 - 4_096 - 2_000
+
+
+def test_budget_for_snippets_small_domain():
+    calc = TokenBudgetCalculator()
+    assert calc.budget_for_snippets(3) == 500 + 3 * 100  # 800
+
+
+def test_budget_for_snippets_large_domain_capped():
+    calc = TokenBudgetCalculator()
+    assert calc.budget_for_snippets(100) == 3000  # capped
+
+
+def test_budget_for_parent_summaries():
+    calc = TokenBudgetCalculator()
+    assert calc.budget_for_parent_summaries(3) == 900
+
+
+def test_budget_for_parent_summaries_capped():
+    calc = TokenBudgetCalculator()
+    assert calc.budget_for_parent_summaries(20) == 5000
+
+
+def test_budget_for_system_overview():
+    calc = TokenBudgetCalculator()
+    assert calc.budget_for_system_overview(10) == 2000
+
+
+def test_budget_for_system_overview_capped():
+    calc = TokenBudgetCalculator()
+    assert calc.budget_for_system_overview(50) == 8000

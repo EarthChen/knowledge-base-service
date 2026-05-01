@@ -15,10 +15,34 @@ log = get_logger(__name__)
 
 
 class WikiEntityRole(StrEnum):
+    ENTRY_POINT = "entry_point"
     HAS_BUSINESS_LOGIC = "has_business_logic"
     SUPPORTING = "supporting"
     DATA_MODEL = "data_model"
     FRAMEWORK_NOISE = "framework_noise"
+
+
+DOMAIN_CLASSIFICATION_ENTITY_ROLES: frozenset[WikiEntityRole] = frozenset({
+    WikiEntityRole.HAS_BUSINESS_LOGIC,
+    WikiEntityRole.ENTRY_POINT,
+})
+
+
+_ENTRY_POINT_ANNOTATION_NAMES = frozenset({
+    "RestController",
+    "Controller",
+    "RequestMapping",
+    "GetMapping",
+    "PostMapping",
+    "PutMapping",
+    "DeleteMapping",
+    "PatchMapping",
+    "route",
+})
+_ENTRY_POINT_NAME_PATTERN = re.compile(
+    r"(Controller|Handler|Endpoint|Router)(?:\b|[_$])",
+    re.IGNORECASE,
+)
 
 
 _DATA_SUFFIXES = re.compile(
@@ -60,6 +84,8 @@ class EntityRoleClassifier:
         edge_count: int = 0,
         children_count: int = 0,
     ) -> WikiEntityRole:
+        if self._is_entry_point(node.properties):
+            return WikiEntityRole.ENTRY_POINT
         phase1 = self._phase1_deterministic(node, edge_count)
         if phase1 is not None:
             return phase1
@@ -120,6 +146,36 @@ class EntityRoleClassifier:
         if annotations and annotations <= _NOISE_ONLY_ANNOTATIONS and methods_count == 0:
             return WikiEntityRole.FRAMEWORK_NOISE
         return None
+
+    @staticmethod
+    def _is_entry_point(props: dict) -> bool:
+        methods_raw = props.get("methods", [])
+        method_names: list[str] = (
+            [str(m) for m in methods_raw] if isinstance(methods_raw, list) else []
+        )
+        for m in method_names:
+            base = m.split("(")[0].strip().rsplit(".", 1)[-1]
+            if base == "main":
+                return True
+
+        raw_ann = props.get("annotations")
+        ann_list: list = raw_ann if isinstance(raw_ann, list) else []
+        merged = " ".join(str(a) for a in ann_list)
+        if re.search(r"@?router\.(get|post|put|delete|patch)\b", merged, re.IGNORECASE):
+            return True
+        if re.search(r"@?app\.route\b", merged, re.IGNORECASE):
+            return True
+        if re.search(r"@?click\.(command|group)\b", merged, re.IGNORECASE):
+            return True
+
+        simplified = _simplify_annotations(ann_list if ann_list else None)
+        if simplified & _ENTRY_POINT_ANNOTATION_NAMES:
+            return True
+
+        name = str(props.get("name", ""))
+        if _ENTRY_POINT_NAME_PATTERN.search(name):
+            return True
+        return False
 
     @staticmethod
     def _estimate_getters(node: GraphNode) -> int:

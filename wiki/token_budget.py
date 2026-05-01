@@ -1,5 +1,27 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+
+@dataclass
+class TokenBudgetCalculator:
+    context_window: int = 128_000
+    reserved_output: int = 4_096
+    reserved_system: int = 2_000
+
+    @property
+    def available_input(self) -> int:
+        return self.context_window - self.reserved_output - self.reserved_system
+
+    def budget_for_snippets(self, module_count: int) -> int:
+        return min(500 + module_count * 100, 3000)
+
+    def budget_for_parent_summaries(self, child_count: int) -> int:
+        return min(child_count * 300, 5000)
+
+    def budget_for_system_overview(self, domain_count: int) -> int:
+        return min(domain_count * 200, 8000)
+
 
 class TokenBudgetResolver:
     """Derives per-component token budgets from a single base value.

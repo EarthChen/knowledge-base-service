@@ -64,7 +64,7 @@ class TestPhase1DeterministicRules:
 class TestPhase2ScoringModel:
     """Phase 2: business logic density scoring for entities not caught by Phase 1."""
 
-    def test_controller_with_methods_is_business_logic(self):
+    def test_controller_with_methods_is_entry_point(self):
         node = _node(
             "PaymentController",
             annotations=["@RestController"],
@@ -75,7 +75,7 @@ class TestPhase2ScoringModel:
         )
         c = EntityRoleClassifier()
         result = c.classify(node, edge_count=15, children_count=5)
-        assert result == WikiEntityRole.HAS_BUSINESS_LOGIC
+        assert result == WikiEntityRole.ENTRY_POINT
 
     def test_service_with_calls_is_business_logic(self):
         node = _node(

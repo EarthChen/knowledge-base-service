@@ -16,7 +16,11 @@ from wiki.quality_evaluator import WikiQualityEvaluator
 from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
 from wiki.dependency_graph import DomainNode, HierarchicalDecomposer, ModuleGraph, ModuleInfo
 from wiki.system_overview_composer import SystemOverviewComposer
-from wiki.entity_role_classifier import EntityRoleClassifier, WikiEntityRole
+from wiki.entity_role_classifier import (
+    DOMAIN_CLASSIFICATION_ENTITY_ROLES,
+    EntityRoleClassifier,
+    WikiEntityRole,
+)
 from wiki.domain_complexity import DomainComplexity, DomainComplexityScorer
 from wiki.reasoning import (
     GuidedPromptEnhancer,
@@ -80,7 +84,7 @@ async def classify_domains_node(
 ) -> dict[str, Any]:
     """Phase 2a-2b: classify modules into business domains using LLM.
 
-    Filters to HAS_BUSINESS_LOGIC entities only, then delegates to
+    Filters to HAS_BUSINESS_LOGIC and ENTRY_POINT entities, then delegates to
     CrossRepoBusinessDomainPlanner for per-repo classification + cross-repo merge.
     """
     llm = (config or {}).get("configurable", {}).get("llm")
@@ -93,7 +97,7 @@ async def classify_domains_node(
         filtered: list[GraphNode] = []
         for mod_dict in mod_list:
             uid = mod_dict.get("uid", "")
-            if entity_roles.get(uid) == "has_business_logic":
+            if entity_roles.get(uid) in DOMAIN_CLASSIFICATION_ENTITY_ROLES:
                 props = mod_dict.get("properties", {})
                 label_str = mod_dict.get("label", "Module")
                 try:

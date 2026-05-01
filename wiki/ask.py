@@ -663,16 +663,14 @@ def _chunk_deltas(text: str) -> list[str]:
 class WikiAskService:
     def __init__(
         self,
-        search: SearchPort,
-        llm: LLMPort,
-        rag_engine: Any,
+        search: SearchPort | None = None,
+        llm: LLMPort | None = None,
+        rag_engine: Any = None,
         conversation_store: ConversationStore | SqliteConversationStore | None = None,
         graph: GraphPort | None = None,
         wiki_store: WikiStore | None = None,
         memory_loop: MemoryLoopPort | None = None,
     ) -> None:
-        self._search = search
-        self._llm = llm
         self._store: ConversationStore | SqliteConversationStore = conversation_store or ConversationStore()
         self._wiki_store = wiki_store or (WikiStore(graph) if graph is not None else None)
         self._memory_loop = memory_loop

@@ -21,10 +21,8 @@ def mock_hybrid():
 @pytest.fixture
 def mock_graph():
     svc = AsyncMock()
-    svc.query = AsyncMock(
-        return_value=[
-            {"type": "concept", "name": "Auth", "relations": ["uses JWT"]},
-        ]
+    svc.find_entity = AsyncMock(
+        return_value=MagicMock(rows=[{"name": "Auth", "type": "concept"}])
     )
     return svc
 

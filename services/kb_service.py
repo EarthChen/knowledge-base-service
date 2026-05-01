@@ -264,6 +264,7 @@ class KnowledgeBaseService:
         )
 
         self._deep_search = None
+        rag_engine = None
         if settings.llm.enabled and self._llm_provider is not None:
             from query.deep_search import DeepSearchEngine
             from wiki.rag.engine import IterativeRAGEngine
@@ -279,6 +280,7 @@ class KnowledgeBaseService:
             )
             self._deep_search = DeepSearchEngine(rag_engine=rag_engine)
 
+        _wiki_rag_engine = rag_engine
         self._mcp_handler = KnowledgeBaseMCPHandler(
             hybrid_svc=self._hybrid_query,
             graph_svc=self._graph_query,
@@ -292,6 +294,7 @@ class KnowledgeBaseService:
                 store=self._store,
                 wiki_cache=self._wiki_cache,
                 wiki_config=settings.wiki,
+                rag_engine=_wiki_rag_engine,
             ),
             task_status_fn=self._index_task_status_lookup,
             repo_registry=getattr(self, "_repo_registry", None),

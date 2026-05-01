@@ -53,7 +53,7 @@ class ModelStrategy:
 
 
 class _LLMPortWithDefault:
-    """Wraps LLMPortBridge so wiki.llm_port.LLMPort.generate uses routed model."""
+    """Wraps LLMPortBridge so routed model is injected when callers omit it."""
 
     def __init__(self, inner: LLMPortBridge, *, default_model: str) -> None:
         self._inner = inner
@@ -78,3 +78,20 @@ class _LLMPortWithDefault:
             if reasoning_effort
             else {},
         )
+
+    async def complete(
+        self,
+        messages: list[dict[str, str]],
+        **kwargs: Any,
+    ) -> str:
+        kwargs.setdefault("model", self._default_model)
+        return await self._inner.complete(messages, **kwargs)
+
+    async def complete_stream(
+        self,
+        messages: list[dict[str, str]],
+        **kwargs: Any,
+    ):
+        kwargs.setdefault("model", self._default_model)
+        async for chunk in self._inner.complete_stream(messages, **kwargs):
+            yield chunk

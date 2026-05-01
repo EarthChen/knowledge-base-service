@@ -2,81 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from typing import Any
 
-import json_repair
-
 logger = logging.getLogger(__name__)
-
-
-def _extract_first_brace_json_slice(candidate: str) -> str | None:
-    """Return the first balanced `{...}` substring, or None."""
-    start = candidate.find("{")
-    if start < 0:
-        return None
-    depth = 0
-    for i in range(start, len(candidate)):
-        ch = candidate[i]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return candidate[start : i + 1]
-    return None
-
-
-def _legacy_parse_json_object_brace_only(candidate: str) -> dict[str, Any] | None:
-    """Original behavior: brace-counting plus stdlib json.loads only (no repair)."""
-    start = candidate.find("{")
-    if start < 0:
-        return None
-    depth = 0
-    for i in range(start, len(candidate)):
-        ch = candidate[i]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                try:
-                    obj = json.loads(candidate[start : i + 1])
-                    return obj if isinstance(obj, dict) else None
-                except json.JSONDecodeError:
-                    return None
-    return None
-
-
-def _parse_json_object_from_llm(text: str) -> dict[str, Any] | None:
-    """Parse a JSON object from LLM text (fenced code or raw)."""
-    code_block = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
-    candidate = code_block.group(1).strip() if code_block else text.strip()
-
-    json_slice = _extract_first_brace_json_slice(candidate)
-    if json_slice is not None:
-        try:
-            obj = json.loads(json_slice)
-            return obj if isinstance(obj, dict) else None
-        except json.JSONDecodeError:
-            pass
-
-        try:
-            obj = json_repair.loads(json_slice)
-            if isinstance(obj, dict):
-                logger.warning(
-                    "Used json_repair.loads() because LLM JSON was malformed "
-                    "(stdlib json.loads failed)"
-                )
-                return obj
-        except Exception:
-            pass
-
-        return _legacy_parse_json_object_brace_only(candidate)
-
-    return None
 
 
 class DeepSearchEngine:
@@ -102,11 +31,15 @@ class DeepSearchEngine:
             scope_type="business" if bid else "global",
             business_id=bid or None,
         )
-        state = await self._engine.arun(
-            question=query,
-            scope=scope,
-            max_rounds=max_iterations,
-        )
+        try:
+            state = await self._engine.arun(
+                question=query,
+                scope=scope,
+                max_rounds=max_iterations,
+            )
+        except Exception:
+            logger.error("deep_search_rag_failed", exc_info=True)
+            return {"analysis": "", "search_trace": [], "business_flows": [], "code_locations": []}
         return {
             "analysis": state.get("current_draft", ""),
             "search_trace": self._build_trace(state.get("sse_events", [])),
@@ -133,11 +66,16 @@ class DeepSearchEngine:
         )
         yield {"type": "plan", "data": {"intent": query, "sub_queries": [query]}}
 
-        state = await self._engine.arun(
-            question=query,
-            scope=scope,
-            max_rounds=max_iterations,
-        )
+        try:
+            state = await self._engine.arun(
+                question=query,
+                scope=scope,
+                max_rounds=max_iterations,
+            )
+        except Exception:
+            logger.error("deep_search_stream_rag_failed", exc_info=True)
+            yield {"type": "conclusion", "data": {"analysis": "", "sufficient": False, "business_flows": [], "code_locations": []}}
+            return
 
         for sse in state.get("sse_events", []):
             yield {"type": "progress", "data": sse}

@@ -105,12 +105,16 @@ class DeepResearchService:
 
         sub_answers: list[str] = []
         for sq in sub_questions:
-            state = await self._engine.arun(
-                question=sq,
-                scope=scope,
-                max_rounds=5,
-            )
-            sub_answers.append(str(state.get("current_draft", "")))
+            try:
+                state = await self._engine.arun(
+                    question=sq,
+                    scope=scope,
+                    max_rounds=5,
+                )
+                sub_answers.append(str(state.get("current_draft", "")))
+            except Exception:
+                log.warning("deep_research_sub_question_failed", sub_question=sq, exc_info=True)
+                sub_answers.append("")
 
         synthesis = await self._synthesize(question, sub_questions, sub_answers)
         return {

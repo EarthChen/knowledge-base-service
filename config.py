@@ -187,6 +187,7 @@ class AppWikiFlags(BaseModel):
     cross_reference_enabled: bool = True
     cross_reference_min_confidence: float = 0.5
     cross_repo_domain_enabled: bool = False
+    domain_classification_cache_enabled: bool = True
     knowledge_injection_enabled: bool = True
     snapshot_enabled: bool = True
     """When true, run compilation snapshot after wiki pages are persisted."""

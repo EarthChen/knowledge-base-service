@@ -44,8 +44,9 @@ class TestDeepSearchEngine:
         mock_rag_engine.arun = AsyncMock(side_effect=RuntimeError("RAG down"))
 
         engine = DeepSearchEngine(rag_engine=mock_rag_engine)
-        with pytest.raises(RuntimeError, match="RAG down"):
-            await engine.search("test query")
+        result = await engine.search("test query")
+        assert result["analysis"] == ""
+        assert result["search_trace"] == []
 
     @pytest.mark.asyncio
     async def test_deep_search_max_iterations_passed_to_arun(self, mock_rag_engine):

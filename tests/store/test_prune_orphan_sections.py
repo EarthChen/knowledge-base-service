@@ -11,7 +11,6 @@ def mock_store():
     return WikiStore(s)
 
 
-@pytest.mark.skip(reason="WikiStore.prune_orphan_sections not implemented yet")
 @pytest.mark.asyncio
 async def test_prune_orphan_sections(mock_store):
     count = await mock_store.prune_orphan_sections("default", ["支付域", "__infrastructure__"])
@@ -25,7 +24,6 @@ async def test_prune_orphan_sections(mock_store):
     assert "IS NULL" in query
 
 
-@pytest.mark.skip(reason="WikiStore.prune_orphan_sections not implemented yet")
 @pytest.mark.asyncio
 async def test_prune_orphan_sections_no_result():
     s = AsyncMock()

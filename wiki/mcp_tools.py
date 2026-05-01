@@ -454,6 +454,8 @@ class WikiMCPHandler:
 
         scope_raw = str(arguments.get("scope", "global") or "global").strip() or "global"
         repository_raw = arguments.get("repository")
+        business_id_raw = arguments.get("business_id")
+        page_path_raw = arguments.get("page_path")
         try:
             max_rounds = int(arguments.get("max_rounds", 5))
         except (ValueError, TypeError):
@@ -461,10 +463,23 @@ class WikiMCPHandler:
 
         from wiki.rag.protocol import RetrievalScope
 
+        scope_type = scope_raw if scope_raw in ("global", "repository", "business", "page") else "global"
+        repo = str(repository_raw).strip() if repository_raw else None
+        biz = str(business_id_raw).strip() if business_id_raw else None
+        page = str(page_path_raw).strip() if page_path_raw else None
+
+        if scope_type == "global" and repo:
+            scope_type = "repository"
+        if scope_type == "repository" and not repo:
+            scope_type = "global"
+        if scope_type == "business" and not biz:
+            scope_type = "global"
+
         scope = RetrievalScope(
-            scope_type="repository" if repository_raw else "global",
-            business_id=repository_raw if repository_raw else None,
-            repository=str(repository_raw).strip() if repository_raw else None,
+            scope_type=scope_type,
+            business_id=biz,
+            repository=repo,
+            page_path=page,
         )
 
         try:
@@ -473,8 +488,10 @@ class WikiMCPHandler:
                 scope=scope,
                 max_rounds=max_rounds,
             )
-        except Exception as exc:
-            return self._mcp_error("internal_error", str(exc))
+        except Exception:
+            import logging
+            logging.getLogger(__name__).error("unified_knowledge_query_failed", exc_info=True)
+            return self._mcp_error("internal_error", "RAG query execution failed")
 
         sources = []
         for chunk in state.get("accumulated_context", []):

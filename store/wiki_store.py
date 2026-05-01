@@ -56,6 +56,22 @@ class WikiStore(
         """Delegate Cypher to the underlying graph store (e.g. for MCP EntityExplainer)."""
         return await self._store.execute_query(cypher, params)
 
+    async def prune_orphan_sections(self, repository: str, active_domains: list[str]) -> int:
+        """Delete WikiSection nodes not linked to any active domain."""
+        result = await self._store.execute_query(
+            "MATCH (s:WikiSection {repository: $repo}) "
+            "OPTIONAL MATCH (s)<-[r]-(parent) "
+            "WHERE parent IS NULL OR NOT coalesce(s.domain, '') IN $domains "
+            "DETACH DELETE s "
+            "RETURN count(s) AS cnt",
+            {"repo": repository, "domains": active_domains},
+        )
+        rows = getattr(result, "data", None) or []
+        if not rows:
+            return 0
+        row = rows[0]
+        return int(row.get("cnt", 0) if isinstance(row, dict) else (row[0] or 0))
+
     async def find_top_level_modules(self, repository: str) -> list[GraphNode]:
         """Top-level ``Module`` nodes (no incoming ``CONTAINS``) for incremental overview context."""
         finder = getattr(self._store, "find_top_level_modules", None)

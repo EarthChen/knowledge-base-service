@@ -80,12 +80,13 @@ class TestDeepSearchStream:
         engine = DeepSearchEngine(rag_engine=mock_rag)
 
         events = []
-        with pytest.raises(RuntimeError, match="RAG down"):
-            async for event in engine.search_stream("q"):
-                events.append(event)
+        async for event in engine.search_stream("q"):
+            events.append(event)
 
-        assert len(events) == 1
+        assert len(events) == 2
         assert events[0]["type"] == "plan"
+        assert events[1]["type"] == "conclusion"
+        assert events[1]["data"]["sufficient"] is False
 
     @pytest.mark.asyncio
     async def test_single_arun_call_covers_follow_up_rounds(self):

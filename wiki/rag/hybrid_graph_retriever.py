@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from wiki.rag.protocol import Chunk, RetrievalScope
 
+logger = logging.getLogger(__name__)
+
 
 class HybridGraphRetriever:
-    """Wraps HybridQueryService + GraphQueryService as a Retriever."""
+    """Wraps HybridQueryService + optional graph service as a Retriever."""
 
     def __init__(
         self,
         hybrid_service: Any,
-        graph_service: Any,
+        graph_service: Any | None = None,
     ) -> None:
         self._hybrid = hybrid_service
         self._graph = graph_service
@@ -65,20 +68,21 @@ class HybridGraphRetriever:
                     )
                 )
 
-            try:
-                graph_results = await self._graph.query(
-                    query,
-                    business_id=scope.business_id,
-                )
-            except Exception:
-                graph_results = []
-            for r in graph_results:
-                chunks.append(
-                    Chunk(
-                        content=str(r),
-                        source="graph",
-                        title="graph",
-                        relevance=0.5,
-                    )
-                )
+            if self._graph is not None and hasattr(self._graph, "find_entity"):
+                try:
+                    terms = query.split()[:3]
+                    for term in terms:
+                        result = await self._graph.find_entity(term)
+                        for r in getattr(result, "rows", []):
+                            content = str(r) if not isinstance(r, dict) else str(r.get("name", r))
+                            chunks.append(
+                                Chunk(
+                                    content=content,
+                                    source="graph",
+                                    title="graph",
+                                    relevance=0.4,
+                                )
+                            )
+                except Exception:
+                    logger.debug("graph_retriever_entity_lookup_failed", exc_info=True)
         return chunks[:limit]

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Protocol, TypedDict
+from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
+from wiki.llm_port import LLMPort
 from wiki.rag.events import rag_sse_append
 from wiki.rag.protocol import Chunk, RetrievalScope, Retriever
 
@@ -25,10 +26,6 @@ class RAGState(TypedDict, total=False):
     sse_events: list[dict[str, Any]]
 
 
-class _LLM(Protocol):
-    async def complete(self, messages: list[dict[str, str]], **kwargs: Any) -> str: ...
-
-
 def _parse_reflection(raw: str) -> dict[str, Any]:
     text = raw.strip()
     if text.startswith("```"):
@@ -46,7 +43,7 @@ class IterativeRAGEngine:
         self,
         *,
         retriever: Retriever,
-        llm: _LLM,
+        llm: LLMPort | Any,
         model_strategy: Any | None = None,
     ):
         self._retriever = retriever
@@ -173,7 +170,10 @@ class IterativeRAGEngine:
             raw = await eval_llm.complete([{"role": "user", "content": prompt}])
             data = _parse_reflection(raw)
 
-            score = float(data.get("score", 0.5))
+            try:
+                score = float(data.get("score", 0.5))
+            except (TypeError, ValueError):
+                score = 0.5
             suggestions = [str(x) for x in data.get("suggestions", [])]
             nq = [str(x) for x in data.get("next_queries", []) if str(x).strip()]
 
@@ -236,7 +236,17 @@ class IterativeRAGEngine:
         )
         graph.add_edge("dynamic_retrieve", "generate_draft")
         graph.add_edge("plan", "dynamic_retrieve")
-        graph.add_edge("evaluate", "plan")
+
+        def route_after_evaluate(s: RAGState) -> str:
+            if s.get("is_complete"):
+                return "finalize"
+            return "plan"
+
+        graph.add_conditional_edges(
+            "evaluate",
+            route_after_evaluate,
+            {"finalize": "finalize", "plan": "plan"},
+        )
         graph.add_edge("finalize", END)
         return graph.compile()
 

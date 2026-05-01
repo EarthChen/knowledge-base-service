@@ -641,12 +641,16 @@ class WikiAskService:
         graph: GraphPort | None = None,
         wiki_store: WikiStore | None = None,
         memory_loop: MemoryLoopPort | None = None,
+        rag_engine: Any | None = None,
+        use_iterative_rag: bool = False,
     ) -> None:
         self._search = search
         self._llm = llm
         self._store: ConversationStore | SqliteConversationStore = conversation_store or ConversationStore()
         self._wiki_store = wiki_store or (WikiStore(graph) if graph is not None else None)
         self._memory_loop = memory_loop
+        self._rag_engine = rag_engine
+        self._use_iterative_rag = use_iterative_rag
 
     async def _resolve_conversation(
         self,
@@ -740,6 +744,42 @@ class WikiAskService:
             except Exception:
                 log.warning("graph_enrichment_failed", repository=repository, exc_info=True)
         sources = _results_to_ask_sources(search_resp.results)
+
+        if self._use_iterative_rag and self._rag_engine is not None:
+            from wiki.rag.protocol import RetrievalScope
+
+            scope_obj = RetrievalScope(scope_type="global", page_path=scope)
+            rag_state = await self._rag_engine.arun(
+                question=question,
+                scope=scope_obj,
+                max_rounds=7,
+            )
+            full_text = str(rag_state.get("current_draft", ""))
+            for sse_ev in rag_state.get("sse_events", []):
+                yield {"event": "rag-progress", "data": sse_ev}
+            acc = ""
+            for d in _chunk_deltas(full_text):
+                acc += d
+                yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
+            yield {"event": "wiki-sources", "data": {"sources": [asdict(s) for s in sources]}}
+            tokens_used = _estimate_tokens(full_text)
+            yield {
+                "event": "wiki-answer-complete",
+                "data": {
+                    "conversation_id": history.conversation_id,
+                    "tokens_used": tokens_used,
+                    "iterative_rag": True,
+                    "confidence": rag_state.get("confidence", 0.0),
+                    "total_rounds": rag_state.get("round", 1),
+                },
+            }
+            history.turns.append(ConversationTurn(role="user", content=question))
+            history.turns.append(ConversationTurn(role="assistant", content=full_text))
+            save_result = self._store.save(history)
+            if inspect.isawaitable(save_result):
+                await save_result
+            return
+
         messages = self._build_messages(repository, formatted, prior_turns, question)
 
         error_out = (

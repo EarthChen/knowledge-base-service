@@ -186,6 +186,7 @@ class AppWikiFlags(BaseModel):
     cross_reference_min_confidence: float = 0.5
     cross_repo_domain_enabled: bool = False
     knowledge_injection_enabled: bool = True
+    iterative_rag_enabled: bool = False
     snapshot_enabled: bool = True
     """When true, run compilation snapshot after wiki pages are persisted."""
     snapshot_layer_page_threshold: int = 100

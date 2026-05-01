@@ -11,7 +11,7 @@ from store.schema import GraphNode
 from wiki.models import DiagramType, EnrichmentLevel, PageType, WikiDiagram, WikiPage, WikiPageMetadata
 
 if TYPE_CHECKING:
-    from wiki.context import LLMPort
+    from wiki.llm_port import LLMPort
 
 log = get_logger(__name__)
 

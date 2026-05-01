@@ -6,7 +6,7 @@ from typing import Any
 from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
 from store.settings_store import SettingsStore
-from wiki.context import LLMPort
+from wiki.llm_port import LLMPort
 
 
 class ModelStrategy:
@@ -53,7 +53,7 @@ class ModelStrategy:
 
 
 class _LLMPortWithDefault:
-    """Wraps LLMPortBridge so wiki.context.LLMPort.generate uses routed model."""
+    """Wraps LLMPortBridge so wiki.llm_port.LLMPort.generate uses routed model."""
 
     def __init__(self, inner: LLMPortBridge, *, default_model: str) -> None:
         self._inner = inner

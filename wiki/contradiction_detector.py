@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from wiki.context import LLMPort
+from wiki.llm_port import LLMPort
 
 
 @dataclass(frozen=True)

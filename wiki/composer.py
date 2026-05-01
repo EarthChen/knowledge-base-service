@@ -10,7 +10,8 @@ from log import get_logger
 from indexer.comment_filter import CommentFilter, CommentTier
 from store.schema import EdgeType, GraphNode, NodeLabel
 from store.wiki_store import WikiStore
-from wiki.context import LLMPort, WikiContextBuilder
+from wiki.context import WikiContextBuilder
+from wiki.llm_port import LLMPort
 from wiki.doc_wiki_fusion import create_source_doc_edges, find_related_docs, format_related_docs_for_prompt
 from wiki.data_collector import PageData
 from wiki.semantic_diagram_gen import SemanticDiagramGenerator

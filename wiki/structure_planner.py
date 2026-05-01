@@ -9,6 +9,7 @@ from typing import Protocol
 from log import get_logger
 from store.schema import GraphEdge, GraphNode, NodeLabel
 from wiki.entity_filter import WikiEntityFilter
+from wiki.llm_port import LLMPort
 from wiki.models import EntityStrategy, ImportanceTier, PageType, ScopeParam, WikiStructure, WikiStructureNode
 
 log = get_logger(__name__)
@@ -34,12 +35,6 @@ class GraphQueryPort(Protocol):
     async def find_module_import_edges(self, repository: str) -> list[GraphEdge]: ...
 
     async def find_repository_calls_edges(self, repository: str) -> list[GraphEdge]: ...
-
-
-class LLMPort(Protocol):
-    """Minimal LLM interface for optional semantic grouping."""
-
-    async def generate(self, prompt: str, system: str = "") -> str: ...
 
 
 class WikiStructurePlanner:

@@ -13,7 +13,7 @@ from wiki.data_collector import PageData
 from wiki.models import DiagramType, PageType, WikiDiagram
 
 if TYPE_CHECKING:
-    from wiki.context import LLMPort
+    from wiki.llm_port import LLMPort
 
 log = get_logger(__name__)
 

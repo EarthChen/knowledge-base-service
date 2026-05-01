@@ -14,7 +14,7 @@ from wiki.json_robust import parse_json_robust_sync
 from wiki.prompts import SYSTEM_JSON_ONLY
 
 if TYPE_CHECKING:
-    from wiki.context import LLMPort
+    from wiki.llm_port import LLMPort
 
 log = get_logger(__name__)
 

@@ -9,7 +9,7 @@ from wiki.models import EnrichmentLevel, ImportanceTier, WikiPage
 from wiki.tiered_prompts import TieredPromptBuilder
 
 if TYPE_CHECKING:
-    from wiki.context import LLMPort
+    from wiki.llm_port import LLMPort
 
 log = get_logger(__name__)
 

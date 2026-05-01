@@ -9,16 +9,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any
 
 from log import get_logger
 from wiki.json_robust import parse_json_robust_sync
+from wiki.llm_port import LLMPort
 
 log = get_logger(__name__)
-
-
-class LLMPort(Protocol):
-    async def generate(self, prompt: str, system: str = "") -> str: ...
 
 
 @dataclass

@@ -159,7 +159,7 @@ async def test_heal_pages_increments_attempts() -> None:
 
 @pytest.mark.asyncio
 async def test_quality_gate_handles_topic_page_dict() -> None:
-    """quality_gate should evaluate pages produced by compose_pages_node (no metadata)."""
+    """quality_gate should evaluate pages produced by compose_leaf_pages_node (no metadata)."""
     from wiki.pipeline_graph import quality_gate_node
 
     topic_page = {

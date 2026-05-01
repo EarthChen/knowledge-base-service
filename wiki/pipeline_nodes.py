@@ -350,6 +350,130 @@ def _collect_leaf_domains(tree: list[dict[str, Any]], parent: str = "root") -> l
     return leaves
 
 
+_OVERVIEW_SECTION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^##\s*业务概述\s*$", re.MULTILINE),
+    re.compile(r"^##\s*Overview\s*$", re.MULTILINE),
+    re.compile(r"^##\s*Summary\s*$", re.MULTILINE),
+    re.compile(r"^##\s*概述\s*$", re.MULTILINE),
+)
+
+_SUMMARY_MAX_LEN = 300
+
+
+def _normalize_pages_map(pages: Any) -> dict[str, dict[str, Any]]:
+    """Build path -> page dict whether ``pages`` is a mapping or list of page dicts."""
+    if isinstance(pages, dict):
+        return {str(k): v for k, v in pages.items() if isinstance(v, dict)}
+    out: dict[str, dict[str, Any]] = {}
+    if not isinstance(pages, list):
+        return out
+    for p in pages:
+        if not isinstance(p, dict):
+            continue
+        path = p.get("path")
+        if path:
+            out[str(path)] = p
+    return out
+
+
+def _find_page_for_leaf_domain(
+    pages_by_path: dict[str, dict[str, Any]], domain_name: str
+) -> dict[str, Any] | None:
+    """Locate the wiki page for a leaf domain (path contains domain slug)."""
+    if not domain_name:
+        return None
+    preferred = f"wiki/{domain_name}"
+    if preferred in pages_by_path:
+        return pages_by_path[preferred]
+    if domain_name in pages_by_path:
+        return pages_by_path[domain_name]
+    suffix = f"/{domain_name}"
+    for path, page in pages_by_path.items():
+        if path == domain_name or path.rstrip("/").endswith(suffix):
+            return page
+    return None
+
+
+def _extract_summary_from_content(content: str) -> str:
+    """Rule-based summary: overview section, then first paragraph after first heading, else truncate."""
+    text = content or ""
+    if not text.strip():
+        return ""
+
+    for pattern in _OVERVIEW_SECTION_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            start = match.end()
+            remainder = text[start:]
+            stop = remainder.find("\n## ")
+            body = remainder if stop < 0 else remainder[:stop]
+            out = body.strip()
+            if out:
+                return out[:_SUMMARY_MAX_LEN]
+
+    lines = text.splitlines()
+    heading_idx: int | None = None
+    for idx, line in enumerate(lines):
+        if line.strip().startswith("#"):
+            heading_idx = idx
+            break
+    if heading_idx is not None:
+        i = heading_idx + 1
+        while i < len(lines) and not lines[i].strip():
+            i += 1
+        para_parts: list[str] = []
+        while i < len(lines):
+            line = lines[i]
+            if not line.strip():
+                break
+            if line.strip().startswith("#"):
+                break
+            para_parts.append(line.strip())
+            i += 1
+        para = " ".join(para_parts).strip()
+        if para:
+            return para[:_SUMMARY_MAX_LEN]
+
+    return text.strip()[:_SUMMARY_MAX_LEN]
+
+
+async def summarize_leaves_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Extract structured summaries for leaf-domain wiki pages (LLM summary or rule-based fallback)."""
+    domain_tree = state.get("domain_tree") or []
+    if not isinstance(domain_tree, list):
+        domain_tree = []
+    pages_by_path = _normalize_pages_map(state.get("pages"))
+    leaf_domains = _collect_leaf_domains(domain_tree)
+    leaf_summaries: dict[str, dict[str, str]] = {}
+
+    for leaf in leaf_domains:
+        name = str(leaf.get("name") or "").strip()
+        if not name:
+            continue
+        page = _find_page_for_leaf_domain(pages_by_path, name)
+        if not page:
+            continue
+        metadata = page.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        exec_summary = metadata.get("executive_summary")
+        if isinstance(exec_summary, str) and exec_summary.strip():
+            leaf_summaries[name] = {
+                "summary_text": exec_summary.strip(),
+                "source": "llm",
+            }
+        else:
+            raw_content = page.get("content")
+            content = str(raw_content) if raw_content is not None else ""
+            extracted = _extract_summary_from_content(content)
+            leaf_summaries[name] = {
+                "summary_text": extracted,
+                "source": "rule_extracted",
+            }
+
+    return {"leaf_summaries": leaf_summaries}
+
+
 def _find_domain_in_tree(domain_tree: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
     """Recursively find a domain node by name in the domain tree."""
     for domain in domain_tree:
@@ -614,7 +738,7 @@ async def _compose_single_leaf_domain(
         return [], []
 
 
-async def compose_pages_node(
+async def compose_leaf_pages_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
     """Phase 3: generate topic pages for each leaf domain."""

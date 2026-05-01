@@ -1,4 +1,4 @@
-"""Tests for compose_pages_node: biz_entities calls and data_models truncation logging."""
+"""Tests for compose_leaf_pages_node: biz_entities calls and data_models truncation logging."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from wiki.pipeline_nodes import compose_pages_node
+from wiki.pipeline_nodes import compose_leaf_pages_node
 
 
 @pytest.mark.asyncio
@@ -56,7 +56,7 @@ async def test_compose_pages_biz_entities_include_calls_from_props() -> None:
                 ],
             },
         }
-        await compose_pages_node(state, {"configurable": {"llm": mock_llm}})
+        await compose_leaf_pages_node(state, {"configurable": {"llm": mock_llm}})
 
     assert "domain" in captured
     biz = captured["domain"]["biz_entities"]
@@ -106,7 +106,7 @@ async def test_compose_pages_logs_when_data_models_truncated() -> None:
             "entity_roles": entity_roles,
             "modules": {"r1": modules_list},
         }
-        await compose_pages_node(state, {"configurable": {"llm": mock_llm}})
+        await compose_leaf_pages_node(state, {"configurable": {"llm": mock_llm}})
 
     mock_log.info.assert_any_call(
         "data_models_truncated",

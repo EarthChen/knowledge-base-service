@@ -1,4 +1,4 @@
-"""compose_pages_node integration with SemanticDiagramGenerator."""
+"""compose_leaf_pages_node integration with SemanticDiagramGenerator."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ import pytest
 from unittest.mock import AsyncMock
 
 from wiki.models import DiagramType, WikiPage
-from wiki.pipeline_nodes import compose_pages_node
+from wiki.pipeline_nodes import compose_leaf_pages_node
 
 
 def test_compose_pages_diagram_dict_shape_round_trips_via_wiki_page_from_dict():
-    """compose_pages_node uses ``type`` (not diagram_type); WikiPage.from_dict must accept it."""
+    """compose_leaf_pages_node uses ``type`` (not diagram_type); WikiPage.from_dict must accept it."""
     page_dict = {
         "path": "wiki/domain-acme/topics/overview.md",
         "title": "Acme Overview",
@@ -129,7 +129,7 @@ class TestComposePagesWithDiagrams:
         mock_llm.generate = AsyncMock(side_effect=_llm_side_effect_wiki_and_mermaid)
         config = {"configurable": {"llm": mock_llm}}
 
-        result = await compose_pages_node(base_state, config)
+        result = await compose_leaf_pages_node(base_state, config)
         pages = result.get("pages", [])
         assert len(pages) > 0
         has_diagrams = any(p.get("diagrams") for p in pages)
@@ -156,7 +156,7 @@ class TestComposePagesWithDiagrams:
         mock_llm.generate = AsyncMock(side_effect=side_effect)
         config = {"configurable": {"llm": mock_llm}}
 
-        result = await compose_pages_node(base_state, config)
+        result = await compose_leaf_pages_node(base_state, config)
         pages = result.get("pages", [])
         assert len(pages) > 0
 
@@ -164,7 +164,7 @@ class TestComposePagesWithDiagrams:
     async def test_no_diagrams_without_llm(self, base_state):
         """没有 LLM 时不生成图表。"""
         config = {"configurable": {}}
-        result = await compose_pages_node(base_state, config)
+        result = await compose_leaf_pages_node(base_state, config)
         pages = result.get("pages", [])
         for p in pages:
             assert not p.get("diagrams"), "No diagrams without LLM"

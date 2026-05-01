@@ -54,7 +54,7 @@ def test_pipeline_graph_has_expected_nodes():
     node_ids = set(drawable.nodes.keys())
     expected = {
         "classify_entity_roles", "detect_reorg", "classify_domains", "decompose_hierarchy",
-        "set_review_status", "compose_pages", "quality_gate",
+        "set_review_status", "compose_leaf_pages", "quality_gate",
         "heal_pages", "synthesize_overviews", "create_links",
         "finalize", "__start__", "__end__",
     }
@@ -69,7 +69,7 @@ def test_pipeline_has_all_expected_nodes():
     node_names = set(graph_data.nodes.keys())
     expected = {
         "classify_entity_roles", "detect_reorg", "classify_domains",
-        "decompose_hierarchy", "set_review_status", "compose_pages",
+        "decompose_hierarchy", "set_review_status", "compose_leaf_pages",
         "synthesize_overviews", "create_links",
         "quality_gate", "heal_pages", "finalize",
     }

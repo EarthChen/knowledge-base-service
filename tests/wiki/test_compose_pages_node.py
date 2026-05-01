@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock
 
-from wiki.pipeline_nodes import compose_pages_node
+from wiki.pipeline_nodes import compose_leaf_pages_node
 
 
 @pytest.mark.asyncio
@@ -28,7 +28,7 @@ async def test_compose_pages_generates_topic_pages():
         },
         "config": {},
     }
-    result = await compose_pages_node(state, {"configurable": {"llm": mock_llm}})
+    result = await compose_leaf_pages_node(state, {"configurable": {"llm": mock_llm}})
     assert "pages" in result
     assert len(result["pages"]) >= 1
     assert "generated_topic_pages" in result
@@ -42,5 +42,5 @@ async def test_compose_pages_empty_tree():
         "modules": {},
         "config": {},
     }
-    result = await compose_pages_node(state, {"configurable": {"llm": AsyncMock()}})
+    result = await compose_leaf_pages_node(state, {"configurable": {"llm": AsyncMock()}})
     assert result["pages"] == []

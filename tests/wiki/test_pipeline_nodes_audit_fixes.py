@@ -15,7 +15,7 @@ from wiki.pipeline_nodes import (
     _count_modules_in_domain_tree,
     _find_domain_in_tree,
     _flatten_all_domains,
-    compose_pages_node,
+    compose_leaf_pages_node,
 )
 from wiki.semantic_diagram_gen import SemanticDiagramGenerator
 
@@ -71,7 +71,7 @@ async def test_compose_pages_parallelizes_leaf_domains_with_bounded_concurrency(
             "entity_roles": {},
             "modules": {"r1": modules_list},
         }
-        await compose_pages_node(state, {"configurable": {"llm": None}})
+        await compose_leaf_pages_node(state, {"configurable": {"llm": None}})
 
     assert max_concurrent[0] >= 2, (
         "compose_leaf_domain should overlap for independent domains "

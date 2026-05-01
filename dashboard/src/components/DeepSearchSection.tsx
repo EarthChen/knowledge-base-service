@@ -184,9 +184,9 @@ export default function DeepSearchSection({ showTitle = true }: Props) {
                       <span className="font-medium text-gray-800 dark:text-gray-100">
                         {String(f.flow || f.name || "")}
                       </span>
-                      {f.description && (
+                      {f.description != null && f.description !== "" ? (
                         <span className="ml-2 text-xs text-gray-500">{String(f.description)}</span>
-                      )}
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -213,11 +213,11 @@ export default function DeepSearchSection({ showTitle = true }: Props) {
                       <code className="rounded bg-gray-200 px-1.5 py-0.5 text-xs dark:bg-gray-700">
                         {String(loc.path || "")}
                       </code>
-                      {loc.context && (
+                      {loc.context != null && loc.context !== "" ? (
                         <span className="max-w-md truncate text-xs text-gray-500">
                           {String(loc.context)}
                         </span>
-                      )}
+                      ) : null}
                     </div>
                   ))}
                 </div>

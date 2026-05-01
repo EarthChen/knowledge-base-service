@@ -26,6 +26,7 @@ class RAGState(TypedDict, total=False):
     is_complete: bool
     sources: list[dict[str, Any]]
     sse_events: list[dict[str, Any]]
+    eval_suggestions: list[str]  # feedback from evaluate node
 
 
 def _build_init_state(question: str, scope: RetrievalScope, max_rounds: int) -> RAGState:
@@ -42,6 +43,7 @@ def _build_init_state(question: str, scope: RetrievalScope, max_rounds: int) -> 
         "is_complete": False,
         "sources": [],
         "sse_events": [],
+        "eval_suggestions": [],
     }
 
 
@@ -151,6 +153,8 @@ class IterativeRAGEngine:
             q = state["question"]
             gaps = state.get("gaps", [])
             gaps_text = "\n".join(f"- {g}" for g in gaps) if gaps else "None identified"
+            eval_suggestions = state.get("eval_suggestions", [])
+            suggestions_text = "\n".join(f"- {s}" for s in eval_suggestions) if eval_suggestions else ""
 
             plan_llm = self._llm
             if self._model_strategy:
@@ -162,6 +166,10 @@ class IterativeRAGEngine:
             prompt = (
                 f"Original question:\n{q}\n\n"
                 f"Information gaps:\n{gaps_text}\n\n"
+            )
+            if suggestions_text:
+                prompt += f"Previous evaluation feedback:\n{suggestions_text}\n\n"
+            prompt += (
                 "Decompose into 2-4 precise sub-queries to fill these gaps. "
                 'Reply with ONLY valid JSON: {"sub_queries": ["query1", "query2", ...]}'
             )
@@ -220,8 +228,13 @@ class IterativeRAGEngine:
             )
 
             if score >= 0.85:
-                return {"is_complete": True, "confidence": score, "sse_events": ev}
-            return {"next_queries": nq, "sse_events": ev}
+                return {
+                    "is_complete": True,
+                    "confidence": score,
+                    "sse_events": ev,
+                    "eval_suggestions": suggestions,
+                }
+            return {"next_queries": nq, "sse_events": ev, "eval_suggestions": suggestions}
 
         async def finalize(state: RAGState) -> dict[str, Any]:
             ev = rag_sse_append(

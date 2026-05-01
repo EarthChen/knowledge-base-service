@@ -795,6 +795,7 @@ class KnowledgeBaseMCPHandler:
             "wiki_get_domain_overview": self._wiki.handle_wiki_get_domain_overview,
             "wiki_get_snapshot": self._wiki.handle_wiki_get_snapshot,
             "wiki_find_implementing_modules": self._wiki.handle_wiki_find_implementing_modules,
+            "unified_knowledge_query": self._wiki.handle_unified_knowledge_query,
         }
 
         handler = handlers.get(tool_name)

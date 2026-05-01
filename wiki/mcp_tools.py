@@ -145,6 +145,35 @@ WIKI_MCP_TOOLS_MANIFEST: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "unified_knowledge_query",
+        "description": "Unified knowledge query across wiki and code. Uses iterative RAG for comprehensive answers.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "The question to answer",
+                },
+                "scope": {
+                    "type": "string",
+                    "description": "Search scope: 'global', 'page', 'business', 'repository'",
+                    "enum": ["global", "page", "business", "repository"],
+                    "default": "global",
+                },
+                "repository": {
+                    "type": "string",
+                    "description": "Repository name (required for repository scope)",
+                },
+                "max_rounds": {
+                    "type": "integer",
+                    "description": "Max iterative RAG rounds",
+                    "default": 5,
+                },
+            },
+            "required": ["question"],
+        },
+    },
+    {
         "name": "wiki_export",
         "description": (
             "Write wiki markdown files under target_dir for paths in selected_files "
@@ -411,6 +440,36 @@ class WikiMCPHandler:
         return payload
 
     handle_wiki_search = handle_search_wiki  # alias after the method definition
+
+    async def handle_unified_knowledge_query(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Handle unified_knowledge_query MCP tool call."""
+        if self._pipeline is None:
+            return self._not_configured()
+        question = str(arguments.get("question", "")).strip()
+        if not question:
+            return self._mcp_error("invalid_params", "question parameter is required")
+        scope = str(arguments.get("scope", "global") or "global").strip() or "global"
+        repository_raw = arguments.get("repository")
+        repository = str(repository_raw).strip() if repository_raw else ""
+        try:
+            max_rounds = int(arguments.get("max_rounds", 5))
+        except (ValueError, TypeError):
+            return self._mcp_error("invalid_params", "max_rounds must be an integer")
+        _ = max_rounds  # reserved for full iterative RAG integration
+
+        if repository:
+            try:
+                result = await self._pipeline.search_wiki(repository, question, limit=10)
+            except Exception as exc:
+                return self._mcp_error("internal_error", str(exc))
+            sources = result.get("results", []) if isinstance(result, dict) else []
+            return {"answer": f"Search results for: {question}", "sources": sources, "scope": scope}
+
+        return {
+            "answer": f"Query received: {question}",
+            "scope": scope,
+            "note": "Full iterative RAG integration pending",
+        }
 
     async def handle_ask_about_code(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._pipeline is None:

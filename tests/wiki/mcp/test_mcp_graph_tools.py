@@ -125,6 +125,7 @@ class TestMCPRegistration:
             "get_wiki_page",
             "list_wiki_pages",
             "wiki_search",
+            "unified_knowledge_query",
             "wiki_export",
             "wiki_get_tree",
             "wiki_get_related",
@@ -132,7 +133,7 @@ class TestMCPRegistration:
             "wiki_get_snapshot",
             "wiki_find_implementing_modules",
         }
-        assert len(WIKI_MCP_TOOLS_MANIFEST) == 9
+        assert len(WIKI_MCP_TOOLS_MANIFEST) == 10
 
     def test_analyze_changes_in_main_manifest(self):
         names = {t["name"] for t in MCP_TOOLS_MANIFEST}

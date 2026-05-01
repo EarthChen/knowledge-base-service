@@ -115,6 +115,7 @@ class TestWikiToolsRegistered:
             "get_wiki_page",
             "list_wiki_pages",
             "wiki_search",
+            "unified_knowledge_query",
             "wiki_export",
             "wiki_get_tree",
             "wiki_get_related",
@@ -133,7 +134,7 @@ class TestWikiToolsRegistered:
         assert "query" in req
 
     def test_wiki_manifest_has_expected_tools(self):
-        assert len(WIKI_MCP_TOOLS_MANIFEST) == 9
+        assert len(WIKI_MCP_TOOLS_MANIFEST) == 10
 
     @pytest.mark.asyncio
     async def test_wiki_export_without_cache_returns_error(self) -> None:

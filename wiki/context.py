@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Protocol
 
 from log import get_logger
+from wiki.llm_port import LLMPort
 from wiki.prompts import SYSTEM_JSON_ONLY
 
 log = get_logger(__name__)
@@ -19,18 +19,6 @@ class WikiContext:
     module_contexts: dict[str, str]
     page_contexts: dict[str, str]
     glossary: dict[str, str]
-
-
-class LLMPort(Protocol):
-    async def generate(
-        self,
-        prompt: str,
-        system: str = "",
-        *,
-        model: str | None = None,
-        max_tokens: int | None = None,
-        reasoning_effort: str | None = None,
-    ) -> str: ...
 
 
 class WikiContextBuilder:

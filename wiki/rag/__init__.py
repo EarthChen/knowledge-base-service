@@ -1,6 +1,7 @@
 from wiki.rag.code_retriever import CodeRetriever
 from wiki.rag.composite_retriever import CompositeRetriever
 from wiki.rag.engine import IterativeRAGEngine
+from wiki.rag.hybrid_graph_retriever import HybridGraphRetriever
 from wiki.rag.events import rag_sse_append, sse_thinking_start
 from wiki.rag.protocol import Chunk, RetrievalScope, Retriever, Source
 from wiki.rag.wiki_retriever import WikiRetriever
@@ -9,6 +10,7 @@ __all__ = [
     "Chunk",
     "CodeRetriever",
     "CompositeRetriever",
+    "HybridGraphRetriever",
     "IterativeRAGEngine",
     "rag_sse_append",
     "Retriever",

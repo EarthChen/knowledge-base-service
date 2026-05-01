@@ -53,8 +53,9 @@ class BaseLLMProvider(Protocol):
 class GatewayLLMProviderAdapter:
     """Wraps the existing LLMProvider (gateway/OpenAI-compatible) as BaseLLMProvider."""
 
-    def __init__(self, inner: LLMProvider) -> None:
+    def __init__(self, inner: LLMProvider, *, max_context_tokens: int | None = None) -> None:
         self._inner = inner
+        self._max_context_tokens = max_context_tokens
 
     @property
     def provider_name(self) -> str:
@@ -66,7 +67,14 @@ class GatewayLLMProviderAdapter:
 
     @property
     def max_context_tokens(self) -> int:
-        return 128000
+        if self._max_context_tokens is not None:
+            return self._max_context_tokens
+        config = getattr(self._inner, "_config", None)
+        if config is not None:
+            value = getattr(config, "max_context_tokens", None)
+            if isinstance(value, int):
+                return value
+        return 128_000
 
     async def complete(
         self,

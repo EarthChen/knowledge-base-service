@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Save, Eye, EyeOff, Globe, BookOpen } from "lucide-react";
+import { Save, Eye, EyeOff, Globe } from "lucide-react";
 import { getToken, setToken } from "../../api/client";
 import { useHealth } from "../../api/hooks";
 import { useI18n } from "../../i18n/context";
@@ -94,59 +94,6 @@ export default function GeneralSettingsPanel() {
             <span className="text-gray-400 dark:text-gray-500">{t.settings.deployment}</span>
             <span className="text-gray-700 dark:text-gray-300">{t.settings.deploymentValue}</span>
           </div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
-        <div className="flex items-center gap-2">
-          <BookOpen size={16} className="text-gray-500 dark:text-gray-400" />
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">
-            {t.settings.wikiReadonlyTitle}
-          </h3>
-        </div>
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          {t.settings.wikiReadonlyDesc}
-        </p>
-        <div className="mt-4 space-y-4 text-sm">
-          {!health?.wiki ? (
-            <p className="text-gray-500 dark:text-gray-400">
-              {t.settings.wikiNoWikiInHealth}
-            </p>
-          ) : (
-            <>
-              <label className="flex cursor-not-allowed items-center justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 opacity-90 dark:border-gray-700 dark:bg-gray-800/60">
-                <span className="text-gray-600 dark:text-gray-300">{t.settings.cotEnabled}</span>
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300 text-sky-600 dark:border-gray-600"
-                  checked={health.wiki.cot_enabled}
-                  readOnly
-                  disabled
-                  aria-readonly
-                />
-              </label>
-              <div className="space-y-1">
-                <div className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                  {t.settings.cotAnalysisModel}
-                </div>
-                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200">
-                  {health.wiki.cot_analysis_model?.trim()
-                    ? health.wiki.cot_analysis_model
-                    : t.settings.valueNotSet}
-                </div>
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                  {t.settings.cotGenerationModel}
-                </div>
-                <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-800 dark:border-gray-700 dark:bg-gray-800/80 dark:text-gray-200">
-                  {health.wiki.cot_generation_model?.trim()
-                    ? health.wiki.cot_generation_model
-                    : t.settings.valueNotSet}
-                </div>
-              </div>
-            </>
-          )}
         </div>
       </div>
     </div>

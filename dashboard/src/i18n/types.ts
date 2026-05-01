@@ -469,13 +469,6 @@ export interface Translations {
     language: string;
     localeEnglish: string;
     localeChinese: string;
-    wikiReadonlyTitle: string;
-    wikiReadonlyDesc: string;
-    wikiNoWikiInHealth: string;
-    cotEnabled: string;
-    cotAnalysisModel: string;
-    cotGenerationModel: string;
-    valueNotSet: string;
     scheduledRegenTitle: string;
     scheduledRegenDesc: string;
     scheduledRegenStatus: string;
@@ -534,7 +527,6 @@ export interface Translations {
       fieldCodeBudgetEnabled: string;
       fieldRagEnabled: string;
       fieldEnrichmentEnabled: string;
-      fieldCotEnabled: string;
       fieldGitPublishEnabled: string;
       fieldLlmEnabled: string;
       fieldRequireAuth: string;

@@ -30,7 +30,6 @@ const FIELD_KEYS: Partial<Record<string, keyof Fields>> = {
   "wiki.code_budget_enabled": "fieldCodeBudgetEnabled",
   "wiki.rag_enabled": "fieldRagEnabled",
   "wiki.enrichment_enabled": "fieldEnrichmentEnabled",
-  "wiki.cot_enabled": "fieldCotEnabled",
   "wiki.git_publish_enabled": "fieldGitPublishEnabled",
   "llm.enabled": "fieldLlmEnabled",
   "embedding.use_fp16": "fieldUseFp16",

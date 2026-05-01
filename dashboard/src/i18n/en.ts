@@ -455,14 +455,6 @@ const en: Translations = {
     language: "Language",
     localeEnglish: "English",
     localeChinese: "简体中文",
-    wikiReadonlyTitle: "Wiki configuration (read-only)",
-    wikiReadonlyDesc:
-      "Chain-of-thought (CoT) flags and model names come from server environment variables via /health.",
-    wikiNoWikiInHealth: "Health response has no wiki section (server may be an older build).",
-    cotEnabled: "CoT enabled",
-    cotAnalysisModel: "CoT analysis model",
-    cotGenerationModel: "CoT generation model",
-    valueNotSet: "(not set)",
     scheduledRegenTitle: "Wiki Scheduled Regeneration",
     scheduledRegenDesc:
       "Driven by P3 Webhook and Scheduler features for timed and event-triggered wiki updates.",
@@ -521,7 +513,6 @@ const en: Translations = {
       fieldCodeBudgetEnabled: "Code budget enabled",
       fieldRagEnabled: "RAG enabled",
       fieldEnrichmentEnabled: "Enrichment enabled",
-      fieldCotEnabled: "Chain-of-thought enabled",
       fieldGitPublishEnabled: "Git publish enabled",
       fieldLlmEnabled: "LLM enabled",
       fieldRequireAuth: "Require authentication",

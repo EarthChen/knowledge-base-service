@@ -89,24 +89,6 @@ export default function WikiGenerationSection({ values, meta, onChange, t }: Sec
         onChange={(v) => onChange("wiki.enrichment_round2_enabled", v ? "true" : "false")}
         source={sourceBadge("wiki.enrichment_round2_enabled", meta, t)}
       />
-      <SettingsToggle
-        label={configFieldLabel("wiki.cot_enabled", t)}
-        checked={boolVal("wiki.cot_enabled")}
-        onChange={(v) => onChange("wiki.cot_enabled", v ? "true" : "false")}
-        source={sourceBadge("wiki.cot_enabled", meta, t)}
-      />
-      <SettingsInput
-        label={configFieldLabel("wiki.cot_analysis_model", t)}
-        value={values["wiki.cot_analysis_model"] ?? ""}
-        onChange={(v) => onChange("wiki.cot_analysis_model", v)}
-        source={sourceBadge("wiki.cot_analysis_model", meta, t)}
-      />
-      <SettingsInput
-        label={configFieldLabel("wiki.cot_generation_model", t)}
-        value={values["wiki.cot_generation_model"] ?? ""}
-        onChange={(v) => onChange("wiki.cot_generation_model", v)}
-        source={sourceBadge("wiki.cot_generation_model", meta, t)}
-      />
       <SettingsInput
         label={configFieldLabel("wiki.business_wiki_batch_threshold", t)}
         type="number"

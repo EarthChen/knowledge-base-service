@@ -201,11 +201,7 @@ export interface IndexTasksResponse {
 }
 
 /** Wiki-related fields exposed on GET /health (read-only server config). */
-export interface WikiHealthConfig {
-  cot_enabled: boolean;
-  cot_analysis_model: string;
-  cot_generation_model: string;
-}
+export interface WikiHealthConfig {}
 
 export interface HealthResponse {
   status: string;

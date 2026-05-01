@@ -6,6 +6,8 @@ import logging
 import re
 from typing import Any
 
+from wiki.rag.engine import _is_arun_stream_callable
+
 logger = logging.getLogger(__name__)
 
 # File extensions for code path detection (backtick-wrapped or bare paths).
@@ -147,21 +149,44 @@ class DeepSearchEngine:
         )
         yield {"type": "plan", "data": {"intent": query, "sub_queries": [query]}}
 
+        draft = ""
+        use_stream = _is_arun_stream_callable(self._engine)
         try:
-            state = await self._engine.arun(
-                question=query,
-                scope=scope,
-                max_rounds=max_iterations,
-            )
+            if use_stream:
+                async for item in self._engine.arun_stream(
+                    question=query,
+                    scope=scope,
+                    max_rounds=max_iterations,
+                ):
+                    t = item.get("type")
+                    if t == "sse":
+                        yield {"type": "progress", "data": item.get("data")}
+                    elif t == "draft":
+                        draft = str(item.get("content", ""))
+                    elif t == "done":
+                        pass
+            else:
+                state = await self._engine.arun(
+                    question=query,
+                    scope=scope,
+                    max_rounds=max_iterations,
+                )
+                for sse in state.get("sse_events", []):
+                    yield {"type": "progress", "data": sse}
+                draft = state.get("current_draft", "") or ""
         except Exception:
             logger.error("deep_search_stream_rag_failed", exc_info=True)
-            yield {"type": "conclusion", "data": {"analysis": "", "sufficient": False, "business_flows": [], "code_locations": []}}
+            yield {
+                "type": "conclusion",
+                "data": {
+                    "analysis": "",
+                    "sufficient": False,
+                    "business_flows": [],
+                    "code_locations": [],
+                },
+            }
             return
 
-        for sse in state.get("sse_events", []):
-            yield {"type": "progress", "data": sse}
-
-        draft = state.get("current_draft", "") or ""
         yield {
             "type": "conclusion",
             "data": {

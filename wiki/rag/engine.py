@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import inspect
 import json
 import re
+from collections.abc import AsyncIterator
 from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
@@ -24,6 +26,36 @@ class RAGState(TypedDict, total=False):
     is_complete: bool
     sources: list[dict[str, Any]]
     sse_events: list[dict[str, Any]]
+
+
+def _build_init_state(question: str, scope: RetrievalScope, max_rounds: int) -> RAGState:
+    return {
+        "question": question,
+        "scope": scope,
+        "round": 0,
+        "max_rounds": max_rounds,
+        "accumulated_context": [],
+        "current_draft": "",
+        "gaps": [],
+        "next_queries": [],
+        "confidence": 0.0,
+        "is_complete": False,
+        "sources": [],
+        "sse_events": [],
+    }
+
+
+def _is_arun_stream_callable(engine: Any) -> bool:
+    """True when ``engine.arun_stream`` is a real async generator implementation (not a unittest mock)."""
+    stream_meth = getattr(engine, "arun_stream", None)
+    if stream_meth is None:
+        return False
+    fn = getattr(stream_meth, "__func__", stream_meth)
+    try:
+        fn = inspect.unwrap(fn)
+    except Exception:
+        pass
+    return inspect.isasyncgenfunction(fn)
 
 
 def _parse_reflection(raw: str) -> dict[str, Any]:
@@ -251,19 +283,37 @@ class IterativeRAGEngine:
         return graph.compile()
 
     async def arun(self, *, question: str, scope: RetrievalScope, max_rounds: int = 7) -> RAGState:
-        init: RAGState = {
-            "question": question,
-            "scope": scope,
-            "round": 0,
-            "max_rounds": max_rounds,
-            "accumulated_context": [],
-            "current_draft": "",
-            "gaps": [],
-            "next_queries": [],
-            "confidence": 0.0,
-            "is_complete": False,
-            "sources": [],
-            "sse_events": [],
-        }
+        init = _build_init_state(question, scope, max_rounds)
         out = await self._graph.ainvoke(init)
         return out
+
+    async def arun_stream(
+        self,
+        *,
+        question: str,
+        scope: RetrievalScope,
+        max_rounds: int = 7,
+    ) -> AsyncIterator[dict[str, Any]]:
+        init = _build_init_state(question, scope, max_rounds)
+        prev_events_len = 0
+        prev_draft = ""
+        last_state: RAGState | None = None
+        async for state in self._graph.astream(init, stream_mode="values"):
+            last_state = state
+            events = list(state.get("sse_events") or [])
+            if len(events) > prev_events_len:
+                for ev in events[prev_events_len:]:
+                    yield {"type": "sse", "data": ev}
+                prev_events_len = len(events)
+            draft = str(state.get("current_draft") or "")
+            if draft != prev_draft:
+                delta = draft[len(prev_draft) :] if draft.startswith(prev_draft) else draft
+                yield {"type": "draft", "content": draft, "delta": delta}
+                prev_draft = draft
+        if last_state is not None:
+            yield {
+                "type": "done",
+                "confidence": float(last_state.get("confidence", 0.0)),
+                "round": int(last_state.get("round", 1)),
+                "accumulated_context": list(last_state.get("accumulated_context") or []),
+            }

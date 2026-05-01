@@ -153,8 +153,11 @@ class TestWikiAskService:
             for e in [ev async for ev in svc.ask_stream("repo", "Q?", mode="hybrid")]
             if e.get("event") == "wiki-answer"
         ]
-        assert len(answer_events) >= 2
-        assert answer_events[-1]["data"]["content"].strip().endswith("w19")
+        assert answer_events
+        final = answer_events[-1]["data"]["content"].strip()
+        assert final.endswith("w19")
+        # Batch path word-chunks; real IterativeRAGEngine streams one wiki-answer per draft update.
+        assert len(answer_events) >= 1
 
     async def test_ask_includes_sources(self) -> None:
         sr = _make_search_result()

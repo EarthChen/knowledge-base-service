@@ -17,6 +17,7 @@ from store.conversation_store import SqliteConversationStore
 from store.wiki_store import WikiStore
 from wiki.crystallizer import crystallize as crystallize_wiki_page
 from wiki.llm_port import LLMPort
+from wiki.rag.engine import _is_arun_stream_callable
 from wiki.reasoning_path import (
     ReasoningPath,
     ReasoningStage,
@@ -729,29 +730,78 @@ class WikiAskService:
         )
         full_text = ""
         rag_state: dict[str, Any] = {}
+        chunks_list: list[Any] = []
+        use_stream = _is_arun_stream_callable(self._rag_engine)
+        streamed_wiki_answers = False
         try:
-            rag_state = await self._rag_engine.arun(
-                question=question,
-                scope=scope_obj,
-                max_rounds=5,
-            )
-            full_text = str(rag_state.get("current_draft", ""))
+            if use_stream:
+                acc_stream = ""
+                async for item in self._rag_engine.arun_stream(
+                    question=question,
+                    scope=scope_obj,
+                    max_rounds=5,
+                ):
+                    t = item.get("type")
+                    if t == "sse":
+                        yield {"event": "rag-progress", "data": item.get("data")}
+                    elif t == "draft":
+                        streamed_wiki_answers = True
+                        acc_stream = str(item.get("content", ""))
+                        delta = str(item.get("delta", ""))
+                        yield {
+                            "event": "wiki-answer",
+                            "data": {"content": acc_stream, "delta": delta},
+                        }
+                    elif t == "done":
+                        full_text = acc_stream
+                        chunks_raw = item.get("accumulated_context")
+                        chunks_list = (
+                            list(chunks_raw) if isinstance(chunks_raw, list) else []
+                        )
+                        rag_state = {
+                            "confidence": item.get("confidence", 0.0),
+                            "round": item.get("round", 1),
+                            "sse_events": [],
+                            "current_draft": full_text,
+                        }
+                if not full_text and acc_stream:
+                    full_text = acc_stream
+            else:
+                rag_state = await self._rag_engine.arun(
+                    question=question,
+                    scope=scope_obj,
+                    max_rounds=5,
+                )
+                full_text = str(rag_state.get("current_draft", ""))
+                chunks_raw = rag_state.get("accumulated_context")
+                chunks_list = (
+                    list(chunks_raw) if isinstance(chunks_raw, list) else []
+                )
+                for sse_ev in rag_state.get("sse_events", []):
+                    yield {"event": "rag-progress", "data": sse_ev}
+
+                acc = ""
+                for d in _chunk_deltas(full_text):
+                    streamed_wiki_answers = True
+                    acc += d
+                    yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
         except Exception:
             log.warning("wiki_ask_rag_failed", repository=repository, exc_info=True)
             full_text = error_out
+            chunks_list = []
+            streamed_wiki_answers = False
 
-        chunks_raw = rag_state.get("accumulated_context") if rag_state else None
-        chunks_list: list[Any] = list(chunks_raw) if isinstance(chunks_raw, list) else []
+        if not streamed_wiki_answers:
+            acc = ""
+            for d in _chunk_deltas(full_text):
+                acc += d
+                yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
+
+        if not chunks_list and rag_state.get("accumulated_context"):
+            cr = rag_state.get("accumulated_context")
+            chunks_list = list(cr) if isinstance(cr, list) else []
+
         sources = _chunks_to_ask_sources(chunks_list)
-
-        if rag_state:
-            for sse_ev in rag_state.get("sse_events", []):
-                yield {"event": "rag-progress", "data": sse_ev}
-
-        acc = ""
-        for d in _chunk_deltas(full_text):
-            acc += d
-            yield {"event": "wiki-answer", "data": {"content": acc, "delta": d}}
 
         yield {"event": "wiki-sources", "data": {"sources": [asdict(s) for s in sources]}}
         tokens_used = _estimate_tokens(full_text)

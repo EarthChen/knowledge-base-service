@@ -134,7 +134,7 @@ flowchart TB
 - **交付方式**：生产构建输出至 `static/`；FastAPI 挂载 `/assets` 并对 SPA 路由回退至 `index.html`（`search`、`deep-search`、`graph`、`explorer`、`files`（文件浏览器）、`repositories`、`indexing`、`settings`、`businesses`、`documents`、`sync`）。
 - **懒加载**：基于路由的代码分割减小初始 JS 体积；重型可视化组件（图表、图形）仅在导航到对应页面时加载。
 
-## Wiki 生成管道（Phase 0–6）
+## Wiki 生成管道（Phase 0–7）
 
 本节概括 **Wiki 元模型重置**、**代码感知 → RAG → 分层生成 → 跨仓业务 Wiki**、**导出与 Git 推送**、**质量保障** 的后端能力。上述主题曾计划拆成独立 spec 文档；当前以 [wiki-generation-architecture.md](wiki-generation-architecture.md) 为**主要设计引用**。实现与规划差异见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。
 
@@ -206,6 +206,7 @@ flowchart LR
 - **Phase 4**：跨仓域规划（`CrossRepoBusinessDomainPlanner`：多仓并行分类、单仓超时、内容哈希 + TTL 的进程内有界缓存；`WIKI__BUSINESS_DOMAIN_*`）、从代码图自动生成交叉引用、域总览页组合；**`WikiService.generate_business_wiki()`**（支持 **`incremental`** 与 **进度回调**）；**`POST /api/v1/wiki/business/generate`** 为**异步**（**202**、`task_id`；同 business 并发生成 **409**）；**`GET /api/v1/wiki/business/tasks/{task_id}`** 轮询任务进度；**`GET /api/v1/wiki/pages/{page_uid}/references`**。MCP 扩展：**`wiki_get_tree`**、**`wiki_get_related`**、**`wiki_get_domain_overview`**（与既有 Wiki MCP 工具并存，以服务端清单为准）。调参与默认值见 `WikiConfig` / [DEPLOYMENT.md](DEPLOYMENT.md) 中 `WIKI__BUSINESS_DOMAIN_*`。详见 [superpowers/specs/2026-04-27-wiki-generation-architecture-improvement-design.md](superpowers/specs/2026-04-27-wiki-generation-architecture-improvement-design.md) 与 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。
 - **Phase 5**：`WikiLinkConverter` 将 `[[wikilink]]` 转为多种格式；`BusinessWikiExporter` 导出扁平文件树；`ObsidianExporter`（含 `.obsidian/`）、`MkDocsExporter`（含 `mkdocs.yml`）；`GitPublisher` 增量 Git 推送与注释回写；**`POST /api/v1/wiki/export`**（`markdown` / `zip` / `git` / `obsidian` / `mkdocs` 等）。
 - **Phase 6**：`WikiCoverageAnalyzer` 覆盖率、知识缺口与陈旧检测；`SuggestedQuestionsGenerator` 模板化探索问题；**`GET /api/v1/wiki/coverage-report`**。
+- **Phase 7** (P0 修复 + P1 架构整合)：见下文 [Phase 7](#phase-7--p0-修复与-p1-架构整合) 小节。
 
 ## Phase 6 — Iterative RAG & Dynamic Model Strategy
 
@@ -239,11 +240,20 @@ flowchart LR
 - `GET /api/v1/wiki/ask/stream?page_context=...` — Page context for RAG scope
 - MCP: `unified_knowledge_query` tool added
 
-## 增量 / MCP / 质量 v2 扩展（概览；非 Phase 0–6 的「SP3–SP6」编号）
+## Phase 7 — P0 修复与 P1 架构整合
+
+- **Phase 7** (P0 修复 + P1 架构整合):
+  - **P0**: `unified_knowledge_query` 接入 IterativeRAGEngine；`max_context_tokens` 动态化；文档工具数量统一 (22 = 12+10)；CODEMAPS 断裂链接修复
+  - **P1-A**: LLM 抽象层统一 — 5 套 LLMPort 收敛为 `wiki/llm_port.py` 单一 Protocol（`generate` + `complete` + `complete_stream`）
+  - **P1-B**: 搜索系统统一 — `WikiAskService`、`DeepSearchEngine`、`DeepResearchService` 统一使用 `IterativeRAGEngine` 单内核；新增 `HybridGraphRetriever`
+  - **P1-B2**: IterativeRAGEngine 3-LLM 自适应升级 — `plan` / `evaluate` 节点 + `model_strategy` 路由
+  - **P1-C**: Business 路由去重；`compose_concurrency` 统一配置源
+
+## 增量 / MCP / 质量 v2 扩展（概览；非 Phase 0–7 的「SP3–SP6」编号）
 
 > **注意**：下表中的「增量 Ingest、MCP、质量引擎」等能力均已实现。详见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。
 
-以下能力与 Phase 0–6 **正交**：通过 `WikiConfig`（环境前缀 `WIKI__`）与独立 HTTP/MCP 面启用；细节见 [wiki-generation-architecture.md](wiki-generation-architecture.md) 与 [DEPLOYMENT.md](DEPLOYMENT.md)。
+以下能力与 Phase 0–7 **正交**：通过 `WikiConfig`（环境前缀 `WIKI__`）与独立 HTTP/MCP 面启用；细节见 [wiki-generation-architecture.md](wiki-generation-architecture.md) 与 [DEPLOYMENT.md](DEPLOYMENT.md)。
 
 | 子系统 | 职责摘要 |
 |--------|----------|

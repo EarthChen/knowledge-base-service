@@ -200,6 +200,8 @@ const en: Translations = {
     deepResearchConclusion: "Final Conclusion",
     deepResearchError: "Error: {message}",
     deepResearchUnknown: "Unknown",
+    ragProcessTitle: "Iterative RAG Process",
+    ragRound: "Round {round}",
     ragPlanning: "Planning sub-queries (Round {round})",
     ragPlanningWithQueries: "Planning sub-queries (Round {round}): {queries}",
     ragEvaluating: "Evaluating quality (Round {round}) — Score: {score}%",

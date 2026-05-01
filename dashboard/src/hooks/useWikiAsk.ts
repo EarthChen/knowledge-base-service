@@ -222,7 +222,18 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
             },
             onError: (msg) => setError(msg),
             onRagProgress: (data) => {
-              setRagStages((prev) => [...prev, data]);
+              setRagStages((prev) => {
+                const last = prev[prev.length - 1];
+                if (
+                  last &&
+                  last.type === data.type &&
+                  last.round != null &&
+                  last.round === data.round
+                ) {
+                  return [...prev.slice(0, -1), data];
+                }
+                return [...prev, data];
+              });
             },
           },
           ac.signal,

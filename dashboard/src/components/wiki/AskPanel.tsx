@@ -142,7 +142,7 @@ function RagTimeline({ stages }: { stages: Record<string, unknown>[] }) {
       open
     >
       <summary className="cursor-pointer list-none px-3 py-2 text-xs font-medium text-gray-500 marker:content-none dark:text-gray-400 [&::-webkit-details-marker]:hidden">
-        Iterative RAG Process
+        {i18n.search.ragProcessTitle}
       </summary>
       <div className="space-y-1 border-t border-gray-100 px-3 pb-3 pt-2 dark:border-gray-700">
         {stages.map((s, i) => {
@@ -187,13 +187,17 @@ function RagTimeline({ stages }: { stages: Record<string, unknown>[] }) {
               <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
                 <span className={`inline-block h-2 w-2 rounded-full ${color}`} />
                 <span className="font-medium">{label}</span>
-                {s.round != null && <span className="text-gray-400">Round {String(s.round)}</span>}
+                {s.round != null && (
+                  <span className="text-gray-400">
+                    {i18n.search.ragRound.replace("{round}", String(s.round))}
+                  </span>
+                )}
                 {typeof s.confidence === "number" && (
                   <span className="text-gray-400">
                     {((s.confidence as number) * 100).toFixed(0)}%
                   </span>
                 )}
-                {typeof s.score === "number" && (
+                {typeof s.score === "number" && stageType !== "evaluating" && (
                   <span className="text-gray-400">
                     Score: {((s.score as number) * 100).toFixed(0)}%
                   </span>

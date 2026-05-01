@@ -215,6 +215,9 @@ export interface Translations {
     /** Use {message} */
     deepResearchError: string;
     deepResearchUnknown: string;
+    ragProcessTitle: string;
+    /** Use {round} */
+    ragRound: string;
     /** Use {round} */
     ragPlanning: string;
     /** Use {round}, {queries} */

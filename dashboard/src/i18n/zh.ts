@@ -197,6 +197,8 @@ const zh: Translations = {
     deepResearchConclusion: "综合结论",
     deepResearchError: "错误：{message}",
     deepResearchUnknown: "未知",
+    ragProcessTitle: "迭代 RAG 过程",
+    ragRound: "第 {round} 轮",
     ragPlanning: "规划子查询（第 {round} 轮）",
     ragPlanningWithQueries: "规划子查询（第 {round} 轮）：{queries}",
     ragEvaluating: "评估质量（第 {round} 轮）— 得分：{score}%",

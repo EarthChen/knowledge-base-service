@@ -29,6 +29,7 @@ class LLMPort(Protocol):
         *,
         model: str | None = None,
         max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
     ) -> str: ...
 
 

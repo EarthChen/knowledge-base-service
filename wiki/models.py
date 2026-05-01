@@ -305,6 +305,16 @@ class WikiPageMetadata:
     fallback_tier: int | None = None
     generated_at: str | None = None
     enrichment_level: str | None = None
+    executive_summary: str | None = None
+
+
+@dataclass
+class LeafSummary:
+    domain_name: str
+    summary_text: str
+    module_count: int
+    key_entities: list[str] = field(default_factory=list)
+    source: str = "rule_extracted"  # "llm" | "rule_extracted"
 
 
 @dataclass
@@ -338,6 +348,7 @@ class WikiPage:
                 "fallback_tier": self.metadata.fallback_tier,
                 "generated_at": self.metadata.generated_at,
                 "enrichment_level": self.metadata.enrichment_level,
+                "executive_summary": self.metadata.executive_summary,
             },
         }
 
@@ -375,6 +386,7 @@ class WikiPage:
                 fallback_tier=meta_raw.get("fallback_tier"),
                 generated_at=meta_raw.get("generated_at"),
                 enrichment_level=meta_raw.get("enrichment_level"),
+                executive_summary=meta_raw.get("executive_summary"),
             ),
             method_locations=[
                 SourceLocation(

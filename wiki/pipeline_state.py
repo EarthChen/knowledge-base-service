@@ -1,7 +1,7 @@
 """Wiki generation pipeline state for LangGraph StateGraph."""
 from __future__ import annotations
 
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, NotRequired, TypedDict
 
 from log import get_logger
 
@@ -87,3 +87,6 @@ class WikiPipelineState(TypedDict):
     system_overview_uid: str
     # wiki [[link]] resolution metadata (applied when persisting pages)
     resolved_links: dict[str, list[dict[str, str]]]
+
+    # Leaf domain summaries (populated by summarize_leaves_node)
+    leaf_summaries: NotRequired[dict[str, Any]]

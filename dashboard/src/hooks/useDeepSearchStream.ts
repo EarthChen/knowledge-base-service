@@ -12,6 +12,8 @@ const KNOWN_DEEP_SEARCH_EVENTS = new Set<StageEvent["type"]>([
   "synthesis",
   "conclusion",
   "error",
+  "planning",
+  "evaluating",
 ]);
 
 type StreamState = {
@@ -72,15 +74,32 @@ export function useDeepSearchStream() {
           } else if (line.startsWith("data: ") && pendingEventType) {
             const evType = pendingEventType;
             try {
-              const data = JSON.parse(line.slice(6));
+              const raw = JSON.parse(line.slice(6));
               if (!KNOWN_DEEP_SEARCH_EVENTS.has(evType as StageEvent["type"])) {
                 pendingEventType = "";
                 continue;
               }
+              const data =
+                raw && typeof raw === "object" && !Array.isArray(raw)
+                  ? (raw as Record<string, unknown>)
+                  : {};
+              /** RAG stream wraps granular stages in `event: progress` with nested `data.type`. */
+              let stageType = evType as StageEvent["type"];
+              if (
+                evType === "progress" &&
+                (data.type === "planning" || data.type === "evaluating")
+              ) {
+                stageType = data.type;
+              }
               const status: StageEvent["status"] =
-                evType === "progress" || evType === "plan" ? "active" : "done";
+                stageType === "progress" ||
+                stageType === "plan" ||
+                stageType === "planning" ||
+                stageType === "evaluating"
+                  ? "active"
+                  : "done";
               const event: StageEvent = {
-                type: evType as StageEvent["type"],
+                type: stageType,
                 data,
                 status,
               };

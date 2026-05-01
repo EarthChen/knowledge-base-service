@@ -2,7 +2,15 @@ import { CheckCircle2, Circle, Loader2, AlertCircle } from "lucide-react";
 import { useI18n } from "../i18n/context";
 
 export type StageEvent = {
-  type: "plan" | "progress" | "search_done" | "synthesis" | "conclusion" | "error";
+  type:
+    | "plan"
+    | "progress"
+    | "search_done"
+    | "synthesis"
+    | "conclusion"
+    | "error"
+    | "planning"
+    | "evaluating";
   data: Record<string, unknown>;
   status: "done" | "active" | "pending";
 };
@@ -40,6 +48,16 @@ function useStageLabel(s: StageEvent): string {
     case "error": {
       const raw = (s.data.message as string) || t.search.deepResearchUnknown;
       return t.search.deepResearchError.replace("{message}", raw);
+    }
+    case "planning": {
+      const round = (s.data.round as number) ?? 0;
+      const subQueries = (s.data.sub_queries as string[]) ?? [];
+      return `Planning sub-queries (Round ${round})${subQueries.length ? `: ${subQueries.join(", ")}` : ""}`;
+    }
+    case "evaluating": {
+      const round = (s.data.round as number) ?? 0;
+      const score = (s.data.score as number) ?? 0;
+      return `Evaluating quality (Round ${round}) — Score: ${(score * 100).toFixed(0)}%`;
     }
     default:
       return s.type;

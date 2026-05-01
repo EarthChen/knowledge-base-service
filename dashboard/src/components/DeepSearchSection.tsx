@@ -163,6 +163,66 @@ export default function DeepSearchSection({ showTitle = true }: Props) {
               <JsonView data={stream.conclusion} />
             </div>
           ) : null}
+          {stream.conclusion &&
+            Array.isArray((stream.conclusion as Record<string, unknown>).business_flows) &&
+            ((stream.conclusion as Record<string, unknown>).business_flows as unknown[]).length > 0 && (
+              <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+                <h3 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {t.search.businessFlows} (
+                  {((stream.conclusion as Record<string, unknown>).business_flows as unknown[]).length})
+                </h3>
+                <div className="space-y-2">
+                  {(
+                    (stream.conclusion as Record<string, unknown>).business_flows as Array<
+                      Record<string, unknown>
+                    >
+                  ).map((f, i) => (
+                    <div
+                      key={i}
+                      className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/80"
+                    >
+                      <span className="font-medium text-gray-800 dark:text-gray-100">
+                        {String(f.flow || f.name || "")}
+                      </span>
+                      {f.description && (
+                        <span className="ml-2 text-xs text-gray-500">{String(f.description)}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          {stream.conclusion &&
+            Array.isArray((stream.conclusion as Record<string, unknown>).code_locations) &&
+            ((stream.conclusion as Record<string, unknown>).code_locations as unknown[]).length > 0 && (
+              <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+                <h3 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {t.search.codeLocations} (
+                  {((stream.conclusion as Record<string, unknown>).code_locations as unknown[]).length})
+                </h3>
+                <div className="space-y-2">
+                  {(
+                    (stream.conclusion as Record<string, unknown>).code_locations as Array<
+                      Record<string, unknown>
+                    >
+                  ).map((loc, i) => (
+                    <div
+                      key={i}
+                      className="flex flex-wrap items-center gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm dark:border-gray-700 dark:bg-gray-800/80"
+                    >
+                      <code className="rounded bg-gray-200 px-1.5 py-0.5 text-xs dark:bg-gray-700">
+                        {String(loc.path || "")}
+                      </code>
+                      {loc.context && (
+                        <span className="max-w-md truncate text-xs text-gray-500">
+                          {String(loc.context)}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
         </div>
       )}
 

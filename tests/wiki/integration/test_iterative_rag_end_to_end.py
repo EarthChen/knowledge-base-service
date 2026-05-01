@@ -47,8 +47,7 @@ async def test_full_pipeline_integration():
     llm = _ControlledLLM()
     engine = IterativeRAGEngine(
         retriever=composite,
-        plan_llm=llm,
-        generate_llm=llm,
+        llm=llm,
     )
 
     state = await engine.arun(
@@ -86,8 +85,7 @@ async def test_multi_round_integration():
     llm = _MultiRoundLLM()
     engine = IterativeRAGEngine(
         retriever=retriever,
-        plan_llm=llm,
-        generate_llm=llm,
+        llm=llm,
     )
 
     state = await engine.arun(

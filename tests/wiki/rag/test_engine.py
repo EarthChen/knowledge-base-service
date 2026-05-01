@@ -20,8 +20,7 @@ class _EchoLLM:
 async def test_engine_runs_single_round_and_completes():
     engine = IterativeRAGEngine(
         retriever=_FixedRetriever(),
-        plan_llm=_EchoLLM(),
-        generate_llm=_EchoLLM(),
+        llm=_EchoLLM(),
     )
     state = await engine.arun(question="what?", scope=RetrievalScope(scope_type="global"), max_rounds=3)
     assert state["is_complete"] is True

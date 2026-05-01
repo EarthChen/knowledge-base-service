@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Literal, Protocol, TypedDict
+from typing import Any, Protocol, TypedDict
 
 from langgraph.graph import END, StateGraph
 
@@ -46,14 +46,12 @@ class IterativeRAGEngine:
         self,
         *,
         retriever: Retriever,
-        plan_llm: _LLM,
-        generate_llm: _LLM,
-        evaluate_llm: _LLM | None = None,
+        llm: _LLM,
+        model_strategy: Any | None = None,
     ):
         self._retriever = retriever
-        self._plan_llm = plan_llm
-        self._gen_llm = generate_llm
-        self._eval_llm = evaluate_llm or generate_llm
+        self._llm = llm
+        self._model_strategy = model_strategy
         self._graph = self._build_graph()
 
     def _build_graph(self):
@@ -75,7 +73,13 @@ class IterativeRAGEngine:
                 "Reply with ONLY valid JSON: "
                 '{"answer":string,"gaps":string[],"next_queries":string[],"confidence":number,"is_complete":bool}'
             )
-            raw = await self._gen_llm.complete([{"role": "user", "content": prompt}])
+            gen_llm = self._llm
+            if self._model_strategy:
+                try:
+                    gen_llm = await self._model_strategy.get_llm_port("rag_generate")
+                except Exception:
+                    pass
+            raw = await gen_llm.complete([{"role": "user", "content": prompt}])
             data = _parse_reflection(raw)
             answer = str(data.get("answer") or raw)
             gaps = [str(x) for x in data.get("gaps") or [] if str(x).strip()]
@@ -114,6 +118,79 @@ class IterativeRAGEngine:
                 "sse_events": ev,
             }
 
+        async def plan(state: RAGState) -> dict[str, Any]:
+            q = state["question"]
+            gaps = state.get("gaps", [])
+            gaps_text = "\n".join(f"- {g}" for g in gaps) if gaps else "None identified"
+
+            plan_llm = self._llm
+            if self._model_strategy:
+                try:
+                    plan_llm = await self._model_strategy.get_llm_port("rag_plan")
+                except Exception:
+                    pass
+
+            prompt = (
+                f"Original question:\n{q}\n\n"
+                f"Information gaps:\n{gaps_text}\n\n"
+                "Decompose into 2-4 precise sub-queries to fill these gaps. "
+                'Reply with ONLY valid JSON: {"sub_queries": ["query1", "query2", ...]}'
+            )
+            raw = await plan_llm.complete([{"role": "user", "content": prompt}])
+            data = _parse_reflection(raw)
+            sub_queries = [str(x) for x in data.get("sub_queries", []) if str(x).strip()]
+            if not sub_queries:
+                sub_queries = state.get("next_queries", [])
+
+            ev = rag_sse_append(
+                state,
+                "planning",
+                {
+                    "round": state.get("round", 1),
+                    "sub_queries": sub_queries,
+                },
+            )
+            return {"next_queries": sub_queries, "sse_events": ev}
+
+        async def evaluate(state: RAGState) -> dict[str, Any]:
+            q = state["question"]
+            draft = state.get("current_draft", "")
+
+            eval_llm = self._llm
+            if self._model_strategy:
+                try:
+                    eval_llm = await self._model_strategy.get_llm_port("rag_evaluate")
+                except Exception:
+                    pass
+
+            prompt = (
+                f"Question:\n{q}\n\n"
+                f"Current answer:\n{draft}\n\n"
+                "Evaluate this answer independently. Is it complete, accurate, and well-supported? "
+                "Reply with ONLY valid JSON: "
+                '{"score": number, "suggestions": ["improvement1"], "next_queries": ["query1"]}'
+            )
+            raw = await eval_llm.complete([{"role": "user", "content": prompt}])
+            data = _parse_reflection(raw)
+
+            score = float(data.get("score", 0.5))
+            suggestions = [str(x) for x in data.get("suggestions", [])]
+            nq = [str(x) for x in data.get("next_queries", []) if str(x).strip()]
+
+            ev = rag_sse_append(
+                state,
+                "evaluating",
+                {
+                    "round": state.get("round", 1),
+                    "score": score,
+                    "suggestions": suggestions[:3],
+                },
+            )
+
+            if score >= 0.85:
+                return {"is_complete": True, "confidence": score, "sse_events": ev}
+            return {"next_queries": nq, "sse_events": ev}
+
         async def finalize(state: RAGState) -> dict[str, Any]:
             ev = rag_sse_append(
                 state,
@@ -129,20 +206,37 @@ class IterativeRAGEngine:
         graph.add_node("initial_search", initial_search)
         graph.add_node("generate_draft", generate_draft)
         graph.add_node("dynamic_retrieve", dynamic_retrieve)
+        graph.add_node("plan", plan)
+        graph.add_node("evaluate", evaluate)
         graph.add_node("finalize", finalize)
 
         graph.set_entry_point("initial_search")
         graph.add_edge("initial_search", "generate_draft")
 
-        def route_after_draft(s: RAGState) -> Literal["finalize", "dynamic_retrieve"]:
+        def route_after_draft(s: RAGState) -> str:
             if s.get("is_complete") or int(s.get("round", 1)) >= int(s.get("max_rounds", 7)):
                 return "finalize"
             if not (s.get("next_queries") or []):
                 return "finalize"
+            if int(s.get("round", 1)) >= 3 and float(s.get("confidence", 0.0)) < 0.7:
+                return "evaluate"
+            if int(s.get("round", 1)) >= 2:
+                return "plan"
             return "dynamic_retrieve"
 
-        graph.add_conditional_edges("generate_draft", route_after_draft)
+        graph.add_conditional_edges(
+            "generate_draft",
+            route_after_draft,
+            {
+                "finalize": "finalize",
+                "evaluate": "evaluate",
+                "plan": "plan",
+                "dynamic_retrieve": "dynamic_retrieve",
+            },
+        )
         graph.add_edge("dynamic_retrieve", "generate_draft")
+        graph.add_edge("plan", "dynamic_retrieve")
+        graph.add_edge("evaluate", "plan")
         graph.add_edge("finalize", END)
         return graph.compile()
 

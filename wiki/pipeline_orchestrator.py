@@ -118,6 +118,7 @@ async def run_langgraph_pipeline(
     is_incremental: bool = False,
     affected_domains: list[str] | None = None,
     config_overrides: dict[str, Any] | None = None,
+    model_strategy: Any | None = None,
 ) -> PipelineResult:
     """Execute the LangGraph wiki pipeline and return production-ready results.
 
@@ -179,9 +180,13 @@ async def run_langgraph_pipeline(
         is_incremental=is_incremental,
     )
 
+    configurable: dict[str, Any] = {"thread_id": f"biz-{business_id}", "llm": llm}
+    if model_strategy is not None:
+        configurable["model_strategy"] = model_strategy
+
     result = await pipeline.ainvoke(
         initial_state,
-        config={"configurable": {"thread_id": f"biz-{business_id}", "llm": llm}},
+        config={"configurable": configurable},
     )
 
     domain_mapping = _extract_domain_mapping(result, modules_dict)

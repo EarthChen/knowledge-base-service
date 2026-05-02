@@ -45,7 +45,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["indexer", "store", "query", "api", "api.models", "llm", "services", "wiki"]
+packages = ["indexer", "indexer.languages", "store", "query", "api", "api.models", "llm", "services", "wiki"]
 py-modules = ["main", "config", "log", "service", "redis_startup"]
 
 [tool.ruff]

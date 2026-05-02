@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 import api.kb_state as kb_state
 from api.exceptions import KbClientError, KbNotFound, KbServiceUnavailable
+from api.pagination import slice_page
 from api.routes import kb_routers
 from api.routes.kb_dependencies import get_effective_business_id, get_service
 from api.routes.kb_schemas import PrFetchRequest
@@ -21,6 +22,7 @@ from api.routes.repository_path_utils import (
     infer_section_levels,
     relative_file_path,
 )
+from config import get_settings
 from services.kb_service import KnowledgeBaseService
 from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 from utils.git_utils import looks_like_git_url
@@ -104,10 +106,18 @@ async def _enriched_repository_rows(svc: KnowledgeBaseService) -> list[dict[str,
 @viewer_router.get("/repositories")
 async def list_repositories(
     svc: KnowledgeBaseService = Depends(get_service),
+    offset: int = Query(default=0, ge=0),
+    limit: int | None = Query(default=None, ge=1, le=100),
 ) -> dict[str, Any]:
     """List all indexed repositories with node counts and optional git URL metadata."""
     repos = await _enriched_repository_rows(svc)
-    return {"repositories": repos, "total": len(repos)}
+    total = len(repos)
+    window, _ = slice_page(repos, offset=offset, limit=limit)
+    out: dict[str, Any] = {"repositories": window, "total": total}
+    if limit is not None:
+        out["offset"] = offset
+        out["limit"] = limit
+    return out
 
 
 @viewer_router.post("/pr/fetch")
@@ -277,6 +287,8 @@ async def get_file_entities(
 async def list_documents(
     repository: str | None = None,
     svc: KnowledgeBaseService = Depends(get_service),
+    offset: int = Query(default=0, ge=0),
+    limit: int | None = Query(default=None, ge=1, le=100),
 ) -> dict[str, Any]:
     """List top-level document nodes with section metadata for sidebar navigation."""
     queries = GraphQueryRepository(svc.store)
@@ -313,7 +325,13 @@ async def list_documents(
     for d in documents:
         d["sections"].sort(key=lambda s: (s.get("start_line") is None, s.get("start_line") or 0))
 
-    return {"documents": documents, "total": len(documents)}
+    total = len(documents)
+    window, _ = slice_page(documents, offset=offset, limit=limit)
+    out: dict[str, Any] = {"documents": window, "total": total}
+    if limit is not None:
+        out["offset"] = offset
+        out["limit"] = limit
+    return out
 
 
 _NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)[\.\s]")

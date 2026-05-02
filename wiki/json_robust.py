@@ -41,7 +41,7 @@ def parse_json_robust_sync(raw: str) -> dict | list | None:
             log.info("json_auto_repaired", strategy="json-repair")
             return repaired
     except Exception:
-        pass
+        log.debug("json_repair_level2_failed", exc_info=True)
 
     return None
 

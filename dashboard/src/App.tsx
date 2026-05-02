@@ -1,6 +1,7 @@
 import { lazy } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
 
 const Overview = lazy(() => import("./pages/Overview"));
@@ -19,24 +20,26 @@ const FileExplorer = lazy(() => import("./pages/FileExplorer"));
 export default function App() {
   return (
     <ToastProvider>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<Overview />} />
-          <Route path="search" element={<SearchPage />} />
-          <Route path="explorer" element={<GraphExplorer />} />
-          <Route path="files" element={<FileExplorer />} />
-          <Route path="architecture" element={<ArchitecturePage />} />
-          <Route path="repositories" element={<Repositories />} />
-          <Route path="documents" element={<Documents />} />
-          <Route path="indexing" element={<Indexing />} />
-          <Route path="wiki" element={<WikiPage />} />
-          <Route path="pr-impact" element={<PrImpactPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-          <Route path="deep-search" element={<Navigate to="/search" replace />} />
-          <Route path="graph" element={<Navigate to="/explorer" replace />} />
-          <Route path="businesses" element={<Businesses />} />
-        </Route>
-      </Routes>
+      <ErrorBoundary>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route index element={<Overview />} />
+            <Route path="search" element={<SearchPage />} />
+            <Route path="explorer" element={<GraphExplorer />} />
+            <Route path="files" element={<FileExplorer />} />
+            <Route path="architecture" element={<ArchitecturePage />} />
+            <Route path="repositories" element={<Repositories />} />
+            <Route path="documents" element={<Documents />} />
+            <Route path="indexing" element={<Indexing />} />
+            <Route path="wiki" element={<WikiPage />} />
+            <Route path="pr-impact" element={<PrImpactPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="deep-search" element={<Navigate to="/search" replace />} />
+            <Route path="graph" element={<Navigate to="/explorer" replace />} />
+            <Route path="businesses" element={<Businesses />} />
+          </Route>
+        </Routes>
+      </ErrorBoundary>
     </ToastProvider>
   );
 }

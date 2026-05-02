@@ -6,33 +6,18 @@ as the orchestration layer.
 
 from __future__ import annotations
 
-import re
 from typing import Any, NamedTuple
 
 from store.falkordb_store import FalkorDBStore, QueryResultWrapper
-
-_FQN_RE = re.compile(
-    r"[a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*){2,}"
-    r"(?:#[a-zA-Z_][\w]*)?"
-)
-
-
-def _parse_input(raw: str) -> tuple[str, str | None]:
-    """Parse user input which may be a simple name or FQN."""
-    if _FQN_RE.fullmatch(raw.strip()):
-        fqn = raw.strip()
-        if "#" in fqn:
-            simple = fqn.rsplit("#", 1)[1]
-        else:
-            simple = fqn.rsplit(".", 1)[-1]
-        return simple, fqn
-    return raw.strip(), None
+from store.fqn_utils import FQN_RE as _FQN_RE, parse_fqn as _parse_input
 
 
 def _make_params(raw: str) -> dict[str, str]:
     """Build query params with both fqn and simple_name for fallback matching."""
-    simple, fqn = _parse_input(raw)
-    return {"fqn": fqn or simple, "simple_name": simple}
+    cleaned, simple_opt = _parse_input(raw)
+    if simple_opt is None:
+        return {"fqn": cleaned, "simple_name": cleaned}
+    return {"fqn": cleaned, "simple_name": simple_opt}
 
 
 def make_name_query_params(raw: str) -> dict[str, str]:

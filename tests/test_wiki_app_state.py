@@ -22,6 +22,10 @@ async def test_wire_wiki_app_state_sets_factory_and_services() -> None:
 
     kb = MagicMock()
     kb.store = mock_store
+    kb.store._redis = None
+    kb.store.redis = None
+    kb.store._graph = None
+    kb.store._db = None
     kb.semantic_query = mock_semantic
     kb._embedding = MagicMock()
     kb.llm_provider = mock_llm
@@ -48,6 +52,10 @@ async def test_wire_wiki_app_state_no_llm_skips_ask_service() -> None:
     app = FastAPI()
     kb = MagicMock()
     kb.store = MagicMock()
+    kb.store._redis = None
+    kb.store.redis = None
+    kb.store._graph = None
+    kb.store._db = None
     kb.semantic_query = MagicMock()
     kb._embedding = MagicMock()
     kb.llm_provider = None

@@ -17,6 +17,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from core.container import AppContainer
+
 import api.kb_state as kb_state
 from api.error_handler import register_exception_handlers
 from api.middleware.request_logging import RequestLoggingMiddleware
@@ -107,48 +109,52 @@ def _enforce_production_security(settings: Settings) -> None:
         )
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    settings = get_settings()
-    setup_logging(level=settings.log_level)
-    log.info("kb_service_starting", host=settings.host, port=settings.port)
-
+def _init_security(settings: Settings) -> None:
+    """Auth gate + production security check."""
     _enforce_production_security(settings)
     _startup_auth_gate(settings)
 
-    kb_state.task_manager = IndexTaskManager()
+
+async def _init_core_services(container: AppContainer, app: FastAPI) -> None:
+    """Create and start registry, scheduler, task manager."""
+    container.task_manager = IndexTaskManager()
 
     def _index_task_status_for_mcp(task_id: str) -> dict[str, Any] | None:
-        if kb_state.task_manager is None:
+        if container.task_manager is None:
             return None
-        task = kb_state.task_manager.get_task(task_id)
+        task = container.task_manager.get_task(task_id)
         return task.to_dict() if task else None
 
-    data_dir = Path(settings.git.clone_base_path).resolve().parent
-    kb_state.repo_registry = RepoRegistry(str(data_dir))
-    settings_store = SettingsStore()
-    app.state.settings_store = settings_store
-    kb_state.registry = ServiceRegistry(
-        settings,
+    data_dir = Path(container.settings.git.clone_base_path).resolve().parent
+    container.repo_registry = RepoRegistry(str(data_dir))
+    container.settings_store = SettingsStore()
+    app.state.settings_store = container.settings_store
+    container.registry = ServiceRegistry(
+        container.settings,
         index_task_status_lookup=_index_task_status_for_mcp,
-        repo_registry=kb_state.repo_registry,
-        settings_store=settings_store,
+        repo_registry=container.repo_registry,
+        settings_store=container.settings_store,
     )
-    await kb_state.registry.start()
+    await container.registry.start()
 
-    _default_kb = await kb_state.registry.get_service("default")
+    _default_kb = await container.registry.get_service("default")
     app.state.graph = _AppGraphQuery(_default_kb.store)
 
-    kb_state.scheduler = SyncScheduler(
-        kb_state.registry,
-        settings,
-        repo_registry=kb_state.repo_registry,
+    container.scheduler = SyncScheduler(
+        container.registry,
+        container.settings,
+        repo_registry=container.repo_registry,
         schedule_store_path=data_dir / "sync_schedules.json",
     )
-    await kb_state.scheduler.start()
+    await container.scheduler.start()
 
-    app.state.registry = kb_state.registry
-    app.state.scheduler = kb_state.scheduler
+    # Mirror to app.state for route dependencies
+    app.state.registry = container.registry
+    app.state.scheduler = container.scheduler
+
+
+async def _init_wiki_and_lint(container: AppContainer, app: FastAPI) -> None:
+    """Initialize wiki subsystem and lint scheduler."""
     init_webhook_state(app)
 
     from wiki.cache import WikiCache
@@ -158,7 +164,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.wiki_cache = WikiCache()
 
     async def wiki_lint_service_factory() -> WikiLintService:
-        kb = await kb_state.registry.get_service("default")
+        kb = await container.registry.get_service("default")
         settings = get_settings()
         det = None
         if settings.wiki.contradiction_detection_enabled and kb.llm_provider is not None:
@@ -171,12 +177,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
             async def _embed_wiki_text(title: str, content: str) -> list[float]:
                 item = doc_dict_for_embedding(
-                    {
-                        "title": title,
-                        "content": content[:3000],
-                        "section": "",
-                        "heading_context": "",
-                    },
+                    {"title": title, "content": content[:3000], "section": "", "heading_context": ""},
                 )
                 out = await emb.generate_for_docs([item])
                 return out[0] if out else []
@@ -196,7 +197,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         return WikiLintService(
             kb.store,
             wiki_cache=getattr(app.state, "wiki_cache", None),
-            repo_registry=kb_state.repo_registry,
+            repo_registry=container.repo_registry,
             wiki_config=settings.wiki,
             contradiction_detector=det,
             wiki_changelog_store=getattr(app.state, "wiki_changelog_store", None),
@@ -204,19 +205,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.wiki_lint_service_factory = wiki_lint_service_factory
 
-    await bootstrap_wiki(app, settings)
+    await bootstrap_wiki(app, container.settings)
 
     app.state.wiki_lint_scheduler = None
-    if settings.wiki.lint_scheduler_enabled:
+    if container.settings.wiki.lint_scheduler_enabled:
         from wiki.lint_scheduler import LintScheduler
 
         def _list_repos() -> list[str]:
-            reg = kb_state.repo_registry
+            reg = container.repo_registry
             if reg is None:
                 return []
             return [str(e["repository"]) for e in reg.list_all() if e.get("repository")]
 
-        interval = float(max(1, settings.wiki.lint_scheduler_interval_hours) * 3600)
+        interval = float(max(1, container.settings.wiki.lint_scheduler_interval_hours) * 3600)
         lint_sched = LintScheduler(
             app.state.wiki_lint_service_factory,
             repositories=_list_repos,
@@ -226,26 +227,64 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.wiki_lint_scheduler = lint_sched
         log.info(
             "wiki_lint_scheduler_started",
-            interval_hours=settings.wiki.lint_scheduler_interval_hours,
+            interval_hours=container.settings.wiki.lint_scheduler_interval_hours,
         )
 
-    log.info("kb_service_started")
-    yield
 
-    log.info("kb_service_stopping")
+async def _shutdown_all(container: AppContainer, app: FastAPI) -> None:
+    """Reverse-order teardown."""
     ls = getattr(app.state, "wiki_lint_scheduler", None)
     if ls is not None:
         await ls.stop()
         app.state.wiki_lint_scheduler = None
     await teardown_wiki(app)
-    if kb_state.scheduler:
-        await kb_state.scheduler.stop()
-    if kb_state.registry:
-        await kb_state.registry.stop()
+    if container.scheduler:
+        await container.scheduler.stop()
+    if container.registry:
+        await container.registry.stop()
+
+    event_bus = getattr(app.state, "wiki_event_bus", None)
+    if event_bus is not None:
+        await event_bus.shutdown()
+
+    from store.falkordb_store import _graph_executor
+
+    _graph_executor.shutdown(wait=False)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    setup_logging(level=settings.log_level)
+    log.info("kb_service_starting", host=settings.host, port=settings.port)
+
+    _init_security(settings)
+
+    container = AppContainer(
+        settings=settings,
+        registry=None,
+        task_manager=None,
+        repo_registry=None,
+        scheduler=None,
+        settings_store=None,
+    )
+
+    await _init_core_services(container, app)
+    kb_state._bind(container)
+    app.state.container = container
+
+    await _init_wiki_and_lint(container, app)
+
+    log.info("kb_service_started")
+    yield
+
+    log.info("kb_service_stopping")
+    await _shutdown_all(container, app)
     log.info("kb_service_stopped")
 
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
+_STATIC_DIR_RESOLVED = _STATIC_DIR.resolve()
 _INDEX_HTML = _STATIC_DIR / "index.html"
 
 _SPA_ROUTES = {
@@ -263,12 +302,24 @@ _SPA_ROUTES = {
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
     app = FastAPI(
         title="Knowledge Base Service",
         description="Code knowledge base with graph + vector search",
         version="0.1.0",
         lifespan=lifespan,
     )
+    if settings.cors_origins:
+        from starlette.middleware.cors import CORSMiddleware
+
+        origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
     app.add_middleware(RequestLoggingMiddleware)
     register_exception_handlers(app)
     install_rate_limiter(app)
@@ -288,8 +339,12 @@ def create_app() -> FastAPI:
 
         @app.get("/{full_path:path}")
         async def spa_fallback(full_path: str) -> FileResponse:
-            file_path = _STATIC_DIR / full_path
-            if full_path and file_path.is_file():
+            file_path = (_STATIC_DIR / full_path).resolve()
+            if (
+                full_path
+                and file_path.is_file()
+                and file_path.is_relative_to(_STATIC_DIR_RESOLVED)
+            ):
                 return FileResponse(file_path)
             return FileResponse(_INDEX_HTML)
 

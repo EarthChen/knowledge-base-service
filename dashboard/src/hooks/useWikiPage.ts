@@ -1,17 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { encodeWikiPath } from "../utils/wikiPath";
 import type { WikiPageDetail } from "./wikiTypes";
 
 export function wikiPageQueryKey(businessId: string, path: string) {
   return ["wiki", "page", businessId, path] as const;
-}
-
-function encodeWikiPath(path: string): string {
-  return path
-    .split("/")
-    .filter(Boolean)
-    .map((seg) => encodeURIComponent(seg))
-    .join("/");
 }
 
 export function useWikiPage(businessId: string | undefined, path: string | undefined) {

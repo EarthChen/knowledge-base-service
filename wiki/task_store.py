@@ -2,11 +2,19 @@
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any
 
 from log import get_logger
 
 log = get_logger(__name__)
+
+UNLOCK_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+end
+return 0
+"""
 
 
 class WikiTaskStore:
@@ -71,13 +79,23 @@ class WikiTaskStore:
         await self._redis.hset(key, mapping=mapping)
         await self._redis.expire(key, self.DEFAULT_TTL)
 
-    async def try_lock(self, business_id: str) -> bool:
+    async def try_lock(self, business_id: str) -> str | None:
+        """Try to acquire lock. Returns lock token if successful, None otherwise."""
+        token = str(uuid.uuid4())
         ok = await self._redis.set(
-            self._lock_key(business_id), "1", nx=True, ex=self.LOCK_TTL,
+            self._lock_key(business_id), token, nx=True, ex=self.LOCK_TTL,
         )
-        return bool(ok)
+        return token if ok else None
 
-    async def unlock(self, business_id: str) -> None:
+    async def unlock(self, business_id: str, lock_token: str) -> bool:
+        """Release lock only if we still hold it. Returns True if released."""
+        result = await self._redis.eval(
+            UNLOCK_SCRIPT, 1, self._lock_key(business_id), lock_token,
+        )
+        return bool(result)
+
+    async def force_release_lock(self, business_id: str) -> None:
+        """Delete lock without token check (cancel, orphan recovery, admin)."""
         await self._redis.delete(self._lock_key(business_id))
 
     async def list_active(self) -> list[dict[str, Any]]:

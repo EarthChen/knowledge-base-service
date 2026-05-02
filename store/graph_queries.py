@@ -11,7 +11,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from log import get_logger
 from services.repo_registry import RepoRegistry
+
+log = get_logger(__name__)
 
 # Disallow characters that are unsafe or meaningless for parameterized class-name search.
 _ARCHITECTURE_CLASS_SEARCH_DISALLOWED = re.compile(r'[`"\';\\#\x00-\x1f]')
@@ -493,7 +496,7 @@ class GraphQueryRepository:
             if rows:
                 return {"ok": True, "rows": rows, "used": "shortestPath"}
         except Exception:
-            pass
+            log.debug("shortest_path_primary_query_failed", exc_info=True)
         fb = (
             f"MATCH (a), (b) "
             f"WHERE a.repository = $repo AND b.repository = $repo "

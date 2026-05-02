@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import os
 from typing import Any
 
 from falkordb import FalkorDB, Graph
@@ -33,7 +34,8 @@ _PARSING_EDGE_TYPES: tuple[str, ...] = (
 
 log = get_logger(__name__)
 
-_graph_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="falkordb")
+_POOL_SIZE = int(os.environ.get("FALKORDB__THREAD_POOL_SIZE", "4"))
+_graph_executor = concurrent.futures.ThreadPoolExecutor(max_workers=_POOL_SIZE, thread_name_prefix="falkordb")
 _xref_lock = asyncio.Lock()
 
 
@@ -191,8 +193,13 @@ class FalkorDBStore:
                             f"CREATE INDEX FOR (n:{lbl}) ON (n.{p})"
                         ),
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.debug(
+                        "index_create_skipped",
+                        label=str(label),
+                        prop=prop,
+                        reason=str(exc)[:100],
+                    )
 
         for idx_cfg in VECTOR_INDEX_CONFIGS:
             try:
@@ -206,7 +213,11 @@ class FalkorDBStore:
                     ),
                 )
             except Exception as exc:
-                log.warning("vector_index_creation_skipped", label=idx_cfg["label"], error=str(exc))
+                log.debug(
+                    "vector_index_create_skipped",
+                    label=idx_cfg["label"],
+                    reason=str(exc)[:100],
+                )
 
         log.info("falkordb_schema_ensured")
 

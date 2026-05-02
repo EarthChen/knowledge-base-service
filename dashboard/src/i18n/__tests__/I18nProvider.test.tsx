@@ -1,4 +1,5 @@
-import { render, screen, act, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
 import { I18nProvider, TestI18nProvider, useI18n } from "../context";
 
@@ -43,6 +44,41 @@ describe("I18nProvider", () => {
     await waitFor(() => {
       expect(document.documentElement.getAttribute("lang")).toBe("zh");
     });
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps context value referentially stable when parent re-renders without locale change", () => {
+    vi.stubGlobal("navigator", { language: "en-US" });
+    const refs: unknown[] = [];
+
+    function Probe() {
+      refs.push(useI18n());
+      return null;
+    }
+
+    function Shell() {
+      const [n, setN] = useState(0);
+      return (
+        <>
+          <button type="button" data-testid="bump-i18n" onClick={() => setN((x) => x + 1)}>
+            {n}
+          </button>
+          <I18nProvider>
+            <Probe />
+          </I18nProvider>
+        </>
+      );
+    }
+
+    render(<Shell />);
+
+    const idxAfterMount = refs.length;
+    const first = refs[idxAfterMount - 1];
+
+    fireEvent.click(screen.getByTestId("bump-i18n"));
+
+    const last = refs[refs.length - 1];
+    expect(last).toBe(first);
     vi.unstubAllGlobals();
   });
 });

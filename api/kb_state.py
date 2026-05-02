@@ -1,21 +1,40 @@
-"""Process-wide service instances for the Knowledge Base HTTP API (set from ``main`` lifespan)."""
+"""Transition shim — delegates to AppContainer for backward compatibility.
+
+During migration, background tasks and route handlers access services via this module.
+After migration is complete, all call sites should use AppContainer directly.
+"""
 
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
-from indexer.task_manager import IndexTaskManager
-from services.repo_registry import RepoRegistry
-from services.scheduler import SyncScheduler
-from services.service_registry import ServiceRegistry
+if TYPE_CHECKING:
+    from core.container import AppContainer
+    from indexer.task_manager import IndexTaskManager
+    from services.repo_registry import RepoRegistry
+    from services.scheduler import SyncScheduler
+    from services.service_registry import ServiceRegistry
 
-# Populated in main.lifespan; read by API dependencies and background tasks.
 MAX_CONCURRENT_REINDEX = 1
 reindex_sem = asyncio.Semaphore(MAX_CONCURRENT_REINDEX)
 MAX_CONCURRENT_INDEX = 2
 index_sem = asyncio.Semaphore(MAX_CONCURRENT_INDEX)
 
+_container: AppContainer | None = None
+
+# Backward-compatible module-level attributes
 registry: ServiceRegistry | None = None
 task_manager: IndexTaskManager | None = None
 repo_registry: RepoRegistry | None = None
 scheduler: SyncScheduler | None = None
+
+
+def _bind(container: AppContainer) -> None:
+    """Called by main.lifespan to sync module globals with the container."""
+    global _container, registry, task_manager, repo_registry, scheduler
+    _container = container
+    registry = container.registry
+    task_manager = container.task_manager
+    repo_registry = container.repo_registry
+    scheduler = container.scheduler

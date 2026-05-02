@@ -216,7 +216,7 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
                         )
                         bid = task.get("business_id")
                         if bid:
-                            await wiki_task_store.unlock(bid)
+                            await wiki_task_store.force_release_lock(bid)
                         log.info("orphan_task_cleaned", task_id=tid)
             except Exception:
                 log.warning("orphan_task_cleanup_failed", exc_info=True)

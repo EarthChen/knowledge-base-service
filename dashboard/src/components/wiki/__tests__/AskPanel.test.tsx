@@ -49,6 +49,7 @@ describe("AskPanel", () => {
     useWikiAskMock.mockImplementation(() => ({
       answer: "",
       sources: [],
+      ragStages: [],
       get isStreaming() {
         return streamingRef.current;
       },
@@ -111,6 +112,7 @@ describe("AskPanel", () => {
     useWikiAskMock.mockImplementation(() => ({
       answer: "",
       sources: [],
+      ragStages: [],
       get isStreaming() {
         return false;
       },

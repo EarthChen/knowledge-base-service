@@ -4,14 +4,18 @@
 
 ```text
 knowledge-base-service/
-├── main.py                 # FastAPI 应用、路由注册、生命周期
+├── main.py                 # FastAPI 应用、路由注册、生命周期（分解为 _init_* 函数）
 ├── config.py               # Pydantic 配置（env / .env）
 ├── auth.py                 # Token 注册、角色、依赖注入
 ├── service.py              # KnowledgeBaseService 组合
 ├── service_registry.py     # 多租户图服务
+├── core/
+│   └── container.py        # AppContainer 服务容器（替代全局可变单例）
 ├── api/
 │   ├── mcp_server.py       # 主 MCP 清单 + KnowledgeBaseMCPHandler
+│   ├── mcp_registry.py     # @mcp_tool 装饰器 + collect_tools 自动注册
 │   ├── mcp_wiki_server.py  # 可选：Wiki 专用 HTTP 六工具（与主清单分路由）
+│   ├── pagination.py       # 通用分页工具（PaginationParams / PaginatedResponse）
 │   ├── rate_limiter.py     # 令牌桶中间件
 │   └── routes/             # wiki_*（ingest、feedback、contradiction、mcp tools）、webhook 等
 ├── indexer/                # Tree-sitter → 图、增量索引、嵌入、Import 解析、配置文件解析（config_indexer.py）
@@ -92,8 +96,8 @@ uv run python -m pytest
 **主服务清单**（`GET /api/v1/mcp/tools` / `POST /api/v1/mcp/tool`）：
 
 1. 在 `api/mcp_server.py` 的 `MCP_TOOLS_MANIFEST` 中追加条目；Wiki 管线工具在 `wiki/mcp_tools.py` 的 `WIKI_MCP_TOOLS_MANIFEST` 末尾合并。
-2. 若工具需要高于 Viewer 的权限，在 `MCP_TOOL_MIN_ROLE` 中声明。
-3. 在 `KnowledgeBaseMCPHandler` 或 `WikiMCPHandler` 上实现处理函数并在 `handle_tool_call` 的 `handlers` 中注册。
+2. 在 `KnowledgeBaseMCPHandler` 或 `WikiMCPHandler` 上实现处理函数，使用 `@mcp_tool("tool_name", min_role=Role.VIEWER)` 装饰器声明工具名和最低角色（装饰器定义在 `api/mcp_registry.py`）。
+3. 工具会在 `__init__` 中通过 `collect_tools()` 自动发现并注册到分派表，无需手动维护字典。
 4. 在 `tests/test_mcp_*.py` 中覆盖。
 
 **Wiki 专用 HTTP 六工具**（`WIKI__MCP_SERVER_ENABLED`）：清单与路由在 `api/mcp_wiki_server.py`、`api/routes/wiki_mcp_routes.py`（`POST /api/v1/mcp/tools/call` 的请求体使用 `name` + `arguments`）；测试见 `tests/api/test_mcp_wiki_server.py`。

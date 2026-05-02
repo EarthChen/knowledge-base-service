@@ -12,18 +12,20 @@ from config import AppWikiFlags as WikiAppConfig, EmbeddingConfig, get_settings
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
+from wiki.community_context import CachedCommunityService, format_communities_markdown
+from wiki.llm_port import LLMPort
+from wiki.protocols import WikiGraphStorePort
 from store.schema import EdgeType, GraphNode, NodeLabel
 from wiki.ask import set_default_resolver
 from wiki.backlink_builder import BacklinkBuilder
 from wiki.composer import WikiComposer
-from wiki.community_context import format_communities_markdown
 from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
 from wiki.dependency_graph import DomainNode
 from wiki.deferred_enrichment import DeferredEnrichmentService
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
 from wiki.delegation import evaluate_delegation, group_children_by_graph
-from wiki.exporter import WikiExporter
+from wiki.export_service import WikiExportService
 from wiki.flow_writer import BusinessFlowWriter
 from wiki.incremental_diff import compute_wiki_diff
 from wiki.memory_loop import MemoryLoop
@@ -104,19 +106,19 @@ class WikiService:
     def __init__(
         self,
         graph: DataCollectorPort,
-        llm: Any | None,
+        llm: LLMPort | None,
         repository_exists: Callable[[str], Awaitable[bool]],
         llm_factory: LLMProviderFactory | None = None,
-        store: Any | None = None,
+        store: WikiGraphStorePort | None = None,
         deferred_enrichment: DeferredEnrichmentService | None = None,
         flow_inferencer: BusinessFlowInferencer | None = None,
-        wiki_store: Any | None = None,
+        wiki_store: WikiStore | None = None,
         memory_loop: MemoryLoop | None = None,
-        community_service: Any | None = None,
+        community_service: CachedCommunityService | None = None,
         *,
         wiki_config: WikiAppConfig,
         embedding_config: EmbeddingConfig,
-        redis_conn: Any | None = None,
+        redis_conn: Any | None = None,  # TODO: narrow type — assigned only; unused within WikiService today
     ) -> None:
         self._graph = graph
         self._planner = WikiStructurePlanner(graph)
@@ -139,7 +141,7 @@ class WikiService:
         )
         self._llm = llm
         self._llm_factory = llm_factory
-        self._exporter = WikiExporter()
+        self._export_service = WikiExportService()
         self._repository_exists = repository_exists
         self._store = store
         self._deferred_enrichment = deferred_enrichment
@@ -220,7 +222,7 @@ class WikiService:
             memory_loop=self._memory_loop,
         )
 
-    def _resolve_llm_port(self, llm_provider: str | None) -> Any | None:
+    def _resolve_llm_port(self, llm_provider: str | None) -> LLMPort | None:
         if self._llm_factory is not None:
             provider = self._llm_factory.get_provider(llm_provider)
             return LLMPortBridge(provider)
@@ -403,16 +405,12 @@ class WikiService:
         except Exception:
             log.warning("wiki_baseline_failed", repository=repository, exc_info=True)
 
-        if format == "markdown" and len(pages) == 1:
-            return {
-                "content": self._exporter.export_markdown_single(pages[0]),
-                "format": "markdown",
-                "degraded": degraded,
-            }
-
-        bundle = self._exporter.export_json(pages, structure)
-        bundle["degraded"] = degraded
-        return bundle
+        return self._export_service.bundle_generation_result(
+            pages,
+            structure,
+            export_format=format,
+            degraded=degraded,
+        )
 
     async def _bulk_set_wiki_code_hashes(self, repository: str) -> None:
         """After full generation, mark all entities as wiki-synced."""
@@ -937,8 +935,12 @@ class WikiService:
                 refreshed=refreshed,
             )
 
-        bundle = self._exporter.export_json(pages, structure)
-        bundle["degraded"] = degraded
+        bundle = self._export_service.bundle_generation_result(
+            pages,
+            structure,
+            export_format="json",
+            degraded=degraded,
+        )
         yield {"complete": bundle}
 
     async def generate_business_wiki(
@@ -1120,7 +1122,12 @@ class WikiService:
                                     NodeLabel.FUNCTION, child_uid, "business_domain", domain_name,
                                 )
                             except Exception:
-                                pass
+                                log.debug(
+                                    "business_domain_function_update_failed",
+                                    child_uid=child_uid,
+                                    domain=domain_name,
+                                    exc_info=True,
+                                )
                 except Exception:
                     log.warning(
                         "domain_persist_failed",

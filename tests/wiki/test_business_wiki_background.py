@@ -1,8 +1,9 @@
 """Tests for background business wiki generation with task_id return."""
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 
 @pytest.fixture
@@ -24,8 +25,8 @@ def mock_wiki_service():
 @pytest.fixture
 def mock_task_store():
     store = AsyncMock()
-    store.try_lock = AsyncMock(return_value=True)
-    store.unlock = AsyncMock()
+    store.try_lock = AsyncMock(return_value="test-lock-token")
+    store.unlock = AsyncMock(return_value=True)
     store.put_task = AsyncMock()
     store.update_status = AsyncMock()
     store.get_task = AsyncMock(
@@ -60,12 +61,12 @@ async def test_business_generate_returns_task_status(mock_wiki_service, mock_tas
 
 @pytest.mark.asyncio
 async def test_business_generate_lock_conflict(mock_task_store):
-    """Should return False when lock already held."""
-    mock_task_store.try_lock.return_value = False
+    """Should return None token when lock already held."""
+    mock_task_store.try_lock.return_value = None
     from api.routes.wiki_task_routes import _check_business_lock
 
     locked = await _check_business_lock(mock_task_store, "default")
-    assert locked is False
+    assert locked is None
 
 
 @pytest.mark.asyncio
@@ -114,8 +115,9 @@ async def test_background_task_unlocks_on_failure(mock_task_store):
         svc=failing_svc,
         task_store=mock_task_store,
         event_bus=None,
+        lock_token="test-lock-token",
     )
-    mock_task_store.unlock.assert_called_once_with("default")
+    mock_task_store.unlock.assert_called_once_with("default", "test-lock-token")
     last_status_call = mock_task_store.update_status.call_args_list[-1]
     assert last_status_call[0][1] == "failed"
     assert last_status_call[1].get("detail") == "boom"

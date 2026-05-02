@@ -74,6 +74,8 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
       <Icon size={16} />
       <span className="max-w-xs">{toast.message}</span>
       <button
+        type="button"
+        aria-label="Dismiss notification"
         onClick={onDismiss}
         className="ml-2 rounded p-0.5 opacity-60 hover:opacity-100 dark:text-gray-200"
       >

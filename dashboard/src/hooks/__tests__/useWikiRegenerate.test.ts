@@ -167,7 +167,33 @@ describe("useWikiRegenerate", () => {
       await vi.advanceTimersByTimeAsync(2000 * 120 + 10);
     });
     await p;
-    expect(toast).toHaveBeenCalledWith("error", en.wiki.regenerateTimeout);
+    expect(toast).toHaveBeenCalledWith(
+      "error",
+      "Wiki generation timed out. Please check status later.",
+    );
+  });
+
+  it("toasts zh timeout message when locale is zh and max attempts exhausted", async () => {
+    useI18nMock.mockReturnValue({ locale: "zh" as const, t: en, setLocale: vi.fn() });
+    vi.useFakeTimers();
+    vi.mocked(client.businessWikiGenerate).mockResolvedValue({
+      task_id: "t3-zh",
+      status: "pending",
+      mode: "full",
+    });
+    vi.mocked(client.businessWikiTaskStatus).mockResolvedValue({
+      task_id: "t3-zh",
+      status: "running",
+    });
+    const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
+    const p = act(async () => {
+      await result.current.regenerate(true);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000 * 120 + 10);
+    });
+    await p;
+    expect(toast).toHaveBeenCalledWith("error", "Wiki 生成超时，请稍后检查状态");
   });
 
   it("uses unknown when task failed but error field is empty", async () => {

@@ -5,11 +5,13 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, ValidationError
 
 from auth import Role, require_role
 from log import get_logger
+
+from api.pagination import slice_page
 
 log = get_logger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["business"])
@@ -30,7 +32,11 @@ class RepositoryBind(BaseModel):
 
 
 @router.get("/businesses")
-async def list_businesses(request: Request) -> dict[str, Any]:
+async def list_businesses(
+    request: Request,
+    offset: int = Query(default=0, ge=0),
+    limit: int | None = Query(default=None, ge=1, le=100),
+) -> dict[str, Any]:
     graph = request.app.state.graph
     q = "MATCH (b:Business) RETURN b.uid AS id, b.name AS name, b.description AS description, b.created_at AS created_at ORDER BY b.created_at DESC"
     result = await graph.query(q)
@@ -42,7 +48,13 @@ async def list_businesses(request: Request) -> dict[str, Any]:
             "description": row[2],
             "created_at": row[3],
         })
-    return {"businesses": businesses}
+    total = len(businesses)
+    window, _ = slice_page(businesses, offset=offset, limit=limit)
+    out: dict[str, Any] = {"businesses": window, "total": total}
+    if limit is not None:
+        out["offset"] = offset
+        out["limit"] = limit
+    return out
 
 
 @router.post("/businesses", status_code=201, dependencies=[Depends(require_role(Role.EDITOR))])

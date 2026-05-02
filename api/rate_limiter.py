@@ -33,8 +33,10 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
     consume tokens.
     """
 
-    _SKIP_PREFIXES = ("/assets/", "/favicon.ico", "/api/v1/hooks/")
+    _SKIP_PREFIXES = ("/assets/", "/favicon.ico")
     _SKIP_PATHS = {"/health"}
+    _EVICT_INTERVAL = 60.0
+    _EVICT_AGE = 600.0
 
     def __init__(self, app: Any, rpm: int = 120, trust_proxy: bool = False) -> None:
         super().__init__(app)
@@ -42,6 +44,15 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         self._rate = rpm / 60.0
         self._trust_proxy = trust_proxy
         self._buckets: dict[str, _Bucket] = defaultdict(lambda: _Bucket(rpm))
+        self._last_evict = time.monotonic()
+
+    def _evict_stale(self, now: float) -> None:
+        if now - self._last_evict < self._EVICT_INTERVAL:
+            return
+        self._last_evict = now
+        stale = [ip for ip, b in self._buckets.items() if now - b.last_refill > self._EVICT_AGE]
+        for ip in stale:
+            del self._buckets[ip]
 
     def _client_ip(self, request: Request) -> str:
         if self._trust_proxy:
@@ -59,8 +70,9 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         ip = self._client_ip(request)
-        bucket = self._buckets[ip]
         now = time.monotonic()
+        self._evict_stale(now)
+        bucket = self._buckets[ip]
         elapsed = now - bucket.last_refill
         bucket.tokens = min(self._rpm, bucket.tokens + elapsed * self._rate)
         bucket.last_refill = now

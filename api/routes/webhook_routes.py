@@ -147,6 +147,7 @@ async def update_webhook_config(
 async def webhook_wiki_ingest_push(
     request: Request,
     body: WebhookWikiIngestBody,
+    _auth: Annotated[TokenInfo | None, Depends(require_role(Role.EDITOR))],
 ) -> dict[str, Any]:
     """Incremental wiki ingest from a push-style payload (e.g. GitHub push ``commits``)."""
     files = _extract_files_from_push_payload(body.payload)

@@ -19,7 +19,9 @@
 
 | 文档 | 内容 |
 |------|------|
-| [superpowers/DEEP_ANALYSIS_20260501_085742_wiki_gaps_and_bugs.md](superpowers/DEEP_ANALYSIS_20260501_085742_wiki_gaps_and_bugs.md) | Wiki 系统深度分析报告（Bug 清单 + 架构问题 + 能力差距 + 竞品对标 + 实施路线 + 剩余工作） |
+| [superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md](superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md) | 全量代码审计 + 竞品差距分析（DeepWiki/CodeWiki/LLMWiki 八维度对标 + 竞品追赶路线） |
+| [superpowers/specs/2026-05-02-architecture-refactor-design.md](superpowers/specs/2026-05-02-architecture-refactor-design.md) | 架构重构设计（DI 容器 + MCP 自动注册 + lifespan 分解） |
+| [superpowers/plans/2026-05-02-architecture-refactor.md](superpowers/plans/2026-05-02-architecture-refactor.md) | 架构重构实施计划（9 个 Task，3 个 Phase） |
 
 ## 技术栈概览
 

@@ -203,6 +203,18 @@ class ServiceRegistry:
             "wiki": wiki_health,
         }, 200
 
+    async def falkordb_graph_ping(self) -> str:
+        """Return ``ready`` if the default graph accepts a trivial query, else ``unreachable``."""
+        default = self._services.get("default")
+        if default is None:
+            return "unreachable"
+        try:
+            await default.store.execute_query("RETURN 1 AS ok LIMIT 1", {})
+            return "ready"
+        except Exception as exc:
+            log.warning("health_falkordb_ping_failed", error=str(exc))
+            return "unreachable"
+
     async def _maybe_migrate_legacy_graph(self) -> None:
         """Migrate legacy 'code_knowledge' graph to 'kb_default' on first run."""
         if self._db is None:

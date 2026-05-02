@@ -350,7 +350,7 @@ class IncrementalIndexer:
                 try:
                     await enrich_queue.put(None)
                 except Exception:
-                    pass
+                    log.debug("enrich_queue_sentinel_put_failed", exc_info=True)
                 enrichment_task.cancel()
 
         try:

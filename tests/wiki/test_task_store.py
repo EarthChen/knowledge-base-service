@@ -1,9 +1,9 @@
 """Unit tests for WikiTaskStore (Redis Hash–backed task CRUD)."""
 from __future__ import annotations
 
-import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from wiki.task_store import WikiTaskStore
 
@@ -18,6 +18,7 @@ def mock_redis():
     r.scan = AsyncMock(return_value=(0, []))
     r.exists = AsyncMock(return_value=0)
     r.set = AsyncMock(return_value=True)
+    r.eval = AsyncMock(return_value=0)
     return r
 
 
@@ -68,19 +69,70 @@ async def test_update_status(store, mock_redis):
 @pytest.mark.asyncio
 async def test_try_lock_and_unlock(store, mock_redis):
     mock_redis.set.return_value = True
-    locked = await store.try_lock("biz1")
-    assert locked is True
+    token = await store.try_lock("biz1")
+    assert token is not None
     mock_redis.set.assert_called_once()
+    call_kw = mock_redis.set.call_args
+    assert call_kw[0][0] == "kb:wiki_gen_lock:biz1"
+    assert call_kw[1].get("nx") is True
+    stored_val = call_kw[0][1]
+    assert stored_val == token
 
-    await store.unlock("biz1")
-    mock_redis.delete.assert_called_once_with("kb:wiki_gen_lock:biz1")
+    mock_redis.eval.return_value = 1
+    released = await store.unlock("biz1", token)
+    assert released is True
+    mock_redis.eval.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_try_lock_already_locked(store, mock_redis):
     mock_redis.set.return_value = False
     locked = await store.try_lock("biz1")
-    assert locked is False
+    assert locked is None
+
+
+@pytest.mark.asyncio
+async def test_unlock_wrong_token_does_not_release(store, mock_redis):
+    mock_redis.set.return_value = True
+    token = await store.try_lock("biz1")
+    assert token is not None
+
+    mock_redis.eval.return_value = 0
+    released = await store.unlock("biz1", "wrong-token")
+    assert released is False
+
+
+@pytest.mark.asyncio
+async def test_lock_stale_holder_does_not_delete_new_holder_token() -> None:
+    """After lock expiry + re-acquire, old token unlock must not delete the key."""
+    kv: dict[str, str] = {}
+
+    class MiniRedis:
+        async def set(self, key: str, val: str, nx: bool = False, ex: int | None = None) -> bool:
+            if nx and key in kv:
+                return False
+            kv[key] = val
+            return True
+
+        async def eval(self, script: str, numkeys: int, key: str, token: str) -> int:
+            if kv.get(key) == token:
+                del kv[key]
+                return 1
+            return 0
+
+    store = WikiTaskStore(MiniRedis())
+    bid = "biz-expiry"
+    lk = store._lock_key(bid)
+    t_old = await store.try_lock(bid)
+    assert t_old is not None
+    assert kv[lk] == t_old
+    del kv[lk]
+    t_new = await store.try_lock(bid)
+    assert t_new is not None and t_new != t_old
+    assert await store.unlock(bid, t_old) is False
+    assert kv.get(lk) == t_new
+    assert await store.unlock(bid, t_new) is True
+    assert lk not in kv
 
 
 @pytest.mark.asyncio

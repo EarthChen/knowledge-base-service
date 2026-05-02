@@ -27,7 +27,18 @@ async def health() -> JSONResponse:
             content={"status": "initializing", "detail": "registry not started"},
         )
     body, status_code = await kb_state.registry.readiness()
-    return JSONResponse(status_code=status_code, content=body)
+    if status_code != 200:
+        return JSONResponse(status_code=status_code, content=body)
+
+    falkordb = await kb_state.registry.falkordb_graph_ping()
+    payload: dict[str, Any] = dict(body)
+    components: dict[str, str] = dict(payload.get("components") or {})
+    components["falkordb"] = falkordb
+    payload["components"] = components
+    if falkordb != "ready":
+        payload["status"] = "degraded"
+        payload["falkordb"] = "unreachable"
+    return JSONResponse(status_code=200, content=payload)
 
 
 @public_router.get("/auth/me")

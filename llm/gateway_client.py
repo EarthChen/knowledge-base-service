@@ -679,7 +679,7 @@ class RepoTaskManager:
                 try:
                     await task.ws.close()
                 except Exception:
-                    pass
+                    logger.debug("acp_ws_close_failed_before_recreate", exc_info=True)
 
             task = await self._create_new_task(repo_id)
             self._tasks[repo_id] = task
@@ -764,11 +764,11 @@ class RepoTaskManager:
             if task.task_id:
                 await self._submit_feedback(task.task_id, "任务关闭。", action="complete")
         except Exception:
-            pass
+            logger.debug("acp_feedback_complete_on_close_failed", exc_info=True)
         try:
             await task.ws.close()
         except Exception:
-            pass
+            logger.debug("acp_ws_close_failed", exc_info=True)
 
     @staticmethod
     def _ws_closed(task: _RepoTask) -> bool:

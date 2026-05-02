@@ -57,7 +57,7 @@ def _is_arun_stream_callable(engine: Any) -> bool:
     try:
         fn = inspect.unwrap(fn)
     except Exception:
-        pass
+        logger.debug("inspect_unwrap_failed", exc_info=True)
     return inspect.isasyncgenfunction(fn)
 
 

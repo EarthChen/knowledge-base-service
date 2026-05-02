@@ -1,15 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
+import { encodeWikiPath } from "../utils/wikiPath";
 import type { WikiPageDetail } from "./wikiTypes";
-
-/** Path segments encoded for ``GET /wiki/{repository}/pages/{path}``. */
-export function encodeWikiPathSegments(path: string): string {
-  return path
-    .split("/")
-    .filter(Boolean)
-    .map((seg) => encodeURIComponent(seg))
-    .join("/");
-}
 
 /**
  * Load page via business WikiSpace tree; on 404 fall back to repository-scoped lookup
@@ -23,7 +15,7 @@ export async function fetchWikiPageByPath(businessId: string, path: string): Pro
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) {
       return await api<WikiPageDetail>(
-        `/wiki/${encodeURIComponent(businessId)}/pages/${encodeWikiPathSegments(path)}`,
+        `/wiki/${encodeURIComponent(businessId)}/pages/${encodeWikiPath(path)}`,
       );
     }
     throw e;

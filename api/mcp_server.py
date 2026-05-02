@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import Any
 
 from auth import Role, TokenInfo
+from api.mcp_registry import collect_elevated_tool_roles, collect_tools, mcp_tool
+from config import get_settings
 from indexer.config_indexer import _config_file_extension
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
@@ -106,17 +108,23 @@ def _resolve_repo_base_path(repository: str, repo_registry: Any | None = None) -
     ``RepoRegistry`` + ``GitManager``), ``repo_registry`` is used to find the git URL
     and the same on-disk path as indexing.
     """
-    from config import get_settings
     from services.git_manager import resolve_repo_clone_root
 
     return resolve_repo_clone_root(repository, get_settings().git, repo_registry)
 
 
-# Minimum role per MCP tool name. Omitted tools default to ``Role.VIEWER``.
-MCP_TOOL_MIN_ROLE: dict[str, Role] = {
-    "wiki_export": Role.EDITOR,
-}
-TOOL_ROLES: dict[str, Role] = MCP_TOOL_MIN_ROLE
+_WIKI_MCP_DISPATCH_FALLBACK: tuple[tuple[str, str, Role], ...] = (
+    ("get_wiki_page", "handle_get_wiki_page", Role.VIEWER),
+    ("list_wiki_pages", "handle_list_wiki_pages", Role.VIEWER),
+    ("wiki_search", "handle_wiki_search", Role.VIEWER),
+    ("wiki_export", "handle_wiki_export", Role.EDITOR),
+    ("wiki_get_tree", "handle_wiki_get_tree", Role.VIEWER),
+    ("wiki_get_related", "handle_wiki_get_related", Role.VIEWER),
+    ("wiki_get_domain_overview", "handle_wiki_get_domain_overview", Role.VIEWER),
+    ("wiki_get_snapshot", "handle_wiki_get_snapshot", Role.VIEWER),
+    ("wiki_find_implementing_modules", "handle_wiki_find_implementing_modules", Role.VIEWER),
+    ("unified_knowledge_query", "handle_unified_knowledge_query", Role.VIEWER),
+)
 
 
 _DOC_NUMBERED_HEADING_RE = re.compile(r"^(\d+(?:\.\d+)*)[\.\s]")
@@ -753,6 +761,19 @@ class KnowledgeBaseMCPHandler:
         self._task_status_fn = task_status_fn
         self._repo_registry = repo_registry
 
+    def _mcp_tool_dispatch_table(self) -> dict[str, tuple[Callable[..., Any], Role]]:
+        tools = collect_tools(self)
+        wiki_tools = collect_tools(self._wiki)
+        for tool_name, attr, role in _WIKI_MCP_DISPATCH_FALLBACK:
+            if tool_name not in wiki_tools:
+                handler = getattr(self._wiki, attr, None)
+                if callable(handler):
+                    wiki_tools[tool_name] = (handler, role)
+        tools.update(wiki_tools)
+        if "wiki_search" in tools:
+            tools["search_wiki"] = tools["wiki_search"]
+        return tools
+
     def get_tools_manifest(self) -> list[dict[str, Any]]:
         return MCP_TOOLS_MANIFEST
 
@@ -764,43 +785,24 @@ class KnowledgeBaseMCPHandler:
         token_info: TokenInfo | None = None,
     ) -> dict[str, Any]:
         """Dispatch MCP tool calls to the appropriate handler."""
+        tools = self._mcp_tool_dispatch_table()
+        entry = tools.get(tool_name)
+        if not entry:
+            return _mcp_error("unknown_tool", f"Unknown tool: {tool_name}")
+        handler, min_role = entry
+
         if token_info is not None:
-            minimum = MCP_TOOL_MIN_ROLE.get(tool_name, Role.VIEWER)
-            if token_info.role < minimum:
+            if token_info.role < min_role:
                 return _mcp_error(
                     "forbidden",
-                    f"This tool requires at least the {minimum.name.lower()} role.",
+                    f"This tool requires at least the {min_role.name.lower()} role.",
                 )
-
-        handlers = {
-            "rag_query": self.handle_rag_query,
-            "rag_graph": self.handle_rag_graph,
-            "documents": self.handle_documents,
-            "get_file_content": self.handle_get_file_content,
-            "get_code_snippet": self.handle_get_code_snippet,
-            "analyze_code": self.handle_analyze_code,
-            "search_architecture": self.handle_search_architecture,
-            "analyze_changes": self.handle_analyze_changes,
-            "get_complete_context": self.handle_get_complete_context,
-            "graph_path": self.handle_graph_path,
-            "get_insights": self.handle_get_insights,
-            "index_freshness": self.handle_index_freshness,
-            "get_wiki_page": self._wiki.handle_get_wiki_page,
-            "list_wiki_pages": self._wiki.handle_list_wiki_pages,
-            "wiki_search": self._wiki.handle_wiki_search,
-            "search_wiki": self._wiki.handle_search_wiki,
-            "wiki_export": self._wiki.handle_wiki_export,
-            "wiki_get_tree": self._wiki.handle_wiki_get_tree,
-            "wiki_get_related": self._wiki.handle_wiki_get_related,
-            "wiki_get_domain_overview": self._wiki.handle_wiki_get_domain_overview,
-            "wiki_get_snapshot": self._wiki.handle_wiki_get_snapshot,
-            "wiki_find_implementing_modules": self._wiki.handle_wiki_find_implementing_modules,
-            "unified_knowledge_query": self._wiki.handle_unified_knowledge_query,
-        }
-
-        handler = handlers.get(tool_name)
-        if not handler:
-            return _mcp_error("unknown_tool", f"Unknown tool: {tool_name}")
+        elif get_settings().require_auth:
+            if min_role > Role.VIEWER:
+                return _mcp_error(
+                    "forbidden",
+                    f"Authentication required for tool '{tool_name}'.",
+                )
 
         try:
             return await handler(arguments)
@@ -808,6 +810,7 @@ class KnowledgeBaseMCPHandler:
             log.error("mcp_tool_error", tool=tool_name, error=str(exc))
             return _mcp_error("internal_error", "Tool execution failed unexpectedly")
 
+    @mcp_tool("rag_query")
     async def handle_rag_query(self, args: dict[str, Any]) -> dict[str, Any]:
         query_text = args.get("query", "")
         try:
@@ -922,10 +925,17 @@ class KnowledgeBaseMCPHandler:
             "confidence": result["confidence"],
         }
 
+    @mcp_tool("rag_graph")
     async def handle_rag_graph(self, args: dict[str, Any]) -> dict[str, Any]:
         query_type = args.get("query_type", "")
         name = args.get("name", "")
-        depth = args.get("depth", 3)
+        try:
+            depth = max(1, min(10, int(args.get("depth", 3))))
+        except (TypeError, ValueError):
+            return _mcp_error(
+                "invalid_params",
+                "depth must be an integer between 1 and 10",
+            )
         direction = args.get("direction", "downstream")
 
         if query_type == "call_chain":
@@ -970,6 +980,10 @@ class KnowledgeBaseMCPHandler:
             cypher = args.get("cypher", "")
             if not cypher:
                 return _mcp_error("invalid_params", "cypher parameter is required for raw_cypher queries")
+            from query.nl_cypher import _MUTATING_KEYWORDS
+
+            if _MUTATING_KEYWORDS.search(cypher):
+                return _mcp_error("forbidden", "raw_cypher only supports read-only queries")
             result = await self._graph.execute_raw(cypher)
             return {"type": "raw_cypher", "results": result.data}
 
@@ -1105,6 +1119,7 @@ class KnowledgeBaseMCPHandler:
         report = await analysis.verify_consistency(str(resolved), repository=repository)
         return {"repository": repository, **report.to_dict()}
 
+    @mcp_tool("search_architecture")
     async def handle_search_architecture(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 
@@ -1237,6 +1252,7 @@ class KnowledgeBaseMCPHandler:
             return _mcp_error("invalid_params", str(exc))
         return ctx.to_dict()
 
+    @mcp_tool("documents")
     async def handle_documents(self, args: dict[str, Any]) -> dict[str, Any]:
         uid_raw = args.get("uid")
         uid = str(uid_raw).strip() if uid_raw not in (None, "") else ""
@@ -1244,6 +1260,7 @@ class KnowledgeBaseMCPHandler:
             return await self.handle_get_document({"doc_uid": uid})
         return await self.handle_list_documents({"repository": args.get("repository")})
 
+    @mcp_tool("analyze_code")
     async def handle_analyze_code(self, arguments: dict[str, Any]) -> dict[str, Any]:
         mode_raw = arguments.get("mode", "quality")
         mode = str(mode_raw).strip().lower() if mode_raw is not None else "quality"
@@ -1253,6 +1270,7 @@ class KnowledgeBaseMCPHandler:
             return await self.handle_code_quality(arguments)
         return _mcp_error("invalid_params", "mode must be 'quality' or 'consistency'")
 
+    @mcp_tool("analyze_changes")
     async def handle_analyze_changes(self, arguments: dict[str, Any]) -> dict[str, Any]:
         mode_raw = arguments.get("mode")
         if mode_raw is None or str(mode_raw).strip() == "":
@@ -1271,6 +1289,7 @@ class KnowledgeBaseMCPHandler:
             "mode must be one of: pr_review, impact, impact_scope, wiki_pr_impact",
         )
 
+    @mcp_tool("get_insights")
     async def handle_get_insights(self, arguments: dict[str, Any]) -> dict[str, Any]:
         raw = arguments.get("type", "dashboard")
         t = str(raw).strip().lower() if raw is not None else "dashboard"
@@ -1287,6 +1306,7 @@ class KnowledgeBaseMCPHandler:
         graph = await self.handle_graph_insights(arguments)
         return {"type": "all", "dashboard": dash, "graph": graph}
 
+    @mcp_tool("get_complete_context")
     async def handle_get_complete_context(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from query.context_assembler import ContextAssembler
 
@@ -1323,6 +1343,7 @@ class KnowledgeBaseMCPHandler:
         report = await svc.analyze(repository)
         return {"status": "success", **report.to_dict()}
 
+    @mcp_tool("index_freshness")
     async def handle_index_freshness(self, arguments: dict[str, Any]) -> dict[str, Any]:
         repository = str(arguments.get("repository") or "").strip()
         if not repository:
@@ -1379,6 +1400,7 @@ class KnowledgeBaseMCPHandler:
             return _mcp_error("not_found", "Document not found")
         return _format_get_document_mcp(result.data)
 
+    @mcp_tool("graph_path")
     async def handle_graph_path(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from store.graph_queries import GraphQueryRepository
 
@@ -1402,6 +1424,7 @@ class KnowledgeBaseMCPHandler:
             repository, from_entity, to_entity, max_depth=max_depth
         )
 
+    @mcp_tool("get_file_content")
     async def handle_get_file_content(self, args: dict[str, Any]) -> dict[str, Any]:
         repository = str(args.get("repository") or "").strip()
         file_path = str(args.get("file_path") or "").strip()
@@ -1497,6 +1520,7 @@ class KnowledgeBaseMCPHandler:
             "truncated": truncated,
         }
 
+    @mcp_tool("get_code_snippet")
     async def handle_get_code_snippet(self, args: dict[str, Any]) -> dict[str, Any]:
         node_uid = str(args.get("node_uid") or "").strip()
         if not node_uid:
@@ -1758,3 +1782,7 @@ class KnowledgeBaseMCPHandler:
 
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return {}
+
+
+MCP_TOOL_MIN_ROLE = collect_elevated_tool_roles(KnowledgeBaseMCPHandler, WikiMCPHandler)
+TOOL_ROLES = MCP_TOOL_MIN_ROLE

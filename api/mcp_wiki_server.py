@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from api.error_handler import mcp_error_payload
+from api.mcp_registry import mcp_tool
 from log import get_logger
 
 log = get_logger(__name__)
@@ -126,6 +127,7 @@ class MCPWikiServer:
             log.warning("mcp_tool_call_failed", tool=tool_name, exc_info=True)
             return {"error": mcp_error_payload(exc)}
 
+    @mcp_tool("wiki_search")
     async def _handle_wiki_search(self, args: dict[str, Any]) -> dict[str, Any]:
         if self._search is None:
             return {"error": "Search service not configured"}
@@ -141,6 +143,7 @@ class MCPWikiServer:
             ]
         }
 
+    @mcp_tool("wiki_explain")
     async def _handle_wiki_explain(self, args: dict[str, Any]) -> dict[str, Any]:
         if self._wiki_store is None:
             return {"error": "Wiki store not configured"}
@@ -149,6 +152,7 @@ class MCPWikiServer:
         explainer = EntityExplainer(self._wiki_store)
         return await explainer.explain(args.get("repository", ""), args.get("entity", ""))
 
+    @mcp_tool("wiki_navigate")
     async def _handle_wiki_navigate(self, args: dict[str, Any]) -> dict[str, Any]:
         if self._wiki_store is None:
             return {"error": "Wiki store not configured"}
@@ -165,6 +169,7 @@ class MCPWikiServer:
         pages = [r for r in rows if isinstance(r, dict)]
         return {"path": path, "pages": pages}
 
+    @mcp_tool("wiki_qa")
     async def _handle_wiki_qa(self, args: dict[str, Any]) -> dict[str, Any]:
         if self._ask is None:
             return {"error": "Q&A service not configured"}
@@ -190,6 +195,7 @@ class MCPWikiServer:
                 conversation_id = str(data.get("conversation_id", ""))
         return {"answer": full_text, "conversation_id": conversation_id}
 
+    @mcp_tool("wiki_impact")
     async def _handle_wiki_impact(self, args: dict[str, Any]) -> dict[str, Any]:
         if self._change_detector is None:
             return {"error": "Change detector not configured"}
@@ -207,6 +213,7 @@ class MCPWikiServer:
             "trigger": affected.trigger,
         })
 
+    @mcp_tool("wiki_get_snapshot")
     async def _handle_wiki_get_snapshot(self, args: dict[str, Any]) -> dict[str, Any]:
         repo = str(args.get("repository", "")).strip()
         if not repo:

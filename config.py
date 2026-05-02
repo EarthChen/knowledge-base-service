@@ -363,7 +363,7 @@ class GitConfig(BaseModel):
     clone_base_path: str = "./data/repos"
     clone_timeout: int = 600
     pull_timeout: int = 120
-    ssl_verify: bool = False
+    ssl_verify: bool = True
 
 
 class Settings(BaseSettings):
@@ -377,6 +377,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8100
     log_level: str = "INFO"
+    #: Comma-separated allowed origins for CORS; empty disables CORSMiddleware.
+    cors_origins: str = ""
 
     falkordb_password: str = ""
 

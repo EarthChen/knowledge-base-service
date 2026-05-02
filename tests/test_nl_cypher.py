@@ -163,3 +163,32 @@ def test_extract_cypher_plain_match():
     raw = "Sure, here is the query: MATCH (f:Function) RETURN f.name LIMIT 10"
     result = NLCypherService._extract_cypher(raw)
     assert result.startswith("MATCH")
+
+
+def test_validate_read_only_blocks_foreach_and_load_csv() -> None:
+    """FOREACH and LOAD CSV must be rejected as mutating patterns."""
+    with pytest.raises(CypherValidationError, match="write operations"):
+        NLCypherService._validate_read_only(
+            "MATCH (n) FOREACH (x IN [1] | SET n.x = x)",
+        )
+    with pytest.raises(CypherValidationError, match="write operations"):
+        NLCypherService._validate_read_only(
+            "LOAD CSV FROM 'file:///tmp/x.csv' AS row MATCH (n) RETURN n",
+        )
+
+
+def test_validate_read_only_requires_allowed_clause_prefix() -> None:
+    """Queries must begin with MATCH / OPTIONAL MATCH / WITH / UNWIND / RETURN / CALL proc."""
+    with pytest.raises(CypherValidationError, match="read-only clause"):
+        NLCypherService._validate_read_only("WHERE true MATCH (n) RETURN n LIMIT 5")
+
+
+@pytest.mark.asyncio
+async def test_nl_cypher_blocks_foreach_via_service(mock_store, mock_llm) -> None:
+    mock_llm.complete.return_value = (
+        "MATCH (n:Function) FOREACH (x IN [1] | CREATE (m:Function {name: 'x'}))"
+    )
+    svc = NLCypherService(mock_store, mock_llm)
+    result = await svc.query("evil")
+    assert "error" in result
+    assert result["total"] == 0

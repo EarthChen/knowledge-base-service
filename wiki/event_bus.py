@@ -11,6 +11,9 @@ from log import get_logger
 
 log = get_logger(__name__)
 
+# Interval for queue reads while streaming; on timeout a heartbeat is yielded (SSE keepalive).
+_STREAM_QUEUE_GET_TIMEOUT_SEC = 30.0
+
 
 @dataclass
 class WikiEvent:
@@ -51,9 +54,19 @@ class WikiEventBus:
 
     async def stream(self, business_id: str | None = None) -> AsyncIterator[WikiEvent]:
         q = self.subscribe()
+        hb_business_id = business_id if business_id is not None else "default"
         try:
             while True:
-                event = await q.get()
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=_STREAM_QUEUE_GET_TIMEOUT_SEC)
+                except asyncio.TimeoutError:
+                    yield WikiEvent(
+                        event_type="heartbeat",
+                        repository="",
+                        data={},
+                        business_id=hb_business_id,
+                    )
+                    continue
                 if event is None:
                     break
                 if business_id is not None and event.business_id != business_id:

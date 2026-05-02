@@ -47,10 +47,14 @@ router = APIRouter(tags=["wiki", "tasks"])
 
 async def _check_business_lock(
     task_store: WikiTaskStore | None, business_id: str,
-) -> bool:
-    """Return True if lock acquired, False if already locked."""
+) -> str | None:
+    """Acquire per-business wiki generation lock.
+
+    Returns a non-empty token when Redis accepted the lock, an empty string when there is no
+    Redis-backed task store, or None when the lock is already held.
+    """
     if task_store is None:
-        return True
+        return ""
     return await task_store.try_lock(business_id)
 
 
@@ -66,6 +70,7 @@ async def _run_business_wiki_background(
     task_store: WikiTaskStore | None,
     event_bus: WikiEventBus | None,
     registry: WikiTaskRegistry | None = None,
+    lock_token: str = "",
 ) -> None:
     """Background coroutine: run business wiki generation and update task state."""
     async def _progress(info: dict[str, Any]) -> None:
@@ -163,8 +168,8 @@ async def _run_business_wiki_background(
                 )
             )
     finally:
-        if task_store:
-            await task_store.unlock(business_id)
+        if task_store and lock_token:
+            await task_store.unlock(business_id, lock_token)
 
 
 def _wiki_event_to_sse_data(ev: WikiEvent) -> str:
@@ -467,7 +472,7 @@ async def cancel_wiki_task(
         await task_store.update_status(task_id, "cancelled")
         business_id = rec.get("business_id", "")
         if business_id:
-            await task_store.unlock(business_id)
+            await task_store.force_release_lock(business_id)
 
     registry.put_task(task_id, {**rec, "status": "cancelled"})
 
@@ -557,7 +562,8 @@ async def generate_business_wiki(
         request.app.state, "wiki_event_bus", None
     )
 
-    if not await _check_business_lock(task_store, body.business_id):
+    lock_token = await _check_business_lock(task_store, body.business_id)
+    if lock_token is None:
         return JSONResponse(
             status_code=409,
             content={
@@ -589,11 +595,12 @@ async def generate_business_wiki(
                 task_store=task_store,
                 event_bus=event_bus,
                 registry=registry,
+                lock_token=lock_token,
             )
         )
     except Exception:
-        if task_store:
-            await task_store.unlock(body.business_id)
+        if task_store and lock_token:
+            await task_store.unlock(body.business_id, lock_token)
         raise
 
     return JSONResponse(

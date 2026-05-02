@@ -1,4 +1,13 @@
-import { useEffect, useId, useMemo, useRef, type AnchorHTMLAttributes, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  type AnchorHTMLAttributes,
+  type ReactNode,
+} from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -10,8 +19,8 @@ import { parseMarkdownHeadings, type ParsedHeading } from "./headingUtils";
 import { replaceWikilinksWithHtml } from "./wikilinkParser";
 import WikiLinkPreview from "./WikiLinkPreview";
 import { getMermaid } from "./mermaidLoader";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+
+const LazyCodeBlock = lazy(() => import("./CodeBlock"));
 
 export function MermaidBlock({ chart }: { chart: string }) {
   const { t } = useI18n();
@@ -140,18 +149,15 @@ const MarkdownCode: Components["code"] = ({
   }
 
   return (
-    <SyntaxHighlighter
-      style={oneDark}
-      language={lang || "text"}
-      PreTag="div"
-      customStyle={{
-        margin: 0,
-        borderRadius: "0.5rem",
-        fontSize: "0.875rem",
-      }}
+    <Suspense
+      fallback={
+        <pre className="overflow-x-auto rounded-lg bg-gray-900 p-4 font-mono text-sm text-gray-100">
+          {text}
+        </pre>
+      }
     >
-      {text}
-    </SyntaxHighlighter>
+      <LazyCodeBlock lang={lang || "text"} text={text} />
+    </Suspense>
   );
 };
 

@@ -19,7 +19,7 @@ from store.falkordb_store import FalkorDBStore
 log = get_logger(__name__)
 
 _MUTATING_KEYWORDS = re.compile(
-    r"\b(CREATE|MERGE|DELETE|DETACH\s+DELETE|SET|REMOVE|DROP|CALL\s+\{)\b",
+    r"\b(CREATE|MERGE|DELETE|DETACH\s+DELETE|SET|REMOVE|DROP|CALL\s+\{|FOREACH|LOAD\s+CSV)\b",
     re.IGNORECASE,
 )
 
@@ -154,6 +154,15 @@ class NLCypherService:
         if _MUTATING_KEYWORDS.search(cypher):
             raise CypherValidationError(
                 "Generated query contains write operations which are not allowed"
+            )
+        stripped = cypher.strip()
+        if stripped and not re.match(
+            r"^(MATCH|OPTIONAL\s+MATCH|WITH|UNWIND|RETURN|CALL\s+\w)",
+            stripped,
+            re.IGNORECASE,
+        ):
+            raise CypherValidationError(
+                "Query must start with a read-only clause (MATCH, WITH, UNWIND, RETURN)"
             )
 
     async def _generate_cypher(self, question: str, *, repository: str | None = None) -> str:

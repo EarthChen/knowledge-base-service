@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
+from api.mcp_registry import mcp_tool
+from auth import Role
 from log import get_logger
 from wiki.lint import WikiLintService
-
-log = get_logger(__name__)
 from wiki.models import WikiPage, parse_scope
 from wiki.wiki_docs_exporter import WikiDocsExporter, export_result_to_dict
+
+log = get_logger(__name__)
 
 
 @runtime_checkable
@@ -330,6 +332,7 @@ class WikiMCPHandler:
             "pages": [p.to_dict() for p in pages],
         }
 
+    @mcp_tool("get_wiki_page")
     async def handle_get_wiki_page(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._pipeline is None:
             return self._not_configured()
@@ -363,6 +366,7 @@ class WikiMCPHandler:
             "synthesized": True,
         }
 
+    @mcp_tool("list_wiki_pages")
     async def handle_list_wiki_pages(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._pipeline is None:
             return self._not_configured()
@@ -390,6 +394,7 @@ class WikiMCPHandler:
             log.exception("mcp_list_wiki_pages_failed", repository=repository)
             return self._mcp_error("internal_error", "Failed to list wiki pages")
 
+    @mcp_tool("wiki_search")
     async def handle_search_wiki(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._pipeline is None:
             return self._not_configured()
@@ -443,6 +448,7 @@ class WikiMCPHandler:
 
     handle_wiki_search = handle_search_wiki  # alias after the method definition
 
+    @mcp_tool("unified_knowledge_query")
     async def handle_unified_knowledge_query(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Handle unified_knowledge_query MCP tool call via IterativeRAGEngine."""
         question = str(arguments.get("question", "")).strip()
@@ -629,6 +635,7 @@ class WikiMCPHandler:
             return self._mcp_error("invalid_params", str(exc))
         return {"status": "success", **export_result_to_dict(result)}
 
+    @mcp_tool("wiki_export", min_role=Role.EDITOR)
     async def handle_wiki_export(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._wiki_cache is None:
             return self._mcp_error("service_unavailable", "Wiki cache not configured for wiki_export")
@@ -689,6 +696,7 @@ class WikiMCPHandler:
         except Exception as exc:
             return self._mcp_error("internal_error", str(exc))
 
+    @mcp_tool("wiki_get_tree")
     async def handle_wiki_get_tree(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._store is None:
             return self._mcp_error("service_unavailable", "Store not configured")
@@ -714,6 +722,7 @@ class WikiMCPHandler:
                 )
         return {"business_id": business_id, "view": view, "nodes": nodes}
 
+    @mcp_tool("wiki_get_related")
     async def handle_wiki_get_related(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._store is None:
             return self._mcp_error("service_unavailable", "Store not configured")
@@ -731,6 +740,7 @@ class WikiMCPHandler:
             "incoming": incoming.data if incoming else [],
         }
 
+    @mcp_tool("wiki_get_domain_overview")
     async def handle_wiki_get_domain_overview(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._store is None:
             return self._mcp_error("service_unavailable", "Store not configured")
@@ -755,6 +765,7 @@ class WikiMCPHandler:
             "title": props.get("title", ""),
         }
 
+    @mcp_tool("wiki_get_snapshot")
     async def handle_wiki_get_snapshot(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._store is None:
             return self._mcp_error("service_unavailable", "Store not configured")
@@ -770,6 +781,7 @@ class WikiMCPHandler:
             return self._mcp_error("internal_error", str(exc))
         return {"repository": repository, "format": "markdown", "content": md}
 
+    @mcp_tool("wiki_find_implementing_modules")
     async def handle_wiki_find_implementing_modules(self, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._store is None:
             return self._mcp_error("service_unavailable", "Store not configured")

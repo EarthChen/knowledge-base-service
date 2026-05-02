@@ -139,7 +139,7 @@ class _OnnxBackend(_EmbeddingBackend):
                 try:
                     hf_hub_download(onnx_repo, data_file)
                 except Exception:
-                    pass
+                    log.debug("optional_onnx_data_download_failed", repo=onnx_repo, file=data_file, exc_info=True)
                 return path
             except Exception:
                 continue

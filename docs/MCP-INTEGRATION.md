@@ -9,7 +9,7 @@
 
 > 主清单在 `api/mcp_server.py` 末尾与 `wiki/mcp_tools.py` 的 `WIKI_MCP_TOOLS_MANIFEST` 合并；**独立 Wiki HTTP** 的六工具定义在 `api/mcp_wiki_server.py` 的 `TOOL_DEFINITIONS`（与主清单的 Wiki 能力互补，非重复计数）。
 
-认证使用 `Authorization: Bearer <token>`。主 MCP 工具级角色在 `KnowledgeBaseMCPHandler.handle_tool_call` 经 `MCP_TOOL_MIN_ROLE` 校验；Wiki HTTP 六工具与主路由相同，默认 **Viewer**（以服务端实现为准）。
+认证使用 `Authorization: Bearer <token>`。主 MCP 工具级角色通过 `@mcp_tool("name", min_role=Role.VIEWER)` 装饰器在 handler 方法上声明，`collect_tools()` 自动构建分派表（定义在 `api/mcp_registry.py`）；Wiki HTTP 六工具与主路由相同，默认 **Viewer**（以服务端实现为准）。
 
 ## 角色模型
 

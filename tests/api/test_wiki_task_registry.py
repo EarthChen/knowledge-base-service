@@ -46,13 +46,17 @@ def test_prune_runs_on_put(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_require_role_resolves_bearer_from_token_query(monkeypatch: pytest.MonkeyPatch) -> None:
-    """EventSource and similar clients can pass the API token as a query param."""
+    """EventSource and similar clients can pass the API token as a query param on SSE paths."""
     monkeypatch.setattr(
         auth_mod,
         "_token_registry",
         {"tok-viewer": TokenInfo(role=auth_mod.Role.VIEWER, business_id=None)},
     )
     dep = auth_mod.require_role(auth_mod.Role.VIEWER)
-    info = dep(SimpleNamespace(query_params={"token": "tok-viewer"}), None)
+    request = SimpleNamespace(
+        query_params={"token": "tok-viewer"},
+        url=SimpleNamespace(path="/api/v1/wiki/events"),
+    )
+    info = dep(request, None)
     assert info is not None
     assert int(info.role) == int(auth_mod.Role.VIEWER)

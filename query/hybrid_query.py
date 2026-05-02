@@ -22,15 +22,11 @@ from query.query_router import SearchStrategy, route_query
 from query.semantic_query import SemanticQueryService
 from search.fusion import position_aware_blend, rrf_fusion
 from store.falkordb_store import FalkorDBStore
+from store.fqn_utils import FQN_RE as _FQN_RE
 from store.schema import NodeLabel
 from store.search_store import SearchStore
 
 log = get_logger(__name__)
-
-_FQN_RE = re.compile(
-    r"[a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*){2,}"
-    r"(?:#[a-zA-Z_][\w]*(?:\([^)]*\))?)?"
-)
 
 _IDENT_RE = re.compile(
     r"\b"

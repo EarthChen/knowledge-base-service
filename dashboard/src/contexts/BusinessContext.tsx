@@ -43,7 +43,9 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
     if (boundBusiness !== null && currentBusiness !== boundBusiness) {
       setCurrentBusinessState(boundBusiness);
       localStorage.setItem(STORAGE_KEY, boundBusiness);
-      queryClient.invalidateQueries();
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] !== "businesses",
+      });
     }
   }, [boundBusiness, currentBusiness, queryClient]);
 
@@ -58,7 +60,9 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
       if (isBound) return;
       localStorage.setItem(STORAGE_KEY, id);
       setCurrentBusinessState(id);
-      queryClient.invalidateQueries();
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] !== "businesses",
+      });
     },
     [queryClient, isBound],
   );

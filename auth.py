@@ -22,6 +22,12 @@ from config import Settings, get_settings
 from log import get_logger
 
 log = get_logger(__name__)
+_auth_dep_log = get_logger("auth")
+
+_SSE_WS_TOKEN_PATH_PREFIXES = (
+    "/api/v1/wiki/ask/stream",
+    "/api/v1/wiki/events",
+)
 
 
 class Role(IntEnum):
@@ -184,7 +190,16 @@ def require_role(minimum: Role):
         if not authorization:
             token_q = request.query_params.get("token")
             if token_q:
-                authorization = f"Bearer {token_q}"
+                path = request.url.path
+                if any(path.startswith(p) for p in _SSE_WS_TOKEN_PATH_PREFIXES):
+                    _auth_dep_log.warning(
+                        "query_param_token_used",
+                        path=path,
+                        hint="Migrate to Authorization header",
+                    )
+                    authorization = f"Bearer {token_q}"
+                else:
+                    _auth_dep_log.warning("query_param_token_rejected", path=path)
         info = resolve_token(authorization)
         if info is None:
             if get_settings().require_auth:

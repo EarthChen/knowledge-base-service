@@ -1,4 +1,4 @@
-import { useState, Suspense } from "react";
+import { useState, Suspense, useRef, useLayoutEffect, useEffect } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -28,6 +28,7 @@ import { toggleStoredTheme } from "../theme";
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const mobileNavOverlayRef = useRef<HTMLDivElement>(null);
   const [bizDropdownOpen, setBizDropdownOpen] = useState(false);
   const { data: health } = useHealth();
   const { t } = useI18n();
@@ -44,6 +45,20 @@ export default function Layout() {
     const next = toggleStoredTheme();
     setDarkMode(next === "dark");
   }
+
+  useLayoutEffect(() => {
+    if (!sidebarOpen) return;
+    mobileNavOverlayRef.current?.focus({ preventScroll: true });
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    function onDocumentKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setSidebarOpen(false);
+    }
+    document.addEventListener("keydown", onDocumentKeyDown);
+    return () => document.removeEventListener("keydown", onDocumentKeyDown);
+  }, [sidebarOpen]);
 
   const currentBizName =
     businesses.find((b) => b.id === currentBusiness)?.name || currentBusiness;
@@ -85,8 +100,16 @@ export default function Layout() {
     <div className="flex h-screen overflow-hidden">
       {sidebarOpen && (
         <div
+          ref={mobileNavOverlayRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Navigation"
+          tabIndex={-1}
           className="fixed inset-0 z-30 bg-black/30 dark:bg-black/50 lg:hidden"
           onClick={() => setSidebarOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setSidebarOpen(false);
+          }}
         />
       )}
 
@@ -203,6 +226,7 @@ export default function Layout() {
         <header className="flex h-14 items-center gap-3 border-b border-gray-200 bg-white px-4 dark:border-gray-700 dark:bg-gray-900 lg:px-6">
           <button
             type="button"
+            aria-label="Toggle menu"
             className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 lg:hidden"
             onClick={() => setSidebarOpen(!sidebarOpen)}
           >

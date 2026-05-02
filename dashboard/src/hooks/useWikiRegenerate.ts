@@ -101,10 +101,22 @@ export function useWikiRegenerate(businessId: string) {
           return;
         }
       }
-      clearActiveTask(businessId);
-      if (showToasts) toast("error", t.wiki.regenerateTimeout);
+      if (mountedRef.current && inFlightRef.current) {
+        if (showToasts) {
+          toast(
+            "error",
+            locale === "zh"
+              ? "Wiki 生成超时，请稍后检查状态"
+              : "Wiki generation timed out. Please check status later.",
+          );
+        }
+        clearActiveTask(businessId);
+        setIsPending(false);
+        setProgress(null);
+        inFlightRef.current = false;
+      }
     },
-    [businessId, t, toast, queryClient],
+    [businessId, locale, t, toast, queryClient],
   );
 
   // On mount / businessId change, check for a persisted active task and resume polling

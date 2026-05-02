@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from api.mcp_server import MCP_TOOL_MIN_ROLE, TOOL_ROLES, KnowledgeBaseMCPHandler
-from auth import Role, TokenInfo
+from core.auth import Role, TokenInfo
 
 
 @pytest.mark.asyncio

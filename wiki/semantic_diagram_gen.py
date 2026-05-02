@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from log import get_logger
+from core.log import get_logger
 from store.schema import EdgeType
 from wiki.data_collector import PageData
 from wiki.models import DiagramType, PageType, WikiDiagram

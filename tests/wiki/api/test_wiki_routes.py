@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport
 from starlette.testclient import TestClient
 
-import auth as auth_module
+import core.auth as auth_module
 from tests.wiki_config_inject import wiki_service_injection
 from api.error_handler import register_exception_handlers
 from api.routes.wiki_routes import WikiTaskRegistry, get_task_registry_dep, get_wiki_service_dep, wiki_router

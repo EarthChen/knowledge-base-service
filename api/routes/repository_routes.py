@@ -22,11 +22,11 @@ from api.routes.repository_path_utils import (
     infer_section_levels,
     relative_file_path,
 )
-from config import get_settings
+from core.config import get_settings
 from services.kb_service import KnowledgeBaseService
 from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 from utils.git_utils import looks_like_git_url
-from log import get_logger
+from core.log import get_logger
 
 log = get_logger(__name__)
 viewer_router = kb_routers.viewer_router

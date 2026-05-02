@@ -5,7 +5,7 @@ import json
 import re
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from wiki.models import WikiPage
 
 log = get_logger(__name__)

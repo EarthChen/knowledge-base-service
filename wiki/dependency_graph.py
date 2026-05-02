@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from log import get_logger
+from core.log import get_logger
 from wiki.prompts import SYSTEM_JSON_ONLY
 
 if TYPE_CHECKING:

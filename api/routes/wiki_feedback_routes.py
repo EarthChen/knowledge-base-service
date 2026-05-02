@@ -32,7 +32,7 @@ from api.routes.wiki_shared import (
     get_wiki_service_dep,
     log,
 )
-from auth import Role, require_role
+from core.auth import Role, require_role
 from store.wiki_feedback_store import WikiFeedbackStore
 from wiki.lint import WikiLintService
 from wiki.memory_loop import MemoryLoop

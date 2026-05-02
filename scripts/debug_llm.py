@@ -7,7 +7,7 @@ import os
 
 async def main():
     from store.falkordb_store import FalkorDBStore
-    from config import get_settings
+    from core.config import get_settings
     import httpx
 
     cfg = get_settings()

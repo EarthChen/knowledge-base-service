@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from log import get_logger
+from core.log import get_logger
 from wiki.rag.protocol import Chunk, RetrievalScope
 
 log = get_logger(__name__)

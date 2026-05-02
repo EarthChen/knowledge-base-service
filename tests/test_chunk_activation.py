@@ -9,13 +9,13 @@ class TestConfigDefaults:
     """P3.1: use_child_chunks defaults to True."""
 
     def test_use_child_chunks_default_true(self):
-        from config import HybridSearchConfig
+        from core.config import HybridSearchConfig
 
         cfg = HybridSearchConfig()
         assert cfg.use_child_chunks is True
 
     def test_child_chunk_window_defaults(self):
-        from config import HybridSearchConfig
+        from core.config import HybridSearchConfig
 
         cfg = HybridSearchConfig()
         assert cfg.child_chunk_window_chars == 800

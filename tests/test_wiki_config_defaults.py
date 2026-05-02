@@ -1,4 +1,4 @@
-from config import AppWikiFlags, Settings
+from core.config import AppWikiFlags, Settings
 
 
 def test_business_wiki_default_mode_is_full() -> None:

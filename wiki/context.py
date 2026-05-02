@@ -6,7 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 
-from log import get_logger
+from core.log import get_logger
 from wiki.llm_port import LLMPort
 from wiki.prompts import SYSTEM_JSON_ONLY
 

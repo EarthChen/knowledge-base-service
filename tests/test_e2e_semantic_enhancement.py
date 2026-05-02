@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from config import LLMConfig, RerankConfig
+from core.config import LLMConfig, RerankConfig
 
 
 class TestLLMEnrichmentPipeline:
@@ -238,7 +238,7 @@ class TestConfigExtensions:
 
     def test_settings_llm_max_concurrency_env_nested_alias(self, monkeypatch):
         monkeypatch.setenv("LLM__MAX_CONCURRENCY", "5")
-        from config import Settings
+        from core.config import Settings
 
         s = Settings(_env_file=None)
         assert s.llm.max_concurrent == 5

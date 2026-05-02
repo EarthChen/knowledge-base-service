@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from auth import Role
+from core.auth import Role
 from api.mcp_registry import collect_tools, mcp_tool
 
 

@@ -7,7 +7,7 @@ import json
 import pytest
 import structlog
 
-from log import get_logger, setup_logging
+from core.log import get_logger, setup_logging
 
 
 @pytest.fixture(autouse=True)

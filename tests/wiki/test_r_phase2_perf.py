@@ -9,7 +9,7 @@ import httpx
 import pytest
 from httpx import ASGITransport
 
-import auth as auth_module
+import core.auth as auth_module
 from tests.wiki_config_inject import inject_wiki_embedding, wiki_service_injection
 from api.routes.wiki_routes import (
     _GLOBAL_SEARCH_CONCURRENCY,

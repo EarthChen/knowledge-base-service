@@ -5,14 +5,14 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock
 
-import auth
+import core.auth as auth
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from api.error_handler import register_exception_handlers
 from api.routes.webhook_routes import init_webhook_state, webhook_router
-from auth import TokenInfo
+from core.auth import TokenInfo
 
 
 def _ingest_push_body() -> dict[str, Any]:
@@ -52,7 +52,7 @@ def _client_with_ingest_mocks(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 def test_git_config_ssl_verify_defaults_true(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GIT__SSL_VERIFY", raising=False)
-    from config import GitConfig
+    from core.config import GitConfig
 
     assert GitConfig().ssl_verify is True
 

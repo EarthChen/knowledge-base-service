@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
-from log import get_logger
+from core.log import get_logger
 from store.analysis_store import AnalysisStore
 
 if TYPE_CHECKING:

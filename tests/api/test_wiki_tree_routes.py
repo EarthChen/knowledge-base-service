@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-import auth as auth_module
+import core.auth as auth_module
 
 
 @pytest.fixture(autouse=True)

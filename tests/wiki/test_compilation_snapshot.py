@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from config import Settings
+from core.config import Settings
 from wiki.compilation_snapshot import WikiCompilationSnapshot
 
 

@@ -5,7 +5,7 @@ import json
 from enum import Enum
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from wiki.domain_complexity import DomainComplexity
 
 log = get_logger(__name__)

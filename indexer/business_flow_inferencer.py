@@ -47,7 +47,7 @@ class BusinessFlowInferencer:
         self._store = store
         self._idx = indexer_store or IndexerStore(store)
         if business_flow_enabled is None:
-            from config import get_settings
+            from core.config import get_settings
 
             business_flow_enabled = get_settings().llm.business_flow_enabled
         self._business_flow_enabled = business_flow_enabled

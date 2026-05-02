@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from config import get_settings
+from core.config import get_settings
 
 
 @pytest.fixture

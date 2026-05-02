@@ -8,8 +8,8 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, ValidationError
 
-from auth import Role, require_role
-from log import get_logger
+from core.auth import Role, require_role
+from core.log import get_logger
 
 from api.pagination import slice_page
 

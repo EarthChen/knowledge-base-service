@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from log import get_logger
+from core.log import get_logger
 from store.conversation_store import SqliteConversationStore
 from store.wiki_store import WikiStore
 from wiki.crystallizer import crystallize as crystallize_wiki_page

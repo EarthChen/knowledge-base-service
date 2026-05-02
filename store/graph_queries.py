@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from services.repo_registry import RepoRegistry
 
 log = get_logger(__name__)

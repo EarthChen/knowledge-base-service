@@ -23,8 +23,8 @@ from api.routes.kb_schemas import (
     SyncScheduleRequest,
     SyncScheduleResponse,
 )
-from config import get_settings
-from log import get_logger
+from core.config import get_settings
+from core.log import get_logger
 from services.kb_service import KnowledgeBaseService
 from services.repo_registry import RepoRegistry
 from services.scheduler import SyncScheduleConfig, SyncScheduler

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from config import AppWikiFlags, EmbeddingConfig, Settings
+from core.config import AppWikiFlags, EmbeddingConfig, Settings
 
 
 def inject_wiki_embedding() -> tuple[AppWikiFlags, EmbeddingConfig]:
-    from config import get_settings
+    from core.config import get_settings
 
     s: Settings = get_settings()
     return s.wiki, s.embedding

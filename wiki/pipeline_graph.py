@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph
 
-from log import get_logger
+from core.log import get_logger
 from wiki.models import ImportanceTier, WikiPage
 from wiki.pipeline_nodes import (
     classify_domains_node,

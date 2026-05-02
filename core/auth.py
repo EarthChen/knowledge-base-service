@@ -18,8 +18,8 @@ from typing import Any
 import yaml
 from fastapi import Depends, Header, HTTPException, Request
 
-from config import Settings, get_settings
-from log import get_logger
+from core.config import Settings, get_settings
+from core.log import get_logger
 
 log = get_logger(__name__)
 _auth_dep_log = get_logger("auth")

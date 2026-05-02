@@ -10,7 +10,7 @@ from cryptography.fernet import Fernet
 
 import services.settings_crypto as settings_crypto
 import services.settings_service as settings_service_module
-from config import LLMConfig, Settings, get_settings
+from core.config import LLMConfig, Settings, get_settings
 from store.settings_store import SettingsStore
 
 

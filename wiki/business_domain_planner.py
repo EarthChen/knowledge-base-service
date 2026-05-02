@@ -7,7 +7,7 @@ import json
 import time
 from typing import TYPE_CHECKING
 
-from log import get_logger
+from core.log import get_logger
 from store.schema import GraphNode
 from wiki.adaptive_batch import AdaptiveBatchSizer
 from wiki.json_robust import parse_json_robust_sync

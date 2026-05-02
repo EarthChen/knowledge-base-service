@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from config import Settings
+from core.config import Settings
 from tests.wiki_config_inject import wiki_service_injection
 from wiki.compilation_snapshot import WikiCompilationSnapshot
 from wiki.service import WikiService

@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from wiki.mermaid_validator import validate_mermaid_block
 from wiki.models import (
     ImportanceTier,

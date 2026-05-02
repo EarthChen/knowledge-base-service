@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from config import LLMConfig
+from core.config import LLMConfig
 
 
 @pytest.fixture

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from config import Settings
+from core.config import Settings
 from services.service_registry import ServiceRegistry
 
 

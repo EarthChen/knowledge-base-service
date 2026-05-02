@@ -25,7 +25,7 @@ class ProviderConfig:
 
 def provider_config_from_llm(llm: Any) -> ProviderConfig:
     """Build factory config from application ``LLMConfig``."""
-    from config import LLMConfig as LLMConfigType
+    from core.config import LLMConfig as LLMConfigType
 
     if not isinstance(llm, LLMConfigType):
         msg = f"expected LLMConfig, got {type(llm)!r}"

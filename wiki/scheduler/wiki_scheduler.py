@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from log import get_logger
+from core.log import get_logger
 from wiki.scheduler.task_lock import TaskLock
 
 log = get_logger(__name__)

@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 
 from redis.exceptions import BusyLoadingError
 
-from log import get_logger
+from core.log import get_logger
 
 log = get_logger(__name__)
 

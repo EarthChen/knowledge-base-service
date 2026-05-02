@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-import auth as auth_module
+import core.auth as auth_module
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient

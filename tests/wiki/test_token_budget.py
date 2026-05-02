@@ -77,7 +77,7 @@ def test_pipeline_component_ratios():
 
 
 def test_resolver_from_config():
-    from config import get_settings
+    from core.config import get_settings
     from wiki.token_budget import TokenBudgetResolver
 
     settings = get_settings()

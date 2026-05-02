@@ -14,8 +14,8 @@ import api.routes.settings_routes as settings_routes_module
 import services.settings_crypto as settings_crypto
 import services.settings_service as settings_service_module
 from api.error_handler import register_exception_handlers
-from auth import Role, TokenInfo
-from config import get_settings
+from core.auth import Role, TokenInfo
+from core.config import get_settings
 
 
 @pytest.fixture(autouse=True)

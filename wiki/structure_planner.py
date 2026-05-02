@@ -6,7 +6,7 @@ import json
 import re
 from typing import Protocol
 
-from log import get_logger
+from core.log import get_logger
 from store.schema import GraphEdge, GraphNode, NodeLabel
 from wiki.entity_filter import WikiEntityFilter
 from wiki.llm_port import LLMPort

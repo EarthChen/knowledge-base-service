@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from config import EmbeddingConfig
+from core.config import EmbeddingConfig
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from store.schema import GraphNode
 from wiki.models import ChunkSnippet

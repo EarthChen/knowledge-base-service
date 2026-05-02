@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
-from config import Settings
+from core.config import Settings
 from indexer.task_manager import IndexTaskManager
 from services.repo_registry import RepoRegistry
 from services.scheduler import SyncScheduler

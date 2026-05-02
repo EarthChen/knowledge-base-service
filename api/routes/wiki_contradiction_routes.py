@@ -7,8 +7,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from auth import Role, require_role
-from config import get_settings
+from core.auth import Role, require_role
+from core.config import get_settings
 from store.wiki_store import WikiStore
 
 router = APIRouter(tags=["wiki", "contradictions"])

@@ -6,7 +6,7 @@ import re
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
-from log import get_logger
+from core.log import get_logger
 from indexer.comment_filter import CommentFilter, CommentTier
 from store.schema import EdgeType, GraphNode, NodeLabel
 from store.wiki_store import WikiStore

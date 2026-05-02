@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from store.schema import GraphNode
 from wiki.dependency_graph import DomainNode
 from wiki.models import WikiPage

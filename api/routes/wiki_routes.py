@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import time
 
-from config import get_settings
+from core.config import get_settings
 from fastapi import APIRouter, Depends
 from store.graph_queries import GraphQueryRepository  # re-export: tests patch this on wiki_routes
-from auth import Role, require_role
+from core.auth import Role, require_role
 from api.routes.wiki_ask_routes import router as wiki_ask_router
 from api.routes.wiki_contradiction_routes import router as wiki_contradiction_router
 from api.routes.wiki_feedback_routes import router as wiki_feedback_router

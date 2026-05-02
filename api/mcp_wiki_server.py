@@ -5,7 +5,7 @@ from typing import Any
 
 from api.error_handler import mcp_error_payload
 from api.mcp_registry import mcp_tool
-from log import get_logger
+from core.log import get_logger
 
 log = get_logger(__name__)
 
@@ -220,7 +220,7 @@ class MCPWikiServer:
             return {"error": "repository required"}
         if self._wiki_store is None:
             return {"error": "Wiki store not configured"}
-        from config import get_settings
+        from core.config import get_settings
         from wiki.compilation_snapshot import WikiCompilationSnapshot
 
         settings = get_settings()

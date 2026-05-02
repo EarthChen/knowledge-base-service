@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from query.graph_query import GraphQueryService
 from query.query_router import SearchStrategy, route_query
 from query.semantic_query import SemanticQueryService

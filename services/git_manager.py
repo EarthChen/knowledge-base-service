@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
-from config import GitConfig
-from log import get_logger
+from core.config import GitConfig
+from core.log import get_logger
 
 log = get_logger(__name__)
 

@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from config import RerankConfig
+from core.config import RerankConfig
 
 
 class TestReranker:

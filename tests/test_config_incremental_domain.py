@@ -1,5 +1,5 @@
 import pytest
-from config import AppWikiFlags
+from core.config import AppWikiFlags
 
 
 def test_domain_classification_cache_enabled_default():

@@ -8,8 +8,8 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import JSONResponse
 import api.kb_state as kb_state
 from api.routes import kb_routers
-from auth import get_current_role
-from log import get_logger
+from core.auth import get_current_role
+from core.log import get_logger
 from services.kb_service import KnowledgeBaseService
 from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 from utils.git_utils import looks_like_git_url

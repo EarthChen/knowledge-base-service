@@ -14,7 +14,7 @@ from indexer.annotation_semantics import classify_annotations, lookup_annotation
 from indexer.child_chunker import chunk_code_entity
 from indexer.import_resolver import ImportResolver
 from indexer.tree_sitter_parser import ParsedField, ParseResult, TreeSitterParser
-from log import get_logger
+from core.log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
 
 log = get_logger(__name__)
@@ -251,7 +251,7 @@ class CodeGraphBuilder:
         if exclude_patterns is not None:
             exclude = set(exclude_patterns)
         else:
-            from config import get_settings
+            from core.config import get_settings
             exclude = set(get_settings().exclude_dirs)
 
         base = Path(directory)
@@ -322,7 +322,7 @@ class CodeGraphBuilder:
         if exclude_patterns is not None:
             exclude = set(exclude_patterns)
         else:
-            from config import get_settings
+            from core.config import get_settings
             exclude = set(get_settings().exclude_dirs)
 
         base = Path(directory)
@@ -363,7 +363,7 @@ class CodeGraphBuilder:
         if exclude_patterns is not None:
             exclude = set(exclude_patterns)
         else:
-            from config import get_settings
+            from core.config import get_settings
             exclude = set(get_settings().exclude_dirs)
 
         base = Path(directory)

@@ -9,7 +9,7 @@ import pytest
 from httpx import ASGITransport
 from fastapi import FastAPI
 
-import auth as auth_module
+import core.auth as auth_module
 from api.routes.kb_routers import editor_router
 from api.routes import wiki_page_routes  # noqa: F401 — registers wiki routes on editor_router
 from store.wiki_store import WikiStore

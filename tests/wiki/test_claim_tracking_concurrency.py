@@ -8,7 +8,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
-from config import AppWikiFlags, EmbeddingConfig
+from core.config import AppWikiFlags, EmbeddingConfig
 from wiki.models import PageType, WikiPage, WikiPageMetadata
 from wiki.service import WikiService
 

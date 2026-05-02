@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from log import get_logger
+from core.log import get_logger
 from search.fusion import rrf_fusion as _shared_rrf_fusion
 
 from store.wiki_store import WikiStore

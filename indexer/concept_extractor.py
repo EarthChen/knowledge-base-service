@@ -39,7 +39,7 @@ class ConceptExtractor:
     ) -> None:
         self._llm = llm
         if concept_extraction_enabled is None:
-            from config import get_settings
+            from core.config import get_settings
 
             concept_extraction_enabled = get_settings().llm.concept_extraction_enabled
         self._concept_extraction_enabled = concept_extraction_enabled

@@ -9,8 +9,8 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from config import Settings
-from log import get_logger
+from core.config import Settings
+from core.log import get_logger
 from store.graph_queries import GraphQueryRepository
 
 log = get_logger(__name__)

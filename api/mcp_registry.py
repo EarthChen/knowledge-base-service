@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from auth import Role
+from core.auth import Role
 
 
 def mcp_tool(name: str, *, min_role: Role = Role.VIEWER) -> Callable:

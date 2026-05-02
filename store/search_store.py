@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from store.falkordb_store import FalkorDBStore, QueryResultWrapper
 from store.schema import NodeLabel
 

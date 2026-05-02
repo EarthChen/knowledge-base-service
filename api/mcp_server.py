@@ -25,14 +25,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from auth import Role, TokenInfo
+from core.auth import Role, TokenInfo
 from api.mcp_registry import collect_elevated_tool_roles, collect_tools, mcp_tool
-from config import get_settings
+from core.config import get_settings
 from indexer.config_indexer import _config_file_extension
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from indexer.incremental_indexer import IncrementalIndexer
-from log import get_logger
+from core.log import get_logger
 from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
 from store.falkordb_store import FalkorDBStore
@@ -1096,7 +1096,7 @@ class KnowledgeBaseMCPHandler:
     async def handle_check_consistency(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from pathlib import Path
 
-        from config import get_settings
+        from core.config import get_settings
         from services.git_manager import resolve_repo_clone_root
         from query.analysis_service import AnalysisService
 
@@ -1562,7 +1562,7 @@ class KnowledgeBaseMCPHandler:
 
             from pathlib import Path as _Path
 
-            from config import get_settings
+            from core.config import get_settings
             from services.git_manager import GitManager
 
             branch_arg = args.get("branch")

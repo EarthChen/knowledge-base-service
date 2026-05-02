@@ -6,7 +6,7 @@ import asyncio
 import copy
 from typing import Annotated, Any
 
-from auth import Role, TokenInfo, require_role
+from core.auth import Role, TokenInfo, require_role
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field

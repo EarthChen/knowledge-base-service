@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from wiki.llm_port import LLMPort
 from wiki.domain_complexity import DomainComplexity, DomainComplexityScorer
 from wiki.json_robust import parse_json_robust_sync

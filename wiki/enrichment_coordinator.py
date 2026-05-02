@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from wiki.models import (
     ImportanceTier,
     PageType,

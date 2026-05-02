@@ -6,8 +6,8 @@ import httpx
 from fastapi import APIRouter, Depends, Path
 
 from api.exceptions import KbClientError, KbNotFound
-from auth import Role, require_role
-from config import get_settings
+from core.auth import Role, require_role
+from core.config import get_settings
 from llm.provider_factory import LLMProviderFactory, provider_config_from_llm
 
 provider_router = APIRouter(

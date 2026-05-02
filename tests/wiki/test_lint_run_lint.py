@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from config import AppWikiFlags
+from core.config import AppWikiFlags
 from wiki.lint import LintReport, WikiLintService
 
 

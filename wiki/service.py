@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from config import AppWikiFlags as WikiAppConfig, EmbeddingConfig, get_settings
+from core.config import AppWikiFlags as WikiAppConfig, EmbeddingConfig, get_settings
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
@@ -50,7 +50,7 @@ from wiki.token_budget import TokenBudgetResolver
 from wiki.tree_builder import WikiTreeBuilder
 from wiki.wikilink_cache import WikiLinkCache
 
-from log import get_logger
+from core.log import get_logger
 from store.wiki_store import WikiStore
 
 if TYPE_CHECKING:

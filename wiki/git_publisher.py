@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
-from log import get_logger
+from core.log import get_logger
 
 log = get_logger(__name__)
 

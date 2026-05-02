@@ -5,7 +5,7 @@ from typing import Any
 
 from langchain_core.callbacks import AsyncCallbackHandler
 
-from log import get_logger
+from core.log import get_logger
 
 log = get_logger(__name__)
 

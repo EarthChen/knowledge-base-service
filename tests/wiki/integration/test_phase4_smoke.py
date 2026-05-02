@@ -27,7 +27,7 @@ def test_page_type_domain_overview_exists():
 
 def test_config_phase4_fields_exist():
     """Phase 4 config fields should be accessible."""
-    from config import Settings
+    from core.config import Settings
 
     s = Settings(_env_file=None, falkordb={"host": "localhost", "port": 6379})
     assert hasattr(s.wiki, "cross_repo_domain_enabled")

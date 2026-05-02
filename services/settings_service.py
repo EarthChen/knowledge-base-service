@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from config import Settings, get_settings
-from log import get_logger
+from core.config import Settings, get_settings
+from core.log import get_logger
 from services.settings_crypto import decrypt_value, encrypt_value, mask_value
 from store.settings_store import SettingsStore
 

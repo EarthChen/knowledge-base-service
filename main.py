@@ -38,10 +38,10 @@ from api.routes.repository_path_utils import _build_file_tree
 from api.routes.settings_routes import settings_router
 from api.routes.webhook_routes import init_webhook_state, webhook_router
 from api.routes.wiki_routes import mcp_wiki_http_router, wiki_router
-from auth import get_auth_mode
-from config import Settings, get_settings
+from core.auth import get_auth_mode
+from core.config import Settings, get_settings
 from indexer.task_manager import IndexTaskManager
-from log import get_logger, setup_logging
+from core.log import get_logger, setup_logging
 from services.repo_registry import RepoRegistry
 from services.scheduler import SyncScheduler
 from services.service_registry import ServiceRegistry

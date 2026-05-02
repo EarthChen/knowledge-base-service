@@ -6,7 +6,7 @@ import asyncio
 import json
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
 from store.falkordb_store import FalkorDBStore

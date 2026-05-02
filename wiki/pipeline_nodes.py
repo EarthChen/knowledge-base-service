@@ -6,9 +6,9 @@ from collections import Counter
 from dataclasses import asdict
 from typing import Any
 
-from config import get_settings
+from core.config import get_settings
 from langchain_core.runnables import RunnableConfig
-from log import get_logger
+from core.log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 from wiki.data_collector import PageData
 from wiki.models import LeafSummary, PageType, SourceLocation, WikiPage

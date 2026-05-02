@@ -1,4 +1,4 @@
-from config import Settings
+from core.config import Settings
 
 
 def test_wiki_rag_config_defaults():

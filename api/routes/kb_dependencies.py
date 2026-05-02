@@ -6,7 +6,7 @@ from fastapi import Depends, Header
 
 import api.kb_state as kb_state
 from api.exceptions import KbNotFound, KbServiceUnavailable
-from auth import (
+from core.auth import (
     TokenInfo,
     resolve_business_id,
     resolve_token,

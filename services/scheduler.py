@@ -14,8 +14,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from config import Settings
-from log import get_logger
+from core.config import Settings
+from core.log import get_logger
 from services.git_manager import GitManager, normalize_repo_name
 from services.repo_registry import RepoRegistry
 from services.service_registry import ServiceRegistry

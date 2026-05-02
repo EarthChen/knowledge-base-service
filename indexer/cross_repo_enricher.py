@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
-from log import get_logger
+from core.log import get_logger
 
 from indexer.java_annotation_args import extract_java_annotation_primary_arg
 from store.indexer_store import IndexerStore

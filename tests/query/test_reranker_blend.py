@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from config import RerankConfig
+from core.config import RerankConfig
 from query.reranker import Reranker
 
 

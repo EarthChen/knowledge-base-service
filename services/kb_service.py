@@ -18,7 +18,7 @@ from wiki.mcp_tools import WikiMCPHandler
 from wiki.search import WikiSearchService
 from wiki.deferred_enrichment import DeferredEnrichmentService
 from wiki.service import WikiService
-from config import Settings
+from core.config import Settings
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.doc_indexer import DocumentIndexer
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
@@ -28,7 +28,7 @@ from indexer.incremental_indexer import (
     _try_git_head_sha,
 )
 from indexer.tree_sitter_parser import TreeSitterParser
-from log import get_logger
+from core.log import get_logger
 from query.graph_query import GraphQueryService
 from query.hybrid_query import HybridQueryService
 from query.reranker import Reranker
@@ -428,7 +428,7 @@ class KnowledgeBaseService:
                         await self._store.set_node_embedding(node.uid, node.label, emb)
                     doc_embeds_total += len(embeddings)
             except Exception as exc:
-                from log import get_logger
+                from core.log import get_logger
 
                 get_logger(__name__).warning(
                     "doc_index_error", file=str(fpath), error=str(exc),

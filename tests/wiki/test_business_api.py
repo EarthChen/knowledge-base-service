@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import auth as auth_module
+import core.auth as auth_module
 from api.error_handler import register_exception_handlers
 from wiki.structure_planner import WikiScopeError
 

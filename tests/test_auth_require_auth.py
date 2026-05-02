@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-import auth
+import core.auth as auth
 
 
 def _req(params: dict[str, str] | None = None) -> object:
@@ -22,7 +22,7 @@ def _clear_auth_cache(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_settings_default_require_auth_false(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("REQUIRE_AUTH", raising=False)
-    from config import Settings
+    from core.config import Settings
 
     assert Settings().require_auth is False
 
@@ -42,7 +42,7 @@ def test_settings_require_auth_from_env(
     expected: bool,
 ) -> None:
     monkeypatch.setenv("REQUIRE_AUTH", require_auth_env)
-    from config import Settings
+    from core.config import Settings
 
     assert Settings().require_auth is expected
 
@@ -54,7 +54,7 @@ def test_require_role_blocks_when_require_auth_true_and_no_registry(
     monkeypatch.setattr(auth, "_build_token_registry", lambda _s: {})
     auth._token_registry = None
 
-    import config as config_module
+    import core.config as config_module
 
     config_module.get_settings.cache_clear()
 
@@ -73,7 +73,7 @@ def test_startup_auth_gate_raises_when_require_auth_without_tokens(
     monkeypatch.setattr(auth, "_build_token_registry", lambda _s: {})
     auth._token_registry = None
 
-    import config as config_module
+    import core.config as config_module
 
     config_module.get_settings.cache_clear()
 
@@ -93,7 +93,7 @@ def test_require_role_allows_none_when_require_auth_false(
     monkeypatch.setattr(auth, "_build_token_registry", lambda _s: {})
     auth._token_registry = None
 
-    import config as config_module
+    import core.config as config_module
 
     config_module.get_settings.cache_clear()
 

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import FastAPI
 
-from config import get_settings
+from core.config import get_settings
 from wiki.bootstrap import bootstrap_wiki
 from wiki.service import WikiService
 

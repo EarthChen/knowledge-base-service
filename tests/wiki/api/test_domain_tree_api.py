@@ -8,7 +8,7 @@ import pytest
 from main import app
 from httpx import ASGITransport, AsyncClient
 
-import auth as auth_module
+import core.auth as auth_module
 
 
 @pytest.fixture(autouse=True)

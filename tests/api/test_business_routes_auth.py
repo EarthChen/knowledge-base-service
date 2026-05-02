@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-import auth
+import core.auth as auth
 
 
 @pytest.fixture
@@ -13,7 +13,7 @@ def require_auth_no_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("REQUIRE_AUTH", "true")
     monkeypatch.setattr(auth, "_build_token_registry", lambda _s: {})
     auth._token_registry = None
-    import config as config_module
+    import core.config as config_module
 
     config_module.get_settings.cache_clear()
     yield

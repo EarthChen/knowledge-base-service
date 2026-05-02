@@ -39,11 +39,11 @@ class TestSettingsRateLimitConfig:
     """Ensure rate_limiter config integration works."""
 
     def test_settings_has_rate_limit_rpm(self):
-        from config import Settings
+        from core.config import Settings
         s = Settings(rate_limit_rpm=60)
         assert s.rate_limit_rpm == 60
 
     def test_settings_default_rpm(self):
-        from config import Settings
+        from core.config import Settings
         s = Settings()
         assert s.rate_limit_rpm == 120

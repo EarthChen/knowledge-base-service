@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-import auth as auth_module
+import core.auth as auth_module
 from api.routes.wiki_routes import (
     WikiTaskRegistry,
     get_task_registry_dep,

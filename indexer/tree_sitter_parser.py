@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from tree_sitter import Node, Query, QueryCursor
 from tree_sitter_language_pack import get_language, get_parser
 
-from log import get_logger
+from core.log import get_logger
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Parser, Tree

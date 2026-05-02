@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from config import get_settings
+from core.config import get_settings
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.config_indexer import _config_file_extension
 from indexer.doc_indexer import DocumentIndexer
@@ -28,7 +28,7 @@ from indexer.graph_enricher import GraphEnricher
 from indexer.import_resolver import ImportResolver
 from indexer.chunk_hash import apply_content_hash_to_nodes
 from indexer.index_report import IndexReport
-from log import get_logger
+from core.log import get_logger
 from store.falkordb_store import FalkorDBStore
 from store.indexer_store import IndexerStore
 from store.settings_store import SettingsStore

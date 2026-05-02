@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from indexer.embedding_generator import EmbeddingGenerator
-from log import get_logger
+from core.log import get_logger
 from store.falkordb_store import FalkorDBStore
 from store.search_store import SearchStore
 from store.schema import NodeLabel
@@ -42,7 +42,7 @@ class SemanticQueryService:
         self._search = search_store or SearchStore(store)
         if include_raw_docs_in_results is None:
             try:
-                from config import get_settings
+                from core.config import get_settings
 
                 self._include_raw_docs_in_results = bool(
                     get_settings().hybrid_search.include_raw_docs_in_results,

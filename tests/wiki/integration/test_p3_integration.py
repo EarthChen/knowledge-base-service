@@ -16,7 +16,7 @@ from httpx import ASGITransport
 from starlette.testclient import TestClient
 
 from api.routes.webhook_routes import init_webhook_state, webhook_router
-from config import LLMConfig
+from core.config import LLMConfig
 from main import viewer_router
 from wiki.mcp_tools import WikiMCPHandler
 from wiki.scheduler.task_lock import TaskLock

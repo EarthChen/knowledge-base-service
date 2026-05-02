@@ -6,7 +6,7 @@ import re
 import uuid
 from datetime import UTC, datetime
 
-from log import get_logger
+from core.log import get_logger
 from store.wiki_store import WikiStore
 
 log = get_logger(__name__)

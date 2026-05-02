@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from config import LLMConfig
+from core.config import LLMConfig
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from config import AppWikiFlags
+from core.config import AppWikiFlags
 
 
 def test_semantic_group_flag_defaults():

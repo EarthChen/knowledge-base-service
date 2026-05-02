@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.exceptions import KbNotFound, KbServiceUnavailable
-from auth import Role, require_role
+from core.auth import Role, require_role
 from services.git_manager import normalize_repo_name
 from store.schema import EdgeType
 from store.wiki_store import WikiStore

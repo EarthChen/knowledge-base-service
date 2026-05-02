@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
 
-from log import get_logger
+from core.log import get_logger
 
 log = get_logger(__name__)
 

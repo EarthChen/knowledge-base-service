@@ -33,7 +33,7 @@ from wiki.wiki_docs_exporter import WikiDocsExporter
 from wiki.lint import WikiLintService
 from query.graph_query import GraphQueryService
 from api.exceptions import KbServiceUnavailable
-from log import get_logger
+from core.log import get_logger
 from api.models.wiki_models import WikiGenerateBody
 from wiki.task_registry import WIKI_TASK_TTL_SEC, WikiTaskRegistry
 from wiki.structure_planner import WikiScopeError

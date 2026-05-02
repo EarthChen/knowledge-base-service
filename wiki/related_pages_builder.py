@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from log import get_logger
+from core.log import get_logger
 
 if TYPE_CHECKING:
     from store.falkordb_store import FalkorDBStore

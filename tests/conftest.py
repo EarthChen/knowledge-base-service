@@ -13,7 +13,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def _clear_settings_cache() -> None:
     """Clear cached settings between tests to avoid state leakage."""
-    from config import get_settings
+    from core.config import get_settings
 
     get_settings.cache_clear()
     yield
@@ -45,7 +45,7 @@ def temp_settings(tmp_path: object, monkeypatch: pytest.MonkeyPatch):
     """Create temporary settings with a temp directory for data."""
     monkeypatch.setenv("HOST", "127.0.0.1")
     monkeypatch.setenv("PORT", "8199")
-    from config import get_settings
+    from core.config import get_settings
 
     get_settings.cache_clear()
     settings = get_settings()

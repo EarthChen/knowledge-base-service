@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from wiki.json_robust import parse_json_robust_sync
 from wiki.llm_port import LLMPort
 

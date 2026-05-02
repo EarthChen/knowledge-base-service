@@ -24,7 +24,7 @@ from api.routes.kb_schemas import (
 from services.kb_service import KnowledgeBaseService
 from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 from utils.git_utils import looks_like_git_url
-from log import get_logger
+from core.log import get_logger
 
 log = get_logger(__name__)
 viewer_router = kb_routers.viewer_router

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from wiki.models import WikiPage
 from wiki.wikilink_cache import WikiLinkCache
 

@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-import auth as auth_module
+import core.auth as auth_module
 from main import _get_service, viewer_router
 from store.falkordb_store import QueryResultWrapper
 

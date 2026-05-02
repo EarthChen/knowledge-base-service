@@ -35,7 +35,7 @@ def test_wikilink_roundtrip():
 
 
 def test_config_phase5_fields():
-    from config import Settings
+    from core.config import Settings
     s = Settings(_env_file=None, falkordb={"host": "localhost", "port": 6379})
     wiki = s.wiki
     assert hasattr(wiki, "git_publish_enabled")

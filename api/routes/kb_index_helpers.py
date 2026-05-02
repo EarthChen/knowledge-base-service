@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import api.kb_state as kb_state
-from log import get_logger
+from core.log import get_logger
 from services.kb_service import KnowledgeBaseService
 from services.repo_registry import RepoRegistry
 from store.graph_queries import GraphQueryRepository
@@ -137,7 +137,7 @@ async def run_index_task(task_id: str, req: IndexRequest, business_id: str) -> N
         repository = req.repository
 
         if req.git_url:
-            from config import get_settings
+            from core.config import get_settings
             from services.git_manager import GitManager
 
             git_cfg = get_settings().git

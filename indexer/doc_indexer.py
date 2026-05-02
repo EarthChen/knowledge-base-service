@@ -15,7 +15,7 @@ from pathlib import Path
 
 from indexer.child_chunker import chunk_document_section
 from indexer.smart_chunker import Chunk, smart_chunk_markdown
-from log import get_logger
+from core.log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
 
 log = get_logger(__name__)
@@ -86,7 +86,7 @@ class DocumentIndexer:
         if exclude_patterns is not None:
             self._exclude_dirs = set(exclude_patterns)
         else:
-            from config import get_settings
+            from core.config import get_settings
             self._exclude_dirs = set(get_settings().exclude_dirs)
         self._config_indexer = None  # lazy: indexer.config_indexer.ConfigIndexer
         self._child_chunk_enabled = child_chunk_enabled

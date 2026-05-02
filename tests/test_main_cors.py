@@ -8,7 +8,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 def test_create_app_registers_cors_when_cors_origins_set(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CORS_ORIGINS", "http://localhost:3000, https://other.example")
-    from config import get_settings
+    from core.config import get_settings
 
     get_settings.cache_clear()
     from main import create_app
@@ -19,7 +19,7 @@ def test_create_app_registers_cors_when_cors_origins_set(monkeypatch: pytest.Mon
 
 def test_create_app_skips_cors_when_origins_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CORS_ORIGINS", raising=False)
-    from config import get_settings
+    from core.config import get_settings
 
     get_settings.cache_clear()
     from main import create_app

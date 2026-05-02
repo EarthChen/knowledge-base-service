@@ -13,7 +13,7 @@ import re
 from typing import Any
 
 from llm.provider import LLMProvider
-from log import get_logger
+from core.log import get_logger
 from store.falkordb_store import FalkorDBStore
 
 log = get_logger(__name__)

@@ -6,7 +6,7 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
-from log import get_logger
+from core.log import get_logger
 from store.schema import GraphNode
 from wiki.business_domain_planner import BusinessDomainPlanner
 from wiki.dependency_graph import HierarchicalDecomposer, ModuleGraph, ModuleInfo

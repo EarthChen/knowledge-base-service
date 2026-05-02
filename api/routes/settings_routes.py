@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from api.exceptions import KbClientError, KbNotFound
-from auth import Role, require_role
+from core.auth import Role, require_role
 from services.settings_service import SettingsService
 from store.settings_store import SettingsStore
 
@@ -135,7 +135,7 @@ async def test_connection(
 ) -> dict[str, Any] | JSONResponse:
     """Test connectivity to external services."""
     if body.target == "falkordb":
-        from config import get_settings
+        from core.config import get_settings
         from store.falkordb_store import FalkorDBStore
 
         store = FalkorDBStore(get_settings().falkordb)

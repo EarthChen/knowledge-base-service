@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import auth as auth_mod
+import core.auth as auth_mod
 from api.routes.wiki_routes import WIKI_TASK_TTL_SEC, WikiTaskRegistry
-from auth import TokenInfo
+from core.auth import TokenInfo
 
 
 def test_get_returns_none_for_expired_task(monkeypatch: pytest.MonkeyPatch) -> None:

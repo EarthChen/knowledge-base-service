@@ -10,7 +10,7 @@ import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-import auth as auth_module
+import core.auth as auth_module
 import api.kb_state as kb_state
 from api.routes import indexing_routes  # noqa: F401 — register reindex on editor router
 from api.routes.kb_routers import editor_router

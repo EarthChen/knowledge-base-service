@@ -15,8 +15,8 @@ import api.kb_state as kb_state
 from api.exceptions import KbClientError, KbNotFound
 from api.routes import kb_routers
 from api.routes.kb_dependencies import get_effective_business_id, get_service
-from auth import Role, TokenInfo, require_role
-from config import get_settings
+from core.auth import Role, TokenInfo, require_role
+from core.config import get_settings
 from api.routes.kb_schemas import (
     BlastRadiusRequest,
     GraphExpandRequest,
@@ -30,7 +30,7 @@ from api.routes.kb_schemas import (
 from services.kb_service import KnowledgeBaseService
 from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 from utils.git_utils import looks_like_git_url
-from log import get_logger
+from core.log import get_logger
 
 log = get_logger(__name__)
 viewer_router = kb_routers.viewer_router
@@ -187,7 +187,7 @@ async def cleanup_excluded_dirs(
     svc: KnowledgeBaseService = Depends(get_service),
 ) -> dict[str, Any]:
     """Delete nodes from IDE/agent tool directories that should not be indexed."""
-    from config import get_settings
+    from core.config import get_settings
     all_dirs = get_settings().exclude_dirs
     exclude_patterns = [d for d in all_dirs if d.startswith(".")]
     queries = GraphQueryRepository(svc.store)

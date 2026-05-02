@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from log import get_logger
+from core.log import get_logger
 from store.analysis_store import AnalysisStore
 from store.falkordb_store import FalkorDBStore, QueryResultWrapper
 

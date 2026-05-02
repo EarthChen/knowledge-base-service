@@ -6,7 +6,7 @@ import re
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from log import get_logger
+from core.log import get_logger
 from store.schema import GraphNode
 from wiki.models import DiagramType, EnrichmentLevel, PageType, WikiDiagram, WikiPage, WikiPageMetadata
 

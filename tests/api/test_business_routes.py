@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-import auth
+import core.auth as auth
 from api.error_handler import register_exception_handlers
 from api.routes import business_routes
 

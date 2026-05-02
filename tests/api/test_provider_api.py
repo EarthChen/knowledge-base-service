@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-import auth as auth_module
+import core.auth as auth_module
 from api.routes.provider_routes import provider_router
 from api.routes.wiki_routes import (
     WikiTaskRegistry,
@@ -16,7 +16,7 @@ from api.routes.wiki_routes import (
     get_wiki_service_dep,
     wiki_router,
 )
-from config import LLMConfig, Settings
+from core.config import LLMConfig, Settings
 from llm.provider_factory import provider_config_from_llm
 
 

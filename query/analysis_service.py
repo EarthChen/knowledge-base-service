@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from config import get_settings
-from log import get_logger
+from core.config import get_settings
+from core.log import get_logger
 from store.analysis_store import AnalysisStore
 from store.falkordb_store import FalkorDBStore
 

@@ -9,7 +9,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_kb_service_wires_auto_updater_to_indexer() -> None:
     """IncrementalIndexer created by KnowledgeBaseService has _wiki_auto_updater set."""
-    from config import Settings
+    from core.config import Settings
     from services.kb_service import KnowledgeBaseService
     from store.settings_store import SettingsStore
 

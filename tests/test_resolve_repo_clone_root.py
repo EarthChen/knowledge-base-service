@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from config import GitConfig
+from core.config import GitConfig
 from services.git_manager import resolve_repo_clone_root
 from services.repo_registry import RepoRegistry
 

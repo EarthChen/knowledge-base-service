@@ -24,7 +24,7 @@ from api.routes.wiki_shared import (
     get_wiki_store_dep,
     log,
 )
-from auth import Role, require_role
+from core.auth import Role, require_role
 from store.wiki_store import WikiStore
 from wiki.ask import WikiAskService
 from wiki.deep_research import DeepResearchService

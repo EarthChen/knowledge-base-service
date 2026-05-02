@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
-from config import RerankConfig
+from core.config import RerankConfig
 
 logger = logging.getLogger(__name__)
 

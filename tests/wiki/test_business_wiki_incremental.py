@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from config import AppWikiFlags as WikiAppConfig, EmbeddingConfig
+from core.config import AppWikiFlags as WikiAppConfig, EmbeddingConfig
 from wiki.pipeline_orchestrator import PipelineResult
 
 

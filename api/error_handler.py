@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from starlette.responses import Response
 
 from api.exceptions import KbError
-from log import get_logger
+from core.log import get_logger
 
 log = get_logger(__name__)
 

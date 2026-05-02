@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 
 log = get_logger(__name__)
 

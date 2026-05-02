@@ -7,7 +7,7 @@ import hashlib
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
-from log import get_logger
+from core.log import get_logger
 from store.schema import GraphNode, NodeLabel
 from wiki.backlink_builder import BacklinkBuilder
 from wiki.composer import WikiComposer

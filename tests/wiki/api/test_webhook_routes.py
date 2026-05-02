@@ -8,7 +8,7 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock
 
-import auth
+import core.auth as auth
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient

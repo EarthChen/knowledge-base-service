@@ -9,8 +9,8 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from config import AppWikiFlags
-from log import get_logger
+from core.config import AppWikiFlags
+from core.log import get_logger
 from store.wiki_store import WikiStore
 from wiki.auto_healer import AutoHealer
 from wiki.cache import WikiCache

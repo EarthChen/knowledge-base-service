@@ -1,6 +1,6 @@
 """Feature flags for SP4 contradiction detection."""
 
-from config import AppWikiFlags
+from core.config import AppWikiFlags
 
 
 def test_contradiction_detection_default_on() -> None:

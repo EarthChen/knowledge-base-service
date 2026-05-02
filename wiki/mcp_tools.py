@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any, Protocol, runtime_checkable
 
 from api.mcp_registry import mcp_tool
-from auth import Role
-from log import get_logger
+from core.auth import Role
+from core.log import get_logger
 from wiki.lint import WikiLintService
 from wiki.models import WikiPage, parse_scope
 from wiki.wiki_docs_exporter import WikiDocsExporter, export_result_to_dict

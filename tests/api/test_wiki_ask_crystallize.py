@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-import auth as auth_module
+import core.auth as auth_module
 from api.error_handler import register_exception_handlers
 from api.routes.wiki_routes import wiki_router
 from api.routes.wiki_shared import get_wiki_ask_dep

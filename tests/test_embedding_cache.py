@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from config import EmbeddingConfig
+from core.config import EmbeddingConfig
 from indexer.embedding_generator import QUERY_EMBEDDING_CACHE_SIZE, EmbeddingGenerator
 
 

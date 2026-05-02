@@ -1,6 +1,6 @@
 """Tests for knowledge base service configuration."""
 
-from config import AppWikiFlags, EmbeddingConfig, FalkorDBConfig, Settings, get_settings
+from core.config import AppWikiFlags, EmbeddingConfig, FalkorDBConfig, Settings, get_settings
 
 
 class TestFalkorDBConfig:

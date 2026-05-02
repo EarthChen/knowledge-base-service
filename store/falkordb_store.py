@@ -13,8 +13,8 @@ from typing import Any
 
 from falkordb import FalkorDB, Graph
 
-from config import FalkorDBConfig
-from log import get_logger
+from core.config import FalkorDBConfig
+from core.log import get_logger
 from services.redis_startup import await_with_busy_loading_retry, run_sync_with_busy_loading_retry
 
 from .schema import VECTOR_INDEX_CONFIGS, EdgeType, GraphEdge, GraphNode, NodeLabel

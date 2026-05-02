@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-import auth as auth_mod
-from auth import TokenInfo
+import core.auth as auth_mod
+from core.auth import TokenInfo
 
 
 def _request(path: str, *, token: str | None = None) -> object:

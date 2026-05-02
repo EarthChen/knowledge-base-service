@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from log import get_logger
+from core.log import get_logger
 from wiki.models import (
     DiagramType,
     EnrichmentLevel,

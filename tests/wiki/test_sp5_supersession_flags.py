@@ -1,6 +1,6 @@
 """Feature flags for SP5 claim supersession."""
 
-from config import AppWikiFlags
+from core.config import AppWikiFlags
 
 
 def test_supersession_tracking_default_on() -> None:

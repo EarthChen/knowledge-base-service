@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
-from log import get_logger
+from core.log import get_logger
 from store.schema import NodeLabel
 from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
 from wiki.confidence_scorer import confidence_scorer_from_wiki_app_config

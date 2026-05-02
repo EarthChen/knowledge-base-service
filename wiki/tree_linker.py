@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from log import get_logger
+from core.log import get_logger
 from store.wiki_store import WikiStore
 from wiki.dependency_graph import DomainNode
 from wiki.models import WikiPage

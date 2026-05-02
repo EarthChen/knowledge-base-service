@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from config import AppWikiFlags
+from core.config import AppWikiFlags
 
 
 def test_confidence_scoring_default_on() -> None:

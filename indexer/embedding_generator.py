@@ -21,8 +21,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from config import EmbeddingConfig
-from log import get_logger
+from core.config import EmbeddingConfig
+from core.log import get_logger
 
 from .embedding_text_format import (
     MAX_CODE_SNIPPET_CHARS,

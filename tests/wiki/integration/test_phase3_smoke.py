@@ -29,7 +29,7 @@ def test_enrichment_level_enum_completeness():
 
 
 def test_config_phase3_fields_exist():
-    from config import Settings
+    from core.config import Settings
 
     s = Settings(_env_file=None, falkordb={"host": "localhost", "port": 6379})
     assert hasattr(s.wiki, "enrichment_enabled")

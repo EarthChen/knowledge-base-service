@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from indexer.annotation_semantics import classify_annotations, lookup_annotation
 from indexer.child_chunker import chunk_code_entity
@@ -16,6 +17,9 @@ from indexer.import_resolver import ImportResolver
 from indexer.tree_sitter_parser import ParsedField, ParseResult, TreeSitterParser
 from core.log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
+
+if TYPE_CHECKING:
+    from indexer.languages import PluginRegistry
 
 log = get_logger(__name__)
 
@@ -167,8 +171,32 @@ def _js_ts_module_prefix(file_path: str) -> str:
     return Path(fp).with_suffix("").as_posix().lstrip("./")
 
 
-def compute_fqn(file_path: str, entity_name: str, label: str, parent_class: str = "") -> str:
+def compute_fqn(
+    file_path: str,
+    entity_name: str,
+    label: str,
+    parent_class: str = "",
+    *,
+    registry: PluginRegistry | None = None,
+) -> str:
     """Compute a stable fully-qualified–style name from file path and entity hierarchy."""
+    if registry is not None:
+        fp = file_path.replace("\\", "/")
+        lower = fp.lower()
+        plugin = None
+        if lower.endswith(".java"):
+            plugin = registry.get_by_extension(".java")
+        elif lower.endswith(".py"):
+            plugin = registry.get_by_extension(".py")
+        elif lower.endswith(".go"):
+            plugin = registry.get_by_extension(".go")
+        else:
+            js_ext = _js_ts_suffix(lower)
+            if js_ext:
+                plugin = registry.get_by_extension(js_ext)
+        if plugin is not None:
+            return plugin.compute_fqn(file_path, entity_name, label, parent_class)
+
     if file_path.endswith(".java"):
         return compute_java_fqn(file_path, entity_name, is_method=(label == "Function"), parent_class=parent_class)
 
@@ -223,12 +251,19 @@ class CodeGraphBuilder:
         parser: TreeSitterParser,
         file_extensions: dict[str, list[str]],
         *,
+        registry: PluginRegistry | None = None,
         child_chunk_enabled: bool = False,
         child_chunk_window_chars: int = 800,
         child_chunk_stride_chars: int = 600,
         child_chunk_min_parent_chars: int = 400,
     ) -> None:
         self._parser = parser
+        if registry is not None:
+            self._registry = registry
+        else:
+            from indexer.languages import create_default_registry
+
+            self._registry = create_default_registry()
         self._ext_to_lang: dict[str, str] = {}
         for lang, exts in file_extensions.items():
             for ext in exts:
@@ -836,7 +871,7 @@ class CodeGraphBuilder:
                 cls_props["code_snippet"] = cls.code_snippet
             if cls.interfaces:
                 cls_props["interfaces"] = cls.interfaces
-            cls_fqn = compute_fqn(file_path, cls.name, "Class")
+            cls_fqn = compute_fqn(file_path, cls.name, "Class", registry=self._registry)
             if cls_fqn:
                 cls_props["fqn"] = cls_fqn
             if cls.decorators:
@@ -899,7 +934,13 @@ class CodeGraphBuilder:
                 "code_snippet": func.code_snippet,
                 "language": language,
             }
-            func_fqn = compute_fqn(file_path, func.name, "Function", parent_class=func.parent_class or "")
+            func_fqn = compute_fqn(
+                file_path,
+                func.name,
+                "Function",
+                func.parent_class or "",
+                registry=self._registry,
+            )
             if func_fqn:
                 func_props["fqn"] = func_fqn
             if func.decorators:
@@ -987,7 +1028,13 @@ class CodeGraphBuilder:
                     field_semantic_roles = [*field_semantic_roles, "di_inject"]
                 if field_semantic_roles:
                     field_props["semantic_roles"] = field_semantic_roles
-                field_fqn = compute_fqn(file_path, f"field:{fld.name}", "Function", parent_class=fld.parent_class)
+                field_fqn = compute_fqn(
+                    file_path,
+                    f"field:{fld.name}",
+                    "Function",
+                    fld.parent_class,
+                    registry=self._registry,
+                )
                 if field_fqn:
                     field_props["fqn"] = field_fqn
 

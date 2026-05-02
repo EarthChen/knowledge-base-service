@@ -5,6 +5,10 @@ from __future__ import annotations
 import posixpath
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from indexer.languages import PluginRegistry
 
 _JS_TS_EXTS_TRY_ORDER = (
     ".tsx",
@@ -24,9 +28,10 @@ def _normalize_rel(p: str) -> str:
 class ImportResolver:
     """Resolves import statements to actual file paths within indexed repositories."""
 
-    def __init__(self, file_index: dict[str, str]) -> None:
+    def __init__(self, file_index: dict[str, str], registry: PluginRegistry | None = None) -> None:
         """file_index: mapping from relative file path → module-style name (dot notation)."""
         self._file_index = file_index
+        self._registry = registry
         self._reverse_index: dict[str, list[str]] = {}
         self._build_reverse_index()
 
@@ -35,9 +40,26 @@ class ImportResolver:
             self._reverse_index.setdefault(mod, []).append(path)
 
     @staticmethod
-    def build_file_index(file_paths: list[str]) -> dict[str, str]:
+    def build_file_index(
+        file_paths: list[str],
+        *,
+        registry: PluginRegistry | None = None,
+    ) -> dict[str, str]:
         """Convert file paths to module-style names for lookup."""
         out: dict[str, str] = {}
+        if registry is not None:
+            for raw in file_paths:
+                fp = _normalize_rel(raw)
+                suf = Path(fp).suffix
+                plugin = registry.get_by_extension(suf)
+                if plugin is not None:
+                    out[raw] = plugin.build_module_name(fp)
+                    continue
+                stem = Path(fp).stem
+                dir_parts = [x for x in Path(fp).parent.parts if x not in (".",)]
+                out[raw] = ".".join([*dir_parts, stem])
+            return out
+
         for raw in file_paths:
             fp = _normalize_rel(raw)
             lower = fp.lower()
@@ -85,6 +107,23 @@ class ImportResolver:
     def resolve(self, import_path: str, source_file: str, language: str) -> str | None:
         """Resolve an import path to the best-matching file path."""
         lang = language.lower()
+        if self._registry is not None:
+            pname = lang
+            if lang in ("tsx", "typescript"):
+                pname = "typescript"
+            elif lang in ("jsx", "javascript"):
+                pname = "javascript"
+            plugin = self._registry.get_by_name(pname)
+            if plugin is not None:
+                stripped = import_path.strip()
+                norm_src = _normalize_rel(source_file)
+                hit = plugin.resolve_import(stripped, norm_src, self._file_index, self._reverse_index)
+                if hit:
+                    return hit
+                for peer in self._registry.get_interop_peers(plugin):
+                    hit = peer.resolve_import(stripped, norm_src, self._file_index, self._reverse_index)
+                    if hit:
+                        return hit
         if lang == "python":
             return self._resolve_python(import_path.strip(), _normalize_rel(source_file))
         if lang in ("javascript", "typescript", "tsx", "jsx"):

@@ -16,7 +16,23 @@ from tree_sitter_language_pack import get_language, get_parser
 from core.log import get_logger
 
 if TYPE_CHECKING:
+    from indexer.languages import LanguagePlugin, PluginRegistry
+
     from tree_sitter import Language, Parser, Tree
+
+_LANGUAGE_QUERIES_CACHE: dict[str, dict[str, str]] | None = None
+
+
+def __getattr__(name: str) -> dict[str, dict[str, str]]:
+    if name == "LANGUAGE_QUERIES":
+        global _LANGUAGE_QUERIES_CACHE
+        if _LANGUAGE_QUERIES_CACHE is None:
+            from indexer.languages import create_default_registry
+
+            reg = create_default_registry()
+            _LANGUAGE_QUERIES_CACHE = {p.name: p.get_queries() for p in reg.all_plugins}
+        return _LANGUAGE_QUERIES_CACHE
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 log = get_logger(__name__)
 
@@ -116,68 +132,27 @@ _JAVA_DI_NON_BEAN_SIMPLE_TYPES: frozenset[str] = frozenset({
 })
 
 
-LANGUAGE_QUERIES: dict[str, dict[str, str]] = {
-    "python": {
-        "function": "(function_definition name: (identifier) @func.name) @func.def",
-        "class": "(class_definition name: (identifier) @class.name) @class.def",
-        "import": """[
-            (import_statement name: (dotted_name) @import.name) @import.stmt
-            (import_from_statement module_name: (dotted_name) @import.module) @import.stmt
-        ]""",
-        "call": "(call function: [(identifier) @call.name (attribute attribute: (identifier) @call.name)]) @call.expr",
-    },
-    "java": {
-        "function": """[
-            (method_declaration name: (identifier) @func.name) @func.def
-            (constructor_declaration name: (identifier) @func.name) @func.def
-        ]""",
-        "class": """[
-            (class_declaration name: (identifier) @class.name) @class.def
-            (interface_declaration name: (identifier) @class.name) @class.def
-        ]""",
-        "import": "(import_declaration (scoped_identifier) @import.name) @import.stmt",
-        "call": "(method_invocation name: (identifier) @call.name) @call.expr",
-    },
-    "go": {
-        "function": "(function_declaration name: (identifier) @func.name) @func.def",
-        "class": "(type_declaration (type_spec name: (type_identifier) @class.name)) @class.def",
-        "import": "(import_spec path: (interpreted_string_literal) @import.name) @import.stmt",
-        "call": "(call_expression function: [(identifier) @call.name (selector_expression field: (field_identifier) @call.name)]) @call.expr",
-    },
-    "javascript": {
-        "function": """[
-            (function_declaration name: (identifier) @func.name) @func.def
-            (method_definition name: (property_identifier) @func.name) @func.def
-            (lexical_declaration
-                (variable_declarator
-                    name: (identifier) @func.name
-                    value: (arrow_function) @func.def))
-        ]""",
-        "class": "(class_declaration name: (identifier) @class.name) @class.def",
-        "import": "(import_statement source: (string) @import.name) @import.stmt",
-        "call": "(call_expression function: [(identifier) @call.name (member_expression property: (property_identifier) @call.name)]) @call.expr",
-    },
-    "typescript": {
-        "function": """[
-            (function_declaration name: (identifier) @func.name) @func.def
-            (method_definition name: (property_identifier) @func.name) @func.def
-            (lexical_declaration
-                (variable_declarator
-                    name: (identifier) @func.name
-                    value: (arrow_function) @func.def))
-        ]""",
-        "class": "(class_declaration name: (type_identifier) @class.name) @class.def",
-        "import": "(import_statement source: (string) @import.name) @import.stmt",
-        "call": "(call_expression function: [(identifier) @call.name (member_expression property: (property_identifier) @call.name)]) @call.expr",
-    },
-}
-
-
 class TreeSitterParser:
     """Multi-language code parser using tree-sitter."""
 
-    def __init__(self, supported_languages: list[str] | None = None) -> None:
-        self._languages = supported_languages or list(LANGUAGE_QUERIES.keys())
+    def __init__(
+        self,
+        supported_languages: list[str] | None = None,
+        registry: PluginRegistry | None = None,
+    ) -> None:
+        from indexer.languages import create_default_registry
+
+        if registry is not None:
+            self._registry = registry
+            self._languages = (
+                list(supported_languages)
+                if supported_languages
+                else list(registry.supported_languages)
+            )
+        else:
+            reg_langs = supported_languages if supported_languages else None
+            self._registry = create_default_registry(reg_langs)
+            self._languages = list(self._registry.supported_languages)
         self._parsers: dict[str, Parser] = {}
         self._init_parsers()
 
@@ -194,6 +169,11 @@ class TreeSitterParser:
             log.warning("unsupported_language", language=language, file=file_path)
             return ParseResult()
 
+        plugin = self._registry.get_by_name(language)
+        if plugin is None:
+            log.warning("unsupported_language", language=language, file=file_path)
+            return ParseResult()
+
         if content is None:
             content = Path(file_path).read_text(encoding="utf-8", errors="replace")
 
@@ -201,32 +181,39 @@ class TreeSitterParser:
         tree = self._parsers[language].parse(source_bytes)
 
         result = ParseResult()
-        queries = LANGUAGE_QUERIES.get(language, {})
+        queries = plugin.get_queries()
 
         if "class" in queries:
-            result.classes = self._extract_classes(tree, source_bytes, file_path, language, queries["class"])
+            result.classes = self._extract_classes(tree, source_bytes, file_path, language, plugin)
 
         if "function" in queries:
-            result.functions = self._extract_functions(tree, source_bytes, file_path, language, queries["function"])
+            result.functions = self._extract_functions(tree, source_bytes, file_path, language, plugin)
             self._classify_methods(result)
 
         if "import" in queries:
-            result.imports = self._extract_imports(tree, source_bytes, file_path, language, queries["import"])
+            result.imports = self._extract_imports(tree, source_bytes, file_path, plugin)
 
         if "call" in queries:
-            result.calls = self._extract_calls(tree, source_bytes, file_path, language, queries["call"], result)
+            result.calls = self._extract_calls(tree, source_bytes, file_path, language, plugin, result)
 
-        if language == "java":
-            result.fields = self._extract_java_fields(tree, source_bytes, file_path, result)
+        result.fields = plugin.extract_fields(tree, source_bytes, file_path, result)
 
-        result.module_docstring = self._extract_module_docstring(tree.root_node, language)
+        result.module_docstring = plugin.extract_module_docstring(tree.root_node, source_bytes)
 
         return result
 
     def _extract_functions(
-        self, tree: Tree, source: bytes, file_path: str, language: str, query_str: str,
+        self,
+        tree: Tree,
+        source: bytes,
+        file_path: str,
+        language: str,
+        plugin: LanguagePlugin,
     ) -> list[ParsedFunction]:
         functions: list[ParsedFunction] = []
+        query_str = plugin.get_queries().get("function", "")
+        if not query_str:
+            return functions
         lang = get_language(language)
         try:
             q = Query(lang, query_str)
@@ -242,20 +229,18 @@ class TreeSitterParser:
                 continue
 
             func_node = func_nodes[0]
-            if language in ("javascript", "typescript") and func_node.type == "arrow_function":
-                lex = TreeSitterParser._lexical_declaration_for_arrow_binding(func_node)
-                if lex is None or not TreeSitterParser._is_module_level(lex):
-                    continue
+            if not plugin.should_include_function(func_node):
+                continue
 
             name = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
             raw_snippet = func_node.text.decode("utf-8") if func_node.text else ""
             code_snippet = TreeSitterParser._truncate_code_snippet(raw_snippet)
 
-            docstring = self._extract_docstring(func_node, language)
-            signature = self._extract_signature(func_node, source, language)
-            decorators = self._extract_decorators(func_node, language)
-            parameters = self._extract_parameters(func_node, language)
-            return_type = self._extract_return_type(func_node, language)
+            docstring = plugin.extract_function_docstring(func_node, source)
+            signature = plugin.extract_signature(func_node, source)
+            decorators = plugin.extract_annotations(func_node, source)
+            parameters = plugin.extract_parameters(func_node, source)
+            return_type = plugin.extract_return_type(func_node, source)
 
             functions.append(ParsedFunction(
                 name=name,
@@ -298,9 +283,17 @@ class TreeSitterParser:
         return p
 
     def _extract_classes(
-        self, tree: Tree, source: bytes, file_path: str, language: str, query_str: str,
+        self,
+        tree: Tree,
+        source: bytes,
+        file_path: str,
+        language: str,
+        plugin: LanguagePlugin,
     ) -> list[ParsedClass]:
         classes: list[ParsedClass] = []
+        query_str = plugin.get_queries().get("class", "")
+        if not query_str:
+            return classes
         lang = get_language(language)
         try:
             q = Query(lang, query_str)
@@ -318,11 +311,11 @@ class TreeSitterParser:
             class_node = class_nodes[0]
             name = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
             is_interface = class_node.type == "interface_declaration"
-            docstring = self._extract_docstring(class_node, language)
-            base_classes, generic_type_params = self._extract_base_classes(class_node, language)
-            interfaces = self._extract_interfaces(class_node, language)
+            docstring = plugin.extract_class_docstring(class_node, source)
+            base_classes, generic_type_params = plugin.extract_base_classes(class_node, source)
+            interfaces = plugin.extract_interfaces(class_node, source)
 
-            decorators = self._extract_decorators(class_node, language)
+            decorators = plugin.extract_annotations(class_node, source)
 
             raw_class_snippet = class_node.text.decode("utf-8") if class_node.text else ""
             class_snippet = TreeSitterParser._truncate_code_snippet(raw_class_snippet)
@@ -345,64 +338,13 @@ class TreeSitterParser:
         return classes
 
     def _extract_imports(
-        self, tree: Tree, source: bytes, file_path: str, language: str, query_str: str,
+        self,
+        tree: Tree,
+        source: bytes,
+        file_path: str,
+        plugin: LanguagePlugin,
     ) -> list[ParsedImport]:
-        if language == "python":
-            return self._extract_imports_python(tree, file_path)
-
-        imports: list[ParsedImport] = []
-        lang = get_language(language)
-        try:
-            q = Query(lang, query_str)
-        except Exception as exc:
-            log.warning("query_parse_error", language=language, query_type="import", error=str(exc))
-            return imports
-
-        cursor = QueryCursor(q)
-        for _pattern_idx, match_captures in cursor.matches(tree.root_node):
-            import_nodes = match_captures.get("import.stmt", [])
-            name_nodes = match_captures.get("import.name", []) + match_captures.get("import.module", [])
-            if not import_nodes or not name_nodes:
-                continue
-
-            import_node = import_nodes[0]
-            line = import_node.start_point[0] + 1
-
-            if language == "java":
-                module = name_nodes[0].text.decode("utf-8").strip() if name_nodes[0].text else ""
-                imp = ParsedImport(
-                    module=module,
-                    names=[],
-                    file=file_path,
-                    line=line,
-                    language=language,
-                )
-            elif language in ("javascript", "typescript"):
-                imp = self._parsed_import_js_ts(import_node, file_path, language)
-            elif language == "go":
-                raw = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
-                module = TreeSitterParser._strip_string_delimiters(raw)
-                imp = ParsedImport(
-                    module=module,
-                    names=[],
-                    file=file_path,
-                    line=line,
-                    language=language,
-                )
-            else:
-                module = name_nodes[0].text.decode("utf-8").strip("'\"") if name_nodes[0].text else ""
-                imp = ParsedImport(
-                    module=module,
-                    names=[],
-                    file=file_path,
-                    line=line,
-                    language=language,
-                )
-
-            TreeSitterParser._finalize_import_symbols(imp)
-            imports.append(imp)
-
-        return imports
+        return plugin.extract_imports(tree, source, file_path)
 
     @staticmethod
     def _finalize_import_symbols(imp: ParsedImport) -> None:
@@ -591,10 +533,18 @@ class TreeSitterParser:
         return ""
 
     def _extract_calls(
-        self, tree: Tree, source: bytes, file_path: str, language: str,
-        query_str: str, parse_result: ParseResult,
+        self,
+        tree: Tree,
+        source: bytes,
+        file_path: str,
+        language: str,
+        plugin: LanguagePlugin,
+        parse_result: ParseResult,
     ) -> list[ParsedCall]:
         calls: list[ParsedCall] = []
+        query_str = plugin.get_queries().get("call", "")
+        if not query_str:
+            return calls
         lang = get_language(language)
         try:
             q = Query(lang, query_str)
@@ -616,7 +566,7 @@ class TreeSitterParser:
             callee = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
             call_line = call_nodes[0].start_point[0] + 1
             call_node = call_nodes[0]
-            receiver_expr = TreeSitterParser._extract_receiver_expr(call_node, language)
+            receiver_expr = plugin.extract_receiver_expr(call_node, source)
             caller = self._find_enclosing_function(call_line, func_ranges)
             if caller:
                 calls.append(ParsedCall(

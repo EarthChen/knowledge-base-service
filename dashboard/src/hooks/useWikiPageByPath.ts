@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
+import { queryKeys } from "../api/queryKeys";
 import { encodeWikiPath } from "../utils/wikiPath";
 import type { WikiPageDetail } from "./wikiTypes";
 
@@ -31,7 +32,7 @@ export function useWikiPageByPath(
   const pathEnabled = Boolean(businessId.trim() && trimmed.length > 0);
   const userEnabled = options?.enabled ?? true;
   return useQuery<WikiPageDetail>({
-    queryKey: ["wiki", "page-by-path", businessId, trimmed],
+    queryKey: queryKeys.wiki.pageByPath(businessId, trimmed),
     queryFn: () => fetchWikiPageByPath(businessId, trimmed),
     enabled: pathEnabled && userEnabled,
     staleTime: 30_000,

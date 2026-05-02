@@ -47,7 +47,7 @@
 |------|------------|
 | **API** | **FastAPI**；**structlog** 日志；**限流**中间件（`rate_limiter.py`）；Wiki 扩展路由前缀 `/api/v1/wiki/*`；主 MCP `/api/v1/mcp/tools` + `/api/v1/mcp/tool`；可选 Wiki HTTP MCP `/api/v1/mcp/tools/list` + `/api/v1/mcp/tools/call`。 |
 | **存储** | **FalkorDB**（Redis 生态图模型）；向量相似度检索与业务/多租户图隔离策略；Wiki 变更日志、反馈、Q&A、矛盾/主张等子图模型由 `store/wiki_*` 等模块封装。 |
-| **解析** | **Tree-sitter** 与语言 grammar 包（Python、Java、Go、JavaScript、TypeScript 等，可按文档扩展）。 |
+| **解析** | **Tree-sitter** 与语言 grammar 包（Python、Java、Go、JavaScript、TypeScript、**Kotlin**、**Swift**、**Objective-C**、**Dart**，可按插件扩展）。 |
 | **嵌入** | **Transformers / ONNX Runtime**；默认 **bge-m3**（1024 维）；可选 torch 路径视部署而定。 |
 | **搜索** | 关键词 + 向量 +（可选）子块/BM25 → **加权 RRF** → 可选 **交叉编码器重排序** → 单文件命中上限 → **图扩展**；Wiki 内部亦有混合检索实现（`wiki/search.py` + `query/hybrid_query.py`）。 |
 | **Wiki / Agent** | **LangGraph** 编排 Wiki 管线；**OpenAI 兼容**网关适配（`llm/base_provider.py`）；SSE 类响应用于 Ask/流式场景。 |

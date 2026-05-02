@@ -38,6 +38,9 @@ async def health() -> JSONResponse:
     if falkordb != "ready":
         payload["status"] = "degraded"
         payload["falkordb"] = "unreachable"
+    container = getattr(kb_state, "_container", None)
+    if container is not None and hasattr(container, "task_supervisor"):
+        payload["background_tasks"] = container.task_supervisor.stats
     return JSONResponse(status_code=200, content=payload)
 
 

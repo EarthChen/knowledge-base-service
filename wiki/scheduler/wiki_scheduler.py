@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from typing import Any
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -38,11 +39,14 @@ class WikiScheduler:
         config: ScheduleConfig,
         task_lock: TaskLock,
         regenerate_fn: Callable[[str], Awaitable[None]],
+        supervisor: Any = None,
     ) -> None:
         self._config = config
         self._task_lock = task_lock
         self._regenerate_fn = regenerate_fn
+        self._supervisor = supervisor
         self._loop_task: asyncio.Task[None] | None = None
+        self._supervisor_spawn_id: str | None = None
         self._stop_event = asyncio.Event()
         self._repo_last_run: dict[str, datetime | None] = {}
         self._repo_last_result: dict[str, str] = {}
@@ -64,8 +68,23 @@ class WikiScheduler:
         """Start the scheduler loop."""
         if self._loop_task is not None and not self._loop_task.done():
             return
+        if (
+            self._supervisor is not None
+            and self._supervisor_spawn_id is not None
+            and (ot := self._supervisor.asyncio_task_for(self._supervisor_spawn_id)) is not None
+            and not ot.done()
+        ):
+            return
         self._stop_event.clear()
-        self._loop_task = asyncio.create_task(self._run_loop(), name="wiki-scheduler")
+        if self._supervisor is not None:
+            self._supervisor_spawn_id = self._supervisor.spawn(
+                lambda: self._run_loop(),
+                name="scheduler:wiki",
+                max_retries=3,
+                retry_delay=10.0,
+            )
+        else:
+            self._loop_task = asyncio.create_task(self._run_loop(), name="wiki-scheduler")
 
     async def stop(self) -> None:
         """Stop the scheduler."""
@@ -77,6 +96,15 @@ class WikiScheduler:
             except asyncio.CancelledError:
                 pass
             self._loop_task = None
+        elif self._supervisor is not None and self._supervisor_spawn_id:
+            ot = self._supervisor.asyncio_task_for(self._supervisor_spawn_id)
+            self._supervisor.cancel(self._supervisor_spawn_id)
+            if ot is not None:
+                try:
+                    await ot
+                except asyncio.CancelledError:
+                    pass
+            self._supervisor_spawn_id = None
 
     async def _run_loop(self) -> None:
         try:

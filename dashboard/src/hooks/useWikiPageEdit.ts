@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
+import { queryKeys } from "../api/queryKeys";
 
 interface PatchPayload {
   pageUid: string;
@@ -17,7 +18,7 @@ export interface PatchWikiPageResult {
 
 export function usePatchWikiPage() {
   const queryClient = useQueryClient();
-  return useMutation({
+  return useMutation<PatchWikiPageResult, ApiError, PatchPayload>({
     mutationFn: async ({
       pageUid,
       content,
@@ -37,7 +38,7 @@ export function usePatchWikiPage() {
       );
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["wiki"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.wiki.all });
     },
   });
 }

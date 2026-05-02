@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 
 import api.kb_state as kb_state
 from api.exceptions import KbNotFound, KbServiceUnavailable
@@ -61,6 +61,7 @@ async def get_index_task(task_id: str) -> dict[str, Any]:
 
 @editor_router.post("/index")
 async def trigger_index(
+    request: Request,
     req: IndexRequest,
     business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
@@ -83,7 +84,21 @@ async def trigger_index(
         business_id=business_id,
     )
 
-    asyncio.create_task(throttled_index_task(task.task_id, req, business_id))
+    supervisor = getattr(
+        getattr(request.app.state, "container", None),
+        "task_supervisor",
+        None,
+    )
+    if supervisor is not None:
+        supervisor.spawn(
+            lambda tid=task.task_id, r=req, bid=business_id: throttled_index_task(tid, r, bid),
+            name="indexing:index",
+            max_retries=2,
+        )
+    else:
+        asyncio.create_task(
+            throttled_index_task(task.task_id, req, business_id),
+        )
 
     return {
         "task_id": task.task_id,
@@ -96,6 +111,7 @@ async def trigger_index(
 
 @editor_router.post("/reindex/all")
 async def reindex_all_repositories(
+    request: Request,
     req: ReindexAllRequest,
     business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
@@ -183,9 +199,23 @@ async def reindex_all_repositories(
             async with sem:
                 await run_index_task(tid, ir, bid)
 
-        asyncio.create_task(
-            _throttled_index(kb_state.reindex_sem, task.task_id, idx, business_id)
+        supervisor = getattr(
+            getattr(request.app.state, "container", None),
+            "task_supervisor",
+            None,
         )
+        if supervisor is not None:
+            supervisor.spawn(
+                lambda s=kb_state.reindex_sem, tid=task.task_id, i=idx, bid=business_id: _throttled_index(
+                    s, tid, i, bid
+                ),
+                name="indexing:reindex",
+                max_retries=2,
+            )
+        else:
+            asyncio.create_task(
+                _throttled_index(kb_state.reindex_sem, task.task_id, idx, business_id),
+            )
         tasks_out.append({
             "repository": repo,
             "task_id": task.task_id,
@@ -204,6 +234,7 @@ async def reindex_all_repositories(
 
 @editor_router.post("/enrich")
 async def trigger_enrich(
+    request: Request,
     req: EnrichRequest,
     business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
@@ -218,7 +249,21 @@ async def trigger_enrich(
         business_id=business_id,
     )
 
-    asyncio.create_task(run_enrich_task(task.task_id, req, business_id))
+    supervisor = getattr(
+        getattr(request.app.state, "container", None),
+        "task_supervisor",
+        None,
+    )
+    if supervisor is not None:
+        supervisor.spawn(
+            lambda tid=task.task_id, r=req, bid=business_id: run_enrich_task(tid, r, bid),
+            name="indexing:enrich",
+            max_retries=2,
+        )
+    else:
+        asyncio.create_task(
+            run_enrich_task(task.task_id, req, business_id),
+        )
 
     return {
         "task_id": task.task_id,

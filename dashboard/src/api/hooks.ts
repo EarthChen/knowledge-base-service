@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, getCurrentBusiness, triggerEnrich } from "./client";
+import { api, ApiError, getCurrentBusiness, triggerEnrich } from "./client";
+import { queryKeys, type ArchitectureSearchQueryOptions } from "./queryKeys";
 import type {
   GraphStats,
   RepositoriesResponse,
@@ -37,7 +38,7 @@ import type {
 
 export function useHealth() {
   return useQuery<HealthResponse>({
-    queryKey: ["health"],
+    queryKey: queryKeys.health,
     queryFn: () => api("/health", { method: "GET" }),
     refetchInterval: 30_000,
   });
@@ -46,21 +47,21 @@ export function useHealth() {
 export function useStats(repository?: string) {
   const params = repository ? `?repository=${encodeURIComponent(repository)}` : "";
   return useQuery<GraphStats>({
-    queryKey: ["stats", repository],
+    queryKey: queryKeys.stats(repository),
     queryFn: () => api(`/stats${params}`, { method: "GET" }),
   });
 }
 
 export function useP2Stats() {
   return useQuery<P2Stats>({
-    queryKey: ["p2-stats"],
+    queryKey: queryKeys.p2Stats,
     queryFn: () => api("/stats/p2", { method: "GET" }),
   });
 }
 
 export function useHealthStats() {
   return useQuery<KnowledgeHealthStats>({
-    queryKey: ["stats", "health"],
+    queryKey: queryKeys.healthStats,
     queryFn: () => api("/stats/health", { method: "GET" }),
     staleTime: 60_000,
     retry: 1,
@@ -69,7 +70,7 @@ export function useHealthStats() {
 
 export function useRepositories() {
   return useQuery<RepositoriesResponse>({
-    queryKey: ["repositories"],
+    queryKey: queryKeys.repositories,
     queryFn: () => api("/repositories", { method: "GET" }),
   });
 }
@@ -77,7 +78,7 @@ export function useRepositories() {
 export function useHybridSearch() {
   return useMutation<
     HybridSearchResponse,
-    Error,
+    ApiError,
     HybridSearchParams
   >({
     mutationFn: (body) => {
@@ -105,7 +106,7 @@ export function useHybridSearch() {
 export function useHybridQuickSearch(query: string, enabled: boolean) {
   const trimmed = query.trim();
   return useQuery<HybridSearchResponse>({
-    queryKey: ["hybrid-quick", trimmed],
+    queryKey: queryKeys.hybridQuick(trimmed),
     queryFn: () =>
       api("/hybrid", {
         method: "POST",
@@ -126,7 +127,7 @@ export function useHybridQuickSearch(query: string, enabled: boolean) {
 export function useDeepSearch() {
   return useMutation<
     DeepSearchResponse,
-    Error,
+    ApiError,
     { query: string; max_iterations: number; include_code: boolean }
   >({
     mutationFn: (body) =>
@@ -136,7 +137,7 @@ export function useDeepSearch() {
 
 export function useWebhookConfig(options?: { enabled?: boolean }) {
   return useQuery<WebhookConfig>({
-    queryKey: ["webhook-config"],
+    queryKey: queryKeys.webhookConfig,
     queryFn: () => api("/hooks/config", { method: "GET" }),
     staleTime: 60_000,
     enabled: options?.enabled ?? true,
@@ -145,11 +146,11 @@ export function useWebhookConfig(options?: { enabled?: boolean }) {
 
 export function useUpdateWebhookConfig() {
   const qc = useQueryClient();
-  return useMutation<WebhookConfig, Error, WebhookConfig>({
+  return useMutation<WebhookConfig, ApiError, WebhookConfig>({
     mutationFn: (body) =>
       api("/hooks/config", { method: "PUT", body: JSON.stringify(body) }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["webhook-config"] });
+      qc.invalidateQueries({ queryKey: queryKeys.webhookConfig });
     },
   });
 }
@@ -157,7 +158,7 @@ export function useUpdateWebhookConfig() {
 export function useAnalyzeImpact() {
   return useMutation<
     AnalyzeImpactResponse,
-    Error,
+    ApiError,
     { repository: string; changed_files: AnalyzeImpactFile[] }
   >({
     mutationFn: ({ repository, changed_files }) =>
@@ -169,7 +170,7 @@ export function useAnalyzeImpact() {
 }
 
 export function useFetchPrFiles() {
-  return useMutation<FetchPrFilesResponse, Error, { url: string }>({
+  return useMutation<FetchPrFilesResponse, ApiError, { url: string }>({
     mutationFn: ({ url }) =>
       api("/pr/fetch", {
         method: "POST",
@@ -179,7 +180,7 @@ export function useFetchPrFiles() {
 }
 
 export function useIndex() {
-  return useMutation<IndexResponse, Error, Record<string, unknown>>({
+  return useMutation<IndexResponse, ApiError, Record<string, unknown>>({
     mutationFn: (body) =>
       api("/index", { method: "POST", body: JSON.stringify(body) }),
   });
@@ -192,7 +193,7 @@ export interface IndexFilesPayload {
 
 export function useIndexFiles() {
   const qc = useQueryClient();
-  return useMutation<IndexResponse, Error, IndexFilesPayload>({
+  return useMutation<IndexResponse, ApiError, IndexFilesPayload>({
     mutationFn: (body) =>
       api("/index/files", {
         method: "POST",
@@ -202,24 +203,24 @@ export function useIndexFiles() {
         }),
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["index-tasks"] });
+      qc.invalidateQueries({ queryKey: queryKeys.indexTasks });
     },
   });
 }
 
 export function useEnrich() {
   const qc = useQueryClient();
-  return useMutation<TaskInfo, Error, EnrichRequest>({
+  return useMutation<TaskInfo, ApiError, EnrichRequest>({
     mutationFn: (body) => triggerEnrich(getCurrentBusiness(), body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["index-tasks"] });
+      qc.invalidateQueries({ queryKey: queryKeys.indexTasks });
     },
   });
 }
 
 export function useIndexTasks() {
   return useQuery<IndexTasksResponse>({
-    queryKey: ["index-tasks"],
+    queryKey: queryKeys.indexTasks,
     queryFn: () => api("/index/tasks", { method: "GET" }),
     refetchInterval: 3000,
   });
@@ -227,7 +228,7 @@ export function useIndexTasks() {
 
 export function useIndexTask(taskId: string | null) {
   return useQuery<IndexTask>({
-    queryKey: ["index-task", taskId],
+    queryKey: queryKeys.indexTask(taskId),
     queryFn: () => api(`/index/tasks/${encodeURIComponent(taskId!)}`, { method: "GET" }),
     enabled: !!taskId,
     refetchInterval: (query) => {
@@ -243,7 +244,7 @@ export function useIndexTask(taskId: string | null) {
 export function useGraphExplore() {
   return useMutation<
     GraphExploreResponse,
-    Error,
+    ApiError,
     { name: string; center_uid?: string; depth: number; limit: number }
   >({
     mutationFn: (body) =>
@@ -252,7 +253,7 @@ export function useGraphExplore() {
 }
 
 export function useGraphExpand() {
-  return useMutation<GraphExpandResponse, Error, GraphExpandRequest>({
+  return useMutation<GraphExpandResponse, ApiError, GraphExpandRequest>({
     mutationFn: (body) =>
       api("/graph/expand", { method: "POST", body: JSON.stringify(body) }),
   });
@@ -261,7 +262,7 @@ export function useGraphExpand() {
 export function useBlastRadius() {
   return useMutation<
     BlastRadiusResponse,
-    Error,
+    ApiError,
     { entity_names: string[]; max_depth: number; repository?: string | null }
   >({
     mutationFn: (body) =>
@@ -279,7 +280,7 @@ export function useBlastRadius() {
 export function useGraphCommunities() {
   return useMutation<
     CommunitiesResponse,
-    Error,
+    ApiError,
     { repository?: string | null; min_size?: number }
   >({
     mutationFn: ({ repository, min_size }) => {
@@ -294,7 +295,7 @@ export function useGraphCommunities() {
 
 export function useCodeSnippet(uid: string | null) {
   return useQuery<CodeSnippetResponse>({
-    queryKey: ["code-snippet", uid],
+    queryKey: queryKeys.codeSnippet(uid),
     queryFn: () => api(`/code/${encodeURIComponent(uid!)}`, { method: "GET" }),
     enabled: !!uid,
   });
@@ -302,22 +303,22 @@ export function useCodeSnippet(uid: string | null) {
 
 export function useBackfillFqn() {
   const qc = useQueryClient();
-  return useMutation<{ updated: number; total_checked: number }, Error, void>({
+  return useMutation<{ updated: number; total_checked: number }, ApiError, void>({
     mutationFn: () => api("/admin/backfill-fqn", { method: "POST" }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["stats"] });
+      qc.invalidateQueries({ queryKey: queryKeys.statsAll });
     },
   });
 }
 
 export function useDeleteRepository() {
   const qc = useQueryClient();
-  return useMutation<{ repository: string; deleted_nodes: number }, Error, string>({
+  return useMutation<{ repository: string; deleted_nodes: number }, ApiError, string>({
     mutationFn: (repo) =>
       api(`/index/${encodeURIComponent(repo)}`, { method: "DELETE" }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["repositories"] });
-      qc.invalidateQueries({ queryKey: ["stats"] });
+      qc.invalidateQueries({ queryKey: queryKeys.repositories });
+      qc.invalidateQueries({ queryKey: queryKeys.statsAll });
     },
   });
 }
@@ -325,7 +326,7 @@ export function useDeleteRepository() {
 export function useDocuments(repository?: string) {
   const params = repository ? `?repository=${encodeURIComponent(repository)}` : "";
   return useQuery<DocumentsResponse>({
-    queryKey: ["documents", repository],
+    queryKey: queryKeys.documents(repository),
     queryFn: () => api(`/documents${params}`, { method: "GET" }),
     staleTime: 60_000,
   });
@@ -333,7 +334,7 @@ export function useDocuments(repository?: string) {
 
 export function useDocument(uid: string | null) {
   return useQuery<DocumentDetail>({
-    queryKey: ["document", uid],
+    queryKey: queryKeys.document(uid),
     queryFn: () => api(`/documents/${encodeURIComponent(uid!)}`, { method: "GET" }),
     enabled: !!uid,
     staleTime: 60_000,
@@ -342,7 +343,7 @@ export function useDocument(uid: string | null) {
 
 export function useSyncSchedules(options?: { enabled?: boolean }) {
   return useQuery<SyncSchedulesResponse>({
-    queryKey: ["sync-schedules"],
+    queryKey: queryKeys.syncSchedules,
     queryFn: () => api("/sync/schedules", { method: "GET" }),
     enabled: options?.enabled ?? true,
   });
@@ -350,48 +351,45 @@ export function useSyncSchedules(options?: { enabled?: boolean }) {
 
 export function useCreateSyncSchedule() {
   const qc = useQueryClient();
-  return useMutation<SyncSchedule, Error, SyncScheduleRequest>({
+  return useMutation<SyncSchedule, ApiError, SyncScheduleRequest>({
     mutationFn: (body) =>
       api<SyncSchedule>("/sync/schedules", {
         method: "POST",
         body: JSON.stringify(body),
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["sync-schedules"] });
+      qc.invalidateQueries({ queryKey: queryKeys.syncSchedules });
     },
   });
 }
 
 export function useDeleteSyncSchedule() {
   const qc = useQueryClient();
-  return useMutation<{ deleted: string }, Error, string>({
+  return useMutation<{ deleted: string }, ApiError, string>({
     mutationFn: (repo) => {
       const path = repo.split("/").map(encodeURIComponent).join("/");
       return api(`/sync/schedules/${path}`, { method: "DELETE" });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["sync-schedules"] });
+      qc.invalidateQueries({ queryKey: queryKeys.syncSchedules });
     },
   });
 }
 
 export function useTriggerSync() {
   const qc = useQueryClient();
-  return useMutation<Record<string, unknown>, Error, string>({
+  return useMutation<Record<string, unknown>, ApiError, string>({
     mutationFn: (repo) => {
       const path = repo.split("/").map(encodeURIComponent).join("/");
       return api(`/sync/schedules/${path}/trigger`, { method: "POST" });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["sync-schedules"] });
+      qc.invalidateQueries({ queryKey: queryKeys.syncSchedules });
     },
   });
 }
 
-export function useArchitectureSearch(
-  layer: string,
-  options: { repository?: string; search?: string; offset?: number; limit?: number } = {},
-) {
+export function useArchitectureSearch(layer: string, options: ArchitectureSearchQueryOptions = {}) {
   const params = new URLSearchParams();
   params.set("layer", layer);
   if (options.repository) params.set("repository", options.repository);
@@ -400,7 +398,7 @@ export function useArchitectureSearch(
   if (options.limit !== undefined) params.set("limit", String(options.limit));
 
   return useQuery<ArchitectureSearchResponse>({
-    queryKey: ["architecture-search", layer, options],
+    queryKey: queryKeys.architectureSearch(layer, options),
     queryFn: () => api(`/search/architecture?${params.toString()}`, { method: "GET" }),
     enabled: !!layer,
   });
@@ -408,7 +406,7 @@ export function useArchitectureSearch(
 
 export function useFileTree(repository: string) {
   return useQuery<FileTreeNode>({
-    queryKey: ["file-tree", repository],
+    queryKey: queryKeys.fileTree(repository),
     queryFn: () =>
       api(`/files/tree?repository=${encodeURIComponent(repository.trim())}`, { method: "GET" }),
     enabled: !!repository.trim(),
@@ -421,7 +419,7 @@ export function useFileContent(repository: string, filePath: string, enabled = t
   params.set("repository", repository);
   params.set("file_path", filePath);
   return useQuery<FileContentResponse>({
-    queryKey: ["file-content", repository, filePath],
+    queryKey: queryKeys.fileContent(repository, filePath),
     queryFn: () => api(`/files/content?${params.toString()}`, { method: "GET" }),
     enabled: enabled && !!repository && !!filePath,
     staleTime: 5 * 60 * 1000,
@@ -430,7 +428,7 @@ export function useFileContent(repository: string, filePath: string, enabled = t
 
 export function useFileEntities(filePath: string, enabled = true) {
   return useQuery<FileEntitiesResponse>({
-    queryKey: ["file-entities", filePath],
+    queryKey: queryKeys.fileEntities(filePath),
     queryFn: () =>
       api(`/files/entities?file_path=${encodeURIComponent(filePath)}`, { method: "GET" }),
     enabled: enabled && !!filePath,

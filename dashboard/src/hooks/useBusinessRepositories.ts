@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
+import { queryKeys } from "../api/queryKeys";
 
 interface RepoListResponse {
   repositories: string[];
@@ -7,7 +8,7 @@ interface RepoListResponse {
 
 export function useBusinessRepositories(businessId: string) {
   return useQuery<RepoListResponse>({
-    queryKey: ["business", businessId, "repositories"],
+    queryKey: queryKeys.businessRepositories(businessId),
     queryFn: () => api(`/businesses/${encodeURIComponent(businessId)}/repositories`),
     enabled: !!businessId && businessId !== "default",
     staleTime: 30_000,
@@ -16,14 +17,14 @@ export function useBusinessRepositories(businessId: string) {
 
 export function useBindRepositories(businessId: string) {
   const qc = useQueryClient();
-  return useMutation<unknown, Error, string[]>({
+  return useMutation<unknown, ApiError, string[]>({
     mutationFn: (repositories) =>
       api(`/businesses/${encodeURIComponent(businessId)}/repositories`, {
         method: "PUT",
         body: JSON.stringify({ repositories }),
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["business", businessId, "repositories"] });
+      qc.invalidateQueries({ queryKey: queryKeys.businessRepositories(businessId) });
     },
     onError: (error) => {
       console.error("Failed to bind repositories:", error.message);

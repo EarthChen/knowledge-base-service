@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
+import { queryKeys } from "../api/queryKeys";
 import { useI18n } from "../i18n/context";
 
 export function useWikiIncremental(repository: string) {
@@ -7,7 +8,11 @@ export function useWikiIncremental(repository: string) {
   const { locale } = useI18n();
   const lang = locale === "zh" ? "zh" : "en";
 
-  return useMutation({
+  return useMutation<
+    { task_id?: string } & Record<string, unknown>,
+    ApiError,
+    void
+  >({
     mutationFn: async () => {
       return api<{ task_id?: string } & Record<string, unknown>>("/wiki/generate-incremental", {
         method: "POST",
@@ -15,7 +20,7 @@ export function useWikiIncremental(repository: string) {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wiki"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.wiki.all });
     },
   });
 }

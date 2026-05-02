@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 import { api } from "../api/client";
+import { queryKeys } from "../api/queryKeys";
 import type { WikiRefGraphResponse } from "./wikiTypes";
 
 const NODE_W = 180;
@@ -33,7 +34,7 @@ export function useWikiReferenceGraph(
   businessId: string,
 ): WikiReferenceGraphResult {
   const q = useQuery<WikiRefGraphResponse>({
-    queryKey: ["wiki", "references", businessId, "graph"],
+    queryKey: queryKeys.wiki.referencesGraph(businessId),
     queryFn: () =>
       api<WikiRefGraphResponse>(`/wiki/references?business_id=${encodeURIComponent(businessId)}`),
     enabled: !!businessId,

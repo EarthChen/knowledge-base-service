@@ -16,9 +16,9 @@ def test_enforce_production_skips_when_not_production(monkeypatch: pytest.Monkey
     monkeypatch.setenv("KB_ENV", "development")
     monkeypatch.setenv("REQUIRE_AUTH", "false")
     get_settings.cache_clear()
-    from main import _enforce_production_security
+    from core.startup.security import enforce_production_security
 
-    _enforce_production_security(get_settings())
+    enforce_production_security(get_settings())
 
 
 def test_enforce_production_raises_without_require_auth(
@@ -27,10 +27,10 @@ def test_enforce_production_raises_without_require_auth(
 ) -> None:
     monkeypatch.setenv("REQUIRE_AUTH", "false")
     get_settings.cache_clear()
-    from main import _enforce_production_security
+    from core.startup.security import enforce_production_security
 
     with pytest.raises(RuntimeError, match="require_auth=true"):
-        _enforce_production_security(get_settings())
+        enforce_production_security(get_settings())
 
 
 def test_enforce_production_raises_without_tokens(
@@ -45,10 +45,10 @@ def test_enforce_production_raises_without_tokens(
     missing = tmp_path / "no-tokens-here.yaml"
     monkeypatch.setenv("TOKENS_FILE", str(missing))
     get_settings.cache_clear()
-    from main import _enforce_production_security
+    from core.startup.security import enforce_production_security
 
     with pytest.raises(RuntimeError, match="at least one API token"):
-        _enforce_production_security(get_settings())
+        enforce_production_security(get_settings())
 
 
 def test_enforce_production_ok_with_api_token(
@@ -61,6 +61,6 @@ def test_enforce_production_ok_with_api_token(
     missing = tmp_path / "no-tokens-here.yaml"
     monkeypatch.setenv("TOKENS_FILE", str(missing))
     get_settings.cache_clear()
-    from main import _enforce_production_security
+    from core.startup.security import enforce_production_security
 
-    _enforce_production_security(get_settings())
+    enforce_production_security(get_settings())

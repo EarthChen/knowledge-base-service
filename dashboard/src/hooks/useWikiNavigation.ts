@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { queryKeys } from "../api/queryKeys";
 
 export interface NavigationContext {
   parent_path: string | null;
@@ -15,7 +16,7 @@ export function useWikiNavigation(repository: string, pagePath: string) {
   const trimmedPath = pagePath.trim();
   const looksLikeRepo = trimmedRepo.includes("/");
   return useQuery<NavigationContext>({
-    queryKey: ["wiki", "navigation", trimmedRepo, trimmedPath],
+    queryKey: queryKeys.wiki.navigation(trimmedRepo, trimmedPath),
     queryFn: () =>
       api<NavigationContext>(
         `/wiki/navigation/by-path?repository=${encodeURIComponent(trimmedRepo)}&path=${encodeURIComponent(trimmedPath)}`,

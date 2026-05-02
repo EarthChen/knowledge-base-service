@@ -10,6 +10,7 @@ When none configured, all endpoints are open (no auth).
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
@@ -50,6 +51,16 @@ class TokenInfo:
 
 
 _token_registry: dict[str, TokenInfo] | None = None
+_token_file_mtime: float = 0.0
+_last_mtime_check: float = 0.0
+_MTIME_CHECK_INTERVAL_S: float = 30.0
+
+
+def _resolve_tokens_path(settings: Settings) -> Path:
+    yaml_path = Path(settings.tokens_file)
+    if not yaml_path.is_absolute():
+        yaml_path = Path.cwd() / yaml_path
+    return yaml_path
 
 
 def _load_yaml_tokens(path: Path) -> dict[str, TokenInfo]:
@@ -102,9 +113,7 @@ def _load_env_tokens(settings: Settings) -> dict[str, TokenInfo]:
 
 
 def _build_token_registry(settings: Settings) -> dict[str, TokenInfo]:
-    yaml_path = Path(settings.tokens_file)
-    if not yaml_path.is_absolute():
-        yaml_path = Path(__file__).resolve().parent / yaml_path
+    yaml_path = _resolve_tokens_path(settings)
 
     registry = _load_yaml_tokens(yaml_path)
     if registry:
@@ -118,9 +127,31 @@ def _build_token_registry(settings: Settings) -> dict[str, TokenInfo]:
 
 
 def _get_registry() -> dict[str, TokenInfo]:
-    global _token_registry
-    if _token_registry is None:
-        _token_registry = _build_token_registry(get_settings())
+    """Return the token registry, hot-reloading from tokens.yaml when it changes.
+
+    Checks the file mtime at most once every ``_MTIME_CHECK_INTERVAL_S`` seconds
+    to avoid unnecessary I/O on every request.
+    """
+    global _token_registry, _token_file_mtime, _last_mtime_check
+
+    now = time.monotonic()
+    if _token_registry is not None and (now - _last_mtime_check) < _MTIME_CHECK_INTERVAL_S:
+        return _token_registry
+
+    _last_mtime_check = now
+    settings = get_settings()
+    yaml_path = _resolve_tokens_path(settings)
+
+    try:
+        mtime = yaml_path.stat().st_mtime if yaml_path.is_file() else 0.0
+    except OSError:
+        mtime = 0.0
+
+    if _token_registry is not None and mtime == _token_file_mtime:
+        return _token_registry
+
+    _token_file_mtime = mtime
+    _token_registry = _build_token_registry(settings)
     return _token_registry
 
 

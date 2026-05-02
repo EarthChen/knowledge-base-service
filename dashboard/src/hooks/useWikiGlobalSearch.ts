@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import type { WikiGlobalSearchResponse } from "./wikiTypes";
 
 export type WikiGlobalSearchBody = {
@@ -11,7 +11,7 @@ export type WikiGlobalSearchBody = {
 };
 
 export function useWikiGlobalSearch() {
-  return useMutation<WikiGlobalSearchResponse, Error, WikiGlobalSearchBody>({
+  return useMutation<WikiGlobalSearchResponse, ApiError, WikiGlobalSearchBody>({
     mutationFn: (body) =>
       api<WikiGlobalSearchResponse>("/wiki/search/global", {
         method: "POST",

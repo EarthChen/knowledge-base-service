@@ -24,7 +24,15 @@ import { useHealth } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import { useBusiness } from "../contexts/BusinessContext";
 import CommandPalette from "./CommandPalette";
+import FocusTrap from "./FocusTrap";
 import { toggleStoredTheme } from "../theme";
+
+const SIDEBAR_BUSINESS_LISTBOX_ID = "sidebar-business-listbox";
+
+function clampIndex(len: number, i: number) {
+  if (len <= 0) return 0;
+  return ((i % len) + len) % len;
+}
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -59,6 +67,45 @@ export default function Layout() {
     document.addEventListener("keydown", onDocumentKeyDown);
     return () => document.removeEventListener("keydown", onDocumentKeyDown);
   }, [sidebarOpen]);
+
+  const businessListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!bizDropdownOpen) return;
+    const id = window.requestAnimationFrame(() => {
+      const root = businessListRef.current;
+      if (!root) return;
+      const buttons = [
+        ...root.querySelectorAll<HTMLButtonElement>("[data-biz-option]"),
+      ];
+      const idx = Math.max(0, businesses.findIndex((b) => b.id === currentBusiness));
+      buttons[idx]?.focus();
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [bizDropdownOpen, businesses, currentBusiness]);
+
+  function moveBizListFocus(delta: number) {
+    const root = businessListRef.current;
+    if (!root) return;
+    const buttons = [
+      ...root.querySelectorAll<HTMLButtonElement>("[data-biz-option]"),
+    ];
+    if (buttons.length === 0) return;
+    const active = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const idx = active >= 0 ? active : 0;
+    const next = clampIndex(buttons.length, idx + delta);
+    buttons[next]?.focus();
+  }
+
+  function handleBusinessListboxKeyDownCapture(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      moveBizListFocus(1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      moveBizListFocus(-1);
+    }
+  }
 
   const currentBizName =
     businesses.find((b) => b.id === currentBusiness)?.name || currentBusiness;
@@ -138,37 +185,55 @@ export default function Layout() {
         ) : (
           <div className="relative border-b border-gray-200 px-3 py-2 dark:border-gray-700">
             <button
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded={bizDropdownOpen}
+              aria-controls={SIDEBAR_BUSINESS_LISTBOX_ID}
               onClick={() => setBizDropdownOpen(!bizDropdownOpen)}
               className="flex w-full items-center justify-between rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 transition-colors hover:border-gray-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-500"
             >
               <span className="truncate">{currentBizName}</span>
               <ChevronDown
                 size={14}
+                aria-hidden
                 className={`ml-2 shrink-0 text-gray-500 transition-transform dark:text-gray-400 ${
                   bizDropdownOpen ? "rotate-180" : ""
                 }`}
               />
             </button>
             {bizDropdownOpen && (
-              <div className="absolute left-3 right-3 z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-xl dark:border-gray-600 dark:bg-gray-800">
-                {businesses.map((biz) => (
-                  <button
-                    key={biz.id}
-                    onClick={() => {
-                      setCurrentBusiness(biz.id);
-                      setBizDropdownOpen(false);
-                    }}
-                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
-                      currentBusiness === biz.id
-                        ? "bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-400"
-                        : "text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-100"
-                    }`}
-                  >
-                    <Building2 size={14} />
-                    <span className="truncate">{biz.name}</span>
-                  </button>
-                ))}
-              </div>
+              <FocusTrap onEscape={() => setBizDropdownOpen(false)}>
+                <div
+                  ref={businessListRef}
+                  id={SIDEBAR_BUSINESS_LISTBOX_ID}
+                  role="listbox"
+                  aria-label={t.nav.businesses}
+                  onKeyDownCapture={handleBusinessListboxKeyDownCapture}
+                  className="absolute left-3 right-3 z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-xl dark:border-gray-600 dark:bg-gray-800"
+                >
+                  {businesses.map((biz) => (
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={currentBusiness === biz.id}
+                      data-biz-option
+                      key={biz.id}
+                      onClick={() => {
+                        setCurrentBusiness(biz.id);
+                        setBizDropdownOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
+                        currentBusiness === biz.id
+                          ? "bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-400"
+                          : "text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-100"
+                      }`}
+                    >
+                      <Building2 size={14} aria-hidden />
+                      <span className="truncate">{biz.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </FocusTrap>
             )}
           </div>
         )}

@@ -77,11 +77,11 @@ def test_startup_auth_gate_raises_when_require_auth_without_tokens(
 
     config_module.get_settings.cache_clear()
 
-    from main import _startup_auth_gate
+    from core.startup.security import startup_auth_gate
 
     settings = config_module.get_settings()
     with pytest.raises(RuntimeError, match="API tokens"):
-        _startup_auth_gate(settings)
+        startup_auth_gate(settings)
 
     config_module.get_settings.cache_clear()
 

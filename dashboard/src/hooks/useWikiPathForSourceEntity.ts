@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { queryKeys } from "../api/queryKeys";
 
 export type WikiPathForSourceEntityResponse = {
   path: string | null;
@@ -13,7 +14,7 @@ export function useWikiPathForSourceEntity(
   const uid = (entityUid ?? "").trim();
   const enabled = (options?.enabled ?? true) && Boolean(businessId.trim() && uid);
   return useQuery<WikiPathForSourceEntityResponse>({
-    queryKey: ["wiki", "pathForSourceEntity", businessId, uid],
+    queryKey: queryKeys.wiki.pathForSourceEntity(businessId, uid),
     queryFn: () =>
       api<WikiPathForSourceEntityResponse>(
         `/wiki/pages/by-source-entity?business_id=${encodeURIComponent(

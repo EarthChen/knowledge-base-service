@@ -60,9 +60,9 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 # Ensure project root resolves top-level packages (e.g. search/, wiki/) when collecting tests/query/*
 pythonpath = ["."]
-# Full-suite runs reach ~80% line coverage. Omit fail-under from addopts so focused `pytest path::test` runs
-# (single-file coverage is a small fraction of the tree) are not spuriously rejected.
-addopts = "--cov=. --cov-report=term-missing"
+# Full-suite runs gate at 75% to catch large coverage drops (~82% currently). Narrow `pytest path::test`
+# runs still apply coverage defaults; override locally with `--no-cov` if needed.
+addopts = "--cov=. --cov-report=term-missing --cov-fail-under=75"
 filterwarnings = [
     "ignore:The 'config' parameter should be typed as:UserWarning",
 ]

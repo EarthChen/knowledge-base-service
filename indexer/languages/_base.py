@@ -99,6 +99,18 @@ class BaseLanguagePlugin(ABC):
     def extract_signature(self, func_node: Node, source: bytes) -> str:
         return self._extract_signature_generic(func_node, source)
 
+    def accept_class_query_capture(self, class_node: Node, name_node: Node) -> bool:
+        """Return False to drop a class query match (e.g. superclass identifiers in ObjC)."""
+        return True
+
+    def extract_function_name_from_node(self, func_node: Node, source: bytes) -> str:
+        """When the function capture has no @func.name, derive the exported name."""
+        return ""
+
+    def extract_call_name_from_node(self, call_node: Node, source: bytes) -> str:
+        """When the call capture has no @call.name, derive the callee identifier."""
+        return ""
+
     def extract_interfaces(self, class_node: Node, source: bytes) -> list[str]:
         return []
 
@@ -183,15 +195,16 @@ class BaseLanguagePlugin(ABC):
             "annotation",
             "marker_annotation",
             "modifiers",
+            "line_comment",
         ):
             prev = prev.prev_named_sibling
-        if prev is None or prev.type not in ("comment", "block_comment"):
+        if prev is None or prev.type not in ("comment", "block_comment", "multiline_comment", "line_comment"):
             return ""
         raw = prev.text.decode("utf-8") if prev.text else ""
         cleaned = raw.strip()
-        if prev.type == "block_comment":
+        if prev.type in ("block_comment", "multiline_comment"):
             cleaned = cleaned.strip("/* \n\t")
-        elif prev.type == "comment" and cleaned.startswith("//"):
+        elif prev.type in ("comment", "line_comment") and cleaned.startswith("//"):
             cleaned = cleaned[2:].strip()
         if BaseLanguagePlugin._is_license_comment(cleaned):
             return ""
@@ -211,7 +224,7 @@ class BaseLanguagePlugin(ABC):
         if imp.names:
             imp.symbols = list(imp.names)
             return
-        if imp.language == "java" and imp.module:
+        if imp.language in ("java", "kotlin") and imp.module:
             simple = imp.module.rsplit(".", 1)[-1]
             if simple and simple[0].isupper():
                 imp.symbols = [simple]

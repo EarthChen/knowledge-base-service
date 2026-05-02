@@ -7,11 +7,9 @@ Supports multi-business isolation via independent FalkorDB graphs.
 
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
@@ -36,220 +34,16 @@ from api.routes.kb_schemas import HybridSearchRequest
 from api.routes.provider_routes import provider_router
 from api.routes.repository_path_utils import _build_file_tree
 from api.routes.settings_routes import settings_router
-from api.routes.webhook_routes import init_webhook_state, webhook_router
+from api.routes.webhook_routes import webhook_router
 from api.routes.wiki_routes import mcp_wiki_http_router, wiki_router
-from core.auth import get_auth_mode
-from core.config import Settings, get_settings
-from indexer.task_manager import IndexTaskManager
+from core.config import get_settings
 from core.log import get_logger, setup_logging
-from services.repo_registry import RepoRegistry
-from services.scheduler import SyncScheduler
-from services.service_registry import ServiceRegistry
-from store.falkordb_store import FalkorDBStore, QueryResultWrapper
-from store.settings_store import SettingsStore
-from wiki.bootstrap import bootstrap_wiki, teardown_wiki
+from core.startup import init_security, init_core_services, init_wiki_and_lint, shutdown_all
 
 # Backward-compatible names for tests and external imports
 from api.routes.kb_dependencies import get_service as _get_service
 
 log = get_logger(__name__)
-
-
-class _AppGraphQuery:
-    """Expose ``FalkorDBStore.execute_query`` as ``async graph.query`` for business routes."""
-
-    __slots__ = ("_store",)
-
-    def __init__(self, store: FalkorDBStore) -> None:
-        self._store = store
-
-    async def query(self, cypher: str, params: dict[str, Any] | None = None) -> QueryResultWrapper:
-        return await self._store.execute_query(cypher, params or {})
-
-
-def _startup_auth_gate(settings: Settings) -> None:
-    """Log when no tokens are configured; optionally fail startup if ``require_auth``."""
-    if get_auth_mode() == "open":
-        log.warning(
-            "no_api_tokens_configured",
-            detail=(
-                "No API tokens configured — all endpoints are accessible without authentication. "
-                "Set API_TOKEN, API_TOKENS, or TOKENS_FILE for production deployments."
-            ),
-        )
-        if settings.require_auth:
-            raise RuntimeError(
-                "require_auth is enabled but no API tokens are configured. "
-                "Set API_TOKEN, API_TOKENS, or TOKENS_FILE before starting the service.",
-            )
-
-
-def _enforce_production_security(settings: Settings) -> None:
-    """Fail-closed in production: require authentication."""
-    env = os.environ.get("KB_ENV", "development").lower()
-    if env != "production":
-        return
-    if not settings.require_auth:
-        log.critical(
-            "production_require_auth_disabled",
-            detail="KB_ENV=production but require_auth is false; refusing to start.",
-        )
-        raise RuntimeError(
-            "KB_ENV=production requires require_auth=true. "
-            "Set REQUIRE_AUTH=true and configure API tokens.",
-        )
-    if not settings.api_token and not settings.api_tokens and not Path(settings.tokens_file).exists():
-        log.critical(
-            "production_no_api_tokens",
-            detail="KB_ENV=production but no API tokens configured; refusing to start.",
-        )
-        raise RuntimeError(
-            "KB_ENV=production requires at least one API token. "
-            "Set API_TOKEN, API_TOKENS, or create tokens.yaml.",
-        )
-
-
-def _init_security(settings: Settings) -> None:
-    """Auth gate + production security check."""
-    _enforce_production_security(settings)
-    _startup_auth_gate(settings)
-
-
-async def _init_core_services(container: AppContainer, app: FastAPI) -> None:
-    """Create and start registry, scheduler, task manager."""
-    container.task_manager = IndexTaskManager()
-
-    def _index_task_status_for_mcp(task_id: str) -> dict[str, Any] | None:
-        if container.task_manager is None:
-            return None
-        task = container.task_manager.get_task(task_id)
-        return task.to_dict() if task else None
-
-    data_dir = Path(container.settings.git.clone_base_path).resolve().parent
-    container.repo_registry = RepoRegistry(str(data_dir))
-    container.settings_store = SettingsStore()
-    app.state.settings_store = container.settings_store
-    container.registry = ServiceRegistry(
-        container.settings,
-        index_task_status_lookup=_index_task_status_for_mcp,
-        repo_registry=container.repo_registry,
-        settings_store=container.settings_store,
-    )
-    await container.registry.start()
-
-    _default_kb = await container.registry.get_service("default")
-    app.state.graph = _AppGraphQuery(_default_kb.store)
-
-    container.scheduler = SyncScheduler(
-        container.registry,
-        container.settings,
-        repo_registry=container.repo_registry,
-        schedule_store_path=data_dir / "sync_schedules.json",
-    )
-    await container.scheduler.start()
-
-    # Mirror to app.state for route dependencies
-    app.state.registry = container.registry
-    app.state.scheduler = container.scheduler
-
-
-async def _init_wiki_and_lint(container: AppContainer, app: FastAPI) -> None:
-    """Initialize wiki subsystem and lint scheduler."""
-    init_webhook_state(app)
-
-    from wiki.cache import WikiCache
-    from wiki.lint import WikiLintService
-
-    if getattr(app.state, "wiki_cache", None) is None:
-        app.state.wiki_cache = WikiCache()
-
-    async def wiki_lint_service_factory() -> WikiLintService:
-        kb = await container.registry.get_service("default")
-        settings = get_settings()
-        det = None
-        if settings.wiki.contradiction_detection_enabled and kb.llm_provider is not None:
-            from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
-            from llm.base_provider import GatewayLLMProviderAdapter, LLMPortBridge
-            from wiki.contradiction_detector import ContradictionDetector
-
-            emb = EmbeddingGenerator.shared(config=settings.embedding)
-            sim_threshold = settings.wiki.contradiction_similarity_threshold
-
-            async def _embed_wiki_text(title: str, content: str) -> list[float]:
-                item = doc_dict_for_embedding(
-                    {"title": title, "content": content[:3000], "section": "", "heading_context": ""},
-                )
-                out = await emb.generate_for_docs([item])
-                return out[0] if out else []
-
-            raw_llm = kb.llm_provider
-            llm = (
-                raw_llm
-                if hasattr(raw_llm, "generate")
-                else LLMPortBridge(GatewayLLMProviderAdapter(raw_llm))  # type: ignore[arg-type]
-            )
-            det = ContradictionDetector(
-                graph=kb.store,
-                embedding_fn=_embed_wiki_text,
-                llm=llm,  # type: ignore[arg-type]
-                similarity_threshold=sim_threshold,
-            )
-        return WikiLintService(
-            kb.store,
-            wiki_cache=getattr(app.state, "wiki_cache", None),
-            repo_registry=container.repo_registry,
-            wiki_config=settings.wiki,
-            contradiction_detector=det,
-            wiki_changelog_store=getattr(app.state, "wiki_changelog_store", None),
-        )
-
-    app.state.wiki_lint_service_factory = wiki_lint_service_factory
-
-    await bootstrap_wiki(app, container.settings)
-
-    app.state.wiki_lint_scheduler = None
-    if container.settings.wiki.lint_scheduler_enabled:
-        from wiki.lint_scheduler import LintScheduler
-
-        def _list_repos() -> list[str]:
-            reg = container.repo_registry
-            if reg is None:
-                return []
-            return [str(e["repository"]) for e in reg.list_all() if e.get("repository")]
-
-        interval = float(max(1, container.settings.wiki.lint_scheduler_interval_hours) * 3600)
-        lint_sched = LintScheduler(
-            app.state.wiki_lint_service_factory,
-            repositories=_list_repos,
-            interval_seconds=interval,
-        )
-        lint_sched.start()
-        app.state.wiki_lint_scheduler = lint_sched
-        log.info(
-            "wiki_lint_scheduler_started",
-            interval_hours=container.settings.wiki.lint_scheduler_interval_hours,
-        )
-
-
-async def _shutdown_all(container: AppContainer, app: FastAPI) -> None:
-    """Reverse-order teardown."""
-    ls = getattr(app.state, "wiki_lint_scheduler", None)
-    if ls is not None:
-        await ls.stop()
-        app.state.wiki_lint_scheduler = None
-    await teardown_wiki(app)
-    if container.scheduler:
-        await container.scheduler.stop()
-    if container.registry:
-        await container.registry.stop()
-
-    event_bus = getattr(app.state, "wiki_event_bus", None)
-    if event_bus is not None:
-        await event_bus.shutdown()
-
-    from store.falkordb_store import _graph_executor
-
-    _graph_executor.shutdown(wait=False)
 
 
 @asynccontextmanager
@@ -258,7 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     setup_logging(level=settings.log_level)
     log.info("kb_service_starting", host=settings.host, port=settings.port)
 
-    _init_security(settings)
+    init_security(settings)
 
     container = AppContainer(
         settings=settings,
@@ -269,17 +63,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings_store=None,
     )
 
-    await _init_core_services(container, app)
+    await init_core_services(container, app)
     kb_state._bind(container)
     app.state.container = container
 
-    await _init_wiki_and_lint(container, app)
+    await init_wiki_and_lint(container, app)
 
     log.info("kb_service_started")
     yield
 
     log.info("kb_service_stopping")
-    await _shutdown_all(container, app)
+    await shutdown_all(container, app)
     log.info("kb_service_stopped")
 
 

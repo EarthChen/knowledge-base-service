@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import logging
 import re
 from typing import Any
 
+from core.log import get_logger
 from wiki.rag.engine import _is_arun_stream_callable
 
-logger = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 # File extensions for code path detection (backtick-wrapped or bare paths).
 _CODE_FILE_EXT = (
-    r"py|java|ts|tsx|js|jsx|go|rs|kt|kts|scala|rb|php|cs|cpp|cc|c|h|hpp|sql|md|yaml|yml|json|toml"
+    r"py|java|ts|tsx|js|jsx|go|rs|kt|kts|swift|m|dart|scala|rb|php|cs|cpp|cc|c|h|hpp|sql|md|yaml|yml|json|toml"
 )
 _CODE_PATH_BODY = rf"[\w./-]+\.(?:{_CODE_FILE_EXT})"
 _BACKTICK_PATH_RE = re.compile(rf"`({_CODE_PATH_BODY})`", re.IGNORECASE)
@@ -120,7 +120,7 @@ class DeepSearchEngine:
                 max_rounds=max_iterations,
             )
         except Exception:
-            logger.error("deep_search_rag_failed", exc_info=True)
+            log.error("deep_search_rag_failed", exc_info=True)
             return {"analysis": "", "search_trace": [], "business_flows": [], "code_locations": []}
         draft = state.get("current_draft", "") or ""
         return {
@@ -177,7 +177,7 @@ class DeepSearchEngine:
                 draft = state.get("current_draft", "") or ""
                 confidence = float(state.get("confidence", 0.0))
         except Exception:
-            logger.error("deep_search_stream_rag_failed", exc_info=True)
+            log.error("deep_search_stream_rag_failed", exc_info=True)
             yield {
                 "type": "conclusion",
                 "data": {

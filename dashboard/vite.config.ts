@@ -24,7 +24,7 @@ export default defineConfig({
           "vendor-xyflow": ["@xyflow/react"],
           "vendor-chart": ["chart.js", "react-chartjs-2"],
           "vendor-codemirror": ["@codemirror/lang-markdown", "@uiw/react-codemirror"],
-          "vendor-syntax": ["react-syntax-highlighter"],
+          "vendor-syntax": ["prism-react-renderer"],
         },
       },
     },

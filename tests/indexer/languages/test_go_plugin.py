@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from tree_sitter import Parser
+from tree_sitter_language_pack import get_language
+
 from indexer.languages import LanguagePlugin
 from indexer.languages.go_lang import GoPlugin
 
@@ -32,6 +35,20 @@ def test_go_compute_fqn_struct_and_func() -> None:
     pkg = "handlers"
     assert g.compute_fqn(fp, "User", "Class") == f"{pkg}.User"
     assert g.compute_fqn(fp, "Handle", "Function") == f"{pkg}.Handle"
+
+
+def test_go_package_declaration_cached_for_fqn() -> None:
+    g = GoPlugin()
+    fp = "handlers/api.go"
+    src = b"package apipkg\n\nfunc Handle() {}\n"
+    tree = Parser(get_language("go")).parse(src)
+    g.extract_imports(tree, src, fp)
+    assert g.compute_fqn(fp, "Handle", "Function") == "apipkg.Handle"
+    assert g.compute_fqn(fp, "User", "Class") == "apipkg.User"
+
+    gn = GoPlugin()
+    gn.extract_imports(tree, src, r"handlers\api.go")
+    assert gn.compute_fqn("handlers/api.go", "Handle", "Function") == "apipkg.Handle"
 
 
 def test_go_build_module_name() -> None:

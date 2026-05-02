@@ -8,6 +8,8 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
+import api.routes.public_health_routes  # noqa: F401
+
 from api.routes.kb_routers import public_router
 
 

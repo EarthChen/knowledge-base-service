@@ -21,9 +21,14 @@ def _clear_settings_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _suppress_stale_loop_warning() -> None:
-    """Force GC after each test so stale event-loop ResourceWarnings surface
-    in the producing test rather than leaking into the next one."""
+def _gc_after_test() -> None:
+    """Force GC after each test to reclaim async resources deterministically.
+
+    The ``ResourceWarning`` filter is scoped to the ``gc.collect()`` call only:
+    warnings emitted by *test code itself* are **not** suppressed.  Without this,
+    stale event-loop teardown warnings leak into unrelated tests, producing
+    confusing noise.
+    """
     yield
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ResourceWarning)

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 
 from core.config import RerankConfig
+from core.log import get_logger
 
-logger = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
 class Reranker:
@@ -17,9 +17,10 @@ class Reranker:
     def __init__(self, config: RerankConfig) -> None:
         self._config = config
         self._model = None
+        self._available = config.enabled
 
     def _ensure_model(self) -> None:
-        if self._model is not None or not self._config.enabled:
+        if self._model is not None or not self._available:
             return
         try:
             from sentence_transformers import CrossEncoder
@@ -34,10 +35,14 @@ class Reranker:
                     else ("cuda" if torch.cuda.is_available() else "cpu")
                 )
             self._model = CrossEncoder(self._config.model_name, device=device)
-            logger.info("Loaded reranker model: %s on %s", self._config.model_name, device)
+            log.info(
+                "reranker_model_loaded",
+                model=self._config.model_name,
+                device=device,
+            )
         except Exception:
-            logger.warning("Failed to load reranker model, disabling reranking", exc_info=True)
-            self._config.enabled = False
+            log.warning("reranker_model_load_failed", exc_info=True)
+            self._available = False
 
     async def rerank(
         self,
@@ -46,7 +51,7 @@ class Reranker:
         top_k: int = 10,
     ) -> list[dict[str, Any]]:
         """Rerank candidates by cross-encoder score. Returns top_k results."""
-        if not self._config.enabled or not candidates:
+        if not self._available or not candidates:
             return candidates[:top_k]
 
         self._ensure_model()
@@ -74,7 +79,7 @@ class Reranker:
         returned (sorted by score descending) so callers like
         ``position_aware_blend`` can access the full score map.
         """
-        if not self._config.enabled or not candidates:
+        if not self._available or not candidates:
             pairs = [(c, c.get("score", 0.0)) for c in candidates]
             limit = len(pairs) if return_all_scores else top_k
             return pairs[:limit]

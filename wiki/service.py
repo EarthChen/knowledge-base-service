@@ -119,6 +119,7 @@ class WikiService:
         wiki_config: WikiAppConfig,
         embedding_config: EmbeddingConfig,
         redis_conn: Any | None = None,  # TODO: narrow type — assigned only; unused within WikiService today
+        task_supervisor: Any | None = None,
     ) -> None:
         self._graph = graph
         self._planner = WikiStructurePlanner(graph)
@@ -149,6 +150,7 @@ class WikiService:
         self._memory_loop = memory_loop
         self._community_service = community_service
         self._redis = redis_conn
+        self._task_supervisor = task_supervisor
         self._persistence = WikiPagePersistence(
             store=store,
             graph=graph,
@@ -178,6 +180,7 @@ class WikiService:
             llm_resolver=self._resolve_llm_port,
             repository_exists=repository_exists,
             deferred_enrichment=deferred_enrichment,
+            supervisor=task_supervisor,
         )
         self._page_composer = WikiPageComposerService(
             graph=graph,
@@ -209,6 +212,7 @@ class WikiService:
             llm_resolver=self._resolve_llm_port,
             repository_exists=getattr(self, "_repository_exists", None),
             deferred_enrichment=getattr(self, "_deferred_enrichment", None),
+            supervisor=getattr(self, "_task_supervisor", None),
         )
         return self._enrichment
 

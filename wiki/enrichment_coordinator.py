@@ -34,6 +34,7 @@ class WikiEnrichmentCoordinator:
         llm_resolver: Callable[[str | None], Any | None],
         repository_exists: Callable[[str], Awaitable[bool]],
         deferred_enrichment: Any | None = None,
+        supervisor: Any | None = None,
     ) -> None:
         self._store = store
         self._graph = graph
@@ -42,6 +43,7 @@ class WikiEnrichmentCoordinator:
         self._resolve_llm_port = llm_resolver
         self._repository_exists = repository_exists
         self._deferred_enrichment = deferred_enrichment
+        self._supervisor = supervisor
 
     async def _require_repo(self, repository: str) -> None:
         if not await self._repository_exists(repository):
@@ -138,10 +140,19 @@ class WikiEnrichmentCoordinator:
 
         task_id = f"enrich-{uuid.uuid4().hex[:12]}"
         self._enrichment_running[repository] = task_id
-        asyncio.create_task(
-            self.run_enrichment_background(repository, llm_port, task_id),
-            name=f"enrichment-{task_id}",
-        )
+        if self._supervisor is not None:
+            self._supervisor.spawn(
+                lambda r=repository,
+                lp=llm_port,
+                tid=task_id: self.run_enrichment_background(r, lp, tid),
+                name="indexing:enrichment-bg",
+                max_retries=2,
+            )
+        else:
+            asyncio.create_task(
+                self.run_enrichment_background(repository, llm_port, task_id),
+                name=f"enrichment-{task_id}",
+            )
         return {
             "task_id": task_id,
             "eligible_pages": eligible_pages,

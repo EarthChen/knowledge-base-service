@@ -41,6 +41,11 @@ const EXT_TO_LANG: Record<string, string> = {
   sql: "sql",
   sh: "bash",
   bash: "bash",
+  kt: "kotlin",
+  kts: "kotlin",
+  swift: "swift",
+  m: "objectivec",
+  dart: "dart",
 };
 
 function detectLanguage(filePath?: string): string {
@@ -49,16 +54,26 @@ function detectLanguage(filePath?: string): string {
   return EXT_TO_LANG[ext] ?? "python";
 }
 
+function fenceLanguage(lang: string): string {
+  const t = lang.trim().toLowerCase();
+  if (t === "" || t === "text") return "plaintext";
+  return lang.trim();
+}
+
 export default function CodeBlock({
   code,
   filePath,
   startLine,
+  language: explicitLanguage,
 }: {
   code: string;
   filePath?: string;
   startLine?: number;
+  language?: string;
 }) {
-  const language = detectLanguage(filePath);
+  const language = explicitLanguage
+    ? fenceLanguage(explicitLanguage)
+    : detectLanguage(filePath);
   const lineOffset = (startLine ?? 1) - 1;
   const isDark = useIsDark();
   const theme = isDark ? themes.vsDark : themes.github;

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.config import Settings
+from core.task_supervisor import TaskSupervisor
 from indexer.task_manager import IndexTaskManager
 from services.repo_registry import RepoRegistry
 from services.scheduler import SyncScheduler
@@ -27,6 +28,7 @@ class AppContainer:
     settings_store: SettingsStore | None = None
     reindex_sem: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(1))
     index_sem: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(2))
+    task_supervisor: TaskSupervisor = field(default_factory=TaskSupervisor)
 
     # Wiki subsystem (populated by bootstrap_wiki)
     wiki_store: Any = None
@@ -62,6 +64,7 @@ class AppContainer:
             "settings_store": MagicMock(spec=SettingsStore),
             "reindex_sem": asyncio.Semaphore(1),
             "index_sem": asyncio.Semaphore(2),
+            "task_supervisor": TaskSupervisor(),
         }
         defaults.update(overrides)
         return cls(**defaults)

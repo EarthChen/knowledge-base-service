@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { queryKeys } from "../api/queryKeys";
 
 type FlowNode = {
   uid: string;
@@ -16,7 +17,7 @@ type FlowEdge = {
 
 export function useBusinessFlows(businessId: string) {
   return useQuery({
-    queryKey: ["wiki", "business-flows", businessId],
+    queryKey: queryKeys.wiki.businessFlows(businessId),
     queryFn: () =>
       api<{ nodes: FlowNode[]; edges: FlowEdge[] }>(
         `/wiki/flows?business_id=${encodeURIComponent(businessId)}`,

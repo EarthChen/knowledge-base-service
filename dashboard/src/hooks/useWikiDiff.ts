@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { queryKeys } from "../api/queryKeys";
 import type { WikiDiff } from "./wikiTypes";
 
 export function useWikiDiff(
@@ -9,7 +10,7 @@ export function useWikiDiff(
   toVersion: number,
 ) {
   return useQuery<WikiDiff>({
-    queryKey: ["wiki", "diff", businessId, pageUid, fromVersion, toVersion],
+    queryKey: queryKeys.wiki.diff(businessId, pageUid, fromVersion, toVersion),
     queryFn: () =>
       api<WikiDiff>(
         `/wiki/pages/${encodeURIComponent(pageUid)}/diff?from=${fromVersion}&to=${toVersion}`,

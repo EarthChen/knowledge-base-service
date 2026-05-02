@@ -189,6 +189,7 @@ def _wiki_event_to_sse_data(ev: WikiEvent) -> str:
 @router.post("/generate", response_model=None)
 async def wiki_generate(
     body: WikiGenerateBody,
+    request: Request,
     accept: Annotated[str | None, Header()] = None,
     svc: WikiService = Depends(get_wiki_service_dep),
     registry: WikiTaskRegistry = Depends(get_task_registry_dep),
@@ -263,7 +264,23 @@ async def wiki_generate(
                 "scope": body.scope,
             },
         )
-        asyncio.create_task(_run_wiki_task(task_id, svc, body, registry, sem))
+        supervisor = getattr(
+            getattr(request.app.state, "container", None),
+            "task_supervisor",
+            None,
+        )
+        if supervisor is not None:
+            supervisor.spawn(
+                lambda tid=task_id, wsvc=svc, b=body, reg=registry, semaphore=sem: _run_wiki_task(
+                    tid, wsvc, b, reg, semaphore
+                ),
+                name="wiki:generate",
+                max_retries=1,
+            )
+        else:
+            asyncio.create_task(
+                _run_wiki_task(task_id, svc, body, registry, sem),
+            )
         return JSONResponse(
             status_code=202,
             content={"task_id": task_id, "status": "pending"},
@@ -358,20 +375,43 @@ async def wiki_quick(
             },
         )
         bg_fn = getattr(request.app.state, "wiki_quick_background", None)
-        asyncio.create_task(
-            _run_wiki_quick_task(
-                task_id,
-                git_url,
-                body.branch,
-                body.token,
-                body.mode,
-                body.language,
-                registry,
-                sem,
-                bg_fn,
-                body.llm_provider,
-            )
+        supervisor = getattr(
+            getattr(request.app.state, "container", None),
+            "task_supervisor",
+            None,
         )
+        if supervisor is not None:
+            supervisor.spawn(
+                lambda tid=task_id,
+                gurl=git_url,
+                br=body.branch,
+                tok=body.token,
+                m=body.mode,
+                lng=body.language,
+                reg=registry,
+                semaphore=sem,
+                bf=bg_fn,
+                llp=body.llm_provider: _run_wiki_quick_task(
+                    tid, gurl, br, tok, m, lng, reg, semaphore, bf, llp
+                ),
+                name="wiki:quick",
+                max_retries=1,
+            )
+        else:
+            asyncio.create_task(
+                _run_wiki_quick_task(
+                    task_id,
+                    git_url,
+                    body.branch,
+                    body.token,
+                    body.mode,
+                    body.language,
+                    registry,
+                    sem,
+                    bg_fn,
+                    body.llm_provider,
+                ),
+            )
         return JSONResponse(
             status_code=202,
             content={"task_id": task_id, "status": "pending"},
@@ -583,21 +623,55 @@ async def generate_business_wiki(
         if task_store:
             await task_store.put_task(task_id, initial)
         registry.put_task(task_id, initial)
-        asyncio.create_task(
-            _run_business_wiki_background(
-                task_id=task_id,
-                business_id=body.business_id,
-                language=body.language,
-                llm_provider=body.llm_provider,
-                incremental=body.incremental,
-                mode=body.mode,
-                svc=svc,
-                task_store=task_store,
-                event_bus=event_bus,
-                registry=registry,
-                lock_token=lock_token,
-            )
+        supervisor = getattr(
+            getattr(request.app.state, "container", None),
+            "task_supervisor",
+            None,
         )
+        if supervisor is not None:
+            supervisor.spawn(
+                lambda ti=task_id,
+                bid=body.business_id,
+                lang=body.language,
+                llp=body.llm_provider,
+                inc=body.incremental,
+                md=body.mode,
+                wsvc=svc,
+                ts=task_store,
+                eb=event_bus,
+                reg=registry,
+                ltok=lock_token: _run_business_wiki_background(
+                    task_id=ti,
+                    business_id=bid,
+                    language=lang,
+                    llm_provider=llp,
+                    incremental=inc,
+                    mode=md,
+                    svc=wsvc,
+                    task_store=ts,
+                    event_bus=eb,
+                    registry=reg,
+                    lock_token=ltok,
+                ),
+                name="wiki:business",
+                max_retries=1,
+            )
+        else:
+            asyncio.create_task(
+                _run_business_wiki_background(
+                    task_id=task_id,
+                    business_id=body.business_id,
+                    language=body.language,
+                    llm_provider=body.llm_provider,
+                    incremental=body.incremental,
+                    mode=body.mode,
+                    svc=svc,
+                    task_store=task_store,
+                    event_bus=event_bus,
+                    registry=registry,
+                    lock_token=lock_token,
+                ),
+            )
     except Exception:
         if task_store and lock_token:
             await task_store.unlock(body.business_id, lock_token)

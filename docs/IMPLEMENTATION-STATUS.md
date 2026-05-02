@@ -122,6 +122,21 @@
 
 ---
 
+## 4.1 Language Plugin Phase 2 — 客户端平台语言扩展（2026-05-02）
+
+| 组件 | 实现位置 | 说明 |
+|------|-----------|------|
+| **KotlinPlugin** | `indexer/languages/kotlin_lang.py` | JVM interop group，共享 `_jvm_common`；支持 `.kt`/`.kts` |
+| **SwiftPlugin** | `indexer/languages/swift_lang.py` | Apple interop group；支持 `.swift` |
+| **ObjectiveCPlugin** | `indexer/languages/objc_lang.py` | Apple interop group；支持 `.m`/`.h`；含 ObjC message_expression 解析 |
+| **DartPlugin** | `indexer/languages/dart_lang.py` | Flutter 跨平台；支持 `.dart`；含 `package:` 导入解析 |
+| **Protocol 扩展** | `indexer/languages/__init__.py` | 新增 `accept_class_query_capture` / `extract_function_name_from_node` / `extract_call_name_from_node` 钩子 |
+| **配置默认值** | `core/config.py` | `supported_languages` 与 `file_extensions` 扩展至 9 语言 |
+| **CodeGraphBuilder** | `indexer/code_graph_builder.py` | `compute_fqn` 增加通用后缀查找路径 |
+| **回归测试** | 2655 测试全通过（+19 新插件测试） | 覆盖率 82% |
+
+---
+
 ## 5. 安全加固（2026-05-02）
 
 | 项 | 代码位置 | 状态 |

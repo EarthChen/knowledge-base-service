@@ -1,5 +1,4 @@
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import SharedCodeBlock from "../CodeBlock";
 
 type Props = {
   lang: string;
@@ -7,18 +6,5 @@ type Props = {
 };
 
 export default function CodeBlock({ lang, text }: Props) {
-  return (
-    <SyntaxHighlighter
-      style={oneDark}
-      language={lang}
-      PreTag="div"
-      customStyle={{
-        margin: 0,
-        borderRadius: "0.5rem",
-        fontSize: "0.875rem",
-      }}
-    >
-      {text}
-    </SyntaxHighlighter>
-  );
+  return <SharedCodeBlock code={text} language={lang} />;
 }

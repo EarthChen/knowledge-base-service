@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { queryKeys } from "../api/queryKeys";
 import type { WikiDocumentationQualitySummary, WikiQualityScoreResponse } from "./wikiTypes";
 
 export function useWikiQualityScore(businessId: string) {
   return useQuery<WikiQualityScoreResponse>({
-    queryKey: ["wiki", "quality", businessId],
+    queryKey: queryKeys.wiki.quality(businessId),
     queryFn: () =>
       api<WikiQualityScoreResponse>(`/wiki/quality-score?business_id=${encodeURIComponent(businessId)}`),
     enabled: !!businessId,
@@ -16,7 +17,7 @@ export function useWikiQualityScore(businessId: string) {
 export function useWikiDocumentationQualitySummary(repository: string, queryEnabled = true) {
   const repo = repository.trim();
   return useQuery<WikiDocumentationQualitySummary>({
-    queryKey: ["wiki", "quality", "documentation-summary", repo],
+    queryKey: queryKeys.wiki.documentationQualitySummary(repo),
     queryFn: () =>
       api<WikiDocumentationQualitySummary>(
         `/wiki/${encodeURIComponent(repo)}/documentation-quality/summary`,

@@ -18,11 +18,14 @@ class LintScheduler:
         repositories: list[str] | Callable[[], Awaitable[list[str]] | list[str]],
         *,
         interval_seconds: float = 21600,
+        supervisor: Any = None,
     ) -> None:
         self._factory = lint_service_factory
         self._repositories = repositories
         self._interval_seconds = interval_seconds
+        self._supervisor = supervisor
         self._task: asyncio.Task[None] | None = None
+        self._supervisor_spawn_id: str | None = None
         self._running = False
 
     async def _resolve_repositories(self) -> list[str]:
@@ -37,10 +40,25 @@ class LintScheduler:
         return list(resolved) if resolved else []
 
     def start(self) -> None:
-        if self._task is not None:
+        if self._task is not None and not self._task.done():
+            return
+        if (
+            self._supervisor is not None
+            and self._supervisor_spawn_id is not None
+            and (ot := self._supervisor.asyncio_task_for(self._supervisor_spawn_id)) is not None
+            and not ot.done()
+        ):
             return
         self._running = True
-        self._task = asyncio.create_task(self._loop())
+        if self._supervisor is not None:
+            self._supervisor_spawn_id = self._supervisor.spawn(
+                lambda: self._loop(),
+                name="scheduler:lint",
+                max_retries=3,
+                retry_delay=10.0,
+            )
+        else:
+            self._task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
         self._running = False
@@ -51,6 +69,15 @@ class LintScheduler:
             except asyncio.CancelledError:
                 pass
             self._task = None
+        elif self._supervisor is not None and self._supervisor_spawn_id:
+            ot = self._supervisor.asyncio_task_for(self._supervisor_spawn_id)
+            self._supervisor.cancel(self._supervisor_spawn_id)
+            if ot is not None:
+                try:
+                    await ot
+                except asyncio.CancelledError:
+                    pass
+            self._supervisor_spawn_id = None
 
     async def _loop(self) -> None:
         while self._running:

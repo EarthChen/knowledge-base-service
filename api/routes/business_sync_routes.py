@@ -475,7 +475,15 @@ async def sync_repo_and_regenerate_wiki(
                 except Exception:
                     log.warning("sync_wiki_regen_failed", repository=repo_name, exc_info=True)
 
-            asyncio.create_task(_wiki_bg())
+            supervisor = getattr(
+                getattr(request.app.state, "container", None),
+                "task_supervisor",
+                None,
+            )
+            if supervisor is not None:
+                supervisor.spawn(lambda: _wiki_bg(), name="wiki:sync-regen")
+            else:
+                asyncio.create_task(_wiki_bg())
     except Exception:
         log.warning("sync_wiki_trigger_failed", repository=repo_name, exc_info=True)
 

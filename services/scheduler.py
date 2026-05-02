@@ -61,6 +61,7 @@ class SyncScheduler:
         settings: Settings,
         repo_registry: RepoRegistry | None = None,
         schedule_store_path: Path | None = None,
+        supervisor: Any | None = None,
     ) -> None:
         self._registry = registry
         self._settings = settings
@@ -70,6 +71,8 @@ class SyncScheduler:
         self._store_path = schedule_store_path or SCHEDULE_FILE
         self._schedules: dict[str, SyncScheduleConfig] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._supervisor = supervisor
+        self._supervisor_task_ids: dict[str, str] = {}
         self._state_lock = asyncio.Lock()
         self._sync_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._stopped = asyncio.Event()
@@ -124,6 +127,9 @@ class SyncScheduler:
         t = self._tasks.pop(repo_name, None)
         if t and not t.done():
             t.cancel()
+        sid = self._supervisor_task_ids.pop(repo_name, None)
+        if sid is not None and self._supervisor is not None:
+            self._supervisor.cancel(sid)
 
     def _ensure_task(self, repo_name: str) -> None:
         cfg = self._schedules.get(repo_name)
@@ -131,10 +137,18 @@ class SyncScheduler:
             self._cancel_task(repo_name)
             return
         self._cancel_task(repo_name)
-        self._tasks[repo_name] = asyncio.create_task(
-            self._schedule_loop(repo_name),
-            name=f"sync_schedule:{repo_name}",
-        )
+        if self._supervisor is not None:
+            self._supervisor_task_ids[repo_name] = self._supervisor.spawn(
+                lambda rn=repo_name: self._schedule_loop(rn),
+                name=f"scheduler:sync:{repo_name}",
+                max_retries=3,
+                retry_delay=10.0,
+            )
+        else:
+            self._tasks[repo_name] = asyncio.create_task(
+                self._schedule_loop(repo_name),
+                name=f"sync_schedule:{repo_name}",
+            )
 
     async def _schedule_loop(self, repo_name: str) -> None:
         log.info("sync_schedule_loop_started", repo=repo_name)
@@ -338,6 +352,19 @@ class SyncScheduler:
     async def stop(self) -> None:
         """Cancel all background tasks."""
         self._stopped.set()
+        if self._supervisor is not None:
+            sup_snapshot = list(self._supervisor_task_ids.items())
+            for name, sid in sup_snapshot:
+                ot = self._supervisor.asyncio_task_for(sid)
+                self._supervisor.cancel(sid)
+                if ot is not None:
+                    try:
+                        await ot
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as exc:
+                        log.warning("sync_scheduler_task_join_error", repo=name, error=str(exc))
+            self._supervisor_task_ids.clear()
         for name, t in list(self._tasks.items()):
             if not t.done():
                 t.cancel()

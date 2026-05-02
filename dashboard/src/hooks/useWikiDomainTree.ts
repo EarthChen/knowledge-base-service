@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { queryKeys } from "../api/queryKeys";
 
 export interface TopicTreeNode {
   name: string;
@@ -18,7 +19,7 @@ interface TopicTreeResponse {
 
 export function useWikiTopicTree(businessId: string) {
   return useQuery<TopicTreeResponse>({
-    queryKey: ["wiki", "topic-tree", businessId],
+    queryKey: queryKeys.wiki.topicTree(businessId),
     queryFn: () => api(`/wiki/topic-tree?business_id=${encodeURIComponent(businessId)}`),
     enabled: !!businessId,
     staleTime: 30_000,
@@ -32,7 +33,7 @@ interface DomainTreeResponse {
 
 export function useWikiDomainTree(businessId: string) {
   return useQuery<DomainTreeResponse>({
-    queryKey: ["wiki", "domain-tree", businessId],
+    queryKey: queryKeys.wiki.domainTree(businessId),
     queryFn: () => api(`/wiki/domain-tree?business_id=${encodeURIComponent(businessId)}`),
     enabled: !!businessId,
     staleTime: 30_000,
@@ -51,7 +52,7 @@ interface DomainEdgesResponse {
 
 export function useWikiDomainEdges(businessId: string) {
   return useQuery<DomainEdgesResponse>({
-    queryKey: ["wiki", "domain-edges", businessId],
+    queryKey: queryKeys.wiki.domainEdges(businessId),
     queryFn: () => api(`/wiki/domain-edges?business_id=${encodeURIComponent(businessId)}`),
     enabled: !!businessId,
     staleTime: 60_000,

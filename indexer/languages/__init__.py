@@ -43,6 +43,15 @@ class LanguagePlugin(Protocol):
     def extract_signature(self, func_node: Node, source: bytes) -> str:
         ...
 
+    def accept_class_query_capture(self, class_node: Node, name_node: Node) -> bool:
+        ...
+
+    def extract_function_name_from_node(self, func_node: Node, source: bytes) -> str:
+        ...
+
+    def extract_call_name_from_node(self, call_node: Node, source: bytes) -> str:
+        ...
+
     def extract_base_classes(self, class_node: Node, source: bytes) -> tuple[list[str], list[str]]:
         ...
 
@@ -142,10 +151,14 @@ class PluginRegistry:
 
 def create_default_registry(languages: list[str] | None = None) -> PluginRegistry:
     """Build a registry with built-in language plugins (lazy-imported)."""
+    from indexer.languages.dart_lang import DartPlugin
     from indexer.languages.go_lang import GoPlugin
     from indexer.languages.java_lang import JavaPlugin
     from indexer.languages.javascript_lang import JavaScriptPlugin, TypeScriptPlugin
+    from indexer.languages.kotlin_lang import KotlinPlugin
+    from indexer.languages.objc_lang import ObjectiveCPlugin
     from indexer.languages.python_lang import PythonPlugin
+    from indexer.languages.swift_lang import SwiftPlugin
 
     specs: list[tuple[str, type]] = [
         ("python", PythonPlugin),
@@ -153,6 +166,10 @@ def create_default_registry(languages: list[str] | None = None) -> PluginRegistr
         ("go", GoPlugin),
         ("javascript", JavaScriptPlugin),
         ("typescript", TypeScriptPlugin),
+        ("kotlin", KotlinPlugin),
+        ("swift", SwiftPlugin),
+        ("objc", ObjectiveCPlugin),
+        ("dart", DartPlugin),
     ]
     allow = None if languages is None else {x.lower() for x in languages}
 

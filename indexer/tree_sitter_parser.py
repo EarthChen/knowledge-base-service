@@ -24,6 +24,12 @@ _LANGUAGE_QUERIES_CACHE: dict[str, dict[str, str]] | None = None
 
 
 def __getattr__(name: str) -> dict[str, dict[str, str]]:
+    """Module-level lazy accessor for ``LANGUAGE_QUERIES``.
+
+    Avoids import-time side effects by deferring PluginRegistry creation until
+    the attribute is first accessed.  Usage: ``from indexer.tree_sitter_parser
+    import LANGUAGE_QUERIES`` (or ``tree_sitter_parser.LANGUAGE_QUERIES``).
+    """
     if name == "LANGUAGE_QUERIES":
         global _LANGUAGE_QUERIES_CACHE
         if _LANGUAGE_QUERIES_CACHE is None:
@@ -113,23 +119,6 @@ class ParseResult:
     fields: list[ParsedField] = field(default_factory=list)
     module_docstring: str = ""
 
-
-_LICENSE_KEYWORDS: frozenset[str] = frozenset({
-    "copyright", "licensed", "license", "apache", "mit license",
-    "gpl", "bsd", "mozilla", "all rights reserved",
-})
-
-
-def _is_license_comment(text: str) -> bool:
-    lower = text.lower()[:500]
-    return sum(1 for kw in _LICENSE_KEYWORDS if kw in lower) >= 2
-
-
-_JAVA_DI_NON_BEAN_SIMPLE_TYPES: frozenset[str] = frozenset({
-    "String", "Boolean", "Byte", "Character", "Double", "Float", "Integer", "Long", "Short",
-    "Object", "Void", "Class", "Throwable", "Exception", "RuntimeException",
-    "List", "Map", "Set", "Collection", "Iterable", "Optional", "Stream",
-})
 
 
 class TreeSitterParser:
@@ -225,14 +214,19 @@ class TreeSitterParser:
         for _pattern_idx, match_captures in cursor.matches(tree.root_node):
             func_nodes = match_captures.get("func.def", [])
             name_nodes = match_captures.get("func.name", [])
-            if not func_nodes or not name_nodes:
+            if not func_nodes:
                 continue
-
             func_node = func_nodes[0]
+            fb_name = "" if name_nodes else plugin.extract_function_name_from_node(func_node, source)
+            if name_nodes:
+                name = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
+            else:
+                name = fb_name
+            if not (name or "").strip():
+                continue
             if not plugin.should_include_function(func_node):
                 continue
 
-            name = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
             raw_snippet = func_node.text.decode("utf-8") if func_node.text else ""
             code_snippet = TreeSitterParser._truncate_code_snippet(raw_snippet)
 
@@ -285,7 +279,11 @@ class TreeSitterParser:
                 continue
 
             class_node = class_nodes[0]
-            name = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
+            name_node = name_nodes[0]
+            if not plugin.accept_class_query_capture(class_node, name_node):
+                continue
+
+            name = name_node.text.decode("utf-8") if name_node.text else ""
             is_interface = class_node.type == "interface_declaration"
             docstring = plugin.extract_class_docstring(class_node, source)
             base_classes, generic_type_params = plugin.extract_base_classes(class_node, source)
@@ -350,12 +348,17 @@ class TreeSitterParser:
         for _pattern_idx, match_captures in cursor.matches(tree.root_node):
             call_nodes = match_captures.get("call.expr", [])
             name_nodes = match_captures.get("call.name", [])
-            if not call_nodes or not name_nodes:
+            if not call_nodes:
                 continue
-
-            callee = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
-            call_line = call_nodes[0].start_point[0] + 1
             call_node = call_nodes[0]
+            callee = ""
+            if name_nodes:
+                callee = name_nodes[0].text.decode("utf-8") if name_nodes[0].text else ""
+            else:
+                callee = plugin.extract_call_name_from_node(call_node, source)
+            if not (callee or "").strip():
+                continue
+            call_line = call_nodes[0].start_point[0] + 1
             receiver_expr = plugin.extract_receiver_expr(call_node, source)
             caller = self._find_enclosing_function(call_line, func_ranges)
             if caller:
@@ -390,12 +393,6 @@ class TreeSitterParser:
             return code_snippet
         total = len(code_snippet)
         return code_snippet[:3000] + f"\n# ... truncated ({total} total chars)"
-
-    @staticmethod
-    def _java_type_looks_like_spring_bean(simple_name: str) -> bool:
-        if not simple_name or not simple_name[0].isupper():
-            return False
-        return simple_name not in _JAVA_DI_NON_BEAN_SIMPLE_TYPES
 
     @staticmethod
     def _find_enclosing_function(line: int, func_ranges: list[tuple[str, int, int]]) -> str:

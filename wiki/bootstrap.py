@@ -132,6 +132,7 @@ async def _run_feedback_wiki_regen(
 
 def _make_enqueue_regenerate(
     app_state: Any,
+    supervisor: Any = None,
 ) -> Callable[[str, str, float], Awaitable[None]]:
     async def enqueue_regenerate(
         page_uid: str, priority: str, token_multiplier: float
@@ -144,7 +145,10 @@ def _make_enqueue_regenerate(
             except Exception:  # noqa: BLE001 — background: never let task die silently
                 log.warning("feedback_regen_background_failed", page_uid=page_uid, exc_info=True)
 
-        asyncio.create_task(_task())
+        if supervisor is not None:
+            supervisor.spawn(lambda: _task(), name="wiki:feedback-regen")
+        else:
+            asyncio.create_task(_task())
 
     return enqueue_regenerate
 
@@ -185,9 +189,7 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
 
     wiki_task_store: WikiTaskStore | None = None
     try:
-        redis_conn = getattr(kb.store, "_redis", None) or getattr(kb.store, "redis", None)
-        if redis_conn is None and hasattr(kb.store, "_graph"):
-            redis_conn = getattr(kb.store._graph, "_redis", None)
+        redis_conn = kb.store.get_redis_client()
         if redis_conn is None and hasattr(kb.store, "_db"):
             sync_conn = getattr(kb.store._db, "connection", None)
             if sync_conn is not None:
@@ -270,6 +272,11 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
             except Exception:  # noqa: BLE001 — optional wiring
                 log.warning("community_context_service_unavailable", exc_info=True)
 
+        svc_supervisor = getattr(
+            getattr(app.state, "container", None),
+            "task_supervisor",
+            None,
+        )
         return WikiService(
             graph=kb_svc.store,
             llm=_wrap_llm(kb_svc.llm_provider),
@@ -282,6 +289,7 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
             community_service=community_service,
             wiki_config=settings.wiki,
             embedding_config=settings.embedding,
+            task_supervisor=svc_supervisor,
         )
 
     app.state.wiki_service_factory = wiki_service_factory
@@ -332,10 +340,15 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
     _get_wiki_generation_sem(app.state)
     from wiki.feedback_loop import FeedbackDrivenRegeneration
 
+    supervisor_fb = getattr(
+        getattr(app.state, "container", None),
+        "task_supervisor",
+        None,
+    )
     app.state.wiki_feedback_regen = FeedbackDrivenRegeneration(
         graph=kb.store,
         wiki_config=settings.wiki,
-        enqueue_regenerate=_make_enqueue_regenerate(app.state),
+        enqueue_regenerate=_make_enqueue_regenerate(app.state, supervisor_fb),
     )
 
     if settings.wiki.mcp_server_enabled:

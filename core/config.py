@@ -391,7 +391,10 @@ class Settings(BaseSettings):
     git: GitConfig = Field(default_factory=GitConfig)
 
     supported_languages: list[str] = Field(
-        default_factory=lambda: ["python", "java", "go", "javascript", "typescript"]
+        default_factory=lambda: [
+            "python", "java", "go", "javascript", "typescript",
+            "kotlin", "swift", "objc", "dart",
+        ]
     )
     file_extensions: dict[str, list[str]] = Field(
         default_factory=lambda: {
@@ -400,6 +403,10 @@ class Settings(BaseSettings):
             "go": [".go"],
             "javascript": [".js", ".jsx", ".mjs"],
             "typescript": [".ts", ".tsx"],
+            "kotlin": [".kt", ".kts"],
+            "swift": [".swift"],
+            "objc": [".m", ".h"],
+            "dart": [".dart"],
         }
     )
 

@@ -53,6 +53,15 @@ class _StubPlugin:
     def extract_signature(self, func_node: Node, source: bytes) -> str:
         return ""
 
+    def accept_class_query_capture(self, class_node: Node, name_node: Node) -> bool:
+        return True
+
+    def extract_function_name_from_node(self, func_node: Node, source: bytes) -> str:
+        return ""
+
+    def extract_call_name_from_node(self, call_node: Node, source: bytes) -> str:
+        return ""
+
     def extract_base_classes(self, class_node: Node, source: bytes) -> tuple[list[str], list[str]]:
         return [], []
 

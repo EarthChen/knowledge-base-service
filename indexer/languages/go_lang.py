@@ -27,6 +27,27 @@ _GO_QUERIES: dict[str, str] = {
 
 
 class GoPlugin(BaseLanguagePlugin):
+    def __init__(self) -> None:
+        super().__init__()
+        self._package_cache: dict[str, str] = {}
+
+    @staticmethod
+    def _normalize_go_file_path(file_path: str) -> str:
+        return file_path.replace("\\", "/")
+
+    def _cache_package_from_tree(self, root_node: Node, file_path: str) -> None:
+        fp = self._normalize_go_file_path(file_path)
+        for child in root_node.children:
+            if child.type != "package_clause":
+                continue
+            for ch in child.children:
+                if ch.type == "package_identifier":
+                    name = ch.text.decode("utf-8") if ch.text else ""
+                    if name:
+                        self._package_cache[fp] = name
+                    return
+            return
+
     @property
     def name(self) -> str:
         return "go"
@@ -39,6 +60,7 @@ class GoPlugin(BaseLanguagePlugin):
         return dict(_GO_QUERIES)
 
     def extract_imports(self, tree: Tree, source: bytes, file_path: str) -> list[ParsedImport]:
+        self._cache_package_from_tree(tree.root_node, file_path)
         imports: list[ParsedImport] = []
         lang = get_language("go")
         query_str = _GO_QUERIES["import"]
@@ -190,8 +212,8 @@ class GoPlugin(BaseLanguagePlugin):
         label: str,
         parent_class: str = "",
     ) -> str:
-        fp = file_path.replace("\\", "/")
-        pkg = self._go_package_from_file(fp)
+        fp = self._normalize_go_file_path(file_path)
+        pkg = self._package_cache.get(fp) or self._go_package_from_file(fp)
         if label == "Class":
             return f"{pkg}.{entity_name}"
         if parent_class:

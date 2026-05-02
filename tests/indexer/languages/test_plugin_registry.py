@@ -152,11 +152,11 @@ def test_supported_languages_sorted() -> None:
     assert reg.supported_languages == ["apple", "zebra"]
 
 
-def test_file_extensions_property_order_and_dedup() -> None:
+def test_file_extensions_property_per_language() -> None:
     reg = PluginRegistry()
     reg.register(_StubPlugin(name="one", file_extensions=[".z", ".y"]))
     reg.register(_StubPlugin(name="two", file_extensions=[".z", ".x"]))
-    assert reg.file_extensions == [".z", ".y", ".x"]
+    assert reg.file_extensions == {"one": [".z", ".y"], "two": [".z", ".x"]}
 
 
 def test_runtime_check_isinstance_language_plugin() -> None:

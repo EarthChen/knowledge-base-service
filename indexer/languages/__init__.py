@@ -136,17 +136,8 @@ class PluginRegistry:
         return sorted(self._by_name.keys())
 
     @property
-    def file_extensions(self) -> list[str]:
-        seen: set[str] = set()
-        ordered: list[str] = []
-        for p in self._by_name.values():
-            for ext in p.file_extensions:
-                norm = ext if ext.startswith(".") else f".{ext}"
-                key = norm.lower()
-                if key not in seen:
-                    seen.add(key)
-                    ordered.append(norm)
-        return ordered
+    def file_extensions(self) -> dict[str, list[str]]:
+        return {p.name: list(p.file_extensions) for p in self._by_name.values()}
 
 
 def create_default_registry(languages: list[str] | None = None) -> PluginRegistry:

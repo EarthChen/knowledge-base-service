@@ -15,9 +15,14 @@ def _reverse_index(file_index: dict[str, str]) -> dict[str, list[str]]:
 
 
 def test_compute_jvm_fqn_kotlin_marker() -> None:
-    """Kotlin roots participate in JVM FQN layout."""
+    """Kotlin roots participate in JVM FQN layout when markers are provided."""
+    from indexer.languages._jvm_common import _ALL_JVM_SRC_MARKERS
+
     fp = "demo/src/main/kotlin/com/example/App.kt"
-    assert compute_jvm_fqn(fp, "run", is_method=False, parent_class="", file_suffix=".kt") == "com.example.App"
+    assert compute_jvm_fqn(
+        fp, "run", is_method=False, parent_class="", file_suffix=".kt",
+        src_markers=_ALL_JVM_SRC_MARKERS,
+    ) == "com.example.App"
 
 
 def test_java_plugin_isinstance_and_properties() -> None:

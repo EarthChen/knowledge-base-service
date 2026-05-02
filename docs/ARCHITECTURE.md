@@ -1,14 +1,20 @@
-# 系统架构
+# Knowledge Base Service — 系统架构
 
-## 整体架构
+本文档描述 **Knowledge Base Service** 的全栈架构：FastAPI 生命周期、依赖容器、HTTP 路由与中间件、FalkorDB 分层存储、索引与检索管道、Wiki 生成与质量子系统、MCP、仪表盘 SPA，以及横切模块（分页、FQN、协议边界）。实现细节与规划差异另见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)；Wiki 生成流水线延展说明见 [wiki-generation-architecture.md](wiki-generation-architecture.md)。
+
+---
+
+## 1. 顶层数据流
+
+下列示意图概括 **索引 → 图与向量 → 混合检索** 的主路径（不含 Wiki 组合与 MCP）。
 
 ```mermaid
 flowchart TB
-  subgraph ingest [索引]
+  subgraph ingest [索引管线]
     TS[Tree-sitter 解析]
     CGB[CodeGraphBuilder AST → 节点/边]
-    DOC[文档索引器 .md/.rst/.txt/.yml/.yaml/.xml/.properties/.env/.toml]
-    EMB[嵌入生成器]
+    DOC[文档索引器]
+    EMB[嵌入生成器 EmbeddingGenerator.shared]
     ENR[可选 LLM 丰富化 business_summary]
   end
 
@@ -17,15 +23,15 @@ flowchart TB
     V[按 NodeLabel 的向量索引]
   end
 
-  subgraph retrieve [检索]
+  subgraph retrieve [检索管线]
     QR[查询路由器 意图权重]
     KW[keyword_search]
-    SEM[semantic_search / 子块 + 父块]
-    BM25[BM25 全文搜索]
+    SEM[semantic_search]
+    BM25[BM25 全文 SearchStore.fulltext_search]
     RRF[加权 RRF 三路融合]
     RR[可选交叉编码器重排序]
     CAP[per_file_cap 多样性]
-    EXP[图扩展 CALLS INHERITS ...]
+    EXP[图扩展]
   end
 
   TS --> CGB --> G
@@ -44,112 +50,223 @@ flowchart TB
   G --> BM25
 ```
 
-## 后端组件
+---
 
-| 组件 | 职责 |
+## 2. 应用生命周期（`main.py`）
+
+FastAPI 通过 **`lifespan`** 上下文管理启动与关闭；初始化逻辑拆分为若干函数，便于测试与阅读。
+
+### 2.1 `_init_security(settings)`
+
+1. **`_enforce_production_security`**：`KB_ENV=production` 时强制 **`require_auth=true`** 且至少配置一种 API Token（`API_TOKEN` / `API_TOKENS` / `tokens.yaml`），否则拒绝启动。
+2. **`_startup_auth_gate`**：若当前为开放认证模式（未配置 Token），记录告警；若同时 **`require_auth`** 已启用却无 Token，则启动失败。
+
+### 2.2 `_init_core_services(container, app)`
+
+1. 创建 **`IndexTaskManager`**，并向 **`ServiceRegistry`** 注入 MCP 可用的索引任务状态查询回调。
+2. 基于 **`clone_base_path`** 解析数据目录，创建 **`RepoRegistry`**、**`SettingsStore`**（同时挂载 **`app.state.settings_store`**）。
+3. 构造并 **`await registry.start()`** 启动 **`ServiceRegistry`**（共享 FalkorDB 连接、按业务 **`KnowledgeBaseService`**、就绪检查等）。
+4. 取默认业务 **`KnowledgeBaseService`**，将 **`_AppGraphQuery`**（封装 **`FalkorDBStore.execute_query`**）挂到 **`app.state.graph`**，供 Business 路由等执行只读 Cypher。
+5. 创建 **`SyncScheduler`**（持久化调度文件、`repo_registry` 注入），**`await scheduler.start()`**。
+6. 镜像 **`app.state.registry`**、**`app.state.scheduler`**。
+
+> **图查询线程池**：FalkorDB 驱动调用在 **`store/falkordb_store.py`** 的全局 **`ThreadPoolExecutor`**（**`_graph_executor`**）上卸载执行；**`_shutdown_all`** 末尾对其 **`shutdown(wait=False)`**，避免阻塞退出。
+
+### 2.3 `_init_wiki_and_lint(container, app)`
+
+1. **`init_webhook_state(app)`** — Webhook 相关状态。
+2. **`WikiCache`** — 若 **`app.state.wiki_cache`** 为空则初始化。
+3. **`wiki_lint_service_factory`** — 异步工厂：按配置可选装配 **`ContradictionDetector`**（嵌入相似度门控 + LLM 裁决），返回 **`WikiLintService`**（质量 lint、置信度重算、Schema 校验等与配置联动）。
+4. **`await bootstrap_wiki(app, container.settings)`** — 将 Wiki 子系统各服务写入 **`app.state`**，并回填 **`AppContainer`** 中 Wiki 相关字段（见下文容器一节）。
+5. **`LintScheduler`** — 当 **`WIKI__LINT_SCHEDULER_ENABLED`** 为真时，按间隔秒数周期对注册仓库调用 **`run_lint`**，实例保存在 **`app.state.wiki_lint_scheduler`**。
+
+### 2.4 `lifespan` 其余步骤
+
+- 构造 **`AppContainer`**（仅 **`settings`** 初始必填）。
+- **`await _init_core_services`** → **`kb_state._bind(container)`** → **`app.state.container = container`**。
+- **`await _init_wiki_and_lint`**。
+
+### 2.5 `_shutdown_all(container, app)`（逆序卸载）
+
+1. 停止 **`wiki_lint_scheduler`**（若存在）。
+2. **`await teardown_wiki(app)`**。
+3. **`await container.scheduler.stop()`**。
+4. **`await container.registry.stop()`**。
+5. **`await wiki_event_bus.shutdown()`**（若已挂载）。
+6. **`_graph_executor.shutdown(wait=False)`**。
+
+```mermaid
+sequenceDiagram
+  participant L as lifespan
+  participant S as _init_security
+  participant C as _init_core_services
+  participant K as kb_state._bind
+  participant W as _init_wiki_and_lint
+  participant D as _shutdown_all
+  L->>S: 生产门禁 + Token 门控
+  L->>C: Registry / Scheduler / graph shim
+  L->>K: 模块级全局 ← AppContainer
+  L->>W: bootstrap_wiki + LintScheduler
+  Note over L: yield（服务运行）
+  L->>D: 逆序 teardown
+```
+
+---
+
+## 3. 服务容器（`core/container.py`）
+
+**`AppContainer`** 为 **`dataclass`**，承载进程级单例依赖，取代历史上散落在 **`api/kb_state.py`** 的全局可变状态。
+
+### 3.1 核心字段（启动期填充）
+
+| 字段 | 说明 |
 |------|------|
-| **FastAPI**（`main.py`） | HTTP API、静态 SPA 托管、生命周期管理（注册中心、调度器、Wiki 服务初始化） |
-| **FalkorDB** | 带标签的属性图 + 全文/向量操作，由分层 Store 封装（`FalkorDBStore` / `SearchStore` / `TraversalStore` / `AnalysisStore` / `WikiStore` / `IndexerStore`） |
-| **Tree-sitter** | 按文件 AST 捕获；每种语言的查询规则驱动 `CodeGraphBuilder` |
-| **嵌入**（Embeddings） | `EmbeddingConfig`：默认 `BAAI/bge-m3`，在多种节点标签上建立向量索引（参见 `store/schema.py` 中的 `VECTOR_INDEX_CONFIGS`） |
-| **LLM**（可选） | OpenAI 兼容 API，用于深度搜索、可选索引丰富化（`LLMConfig`） |
-| **MCP 处理器**（`api/mcp_server.py`） | 混合/图/索引/Wiki（与 `wiki/mcp_tools.py` 合并清单）；**`get_file_content`** 读检出源文件；NL→Cypher 仅供 Dashboard UI 使用（`query/nl_cypher.py`，不暴露为 MCP 工具） |
-| **业务 Wiki 任务** | `wiki/task_store.py`（**WikiTaskStore**：Redis Hash 任务元数据 + 并发锁）、`wiki/task_registry.py` 可选委托；`wiki/bootstrap` 注入 `app.state.wiki_task_store`；**`POST /api/v1/wiki/business/generate`** 返回 **202** 与后台 `task_id`，**`GET /api/v1/wiki/business/tasks/{task_id}`** 取进度；与增量 Ingest 正交的 **仓库级增量跳过** 见 `get_repo_wiki_freshness` + `WikiService.generate_business_wiki` |
-| **Wiki MCP 子服务**（`api/mcp_wiki_server.py`） | 可选；`WIKI__MCP_SERVER_ENABLED` 为 true 时注册 `mcp_wiki_server`，HTTP：`GET /api/v1/mcp/tools/list`、`POST /api/v1/mcp/tools/call`（六工具，见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)） |
-| **增量 Ingest** | `POST /api/v1/wiki/ingest` 按文件列表触发增量再生成；`GET /api/v1/wiki/changelog` 查仓库变更记录；`POST /api/v1/hooks/ingest/push` 在 Webhook 链路上触发自动 Ingest（与 `wiki/bootstrap` 中 `ChangeDetector` / `WikiChangeLogStore` 协同） |
-| **Lint 与自愈** | `wiki/lint.py`（`WikiLintService`）含质量 lint、可选**置信度重算**、**模式校验**；`WikiLintService.run_lint()` 在 `WIKI__AUTO_HEAL_ENABLED=true`（`WikiConfig` 默认 `true`）时于 lint 后调用 **`AutoHealer.heal()`**，heal 指标写入 **`WikiChangeLog`**。`wiki/lint_scheduler.py` 在 `WIKI__LINT_SCHEDULER_ENABLED=true`（默认 `true`）下由 `main.py` 生命周期**启动**并周期性对注册仓库跑 `run_lint`；`wiki/auto_healer.py` 中的 **`AutoHealer`** 实现**断链（悬空 `WIKI_REFERENCES`）清理**与**无 `SOURCE_ENTITY` 的孤儿页降级**，**不**做陈旧页打标。HTTP / MCP / 调度器均经 `run_lint` 走同一管线（见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)） |
-| **知识质量引擎** | `wiki/confidence_scorer.py` + `confidence_inputs.py`：页级 `confidence_score`（0.0–1.0）；矛盾检测与 LLM 裁决图持久化；主张/版本/替代关系（`supersession`）与 `GET /api/v1/wiki/pages/claim-history` |
-| **记忆演化** | `wiki/memory_loop.py` 将问答沉淀为可检索记忆并注入生成上下文；`wiki/memory_tiers.py` 实现 Working→Episodic→Semantic→Procedural 分层与提升；`WIKI__FORGETTING_ENABLED` 时按保留曲线缓释优先级（不删节点） |
-| **深度研究与合并** | `wiki/deep_research.py`：`POST /api/v1/wiki/research` 多轮分解；概念合并候选在 `WIKI__CONCEPT_MERGING_ENABLED` 时经 `GET /api/v1/wiki/merge-candidates` 等暴露 |
-| **AGENTS.md** | `wiki/agents_md_generator.py` 从 Wiki 元数据生成供 AI Agent 阅读的结构化 Markdown（与导出/生成管线配合） |
+| **`settings`** | 全局 **`Settings`** |
+| **`registry`** | **`ServiceRegistry`** |
+| **`task_manager`** | **`IndexTaskManager`** |
+| **`repo_registry`** | **`RepoRegistry`** |
+| **`scheduler`** | **`SyncScheduler`** |
+| **`settings_store`** | **`SettingsStore`** |
+| **`reindex_sem`** | **`asyncio.Semaphore(1)`**，并发重建索引上限 |
+| **`index_sem`** | **`asyncio.Semaphore(2)`**，并发索引任务上限 |
 
-## 索引管道
+### 3.2 Wiki 子系统字段（**`bootstrap_wiki`** 后可选填充）
 
-1. **解析** — 遍历源文件（遵守 `exclude_dirs` / `file_extensions`）；Tree-sitter 生成函数、类、导入、调用等 AST 节点。
-2. **AST → 图** — `CodeGraphBuilder` 生成 `GraphNode` / `GraphEdge`，包含 `NodeLabel` 和 `EdgeType`（如 `CALLS`、`IMPORTS`、`CONTAINS`）。
-3. **跨文件 Import 解析** — `ImportResolver` 在索引开始时构建文件索引，将 import 语句解析到实际文件路径（Python/JS/TS/Java/Go），生成精确的 `IMPORTS` 边；解析失败时回退到虚拟 Module 节点。
-4. **父子块** — 大型函数/类/文档段落可被拆分为 `Chunk` 节点（`child_chunker.py`），通过 `PART_OF` 边关联；嵌入可针对子块生成。
-5. **持久化** — `batch_upsert` 写入 FalkorDB；按标签更新向量索引。
-6. **丰富化**（可选） — LLM 生成 `business_summary`。由 `enrichment_strategy` 配置控制：
-   - `disabled`（默认）：索引阶段不调用 LLM，所有 enrichment 延迟到 Wiki 生成阶段
-   - `core_only`：仅对核心业务实体（Controller/Service/Handler 等）在索引时 enrich，其余延迟到 Wiki 阶段
+均为 **`Optional`/任意类型** 占位，与 **`app.state`** 对齐，包括但不限于：`wiki_store`、`wiki_service_factory`、`wiki_search_service`、`wiki_ask_service`、`wiki_event_bus`、`wiki_task_store`、`wiki_feedback_store`、`wiki_feedback_regen`、`wiki_cache`、`wiki_lint_service_factory`、`wiki_lint_scheduler`、`graph_query_service`、`conversation_store`、`change_detector`、`wiki_changelog_store`、`wiki_memory_loop`、`wiki_deep_research_service`、`mcp_wiki_server`。
 
-## 检索管道
+### 3.3 过渡兼容层（`api/kb_state.py`）
 
-1. **查询路由** — `query_router.route_query` 根据查询形态（标识符、自然语言等）动态调整关键词与语义的权重。
-2. **查询扩展**（可选，`HYBRID_SEARCH__QUERY_EXPANSION_ENABLED`） — 以初始关键词命中为种子，从调用链/类方法中提取邻居名称构造辅助查询。
-3. **并行三路检索** — 关键词经 `keyword_search`、语义经实体嵌入或子块路径、**BM25 全文搜索**（`SearchStore.fulltext_search`，基于 FalkorDB RediSearch 内置全文索引）三路并行执行。
-4. **RRF 三路融合** — `rrf_fusion` 按查询权重合并三路排序列表（关键词权重 1.5、语义权重 1.0、BM25 权重 1.2，可配置）。
-5. **重排序** — 若 `RERANK__ENABLED`，交叉编码器对融合候选进行重排序（`position_aware_blend` 结合 RRF 分数）。
-6. **多样性** — `_apply_per_file_cap` 限制每个文件的命中数（默认 `per_file_cap=3`）。
-7. **图扩展** — 从融合种子出发，沿关系遍历至 `expand_depth` 深度，获取上下文相关邻居。
-8. **分页与排序** — 最终结果支持 `offset`/`limit` 分页和按分数/名称/路径排序。
-9. **跨仓聚合** — `repositories: ["a", "b"]` 参数触发多仓并行搜索（`asyncio.gather`），各仓结果按分数排序合并，`uid` 级去重后再统一分页。支持部分失败容错（`return_exceptions=True`）。
-10. **NL→Cypher**（Dashboard UI 专用）— 通过 LLM 生成只读 Cypher 后直接查图（不走上述 RRF 管道；详见 `query/nl_cypher.py`）。此能力供 Dashboard 的图谱查询面板使用，不暴露为 MCP 工具，Agent 可通过组合 `rag_query` + `rag_graph` 自主实现类似效果。
+**`_bind(container)`** 在 **`lifespan`** 中调用，将 **`registry`、`task_manager`、`repo_registry`、`scheduler`** 同步到模块级变量，供尚未迁移的调用点使用；容器本体保存在 **`_container`**。**模块级 `reindex_sem` / `index_sem`** 仍为常量语义下的默认值（与容器内实例并行存在时注意一致性时应优先读 **`AppContainer`**）。
 
-## 文件内容访问
+---
 
-**HTTP**：`GET /api/v1/files/tree`、`/api/v1/files/content`、`/api/v1/files/entities` — 仪表盘文件浏览器与 **`get_file_content`** MCP 工具共用路径校验与仓库解析逻辑：从本地检出读取文件，防止目录穿越与越出仓库根；二进制拒绝；单次读取上限与 MCP 一致。**文件树 API 需指定 `repository`。**
+## 4. HTTP 中间件栈（`create_app` 顺序）
 
-## Blast Radius 分析
+自外向内（最后添加的最先执行）：
 
-`BlastRadiusAnalyzer`（`query/blast_radius.py`）从变更实体出发，沿 incoming `CALLS`/`INHERITS`/`IMPORTS` 边做 BFS，按深度分层返回受影响实体。每个受影响实体附带置信度分数（随深度衰减）和关系类型。支持按仓库过滤。
+| 顺序（响应回程） | 组件 | 行为摘要 |
+|------------------|------|----------|
+| 1 | **`CORSMiddleware`** | 仅当配置了 **`cors_origins`**；允许凭证与常用 Method/Header |
+| 2 | **`RequestLoggingMiddleware`** | 始终启用，请求日志 |
+| 3 | **`register_exception_handlers`** | 统一异常映射 |
+| 4 | **`RateLimiterMiddleware`**（**`install_rate_limiter`**） | 每 IP 令牌桶；跳过 **`/assets/`**、**`/favicon.ico`**、精确路径 **`/health`**；**`RATE_LIMIT_RPM`** 配置（0=关闭）；可选 **`trust_proxy`** 读取 **`X-Forwarded-For`** |
 
-## 社区发现
+> **说明**：公开健康检查路由注册在 **`public_router`** 上为 **`GET /api/v1/health`**；速率限制跳过列表中的 **`/health`** 与此前缀不一致时，以 **`api/rate_limiter.py`** 实现为准。
 
-`CommunityDetector`（`query/community_detection.py`）使用 Label Propagation 算法在代码图上自动发现模块社区。每个社区包含自动标签（前 3 个高连接度节点名）和内聚度评分（内部边数 / 可能边数）。
+---
 
-## 父子块策略
+## 5. 路由映射（十套路由）
 
-通过 `HybridSearchConfig` 配置：
+所有 **`APIRouter`** 在 **`main.create_app`** 中 **`include_router`**；部分路由在子路径上再叠加 **`Depends(require_role(...))`**。
 
-| 设置 | 默认值 | 含义 |
-|------|--------|------|
-| `use_child_chunks` | `true` | 子块级检索 + 父块分组；MCP 调用者可省略此参数以继承服务端设置 |
-| `child_chunk_window_chars` | 800 | 滑动窗口大小（约 200 token） |
-| `child_chunk_stride_chars` | 600 | 重叠步长（约 25%） |
-| `child_chunk_min_parent_chars` | 400 | 低于此阈值的父块跳过分块 |
+| 路由器 | 前缀 | 最低角色 / 备注 |
+|--------|------|------------------|
+| **`public_router`** | **`/api/v1`** | 无全局角色依赖（如 **`/health`**、**`/auth/me`**） |
+| **`webhook_router`** | **`/api/v1/hooks`** | 混合：提供商 HMAC 校验与 **`ingest`** 等路径上的 **`Editor`** 等按需声明 |
+| **`provider_router`** | **`/api/v1`** | 全局 **`VIEWER`**；**`/llm/providers/{name}/models`** 需 **`ADMIN`** |
+| **`wiki_router`** | **`/api/v1/wiki`** | 全局 **`VIEWER`** |
+| **`mcp_wiki_http_router`** | **`/api/v1/mcp`** | 全局 **`VIEWER`**（Wiki HTTP MCP 六工具子路由） |
+| **`viewer_router`** | **`/api/v1`** | **`VIEWER`** |
+| **`editor_router`** | **`/api/v1`** | **`EDITOR`** |
+| **`admin_router`** | **`/api/v1`** | **`ADMIN`** |
+| **`settings_router`** | **`/api/v1/settings`** | **`ADMIN`** |
+| **`business_router`** | **`/api/v1`** | **混合**：路由级 **`Depends`**（如 **`list_businesses`** 等对 **`VIEWER`** 开放） |
 
-子块在生成嵌入前会添加父签名上下文前缀（`indexer/child_chunker.py`）。
+---
 
-## 知识图谱 Schema
+## 6. 后端组件总览（按职责）
 
-### NodeLabel（`store/schema.py`）
+1. **FastAPI（`main.py`）**：HTTP API、静态 SPA（**`static/`**）、**`lifespan`** 分解初始化与安全门禁。
+2. **`AppContainer`（`core/container.py`）**：依赖容器，取代零散全局单例。
+3. **FalkorDB 生态**：属性图 + RediSearch 向量/全文；由多层 **`Store`** 与 **`BusinessManager`** 封装（下一节）。
+4. **Tree-sitter**：按语言 AST 抽取符号与调用；查询驱动 **`CodeGraphBuilder`**。
+5. **嵌入（`EmbeddingConfig`）**：默认 **`BAAI/bge-m3`**，**1024** 维；**ONNX**（默认）或 **torch** 后端；**`EmbeddingGenerator.shared()`** 进程内复用。
+6. **LLM（可选，`LLMConfig`）**：OpenAI 兼容 **`openai` / `azure` / `custom` / `gateway`**；**gateway** 可同时支持 WebSocket 与 HTTP。
+7. **主 MCP（`api/mcp_server.py` + `api/mcp_registry.py`）**：**`@mcp_tool`** 注册，**`collect_tools()`** 构建派发字典；与 **`wiki/mcp_tools.py`** 合并共 **22** 个工具（**12** 核心 + **10** Wiki）。
+8. **`WikiTaskStore`（`wiki/task_store.py`）**：Redis Hash 任务元数据 + **`SET NX EX`** 业务级锁与 Lua CAS 解锁（见 §13）。
+9. **Wiki MCP 子服务（`api/mcp_wiki_server.py`）**：可选 HTTP MCP（**`WIKI__MCP_SERVER_ENABLED`**），六工具清单见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)。
+10. **增量 Ingest**：按文件列表 **`POST /wiki/ingest`**、**`changelog`**、**`/hooks/ingest/push`** 与 **`ChangeDetector`** / **`WikiChangeLogStore`** 协同。
+11. **Lint & AutoHeal**：**`WikiLintService`**；**`AutoHealer`** 清理悬空 **`WIKI_REFERENCES`**、孤儿页降级；**`LintScheduler`** 周期运行。
+12. **质量引擎**：**`ConfidenceScorer`**（五路加权信号）；**`ContradictionDetector`**（嵌入门槛 + LLM）；主张 / **`supersession`**。
+13. **记忆演化**：**`MemoryLoop`**；**`MemoryTierManager`**（Working→Episodic→Semantic→Procedural；时间与访问驱动晋升）；遗忘曲线降低权重而非删除节点。
+14. **深度研究**：**`DeepResearchService`** — LLM 分解子问题 → 各子问题 **`IterativeRAGEngine`** → 综合。
+15. **`WikiEventBus`**：Pub-sub，每客户端 **`asyncio.Queue(maxsize=100)`**，SSE 流 **`30s`** 队列超时产生 **heartbeat** 保活（**`wiki/event_bus.py`**）。
+16. **`ServiceRegistry`**：共享连接、每业务 **`KnowledgeBaseService`**；就绪路径包含 Redis ping 与嵌入加载状态（详见实现）。
 
-`Function`、`Class`、`Module`、`Document`、`BusinessFlow`、`BusinessConcept`、`WikiPage`、`WikiSpace`、`WikiSection`、`Chunk`。
+---
 
-### EdgeType
+## 7. FalkorDB 分层存储与业务隔离
 
-| 边类型 | 典型用途 |
-|--------|----------|
-| `CALLS`、`INHERITS`、`IMPORTS`、`CONTAINS`、`USES_TYPE`、`REFERENCES` | 代码结构 |
-| `IMPLEMENTS`、`RELATES_TO`、`PART_OF`、`CONCEPT_IN`、`HAS_CHILD`（Wiki 树，`view_type`） | 业务/块层次 / Wiki 层级 |
-| `PROVIDES_RPC`、`CONSUMES_RPC`、`CROSS_REPO_CALLS` | RPC / 多仓库 |
-| `DEPENDS_ON`、`ACCESSES_TABLE`、`EVENT_PRODUCES`、`EVENT_CONSUMES` | 依赖注入 / 数据 / Kafka |
-| `SOURCE_DOC` | Wiki 来源溯源 |
+| 组件 | 职责摘要 |
+|------|----------|
+| **`FalkorDBStore`** | 连接、基础 CRUD、通用 Cypher、线程池卸载 |
+| **`SearchStore`** | 向量检索、关键词、**BM25** 全文 |
+| **`TraversalStore`** | 调用链、继承、依赖遍历 |
+| **`AnalysisStore`** | Blast radius、社区发现、洞察 |
+| **`WikiStore`** | Wiki 图查询 |
+| **`IndexerStore`** | 索引器专用查询 |
+| **`BusinessManager`** | 多租户图命名与路由 |
+| **`WikiPageStore` / `WikiTreeStore` / `WikiFeedbackStore` / `WikiQAStore` / `WikiClaimStore` / `WikiContradictionStore` / `WikiMemoryStore` / `WikiCoverageStore` / `WikiChangeLogStore`** | Wiki 领域读写 |
+| **`SettingsStore`** | 运行时持久化配置 |
+| **`ConversationStore`** | Wiki 会话 **SQLite** |
 
-## 仪表盘架构
+---
 
-- **技术栈**：React + **Vite**（`dashboard/`）、TypeScript、Tailwind、React Router。
-- **交付方式**：生产构建输出至 `static/`；FastAPI 挂载 `/assets` 并对 SPA 路由回退至 `index.html`（`search`、`deep-search`、`graph`、`explorer`、`files`（文件浏览器）、`repositories`、`indexing`、`settings`、`businesses`、`documents`、`sync`）。
-- **懒加载**：基于路由的代码分割减小初始 JS 体积；重型可视化组件（图表、图形）仅在导航到对应页面时加载。
+## 8. 索引管道（六步）
 
-## Wiki 生成管道（Phase 0–7）
+1. **解析**：Tree-sitter 产出函数、类、导入、调用等 AST 节点。
+2. **AST → 图**：**`CodeGraphBuilder`** → **`GraphNode` / `GraphEdge`**（**`NodeLabel` / `EdgeType`**）。
+3. **跨文件 Import**：**`ImportResolver`** 构建文件索引，解析 Python/JS/TS/Java/Go import；失败回退虚拟 **`Module`**。
+4. **父子块**：**`child_chunker`** 大包拆解为 **`Chunk`**，**`PART_OF`** 连回父实体。
+5. **持久化**：**`batch_upsert`**；按标签刷新向量索引。
+6. **丰富化（可选）**：LLM **`business_summary`**；**`enrichment_strategy`**：**`disabled`**（默认）或 **`core_only`**。
 
-本节概括 **Wiki 元模型重置**、**代码感知 → RAG → 分层生成 → 跨仓业务 Wiki**、**导出与 Git 推送**、**质量保障** 的后端能力。上述主题曾计划拆成独立 spec 文档；当前以 [wiki-generation-architecture.md](wiki-generation-architecture.md) 为**主要设计引用**。实现与规划差异见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。
+---
 
-### Wiki 数据模型（FalkorDB）
+## 9. 检索管道（十步）
 
-| 概念 | 说明 |
+1. **查询路由**：意图驱动的关键词/语义权重调整。
+2. **查询扩展（可选）**：种子命中 → 调用链邻居名称构造辅助查询。
+3. **并行三路**：**`keyword_search`** + **`semantic_search`** + **`BM25`**（**`SearchStore.fulltext_search`**）。
+4. **RRF 融合**：默认权重 **keyword=1.5**、**semantic=1.0**、**BM25=1.2**（可配置）。
+5. **重排序（可选）**：**bge-reranker-v2-m3** 等交叉编码器。
+6. **Per-file cap**：默认每文件命中上限 **3**。
+7. **图扩展**：沿关系扩展到 **`expand_depth`**。
+8. **分页排序**：**`offset` / `limit`** 与排序键。
+9. **跨仓聚合**：多仓库并行搜索、分数合并、**`uid`** 去重后再分页；允许部分失败。
+10. **NL→Cypher（Dashboard）**：LLM 生成只读 Cypher（**`query/nl_cypher.py`**），**不**作为主 MCP 工具暴露。
+
+---
+
+## 10. 知识图谱 Schema（`store/schema.py`）
+
+### 10.1 `NodeLabel`
+
+**`Function`**、**`Class`**、**`Module`**、**`Document`**、**`BusinessFlow`**、**`BusinessConcept`**、**`WikiPage`**、**`WikiSpace`**、**`WikiSection`**、**`Chunk`**。
+
+### 10.2 `EdgeType`
+
+| 类别 | 类型 |
 |------|------|
-| **WikiSpace** | Wiki 树空间的根层容器节点 |
-| **WikiSection** | 树中的章节/分组节点 |
-| **HAS_CHILD** | 父子边；携带 `view_type`：`business_domain`（业务域视图）或 `code_structure`（代码结构视图） |
-| **WikiPage**（扩展字段） | `path`、`version`、`importance_tier`、`content_hash`、`repositories` 等，用于版本、重要性分层与多仓归属 |
+| 代码结构 | **`CALLS`**、**`INHERITS`**、**`IMPORTS`**、**`CONTAINS`**、**`USES_TYPE`**、**`REFERENCES`** |
+| 业务 / Wiki / 层次 | **`IMPLEMENTS`**、**`RELATES_TO`**、**`PART_OF`**、**`CONCEPT_IN`**、**`HAS_CHILD`**（Wiki 树，边属性 **`view_type`**） |
+| RPC / 多仓 | **`PROVIDES_RPC`**、**`CONSUMES_RPC`**、**`CROSS_REPO_CALLS`** |
+| 依赖 / 数据 / 事件 | **`DEPENDS_ON`**、**`ACCESSES_TABLE`**、**`EVENT_PRODUCES`**、**`EVENT_CONSUMES`** |
+| 溯源 | **`SOURCE_DOC`** |
 
-业务侧树查询：**`GET /api/v1/wiki/tree?business_id=&view=`**（按业务与视图类型拉取 Wiki 树；需已登录 `VIEWER+`）。
+---
 
-### 端到端流水线
+## 11. Wiki 生成管道（Phase 0–7）
+
+后端能力覆盖：**元模型与树 API**、**代码感知与重要性分层**、**Chunk 级 RAG**、**分层异步丰富化**、**跨仓业务 Wiki**、**导出与 Git**、**覆盖率与探索问题**、以及与 **Iterative RAG / 模型策略** 的整合。分阶段细则、延迟 Enrichment、混合搜索序列图见 **[wiki-generation-architecture.md](wiki-generation-architecture.md)**。
+
+### 11.1 数据模型要点
+
+- **`WikiSpace` / `WikiSection`**；父子关系边 **`HAS_CHILD`**，携带 **`view_type`**（**`business_domain`** / **`code_structure`**）。
+- **`WikiPage`** 扩展 **`path`、`version`、`importance_tier`、`content_hash`、`repositories`** 等。
+- 树查询：**`GET /api/v1/wiki/tree?business_id=&view=`**（需 **`VIEWER+`**）。
+
+### 11.2 端到端 Phase 图（Mermaid）
 
 ```mermaid
 flowchart LR
@@ -200,68 +317,113 @@ flowchart LR
   WS --> WCA --> SQG
 ```
 
-- **Phase 1**：`SourceCodeReader` 从 `Chunk.text`、文件或签名回退读取源码；`ImportanceScorer` 基于图做 **core / standard / skeleton** 重要性；各 tier 有 **token 预算**。
-- **Phase 2**：`CodeChunkIndexer` 批量为 `Chunk` 生成嵌入；`ChunkRetriever` 语义检索代码块；**`POST /api/v1/wiki/chunks/index`** 触发索引。
-- **Phase 3**：`TieredPromptBuilder` 按重要性 tier 选用不同提示；`AsyncEnrichmentPipeline` 异步推进 **base → enriched → encyclopedia**；`BusinessDomainPlanner` 用 LLM 做模块到业务域分类（单仓模块数超过 `WikiConfig.business_domain_sub_batch_size` 时**子批**多次调用并合并结果，避免单次超大 prompt 触发长时间读超时）；全程可跟踪 **EnrichmentLevel**。底层 LLM 经 `LLMPortBridge.generate_stream()` 走 **SSE 流式**，长响应期间保持连接活性，缓解 httpx 等客户端读超时。
-- **Phase 4**：跨仓域规划（`CrossRepoBusinessDomainPlanner`：多仓并行分类、单仓超时、内容哈希 + TTL 的进程内有界缓存；`WIKI__BUSINESS_DOMAIN_*`）、从代码图自动生成交叉引用、域总览页组合；**`WikiService.generate_business_wiki()`**（支持 **`incremental`** 与 **进度回调**）；**`POST /api/v1/wiki/business/generate`** 为**异步**（**202**、`task_id`；同 business 并发生成 **409**）；**`GET /api/v1/wiki/business/tasks/{task_id}`** 轮询任务进度；**`GET /api/v1/wiki/pages/{page_uid}/references`**。MCP 扩展：**`wiki_get_tree`**、**`wiki_get_related`**、**`wiki_get_domain_overview`**（与既有 Wiki MCP 工具并存，以服务端清单为准）。调参与默认值见 `WikiConfig` / [DEPLOYMENT.md](DEPLOYMENT.md) 中 `WIKI__BUSINESS_DOMAIN_*`。详见 [superpowers/specs/2026-04-27-wiki-generation-architecture-improvement-design.md](superpowers/specs/2026-04-27-wiki-generation-architecture-improvement-design.md) 与 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。
-- **Phase 5**：`WikiLinkConverter` 将 `[[wikilink]]` 转为多种格式；`BusinessWikiExporter` 导出扁平文件树；`ObsidianExporter`（含 `.obsidian/`）、`MkDocsExporter`（含 `mkdocs.yml`）；`GitPublisher` 增量 Git 推送与注释回写；**`POST /api/v1/wiki/export`**（`markdown` / `zip` / `git` / `obsidian` / `mkdocs` 等）。
-- **Phase 6**：`WikiCoverageAnalyzer` 覆盖率、知识缺口与陈旧检测；`SuggestedQuestionsGenerator` 模板化探索问题；**`GET /api/v1/wiki/coverage-report`**。
-- **Phase 7** (P0 修复 + P1 架构整合)：见下文 [Phase 7](#phase-7--p0-修复与-p1-架构整合) 小节。
+### 11.3 Phase 7（架构整合摘要）
 
-## Phase 6 — Iterative RAG & Dynamic Model Strategy
+- **P0**：**`unified_knowledge_query`** 接入 **`IterativeRAGEngine`**；**`max_context_tokens`** 动态化；文档工具数量统一（**22 = 12 + 10**）。
+- **P1-A**：LLM 抽象收敛为 **`wiki/llm_port.py`** **`LLMPort`**。
+- **P1-B**：**`WikiAskService`**、**`DeepSearchEngine`**、**`DeepResearchService`** 共用 **`IterativeRAGEngine`**；**`HybridGraphRetriever`** 等统一检索内核。
+- **P1-B2**：引擎内 **`plan` / `evaluate`** 节点与 **`model_strategy`** 路由（**`rag_plan` / `rag_generate` / `rag_evaluate`**）。
+- **P1-C**：Business 路由去重、**`compose_concurrency`** 单一配置源等。
 
-### New Components
+---
 
-- **`wiki/rag/`** — Unified iterative RAG engine
-  - `protocol.py` — `Chunk`, `Source`, `RetrievalScope`, `Retriever` Protocol
-  - `wiki_retriever.py` — Adapts `WikiSearchService` to `Retriever`
-  - `code_retriever.py` — Adapts `HybridQueryService` to `Retriever`
-  - `composite_retriever.py` — Merges multiple retrievers
-  - `engine.py` — `IterativeRAGEngine` (LangGraph StateGraph)
-  - `events.py` — SSE event protocol for real-time progress
+## 12. IterativeRAGEngine（`wiki/rag/engine.py`）
 
-- **`wiki/model_strategy.py`** — Dynamic LLM model routing
-  - Reads `llm.strategy.<task_type>` from `SettingsStore`
-  - Supports complexity-based fallback via `ComplexityMetrics`
-  - Returns `LLMPort`-compatible wrappers with model defaults
+基于 **LangGraph `StateGraph`**，节点包括：**`initial_search`** → **`generate_draft`** → **条件分支** → **`finalize` | `evaluate` | `plan` | `dynamic_retrieve`**。
 
-- **Dashboard UI** — New settings sections
-  - `LLMProviderPoolSection` — Multi-provider JSON editor
-  - `ModelStrategySection` — Task-to-model routing config
+- **`initial_search`**：首轮检索，写入 **`accumulated_context`**。
+- **`generate_draft`**：LLM 输出 JSON（answer / gaps / next_queries / confidence / is_complete）；**`confidence ≥ 0.85`** 且未显式完成时强制 **`is_complete`**。
+- **`dynamic_retrieve`**：按 **`next_queries`** 追加检索并合并上下文。
+- **`plan`**：将缺口与 **`eval_suggestions`** 分解为 **2–4** 条子查询（**`model_strategy` → `rag_plan`**）。
+- **`evaluate`**：独立评分；**`score ≥ 0.85`** 则完成（**`model_strategy` → `rag_evaluate`**）。
+- **`finalize`**：收尾 SSE 事件。
 
-### Feature Flags
+**`route_after_draft`**：完成或超 **`max_rounds`** → **`finalize`**；无 **`next_queries`** → **`finalize`**；轮次与置信度阈值触发 **`evaluate`** 或 **`plan`** 或 **`dynamic_retrieve`**。**`evaluate`** 后未完成则回到 **`plan`**。
 
-- `WIKI__ITERATIVE_RAG_ENABLED` — Enable iterative RAG in WikiAskService
-- `WIKI__CODE_STRUCTURE_SEMANTIC_GROUP` — Enable LLM semantic grouping
+---
 
-### API Changes
+## 13. Wiki 任务存储与分布式锁（`wiki/task_store.py`）
 
-- `GET /api/v1/llm/providers/{name}/models` — Discover models per provider
-- `GET /api/v1/wiki/ask/stream?page_context=...` — Page context for RAG scope
-- MCP: `unified_knowledge_query` tool added
+- 任务：**Redis Hash**，键前缀 **`kb:wiki_tasks:`**，**`DEFAULT_TTL`** 约 **30** 分钟。
+- 锁：**`SET key token NX EX`**（**`LOCK_TTL`** **1** 小时），**`try_lock`** 返回 **UUID token**。
+- 解锁：**Lua 脚本** 比较 **`GET` == token** 后 **`DEL`**（**`unlock`**）。
+- 管理：**`force_release_lock`** 无令牌删除，用于取消与孤儿恢复。
 
-## Phase 7 — P0 修复与 P1 架构整合
+---
 
-- **Phase 7** (P0 修复 + P1 架构整合):
-  - **P0**: `unified_knowledge_query` 接入 IterativeRAGEngine；`max_context_tokens` 动态化；文档工具数量统一 (22 = 12+10)；CODEMAPS 断裂链接修复
-  - **P1-A**: LLM 抽象层统一 — 5 套 LLMPort 收敛为 `wiki/llm_port.py` 单一 Protocol（`generate` + `complete` + `complete_stream`）
-  - **P1-B**: 搜索系统统一 — `WikiAskService`、`DeepSearchEngine`、`DeepResearchService` 统一使用 `IterativeRAGEngine` 单内核；新增 `HybridGraphRetriever`
-  - **P1-B2**: IterativeRAGEngine 3-LLM 自适应升级 — `plan` / `evaluate` 节点 + `model_strategy` 路由
-  - **P1-C**: Business 路由去重；`compose_concurrency` 统一配置源
+## 14. MCP 工具分层
 
-## 增量 / MCP / 质量 v2 扩展（概览；非 Phase 0–7 的「SP3–SP6」编号）
+| 面 | 工具数 | 说明 |
+|----|--------|------|
+| 主 MCP STDIO / 聚合 HTTP | **22** | **`collect_tools()`**：**12** 核心 + **10** Wiki（**`wiki/mcp_tools.py`**） |
+| 可选 Wiki HTTP MCP | **6** | **`WIKI__MCP_SERVER_ENABLED`**：**`wiki_search`**、**`wiki_explain`**、**`wiki_navigate`**、**`wiki_qa`**、**`wiki_impact`**、**`wiki_get_snapshot`**（**`/api/v1/mcp/tools/list`** / **`call`**） |
 
-> **注意**：下表中的「增量 Ingest、MCP、质量引擎」等能力均已实现。详见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)。
+NL→Cypher 仅供 Dashboard，不当 MCP 工具暴露。
 
-以下能力与 Phase 0–7 **正交**：通过 `WikiConfig`（环境前缀 `WIKI__`）与独立 HTTP/MCP 面启用；细节见 [wiki-generation-architecture.md](wiki-generation-architecture.md) 与 [DEPLOYMENT.md](DEPLOYMENT.md)。
+---
 
-| 子系统 | 职责摘要 |
-|--------|----------|
-| **增量 Ingest** | 推代码后按路径增量再生成、changelog 可观测；与 Git Webhook 的 `/hooks/ingest/push` 集成 |
-| **MCP Wiki HTTP 六工具** | `wiki_search` / `wiki_explain` / `wiki_navigate` / `wiki_qa` / `wiki_impact` / `wiki_get_snapshot`；与主清单分离，需 `WIKI__MCP_SERVER_ENABLED` |
-| **内联 Wikilink** | 正文 `[[EntityName]]` 在组合/导出时解析为 Markdown 链向已有 Wiki 页或占位 |
-| **业务流图** | `GET /api/v1/wiki/flows?business_id=` 提供节点（及预留边）供仪表盘 **xyflow** 渲染 |
-| **用户反馈** | `POST/GET .../pages/{page_uid}/feedback`；纳入置信度与质量信号（见 `WIKI__FEEDBACK_ENABLED`） |
-| **质量引擎（v2）** | 页级置信度、跨页矛盾（列表与 `acknowledge`/`resolve`）、主张历史与替代追踪 |
-| **记忆层 + 遗忘** | 四层记忆、晋升规则；Ebbinghaus 式稳定性降低检索权重而非删除 |
-| **Schema 校验** | `WIKI__SCHEMA_VALIDATION_ENABLED` 时用 `WIKI__SCHEMA_PATH`（默认 `wiki/schema.yaml`）在 lint 中校验页结构 |
+## 15. 质量引擎、Lint、矛盾与记忆（概要）
+
+| 主题 | 实现要点 |
+|------|----------|
+| **ConfidenceScorer** | 五路加权：**来源实体覆盖**、**新鲜度**、**投票/反馈**、**wikilinks**、**矛盾罚分**（权重 **`WIKI__CONFIDENCE_WEIGHT_W1`–`W5`**） |
+| **ContradictionDetector** | 嵌入相似度门槛 → LLM **judge** → 图持久化 |
+| **AutoHealer** | 断链清理；无 **`SOURCE_ENTITY`** 孤儿页降级；**不**做陈旧页自动打标 |
+| **MemoryTierManager** | **Working→Episodic（约 24h 窗口）→Semantic（约 7d）→Procedural**；**`access_count` / `confirmation` / `confidence`** 等晋升条件（见 **`wiki/memory_tiers.py`**） |
+| **遗忘** | **`WIKI__FORGETTING_ENABLED`**：**`stability_factor`** 衰减，排序降权，**非物理删除** |
+
+---
+
+## 16. 仪表盘 SPA（`dashboard/`）
+
+| 主题 | 说明 |
+|------|------|
+| **框架** | **React 19** + **Vite 8** + TypeScript + Tailwind |
+| **路由** | **React Router**；**`Layout`** 内 **`Suspense`** 懒加载 |
+| **服务端状态** | **TanStack Query**：全局默认 **`retry: 1`**、**`refetchOnWindowFocus: false`**、**`staleTime: 30_000`**（**`main.tsx`**） |
+| **错误边界** | **`ErrorBoundary`** 包裹路由树 |
+| **构建分包** | **`vite.config.ts`** **`manualChunks`**：**react**、**query**、**xyflow**、**chart**、**codemirror**、**syntax** |
+| **主题 / i18n** | 深色模式 **`.dark`**，本地存储 **`kb_theme`**；中英 **`kb_locale`** |
+| **无障碍** | 移动端侧栏 **`role="dialog"`**、**`aria-modal`**、**ESC** 关闭 |
+| **命令面板** | **Cmd+K** **`CommandPalette`**，快捷搜索 |
+| **多租户 UX** | **Auth / Business** 等上下文 |
+
+生产构建输出至仓库根 **`static/`**，由 FastAPI 挂载 **`/assets`** 并对 SPA 路径回退 **`index.html`**。
+
+---
+
+## 17. 横切模块
+
+### 17.1 FQN 工具（`store/fqn_utils.py`）
+
+统一 **`traversal_store`** 与 **`hybrid_query`** 曾重复的 FQN 正则：**`FQN_RE`**、**`is_fqn`**、**`parse_fqn`**、**`extract_fqns`**。
+
+### 17.2 Wiki 图存储协议（`wiki/protocols.py`）
+
+**`WikiGraphStorePort`**：**`Protocol`**，要求 **`execute_query(cypher, params)`**，用于 **`WikiService`** 与快照等跨模块类型边界。
+
+### 17.3 分页（`api/pagination.py`）
+
+- **`PaginationParams`**：**`offset`≥0 默认 0**，**`limit`** **1–100** 默认 **20**。
+- **`PaginatedResponse`**：**`items` / `total` / `offset` / `limit`**。
+- **`slice_page`**：**`limit is None`** 时从 **`offset`** 起返回剩余全集（兼容旧列表 API）。
+
+---
+
+## 18. 其他分析能力（简述）
+
+- **Blast Radius**：**`BlastRadiusAnalyzer`** — 沿入边 **`CALLS`/`INHERITS`/`IMPORTS`** BFS，深度衰减置信度。
+- **社区发现**：**`CommunityDetector`** — Label Propagation，自动标签与高连接节点。
+- **父子块**：**`HybridSearchConfig`** — **`use_child_chunks`**、窗口/步长/最小父长度等（见 **`indexer/child_chunker.py`**）。
+- **文件内容**：**`GET /api/v1/files/*`** 与 MCP **`get_file_content`** 共用路径校验；文件树需 **`repository`**。
+
+---
+
+## 19. 相关文档索引
+
+| 文档 | 内容 |
+|------|------|
+| [wiki-generation-architecture.md](wiki-generation-architecture.md) | Wiki 分层管道、延迟 Enrichment、混合搜索、Webhook/Lint、LLM Wiki v2 |
+| [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) | 实现与规划对照 |
+| [MCP-INTEGRATION.md](MCP-INTEGRATION.md) | 工具清单与 HTTP MCP |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | 环境变量与部署 |

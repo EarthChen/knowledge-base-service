@@ -1,60 +1,187 @@
-# Code map index
+# 代码地图索引（Code Map）
 
-**Last updated:** 2026-04-27 (Wiki domain-classification perf: sub-batch, SSE, parallel, cache)  
-**Repo:** `knowledge-base-service` (FastAPI + React/Vite + FalkorDB)
+**最后更新：** 2026-05-02  
+**仓库：** `knowledge-base-service`（FastAPI + React/Vite + FalkorDB）
 
-## Entry points
+本页是后端与仪表盘的**结构性入口索引**：按分层列出启动点、目录树要点、Wiki 子系统、前端区域、阶段性能力模块与相关文档链接。实现细节仍以源码与专题文档为准。
 
-| Layer | Path |
-|-------|------|
-| HTTP app | `main.py` |
-| Public / role-based API | `api/routes/kb_routers.py` → `api/routes/*_routes.py` |
-| Wiki surface | `api/routes/wiki_routes.py` (aggregates `wiki_page_routes`, `wiki_task_routes`, `wiki_ask_routes`, `wiki_feedback_routes`, `wiki_contradiction_routes`, …) |
-| MCP | `api/mcp_server.py`（主清单 22 工具），可选 `api/mcp_wiki_server.py`（HTTP 6 工具 + `wiki_mcp_routes`） |
-| Dashboard | `dashboard/src/main.tsx`, `dashboard/vite.config.ts` |
+---
 
-## Backend areas
+## 架构要点（2026-05 重构）
+
+- **`core/container.AppContainer`**：以依赖注入容器替代零散的全局可变单例，统一装配存储、Wiki、LLM、任务队列等依赖。
+- **`api/mcp_registry.py`**：`@mcp_tool` 装饰器 + `collect_tools()`，将 MCP 处理方法自动汇入主服务分派表。
+- **`main.py` 生命周期**：`lifespan` 拆分为 `_init_security`、`_init_core_services`、`_init_wiki_and_lint` 与 `_shutdown_all`，便于理解与扩展启动/关停顺序。
+- **`api/kb_state.py`**：从全局模块侧面向 `AppContainer` 过渡的衔接层（测试与遗留导入仍可指向此处）。
+
+---
+
+## 入口一览（Entry Points）
+
+| 分层 | 路径 | 说明 |
+|------|------|------|
+| **HTTP 应用** | `main.py` | FastAPI 应用构造、`lifespan`、静态资源与路由挂载；安全门禁日志、核心服务与 Wiki/Lint 初始化、关停收尾。 |
+| **对外 HTTP API（按角色）** | `api/routes/kb_routers.py` → `api/routes/*_routes.py` | `viewer_router` / `editor_router` / `admin_router` / `public_router` 挂载仓库、索引、搜索、设置、Webhook、业务与 Wiki 等路由；具体处理器分布在各 `*_routes.py`。 |
+| **Wiki HTTP 聚合面** | `api/routes/wiki_routes.py` | 前缀 `/api/v1/wiki`：聚合 `wiki_task_routes`、`wiki_contradiction_routes`、`wiki_page_routes`、`wiki_ask_routes`、`wiki_feedback_routes`；另挂载 **`wiki_mcp_tools_router`**，暴露可选 Wiki HTTP MCP 的 list/call 路径（见 `mcp_wiki_http_router`）。 |
+| **主 MCP（随应用常驻）** | `api/mcp_server.py` | 主清单 **22** 个工具：**12** 个图谱/RAG 核心（`@mcp_tool` 挂在 `MCPServer`）+ **10** 个 Wiki 相关（定义于 `wiki/mcp_tools.py` 的 `WikiMCPHandler`，含 `unified_knowledge_query` 等；运行时另注册别名 `search_wiki` → `wiki_search`）。HTTP：`GET /api/v1/mcp/tools`、`POST /api/v1/mcp/tool`。 |
+| **可选 Wiki HTTP MCP** | `api/mcp_wiki_server.py` | **6** 个工具（`wiki_search`、`wiki_explain`、`wiki_navigate`、`wiki_qa`、`wiki_impact`、`wiki_get_snapshot`）；需 `WIKI__MCP_SERVER_ENABLED` 等配置，由 `wiki_routes` 挂载 `/api/v1/mcp/tools/list` 与 `/api/v1/mcp/tools/call`（字段名为 `name`，与主 MCP 的 `tool_name` 不同）。 |
+| **仪表盘 SPA** | `dashboard/src/main.tsx`、`dashboard/vite.config.ts` | React 入口与 Vite 构建配置；路由、Wiki UI、查询与设置页面等均自 `dashboard/src/` 展开。 |
+
+---
+
+## 后端区域（完整目录树要点）
+
+下列树状说明覆盖主要 Python 包与文件职责，便于从「模块边界」而非单文件跳转理解仓库。
 
 ```
-api/routes/          # HTTP routers (wiki_*, repository, settings, webhooks, wiki_mcp_routes, …)
-store/               # FalkorDB / Cypher (WikiStore, SearchStore, graph_queries shortest_path, wiki_page_store …)
-wiki/                # Wiki pipeline, quality, memory, lint, auto_healer, compilation_snapshot, feedback_loop, …
-indexer/             # Code graph, chunks, incremental indexing
-query/               # Hybrid search, blast radius, NL→Cypher (UI)
+core/                         # 应用容器：依赖装配与生命周期协作对象（container.py → AppContainer）
+api/
+  routes/                     # HTTP 路由器
+                              # repository / indexing / search / settings / webhooks
+                              # wiki_*（page / task / ask / feedback / contradiction / mcp）
+                              # business、business_sync、provider、public_health、admin_graph_mcp、kb_dependencies 等
+  mcp_server.py               # 主 MCP：Manifest 拼装 + MCPServer 分派（核心 12 + Wiki 清单接入）
+  mcp_registry.py             # @mcp_tool、collect_tools、elevated 角色收集
+  mcp_wiki_server.py          # 可选 Wiki HTTP MCP（6 工具）
+  pagination.py               # 通用游标/偏移分页辅助
+  kb_state.py                 # AppContainer 过渡/兼容层
+  middleware/                 # 请求日志等
+  models/                     # 含 wiki_models 等请求/响应模型
+store/
+  falkordb_store.py           # 图库连接与通用 Cypher 执行、向量相关能力
+  search_store.py             # 面向搜索场景的专用查询
+  traversal_store.py          # 调用链、依赖遍历等图遍历封装
+  graph_queries.py            # Blast radius、最短路径、社区/结构查询等高层图运算
+  wiki_page_store.py          # WikiPage CRUD、版本、diff、仓库级 Wiki 新鲜度等
+  wiki_tree_store.py          # Wiki 树（章节、空间、tier 等）
+  wiki_qa_store.py            # Wiki Q&A 持久化
+  wiki_memory_store.py        # 记忆分层持久化
+  wiki_changelog.py           # Wiki 变更日志
+  wiki_contradiction_store.py # 矛盾检测结果持久化
+  wiki_claim_store.py         # 主张/ supersession 等
+  wiki_feedback_store.py      # 用户反馈存储（与路由 wiki_feedback 对应）
+  business_manager.py         # 业务实体与图谱侧协作（Business 维度）
+  settings_store.py           # 运行时设置持久化
+  schema.py                   # 节点标签等 schema 常量
+  fqn_utils.py                # FQN 正则与解析共用工具
+wiki/
+  service.py                  # WikiService：编排生成、增量、业务 Wiki、树链接等对外主门面
+  protocols.py                # WikiGraphStorePort、LLM 相关 Protocol
+  export_service.py           # 抽取后的导出逻辑（与 MCP/HTTP export 对齐）
+  composer.py / repo_composer.py   # 页面合成与仓库级 compose（含 incremental、progress_callback）
+  structure_planner.py        # 结构规划
+  data_collector.py           # 生成前数据收集
+  diagram_gen.py              # Mermaid 等图示生成
+  business_domain_planner.py       # 业务域划分（子批次等）
+  cross_repo_domain_planner.py     # 跨仓库域归并（并行、超时、缓存、轻量合并 prompt）
+  search.py                   # Wiki 侧混合检索
+  ask.py                      # Wiki Ask（SSE 流式应答）
+  deep_research.py            # 深度研究管线
+  confidence_scorer.py / confidence_inputs.py  # 置信度打分与因子
+  contradiction_detector.py   # 矛盾检测
+  memory_loop.py / memory_tiers.py   # Q&A 记忆闭环与分层管理
+  lint.py / lint_scheduler.py # WikiLint 与周期调度
+  auto_healer.py              # 自动修复建议/执行（与 lint 流水线配合）
+  task_store.py / task_registry.py   # Wiki 异步任务（Redis）与任务类型注册
+  bootstrap.py / event_bus.py # 应用内 Wiki 启动装配与事件总线
+  compilation_snapshot.py     # 编译/合成快照（MCP wiki_get_snapshot 等）
+  feedback_loop.py            # 反馈驱动的再生成
+  community_context.py        # 社区上下文注入生成
+  reasoning_path.py           # 推理路径展示数据
+  offline_pack.py             # 离线包导出
+  incremental.py / change_detector.py   # 增量生成与变更检测
+  deferred_enrichment.py      # 延后 LLM 富化
+  agents_md_generator.py      # AGENTS.md 生成
+  entity_role_classifier.py   # 实体角色/噪声分层（抑制过细页面）
+  pipeline_graph.py / pipeline_nodes.py   # LangGraph 编排与各节点实现
+  topic_page_composer.py      # 主题页合成策略（体量分流）
+  tree_builder.py / tree_linker.py        # 树构建与页面挂载（含按 repository 直查 WikiPage 修复循环依赖）
+  mcp_tools.py                # Wiki MCP 工具实现与 WIKI_MCP_TOOLS_MANIFEST
+  models.py / context.py      # Wiki 领域模型与上下文对象
+  model_strategy.py           # 模型路由与默认模型注入（LLMPortBridge 封装）
+  rag/                        # RAG 子包：engine.py（迭代 StateGraph）、retriever、composite 等
+  dependency_graph.py         # ModuleGraph、HierarchicalDecomposer（批次分解与超时）
+  （其余）exporter、persistence、webhook、scheduler、quality_*、business_flow_* 等支撑模块见仓库内同名文件
+indexer/                      # Tree-sitter 解析、嵌入、增量索引、代码图构建、chunk、报表等
+query/
+  hybrid_query.py             # RRF 混合检索引擎（服务端查询编排）
+  nl_cypher.py                # 自然语言 → Cypher（含校验/约束思路，供 UI/Agent 路径使用）
+  blast_radius.py             # 爆炸半径分析
+  graph_query.py / graph_insights.py / community_detection.py / reranker.py 等
+llm/
+  base_provider.py            # Gateway 适配、LLMPortBridge（complete / generate / generate_stream·收集流）
+  provider_factory.py         # LLM Provider 构造
+config.py                     # Settings、WikiConfig、Wiki 功能开关等
+auth.py                       # Token、Role、依赖注入式鉴权
+rate_limiter.py               # 限流中间件安装
+log.py                        # structlog 配置
+services/                     # Git、调度、RepoRegistry、KB 业务门面等与 HTTP/MCP 协作
+utils/                        # 通用工具（含 git 等）
 ```
 
-## Phases 0–3 + P0/P1 (2026-04-27) — key modules
+说明：**迭代 RAG** 的主实现在 `wiki/rag/engine.py`（LangGraph `StateGraph`），而非顶层单一文件 `rag_engine.py`。
 
-| Track | Code (illustrative) | Notes |
-|-------|---------------------|--------|
-| Phase 0 | `wiki/lint.py`, `wiki/lint_scheduler.py`, `wiki/auto_healer.py` | AutoHealer wired via `run_lint`；见 [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md) |
-| Phase 1 | `wiki/compilation_snapshot.py`, `wiki/feedback_loop.py`, `wiki/event_bus.py`, `wiki/agents_md_generator.py` | `wiki_get_snapshot` on main + HTTP MCP；SSE event bus |
-| Phase 2 | `wiki/community_context.py`, `store/graph_queries.py`（`shortest_path_between_names`）, `store/wiki_page_store.py`（`update_wiki_page_content`, 版本/ diff） | HTTP：`PATCH …/content`，`GET …/versions`，`GET …/diff` |
-| Phase 3 | `wiki/reasoning_path.py`, `wiki/offline_pack.py`, `store/wiki_tree_store.py`（`wiki_tier`） | HTTP：`GET …/offline-pack`，`wiki_tier` on tree |
-| P0 / P1 | (历史计划文件已清理) | 完成状态以 IMPLEMENTATION-STATUS 为准 |
-| Wiki async gen (2026-04-27) | `wiki/task_store.py`, `api/routes/wiki_task_routes.py`, `store/wiki_page_store.py`（`get_repo_wiki_freshness`）, `dashboard/src/hooks/useWikiRegenerate.ts` | 业务 Wiki **202** + 任务轮询；见 [spec](../wiki-generation-architecture.md) 与 [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md) |
+---
 
-## Wiki subsystem (focused)
+## Wiki 子系统（聚焦表）
 
-| Concern | Modules |
-|---------|---------|
-| Generation / compose | `wiki/service.py`, `wiki/composer.py`, `wiki/repo_composer.py`（`generate_business_wiki` 支持 `incremental`、`progress_callback`） |
-| Business domain LLM (perf) | `wiki/business_domain_planner.py` (sub-batching), `wiki/cross_repo_domain_planner.py` (parallel classify, per-repo timeout, bounded in-memory cache), `llm/base_provider.py` (`LLMPortBridge.generate_stream`, SSE); `tests/wiki/test_domain_planner_perf.py` |
-| Business wiki tasks / Redis | `wiki/task_store.py`（`WikiTaskStore`）, `wiki/task_registry.py`, `wiki/bootstrap.py`（`app.state.wiki_task_store`）, `api/routes/wiki_task_routes.py`（202 + `GET …/business/tasks/{task_id}`） |
-| Incremental / changelog | `wiki/incremental.py`, `wiki/change_detector.py`, `store/wiki_changelog.py`；**仓库级 Wiki 新鲜度** `store/wiki_page_store.get_repo_wiki_freshness` |
-| Quality v2 | `wiki/confidence_scorer.py`, `wiki/contradiction_detector.py`, `wiki/lint.py` |
-| Auto-heal (library) | `wiki/auto_healer.py` — see [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md) for wiring |
-| Ask / research | `wiki/ask.py`, `wiki/deep_research.py`, `wiki/memory_loop.py` |
+| 关注点 | 模块（代表性路径） |
+|--------|-------------------|
+| **编排门面** | `wiki/service.py`（生成、业务 Wiki、挂载树、导出入口） |
+| **LangGraph 管线** | `wiki/pipeline_graph.py`、`wiki/pipeline_nodes.py`、`wiki/pipeline_orchestrator.py` |
+| **实体粒度 / 主题聚合** | `wiki/entity_role_classifier.py`、`wiki/topic_page_composer.py`、`wiki/topic_structure_planner.py` |
+| **跨仓库域与性能** | `wiki/cross_repo_domain_planner.py`、`wiki/business_domain_planner.py`、`wiki/dependency_graph.py`（`HierarchicalDecomposer`） |
+| **合成与模板** | `wiki/composer.py`、`wiki/repo_composer.py`、`wiki/page_composer_service.py`、`wiki/page_templates.py` |
+| **质量与矛盾** | `wiki/confidence_scorer.py`、`wiki/contradiction_detector.py`、`wiki/lint.py`、`wiki/quality_evaluator.py`、`wiki/quality_score.py` |
+| **记忆与遗忘** | `wiki/memory_loop.py`、`wiki/memory_tiers.py`、`wiki/forgetting.py`、`store/wiki_memory_store.py`、`store/wiki_qa_store.py` |
+| **检索与问答** | `wiki/search.py`、`wiki/ask.py`、`wiki/deep_research.py`、`wiki/chunk_retriever.py`、`wiki/rag/*` |
+| **异步任务与仪表盘进度** | `wiki/task_store.py`、`wiki/task_registry.py`、`api/routes/wiki_task_routes.py`、`store/wiki_page_store.py`（`get_repo_wiki_freshness` 等） |
+| **树与导航** | `wiki/tree_builder.py`、`wiki/tree_linker.py`、`store/wiki_tree_store.py` |
+| **可观测 / 快照 / 反馈** | `wiki/compilation_snapshot.py`、`wiki/feedback_loop.py`、`store/wiki_feedback_store.py` |
+| **MCP 暴露** | `wiki/mcp_tools.py`（主清单 Wiki 工具）、`api/mcp_server.py`（汇总分派） |
+| **导出与静态产物** | `wiki/export_service.py`、`wiki/exporter.py`、`wiki/disk_exporter.py`、`wiki/mkdocs_exporter.py`、`wiki/obsidian_exporter.py` 等 |
 
-## Frontend (dashboard)
+---
 
-| Area | Location |
-|------|----------|
-| Wiki UI | `dashboard/src/pages/`, `dashboard/src/components/wiki/`（含 `ReasoningPathPanel`, `OfflinePackDownloadButton`, `WikiShell` 业务再生成进度/增量开关, 编辑/ diff 相关测试等）；`dashboard/src/hooks/useWikiRegenerate.ts`（轮询 `businessWikiTaskStatus`） |
-| Settings | `dashboard/src/components/settings/` |
-| API client | `dashboard/src/api/client.ts` |
+## 前端（仪表盘）区域表
 
-## Related doc
+| 区域 | 位置 | 说明 |
+|------|------|------|
+| **入口与路由** | `dashboard/src/main.tsx`、路由配置相关文件 | SPA 引导与页面路由 |
+| **Wiki 页面与组件** | `dashboard/src/pages/`、`dashboard/src/components/wiki/` | 含 `WikiShell`、`WikiTopicTreeNav`、`WikiTopicContent`、`WikiDomainReviewPanel`、`WikiPageReviewBar`、`WikiKnowledgeGraph`、`ReasoningPathPanel`、`OfflinePackDownloadButton`、编辑/diff 相关 UI |
+| **业务 Wiki 异步任务** | `dashboard/src/hooks/useWikiRegenerate.ts` | 轮询 `businessWikiTaskStatus`（配合后端 **202** 异步生成） |
+| **路径与编码** | `dashboard/src/utils/wikiPath.ts` | Wiki 路径统一编码/解码 |
+| **代码块展示** | `dashboard/src/components/wiki/CodeBlock.tsx` | 按需加载语法高亮，控制首屏体积 |
+| **全局错误** | `dashboard/src/components/ErrorBoundary.tsx` | 应用级错误边界 |
+| **设置** | `dashboard/src/components/settings/` | 令牌、索引与功能开关等 |
+| **API 客户端** | `dashboard/src/api/client.ts` | 与后端 `/api/v1` 交互 |
+| **测试** | `dashboard/src/pages/__tests__/`、`dashboard/src/components/__tests__/` | 页面冒烟与布局/无障碍（如侧边栏） |
 
-- [ARCHITECTURE.md](../ARCHITECTURE.md) — system architecture
-- [IMPLEMENTATION-STATUS.md](../IMPLEMENTATION-STATUS.md) — code vs plans, API path gotchas
+---
+
+## Phase 0–3 与关键横向能力（对照实现）
+
+下列表格将「规划阶段」与**代表性代码锚点**对齐；完整勾选状态与 API 路径陷阱见 [`IMPLEMENTATION-STATUS.md`](../IMPLEMENTATION-STATUS.md)。
+
+| 轨道 | 代表性代码 | 说明 |
+|------|------------|------|
+| **Phase 0（质量闭环基础）** | `wiki/lint.py`、`wiki/lint_scheduler.py`、`wiki/auto_healer.py` | 定时/按需 Lint、与 AutoHealer 的衔接方式以实现状态文档为准 |
+| **Phase 1（快照 / 反馈 / 总线）** | `wiki/compilation_snapshot.py`、`wiki/feedback_loop.py`、`wiki/event_bus.py`、`wiki/agents_md_generator.py` | 快照 MCP/HTTP、`WikiEventBus` SSE 类能力、AGENTS.md 生成 |
+| **Phase 2（社区 / 图 / 版本化内容）** | `wiki/community_context.py`、`store/graph_queries.py`（如 `shortest_path_between_names`）、`store/wiki_page_store.py`（`update_wiki_page_content`、版本与 diff） | HTTP：`PATCH …/content`、`GET …/versions`、`GET …/diff` |
+| **Phase 3（推理路径 / 离线包 / 树 tier）** | `wiki/reasoning_path.py`、`wiki/offline_pack.py`、`store/wiki_tree_store.py`（`wiki_tier`） | HTTP：`GET …/offline-pack`；树上展示 tier |
+| **异步业务 Wiki（2026-04-27 线）** | `wiki/task_store.py`、`api/routes/wiki_task_routes.py`、`store/wiki_page_store.py`、`dashboard/src/hooks/useWikiRegenerate.ts` | **HTTP 202** + 任务轮询；设计与架构见 [`wiki-generation-architecture.md`](../wiki-generation-architecture.md) |
+| **架构重构（2026-05）** | `core/container.py`、`api/mcp_registry.py`、`main.py`（lifespan 拆分） | 设计/计划见 `docs/superpowers/specs/` 与 `docs/superpowers/plans/` |
+
+---
+
+## 相关文档链接
+
+| 文档 | 用途 |
+|------|------|
+| [`ARCHITECTURE.md`](../ARCHITECTURE.md) | 端到端架构、索引与检索、Wiki 与 MCP 概览 |
+| [`IMPLEMENTATION-STATUS.md`](../IMPLEMENTATION-STATUS.md) | 计划 vs 代码、路径与配置注意事项 |
+| [`MCP-INTEGRATION.md`](../MCP-INTEGRATION.md) | 22+6 工具清单、认证与字段差异 |
+| [`wiki-generation-architecture.md`](../wiki-generation-architecture.md) | Wiki 管道与 LLM Wiki v2 |
+| [`KNOWN-ISSUES.md`](../KNOWN-ISSUES.md) | 已知问题、修复状态与验证说明 |
+| [`README-DOCS.md`](../README-DOCS.md) | 文档总索引 |
+| [`DEVELOPMENT.md`](../DEVELOPMENT.md)、[`DEPLOYMENT.md`](../DEPLOYMENT.md)、[`ONBOARDING.md`](../ONBOARDING.md) | 本地开发、部署与上手 |

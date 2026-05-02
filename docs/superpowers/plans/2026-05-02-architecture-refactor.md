@@ -22,7 +22,7 @@
 - Modify: `query/hybrid_query.py`
 - Create: `tests/test_fqn_utils.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_fqn_utils.py`:
 
@@ -88,12 +88,12 @@ class TestExtractFqns:
         assert extract_fqns("") == []
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/test_fqn_utils.py -x -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'store.fqn_utils'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `store/fqn_utils.py`:
 
@@ -135,12 +135,12 @@ def extract_fqns(text: str) -> list[str]:
     return [m.split("(")[0].strip() for m in FQN_RE.findall(text)]
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_fqn_utils.py -x -v`
 Expected: PASS (all 9 tests)
 
-- [ ] **Step 5: Update `store/traversal_store.py` to import from fqn_utils**
+- [x] **Step 5: Update `store/traversal_store.py` to import from fqn_utils**
 
 In `store/traversal_store.py`, replace the local `_FQN_RE` definition and `_parse_input` with imports:
 
@@ -156,7 +156,7 @@ from store.fqn_utils import FQN_RE as _FQN_RE, parse_fqn as _parse_input
 
 Keep the `import re` if still used elsewhere in the file; remove if not.
 
-- [ ] **Step 6: Update `query/hybrid_query.py` to import from fqn_utils**
+- [x] **Step 6: Update `query/hybrid_query.py` to import from fqn_utils**
 
 In `query/hybrid_query.py`, replace the local `_FQN_RE` definition:
 
@@ -168,12 +168,12 @@ In `query/hybrid_query.py`, replace the local `_FQN_RE` definition:
 from store.fqn_utils import FQN_RE as _FQN_RE
 ```
 
-- [ ] **Step 7: Run full backend tests**
+- [x] **Step 7: Run full backend tests**
 
 Run: `uv run pytest tests/ -x --timeout=30 -q`
 Expected: All tests pass (no behavior change)
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add store/fqn_utils.py tests/test_fqn_utils.py store/traversal_store.py query/hybrid_query.py
@@ -188,7 +188,7 @@ git commit -m "refactor: extract shared FQN parsing to store/fqn_utils.py"
 - Create: `api/mcp_registry.py`
 - Create: `tests/api/test_mcp_registry.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/api/test_mcp_registry.py`:
 
@@ -237,12 +237,12 @@ def test_collected_handler_is_bound():
     assert handler.__self__ is server
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/api/test_mcp_registry.py -x -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'api.mcp_registry'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `api/mcp_registry.py`:
 
@@ -284,12 +284,12 @@ def collect_tools(instance: object) -> dict[str, tuple[Callable[..., Any], Role]
     return tools
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/api/test_mcp_registry.py -x -v`
 Expected: PASS (all 3 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add api/mcp_registry.py tests/api/test_mcp_registry.py
@@ -305,7 +305,7 @@ git commit -m "feat: add MCP tool auto-registration decorator"
 - Create: `core/container.py`
 - Create: `tests/test_container.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_container.py`:
 
@@ -354,12 +354,12 @@ def test_container_wiki_fields_default_to_none():
         assert getattr(container, field) is None, f"{field} should default to None"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/test_container.py -x -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'core'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `core/__init__.py`:
 ```python
@@ -436,12 +436,12 @@ class AppContainer:
         return cls(**defaults)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/test_container.py -x -v`
 Expected: PASS (all 2 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/__init__.py core/container.py tests/test_container.py
@@ -459,7 +459,7 @@ git commit -m "feat: add AppContainer service container"
 - Modify: `api/kb_state.py` (add container shim)
 - Create: `tests/test_lifespan_decomposition.py`
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 Create `tests/test_lifespan_decomposition.py`:
 
@@ -523,12 +523,12 @@ async def test_lifespan_creates_container():
             assert app.state.container.registry is mock_registry
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest tests/test_lifespan_decomposition.py -x -v`
 Expected: FAIL (app.state.container doesn't exist yet)
 
-- [ ] **Step 3: Refactor `main.py` lifespan**
+- [x] **Step 3: Refactor `main.py` lifespan**
 
 Extract the lifespan body into focused functions and create the container:
 
@@ -539,7 +539,7 @@ Extract the lifespan body into focused functions and create the container:
 5. The lifespan itself creates the container, calls the init functions, and stores it on `app.state.container`
 6. Also mirror key fields to `app.state.*` for backward compat (e.g., `app.state.registry = container.registry`)
 
-- [ ] **Step 4: Update `api/kb_state.py` to be a transition shim**
+- [x] **Step 4: Update `api/kb_state.py` to be a transition shim**
 
 Add a `_container` reference that main.py sets after creating the container:
 
@@ -584,17 +584,17 @@ def __getattr__(name: str):
 
 Keep the semaphore module-level vars for now (they're used directly).
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `uv run pytest tests/test_lifespan_decomposition.py tests/test_wiki_app_state.py -x -v`
 Expected: PASS
 
-- [ ] **Step 6: Run full backend tests**
+- [x] **Step 6: Run full backend tests**
 
 Run: `uv run pytest tests/ -x --timeout=30 -q`
 Expected: All pass
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add main.py api/kb_state.py core/container.py tests/test_lifespan_decomposition.py
@@ -610,7 +610,7 @@ git commit -m "refactor: decompose lifespan, introduce AppContainer"
 - Modify: `api/mcp_wiki_server.py` (if wiki tools are there)
 - Modify: `tests/api/test_mcp_registry.py` (extend)
 
-- [ ] **Step 1: Add `@mcp_tool` decorators to each handler method in `api/mcp_server.py`**
+- [x] **Step 1: Add `@mcp_tool` decorators to each handler method in `api/mcp_server.py`**
 
 For each handler in the current `handlers` dict, add the decorator:
 
@@ -628,7 +628,7 @@ async def handle_wiki_export(self, args: dict[str, Any]) -> dict[str, Any]:
 
 Do the same for wiki tools in `MCPWikiServer` (or wherever they're defined).
 
-- [ ] **Step 2: Build tool registry in `__init__`**
+- [x] **Step 2: Build tool registry in `__init__`**
 
 In `MCPKnowledgeServer.__init__`, after `self._wiki` is created:
 
@@ -637,7 +637,7 @@ self._tools = collect_tools(self)
 self._tools.update(collect_tools(self._wiki))
 ```
 
-- [ ] **Step 3: Replace `handle_tool_call` dispatch**
+- [x] **Step 3: Replace `handle_tool_call` dispatch**
 
 Replace the `handlers = { ... }` dict and `MCP_TOOL_MIN_ROLE` lookups with:
 
@@ -661,21 +661,21 @@ async def handle_tool_call(self, tool_name, arguments, *, token_info=None):
         return _mcp_error("internal_error", "Tool execution failed unexpectedly")
 ```
 
-- [ ] **Step 4: Remove `MCP_TOOL_MIN_ROLE` dict and `TOOL_ROLES` alias**
+- [x] **Step 4: Remove `MCP_TOOL_MIN_ROLE` dict and `TOOL_ROLES` alias**
 
 Delete the `MCP_TOOL_MIN_ROLE` dict definition and `TOOL_ROLES` alias. Check if anything imports them; if so, provide a backward-compat function that reads from `_tools`.
 
-- [ ] **Step 5: Run MCP-related tests**
+- [x] **Step 5: Run MCP-related tests**
 
 Run: `uv run pytest tests/api/ -x -v --timeout=30`
 Expected: All pass
 
-- [ ] **Step 6: Run full tests**
+- [x] **Step 6: Run full tests**
 
 Run: `uv run pytest tests/ -x --timeout=30 -q`
 Expected: All pass
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add api/mcp_server.py api/mcp_registry.py api/mcp_wiki_server.py
@@ -690,11 +690,11 @@ git commit -m "refactor: replace MCP dict dispatch with @mcp_tool decorators"
 - Modify: `wiki/service.py`
 - Create: `wiki/protocols.py` (optional, if needed for cross-module types)
 
-- [ ] **Step 1: Read `wiki/service.py` `__init__` signature**
+- [x] **Step 1: Read `wiki/service.py` `__init__` signature**
 
 Identify all `Any`-typed parameters and determine correct types from usage.
 
-- [ ] **Step 2: Create `wiki/protocols.py` if needed**
+- [x] **Step 2: Create `wiki/protocols.py` if needed**
 
 If any parameter's concrete type would create circular imports, define a Protocol:
 
@@ -707,16 +707,16 @@ class GraphStore(Protocol):
     async def add_node(self, label: str, properties: dict[str, Any]) -> Any: ...
 ```
 
-- [ ] **Step 3: Update `WikiService.__init__` type annotations**
+- [x] **Step 3: Update `WikiService.__init__` type annotations**
 
 Replace `Any` with concrete types or Protocols. Keep backward compatibility (no runtime behavior change).
 
-- [ ] **Step 4: Run type checker (if available) and tests**
+- [x] **Step 4: Run type checker (if available) and tests**
 
 Run: `uv run pytest tests/wiki/ -x --timeout=30 -q`
 Expected: All pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add wiki/service.py wiki/protocols.py
@@ -735,7 +735,7 @@ git commit -m "refactor: narrow WikiService type annotations"
 - Modify: `dashboard/src/hooks/useWikiPageByPath.ts`
 - Create: `dashboard/src/utils/__tests__/wikiPath.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `dashboard/src/utils/__tests__/wikiPath.test.ts`:
 
@@ -762,12 +762,12 @@ describe("encodeWikiPath", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd dashboard && pnpm test --run src/utils/__tests__/wikiPath.test.ts`
 Expected: FAIL (module not found)
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 Create `dashboard/src/utils/wikiPath.ts`:
 
@@ -781,12 +781,12 @@ export function encodeWikiPath(path: string): string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd dashboard && pnpm test --run src/utils/__tests__/wikiPath.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Update `useWikiPage.ts`**
+- [x] **Step 5: Update `useWikiPage.ts`**
 
 Remove the local `encodeWikiPath` function. Add import:
 
@@ -794,7 +794,7 @@ Remove the local `encodeWikiPath` function. Add import:
 import { encodeWikiPath } from "../utils/wikiPath";
 ```
 
-- [ ] **Step 6: Update `useWikiPageByPath.ts`**
+- [x] **Step 6: Update `useWikiPageByPath.ts`**
 
 Remove the local `encodeWikiPathSegments` function. Add import and rename usage:
 
@@ -805,12 +805,12 @@ import { encodeWikiPath } from "../utils/wikiPath";
 
 Update the export if `encodeWikiPathSegments` was exported and used elsewhere.
 
-- [ ] **Step 7: Run all frontend tests**
+- [x] **Step 7: Run all frontend tests**
 
 Run: `cd dashboard && pnpm test --run`
 Expected: All 298+ tests pass
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add dashboard/src/utils/wikiPath.ts dashboard/src/utils/__tests__/wikiPath.test.ts \
@@ -826,7 +826,7 @@ git commit -m "refactor: unify wiki path encoding utility"
 - Create: `dashboard/src/pages/__tests__/OverviewPage.test.tsx`
 - Create: `dashboard/src/pages/__tests__/WikiPage.test.tsx`
 
-- [ ] **Step 1: Write smoke test for OverviewPage**
+- [x] **Step 1: Write smoke test for OverviewPage**
 
 Create `dashboard/src/pages/__tests__/OverviewPage.test.tsx`:
 
@@ -874,16 +874,16 @@ describe("OverviewPage", () => {
 });
 ```
 
-- [ ] **Step 2: Write smoke test for WikiPage**
+- [x] **Step 2: Write smoke test for WikiPage**
 
 Create `dashboard/src/pages/__tests__/WikiPage.test.tsx` following the same pattern, mocking wiki-specific hooks.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `cd dashboard && pnpm test --run`
 Expected: All pass (298+ plus new ones)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add dashboard/src/pages/__tests__/
@@ -898,7 +898,7 @@ git commit -m "test: add page smoke tests for Overview and Wiki"
 - Modify: `dashboard/src/components/Layout.tsx`
 - Create: `dashboard/src/components/__tests__/Layout.sidebar.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `dashboard/src/components/__tests__/Layout.sidebar.test.tsx`:
 
@@ -957,12 +957,12 @@ describe("Mobile sidebar accessibility", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd dashboard && pnpm test --run src/components/__tests__/Layout.sidebar.test.tsx`
 Expected: FAIL (no role="dialog" found)
 
-- [ ] **Step 3: Update `Layout.tsx`**
+- [x] **Step 3: Update `Layout.tsx`**
 
 In the mobile overlay `<div>`, add accessibility attributes and ESC handler:
 
@@ -985,17 +985,17 @@ In the mobile overlay `<div>`, add accessibility attributes and ESC handler:
 
 Also add `aria-label="Toggle menu"` to the hamburger button if not already present.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd dashboard && pnpm test --run src/components/__tests__/Layout.sidebar.test.tsx`
 Expected: PASS
 
-- [ ] **Step 5: Run all frontend tests**
+- [x] **Step 5: Run all frontend tests**
 
 Run: `cd dashboard && pnpm test --run`
 Expected: All pass
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add dashboard/src/components/Layout.tsx dashboard/src/components/__tests__/Layout.sidebar.test.tsx
@@ -1006,24 +1006,24 @@ git commit -m "fix: add accessibility attrs to mobile sidebar overlay"
 
 ## Final Verification
 
-- [ ] **Run full backend test suite**
+- [x] **Run full backend test suite**
 
 ```bash
 uv run pytest tests/ -x --timeout=30 -q
 ```
 Expected: All pass
 
-- [ ] **Run full frontend test suite**
+- [x] **Run full frontend test suite**
 
 ```bash
 cd dashboard && pnpm test --run
 ```
 Expected: All pass
 
-- [ ] **Verify no lint errors in changed files**
+- [x] **Verify no lint errors in changed files**
 
 Check linter output for all modified files.
 
-- [ ] **Update analysis document**
+- [x] **Update analysis document**
 
 Remove the 8 fixed items from `docs/superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md` section 2 (剩余改进方向).

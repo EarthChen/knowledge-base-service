@@ -219,22 +219,16 @@ class ProgressiveComposer:
 
     @staticmethod
     def _dedupe_markdown_headers(text: str) -> str:
+        """Merge content under duplicate ## headings instead of dropping them."""
         lines = text.splitlines()
         seen: set[str] = set()
         out: list[str] = []
-        skipping = False
         for line in lines:
             if re.match(r"^##\s+\S", line):
                 header = line.strip()
                 if header in seen:
-                    skipping = True
                     continue
                 seen.add(header)
-                skipping = False
-                out.append(line)
-                continue
-            if skipping:
-                continue
             out.append(line)
         return "\n".join(out).strip()
 

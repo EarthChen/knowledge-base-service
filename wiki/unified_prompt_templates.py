@@ -168,7 +168,9 @@ def build_domain_overview_prompt(context: EnrichedDomainContext) -> str:
     )
     intra_cross = build_call_chain_section(context.intra_domain_calls, context.cross_domain_calls)
 
-    return f"""请为业务域编写 **Wiki 域总览** 页面。域名称：`{context.domain_name}`；上级域：`{context.parent_domain}`。
+    overview_siblings = "、".join(f"`{s}`" for s in context.sibling_domains) if context.sibling_domains else "无"
+
+    return f"""请为业务域编写 **Wiki 域总览** 页面。域名称：`{context.domain_name}`；上级域：`{context.parent_domain}`；兄弟域：{overview_siblings}。
 
 ## 你必须在 JSON 的 content 中输出且仅使用以下 Markdown 章节（标题字面一致）
 1. ## 业务概述 — 该域的业务目的与在系统中的角色（至少两段）
@@ -203,7 +205,10 @@ def build_topic_detail_prompt(context: EnrichedDomainContext) -> str:
         context.cross_domain_calls,
     )
 
-    base = f"""请为 **子主题/子域详情** 编写 Wiki 页面。当前域：`{context.domain_name}`；上级域：`{context.parent_domain}`。
+    snippets_block = "\n".join(context.key_snippets) if context.key_snippets else "（无）"
+    siblings = "、".join(f"`{s}`" for s in context.sibling_domains) if context.sibling_domains else "无"
+
+    base = f"""请为 **子主题/子域详情** 编写 Wiki 页面。当前域：`{context.domain_name}`；上级域：`{context.parent_domain}`；兄弟域：{siblings}。
 
 ## 你必须在 JSON 的 content 中输出且仅使用以下 Markdown 章节（标题字面一致）
 1. ## 业务概述 — 说明该子域为何存在、解决什么问题、如何嵌入父域（至少两段）
@@ -223,6 +228,9 @@ def build_topic_detail_prompt(context: EnrichedDomainContext) -> str:
 
 ## 参考数据：枚举与常量
 {enums}
+
+## 参考数据：关键代码片段
+{snippets_block}
 
 ## 参考数据：跨域依赖
 {cross_block}

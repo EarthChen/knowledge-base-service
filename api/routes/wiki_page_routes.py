@@ -23,6 +23,7 @@ from wiki.quality_evaluator import WikiQualityEvaluator
 from wiki.quality_score import WikiQualityScorer
 from wiki.service import WikiRepoNotFoundError, WikiService
 from wiki.search import SearchResponse
+from api.models.wiki_entity import RelatedEntity, WikiPageEntitiesResponse
 from api.models.wiki_models import (
     AnalyzeImpactBody,
     BusinessWikiExportBody,
@@ -80,6 +81,46 @@ async def _resolve_primary_source_entity_uid(
         return uid
     except Exception:  # noqa: BLE001
         return ""
+
+
+def _entity_type_from_labels(labels: object) -> str:
+    if not isinstance(labels, list):
+        return ""
+    ordered = ("Function", "Class", "Module")
+    as_set = {str(x) for x in labels}
+    for t in ordered:
+        if t in as_set:
+            return t
+    return str(labels[0]) if labels else ""
+
+
+def _related_entity_rows_to_models(rows: list[dict[str, Any]]) -> list[RelatedEntity]:
+    entities: list[RelatedEntity] = []
+    for row in rows:
+        raw_sl = row.get("start_line")
+        start_line: int | None
+        if raw_sl is None:
+            start_line = None
+        else:
+            try:
+                n = int(raw_sl)
+            except (TypeError, ValueError):
+                start_line = None
+            else:
+                start_line = None if n == 0 else n
+        entities.append(
+            RelatedEntity(
+                uid=str(row.get("uid") or ""),
+                name=str(row.get("name") or ""),
+                entity_type=_entity_type_from_labels(row.get("labels")),
+                repository=str(row.get("repository") or ""),
+                file_path=str(row.get("file_path") or ""),
+                start_line=start_line,
+                signature=str(row.get("signature") or ""),
+                business_summary=str(row.get("business_summary") or ""),
+            )
+        )
+    return entities
 
 
 async def _build_related_pages(
@@ -356,6 +397,42 @@ async def wiki_get_page_by_path(
         "generated_at": str(row.get("generated_at") or "") or None,
         "related_pages": related_pages,
     }
+
+
+@router.get("/pages/{page_path:path}/entities", response_model=WikiPageEntitiesResponse)
+async def wiki_get_page_entities(
+    request: Request,
+    page_path: str,
+    business_id: str = Query(default="default"),
+    repository: str | None = Query(default=None),
+) -> WikiPageEntitiesResponse:
+    """Return code entities linked to the wiki page via SOURCE_ENTITY (for entity cards in the UI)."""
+    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    if raw_store is None:
+        raise KbServiceUnavailable("Wiki store unavailable")
+
+    decoded_path = unquote(page_path).lstrip("/")
+    store = WikiStore(raw_store)
+
+    result = None
+    if repository:
+        result = await store.get_page_by_repo_path(repository, decoded_path)
+    if not result or not result.data:
+        result = await store.get_page_by_path(business_id, decoded_path)
+    if not result.data:
+        raise KbNotFound(f"Wiki page not found: {decoded_path}")
+
+    row = result.data[0]
+    page_uid = str(row.get("uid") or "").strip()
+    if not page_uid:
+        raise KbNotFound(f"Wiki page has no uid: {decoded_path}")
+
+    resolved_path = str(row.get("path") or decoded_path)
+    rows = await store.get_related_entities(page_uid)
+    return WikiPageEntitiesResponse(
+        page_path=resolved_path,
+        entities=_related_entity_rows_to_models(rows),
+    )
 
 
 @router.get("/pages/by-source-entity", response_model=None)

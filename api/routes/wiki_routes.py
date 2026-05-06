@@ -6,6 +6,7 @@ import time
 
 from core.config import get_settings
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from store.graph_queries import GraphQueryRepository  # re-export: tests patch this on wiki_routes
 from core.auth import Role, require_role
 from api.routes.wiki_ask_routes import router as wiki_ask_router
@@ -15,8 +16,11 @@ from api.routes.wiki_mcp_routes import router as wiki_mcp_tools_router
 from api.routes.wiki_page_routes import router as wiki_page_router
 from api.routes.wiki_task_routes import router as wiki_task_router
 from api.routes import wiki_shared
+from query.semantic_wiki_query import SemanticWikiQuery, semantic_search_result_to_dict
+from store.wiki_store import WikiStore
 from wiki.quality_score import WikiQualityScorer
 from wiki.task_registry import WIKI_TASK_TTL_SEC, WikiTaskRegistry
+from api.models.wiki_entity import RelatedEntity, WikiPageEntitiesResponse
 from api.models.wiki_models import (
     IngestRequest,
     WikiGenerateBody,
@@ -29,6 +33,28 @@ wiki_router = APIRouter(
     tags=["wiki"],
     dependencies=[Depends(require_role(Role.VIEWER))],
 )
+
+
+class WikiSemanticSearchBody(BaseModel):
+    """Body for ``POST /api/v1/wiki/semantic-search``."""
+
+    query: str = Field(..., min_length=1)
+    repository: str = Field(..., min_length=1)
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+@wiki_router.post("/semantic-search", response_model=None)
+async def wiki_semantic_search(
+    body: WikiSemanticSearchBody,
+    raw_store: object = Depends(wiki_shared.get_wiki_store_dep),
+) -> dict[str, object]:
+    """Combine wiki fulltext/graph search with code entities and call chains."""
+    wiki = WikiStore(raw_store)
+    svc = SemanticWikiQuery(wiki, graph_store=wiki)
+    result = await svc.search(body.query, body.repository, limit=body.limit)
+    return semantic_search_result_to_dict(result)
+
+
 wiki_router.include_router(wiki_task_router)
 wiki_router.include_router(wiki_contradiction_router)
 wiki_router.include_router(wiki_page_router)
@@ -87,4 +113,6 @@ __all__ = [
     "WikiIncrementalGenerateBody",
     "WikiQuickBody",
     "IngestRequest",
+    "RelatedEntity",
+    "WikiPageEntitiesResponse",
 ]

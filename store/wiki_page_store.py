@@ -349,6 +349,23 @@ class WikiPageStoreMixin:
         q = "MATCH (wp:WikiPage {repository: $repo, path: $path}) RETURN wp LIMIT 1"
         return await self._store.execute_query(q, {"repo": repository, "path": path})
 
+    async def get_related_entities(self, page_uid: str) -> list[dict[str, Any]]:
+        """Get code entities linked to a wiki page via SOURCE_ENTITY edges."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        q = (
+            f"MATCH (wp:WikiPage {{uid: $uid}})-[:{_se}]->(e) "
+            "WHERE e:Function OR e:Class OR e:Module "
+            "RETURN coalesce(e.uid, '') AS uid, e.name AS name, labels(e) AS labels, "
+            "coalesce(e.file, e.file_path, '') AS file_path, "
+            "coalesce(e.start_line, 0) AS start_line, "
+            "coalesce(e.signature, '') AS signature, "
+            "coalesce(e.business_summary, e.docstring, '') AS business_summary, "
+            "coalesce(e.repository, '') AS repository "
+            "LIMIT 50"
+        )
+        result = await self._store.execute_query(q, {"uid": page_uid})
+        return list(result.data) if result.data else []
+
     async def get_page_by_entity_uid(
         self, repository: str, entity_uid: str,
     ) -> SimpleNamespace | None:

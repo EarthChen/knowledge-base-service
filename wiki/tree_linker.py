@@ -242,6 +242,41 @@ class WikiTreeLinker:
 
             domain_names = _flatten_names(domain_tree)
 
+            def _tokenize(name: str) -> set[str]:
+                import re as _re
+                cleaned = _re.sub(r"[()&/,\-_]", " ", name.lower())
+                return {t for t in cleaned.split() if len(t) > 1}
+
+            domain_tokens: dict[str, set[str]] = {
+                dn: _tokenize(dn) for dn in domain_names
+            }
+
+            def _find_best_domain(page_top_level: str) -> str | None:
+                if page_top_level in domain_names:
+                    return page_top_level
+                tl_lower = page_top_level.lower()
+                for dn in domain_names:
+                    dn_lower = dn.lower()
+                    if dn_lower == tl_lower:
+                        return dn
+                    if tl_lower.startswith(dn_lower) or dn_lower.startswith(tl_lower):
+                        return dn
+                tl_tokens = _tokenize(page_top_level)
+                if not tl_tokens:
+                    return None
+                best_dn, best_score = None, 0.0
+                for dn, dn_toks in domain_tokens.items():
+                    if not dn_toks:
+                        continue
+                    overlap = len(tl_tokens & dn_toks)
+                    score = overlap / max(len(tl_tokens), len(dn_toks))
+                    if score > best_score:
+                        best_score = score
+                        best_dn = dn
+                if best_score >= 0.3:
+                    return best_dn
+                return None
+
             for row in tp_rows:
                 uid = str(row.get("uid", ""))
                 path = str(row.get("path", ""))
@@ -251,16 +286,7 @@ class WikiTreeLinker:
                 slash_idx = after_wiki.find("/")
                 top_level = after_wiki[:slash_idx] if slash_idx > 0 else after_wiki
 
-                matched_domain = None
-                if top_level in domain_names:
-                    matched_domain = top_level
-                else:
-                    tl_lower = top_level.lower()
-                    for dn in domain_names:
-                        if dn.lower() == tl_lower or tl_lower.startswith(dn.lower()) or dn.lower().startswith(tl_lower):
-                            matched_domain = dn
-                            break
-
+                matched_domain = _find_best_domain(top_level)
                 if matched_domain:
                     topic_pages_by_domain.setdefault(matched_domain, []).append(uid)
 

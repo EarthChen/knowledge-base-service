@@ -30,6 +30,7 @@ from wiki.reasoning import (
     TaskType,
     select_reasoning_level,
 )
+from wiki.domain_overview_composer import DomainOverviewComposer
 from wiki.topic_page_composer import TopicPageComposer
 from wiki.topic_structure_planner import TopicBasedStructurePlanner
 from wiki.json_robust import parse_json_robust_sync
@@ -867,10 +868,86 @@ async def _compose_single_leaf_domain(
     entity_roles: dict[str, Any],
     llm: Any,
     token_budget: int,
+    *,
+    graph_store: Any | None = None,
+    wiki_store: Any | None = None,
+    domain_mapping: dict[str, list] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Compose pages for one leaf domain (and optional diagrams when llm is set)."""
     domain_name = leaf.get("name", "unknown")
     module_names = leaf.get("modules", [])
+
+    if graph_store is not None:
+        from wiki.content_context_builder import ContentContextBuilder
+
+        try:
+            ccb = ContentContextBuilder(graph_store, wiki_store=wiki_store)
+            context = await ccb.build_context(
+                domain_name=domain_name,
+                module_names=list(module_names),
+                module_index=module_index,
+                entity_roles=entity_roles,  # type: ignore[arg-type]
+                domain_mapping=domain_mapping or {},
+                depth=2,
+                parent_domain=str(leaf.get("parent") or "root"),
+            )
+            covered_entity_uids = [e.uid for e in context.biz_entities] + [
+                str(d["uid"]) for d in context.data_models if d.get("uid")
+            ]
+            overview_composer = DomainOverviewComposer(llm=llm)
+            composer = TopicPageComposer(llm, token_budget=token_budget)
+            pages = await composer.compose_leaf_domain_from_context(
+                context, overview_composer=overview_composer
+            )
+            if not pages:
+                return [], []
+            if llm and pages:
+                diag_gen = SemanticDiagramGenerator(llm)
+                page_data = _build_page_data_for_semantic_diagrams(
+                    domain_name, module_names, module_index
+                )
+                try:
+                    digest = diag_gen.build_entity_digest(page_data)
+                except Exception:
+                    log.warning(
+                        "diagram_digest_build_failed",
+                        domain=domain_name,
+                        exc_info=True,
+                    )
+                    digest = ""
+                for page_dict in pages:
+                    page_type = (
+                        PageType.DOMAIN_OVERVIEW
+                        if page_dict.get("page_type") == "domain_overview"
+                        else PageType.TOPIC
+                    )
+                    try:
+                        diagrams = await diag_gen.generate_for_page(
+                            page_data, page_type, digest, "full"
+                        )
+                        if diagrams:
+                            page_dict["diagrams"] = [
+                                {
+                                    "title": d.title,
+                                    "type": d.diagram_type.value
+                                    if hasattr(d.diagram_type, "value")
+                                    else str(d.diagram_type),
+                                    "content": d.content,
+                                }
+                                for d in diagrams
+                            ]
+                    except Exception:
+                        log.warning(
+                            "diagram_generation_failed",
+                            page=page_dict.get("title"),
+                            exc_info=True,
+                        )
+            for page_dict in pages:
+                page_dict["covered_entity_uids"] = covered_entity_uids
+            return pages, [p.get("path", "") for p in pages]
+        except Exception:
+            log.warning("compose_pages_domain_failed", domain=domain_name, exc_info=True)
+            return [], []
 
     biz_entities = []
     data_models = []
@@ -1073,6 +1150,10 @@ async def _compose_from_topic_structure(
     module_index: dict[str, list[dict]],
     entity_roles: dict[str, Any],
     llm: Any,
+    *,
+    graph_store: Any | None = None,
+    wiki_store: Any | None = None,
+    domain_mapping: dict[str, list] | None = None,
 ) -> dict[str, Any]:
     """Compose pages from TopicBasedStructurePlanner output."""
     budget_resolver = TokenBudgetResolver()
@@ -1086,7 +1167,14 @@ async def _compose_from_topic_structure(
         async with sem:
             domain_dict = _topic_to_domain_dict(topic, module_index)
             return await _compose_single_leaf_domain(
-                domain_dict, module_index, entity_roles, llm, budget
+                domain_dict,
+                module_index,
+                entity_roles,
+                llm,
+                budget,
+                graph_store=graph_store,
+                wiki_store=wiki_store,
+                domain_mapping=domain_mapping,
             )
 
     all_topics = list(topic_structure)
@@ -1114,7 +1202,11 @@ async def compose_leaf_pages_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
     """Phase 3: generate topic pages for each leaf domain."""
-    llm = (config or {}).get("configurable", {}).get("llm")
+    configurable = (config or {}).get("configurable", {}) or {}
+    llm = configurable.get("llm")
+    graph_store = configurable.get("graph_store")
+    wiki_store = configurable.get("wiki_store")
+    domain_mapping = state.get("domain_mapping") or {}
     domain_tree = state.get("domain_tree") or []
     entity_roles = state.get("entity_roles", {})
     modules = state.get("modules", {})
@@ -1130,7 +1222,13 @@ async def compose_leaf_pages_node(
     topic_structure = state.get("topic_structure")
     if topic_structure:
         return await _compose_from_topic_structure(
-            topic_structure, module_index, entity_roles, llm
+            topic_structure,
+            module_index,
+            entity_roles,
+            llm,
+            graph_store=graph_store,
+            wiki_store=wiki_store,
+            domain_mapping=domain_mapping,
         )
 
     budget_resolver = TokenBudgetResolver()
@@ -1146,7 +1244,14 @@ async def compose_leaf_pages_node(
     async def _bounded(leaf: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
         async with sem:
             return await _compose_single_leaf_domain(
-                leaf, module_index, entity_roles, llm, budget
+                leaf,
+                module_index,
+                entity_roles,
+                llm,
+                budget,
+                graph_store=graph_store,
+                wiki_store=wiki_store,
+                domain_mapping=domain_mapping,
             )
 
     results = await asyncio.gather(

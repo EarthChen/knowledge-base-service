@@ -44,6 +44,7 @@ class WikiSemanticSearchBody(BaseModel):
 
 
 @wiki_router.post("/semantic-search", response_model=None)
+@wiki_router.post("/search/semantic", response_model=None, include_in_schema=False)
 async def wiki_semantic_search(
     body: WikiSemanticSearchBody,
     raw_store: object = Depends(wiki_shared.get_wiki_store_dep),

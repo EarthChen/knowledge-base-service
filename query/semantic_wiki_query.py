@@ -1,13 +1,21 @@
-"""Multi-strategy wiki + code graph semantic search (fulltext, graph paths, entities, call chains)."""
+"""Multi-strategy wiki + code graph semantic search (fulltext, graph paths, entities, call chains).
+
+v1 merges results from multiple strategies via simple deduplication and score-based
+sorting.  A full Reciprocal Rank Fusion (RRF) approach is planned for v2 once we
+have relevance-feedback data to tune the weights.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from wiki.search import _extract_entity_names
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -41,6 +49,7 @@ class SemanticSearchResult:
     wiki_hits: list[WikiSearchHit] = field(default_factory=list)
     entity_hits: list[EntitySearchHit] = field(default_factory=list)
     call_chain_hits: list[CallChainHit] = field(default_factory=list)
+    # Sum of all hit lists; not deduplicated across strategies.
     total_count: int = 0
 
 
@@ -143,6 +152,7 @@ class SemanticWikiQuery:
                 max(limit * 5, limit),
             )
         except Exception:  # noqa: BLE001
+            log.warning("wiki_fulltext_search_failed", exc_info=True)
             return []
         rows = getattr(res, "data", None) or []
         hits: list[WikiSearchHit] = []
@@ -184,6 +194,7 @@ class SemanticWikiQuery:
                 max(limit * 5, limit),
             )
         except Exception:  # noqa: BLE001
+            log.warning("wiki_graph_path_search_failed", exc_info=True)
             return []
         rows = getattr(res, "data", None) or []
         hits: list[WikiSearchHit] = []
@@ -227,6 +238,7 @@ class SemanticWikiQuery:
                 {"repository": repository, "query": query, "limit": limit},
             )
         except Exception:  # noqa: BLE001
+            log.warning("code_entity_search_failed", exc_info=True)
             return []
         rows = getattr(res, "data", None) or []
         hits: list[EntitySearchHit] = []
@@ -266,6 +278,7 @@ class SemanticWikiQuery:
                 {"entity_names": list(dict.fromkeys(entity_names))[:50], "limit": limit},
             )
         except Exception:  # noqa: BLE001
+            log.warning("call_chain_search_failed", exc_info=True)
             return []
         rows = getattr(res, "data", None) or []
         hits: list[CallChainHit] = []

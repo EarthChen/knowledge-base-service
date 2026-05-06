@@ -1,4 +1,4 @@
-"""Stabilize wiki domain names across incremental runs using text similarity."""
+"""Stabilize wiki domain names across incremental runs using lexical similarity."""
 
 from __future__ import annotations
 
@@ -26,11 +26,12 @@ _DOMAIN_SUFFIXES: tuple[str, ...] = (
 
 
 class DomainStabilizer:
-    """Stabilize domain names across incremental runs using semantic similarity.
+    """Stabilize domain names across incremental runs using lexical similarity.
 
     When the LLM proposes domain names for a new run, this class compares them
-    against existing domain names in the graph store and suggests merges when
-    names are semantically equivalent.
+    against existing domain names in the graph store and maps near-duplicates
+    to the existing canonical name.  The comparison uses normalization, substring
+    containment, and Jaccard token similarity (not embedding-based).
     """
 
     def __init__(self, graph_store: Any | None = None, *, similarity_threshold: float = 0.85):
@@ -130,11 +131,35 @@ class DomainStabilizer:
         proposed_domains: list[str],
         existing_domains: list[str],
     ) -> dict[str, str]:
-        """Synchronous version without graph store query."""
+        """Synchronous version without graph store query.
+
+        Pre-indexes existing domains by their first normalized token to reduce
+        comparisons from O(proposed * existing) to roughly O(proposed * bucket).
+        """
+        if not existing_domains:
+            return {p: p for p in proposed_domains}
+
+        index: dict[str, list[str]] = {}
+        for ed in existing_domains:
+            norm = self.normalize_domain_name(ed)
+            tokens = self._tokenize_for_jaccard(norm)
+            bucket_keys = tokens if tokens else {""}
+            for tk in bucket_keys:
+                index.setdefault(tk, []).append(ed)
+
         result: dict[str, str] = {}
         for proposed in proposed_domains:
+            pnorm = self.normalize_domain_name(proposed)
+            ptokens = self._tokenize_for_jaccard(pnorm)
+            candidates: set[str] = set()
+            bucket_keys = ptokens if ptokens else {""}
+            for tk in bucket_keys:
+                candidates.update(index.get(tk, []))
+            if not candidates:
+                candidates = set(existing_domains)
+
             best: tuple[float, str] = (-1.0, proposed)
-            for existing in existing_domains:
+            for existing in candidates:
                 sim = self.compute_similarity(proposed, existing)
                 if sim > best[0]:
                     best = (sim, existing)

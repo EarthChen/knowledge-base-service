@@ -132,6 +132,24 @@ async def classify_domains_node(
     planner = CrossRepoBusinessDomainPlanner(llm)
     domain_mapping = await planner.classify(business_id, biz_modules)
 
+    graph_store = (config or {}).get("configurable", {}).get("graph_store")
+    if graph_store is not None:
+        from wiki.domain_stabilizer import DomainStabilizer
+
+        stabilizer = DomainStabilizer(graph_store)
+        try:
+            rename_map = await stabilizer.stabilize(list(domain_mapping.keys()))
+            stabilized: dict[str, list] = {}
+            for proposed, pairs in domain_mapping.items():
+                stable = rename_map.get(proposed, proposed)
+                stabilized.setdefault(stable, []).extend(pairs)
+            if stabilized != domain_mapping:
+                renamed = {p: s for p, s in rename_map.items() if p != s}
+                log.info("domain_stabilizer_applied", renamed=renamed)
+                domain_mapping = stabilized
+        except Exception:
+            log.warning("domain_stabilizer_failed", exc_info=True)
+
     log.info(
         "classify_domains_done",
         business_id=business_id,
@@ -946,8 +964,11 @@ async def _compose_single_leaf_domain(
                 page_dict["covered_entity_uids"] = covered_entity_uids
             return pages, [p.get("path", "") for p in pages]
         except Exception:
-            log.warning("compose_pages_domain_failed", domain=domain_name, exc_info=True)
-            return [], []
+            log.warning(
+                "ccb_compose_failed_fallback_to_legacy",
+                domain=domain_name,
+                exc_info=True,
+            )
 
     biz_entities = []
     data_models = []

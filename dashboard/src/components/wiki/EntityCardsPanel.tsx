@@ -80,7 +80,10 @@ export default function EntityCardsPanel({ pagePath, businessId, repository }: P
         )}
         <span>{tc.related_entities_heading}</span>
         {q.isLoading ? <Loader2 className="size-4 animate-spin text-gray-400" aria-hidden /> : null}
-        {!q.isLoading && q.data?.entities.length ? (
+        {q.isError && !q.isLoading ? (
+          <span className="ml-auto text-xs font-normal text-red-500 dark:text-red-400">!</span>
+        ) : null}
+        {!q.isLoading && !q.isError && q.data?.entities.length ? (
           <span className="ml-auto text-xs font-normal text-gray-500 dark:text-gray-400">
             {q.data.entities.length}
           </span>

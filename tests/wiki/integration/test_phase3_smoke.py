@@ -20,11 +20,12 @@ def test_phase3_imports():
 def test_enrichment_level_enum_completeness():
     from wiki.models import EnrichmentLevel
 
-    assert len(EnrichmentLevel) == 3
+    assert len(EnrichmentLevel) == 4
     assert set(EnrichmentLevel) == {
         EnrichmentLevel.BASE,
         EnrichmentLevel.ENRICHED,
         EnrichmentLevel.ENCYCLOPEDIA,
+        EnrichmentLevel.FULL,
     }
 
 

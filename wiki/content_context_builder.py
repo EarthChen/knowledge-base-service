@@ -42,6 +42,21 @@ WHERE m.name IN $names AND (c:Enum OR c.is_constant = true)
 RETURN c.name AS name, c.file AS file, labels(c) AS labels
 """.strip()
 
+_SNIPPETS_CY = """
+MATCH (m:Module)-[:CONTAINS*1..2]->(f:Function)
+WHERE m.name IN $names AND f.code_snippet IS NOT NULL AND f.code_snippet <> ''
+RETURN f.name AS func_name, left(f.code_snippet, 600) AS snippet,
+       coalesce(f.file, '') AS file_path, coalesce(f.start_line, 0) AS start_line
+LIMIT 10
+""".strip()
+
+_MAX_CALL_CHAIN_DEPTH = 5
+_MAX_DATA_MODELS = 20
+_MAX_FIELDS_PER_MODEL = 8
+_MAX_CROSS_DOMAIN_CALLS = 10
+_MAX_SIBLING_DOMAINS = 10
+_MAX_KEY_SNIPPETS = 6
+
 
 @dataclass
 class MethodDetail:
@@ -114,16 +129,22 @@ class ContentContextBuilder:
         domain_mapping: dict[str, list],
         *,
         depth: int = 2,
+        parent_domain: str | None = None,
+        sub_topics: list[dict] | None = None,
     ) -> EnrichedDomainContext:
         """Build complete context for a domain by querying the graph in parallel."""
-        methods_task = self._query_methods(module_names)
-        calls_task = self._query_call_chains(module_names, depth)
-        enums_task = self._query_enums_constants(module_names)
+        capped_depth = min(max(1, int(depth)), _MAX_CALL_CHAIN_DEPTH)
 
-        methods_result, calls_result, enums_result = await asyncio.gather(
+        methods_task = self._query_methods(module_names)
+        calls_task = self._query_call_chains(module_names, capped_depth)
+        enums_task = self._query_enums_constants(module_names)
+        snippets_task = self._query_key_snippets(module_names)
+
+        methods_result, calls_result, enums_result, snippets_result = await asyncio.gather(
             methods_task,
             calls_task,
             enums_task,
+            snippets_task,
             return_exceptions=True,
         )
 
@@ -150,6 +171,15 @@ class ContentContextBuilder:
             log.warning(
                 "content_context_enums_query_failed",
                 error=repr(enums_result),
+            )
+
+        snippets_list: list[str] = (
+            snippets_result if isinstance(snippets_result, list) else []
+        )
+        if isinstance(snippets_result, BaseException):
+            log.warning(
+                "content_context_snippets_query_failed",
+                error=repr(snippets_result),
             )
 
         biz_entities = self._build_entities(
@@ -191,17 +221,17 @@ class ContentContextBuilder:
 
         return EnrichedDomainContext(
             domain_name=domain_name,
-            parent_domain="root",
+            parent_domain=parent_domain or "root",
             biz_entities=biz_entities,
             data_models=data_models,
             intra_domain_calls=intra_calls,
-            cross_domain_calls=cross_calls[:10],
-            key_snippets=[],
+            cross_domain_calls=cross_calls[:_MAX_CROSS_DOMAIN_CALLS],
+            key_snippets=snippets_list[:_MAX_KEY_SNIPPETS],
             enums_and_constants=enums_list,
-            sibling_domains=sibling_domains[:10],
+            sibling_domains=sibling_domains[:_MAX_SIBLING_DOMAINS],
             dependent_domains=dependent_domains,
             dependee_domains=dependee_domains,
-            sub_topics=[],
+            sub_topics=sub_topics or [],
             existing_wiki_context=existing_wiki_ctx,
         )
 
@@ -272,6 +302,34 @@ class ContentContextBuilder:
             )
         return steps
 
+    async def _query_key_snippets(self, module_names: list[str]) -> list[str]:
+        if (
+            not module_names
+            or self._graph is None
+            or not hasattr(self._graph, "execute_query")
+        ):
+            return []
+        try:
+            result = await self._graph.execute_query(
+                _SNIPPETS_CY, {"names": module_names},
+            )
+        except Exception:
+            log.warning("graph_snippets_query_failed", exc_info=True)
+            return []
+        rows = getattr(result, "data", None) or []
+        out: list[str] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            func_name = str(row.get("func_name", "") or "")
+            snippet = str(row.get("snippet", "") or "").strip()
+            file_path = str(row.get("file_path", "") or "")
+            line = int(row.get("start_line") or 0)
+            if snippet:
+                header = f"// {func_name} @ {file_path}:{line}" if file_path else f"// {func_name}"
+                out.append(f"{header}\n{snippet}")
+        return out
+
     async def _query_enums_constants(self, module_names: list[str]) -> list[dict]:
         if (
             not module_names
@@ -296,8 +354,8 @@ class ContentContextBuilder:
             if not isinstance(labels, list):
                 labels = [str(labels)] if labels is not None else []
             out.append({
-                "name": row.get("name"),
-                "file": row.get("file"),
+                "name": str(row.get("name") or ""),
+                "file": str(row.get("file") or ""),
                 "labels": labels,
             })
         return out
@@ -376,9 +434,9 @@ class ContentContextBuilder:
                     "uid": uid,
                     "name": str(props.get("name", mod_name)),
                     "type": "DTO",
-                    "fields": [str(f) for f in (props.get("fields", []) or [])[:8]],
+                    "fields": [str(f) for f in (props.get("fields", []) or [])[:_MAX_FIELDS_PER_MODEL]],
                 })
-        return data_models[:20]
+        return data_models[:_MAX_DATA_MODELS]
 
     def _compute_domain_deps(
         self,
@@ -430,19 +488,17 @@ class ContentContextBuilder:
         wiki_under = f"wiki/{domain_name}/"
         q = (
             "MATCH (wp:WikiPage) "
-            "WHERE wp.path = $domain_name OR wp.path = $wiki_root "
+            "WHERE wp.path = $wiki_root "
             "OR wp.path STARTS WITH $wiki_under "
-            "RETURN coalesce(wp.executive_summary, '') AS executive_summary "
-            "LIMIT 50"
+            "RETURN wp.title AS title, "
+            "coalesce(wp.executive_summary, '') AS executive_summary, "
+            "left(wp.content, 500) AS content_head "
+            "ORDER BY wp.generated_at DESC "
+            "LIMIT 5"
         )
         try:
             result = await self._wiki.execute_query(
-                q,
-                {
-                    "domain_name": domain_name,
-                    "wiki_root": wiki_root,
-                    "wiki_under": wiki_under,
-                },
+                q, {"wiki_root": wiki_root, "wiki_under": wiki_under},
             )
         except Exception:
             log.warning("wiki_existing_context_query_failed", exc_info=True)
@@ -452,7 +508,14 @@ class ContentContextBuilder:
         for row in rows:
             if not isinstance(row, dict):
                 continue
+            title = str(row.get("title", "") or "").strip()
             text = str(row.get("executive_summary", "") or "").strip()
-            if text:
-                summaries.append(text)
-        return "\n\n".join(summaries)
+            if not text:
+                head = str(row.get("content_head", "") or "").strip()
+                first_para = head.split("\n\n")[0] if head else ""
+                text = first_para[:300].strip()
+            if text and title:
+                summaries.append(f"- **{title}**: {text}")
+            elif text:
+                summaries.append(f"- {text}")
+        return "\n".join(summaries)

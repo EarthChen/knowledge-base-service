@@ -53,7 +53,11 @@ async def test_build_context_returns_enriched_domain_context():
     wiki = AsyncMock()
     wiki.execute_query = AsyncMock(
         return_value=QueryResultWrapper(
-            data=[{"executive_summary": "Existing payment wiki summary."}],
+            data=[{
+                "title": "Payment Overview",
+                "executive_summary": "Existing payment wiki summary.",
+                "content_head": "",
+            }],
             raw=[],
         ),
     )
@@ -91,7 +95,8 @@ async def test_build_context_returns_enriched_domain_context():
     assert isinstance(ctx, EnrichedDomainContext)
     assert ctx.domain_name == "payment"
     assert len(ctx.biz_entities) == 1
-    assert ctx.existing_wiki_context == "Existing payment wiki summary."
+    assert "Existing payment wiki summary." in ctx.existing_wiki_context
+    assert "Payment Overview" in ctx.existing_wiki_context
     assert len(ctx.enums_and_constants) == 1
     assert ctx.enums_and_constants[0]["name"] == "Status"
     assert "user" in ctx.sibling_domains
@@ -177,6 +182,100 @@ async def test_intra_vs_cross_domain_calls():
     assert ctx.cross_domain_calls[0].callee == "Ext"
     assert ctx.dependent_domains == ["other"]
     assert ctx.dependee_domains == []
+
+
+@pytest.mark.asyncio
+async def test_parent_domain_and_sub_topics_passthrough():
+    graph = AsyncMock()
+    graph.execute_query = AsyncMock(
+        side_effect=_graph_execute_factory({"CONTAINS*1..3": [], "CALLS*1..": []}),
+    )
+    builder = ContentContextBuilder(graph, wiki_store=None)
+    topics = [{"title": "Subtopic A", "description": "desc", "entity_count": 3}]
+    ctx = await builder.build_context(
+        domain_name="d1",
+        module_names=["M"],
+        module_index={"M": [{"uid": "u1", "properties": {"business_summary": "m"}, "_repo": "r"}]},
+        entity_roles={"u1": "has_business_logic"},
+        domain_mapping={"d1": [("r", "M")]},
+        parent_domain="commerce",
+        sub_topics=topics,
+    )
+    assert ctx.parent_domain == "commerce"
+    assert ctx.sub_topics == topics
+
+
+@pytest.mark.asyncio
+async def test_wiki_context_fallback_to_content_head():
+    """When executive_summary is empty, fallback to first paragraph of content."""
+    graph = AsyncMock()
+    graph.execute_query = AsyncMock(
+        side_effect=_graph_execute_factory({"CONTAINS*1..3": [], "CALLS*1..": []}),
+    )
+    wiki = AsyncMock()
+    wiki.execute_query = AsyncMock(
+        return_value=QueryResultWrapper(
+            data=[{
+                "title": "Order Page",
+                "executive_summary": "",
+                "content_head": "# Orders\n\nThis module handles all order processing logic.\n\nMore details here.",
+            }],
+            raw=[],
+        ),
+    )
+    builder = ContentContextBuilder(graph, wiki_store=wiki)
+    ctx = await builder.build_context(
+        domain_name="orders",
+        module_names=["M"],
+        module_index={"M": [{"uid": "u1", "properties": {"business_summary": "m"}, "_repo": "r"}]},
+        entity_roles={"u1": "has_business_logic"},
+        domain_mapping={"orders": [("r", "M")]},
+    )
+    assert "Order Page" in ctx.existing_wiki_context
+    assert "# Orders" in ctx.existing_wiki_context
+
+
+@pytest.mark.asyncio
+async def test_wiki_query_failure_returns_empty_context():
+    graph = AsyncMock()
+    graph.execute_query = AsyncMock(
+        side_effect=_graph_execute_factory({"CONTAINS*1..3": [], "CALLS*1..": []}),
+    )
+    wiki = AsyncMock()
+    wiki.execute_query = AsyncMock(side_effect=RuntimeError("wiki db down"))
+    builder = ContentContextBuilder(graph, wiki_store=wiki)
+    ctx = await builder.build_context(
+        domain_name="x",
+        module_names=["M"],
+        module_index={"M": [{"uid": "u1", "properties": {"business_summary": "m"}, "_repo": "r"}]},
+        entity_roles={"u1": "has_business_logic"},
+        domain_mapping={"x": [("r", "M")]},
+    )
+    assert ctx.existing_wiki_context == ""
+
+
+@pytest.mark.asyncio
+async def test_key_snippets_populated():
+    graph = AsyncMock()
+    graph.execute_query = AsyncMock(
+        side_effect=_graph_execute_factory({
+            "CONTAINS*1..3": [],
+            "CALLS*1..": [],
+            "code_snippet": [
+                {"func_name": "handle_pay", "snippet": "def handle_pay(): pass", "file_path": "pay.py", "start_line": 5},
+            ],
+        }),
+    )
+    builder = ContentContextBuilder(graph, wiki_store=None)
+    ctx = await builder.build_context(
+        domain_name="pay",
+        module_names=["PaySvc"],
+        module_index={"PaySvc": [{"uid": "u1", "properties": {"business_summary": "p"}, "_repo": "r"}]},
+        entity_roles={"u1": "has_business_logic"},
+        domain_mapping={"pay": [("r", "PaySvc")]},
+    )
+    assert len(ctx.key_snippets) == 1
+    assert "handle_pay" in ctx.key_snippets[0]
 
 
 @pytest.mark.asyncio

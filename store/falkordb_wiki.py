@@ -30,6 +30,10 @@ class FalkorDBWikiMixin:
                     "confidence_score": page.get("confidence_score"),
                     "source_origin": page.get("source_origin", ""),
                     "navigation_json": page.get("navigation_json") or "",
+                    "executive_summary": str(
+                        (page.get("metadata") or {}).get("executive_summary", "")
+                        or ""
+                    ),
                 }
             )
         cypher = (
@@ -48,6 +52,7 @@ class FalkorDBWikiMixin:
             "w.repositories = page.repositories, "
             "w.confidence_score = coalesce(page.confidence_score, w.confidence_score), "
             "w.navigation_json = page.navigation_json, "
+            "w.executive_summary = page.executive_summary, "
             "w.source_origin = CASE "
             "WHEN page.source_origin IS NULL OR page.source_origin = '' "
             "THEN w.source_origin ELSE page.source_origin END "

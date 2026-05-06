@@ -42,7 +42,7 @@ class WikiPageStoreMixin:
             "WHERE (seed:Function OR seed:Class OR seed:Module) "
             "AND (seed.name = term OR seed.fqn = term OR seed.fqn ENDS WITH term) "
             "MATCH (wp:WikiPage) "
-            "WHERE wp.repository = $repository "
+            "WHERE wp.repository IN [$repository, 'default'] "
             "AND (wp.title CONTAINS related.name OR wp.content CONTAINS related.name) "
             "RETURN DISTINCT wp.path AS page_path, wp.title AS title, "
             "left(wp.content, 240) AS snippet "
@@ -55,7 +55,7 @@ class WikiPageStoreMixin:
     async def fulltext_wiki_search(self, text: str, repository: str, limit: int) -> QueryResultWrapper:
         q = (
             "CALL db.idx.fulltext.queryNodes('WikiPage', $text) YIELD node, score "
-            "WHERE node.repository = $repository "
+            "WHERE node.repository IN [$repository, 'default'] "
             "RETURN node, score LIMIT $limit"
         )
         return await self._store.execute_query(
@@ -66,7 +66,7 @@ class WikiPageStoreMixin:
         q = (
             "CALL db.idx.vector.queryNodes('WikiPage', 'embedding', $k, vecf32($vec)) "
             "YIELD node, score "
-            "WHERE node.repository = $repository "
+            "WHERE node.repository IN [$repository, 'default'] "
             "RETURN node, score LIMIT $limit"
         )
         return await self._store.execute_query(

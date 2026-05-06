@@ -111,7 +111,12 @@ class TopicBasedStructurePlanner:
             "3. Each topic can have 3-5 sub-pages\n"
             "4. Each page should cover a complete business capability\n"
             "5. Assign every module to exactly one page\n"
-            "6. SKELETON-tier modules can be grouped together in infrastructure topics\n\n"
+            "6. SKELETON-tier modules can be grouped together in infrastructure topics\n"
+            "7. CRITICAL: Topic titles MUST directly reflect the actual modules and their descriptions below. "
+            "Do NOT invent capabilities (e.g., 'Analytics', 'Monitoring', 'Dashboard') that have NO corresponding modules. "
+            "If a domain has only 1-2 handler modules, the topic should describe what those handlers actually do, "
+            "not speculate about broader infrastructure.\n"
+            "8. Each topic's description MUST be derivable from the module summaries listed under it.\n\n"
             f"Domains:\n{domains_text}\n\n"
             'Output JSON: array of {title, description, modules: [[repo, name], ...], sub_topics: [...]}'
         )

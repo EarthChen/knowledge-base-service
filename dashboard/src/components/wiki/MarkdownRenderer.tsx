@@ -184,7 +184,13 @@ export default function MarkdownRenderer({
 }: Props) {
   const headingIds = useMemo(() => (headings ?? parseMarkdownHeadings(content)).map((h) => h.id), [content, headings]);
 
-  const processedContent = useMemo(() => replaceWikilinksWithHtml(content), [content]);
+  const processedContent = useMemo(() => {
+    const withSourceLinks = content.replace(
+      /`(source:\/\/[^`]+)`/g,
+      (_match, uri: string) => `[${uri}](${uri})`,
+    );
+    return replaceWikilinksWithHtml(withSourceLinks);
+  }, [content]);
 
   const components = useMemo<Components>(() => {
     let headingIndex = 0;

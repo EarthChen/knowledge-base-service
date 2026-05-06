@@ -43,15 +43,26 @@ class WikiSemanticSearchBody(BaseModel):
     limit: int = Field(default=20, ge=1, le=100)
 
 
+def _get_embedding_generator() -> object | None:
+    """Lazily resolve the shared EmbeddingGenerator; return None if unavailable."""
+    try:
+        from indexer.embedding_generator import EmbeddingGenerator
+        settings = get_settings()
+        return EmbeddingGenerator.shared(config=settings.embedding)
+    except Exception:
+        return None
+
+
 @wiki_router.post("/semantic-search", response_model=None)
 @wiki_router.post("/search/semantic", response_model=None, include_in_schema=False)
 async def wiki_semantic_search(
     body: WikiSemanticSearchBody,
     raw_store: object = Depends(wiki_shared.get_wiki_store_dep),
 ) -> dict[str, object]:
-    """Combine wiki fulltext/graph search with code entities and call chains."""
+    """Combine wiki vector/fulltext/graph search with code entities and call chains."""
     wiki = WikiStore(raw_store)
-    svc = SemanticWikiQuery(wiki, graph_store=wiki)
+    emb_gen = _get_embedding_generator()
+    svc = SemanticWikiQuery(wiki, graph_store=wiki, embedding_generator=emb_gen)
     result = await svc.search(body.query, body.repository, limit=body.limit)
     return semantic_search_result_to_dict(result)
 

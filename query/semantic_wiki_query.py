@@ -87,15 +87,22 @@ class SemanticWikiQuery:
     """Combines multiple search strategies for comprehensive wiki search.
 
     Search strategies:
-    1. Wiki fulltext search (existing)
-    2. Graph path search (existing)
-    3. Code entity name matching
-    4. Call chain traversal
+    1. Wiki vector search (preferred, supports CJK)
+    2. Wiki fulltext search (fallback for keyword matching)
+    3. Graph path search
+    4. Code entity name matching
+    5. Call chain traversal
     """
 
-    def __init__(self, wiki_store: Any, graph_store: Any | None = None) -> None:
+    def __init__(
+        self,
+        wiki_store: Any,
+        graph_store: Any | None = None,
+        embedding_generator: Any | None = None,
+    ) -> None:
         self._wiki = wiki_store
         self._graph = graph_store
+        self._emb_gen = embedding_generator
 
     async def search(
         self,
@@ -136,11 +143,61 @@ class SemanticWikiQuery:
         )
 
     async def _search_wiki_pages(self, query: str, repository: str, limit: int) -> list[WikiSearchHit]:
-        """Fulltext wiki page search + graph-linked wiki pages."""
-        fts_coro = self._wiki_fulltext_hits(query, repository, limit)
-        graph_coro = self._wiki_graph_path_hits(query, repository, limit)
-        fts_hits, graph_hits = await asyncio.gather(fts_coro, graph_coro)
-        return _merge_wiki_hits(fts_hits, graph_hits, limit)
+        """Vector + fulltext wiki page search + graph-linked wiki pages."""
+        coros = [
+            self._wiki_vector_hits(query, repository, limit),
+            self._wiki_fulltext_hits(query, repository, limit),
+            self._wiki_graph_path_hits(query, repository, limit),
+        ]
+        vec_hits, fts_hits, graph_hits = await asyncio.gather(*coros)
+        merged_text = _merge_wiki_hits(fts_hits, graph_hits, limit * 2)
+        return _merge_wiki_hits(vec_hits, merged_text, limit)
+
+    async def _wiki_vector_hits(
+        self, query: str, repository: str, limit: int,
+    ) -> list[WikiSearchHit]:
+        if self._emb_gen is None:
+            log.warning("wiki_vector_search_skipped", reason="no_embedding_generator")
+            return []
+        try:
+            vecs = await self._emb_gen.generate_for_query([query])
+            if not vecs or not vecs[0]:
+                return []
+            res = await self._wiki.vector_wiki_search(
+                k=max(limit * 3, 30),
+                vec=vecs[0],
+                repository=repository,
+                limit=max(limit * 3, limit),
+            )
+        except Exception:  # noqa: BLE001
+            log.warning("wiki_vector_search_failed", exc_info=True)
+            return []
+        rows = getattr(res, "data", None) or []
+        hits: list[WikiSearchHit] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            node = row.get("node")
+            props = getattr(node, "properties", None) or {}
+            if not isinstance(props, dict):
+                props = {}
+            pid = props.get("path") or props.get("page_path")
+            if not pid:
+                continue
+            title = str(props.get("title", "") or "")
+            content = str(props.get("content", "") or "")
+            snippet = content[:240]
+            score = float(row.get("score", 0.0) or 0.0)
+            hits.append(
+                WikiSearchHit(
+                    page_path=str(pid),
+                    title=title,
+                    snippet=snippet,
+                    score=score,
+                    source="wiki_vector",
+                ),
+            )
+        return hits
 
     async def _wiki_fulltext_hits(
         self, query: str, repository: str, limit: int,

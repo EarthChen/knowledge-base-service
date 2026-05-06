@@ -11,21 +11,25 @@ export const editorTemplates: Record<
   idea: (p, l) => `idea://open?file=${encodeURIComponent(p)}&line=${l}`,
 };
 
-const SOURCE_RE =
+const SOURCE_RE_HASH =
   /^source:\/\/([^/]+)\/(.+?)#L(\d+)$/;
+const SOURCE_RE_COLON =
+  /^source:\/\/([^/]+)\/(.+?):(\d+)$/;
+const SOURCE_RE_NO_LINE =
+  /^source:\/\/([^/]+)\/(.+)$/;
 
 export function parseSourceProtocol(href: string): {
   repository: string;
   filePath: string;
   line: number;
 } | null {
-  const m = href.match(SOURCE_RE);
-  if (!m) return null;
-  return {
-    repository: decodeURIComponent(m[1]),
-    filePath: decodeURIComponent(m[2]),
-    line: parseInt(m[3], 10),
-  };
+  const m1 = href.match(SOURCE_RE_HASH);
+  if (m1) return { repository: decodeURIComponent(m1[1]), filePath: decodeURIComponent(m1[2]), line: parseInt(m1[3], 10) };
+  const m2 = href.match(SOURCE_RE_COLON);
+  if (m2) return { repository: decodeURIComponent(m2[1]), filePath: decodeURIComponent(m2[2]), line: parseInt(m2[3], 10) };
+  const m3 = href.match(SOURCE_RE_NO_LINE);
+  if (m3) return { repository: decodeURIComponent(m3[1]), filePath: decodeURIComponent(m3[2]), line: 1 };
+  return null;
 }
 
 export function wikiLocalRootKey(repository: string): string {

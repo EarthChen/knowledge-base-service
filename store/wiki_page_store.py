@@ -403,6 +403,27 @@ class WikiPageStoreMixin:
         )
         return await self._store.execute_query(q, {"business_id": business_id, "path": path})
 
+    async def get_page_by_repo_path(self, repository: str, path: str) -> QueryResultWrapper:
+        """Direct repo-scoped page lookup, same return shape as ``get_page_by_path``."""
+        _se = EdgeType.SOURCE_ENTITY.value
+        q = (
+            "MATCH (wp:WikiPage {repository: $repo, path: $path}) "
+            f"OPTIONAL MATCH (wp)-[:{_se}]->(se) "
+            "WITH wp, collect(DISTINCT {file_path: coalesce(se.file, se.file_path, ''), "
+            "start_line: coalesce(se.start_line, 0), end_line: coalesce(se.end_line, 0), "
+            "fqn: coalesce(se.fqn, ''), repository: coalesce(se.repository, ''), "
+            "entity_uid: coalesce(se.uid, '')}) AS sources "
+            "RETURN wp.path AS path, wp.title AS title, wp.content AS content, "
+            "wp.page_type AS page_type, wp.importance_tier AS importance_tier, "
+            "wp.repository AS repository, wp.uid AS uid, "
+            "coalesce(wp.generated_at, '') AS generated_at, "
+            "wp.confidence_score AS confidence_score, "
+            "wp.quality_overall AS quality_overall, "
+            "sources "
+            "LIMIT 1"
+        )
+        return await self._store.execute_query(q, {"repo": repository, "path": path})
+
     async def get_page_stale_source_count(self, wiki_page_uid: str) -> int:
         """Count source entities indexed after the wiki page was generated (staleness heuristic)."""
         _se = EdgeType.SOURCE_ENTITY.value

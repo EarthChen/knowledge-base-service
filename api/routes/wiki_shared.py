@@ -374,6 +374,8 @@ async def _run_wiki_task(
         log.exception("wiki generation task failed")
         rec["status"] = "failed"
         rec["error"] = {"error": "generation_failed", "detail": "Wiki generation failed."}
+    finally:
+        registry.put_task(task_id, rec)
 
 
 async def _run_wiki_quick_task(

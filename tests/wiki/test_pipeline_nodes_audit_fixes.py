@@ -77,8 +77,8 @@ async def test_compose_pages_parallelizes_leaf_domains_with_bounded_concurrency(
         "compose_leaf_domain should overlap for independent domains "
         f"(expected >= 2 concurrent, got max {max_concurrent[0]})"
     )
-    assert max_concurrent[0] <= 5, (
-        f"concurrency should be capped at 5 (got max {max_concurrent[0]})"
+    assert max_concurrent[0] <= 6, (
+        f"concurrency should be capped at compose_concurrency (got max {max_concurrent[0]})"
     )
 
 

@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from core.log import get_logger
 from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
 from store.settings_store import SettingsStore
 from wiki.llm_port import LLMPort
+
+log = get_logger(__name__)
 
 
 class ModelStrategy:
@@ -31,8 +34,11 @@ class ModelStrategy:
     ) -> tuple[str, str]:
         raw = await self._store.get(f"llm.strategy.{task_type}")
         if raw:
-            cfg = json.loads(raw)
-            return str(cfg["provider"]), str(cfg["model"])
+            try:
+                cfg = json.loads(raw)
+                return str(cfg["provider"]), str(cfg["model"])
+            except (json.JSONDecodeError, KeyError, TypeError):
+                log.warning("model_strategy_bad_setting", task_type=task_type, raw=repr(raw)[:200])
         if complexity_override:
             return complexity_override[0], complexity_override[1]
         if complexity_metrics is not None:
@@ -42,8 +48,11 @@ class ModelStrategy:
                 if resolved_task and resolved_task != task_type:
                     raw2 = await self._store.get(f"llm.strategy.{resolved_task}")
                     if raw2:
-                        cfg2 = json.loads(raw2)
-                        return str(cfg2["provider"]), str(cfg2["model"])
+                        try:
+                            cfg2 = json.loads(raw2)
+                            return str(cfg2["provider"]), str(cfg2["model"])
+                        except (json.JSONDecodeError, KeyError, TypeError):
+                            log.warning("model_strategy_bad_setting", task_type=resolved_task, raw=raw2[:200])
         return self._default_provider, self._default_model
 
     async def get_llm_port(self, task_type: str) -> LLMPort:

@@ -127,6 +127,12 @@ async def _run_business_wiki_background(
                 partial_errors=result.get("partial_errors", []),
                 skipped_repos=result.get("skipped_repos", []),
             )
+        if registry:
+            prev = registry.get_task(task_id) or {}
+            registry.put_task(
+                task_id,
+                {**prev, "status": "completed"},
+            )
         if event_bus:
             await event_bus.publish(
                 WikiEvent(
@@ -243,6 +249,10 @@ async def wiki_generate(
                 yield f"event: error\ndata: {err}\n\n"
             except ValueError as exc:
                 err = json.dumps({"error": "invalid_scope", "detail": _invalid_scope_detail(exc)})
+                yield f"event: error\ndata: {err}\n\n"
+            except Exception:
+                log.exception("wiki_generate_sse_unexpected_error")
+                err = json.dumps({"error": "internal_error", "detail": "An unexpected error occurred during wiki generation."})
                 yield f"event: error\ndata: {err}\n\n"
 
         # Streaming uses same concurrency gate as sync generation

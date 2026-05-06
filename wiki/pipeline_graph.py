@@ -19,6 +19,7 @@ from wiki.pipeline_nodes import (
     detect_reorg_node,
     has_parent_domains,
     heal_pages_node,
+    plan_topic_structure_node,
     set_review_status_node,
     summarize_leaves_node,
     synthesize_overviews_node,
@@ -193,6 +194,7 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("classify_domains", classify_domains_node)
     graph.add_node("decompose_hierarchy", decompose_hierarchy_node)
     graph.add_node("set_review_status", set_review_status_node)
+    graph.add_node("plan_topic_structure", plan_topic_structure_node)
     graph.add_node("compose_leaf_pages", compose_leaf_pages_node)
     graph.add_node("quality_gate", quality_gate_node)
     graph.add_node("heal_pages", heal_pages_node)
@@ -210,7 +212,8 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     )
     graph.add_edge("classify_domains", "decompose_hierarchy")
     graph.add_edge("decompose_hierarchy", "set_review_status")
-    graph.add_edge("set_review_status", "compose_leaf_pages")
+    graph.add_edge("set_review_status", "plan_topic_structure")
+    graph.add_edge("plan_topic_structure", "compose_leaf_pages")
     graph.add_edge("compose_leaf_pages", "quality_gate")
     graph.add_conditional_edges(
         "quality_gate",

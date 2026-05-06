@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { queryKeys } from "../api/queryKeys";
+import { useToast } from "../components/Toast";
+import { useI18n } from "../i18n/context";
+import { getErrorMessage } from "../utils/errorUtils";
 
 interface RepoListResponse {
   repositories: string[];
@@ -17,6 +20,8 @@ export function useBusinessRepositories(businessId: string) {
 
 export function useBindRepositories(businessId: string) {
   const qc = useQueryClient();
+  const { toast } = useToast();
+  const { t } = useI18n();
   return useMutation<unknown, ApiError, string[]>({
     mutationFn: (repositories) =>
       api(`/businesses/${encodeURIComponent(businessId)}/repositories`, {
@@ -27,7 +32,7 @@ export function useBindRepositories(businessId: string) {
       qc.invalidateQueries({ queryKey: queryKeys.businessRepositories(businessId) });
     },
     onError: (error) => {
-      console.error("Failed to bind repositories:", error.message);
+      toast("error", getErrorMessage(error, t.common.unexpectedError));
     },
   });
 }

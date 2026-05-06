@@ -67,6 +67,7 @@ export function parseWikiSearchParams(search: URLSearchParams) {
     path: search.get("path") || null,
     viewType,
     businessId: search.get("business_id") || null,
+    repo: search.get("repo") || null,
     toolTab,
     wikiTier,
   };

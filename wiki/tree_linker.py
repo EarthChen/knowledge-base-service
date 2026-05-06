@@ -148,11 +148,6 @@ class WikiTreeLinker:
                     if not domain_name:
                         domain_name = module_to_domain.get((repo_name, mod_name))
                     if not domain_name:
-                        for (r, m), d in module_to_domain.items():
-                            if r == repo_name:
-                                domain_name = d
-                                break
-                    if not domain_name:
                         domain_name = self._wiki_cfg.business_domain_infrastructure_label
 
                     domain_section_uid = tree_builder.generate_domain_section_uid(
@@ -226,6 +221,58 @@ class WikiTreeLinker:
                 log.warning("nested_tree_root_failed", business_id=business_id, exc_info=True)
 
         await _ensure_root()
+
+        topic_pages_by_domain: dict[str, list[str]] = {}
+        try:
+            tp_q = (
+                "MATCH (wp:WikiPage) "
+                "WHERE wp.repository = $biz AND wp.page_type = 'topic' "
+                "AND wp.path STARTS WITH 'wiki/' "
+                "RETURN wp.uid AS uid, wp.path AS path ORDER BY wp.path"
+            )
+            tp_result = await self._wiki_store.execute_query(tp_q, {"biz": business_id})
+            tp_rows = getattr(tp_result, "data", None) or []
+
+            def _flatten_names(nodes: list[DomainNode]) -> set[str]:
+                names: set[str] = set()
+                for n in nodes:
+                    names.add(n.name)
+                    names.update(_flatten_names(n.children))
+                return names
+
+            domain_names = _flatten_names(domain_tree)
+
+            for row in tp_rows:
+                uid = str(row.get("uid", ""))
+                path = str(row.get("path", ""))
+                if not uid or not path:
+                    continue
+                after_wiki = path[len("wiki/"):]
+                slash_idx = after_wiki.find("/")
+                top_level = after_wiki[:slash_idx] if slash_idx > 0 else after_wiki
+
+                matched_domain = None
+                if top_level in domain_names:
+                    matched_domain = top_level
+                else:
+                    tl_lower = top_level.lower()
+                    for dn in domain_names:
+                        if dn.lower() == tl_lower or tl_lower.startswith(dn.lower()) or dn.lower().startswith(tl_lower):
+                            matched_domain = dn
+                            break
+
+                if matched_domain:
+                    topic_pages_by_domain.setdefault(matched_domain, []).append(uid)
+
+            if tp_rows:
+                log.info(
+                    "nested_tree_topic_pages_indexed",
+                    business_id=business_id,
+                    total_topic_pages=len(tp_rows),
+                    matched_domains=len(topic_pages_by_domain),
+                )
+        except Exception:
+            log.warning("nested_tree_topic_index_failed", business_id=business_id, exc_info=True)
 
         overview_pages: list[WikiPage] = []
 
@@ -338,9 +385,6 @@ class WikiTreeLinker:
                 )
                 overview_pages.append(overview_page)
                 overview_uid = f"WikiPage:{business_id}:{overview_path}"
-                await self._persistence.persist_pages_to_graph(
-                    business_id, [overview_page], language=language,
-                )
                 try:
                     await self._wiki_store.add_has_child_edge(
                         parent_uid=section_uid,
@@ -354,13 +398,14 @@ class WikiTreeLinker:
                 except Exception:
                     log.warning("nested_tree_overview_link_failed", domain=domain.name, exc_info=True)
 
+            linked_uids: set[str] = set()
             for i, module_name in enumerate(domain.modules):
                 page = pages_by_entity_uid.get(module_name)
                 if page:
                     page_uid = (
                         page.get("uid", "") if isinstance(page, dict) else getattr(page, "uid", "")
                     )
-                    if page_uid:
+                    if page_uid and page_uid not in linked_uids:
                         try:
                             await self._wiki_store.add_has_child_edge(
                                 parent_uid=section_uid,
@@ -370,11 +415,29 @@ class WikiTreeLinker:
                                 view_type="business_domain",
                                 sort_order=child_sort + i,
                             )
+                            linked_uids.add(page_uid)
                         except Exception:
                             log.warning(
                                 "nested_tree_page_link_failed", page_uid=page_uid,
                                 exc_info=True,
                             )
+
+            topic_idx = child_sort + len(domain.modules)
+            for t_uid in topic_pages_by_domain.get(domain.name, []):
+                if t_uid not in linked_uids:
+                    try:
+                        await self._wiki_store.add_has_child_edge(
+                            parent_uid=section_uid,
+                            parent_label="WikiSection",
+                            child_uid=t_uid,
+                            child_label="WikiPage",
+                            view_type="business_domain",
+                            sort_order=topic_idx,
+                        )
+                        linked_uids.add(t_uid)
+                        topic_idx += 1
+                    except Exception:
+                        log.warning("nested_tree_topic_link_failed", page_uid=t_uid, exc_info=True)
 
             for i, child in enumerate(domain.children):
                 await _link_domain(section_uid, child, i)

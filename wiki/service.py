@@ -324,16 +324,6 @@ class WikiService:
         scope = parse_scope(scope_raw)
         config = self._config_for(mode, format, repository, language)
         await self._ensure_repo(repository)
-        structure = await self._planner.plan(repository, scope)
-        community_markdown = ""
-        if self._community_service and getattr(
-            self._wiki_cfg, "community_context_enabled", True,
-        ):
-            try:
-                cr = await self._community_service.get_cached(repository)
-                community_markdown = format_communities_markdown(cr)
-            except Exception:  # noqa: BLE001 — optional context: never fail wiki generation
-                log.warning("community_context_failed", repository=repository, exc_info=True)
         _importance_tiers: dict[str, ImportanceTier] = {}
         app_cfg = self._wiki_cfg
         if app_cfg.code_budget_enabled and self._wiki_store is not None:
@@ -350,6 +340,20 @@ class WikiService:
                 repository=repository,
                 entities=len(_importance_tiers),
             )
+        structure = await self._planner.plan(
+            repository,
+            scope,
+            importance_tiers=_importance_tiers or None,
+        )
+        community_markdown = ""
+        if self._community_service and getattr(
+            self._wiki_cfg, "community_context_enabled", True,
+        ):
+            try:
+                cr = await self._community_service.get_cached(repository)
+                community_markdown = format_communities_markdown(cr)
+            except Exception:  # noqa: BLE001 — optional context: never fail wiki generation
+                log.warning("community_context_failed", repository=repository, exc_info=True)
         composer = self._composer_for(llm_provider)
         if self._deferred_enrichment:
             enriched = await self._deferred_enrichment.enrich_remaining(repository)
@@ -791,16 +795,6 @@ class WikiService:
         scope = parse_scope(scope_raw)
         config = self._config_for(mode, format, repository, language)
         await self._ensure_repo(repository)
-        structure = await self._planner.plan(repository, scope)
-        community_markdown = ""
-        if self._community_service and getattr(
-            self._wiki_cfg, "community_context_enabled", True,
-        ):
-            try:
-                cr = await self._community_service.get_cached(repository)
-                community_markdown = format_communities_markdown(cr)
-            except Exception:  # noqa: BLE001 — optional context: never fail wiki generation
-                log.warning("community_context_failed", repository=repository, exc_info=True)
         _importance_tiers: dict[str, ImportanceTier] = {}
         app_cfg = self._wiki_cfg
         if app_cfg.code_budget_enabled and self._wiki_store is not None:
@@ -817,6 +811,20 @@ class WikiService:
                 repository=repository,
                 entities=len(_importance_tiers),
             )
+        structure = await self._planner.plan(
+            repository,
+            scope,
+            importance_tiers=_importance_tiers or None,
+        )
+        community_markdown = ""
+        if self._community_service and getattr(
+            self._wiki_cfg, "community_context_enabled", True,
+        ):
+            try:
+                cr = await self._community_service.get_cached(repository)
+                community_markdown = format_communities_markdown(cr)
+            except Exception:  # noqa: BLE001 — optional context: never fail wiki generation
+                log.warning("community_context_failed", repository=repository, exc_info=True)
         composer = self._composer_for(llm_provider)
         wikilink_cache = WikiLinkCache()
         stream_cache_active = False
@@ -1176,60 +1184,90 @@ class WikiService:
             business_id, all_pages, pipeline_result.resolved_links,
         )
 
-        log.info("per_repo_generation_starting", business_id=business_id, repo_count=len(all_modules))
-
         partial_errors: list[dict[str, str]] = []
         total_repos = len(all_modules)
         completed_repos = 0
-        if progress_callback:
-            await progress_callback({
-                "completed_repos": 0,
-                "total_repos": total_repos,
-                "current_repo": "",
-                "phase": "generating_pages",
-            })
-        for repo_name in all_modules:
-            if repo_name not in changed_repos:
-                completed_repos += 1
+
+        if not app_cfg.business_wiki_skip_repo_pages:
+            log.info("per_repo_generation_starting", business_id=business_id, repo_count=len(all_modules))
+            if progress_callback:
+                await progress_callback({
+                    "completed_repos": 0,
+                    "total_repos": total_repos,
+                    "current_repo": "",
+                    "phase": "generating_pages",
+                })
+
+            sem = asyncio.Semaphore(max(1, int(app_cfg.business_repo_concurrency)))
+            progress_lock = asyncio.Lock()
+
+            async def run_one_repo(repo_name: str, repo_index: int) -> None:
+                nonlocal completed_repos
+                if repo_name not in changed_repos:
+                    async with progress_lock:
+                        completed_repos += 1
+                        done_count = completed_repos
+                    if progress_callback:
+                        await progress_callback({
+                            "completed_repos": done_count,
+                            "total_repos": total_repos,
+                            "current_repo": repo_name,
+                            "phase": "generating_pages",
+                            "skipped": True,
+                        })
+                    return
+
+                async with sem:
+                    try:
+                        log.info(
+                            "repo_wiki_generate_start",
+                            repository=repo_name,
+                            index=repo_index,
+                            total=total_repos,
+                            mode=mode,
+                        )
+                        await self.generate(
+                            repo_name,
+                            "repo",
+                            mode,
+                            "json",
+                            language,
+                            llm_provider,
+                            token_budget_multiplier=token_budget_multiplier,
+                        )
+                        log.info("repo_wiki_generate_done", repository=repo_name)
+                    except Exception as exc:
+                        log.warning(
+                            "business_wiki_repo_failed",
+                            repository=repo_name,
+                            error=str(exc)[:200],
+                            exc_info=True,
+                        )
+                        async with progress_lock:
+                            partial_errors.append({"repository": repo_name, "error": str(exc)})
+
+                async with progress_lock:
+                    completed_repos += 1
+                    done_count = completed_repos
                 if progress_callback:
                     await progress_callback({
-                        "completed_repos": completed_repos,
+                        "completed_repos": done_count,
                         "total_repos": total_repos,
                         "current_repo": repo_name,
                         "phase": "generating_pages",
-                        "skipped": True,
+                        "skipped": False,
                     })
-                continue
-            try:
-                log.info(
-                    "repo_wiki_generate_start",
-                    repository=repo_name,
-                    index=completed_repos + 1,
-                    total=total_repos,
-                    mode=mode,
-                )
-                await self.generate(
-                    repo_name,
-                    "repo",
-                    mode,
-                    "json",
-                    language,
-                    llm_provider,
-                    token_budget_multiplier=token_budget_multiplier,
-                )
-                log.info("repo_wiki_generate_done", repository=repo_name)
-            except Exception as exc:
-                log.warning("business_wiki_repo_failed", repository=repo_name, error=str(exc)[:200], exc_info=True)
-                partial_errors.append({"repository": repo_name, "error": str(exc)})
-            completed_repos += 1
-            if progress_callback:
-                await progress_callback({
-                    "completed_repos": completed_repos,
-                    "total_repos": total_repos,
-                    "current_repo": repo_name,
-                    "phase": "generating_pages",
-                    "skipped": False,
-                })
+
+            await asyncio.gather(*(
+                run_one_repo(repo_name, idx)
+                for idx, repo_name in enumerate(all_modules.keys(), start=1)
+            ))
+        else:
+            log.info(
+                "per_repo_generation_skipped",
+                business_id=business_id,
+                reason="business_wiki_skip_repo_pages=True",
+            )
 
         await self._link_pages_to_tree(
             business_id, domain_mapping, list(all_modules.keys()), tree_builder,

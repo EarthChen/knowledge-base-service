@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKe
 import { useNavigate } from "react-router-dom";
 import { Loader2, Search } from "lucide-react";
 import FocusTrap from "../FocusTrap";
-import { useWikiSearch } from "../../hooks/useWikiSearch";
+import { useWikiGlobalSearch } from "../../hooks/useWikiGlobalSearch";
 import { useI18n } from "../../i18n/context";
 import WikiSearchResults, { wikiSearchOptionId } from "./WikiSearchResults";
 import { wikiHref } from "./wikiRouteHelpers";
@@ -15,17 +15,16 @@ const isMac =
 const shortcutHint = isMac ? "⌘K" : "Ctrl+K";
 
 type Props = {
-  repository: string;
   linkParams?: Record<string, string>;
 };
 
-export default function WikiSearchBar({ repository, linkParams }: Props) {
+export default function WikiSearchBar({ linkParams }: Props) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const { mutate, isPending, isError, error, isSuccess, data } = useWikiSearch();
+  const { mutate, isPending, isError, error, isSuccess, data } = useWikiGlobalSearch();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -42,17 +41,17 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
   useEffect(() => {
     if (!open) return;
     const raw = query.trim();
-    if (!raw || !repository.trim()) {
+    if (!raw) {
       return;
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      mutate({ repository, query: raw });
+      mutate({ query: raw });
     }, 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [open, query, repository, mutate]);
+  }, [open, query, mutate]);
 
   useEffect(() => {
     if (!data?.results?.length) {
@@ -69,8 +68,11 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
   const hasResultOptions = Boolean(data?.results.length && query.trim());
 
   const onSelect = useCallback(
-    (path: string) => {
-      navigate(wikiHref(path, linkParams));
+    (path: string, repository?: string) => {
+      const params = repository
+        ? { ...linkParams, repo: repository }
+        : linkParams;
+      navigate(wikiHref(path, params));
       setOpen(false);
       setQuery("");
     },
@@ -101,7 +103,8 @@ export default function WikiSearchBar({ repository, linkParams }: Props) {
       }
       if (e.key === "Enter" && activeIndex >= 0 && data?.results[activeIndex]) {
         e.preventDefault();
-        onSelect(data.results[activeIndex].page_path);
+        const hit = data.results[activeIndex];
+        onSelect(hit.page_path, hit.context?.repository);
       }
     },
     [canNavigateResults, resultCount, activeIndex, data?.results, onSelect],

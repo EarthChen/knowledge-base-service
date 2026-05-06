@@ -36,6 +36,7 @@ export default function WikiShell() {
   const viewType = parsed.viewType;
   const toolTab = parsed.toolTab;
   const wikiTier = parsed.wikiTier;
+  const searchRepo = parsed.repo ?? undefined;
 
   const focusAsk = searchParams.get("focus");
   useEffect(() => {
@@ -63,7 +64,7 @@ export default function WikiShell() {
     return p;
   }, [businessId, viewType, wikiTier]);
 
-  const pageQuery = useWikiPageByPath(businessId, pagePath || undefined);
+  const pageQuery = useWikiPageByPath(businessId, pagePath || undefined, { repository: searchRepo });
   const queryClient = useQueryClient();
   const { t } = useI18n();
   const {
@@ -308,7 +309,7 @@ export default function WikiShell() {
               <WikiToolTabStrip toolTab={toolTab} onToolTabChange={setToolTab} />
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <WikiSearchBar repository={businessId} linkParams={wikiLinkParams} />
+              <WikiSearchBar linkParams={wikiLinkParams} />
               <div
                 className="inline-flex shrink-0 overflow-hidden rounded-lg border border-gray-200 text-xs font-medium dark:border-gray-600"
                 role="group"

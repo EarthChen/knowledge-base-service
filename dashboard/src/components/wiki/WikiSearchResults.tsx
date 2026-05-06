@@ -3,7 +3,7 @@ import HighlightText from "../HighlightText";
 
 type Props = {
   results: WikiSearchResult[];
-  onSelect: (path: string) => void;
+  onSelect: (path: string, repository?: string) => void;
   listboxId?: string;
   activeIndex: number;
   /** Whitespace / phrase segments from the active search, used to mark matches. */
@@ -43,7 +43,7 @@ export default function WikiSearchResults({
           <button
             type="button"
             tabIndex={-1}
-            onClick={() => onSelect(r.page_path)}
+            onClick={() => onSelect(r.page_path, r.context?.repository)}
             className="flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm transition-colors hover:bg-sky-50 dark:hover:bg-sky-950/50"
           >
             <span className="font-medium text-gray-900 dark:text-gray-100">

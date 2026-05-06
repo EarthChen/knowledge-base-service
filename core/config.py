@@ -239,7 +239,14 @@ class AppWikiFlags(BaseModel):
     progressive_persist_batch_size: int = 20
 
     #: Max concurrent wiki subtrees during compose (sibling ``walk`` tasks) and enrichment.
-    compose_concurrency: int = Field(default=3, ge=1)
+    compose_concurrency: int = Field(default=6, ge=1)
+
+    #: Skip per-repo module-level page generation in business wiki.
+    #: When True, only LangGraph pipeline topic pages are generated.
+    business_wiki_skip_repo_pages: bool = Field(default=True)
+
+    #: Max concurrent repo-level wiki generation (only used when skip_repo_pages=False).
+    business_repo_concurrency: int = Field(default=3, ge=1)
 
     # Phase 2 Task 7: hierarchical compose — business-flow aggregation & delegation
     business_flow_aggregation_enabled: bool = Field(default=True)

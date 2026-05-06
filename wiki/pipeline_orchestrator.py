@@ -102,7 +102,11 @@ def _pages_from_state(state: dict[str, Any]) -> list[WikiPage]:
     pages: list[WikiPage] = []
     for p in state.get("pages", []):
         try:
-            pages.append(WikiPage.from_dict(p))
+            wp = WikiPage.from_dict(p)
+            covered = p.get("covered_entity_uids")
+            if covered:
+                wp.covered_entity_uids = covered  # type: ignore[attr-defined]
+            pages.append(wp)
         except Exception:
             log.warning("pipeline_page_conversion_failed", page_path=p.get("path", "?"))
     return pages

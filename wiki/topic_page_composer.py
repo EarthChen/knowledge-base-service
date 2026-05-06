@@ -225,7 +225,7 @@ class TopicPageComposer:
         )
 
         groups = parse_json_robust_sync(raw_groups)
-        if not isinstance(groups, list):
+        if not isinstance(groups, list) or not groups:
             groups = [{"name": name, "entities": [e["name"] for e in biz_entities]}]
 
         pages: list[dict[str, Any]] = []
@@ -297,7 +297,11 @@ class TopicPageComposer:
     def _build_single_page_prompt(self, domain: dict[str, Any], *, concise: bool = False) -> str:
         name = domain["name"]
         entities_desc = "\n".join(
-            f"- **{e['name']}**: {e.get('summary', '')} (methods: {', '.join(e.get('methods', [])[:10])}; calls: {', '.join(e.get('calls', [])[:5])})"
+            f"- **{e['name']}**"
+            + (f" [{e['repository']}]" if e.get("repository") else "")
+            + f": {e.get('summary', '')}"
+            + (f" (file: `{e['file_path']}`)" if e.get("file_path") else "")
+            + f" (methods: {', '.join(e.get('methods', [])[:10])}; calls: {', '.join(e.get('calls', [])[:5])})"
             for e in domain.get("biz_entities", [])
         )
         siblings = ", ".join(s["name"] for s in domain.get("sibling_summaries", [])[:5])
@@ -311,11 +315,16 @@ class TopicPageComposer:
                 f"Sibling domains: {siblings or 'none'}\n\n"
                 f"Core services:\n{entities_desc}\n\n"
                 f"Related data models:\n{data_models or 'none'}\n\n"
-                "精简与简要输出：避免冗长解释，用短段落与条目即可。\n"
-                "Required sections (minimal):\n"
-                "1. ## 业务概述\n"
-                "2. ## 核心业务流程 (one concise Mermaid diagram)\n"
-                "3. ## 核心服务要点 (bullet list per service; skip deep API tables)\n"
+                "Write like a technical blog post — explain the business context thoroughly.\n"
+                "Required sections:\n"
+                "1. ## 业务概述 — WHY this domain exists, what business problem it solves, "
+                "and how it fits into the overall system architecture (at least 2-3 paragraphs)\n"
+                "2. ## 核心业务流程 — Mermaid sequenceDiagram showing the key interactions\n"
+                "3. ## 核心服务要点 — For each service: responsibilities, key design decisions, "
+                "error handling strategy, and file path references\n"
+                "4. ## 设计要点与注意事项 — Key architectural decisions, trade-offs, and edge cases\n"
+                "- Source code references using `source://repo/file:line` notation when available\n"
+                "- When describing cross-repo interactions, annotate which repository each service belongs to\n"
             ) + tail + self._token_budget_instruction()
         return (
             f"Write a wiki page for domain: **{name}**\n"
@@ -332,6 +341,8 @@ class TopicPageComposer:
             "- Core business flow with Mermaid diagram "
             "(sequenceDiagram or flowchart based on CALLS relationships)\n"
             "- Key services with their responsibilities and interactions\n"
+            "- Source code references using `source://repo/file:line` notation when available\n"
+            "- When describing cross-repo interactions, annotate which repository each service belongs to\n"
             f"- Related topics using [[wiki-link]] notation for these related domains: {siblings or 'none'}\n"
         ) + tail + self._token_budget_instruction()
 
@@ -358,7 +369,11 @@ class TopicPageComposer:
         overview = sub_domain.get("overview_summary", "")
         siblings = ", ".join(s["name"] for s in sub_domain.get("sibling_summaries", []))
         entities_desc = "\n".join(
-            f"- **{e['name']}**: {e.get('summary', '')} (methods: {', '.join(e.get('methods', [])[:10])})"
+            f"- **{e['name']}**"
+            + (f" [{e['repository']}]" if e.get("repository") else "")
+            + f": {e.get('summary', '')}"
+            + (f" (file: `{e['file_path']}`)" if e.get("file_path") else "")
+            + f" (methods: {', '.join(e.get('methods', [])[:10])})"
             for e in sub_domain.get("biz_entities", [])
         )
         snip = self._snippet_block(sub_domain)
@@ -379,6 +394,8 @@ class TopicPageComposer:
             "- Core business flow with Mermaid diagram "
             "(sequenceDiagram or flowchart based on CALLS relationships)\n"
             "- Key services with their responsibilities and interactions\n"
+            "- Source code references using `source://repo/file:line` notation when available\n"
+            "- When describing cross-repo interactions, annotate which repository each service belongs to\n"
             f"- Related topics using [[wiki-link]] notation for these sibling pages: {siblings or 'none'}\n"
         ) + tail + self._token_budget_instruction(max_tokens)
 

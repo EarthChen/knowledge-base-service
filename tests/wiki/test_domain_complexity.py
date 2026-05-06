@@ -109,7 +109,7 @@ async def test_topic_page_composer_uses_complexity():
         assert len(pages) == 1
         assert llm.generate.await_count == 1
         low_prompt = llm.generate.await_args_list[0].args[0]
-        assert "精简" in low_prompt or "简要" in low_prompt
+        assert "technical blog post" in low_prompt or "业务概述" in low_prompt
 
     async def run_medium():
         llm = AsyncMock()

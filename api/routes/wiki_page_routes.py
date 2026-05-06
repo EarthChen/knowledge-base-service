@@ -276,14 +276,25 @@ async def wiki_get_page_by_path(
     request: Request,
     business_id: str = Query(default="default"),
     path: str = Query(...),
+    repository: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    """Fetch a wiki page by its path under a business space."""
+    """Fetch a wiki page by its path under a business space.
+
+    When *repository* is supplied (e.g. from global search), a direct
+    repo-scoped lookup is attempted first so pages that haven't been
+    promoted to the WikiSpace tree can still be viewed.
+    """
     raw_store: Any = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:
         raise KbServiceUnavailable("Wiki store unavailable")
 
     store = WikiStore(raw_store)
-    result = await store.get_page_by_path(business_id, path)
+
+    result = None
+    if repository:
+        result = await store.get_page_by_repo_path(repository, path)
+    if not result or not result.data:
+        result = await store.get_page_by_path(business_id, path)
     if not result.data:
         raise KbNotFound(f"Wiki page not found: {path}")
 

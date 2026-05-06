@@ -62,7 +62,7 @@ export const queryKeys = {
     versions: (businessId: string, pageUid: string) =>
       ["wiki", "versions", businessId, pageUid] as const,
     businessFlows: (businessId: string) => ["wiki", "business-flows", businessId] as const,
-    pageByPath: (businessId: string, path: string) =>
-      ["wiki", "page-by-path", businessId, path] as const,
+    pageByPath: (businessId: string, path: string, repository?: string) =>
+      ["wiki", "page-by-path", businessId, path, repository ?? ""] as const,
   },
 } as const;

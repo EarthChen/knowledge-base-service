@@ -24,6 +24,8 @@ def _biz_wiki_mock():
     m.business_domain_classify_timeout = 600
     m.business_domain_max_concurrency = 3
     m.business_domain_cache_ttl = 3600
+    m.business_wiki_skip_repo_pages = False
+    m.business_repo_concurrency = 1
     return m
 
 

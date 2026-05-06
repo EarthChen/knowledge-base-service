@@ -186,6 +186,7 @@ class WikiPagePersistence:
         _PERSIST_CHUNK = 200
         _t_persist = _time.monotonic()
         total_persisted = 0
+        persisted_dicts: list[dict[str, Any]] = []
         for chunk_start in range(0, len(page_dicts), _PERSIST_CHUNK):
             chunk = page_dicts[chunk_start : chunk_start + _PERSIST_CHUNK]
             try:
@@ -194,6 +195,7 @@ class WikiPagePersistence:
                     timeout=120,
                 )
                 total_persisted += len(chunk)
+                persisted_dicts.extend(chunk)
                 if chunk_start > 0:
                     log.info(
                         "persist_pages_chunk",
@@ -223,9 +225,19 @@ class WikiPagePersistence:
                 "wiki_uid": f"WikiPage:{repository}:{pd['path']}",
                 "entity_uid": pd["entity_uid"],
             }
-            for pd in page_dicts
+            for pd in persisted_dicts
             if pd.get("entity_uid")
         ]
+        seen_pairs: set[tuple[str, str]] = {(p["wiki_uid"], p["entity_uid"]) for p in pairs}
+        for page in pages:
+            covered = getattr(page, "covered_entity_uids", None) or []
+            if covered:
+                wiki_uid = f"WikiPage:{repository}:{page.path}"
+                for eu in covered:
+                    key = (wiki_uid, eu)
+                    if eu and key not in seen_pairs:
+                        pairs.append({"wiki_uid": wiki_uid, "entity_uid": eu})
+                        seen_pairs.add(key)
         if pairs:
             _EDGE_CHUNK = 200
             for edge_start in range(0, len(pairs), _EDGE_CHUNK):
@@ -248,13 +260,13 @@ class WikiPagePersistence:
 
         log.info("persist_pages_complete", repository=repository, total_time_s=round(_time.monotonic() - _t0, 1))
 
-        if self.confidence_scoring_enabled() and self._store is not None:
+        if self.confidence_scoring_enabled() and self._store is not None and persisted_dicts:
             _cs_t0 = _time.monotonic()
-            log.info("confidence_scoring_start", repository=repository, page_count=len(page_dicts))
+            log.info("confidence_scoring_start", repository=repository, page_count=len(persisted_dicts))
             try:
                 scorer = confidence_scorer_from_wiki_app_config(self._wiki_cfg)
                 scores: list[tuple[str, float]] = []
-                for i, pd in enumerate(page_dicts):
+                for i, pd in enumerate(persisted_dicts):
                     uid = f"WikiPage:{repository}:{pd['path']}"
                     gen_at = str(pd.get("generated_at", "") or ts)
                     try:
@@ -269,7 +281,7 @@ class WikiPagePersistence:
                         log.warning("confidence_input_timeout", path=pd["path"], page_num=i)
                         continue
                     if (i + 1) % 200 == 0:
-                        log.info("confidence_scoring_progress", repository=repository, scored=i + 1, total=len(page_dicts))
+                        log.info("confidence_scoring_progress", repository=repository, scored=i + 1, total=len(persisted_dicts))
                 await set_wiki_page_confidence_scores(
                     self._store, scores, repository=repository,
                 )
@@ -279,14 +291,14 @@ class WikiPagePersistence:
 
         if total_persisted > 0:
             _emb_t0 = _time.monotonic()
-            log.info("wiki_page_embedding_start", repository=repository, page_count=len(page_dicts))
+            log.info("wiki_page_embedding_start", repository=repository, page_count=len(persisted_dicts))
             try:
                 emb_gen = EmbeddingGenerator.shared(config=self._embedding_cfg)
                 items = [
                     doc_dict_for_embedding(
                         {"title": d["title"], "content": d["content"][:3000]},
                     )
-                    for d in page_dicts
+                    for d in persisted_dicts
                 ]
                 embeddings = await emb_gen.generate_for_docs(items)
                 log.info("wiki_page_embedding_vectors_done", repository=repository, count=len(embeddings), elapsed_s=round(_time.monotonic() - _emb_t0, 1))
@@ -296,14 +308,14 @@ class WikiPagePersistence:
                         NodeLabel.WIKI_PAGE,
                         embedding,
                     )
-                    for page_dict, embedding in zip(page_dicts, embeddings, strict=True)
+                    for page_dict, embedding in zip(persisted_dicts, embeddings, strict=True)
                 ]
                 _batch = getattr(self._store, "batch_set_node_embeddings", None)
                 _f = getattr(_batch, "__func__", _batch) if _batch is not None else None
                 if _f is not None and inspect.iscoroutinefunction(_f):
                     await self._store.batch_set_node_embeddings(emb_items)
                 else:
-                    for page_dict, embedding in zip(page_dicts, embeddings, strict=True):
+                    for page_dict, embedding in zip(persisted_dicts, embeddings, strict=True):
                         uid = f"WikiPage:{repository}:{page_dict['path']}"
                         await self._store.set_node_embedding(uid, NodeLabel.WIKI_PAGE, embedding)
                 log.info("wiki_page_embedding_done", repository=repository, elapsed_s=round(_time.monotonic() - _emb_t0, 1))

@@ -31,6 +31,7 @@ from wiki.reasoning import (
     select_reasoning_level,
 )
 from wiki.topic_page_composer import TopicPageComposer
+from wiki.topic_structure_planner import TopicBasedStructurePlanner
 from wiki.json_robust import parse_json_robust_sync
 from wiki.prompts import SYSTEM_WIKI_HEAL, SYSTEM_WIKI_PARENT_OVERVIEW
 from wiki.snippet_selector import select_key_snippets
@@ -78,7 +79,7 @@ async def classify_entities_node(state: dict[str, Any]) -> dict[str, Any]:
     )
     return {
         "entity_roles": entity_roles,
-        "role_stats": dict(role_counter),
+        "role_stats": {str(r): c for r, c in role_counter.items()},
     }
 
 
@@ -270,7 +271,7 @@ def _call_target_module(call: str) -> str | None:
 def _build_page_data_for_semantic_diagrams(
     domain_name: str,
     module_names: list[str],
-    module_index: dict[str, dict],
+    module_index: dict[str, list[dict]],
 ) -> PageData:
     """Minimal PageData for SemanticDiagramGenerator (domain modules + CALLS edges)."""
     children: list[GraphNode] = []
@@ -279,41 +280,41 @@ def _build_page_data_for_semantic_diagrams(
     name_to_uid: dict[str, str] = {}
 
     for mod_name in module_names:
-        mod_dict = module_index.get(mod_name, {})
-        props_raw = mod_dict.get("properties", {})
-        props: dict[str, str | int | float | list[str]] = dict(props_raw) if isinstance(props_raw, dict) else {}
-        uid = mod_dict.get("uid", f"Module::{mod_name}:0")
-        name_to_uid[mod_name] = uid
-        label_str = mod_dict.get("label", "Module")
-        try:
-            label = NodeLabel(label_str)
-        except ValueError:
-            label = NodeLabel.MODULE
-        children.append(GraphNode(label=label, properties=props, uid=uid))
-        bs = props.get("business_summary", "")
-        if isinstance(bs, str) and bs.strip():
-            summaries.append(bs)
+        for mod_dict in module_index.get(mod_name, []):
+            props_raw = mod_dict.get("properties", {})
+            props: dict[str, str | int | float | list[str]] = dict(props_raw) if isinstance(props_raw, dict) else {}
+            uid = mod_dict.get("uid", f"Module::{mod_name}:0")
+            name_to_uid[mod_name] = uid
+            label_str = mod_dict.get("label", "Module")
+            try:
+                label = NodeLabel(label_str)
+            except ValueError:
+                label = NodeLabel.MODULE
+            children.append(GraphNode(label=label, properties=props, uid=uid))
+            bs = props.get("business_summary", "")
+            if isinstance(bs, str) and bs.strip():
+                summaries.append(bs)
 
     for mod_name in module_names:
-        mod_dict = module_index.get(mod_name, {})
-        src_uid = mod_dict.get("uid", f"Module::{mod_name}:0")
-        calls = mod_dict.get("properties", {}).get("calls", []) or []
-        if not isinstance(calls, list):
-            continue
-        for call in calls:
-            tgt_mod = _call_target_module(str(call))
-            if not tgt_mod or tgt_mod not in name_to_uid:
+        for mod_dict in module_index.get(mod_name, []):
+            src_uid = mod_dict.get("uid", f"Module::{mod_name}:0")
+            calls = mod_dict.get("properties", {}).get("calls", []) or []
+            if not isinstance(calls, list):
                 continue
-            tgt_uid = name_to_uid[tgt_mod]
-            if tgt_uid == src_uid:
-                continue
-            edges.append(
-                GraphEdge(
-                    edge_type=EdgeType.CALLS,
-                    source_uid=src_uid,
-                    target_uid=tgt_uid,
+            for call in calls:
+                tgt_mod = _call_target_module(str(call))
+                if not tgt_mod or tgt_mod not in name_to_uid:
+                    continue
+                tgt_uid = name_to_uid[tgt_mod]
+                if tgt_uid == src_uid:
+                    continue
+                edges.append(
+                    GraphEdge(
+                        edge_type=EdgeType.CALLS,
+                        source_uid=src_uid,
+                        target_uid=tgt_uid,
+                    )
                 )
-            )
 
     joined_summary = " ".join(summaries)[:4000]
     center_props: dict[str, str | int | float | list[str]] = {
@@ -862,7 +863,7 @@ def _count_modules_in_domain_tree(domain_tree: Any) -> int:
 
 async def _compose_single_leaf_domain(
     leaf: dict[str, Any],
-    module_index: dict[str, dict],
+    module_index: dict[str, list[dict]],
     entity_roles: dict[str, Any],
     llm: Any,
     token_budget: int,
@@ -874,30 +875,33 @@ async def _compose_single_leaf_domain(
     biz_entities = []
     data_models = []
     for mod_name in module_names:
-        mod_dict = module_index.get(mod_name, {})
-        uid = mod_dict.get("uid", f"Module::{mod_name}:0")
-        role = entity_roles.get(uid, "supporting")
-        props = mod_dict.get("properties", {})
+        for mod_dict in module_index.get(mod_name, []):
+            uid = mod_dict.get("uid", f"Module::{mod_name}:0")
+            role = entity_roles.get(uid, "supporting")
+            props = mod_dict.get("properties", {})
 
-        if str(role) in ("has_business_logic", "entry_point"):
-            biz_entities.append({
-                "uid": uid,
-                "name": mod_name,
-                "summary": str(props.get("business_summary", "") or props.get("docstring", "") or ""),
-                "methods": [str(m) for m in (props.get("methods", []) or [])[:10]],
-                "calls": [str(c) for c in (props.get("calls", []) or [])[:15]],
-            })
-        elif str(role) == "data_model":
-            data_models.append({
-                "uid": uid,
-                "name": mod_name,
-                "type": "DTO",
-                "fields": [str(f) for f in (props.get("fields", []) or [])[:8]],
-            })
+            if str(role) in ("has_business_logic", "entry_point"):
+                biz_entities.append({
+                    "uid": uid,
+                    "name": mod_name,
+                    "repository": mod_dict.get("_repo", ""),
+                    "file_path": str(props.get("file", "") or props.get("file_path", "") or props.get("path", "")),
+                    "summary": str(props.get("business_summary", "") or props.get("docstring", "") or ""),
+                    "methods": [str(m) for m in (props.get("methods", []) or [])[:10]],
+                    "calls": [str(c) for c in (props.get("calls", []) or [])[:15]],
+                    "loc": int(props.get("loc", 0) or props.get("line_count", 0) or 0),
+                })
+            elif str(role) == "data_model":
+                data_models.append({
+                    "uid": uid,
+                    "name": mod_name,
+                    "type": "DTO",
+                    "fields": [str(f) for f in (props.get("fields", []) or [])[:8]],
+                })
 
     budget_calc = TokenBudgetCalculator()
     domain_modules = [
-        module_index[m] for m in module_names if m in module_index
+        md for m in module_names for md in module_index.get(m, [])
     ]
     snippets = select_key_snippets(
         domain_modules,
@@ -911,6 +915,8 @@ async def _compose_single_leaf_domain(
 
     if len(data_models) > 20:
         log.info("data_models_truncated", domain=domain_name, total=len(data_models), kept=20)
+
+    covered_entity_uids = [e["uid"] for e in biz_entities] + [d["uid"] for d in data_models[:20]]
 
     domain_input = {
         "name": domain_name,
@@ -974,10 +980,134 @@ async def _compose_single_leaf_domain(
                         page=page_dict.get("title"),
                         exc_info=True,
                     )
+        for page_dict in pages:
+            page_dict["covered_entity_uids"] = covered_entity_uids
         return pages, [p.get("path", "") for p in pages]
     except Exception:
         log.warning("compose_pages_domain_failed", domain=domain_name, exc_info=True)
         return [], []
+
+
+async def plan_topic_structure_node(
+    state: dict[str, Any], config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Plan topic-based wiki structure using LLM."""
+    llm = (config or {}).get("configurable", {}).get("llm")
+    if not llm:
+        log.info("plan_topic_structure_skip", reason="no_llm")
+        return {"topic_structure": None}
+
+    domain_mapping = state.get("domain_mapping", {})
+    if not domain_mapping:
+        return {"topic_structure": None}
+
+    modules = state.get("modules", {})
+    entity_roles = state.get("entity_roles", {})
+
+    module_metadata: dict[tuple[str, str], dict[str, Any]] = {}
+    importance_tiers: dict[str, str] = {}
+
+    for repo_name, mod_list in modules.items():
+        for mod_dict in mod_list:
+            props = mod_dict.get("properties", {})
+            name = props.get("name", "")
+            uid = mod_dict.get("uid", "")
+            if not name:
+                continue
+            module_metadata[(repo_name, name)] = {
+                "summary": props.get("business_summary", "") or props.get("docstring", ""),
+                "methods": props.get("methods", []),
+                "calls": props.get("calls", []),
+            }
+            role = str(entity_roles.get(uid, "supporting"))
+            if role == "framework_noise":
+                importance_tiers[name] = "skeleton"
+            elif role in ("has_business_logic", "entry_point"):
+                importance_tiers[name] = "core"
+            else:
+                importance_tiers[name] = "standard"
+
+    planner = TopicBasedStructurePlanner(llm)
+    topic_pages = await planner.plan(
+        domain_mapping, module_metadata, importance_tiers
+    )
+
+    topic_dicts = [
+        {
+            "title": tp.title,
+            "description": tp.description,
+            "covered_modules": tp.covered_modules,
+            "sub_topics": [
+                {
+                    "title": st.title,
+                    "description": st.description,
+                    "covered_modules": st.covered_modules,
+                }
+                for st in tp.sub_topics
+            ],
+        }
+        for tp in topic_pages
+    ]
+
+    log.info("topic_structure_planned", topic_count=len(topic_dicts))
+    return {"topic_structure": topic_dicts}
+
+
+def _topic_to_domain_dict(
+    topic: dict[str, Any],
+    module_index: dict[str, list[dict]],
+) -> dict[str, Any]:
+    """Convert a TopicPage dict into the domain dict format expected by
+    _compose_single_leaf_domain."""
+    covered = topic.get("covered_modules", [])
+    module_names = [name for _repo, name in covered]
+    return {
+        "name": topic["title"],
+        "modules": module_names,
+        "children": [],
+    }
+
+
+async def _compose_from_topic_structure(
+    topic_structure: list[dict[str, Any]],
+    module_index: dict[str, list[dict]],
+    entity_roles: dict[str, Any],
+    llm: Any,
+) -> dict[str, Any]:
+    """Compose pages from TopicBasedStructurePlanner output."""
+    budget_resolver = TokenBudgetResolver()
+    budget = budget_resolver.budget("topic_page_generate")
+    sem = asyncio.Semaphore(_COMPOSE_CONCURRENCY)
+
+    all_pages: list[dict[str, Any]] = []
+    generated_uids: list[str] = []
+
+    async def _compose_topic(topic: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+        async with sem:
+            domain_dict = _topic_to_domain_dict(topic, module_index)
+            return await _compose_single_leaf_domain(
+                domain_dict, module_index, entity_roles, llm, budget
+            )
+
+    all_topics = list(topic_structure)
+    for t in topic_structure:
+        for sub in t.get("sub_topics", []):
+            all_topics.append(sub)
+
+    results = await asyncio.gather(
+        *[_compose_topic(t) for t in all_topics],
+        return_exceptions=True,
+    )
+    for item in results:
+        if isinstance(item, BaseException):
+            log.warning("compose_topic_failed", exc_info=item)
+            continue
+        pages, uids = item
+        all_pages.extend(pages)
+        generated_uids.extend(uids)
+
+    log.info("compose_from_topics_done", total_pages=len(all_pages))
+    return {"pages": all_pages, "generated_topic_pages": generated_uids}
 
 
 async def compose_leaf_pages_node(
@@ -989,12 +1119,19 @@ async def compose_leaf_pages_node(
     entity_roles = state.get("entity_roles", {})
     modules = state.get("modules", {})
 
-    module_index: dict[str, dict] = {}
-    for _repo, mod_list in modules.items():
+    module_index: dict[str, list[dict]] = {}
+    for repo_name, mod_list in modules.items():
         for mod_dict in mod_list:
             name = mod_dict.get("properties", {}).get("name", "")
             if name:
-                module_index[name] = mod_dict
+                mod_dict["_repo"] = repo_name
+                module_index.setdefault(name, []).append(mod_dict)
+
+    topic_structure = state.get("topic_structure")
+    if topic_structure:
+        return await _compose_from_topic_structure(
+            topic_structure, module_index, entity_roles, llm
+        )
 
     budget_resolver = TokenBudgetResolver()
     budget = budget_resolver.budget("topic_page_generate")

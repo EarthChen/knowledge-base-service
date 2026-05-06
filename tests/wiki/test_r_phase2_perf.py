@@ -392,6 +392,8 @@ async def test_generate_business_wiki_partial_errors_on_repo_failure() -> None:
     mock_wiki_cfg.business_domain_classify_timeout = 600
     mock_wiki_cfg.business_domain_max_concurrency = 3
     mock_wiki_cfg.business_domain_cache_ttl = 3600
+    mock_wiki_cfg.business_wiki_skip_repo_pages = False
+    mock_wiki_cfg.business_repo_concurrency = 1
 
     _, emb = inject_wiki_embedding()
     svc = WikiService(

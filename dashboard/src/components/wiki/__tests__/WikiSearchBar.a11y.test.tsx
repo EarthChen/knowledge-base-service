@@ -37,14 +37,14 @@ function renderSearchBar() {
   return renderWithI18n(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <WikiSearchBar repository="my-repo" />
+        <WikiSearchBar />
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
-vi.mock("../../../hooks/useWikiSearch", () => ({
-  useWikiSearch: () => ({
+vi.mock("../../../hooks/useWikiGlobalSearch", () => ({
+  useWikiGlobalSearch: () => ({
     mutate: vi.fn(),
     isPending: false,
     isError: false,
@@ -54,6 +54,9 @@ vi.mock("../../../hooks/useWikiSearch", () => ({
       results,
       total: 2,
       query_expansion: {},
+      by_repository: {},
+      repositories_searched: [],
+      partial_errors: [],
     },
   }),
 }));

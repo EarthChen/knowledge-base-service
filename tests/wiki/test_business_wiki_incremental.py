@@ -45,11 +45,12 @@ def wiki_service_deps():
     wiki_store.upsert_wiki_section = AsyncMock()
     wiki_store.add_has_child_edge = AsyncMock()
     wiki_store.get_wiki_pages_for_business = AsyncMock(return_value=[])
+    cfg = WikiAppConfig(business_wiki_skip_repo_pages=False)
     return {
         "graph": graph,
         "store": store,
         "wiki_store": wiki_store,
-        "wiki_config": WikiAppConfig(),
+        "wiki_config": cfg,
         "embedding_config": EmbeddingConfig(),
     }
 

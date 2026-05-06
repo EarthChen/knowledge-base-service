@@ -111,7 +111,7 @@ class WikiTaskStore:
                     continue
                 status_raw = raw.get(b"status", raw.get("status", b""))
                 status = status_raw.decode() if isinstance(status_raw, bytes) else str(status_raw)
-                if status not in ("completed", "failed"):
+                if status not in ("completed", "failed", "cancelled"):
                     task = await self.get_task(
                         (key.decode() if isinstance(key, bytes) else str(key))
                         .removeprefix(self.KEY_PREFIX)

@@ -9,16 +9,18 @@ from wiki.content_context_builder import (
     MethodDetail,
 )
 
-UNIFIED_WIKI_SYSTEM_PROMPT = """你是企业级代码知识库与 Wiki 生成助手，面向业务与工程读者撰写高质量页面。
+UNIFIED_WIKI_SYSTEM_PROMPT = """你是企业级代码知识库与 Wiki 生成助手，面向开发工程师、产品经理、AI Agent 三类读者撰写高质量页面。
 
 ## 写作与视角
-- 以**业务价值与系统职责**为第一视角，用中文阐述；涉及类名、方法名、文件路径、仓库名等技术标识保持**英文原文**引用。
-- 每个正文大节（以 ## 开头的章节）至少包含 **2～3 段**完整段落，避免只列 bullet 而无解释。
+- 以**业务价值与系统职责**为第一视角，**全部使用中文**阐述；涉及类名、方法名、文件路径、仓库名等技术标识保持**英文原文**引用。
+- 每个正文大节（以 ## 开头的章节）**必须**包含 **2～4 段**完整段落，段落之间有逻辑递进。严禁出现「只列 bullet 而无解释性段落」的章节。
 - 说明「是谁、在什么场景、做什么、与上下游如何协作」，不要写成框架通识课。
+- 描述模块或服务时，必须先用一段话说明其**业务定位**，再用后续段落展开技术细节。
 
 ## Mermaid 图表
 - 仅当上下文数据中**确有**调用链、模块或依赖关系时，再绘制 Mermaid（flowchart / graph / sequenceDiagram 等）。
 - **禁止凭空空想**节点与边；图中模块/服务名须与提供的数据一致。若无足够数据，明确写「数据不足，不生成图」并在正文中用文字说明。
+- Mermaid 图必须附带 1～2 句图注说明图的核心信息。
 
 ## 源码溯源（source://）
 - 任何关键断言（入口方法、核心调用、DTO 定义等）须在正文适当位置附带 `source://仓库名/文件路径:行号` 形式的链接（行号来自上下文；无行号时可省略 `:行号`）。
@@ -30,10 +32,11 @@ UNIFIED_WIKI_SYSTEM_PROMPT = """你是企业级代码知识库与 Wiki 生成助
 ## 禁止事项
 - 不要复述 Spring / gRPC /「分层架构」等**与当前域无粘性的框架科普**。
 - 禁止使用「可能」「一般来说」「通常」等**空洞措辞**代替基于上下文的判断；若信息不足，直接写明缺失点。
+- 禁止在 executive_summary 中重复 content 首段内容，executive_summary 应独立概括全文。
 
 ## 输出格式（严格遵守）
 仅输出一个 JSON 对象，不要 Markdown 代码围栏，不要前后解释：
-{"executive_summary": "<150-300 字中文摘要>", "content": "<完整 Wiki 正文，Markdown，须包含任务要求的 ## 章节结构>"}
+{"executive_summary": "<150-300 字中文摘要，独立概括本页面全部关键信息>", "content": "<完整 Wiki 正文，Markdown，须包含任务要求的 ## 章节结构>"}
 """
 
 
@@ -167,17 +170,24 @@ def build_domain_overview_prompt(context: EnrichedDomainContext) -> str:
         context.cross_domain_calls,
     )
     intra_cross = build_call_chain_section(context.intra_domain_calls, context.cross_domain_calls)
+    snippets_block = "\n".join(context.key_snippets) if context.key_snippets else "（无）"
 
     overview_siblings = "、".join(f"`{s}`" for s in context.sibling_domains) if context.sibling_domains else "无"
 
-    return f"""请为业务域编写 **Wiki 域总览** 页面。域名称：`{context.domain_name}`；上级域：`{context.parent_domain}`；兄弟域：{overview_siblings}。
+    base = f"""请为业务域编写 **Wiki 域总览** 页面（面向开发、产品、AI Agent 阅读）。域名称：`{context.domain_name}`；上级域：`{context.parent_domain}`；兄弟域：{overview_siblings}。
+
+## 写作要求
+- 全部使用**中文**撰写正文（类名、方法名、文件路径等技术标识保持英文原文）
+- 每个 `##` 章节**至少包含 2～3 段**完整段落，杜绝只有 bullet 列表而无解释的段落
+- 必须说明本域在系统中的**上下游位置**：谁调用本域、本域调用谁、与兄弟域如何协作
+- `source://` 链接必须附在每个关键模块/方法的首次提及处
 
 ## 你必须在 JSON 的 content 中输出且仅使用以下 Markdown 章节（标题字面一致）
-1. ## 业务概述 — 该域的业务目的与在系统中的角色（至少两段）
-2. ## 架构全景图 — 基于下方数据绘制 Mermaid（子域/核心服务关系）；数据不足则说明原因且不强行画图
-3. ## 子主题导航 — 列出子主题并附简述与实体数量线索（使用提供的数据）
-4. ## 关键入口 — 突出入口/核心业务模块，附仓库名与文件路径及 source:// 引用
-5. ## 跨域依赖与交互 — 结合 dependent/dependee 与跨域调用描述协作关系
+1. ## 业务概述 — 该域的业务目的、在系统中的角色、面向的用户场景。至少三段，首段概述定位，次段说明核心能力，末段阐述与父域/兄弟域的关系
+2. ## 架构全景图 — 基于下方数据绘制 Mermaid flowchart 或 graph（展示子域/核心服务/外部依赖之间的关系）；数据不足则说明原因且不强行画图
+3. ## 子主题导航 — 对每个子主题用 1～2 句话说明其业务职责和包含的核心实体数量，方便读者快速定位感兴趣的子域
+4. ## 关键入口与核心服务 — 逐一描述入口/核心业务模块的**职责、关键方法签名、典型调用场景**，附仓库名与文件路径及 `source://` 引用
+5. ## 跨域依赖与交互 — 结合 dependent/dependee 与跨域调用，用段落（非纯列表）描述协作关系和数据流向，说明为什么需要这些依赖
 
 ## 参考数据：子主题
 {sub_topic_block}
@@ -188,10 +198,21 @@ def build_domain_overview_prompt(context: EnrichedDomainContext) -> str:
 ## 参考数据：域内/跨域调用（模块级）
 {intra_cross}
 
+## 参考数据：关键代码片段
+{snippets_block}
+
 ## 参考数据：跨域依赖汇总
 {cross_block}
 
 请严格遵循系统提示中的 JSON 输出约定。"""
+
+    tail = (context.existing_wiki_context or "").strip()
+    if not tail:
+        return base
+    return (
+        f"{base}\n\n"
+        f"## 已有 Wiki 摘要（仅供对齐术语与历史描述，勿重复粘贴）\n{tail}"
+    )
 
 
 def build_topic_detail_prompt(context: EnrichedDomainContext) -> str:

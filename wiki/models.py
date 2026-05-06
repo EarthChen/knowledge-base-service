@@ -71,6 +71,7 @@ class EnrichmentLevel(StrEnum):
     BASE = "base"
     ENRICHED = "enriched"
     ENCYCLOPEDIA = "encyclopedia"
+    FULL = "full"
 
 
 class SkeletonStrategy(StrEnum):

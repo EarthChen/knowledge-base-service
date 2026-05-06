@@ -2,18 +2,37 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from core.log import get_logger
 from store.schema import GraphNode
+from wiki.content_context_builder import EnrichedDomainContext
+from wiki.json_robust import parse_json_robust_sync
 from wiki.models import DiagramType, EnrichmentLevel, PageType, WikiDiagram, WikiPage, WikiPageMetadata
+from wiki.unified_prompt_templates import UNIFIED_WIKI_SYSTEM_PROMPT, build_domain_overview_prompt
 
 if TYPE_CHECKING:
     from wiki.llm_port import LLMPort
 
 log = get_logger(__name__)
+
+
+def _parse_unified_wiki_json(raw: str) -> tuple[str, str]:
+    """Extract markdown content and executive_summary from unified JSON LLM output."""
+    stripped = (raw or "").strip()
+    if not stripped:
+        return "", ""
+    parsed = parse_json_robust_sync(stripped)
+    if isinstance(parsed, dict):
+        exec_raw = parsed.get("executive_summary")
+        summary = exec_raw.strip() if isinstance(exec_raw, str) else ""
+        body = parsed.get("content")
+        if isinstance(body, str) and body.strip():
+            return body.strip(), summary
+    return stripped, ""
 
 
 def _effective_language(language: str) -> str:
@@ -67,6 +86,63 @@ def _ensure_repo_names_in_content(content: str, repositories: list[str]) -> str:
     return content + "\n".join(block_lines)
 
 
+def _structural_markdown_from_enriched_context(context: EnrichedDomainContext, language: str) -> str:
+    lang = language if language in ("en", "zh") else "zh"
+    if lang == "zh":
+        title = f"# 业务域：{context.domain_name}"
+        empty = "_此业务域上下文暂无已索引实体。_"
+        entities_h = "## 关键入口与模块"
+        topics_h = "## 子主题"
+        deps_h = "## 跨域依赖"
+        sib_h = "## 兄弟域"
+    else:
+        title = f"# Domain: {context.domain_name}"
+        empty = "_No entities in context yet._"
+        entities_h = "## Key modules"
+        topics_h = "## Sub-topics"
+        deps_h = "## Cross-domain dependencies"
+        sib_h = "## Sibling domains"
+
+    lines: list[str] = [title, ""]
+
+    if context.biz_entities:
+        lines.append(entities_h)
+        lines.append("")
+        for e in context.biz_entities:
+            summary = (e.business_summary or "").strip() or ("（无摘要）" if lang == "zh" else "_(no summary)_")
+            repo = e.repository or ""
+            lines.append(f"- **{e.name}** (`{repo}`): {summary}")
+        lines.append("")
+
+    if context.sub_topics:
+        lines.append(topics_h)
+        lines.append("")
+        for t in context.sub_topics:
+            name = str(t.get("title", t.get("name", "")) or "")
+            desc = str(t.get("description", "") or "").strip()
+            lines.append(f"- **{name}**" + (f": {desc}" if desc else ""))
+        lines.append("")
+
+    if context.dependent_domains:
+        lines.append(deps_h)
+        lines.append("")
+        for d in context.dependent_domains:
+            lines.append(f"- `{d}`")
+        lines.append("")
+
+    if context.sibling_domains:
+        lines.append(sib_h)
+        lines.append("")
+        for s in context.sibling_domains:
+            lines.append(f"- `{s}`")
+        lines.append("")
+
+    if len(lines) <= 2:
+        lines.append(empty)
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def _structural_markdown(domain_name: str, grouped: dict[str, list[tuple[str, GraphNode]]], language: str) -> str:
     lang = _effective_language(language)
     if lang == "zh":
@@ -101,6 +177,63 @@ class DomainOverviewComposer:
 
     def __init__(self, llm: LLMPort | None = None) -> None:
         self._llm = llm
+
+    async def compose_from_context(
+        self,
+        context: EnrichedDomainContext,
+        language: str = "zh",
+    ) -> WikiPage:
+        """Generate domain overview page using unified prompt system (Template A).
+
+        Uses UNIFIED_WIKI_SYSTEM_PROMPT + build_domain_overview_prompt().
+        Output format: JSON {executive_summary, content}.
+        """
+        lang = language if language in ("en", "zh") else "zh"
+        path = f"/{context.domain_name}/_overview"
+        title = f"{context.domain_name} — overview" if lang == "en" else f"{context.domain_name} — 概述"
+        structural = _structural_markdown_from_enriched_context(context, lang)
+        content = structural
+        diagrams: list[WikiDiagram] = []
+        executive_summary = ""
+
+        if self._llm is not None:
+            try:
+                user_prompt = build_domain_overview_prompt(context)
+                raw = (await self._llm.generate(user_prompt, system=UNIFIED_WIKI_SYSTEM_PROMPT)).strip()
+                body_raw, executive_summary = _parse_unified_wiki_json(raw)
+                body, diagrams = _extract_mermaid(body_raw)
+                if body.strip():
+                    content = body
+                else:
+                    content = structural
+                    diagrams = []
+            except Exception as exc:
+                log.warning(
+                    "domain_overview_from_context_llm_failed",
+                    domain=context.domain_name,
+                    error=str(exc),
+                    exc_info=True,
+                )
+                content = structural
+                diagrams = []
+                executive_summary = ""
+
+        meta = WikiPageMetadata(
+            node_count=len(context.biz_entities),
+            edge_count=0,
+            generation_mode="business",
+            enrichment_level=EnrichmentLevel.FULL,
+            executive_summary=executive_summary or None,
+        )
+        return WikiPage(
+            path=path,
+            title=title,
+            page_type=PageType.DOMAIN_OVERVIEW,
+            content=content,
+            diagrams=diagrams,
+            source_locations=[],
+            metadata=meta,
+        )
 
     def _build_nested_navigation(self, domain_tree: list) -> str:
         """Generate nested sub-domain navigation links."""

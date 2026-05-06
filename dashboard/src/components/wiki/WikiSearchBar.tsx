@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKe
 import { useNavigate } from "react-router-dom";
 import { Loader2, Search } from "lucide-react";
 import FocusTrap from "../FocusTrap";
-import { useWikiGlobalSearch } from "../../hooks/useWikiGlobalSearch";
+import { useWikiSemanticSearch } from "../../hooks/useWikiSearch";
 import { useI18n } from "../../i18n/context";
-import WikiSearchResults, { wikiSearchOptionId } from "./WikiSearchResults";
+import { wikiSearchOptionId } from "./WikiSearchResults";
+import WikiSemanticSearchResults, { semanticSearchResultCount } from "./WikiSemanticSearchResults";
 import { wikiHref } from "./wikiRouteHelpers";
 import { getErrorMessage } from "../../utils/errorUtils";
 
@@ -16,16 +17,20 @@ const shortcutHint = isMac ? "⌘K" : "Ctrl+K";
 
 type Props = {
   linkParams?: Record<string, string>;
+  /** Repository scope for POST /wiki/semantic-search (falls back to business id). */
+  repository: string;
 };
 
-export default function WikiSearchBar({ linkParams }: Props) {
+export default function WikiSearchBar({ linkParams, repository }: Props) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const { mutate, isPending, isError, error, isSuccess, data } = useWikiGlobalSearch();
+  const { mutate, isPending, isError, error, isSuccess, data } = useWikiSemanticSearch();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const repoTrimmed = repository.trim() || (linkParams?.business_id ?? "").trim() || "default";
 
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
@@ -46,31 +51,36 @@ export default function WikiSearchBar({ linkParams }: Props) {
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      mutate({ query: raw });
+      mutate({ query: raw, repository: repoTrimmed, limit: 20 });
     }, 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [open, query, mutate]);
+  }, [open, query, mutate, repoTrimmed]);
+
+  const totalHits =
+    data != null
+      ? semanticSearchResultCount(data.wiki_hits ?? [], data.entity_hits ?? [], data.call_chain_hits ?? [])
+      : 0;
 
   useEffect(() => {
-    if (!data?.results?.length) {
+    if (totalHits === 0) {
       setActiveIndex(-1);
       return;
     }
-    setActiveIndex((i) => (i >= 0 && i < data.results.length ? i : 0));
-  }, [data?.results]);
+    setActiveIndex((i) => (i >= 0 && i < totalHits ? i : 0));
+  }, [totalHits]);
 
   const close = useCallback(() => setOpen(false), []);
 
   const listPopupOpen =
     open && query.trim().length > 0 && (isPending || isError || isSuccess);
-  const hasResultOptions = Boolean(data?.results.length && query.trim());
+  const hasResultOptions = Boolean(totalHits > 0 && query.trim());
 
   const onSelect = useCallback(
-    (path: string, repository?: string) => {
-      const params = repository
-        ? { ...linkParams, repo: repository }
+    (path: string, repoForHit?: string) => {
+      const params = repoForHit
+        ? { ...linkParams, repo: repoForHit }
         : linkParams;
       navigate(wikiHref(path, params));
       setOpen(false);
@@ -79,35 +89,36 @@ export default function WikiSearchBar({ linkParams }: Props) {
     [navigate, linkParams],
   );
 
-  const resultCount = data?.results.length ?? 0;
-  const canNavigateResults = hasResultOptions && resultCount > 0;
+  const wikiHitCount = data?.wiki_hits?.length ?? 0;
+
+  const canNavigateResults = hasResultOptions && totalHits > 0;
 
   const onSearchKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLInputElement>) => {
-      if (!canNavigateResults) return;
+      if (!canNavigateResults || !data) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
         setActiveIndex((i) => {
           const next = i < 0 ? 0 : i + 1;
-          return next >= resultCount ? 0 : next;
+          return next >= totalHits ? 0 : next;
         });
         return;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
         setActiveIndex((i) => {
-          const next = i < 0 ? resultCount - 1 : i - 1;
-          return next < 0 ? resultCount - 1 : next;
+          const next = i < 0 ? totalHits - 1 : i - 1;
+          return next < 0 ? totalHits - 1 : next;
         });
         return;
       }
-      if (e.key === "Enter" && activeIndex >= 0 && data?.results[activeIndex]) {
+      if (e.key === "Enter" && activeIndex >= 0 && activeIndex < wikiHitCount) {
         e.preventDefault();
-        const hit = data.results[activeIndex];
-        onSelect(hit.page_path, hit.context?.repository);
+        const hit = data.wiki_hits[activeIndex];
+        if (hit) onSelect(hit.page_path, repoTrimmed);
       }
     },
-    [canNavigateResults, resultCount, activeIndex, data?.results, onSelect],
+    [canNavigateResults, totalHits, activeIndex, data, wikiHitCount, onSelect, repoTrimmed],
   );
 
   if (!open) {
@@ -170,15 +181,21 @@ export default function WikiSearchBar({ linkParams }: Props) {
             </p>
           )}
           {data && query.trim() && (
-            <WikiSearchResults
+            <WikiSemanticSearchResults
               listboxId={WIKI_SEARCH_RESULTS_LIST_ID}
-              results={data.results}
-              onSelect={onSelect}
+              wikiHits={data.wiki_hits ?? []}
+              entityHits={data.entity_hits ?? []}
+              callChainHits={data.call_chain_hits ?? []}
+              searchRepository={repoTrimmed}
               activeIndex={activeIndex}
               highlightQuery={query.trim()}
+              onWikiSelect={(path, repo) => onSelect(path, repo)}
+              sectionWiki={t.wiki.semanticSearchSectionWiki}
+              sectionEntities={t.wiki.semanticSearchSectionEntities}
+              sectionChains={t.wiki.semanticSearchSectionCallChains}
             />
           )}
-          {isSuccess && data && data.results.length === 0 && query.trim() && (
+          {isSuccess && data && totalHits === 0 && query.trim() && (
             <p className="px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
               {t.wiki.globalSearchNoResults}
             </p>

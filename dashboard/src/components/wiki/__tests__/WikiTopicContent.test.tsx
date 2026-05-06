@@ -7,6 +7,10 @@ vi.mock("../MarkdownRenderer", () => ({
   default: ({ content }: { content: string }) => <div data-testid="md">{content}</div>,
 }));
 
+vi.mock("../EntityCardsPanel", () => ({
+  default: () => null,
+}));
+
 describe("WikiTopicContent", () => {
   const page = {
     title: "Payment Service",

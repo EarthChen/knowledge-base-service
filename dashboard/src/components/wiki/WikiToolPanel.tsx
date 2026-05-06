@@ -231,6 +231,7 @@ export default function WikiToolPanel({
                     review_status: pageQuery.data.context?.review_status,
                   }}
                   businessId={businessId}
+                  repository={pageQuery.data.context?.repository?.trim() || businessId}
                   wikiLinkParams={wikiLinkParams}
                   onReviewAction={(action, notes) => {
                     if (action === "approve") {

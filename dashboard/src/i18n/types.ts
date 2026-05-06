@@ -771,6 +771,9 @@ export interface Translations {
     globalSearchRepositoryGroup: string;
     /** Use {count} */
     globalSearchPartialErrors: string;
+    semanticSearchSectionWiki: string;
+    semanticSearchSectionEntities: string;
+    semanticSearchSectionCallChains: string;
     lintTitle: string;
     lintRunCheck: string;
     lintHelp: string;
@@ -964,6 +967,11 @@ export interface Translations {
       approved: string;
       needs_revision: string;
       revised: string;
+      related_entities_heading: string;
+      related_entities_expand: string;
+      related_entities_collapse: string;
+      related_entities_empty: string;
+      related_entities_loading: string;
     };
     knowledge_graph: {
       loading: string;

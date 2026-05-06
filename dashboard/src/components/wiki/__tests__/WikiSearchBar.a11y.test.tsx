@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import WikiSearchBar from "../WikiSearchBar";
 import { renderWithI18n } from "../../../test/renderWithI18n";
 import { wikiSearchOptionId } from "../WikiSearchResults";
-import type { WikiSearchResult } from "../../../hooks/wikiTypes";
 
 const { mockNavigate } = vi.hoisted(() => ({ mockNavigate: vi.fn() }));
 vi.mock("react-router-dom", async (importOriginal) => {
@@ -13,50 +12,44 @@ vi.mock("react-router-dom", async (importOriginal) => {
   return { ...mod, useNavigate: () => mockNavigate };
 });
 
-const results: WikiSearchResult[] = [
-  {
-    page_path: "a/one",
-    title: "First",
-    score: 1,
-    snippet: "s1",
-    source_locations: [],
-    context: {},
-  },
-  {
-    page_path: "b/two",
-    title: "Second",
-    score: 0.5,
-    snippet: "s2",
-    source_locations: [],
-    context: {},
-  },
-];
-
 function renderSearchBar() {
   const client = new QueryClient();
   return renderWithI18n(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <WikiSearchBar />
+        <WikiSearchBar repository="demo-repo" />
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
-vi.mock("../../../hooks/useWikiGlobalSearch", () => ({
-  useWikiGlobalSearch: () => ({
+vi.mock("../../../hooks/useWikiSearch", () => ({
+  useWikiSemanticSearch: () => ({
     mutate: vi.fn(),
     isPending: false,
     isError: false,
     isSuccess: true,
     error: null,
     data: {
-      results,
-      total: 2,
-      query_expansion: {},
-      by_repository: {},
-      repositories_searched: [],
-      partial_errors: [],
+      wiki_hits: [
+        {
+          page_path: "a/one",
+          title: "First",
+          snippet: "s1",
+          score: 1,
+          source: "wiki_fulltext",
+        },
+        {
+          page_path: "b/two",
+          title: "Second",
+          snippet: "s2",
+          score: 0.5,
+          source: "wiki_fulltext",
+        },
+      ],
+      entity_hits: [],
+      call_chain_hits: [],
+      total_count: 2,
     },
   }),
 }));
@@ -92,5 +85,6 @@ describe("WikiSearchBar combobox a11y", () => {
     expect(mockNavigate).toHaveBeenCalled();
     const href = String(mockNavigate.mock.calls[0]?.[0]);
     expect(href).toContain(encodeURIComponent("a/one"));
+    expect(href).toContain("repo=demo-repo");
   });
 });

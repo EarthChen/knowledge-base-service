@@ -91,7 +91,9 @@ export default function WikiShell() {
     }
   });
 
+  const showCodeStructureTab = searchParams.get("view") === "code_structure";
   const [treeViewMode, setTreeViewMode] = useState<"topic" | "code">("topic");
+  const effectiveTreeMode: "topic" | "code" = showCodeStructureTab ? treeViewMode : "topic";
   const topicTreeQuery = useWikiTopicTree(businessId);
 
   const onTopicTreeSelect = useCallback(
@@ -225,26 +227,28 @@ export default function WikiShell() {
                   type="button"
                   onClick={() => setTreeViewMode("topic")}
                   className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                    treeViewMode === "topic"
+                    effectiveTreeMode === "topic"
                       ? "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400"
                       : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                   }`}
                 >
                   {t.wiki.sidebar.topic_tree}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setTreeViewMode("code")}
-                  className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                    treeViewMode === "code"
-                      ? "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400"
-                      : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                  }`}
-                >
-                  {t.wiki.sidebar.code_structure}
-                </button>
+                {showCodeStructureTab ? (
+                  <button
+                    type="button"
+                    onClick={() => setTreeViewMode("code")}
+                    className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                      effectiveTreeMode === "code"
+                        ? "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400"
+                        : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                    }`}
+                  >
+                    {t.wiki.sidebar.code_structure}
+                  </button>
+                ) : null}
               </div>
-              {treeViewMode === "topic" ? (
+              {effectiveTreeMode === "topic" ? (
                 <aside className="flex w-full shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
                   <div className="max-h-[min(70vh,560px)] overflow-y-auto p-2">
                     {topicTreeQuery.isLoading && (
@@ -309,7 +313,7 @@ export default function WikiShell() {
               <WikiToolTabStrip toolTab={toolTab} onToolTabChange={setToolTab} />
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <WikiSearchBar linkParams={wikiLinkParams} />
+              <WikiSearchBar linkParams={wikiLinkParams} repository={repoForIncremental} />
               <div
                 className="inline-flex shrink-0 overflow-hidden rounded-lg border border-gray-200 text-xs font-medium dark:border-gray-600"
                 role="group"

@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import type { WikiSearchResponse } from "./wikiTypes";
+import type { WikiSearchResponse, WikiSemanticSearchResponse } from "./wikiTypes";
 
 export type WikiSearchBody = {
   repository: string;
@@ -23,6 +23,22 @@ export function useWikiSearch() {
           scope: null,
           ...body,
         }),
+      }),
+  });
+}
+
+export type WikiSemanticSearchBody = {
+  query: string;
+  repository: string;
+  limit?: number;
+};
+
+export function useWikiSemanticSearch() {
+  return useMutation<WikiSemanticSearchResponse, ApiError, WikiSemanticSearchBody>({
+    mutationFn: ({ query, repository, limit = 20 }) =>
+      api<WikiSemanticSearchResponse>("/wiki/semantic-search", {
+        method: "POST",
+        body: JSON.stringify({ query, repository, limit }),
       }),
   });
 }

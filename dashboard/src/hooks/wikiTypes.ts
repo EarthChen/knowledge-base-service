@@ -80,6 +80,52 @@ export type WikiGlobalSearchResponse = {
   partial_errors: { repository: string; detail: string }[];
 };
 
+export type WikiSemanticWikiHit = {
+  page_path: string;
+  title: string;
+  snippet: string;
+  score: number;
+  source: string;
+};
+
+export type WikiSemanticEntityHit = {
+  name: string;
+  entity_type: string;
+  repository: string;
+  file_path: string;
+  summary: string;
+  score: number;
+};
+
+export type WikiSemanticCallChainHit = {
+  caller: string;
+  callee: string;
+  relationship: string;
+};
+
+export type WikiSemanticSearchResponse = {
+  wiki_hits: WikiSemanticWikiHit[];
+  entity_hits: WikiSemanticEntityHit[];
+  call_chain_hits: WikiSemanticCallChainHit[];
+  total_count: number;
+};
+
+export type WikiRelatedEntityRow = {
+  uid: string;
+  name: string;
+  entity_type: string;
+  repository: string;
+  file_path: string;
+  start_line: number | null;
+  signature: string;
+  business_summary: string;
+};
+
+export type WikiPageEntitiesApiResponse = {
+  page_path: string;
+  entities: WikiRelatedEntityRow[];
+};
+
 export type WikiAskSource = {
   entity: string;
   file_path: string;

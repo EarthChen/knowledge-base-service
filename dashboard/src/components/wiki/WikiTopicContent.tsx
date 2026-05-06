@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
+import EntityCardsPanel from "./EntityCardsPanel";
 import { useI18n } from "../../i18n/context";
 
 interface TopicPage {
@@ -14,6 +15,7 @@ interface TopicPage {
 interface Props {
   page: TopicPage | null | undefined;
   businessId?: string;
+  repository?: string;
   wikiLinkParams?: Record<string, string>;
   onReviewAction: (action: "approve" | "needs_revision" | "regenerate", notes?: string) => void;
 }
@@ -51,6 +53,7 @@ function reviewBadgeText(
 export default function WikiTopicContent({
   page,
   businessId,
+  repository,
   wikiLinkParams,
   onReviewAction,
 }: Props) {
@@ -165,6 +168,9 @@ export default function WikiTopicContent({
           wikiLinkParams={wikiLinkParams}
         />
       </div>
+      {businessId ? (
+        <EntityCardsPanel pagePath={page.path} businessId={businessId} repository={repository} />
+      ) : null}
     </article>
   );
 }

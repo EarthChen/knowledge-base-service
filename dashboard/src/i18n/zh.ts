@@ -742,6 +742,9 @@ const zh: Translations = {
     globalSearchNoResults: "在所有仓库的 Wiki 中未找到匹配页面。",
     globalSearchRepositoryGroup: "仓库：{repository}",
     globalSearchPartialErrors: "有 {count} 个仓库搜索失败，结果可能不完整。",
+    semanticSearchSectionWiki: "Wiki 页面",
+    semanticSearchSectionEntities: "代码实体",
+    semanticSearchSectionCallChains: "调用链",
     lintTitle: "Wiki 健康（检查）",
     lintRunCheck: "运行检查",
     lintHelp:
@@ -927,6 +930,11 @@ const zh: Translations = {
       approved: "已审批",
       needs_revision: "待修改",
       revised: "已修订",
+      related_entities_heading: "关联代码",
+      related_entities_expand: "显示关联代码实体",
+      related_entities_collapse: "隐藏关联代码实体",
+      related_entities_empty: "此页面暂无关联代码实体。",
+      related_entities_loading: "正在加载代码实体…",
     },
     knowledge_graph: {
       loading: "加载中...",

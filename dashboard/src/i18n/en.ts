@@ -755,6 +755,9 @@ const en: Translations = {
     globalSearchRepositoryGroup: "Repository: {repository}",
     globalSearchPartialErrors:
       "{count} repository search(es) failed; results may be incomplete.",
+    semanticSearchSectionWiki: "Wiki pages",
+    semanticSearchSectionEntities: "Code entities",
+    semanticSearchSectionCallChains: "Call chains",
     lintTitle: "Wiki health (lint)",
     lintRunCheck: "Run check",
     lintHelp:
@@ -945,6 +948,11 @@ const en: Translations = {
       approved: "Approved",
       needs_revision: "Needs revision",
       revised: "Revised",
+      related_entities_heading: "Related code",
+      related_entities_expand: "Show linked code entities",
+      related_entities_collapse: "Hide linked code entities",
+      related_entities_empty: "No linked code entities for this page.",
+      related_entities_loading: "Loading code entities…",
     },
     knowledge_graph: {
       loading: "Loading...",

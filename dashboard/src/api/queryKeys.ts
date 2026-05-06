@@ -64,5 +64,7 @@ export const queryKeys = {
     businessFlows: (businessId: string) => ["wiki", "business-flows", businessId] as const,
     pageByPath: (businessId: string, path: string, repository?: string) =>
       ["wiki", "page-by-path", businessId, path, repository ?? ""] as const,
+    entities: (businessId: string, pagePath: string, repository: string) =>
+      ["wiki", "entities", businessId, pagePath, repository] as const,
   },
 } as const;

@@ -6,18 +6,23 @@ Generates Markdown with Mermaid business flow diagrams and inline DATA_MODEL tab
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from core.log import get_logger
-from wiki.llm_port import LLMPort
+from wiki.content_context_builder import EnrichedDomainContext
 from wiki.domain_complexity import DomainComplexity, DomainComplexityScorer
+from wiki.domain_overview_composer import DomainOverviewComposer
+from wiki.llm_port import LLMPort
 from wiki.json_robust import parse_json_robust_sync
+from wiki.models import WikiPage
 from wiki.prompts import (
     SYSTEM_JSON_ONLY,
     SYSTEM_WIKI_AUTHOR,
     SYSTEM_WIKI_PARENT_OVERVIEW,
 )
 from wiki.reasoning import MultiStepReasoner, ReasoningLevel
+from wiki.unified_prompt_templates import UNIFIED_WIKI_SYSTEM_PROMPT, build_topic_detail_prompt
 
 log = get_logger(__name__)
 
@@ -45,6 +50,8 @@ _OVERVIEW_JSON_SCHEMA_INSTRUCTION = (
 
 class TopicPageComposer:
     SIMPLE_THRESHOLD = 5
+    # When len(biz_entities) > this and overview_composer is set, split into overview + sub-pages.
+    CONTEXT_SPLIT_ENTITY_THRESHOLD = 8
 
     def __init__(
         self,
@@ -90,6 +97,125 @@ class TopicPageComposer:
         if complexity == DomainComplexity.HIGH:
             return int(self._token_budget * 1.5)
         return self._token_budget
+
+    @staticmethod
+    def _wiki_page_body_for_pipeline(page: WikiPage) -> str:
+        """Flatten WikiPage content and diagram blocks into one Markdown body."""
+        parts = [page.content]
+        for diagram in page.diagrams:
+            if diagram.title:
+                parts.append(f"\n## {diagram.title}\n")
+            parts.append(f"\n```mermaid\n{diagram.content}\n```\n")
+        return "\n".join(parts)
+
+    def _overview_wiki_page_to_dict(self, page: WikiPage, domain_name: str) -> dict[str, Any]:
+        exec_summary = ""
+        if page.metadata and page.metadata.executive_summary:
+            exec_summary = page.metadata.executive_summary
+        return {
+            "path": f"wiki/{domain_name}",
+            "title": domain_name,
+            "content": self._wiki_page_body_for_pipeline(page),
+            "page_type": "domain_overview",
+            "domain": domain_name,
+            "metadata": self._page_metadata(exec_summary),
+        }
+
+    async def compose_leaf_domain_from_context(
+        self,
+        context: EnrichedDomainContext,
+        *,
+        overview_composer: DomainOverviewComposer | None = None,
+    ) -> list[dict[str, Any]]:
+        """Generate TOPIC pages using unified prompt system (Template B).
+
+        When domain complexity is MEDIUM/HIGH and split into overview + sub-pages:
+        - Overview page: delegated to overview_composer.compose_from_context() (Template A)
+        - Sub-pages: generated using build_topic_detail_prompt() (Template B)
+
+        Returns list of page dicts (same format as compose_leaf_domain).
+        """
+        try:
+            return await self._compose_leaf_domain_from_context_impl(context, overview_composer=overview_composer)
+        except Exception as exc:
+            log.warning(
+                "compose_leaf_domain_from_context_failed",
+                domain=context.domain_name,
+                error=str(exc),
+                exc_info=True,
+            )
+            return []
+
+    async def _compose_leaf_domain_from_context_impl(
+        self,
+        context: EnrichedDomainContext,
+        *,
+        overview_composer: DomainOverviewComposer | None,
+    ) -> list[dict[str, Any]]:
+        budget = self._token_budget
+        name = context.domain_name
+        use_split = (
+            len(context.biz_entities) > self.CONTEXT_SPLIT_ENTITY_THRESHOLD
+            and overview_composer is not None
+        )
+
+        if not use_split:
+            user_prompt = build_topic_detail_prompt(context)
+            raw = await self._llm.generate(
+                user_prompt, system=UNIFIED_WIKI_SYSTEM_PROMPT, max_tokens=budget,
+            )
+            content, executive_summary = self._parse_wiki_json_response(raw)
+            if not content:
+                content = (raw or "").strip()
+            return [{
+                "path": f"wiki/{name}",
+                "title": name,
+                "content": content,
+                "page_type": "topic",
+                "domain": name,
+                "metadata": self._page_metadata(executive_summary),
+            }]
+
+        pages: list[dict[str, Any]] = []
+        overview_page = await overview_composer.compose_from_context(context)
+        pages.append(self._overview_wiki_page_to_dict(overview_page, name))
+
+        overview_excerpt = (overview_page.content or "")[:500]
+        entities = context.biz_entities
+        chunk_size = max(self.SIMPLE_THRESHOLD, 1)
+        for i in range(0, len(entities), chunk_size):
+            chunk = entities[i : i + chunk_size]
+            if not chunk:
+                sub_name = f"{name}-part-{i}"
+            elif len(chunk) == 1:
+                sub_name = chunk[0].name
+            else:
+                sub_name = f"{name}-{chunk[0].name}-group"
+
+            sub_ctx = replace(
+                context,
+                domain_name=sub_name,
+                parent_domain=name,
+                biz_entities=list(chunk),
+                existing_wiki_context=overview_excerpt,
+            )
+            sub_prompt = build_topic_detail_prompt(sub_ctx)
+            sub_raw = await self._llm.generate(
+                sub_prompt, system=UNIFIED_WIKI_SYSTEM_PROMPT, max_tokens=budget,
+            )
+            sub_content, sub_exec = self._parse_wiki_json_response(sub_raw)
+            if not sub_content:
+                sub_content = (sub_raw or "").strip()
+            pages.append({
+                "path": f"wiki/{name}/{sub_name}",
+                "title": sub_name,
+                "content": sub_content,
+                "page_type": "topic",
+                "domain": name,
+                "metadata": self._page_metadata(sub_exec),
+            })
+
+        return pages
 
     async def compose_leaf_domain(self, domain: dict[str, Any]) -> list[dict[str, Any]]:
         """Generate wiki pages for a single leaf domain.

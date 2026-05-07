@@ -76,6 +76,23 @@ RETURN caller.name AS caller_name, target.name AS target_name,
 LIMIT 30
 """.strip()
 
+SNIPPET_BY_FUNC_CY = """
+MATCH (f:Function)
+WHERE f.name IN $names AND f.code_snippet IS NOT NULL AND f.code_snippet <> ''
+RETURN f.name AS func_name, left(f.code_snippet, 600) AS snippet,
+       coalesce(f.file, '') AS file_path, coalesce(f.start_line, 0) AS start_line
+LIMIT 5
+""".strip()
+
+IMPLEMENTS_BY_INTERFACE_CY = """
+MATCH (impl:Class)-[:IMPLEMENTS]->(intf:Class)
+WHERE intf.name IN $names
+RETURN impl.name AS impl_name, intf.name AS interface_name,
+       coalesce(impl.repository, '') AS impl_repo,
+       coalesce(intf.repository, '') AS intf_repo
+LIMIT 10
+""".strip()
+
 FUNCTION_CALLS_CY = """
 MATCH (m:Module)-[:CONTAINS*1..3]->(cf:Function)-[:CALLS]->(ct:Function)
 WHERE m.name IN $names

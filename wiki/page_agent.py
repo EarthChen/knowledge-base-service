@@ -94,6 +94,7 @@ class WorkingMemory:
                 self.discovered_callers,
                 self.discovered_implementations,
                 self.discovered_call_chains,
+                self.resolved_gaps,
             ]:
                 if lst:
                     lst.pop(0)
@@ -393,9 +394,9 @@ class WikiPageAgent:
         interface = str(args.get("interface", ""))
         if not interface or not self._graph:
             return {"error": "missing interface or graph"}
-        from wiki.cypher_queries import IMPLEMENTS_CY
+        from wiki.cypher_queries import IMPLEMENTS_BY_INTERFACE_CY
 
-        result = await self._graph.execute_query(IMPLEMENTS_CY, {"names": [interface]})
+        result = await self._graph.execute_query(IMPLEMENTS_BY_INTERFACE_CY, {"names": [interface]})
         rows = getattr(result, "data", None) or []
         impls = []
         for row in rows:
@@ -429,9 +430,9 @@ class WikiPageAgent:
         name = str(args.get("name", ""))
         if not name or not self._graph:
             return {"error": "missing name or graph"}
-        from wiki.cypher_queries import SNIPPETS_CY
+        from wiki.cypher_queries import SNIPPET_BY_FUNC_CY
 
-        result = await self._graph.execute_query(SNIPPETS_CY, {"names": [name]})
+        result = await self._graph.execute_query(SNIPPET_BY_FUNC_CY, {"names": [name]})
         rows = getattr(result, "data", None) or []
         for row in rows:
             if isinstance(row, dict):

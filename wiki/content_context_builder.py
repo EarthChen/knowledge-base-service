@@ -13,6 +13,7 @@ from typing import Any
 
 from core.log import get_logger
 
+from wiki.call_chain_builder import CallChainBuilder
 from wiki.cypher_queries import (
     METHODS_CY as _METHODS_CY,
     call_chain_cypher as _call_chain_cypher_fn,
@@ -83,6 +84,7 @@ class EnrichedDomainContext:
 
     intra_domain_calls: list[CallChainStep] = field(default_factory=list)
     cross_domain_calls: list[CallChainStep] = field(default_factory=list)
+    method_call_chains: list[dict] = field(default_factory=list)
 
     key_snippets: list[str] = field(default_factory=list)
     enums_and_constants: list[dict] = field(default_factory=list)
@@ -125,17 +127,24 @@ class ContentContextBuilder:
 
         methods_task = self._query_methods(module_names)
         calls_task = self._query_call_chains(module_names, capped_depth)
+        call_chains_task = self._query_method_call_chains(module_names)
         enums_task = self._query_enums_constants(module_names)
         snippets_task = self._query_key_snippets(module_names)
         impls_task = self._query_implementations(module_names)
         callers_task = self._query_callers(module_names)
 
         (
-            methods_result, calls_result, enums_result, snippets_result,
-            impls_result, callers_result,
+            methods_result,
+            calls_result,
+            method_call_chains_result,
+            enums_result,
+            snippets_result,
+            impls_result,
+            callers_result,
         ) = await asyncio.gather(
             methods_task,
             calls_task,
+            call_chains_task,
             enums_task,
             snippets_task,
             impls_task,
@@ -159,6 +168,17 @@ class ContentContextBuilder:
             log.warning(
                 "content_context_call_chains_query_failed",
                 error=repr(calls_result),
+            )
+
+        method_call_chains_list: list[dict] = (
+            method_call_chains_result
+            if isinstance(method_call_chains_result, list)
+            else []
+        )
+        if isinstance(method_call_chains_result, BaseException):
+            log.warning(
+                "content_context_method_call_chains_query_failed",
+                error=repr(method_call_chains_result),
             )
 
         enums_list: list[dict] = enums_result if isinstance(enums_result, list) else []
@@ -239,6 +259,7 @@ class ContentContextBuilder:
             data_models=data_models,
             intra_domain_calls=intra_calls,
             cross_domain_calls=cross_calls[:_MAX_CROSS_DOMAIN_CALLS],
+            method_call_chains=method_call_chains_list,
             key_snippets=snippets_list[:_MAX_KEY_SNIPPETS],
             enums_and_constants=enums_list,
             sibling_domains=sibling_domains[:_MAX_SIBLING_DOMAINS],
@@ -376,6 +397,33 @@ class ContentContextBuilder:
                 )
 
         return steps
+
+    async def _query_method_call_chains(self, module_names: list[str]) -> list[dict]:
+        if not module_names or self._graph is None:
+            return []
+        try:
+            builder = CallChainBuilder(self._graph)
+            chains = await builder.build_chains(module_names)
+            return [
+                {
+                    "entry_method": c.entry_method,
+                    "entry_module": c.entry_module,
+                    "chain": [
+                        {
+                            "func": n.func_name,
+                            "module": n.module_name,
+                            "file": n.file_path,
+                            "sig": n.signature,
+                        }
+                        for n in c.chain
+                    ],
+                    "depth": c.depth,
+                }
+                for c in chains
+            ]
+        except Exception:
+            log.warning("method_call_chains_query_failed", exc_info=True)
+            return []
 
     async def _query_key_snippets(self, module_names: list[str]) -> list[str]:
         if (

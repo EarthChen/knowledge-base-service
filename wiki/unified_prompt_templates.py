@@ -114,6 +114,27 @@ def build_call_chain_section(
     ])
 
 
+def build_method_call_chains_section(chains: list[dict]) -> str:
+    if not chains:
+        return "（无方法级调用链数据）"
+    lines: list[str] = []
+    for i, chain in enumerate(chains, 1):
+        nodes = chain.get("chain", [])
+        if not nodes:
+            continue
+        arrow_parts = []
+        for node in nodes:
+            mod = str(node.get("module", "") or "")
+            func = str(node.get("func", "") or "")
+            label = f"{mod}.{func}" if mod else func
+            arrow_parts.append(label)
+        chain_str = " → ".join(arrow_parts)
+        entry_module = str(chain.get("entry_module", "") or "")
+        depth = chain.get("depth", 0)
+        lines.append(f"{i}. [{entry_module}] {chain_str} (depth={depth})")
+    return "\n".join(lines) if lines else "（无方法级调用链数据）"
+
+
 def build_data_model_section(models: list[dict]) -> str:
     if not models:
         return "（无 DTO/实体字段表数据）"
@@ -159,6 +180,47 @@ def build_cross_domain_section(
         f"- **依赖本域的外部域（dependee）**：{dee}\n\n"
         f"{calls}"
     )
+
+
+def build_interface_impls_section(impls: list[dict]) -> str:
+    if not impls:
+        return "（无接口实现关系数据）"
+    lines: list[str] = []
+    for item in impls:
+        impl = str(item.get("impl_name", "") or "")
+        intf = str(item.get("interface_name", "") or "")
+        impl_repo = str(item.get("impl_repo", "") or "")
+        intf_repo = str(item.get("intf_repo", "") or "")
+        repo_hint = ""
+        if impl_repo and intf_repo and impl_repo != intf_repo:
+            repo_hint = f"（跨仓库：`{impl_repo}` → `{intf_repo}`）"
+        elif intf_repo:
+            repo_hint = f"（仓库 `{intf_repo}`）"
+        lines.append(f"- `{impl}` implements `{intf}` {repo_hint}")
+    return "\n".join(lines)
+
+
+def build_module_leaf_summaries_section(summaries: dict[str, str]) -> str:
+    if not summaries:
+        return "（无模块级摘要数据）"
+    lines: list[str] = []
+    for name, text in summaries.items():
+        truncated = text[:300] if len(text) > 300 else text
+        lines.append(f"- **{name}**: {truncated}")
+    return "\n".join(lines)
+
+
+def build_external_callers_section(callers: list[dict]) -> str:
+    if not callers:
+        return "（无外部调用者数据）"
+    lines: list[str] = []
+    for item in callers:
+        caller = str(item.get("caller_name", "") or "")
+        target = str(item.get("target_name", "") or "")
+        repo = str(item.get("caller_repo", "") or "")
+        repo_hint = f"（仓库 `{repo}`）" if repo else ""
+        lines.append(f"- `{caller}` {repo_hint} → `{target}`")
+    return "\n".join(lines)
 
 
 def _format_sub_topics(sub_topics: list[dict]) -> str:
@@ -239,6 +301,7 @@ def build_domain_overview_prompt(context: EnrichedDomainContext) -> str:
 def build_topic_detail_prompt(context: EnrichedDomainContext) -> str:
     entity_block = build_entity_section(context.biz_entities)
     chains = build_call_chain_section(context.intra_domain_calls, context.cross_domain_calls)
+    method_chains_block = build_method_call_chains_section(context.method_call_chains)
     data_models = build_data_model_section(context.data_models)
     enums = build_enum_constants_section(context.enums_and_constants)
     cross_block = build_cross_domain_section(
@@ -246,6 +309,9 @@ def build_topic_detail_prompt(context: EnrichedDomainContext) -> str:
         context.dependee_domains,
         context.cross_domain_calls,
     )
+    impls_block = build_interface_impls_section(context.interface_impls)
+    callers_block = build_external_callers_section(context.external_callers)
+    leaf_summaries_block = build_module_leaf_summaries_section(context.module_leaf_summaries)
 
     snippets_block = "\n".join(context.key_snippets) if context.key_snippets else "（无）"
     siblings = "、".join(f"`{s}`" for s in context.sibling_domains) if context.sibling_domains else "无"
@@ -255,19 +321,32 @@ def build_topic_detail_prompt(context: EnrichedDomainContext) -> str:
 ## 核心约束（违反视为严重错误）
 - 以下「参考数据」章节是你唯一的信息来源。你**不可以**描写参考数据中不存在的服务、方法、文件路径、技术组件或架构。
 - 如果参考数据中实体或调用链较少，输出应相应精简，而不是用编造内容填充。宁可写少，不可编造。
+- 如果某些外部依赖、跨服务交互或实现细节的上下文不足以准确描述，请在对应位置用 `<!-- CONTEXT_GAP: 简短说明缺失内容 -->` 标记，不要编造。
 
 ## 你必须在 JSON 的 content 中输出且仅使用以下 Markdown 章节（标题字面一致）
 1. ## 业务概述 — 基于下方实体的 business_summary 说明该子域为何存在、解决什么问题、如何嵌入父域（至少两段）
-2. ## 核心业务流程 — 使用 **sequenceDiagram**，参与者和调用**只能来自**下方参考数据中的真实调用链和实体名；若调用链为空则写「当前上下文中未提供调用链数据，不生成流程图」
-3. ## 核心服务详解 — **仅描述**下方「实体与方法」中列出的服务/类，逐服务写清职责、关键方法签名、调用关系（不要自行附加 source:// 链接，系统会自动注入）。在解释核心逻辑时，从「关键代码片段」中选取 2～3 段最关键的代码嵌入正文（使用 ```java 等带语言标记的代码块，每段不超过 15 行），并用 1～2 句话解释其业务含义
+2. ## 核心业务流程 — 使用 **sequenceDiagram**，参与者和调用**只能来自**下方参考数据中的真实调用链、接口实现关系和实体名；若调用链为空则写「当前上下文中未提供调用链数据，不生成流程图」
+3. ## 核心服务详解 — **仅描述**下方「实体与方法」中列出的服务/类，逐服务写清职责、关键方法签名、调用关系（不要自行附加 source:// 链接，系统会自动注入）。若存在接口实现关系，需说明接口与实现类的对应关系。在解释核心逻辑时，从「关键代码片段」中选取 2～3 段最关键的代码嵌入正文（使用 ```java 等带语言标记的代码块，每段不超过 15 行），并用 1～2 句话解释其业务含义
 4. ## 数据模型 — 若下方有 DTO/字段表则输出表格化 Markdown；若标明无数据则可写「本主题无独立数据模型」一段话
 5. ## 设计要点与注意事项 — 容灾、异常、业务规则、边界条件等（**仅基于参考数据推断**，禁止空泛编造）
+
+## 参考数据：模块详细摘要（由底层分析生成，可信度高）
+{leaf_summaries_block}
 
 ## 参考数据：实体与方法
 {entity_block}
 
+## 参考数据：接口实现关系
+{impls_block}
+
 ## 参考数据：调用链
 {chains}
+
+## 参考数据：方法级调用链（从入口方法到末端的完整路径）
+{method_chains_block}
+
+## 参考数据：外部调用者（谁依赖了本域的模块）
+{callers_block}
 
 ## 参考数据：数据模型（DTO/Entity 字段）
 {data_models}

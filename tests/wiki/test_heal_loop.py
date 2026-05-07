@@ -36,6 +36,7 @@ async def test_heal_loop_does_not_duplicate_pages() -> None:
         return _HEAL_GOOD_MARKDOWN
 
     mock_llm.generate = AsyncMock(side_effect=mock_generate)
+    mock_llm.complete_json = AsyncMock(return_value={"patches": []})
 
     pipeline = build_wiki_pipeline()
     initial_state = {
@@ -134,6 +135,7 @@ async def test_heal_pages_truncates_content_via_token_budget_and_passes_max_toke
     }
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(return_value="## Overview\n" + "x" * 250)
+    mock_llm.complete_json = AsyncMock(return_value={"patches": []})
 
     await heal_pages_node(state, {"configurable": {"llm": mock_llm}})
 

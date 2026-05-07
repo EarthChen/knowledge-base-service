@@ -73,6 +73,26 @@ def _parse_reflection(raw: str) -> dict[str, Any]:
         return {}
 
 
+_JSON_SYSTEM_MSG = "Reply with valid JSON only."
+
+
+async def _complete_reflection_dict(llm: Any, prompt: str) -> tuple[dict[str, Any], str | None]:
+    """``complete_json`` when supported; else ``complete`` + ``_parse_reflection``. ``raw`` is set only on fallback."""
+    if hasattr(llm, "complete_json"):
+        try:
+            messages: list[dict[str, str]] = [
+                {"role": "system", "content": _JSON_SYSTEM_MSG},
+                {"role": "user", "content": prompt},
+            ]
+            data = await llm.complete_json(messages, {})
+            if isinstance(data, dict):
+                return data, None
+        except Exception:
+            logger.warning("rag_reflection_complete_json_failed", exc_info=True)
+    raw = await llm.complete([{"role": "user", "content": prompt}])
+    return _parse_reflection(raw), raw
+
+
 class IterativeRAGEngine:
     def __init__(
         self,
@@ -115,9 +135,8 @@ class IterativeRAGEngine:
                         role="rag_generate",
                         exc_info=True,
                     )
-            raw = await gen_llm.complete([{"role": "user", "content": prompt}])
-            data = _parse_reflection(raw)
-            answer = str(data.get("answer") or raw)
+            data, raw = await _complete_reflection_dict(gen_llm, prompt)
+            answer = str(data.get("answer") or raw or "")
             gaps = [str(x) for x in data.get("gaps") or [] if str(x).strip()]
             nq = [str(x) for x in data.get("next_queries") or [] if str(x).strip()]
             try:
@@ -182,8 +201,7 @@ class IterativeRAGEngine:
                 "Decompose into 2-4 precise sub-queries to fill these gaps. "
                 'Reply with ONLY valid JSON: {"sub_queries": ["query1", "query2", ...]}'
             )
-            raw = await plan_llm.complete([{"role": "user", "content": prompt}])
-            data = _parse_reflection(raw)
+            data, _raw = await _complete_reflection_dict(plan_llm, prompt)
             sub_queries = [str(x) for x in data.get("sub_queries", []) if str(x).strip()]
             if not sub_queries:
                 sub_queries = state.get("next_queries", [])
@@ -220,8 +238,7 @@ class IterativeRAGEngine:
                 "Reply with ONLY valid JSON: "
                 '{"score": number, "suggestions": ["improvement1"], "next_queries": ["query1"]}'
             )
-            raw = await eval_llm.complete([{"role": "user", "content": prompt}])
-            data = _parse_reflection(raw)
+            data, _raw = await _complete_reflection_dict(eval_llm, prompt)
 
             try:
                 score = float(data.get("score", 0.5))

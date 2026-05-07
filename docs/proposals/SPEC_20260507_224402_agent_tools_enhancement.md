@@ -1,7 +1,8 @@
 # Spec: WikiPageAgent 工具增强与上下文管理
 
 **日期**: 2026-05-07
-**状态**: Draft
+**状态**: Approved (2026-05-07 22:56)
+**实现策略变更**: read_code 改为纯 Cypher 方案（方案A+），不依赖 SourceCodeReader
 
 ---
 
@@ -16,7 +17,7 @@
 
 对比 DeepWiki（GitTool.ReadFile/ListFiles/Grep + DocTool.ReadDoc/EditDoc），我们的 Agent 工具覆盖面不足。
 
-**目标**：新增 4 个工具 + 增强上下文管理，使 Agent 能够获取更深入的代码逻辑和跨页面信息。
+**目标**：新增 5 个工具 + 增强上下文管理，使 Agent 能够获取更深入的代码逻辑和跨页面信息。
 
 ---
 
@@ -26,13 +27,18 @@
 
 **功能**：读取函数/类的完整源代码。
 
-**实现路径**：图谱查实体位置 → SourceCodeReader 读取原始文件。
+**实现路径**：纯 Cypher 查询（方案A+），直接从图谱 `code_snippet` 属性获取代码，不依赖 SourceCodeReader。
+
+**方案选择理由**：
+- Agent 的 `max_chars` 默认 3000 字符（~80行），即使从文件读取也会被截断
+- 不依赖 repo_path（生产环境可能不可用）、不需改构造函数
+- 未来可叠加 SourceCodeReader 集成作为增强
 
 **Tool Schema**：
 ```json
 {
     "name": "read_code",
-    "description": "Read full source code for a function or class by name. Queries the graph for file location, then reads source code.",
+    "description": "Read source code for a function or class by name. Returns code snippet with file location.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -50,7 +56,7 @@
 }
 ```
 
-**Cypher 查询**：
+**Cypher 查询** (`ENTITY_LOCATION_CY`)：
 ```cypher
 MATCH (f)
 WHERE (f:Function OR f:Class) AND f.name = $name
@@ -63,10 +69,9 @@ LIMIT 3
 ```
 
 **执行逻辑**：
-1. 查询图谱获取实体的 `file`, `start_line`, `end_line`
-2. 如果 `start_line` 和 `end_line` 都 > 0，通过 SourceCodeReader 读取对应行范围
-3. 如果无法读取（SourceCodeReader 不可用或文件不存在），fallback 到 `code_snippet` 属性
-4. 截断到 `max_chars`（默认 3000）
+1. 查询图谱获取实体的 `name`, `file`, `start_line`, `end_line`, `code_snippet`, `type`
+2. 返回 `code_snippet[:max_chars]`（默认 3000 字符，比现有 read_source_snippet 的 600 字符限制大幅提升）
+3. 包含文件位置信息供 LLM 引用
 
 **返回格式**：
 ```json
@@ -80,7 +85,65 @@ LIMIT 3
 }
 ```
 
-### 2.2 `search_entities`（P0）
+### 2.2 `read_file`（P0）
+
+**功能**：按文件路径读取任意文件（包括未索引的配置文件、不支持语言的源码等）。
+
+**实现路径**：文件系统直接读取，需要 `repo_path` 参数。
+
+**与 read_code 的分工**：
+- `read_code` — 按实体名（函数/类）查图谱，适用于已索引代码
+- `read_file` — 按文件路径读文件系统，适用于任意文件
+
+**Tool Schema**：
+```json
+{
+    "name": "read_file",
+    "description": "Read file content by path. Supports any file type including config, source code, and documentation.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "Relative file path from repository root (e.g., 'config/application.yaml')"
+            },
+            "start_line": {
+                "type": "integer",
+                "description": "Start line number (1-based, default 1)"
+            },
+            "end_line": {
+                "type": "integer",
+                "description": "End line number (default: start_line + 100)"
+            }
+        },
+        "required": ["file_path"]
+    }
+}
+```
+
+**安全约束**：
+- 路径必须是相对路径，resolve 后必须在 `repo_path` 范围内
+- 禁止 `../` 路径穿越（`resolved.is_relative_to(repo_root)` 检查）
+- `repo_path` 不可用时返回 `{"error": "file reading unavailable"}`
+
+**执行逻辑**：
+1. 校验 `repo_path` 是否可用
+2. 安全检查：resolve 路径，确保在 repo 范围内
+3. 读取文件指定行范围（默认最多 100 行）
+4. 截断到 `SINGLE_RESULT_LIMIT`（4000 字符）
+
+**返回格式**：
+```json
+{
+    "file_path": "config/application.yaml",
+    "start_line": 1,
+    "end_line": 50,
+    "content": "server:\n  port: 8080\n  ...",
+    "total_lines": 120
+}
+```
+
+### 2.3 `search_entities`（P0）
 
 **功能**：按关键字搜索代码实体（函数/类/模块）。
 
@@ -135,7 +198,7 @@ LIMIT $limit
 }
 ```
 
-### 2.3 `read_wiki_page`（P1）
+### 2.4 `read_wiki_page`（P1）
 
 **功能**：读取已生成的 Wiki 页面内容。
 
@@ -174,7 +237,7 @@ RETURN w.title AS title, w.path AS path, left(w.content, $limit) AS content
 LIMIT 3
 ```
 
-### 2.4 `semantic_search`（P2）
+### 2.5 `semantic_search`（P2）
 
 **功能**：通过自然语言语义搜索代码库和 Wiki。
 
@@ -254,6 +317,11 @@ def incorporate(self, results: list[ToolResult]) -> None:
             name = r.data.get("name", "")
             if code:
                 self.code_snippets.append(f"[{name}]\n{code[:SINGLE_RESULT_LIMIT]}")
+        elif r.tool == "read_file":
+            content = r.data.get("content", "")
+            path = r.data.get("file_path", "")
+            if content:
+                self.code_snippets.append(f"[{path}]\n{content[:SINGLE_RESULT_LIMIT]}")
         elif r.tool == "search_entities":
             items = r.data.get("results", [])
             for item in items[:5]:
@@ -298,49 +366,52 @@ for round_num in range(self.MAX_ROUNDS):
 class WikiPageAgent:
     MAX_ROUNDS = 6          # 从 5 调整到 6
     MAX_TOOL_CALLS = 15     # 新增
+    SINGLE_RESULT_LIMIT = 4000  # 新增
 
     def __init__(
         self,
         llm,
         graph_store,
         *,
-        source_code_reader=None,     # 新增：用于 read_code
-        search_service=None,          # 新增：用于 semantic_search
+        repo_path: str | None = None,  # 新增：用于 read_file（可选）
+        search_service=None,           # 新增：用于 semantic_search（可选）
     ):
 ```
 
-### 4.2 Pipeline 集成
+> **注意**: `read_code` 和 `search_entities` 使用纯 Cypher，不需要额外参数。`read_file` 需要 `repo_path`，`semantic_search` 需要 `search_service`。
 
-在 `_compose_single_leaf_domain` 中传入新依赖：
+### 4.2 enrich() API 扩展
 
 ```python
-from wiki.source_code_reader import SourceCodeReader
-
-agent = WikiPageAgent(
-    llm, graph_store,
-    source_code_reader=source_code_reader,  # 从 Pipeline state 或 config 获取
-    search_service=search_service,           # 可选
-)
-enriched = await agent.enrich(
-    raw, domain_name=domain_name,
-    existing_pages=pages,  # 传入已生成页面供 read_wiki_page 使用
-)
+async def enrich(
+    self, content: str, *,
+    domain_name: str = "",
+    existing_pages: list[dict] | None = None,  # 新增：供 read_wiki_page 使用
+) -> str:
 ```
 
-### 4.3 Cypher 查询集中管理
+### 4.3 Pipeline 集成（延后）
+
+Pipeline 集成点 (`_compose_single_leaf_domain`) 的变更留给实施阶段处理，核心变更为：
+- 传入 `existing_pages` 到 `agent.enrich()`
+- 可选传入 `repo_path` 和 `search_service` 到构造函数
+
+### 4.4 Cypher 查询集中管理
 
 新增 Cypher 查询常量到 `wiki/cypher_queries.py`：
 
-- `ENTITY_LOCATION_CY` — 查询实体位置
-- `SEARCH_ENTITIES_CY` — 关键字搜索
-- `WIKI_PAGE_BY_QUERY_CY` — Wiki 页面查询
+- `ENTITY_LOCATION_CY` — 查询实体位置（read_code 使用）
+- `SEARCH_ENTITIES_CY` — 关键字搜索（search_entities 使用）
+- `WIKI_PAGE_BY_QUERY_CY` — Wiki 页面查询（read_wiki_page fallback 使用）
 
 ---
 
 ## 5. 向后兼容
 
-- `source_code_reader` 和 `search_service` 都是可选参数
-- 如果不传入，对应工具返回 "service unavailable"
+- `read_code` 和 `search_entities` 使用纯 Cypher，无需额外参数
+- `repo_path` 是可选参数，不传入时 `read_file` 返回 "file reading unavailable"
+- `search_service` 是可选参数，不传入时 `semantic_search` 返回 "service unavailable"
+- `existing_pages` 是可选参数，不传入时 `read_wiki_page` 仅查图谱
 - 已有 6 个工具行为不变
 - 原有测试不需要修改
 
@@ -349,8 +420,12 @@ enriched = await agent.enrich(
 ## 6. 测试计划
 
 ### 单元测试
-- `test_read_code_with_source_reader` — 通过 SourceCodeReader 读取代码
-- `test_read_code_fallback_to_snippet` — SourceCodeReader 不可用时 fallback 到 code_snippet
+- `test_read_code_returns_snippet` — 从图谱获取代码片段
+- `test_read_code_max_chars_enforced` — max_chars 参数截断验证
+- `test_read_code_empty_result` — 实体不存在时返回空结果
+- `test_read_file_success` — 从文件系统读取文件
+- `test_read_file_path_traversal_blocked` — 路径穿越安全检查
+- `test_read_file_no_repo_path` — repo_path 不可用时返回错误
 - `test_search_entities_by_name` — 按名称搜索
 - `test_search_entities_by_annotation` — 按注解搜索
 - `test_read_wiki_page_from_existing_pages` — 从已生成页面读取

@@ -1,7 +1,7 @@
 # 提案: Wiki生成流水线上下文增强策略
 
 **日期**: 2026-05-07  
-**状态**: Phase 1-3B Implemented (Native API Migration Complete)  
+**状态**: Phase 1-3C Implemented (Agent Tools Enhancement Complete)  
 **背景**: 当前wiki生成流水线在上下文不足时无法自主补充，导致生成内容缺少外部接口逻辑和跨服务调用关系。
 
 ---
@@ -279,3 +279,33 @@ Phase 4 (索引增强) 是 Phase 2/3 的数据质量前提，但非阻塞依赖�
 **统一改造模式**: 所有组件使用 `hasattr(llm, "complete_json")` / `hasattr(llm, "complete_with_tools")` 安全检查，保持向后兼容。
 
 **回归测试**: 2739 个测试全部通过
+
+### Phase 3C 实施结果: Agent 工具增强 (2026-05-07)
+
+**目标**: 新增 5 个工具扩展 WikiPageAgent 的能力覆盖面，增强 WorkingMemory 管理。
+
+**新增工具**
+
+1. **`read_code`** (P0): 按实体名读取函数/类的完整代码，纯 Cypher 方案（从图谱 `code_snippet` 属性获取，默认 3000 字符，比旧 `read_source_snippet` 的 600 字符大幅提升）
+2. **`read_file`** (P0): 按文件路径读取任意文件（包括配置文件、未索引代码），含路径穿越安全检查 (`is_relative_to`)，需要 `repo_path`
+3. **`search_entities`** (P0): 按关键字搜索代码实体（在 name/docstring/annotations 中匹配），纯 Cypher 方案
+4. **`read_wiki_page`** (P1): 读取已生成的 Wiki 页面，双数据源（优先 `existing_pages` 列表，fallback 到 WikiPage 图谱节点）
+5. **`semantic_search`** (P2): 自然语言语义搜索，集成 `HybridSearchService.search_with_context()`
+
+**WorkingMemory 增强**
+
+- `MAX_TOTAL_CHARS`: 6000 → 18000（容纳完整代码块）
+- `MAX_ROUNDS`: 5 → 6
+- 新增 `MAX_TOOL_CALLS = 15`（总工具调用次数限制）
+- 新增 `SINGLE_RESULT_LIMIT = 4000`（单结果大小限制）
+- 新增字段: `wiki_references`, `search_findings`
+- `incorporate()` 新增 5 个工具的提取规则
+
+**WikiPageAgent 扩展**
+
+- 构造函数: 新增可选参数 `repo_path` (用于 read_file) 和 `search_service` (用于 semantic_search)
+- `enrich()`: 新增可选参数 `existing_pages` (用于 read_wiki_page)
+- `AGENT_TOOLS`: 从 6 个扩展到 11 个
+- Cypher 查询: 新增 `ENTITY_LOCATION_CY`, `SEARCH_ENTITIES_CY`, `WIKI_PAGE_BY_QUERY_CY`
+
+**回归测试**: 2764 个测试全部通过（新增 25 个测试）

@@ -12,6 +12,7 @@ from wiki.models import ImportanceTier, WikiPage
 from wiki.pipeline_nodes import (
     classify_domains_node,
     classify_entities_node,
+    compose_leaf_modules_node,
     compose_leaf_pages_node,
     compose_parent_pages_node,
     create_links_node,
@@ -115,6 +116,11 @@ async def quality_gate_node(
         l1 = evaluator.structural_check(page)
         score_dict["l1_structural"] = l1.overall
 
+        gap_issues = [i for i in l1.issues if i.startswith("context_gaps:")]
+        if gap_issues:
+            gap_count = int(gap_issues[0].split(":")[1])
+            score_dict["context_gap_count"] = gap_count
+
         if "L2" in levels:
             l2 = evaluator.bench_score(page)
             score_dict["l2_bench"] = l2.overall
@@ -148,12 +154,21 @@ async def quality_gate_node(
     if "L2" in levels and len(pages_to_heal) > 1:
         pages_to_heal.sort(key=lambda p: quality_scores.get(p, {}).get("l2_bench", 0.0))
 
+    total_gaps = sum(
+        v.get("context_gap_count", 0) for v in quality_scores.values()
+    )
+    pages_with_gaps = sum(
+        1 for v in quality_scores.values() if v.get("context_gap_count", 0) > 0
+    )
+
     log.info(
         "quality_gate_done",
         total_pages=len(state.get("pages", [])),
         evaluated=len(quality_scores),
         to_heal=len(pages_to_heal),
         levels=levels,
+        context_gaps_total=total_gaps,
+        pages_with_context_gaps=pages_with_gaps,
     )
     return {"quality_scores": quality_scores, "pages_to_heal": pages_to_heal}
 
@@ -194,6 +209,7 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("classify_domains", classify_domains_node)
     graph.add_node("decompose_hierarchy", decompose_hierarchy_node)
     graph.add_node("set_review_status", set_review_status_node)
+    graph.add_node("compose_leaf_modules", compose_leaf_modules_node)
     graph.add_node("plan_topic_structure", plan_topic_structure_node)
     graph.add_node("compose_leaf_pages", compose_leaf_pages_node)
     graph.add_node("quality_gate", quality_gate_node)
@@ -212,7 +228,8 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     )
     graph.add_edge("classify_domains", "decompose_hierarchy")
     graph.add_edge("decompose_hierarchy", "set_review_status")
-    graph.add_edge("set_review_status", "plan_topic_structure")
+    graph.add_edge("set_review_status", "compose_leaf_modules")
+    graph.add_edge("compose_leaf_modules", "plan_topic_structure")
     graph.add_edge("plan_topic_structure", "compose_leaf_pages")
     graph.add_edge("compose_leaf_pages", "quality_gate")
     graph.add_conditional_edges(

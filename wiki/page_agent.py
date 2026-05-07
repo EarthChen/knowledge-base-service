@@ -12,6 +12,7 @@ from core.log import get_logger
 log = get_logger(__name__)
 
 _CONTEXT_GAP_RE = re.compile(r"<!--\s*CONTEXT_GAP:\s*(.+?)\s*-->")
+SINGLE_RESULT_LIMIT = 4000
 
 
 @dataclass
@@ -27,14 +28,53 @@ class WorkingMemory:
     discovered_callers: list[str] = field(default_factory=list)
     code_snippets: list[str] = field(default_factory=list)
     resolved_gaps: list[str] = field(default_factory=list)
+    wiki_references: list[str] = field(default_factory=list)
+    search_findings: list[str] = field(default_factory=list)
 
-    MAX_TOTAL_CHARS = 6000
+    MAX_TOTAL_CHARS = 18000
 
     def incorporate(self, results: list[ToolResult]) -> None:
         for r in results:
             tool = r.tool
             data = r.data
-            if tool == "query_call_chain":
+            if tool == "read_code":
+                if data.get("ambiguous"):
+                    for m in data.get("matches", []):
+                        code = str(m.get("code", "") or "")
+                        name = str(m.get("name", "") or "")
+                        fpath = str(m.get("file", "") or "")
+                        if code:
+                            self.code_snippets.append(f"[{name} @ {fpath}]\n{code[:SINGLE_RESULT_LIMIT]}")
+                else:
+                    code = str(data.get("code", "") or "")
+                    name = str(data.get("name", "") or "")
+                    if code:
+                        self.code_snippets.append(f"[{name}]\n{code[:SINGLE_RESULT_LIMIT]}")
+            elif tool == "read_file":
+                content = str(data.get("content", "") or "")
+                path = str(data.get("file_path", "") or "")
+                if content:
+                    self.code_snippets.append(f"[{path}]\n{content[:SINGLE_RESULT_LIMIT]}")
+            elif tool == "search_entities":
+                items = data.get("results", [])
+                for item in items[:5]:
+                    if isinstance(item, dict):
+                        self.search_findings.append(
+                            f"{item.get('type', '')} {item.get('name', '')} ({item.get('file', '')})"
+                        )
+            elif tool == "read_wiki_page":
+                content = str(data.get("content", "") or "")
+                title = str(data.get("title", "") or "")
+                if content:
+                    self.wiki_references.append(f"[{title}] {content[:2000]}")
+            elif tool == "semantic_search":
+                items = data.get("results", [])
+                for item in items[:3]:
+                    if isinstance(item, dict):
+                        self.search_findings.append(
+                            f"[{item.get('source', '')}] {item.get('title', '')} ({item.get('file_path', '')})"
+                        )
+            elif tool == "query_call_chain":
                 chains = data.get("chains", [])
                 for c in chains:
                     entry = str(c.get("entry", "") or "")
@@ -95,6 +135,8 @@ class WorkingMemory:
                 self.discovered_implementations,
                 self.discovered_call_chains,
                 self.resolved_gaps,
+                self.wiki_references,
+                self.search_findings,
             ]:
                 if lst:
                     lst.pop(0)
@@ -112,6 +154,8 @@ class WorkingMemory:
             self.discovered_callers,
             self.code_snippets,
             self.resolved_gaps,
+            self.wiki_references,
+            self.search_findings,
         ]:
             total += sum(len(s) for s in lst)
         return total
@@ -133,6 +177,12 @@ class WorkingMemory:
         if self.resolved_gaps:
             sections.append("### 已解决的信息缺口")
             sections.extend(f"- {g}" for g in self.resolved_gaps)
+        if self.wiki_references:
+            sections.append("### 已引用的 Wiki 页面")
+            sections.extend(self.wiki_references)
+        if self.search_findings:
+            sections.append("### 搜索发现")
+            sections.extend(f"- {f}" for f in self.search_findings)
         if not sections:
             return "（工作记忆为空）"
         return "\n".join(sections)
@@ -214,6 +264,81 @@ AGENT_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_code",
+            "description": "Read source code for a function or class by name. Returns code snippet with file location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity_name": {"type": "string", "description": "Function or class name"},
+                    "max_chars": {"type": "integer", "description": "Max characters to return (default 3000)"},
+                },
+                "required": ["entity_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read file content by path. Supports any file type including config files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Relative path from repository root"},
+                    "start_line": {"type": "integer", "description": "Start line (1-based, default 1)"},
+                    "end_line": {"type": "integer", "description": "End line (default start+100)"},
+                },
+                "required": ["file_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_entities",
+            "description": "Search code entities by keyword in names, docstrings, and annotations",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string", "description": "Keyword to search for (case-insensitive)"},
+                    "limit": {"type": "integer", "description": "Max results (default 10)"},
+                },
+                "required": ["keyword"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_wiki_page",
+            "description": "Read an existing wiki page by path or title keyword. Helps avoid content duplication.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Page path or title keyword"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "semantic_search",
+            "description": "Semantic search across code and wiki using natural language",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Natural language query"},
+                    "limit": {"type": "integer", "description": "Max results (default 5)"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 _AGENT_SYSTEM = """你是一个代码知识库 Agent。你的任务是通过调用 tools 来补充 Wiki 页面中标记为 CONTEXT_GAP 的缺失信息。
@@ -229,28 +354,45 @@ _AGENT_SYSTEM = """你是一个代码知识库 Agent。你的任务是通过调�
 
 
 class WikiPageAgent:
-    MAX_ROUNDS = 5
+    MAX_ROUNDS = 6
+    MAX_TOOL_CALLS = 15
 
-    def __init__(self, llm: Any, graph_store: Any) -> None:
+    def __init__(
+        self,
+        llm: Any,
+        graph_store: Any,
+        *,
+        repo_path: str | None = None,
+        search_service: Any | None = None,
+    ) -> None:
         self._llm = llm
         self._graph = graph_store
+        self._repo_path = repo_path
+        self._search_service = search_service
+        self._existing_pages: list[dict] | None = None
 
-    async def enrich(self, content: str, *, domain_name: str = "") -> str:
+    async def enrich(
+        self,
+        content: str,
+        *,
+        domain_name: str = "",
+        existing_pages: list[dict] | None = None,
+    ) -> str:
         gaps = _CONTEXT_GAP_RE.findall(content)
         if not gaps:
             return content
 
+        self._existing_pages = existing_pages
         memory = WorkingMemory()
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": _AGENT_SYSTEM},
             {"role": "user", "content": self._build_user_prompt(content, gaps, memory, domain_name)},
         ]
 
+        total_tool_calls = 0
         for round_num in range(self.MAX_ROUNDS):
             try:
-                response = await self._llm.complete_with_tools(
-                    messages, AGENT_TOOLS,
-                )
+                response = await self._llm.complete_with_tools(messages, AGENT_TOOLS)
             except Exception:
                 log.warning("agent_llm_call_failed", round=round_num, exc_info=True)
                 break
@@ -273,15 +415,18 @@ class WikiPageAgent:
                     args = json.loads(func.get("arguments", "{}"))
                 except json.JSONDecodeError:
                     args = {}
-
                 result_data = await self._execute_tool(tool_name, args)
                 tool_results.append(ToolResult(tool=tool_name, data=result_data))
-
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id", ""),
                     "content": json.dumps(result_data, ensure_ascii=False, default=str)[:2000],
                 })
+
+            total_tool_calls += len(tool_calls)
+            if total_tool_calls >= self.MAX_TOOL_CALLS:
+                log.info("agent_max_tool_calls_reached", total=total_tool_calls)
+                break
 
             memory.incorporate(tool_results)
             messages = [
@@ -319,7 +464,17 @@ class WikiPageAgent:
 
     async def _execute_tool(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         try:
-            if tool_name == "query_module_detail":
+            if tool_name == "read_code":
+                return await self._tool_read_code(args)
+            elif tool_name == "read_file":
+                return await self._tool_read_file(args)
+            elif tool_name == "search_entities":
+                return await self._tool_search_entities(args)
+            elif tool_name == "read_wiki_page":
+                return await self._tool_read_wiki_page(args)
+            elif tool_name == "semantic_search":
+                return await self._tool_semantic_search(args)
+            elif tool_name == "query_module_detail":
                 return await self._tool_query_module_detail(args)
             elif tool_name == "query_callers":
                 return await self._tool_query_callers(args)
@@ -335,6 +490,164 @@ class WikiPageAgent:
                 return {"error": f"unknown tool: {tool_name}"}
         except Exception as e:
             log.warning("agent_tool_failed", tool=tool_name, error=str(e))
+            return {"error": str(e)}
+
+    async def _tool_read_code(self, args: dict[str, Any]) -> dict[str, Any]:
+        entity_name = str(args.get("entity_name", ""))
+        try:
+            max_chars = max(0, min(int(args.get("max_chars", 3000) or 3000), 10000))
+        except (TypeError, ValueError):
+            max_chars = 3000
+        if not entity_name or not self._graph or not hasattr(self._graph, "execute_query"):
+            return {"name": entity_name, "code": "", "file": "", "type": ""}
+        from wiki.cypher_queries import ENTITY_LOCATION_CY
+
+        result = await self._graph.execute_query(ENTITY_LOCATION_CY, {"name": entity_name})
+        rows = getattr(result, "data", None) or []
+        matches: list[dict[str, Any]] = []
+        for row in rows:
+            if isinstance(row, dict):
+                snippet = str(row.get("snippet", "") or "")
+                matches.append({
+                    "name": str(row.get("name", "") or ""),
+                    "type": str(row.get("type", "") or ""),
+                    "file": str(row.get("file", "") or ""),
+                    "start_line": int(row.get("start_line", 0) or 0),
+                    "end_line": int(row.get("end_line", 0) or 0),
+                    "code": snippet[:max_chars],
+                })
+        if not matches:
+            return {"name": entity_name, "code": "", "file": "", "type": ""}
+        if len(matches) == 1:
+            return matches[0]
+        return {"name": entity_name, "matches": matches, "ambiguous": True}
+
+    _MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
+
+    async def _tool_read_file(self, args: dict[str, Any]) -> dict[str, Any]:
+        from pathlib import Path
+
+        file_path = str(args.get("file_path", ""))
+        start_line = max(1, int(args.get("start_line", 1) or 1))
+        end_line = int(args.get("end_line", 0) or 0)
+        if not end_line:
+            end_line = start_line + 100
+        if end_line < start_line:
+            end_line = start_line + 100
+        if not file_path or file_path.startswith("/"):
+            return {"error": "missing or absolute file_path"}
+        if not self._repo_path:
+            return {"error": "file reading unavailable"}
+        repo_root = Path(self._repo_path).resolve()
+        target = (repo_root / file_path).resolve()
+        if not target.is_relative_to(repo_root):
+            return {"error": "path traversal not allowed"}
+        if not target.is_file():
+            return {"error": f"file not found: {file_path}"}
+        try:
+            file_size = target.stat().st_size
+            if file_size > self._MAX_FILE_SIZE:
+                return {"error": f"file too large: {file_size} bytes (max {self._MAX_FILE_SIZE})"}
+            all_lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
+            total_lines = len(all_lines)
+            selected = all_lines[max(0, start_line - 1):end_line]
+            content = "\n".join(selected)
+            return {
+                "file_path": file_path,
+                "start_line": start_line,
+                "end_line": min(end_line, total_lines),
+                "content": content[: SINGLE_RESULT_LIMIT],
+                "total_lines": total_lines,
+            }
+        except OSError as e:
+            return {"error": f"read failed: {e}"}
+
+    async def _tool_search_entities(self, args: dict[str, Any]) -> dict[str, Any]:
+        keyword = str(args.get("keyword", ""))
+        limit = min(int(args.get("limit", 10) or 10), 20)
+        if not keyword or not self._graph or not hasattr(self._graph, "execute_query"):
+            return {"results": [], "total": 0}
+        from wiki.cypher_queries import SEARCH_ENTITY_LABELS, search_entity_cypher
+
+        results: list[dict[str, str]] = []
+        for label in SEARCH_ENTITY_LABELS:
+            if len(results) >= limit:
+                break
+            per_label_limit = limit - len(results)
+            cy = search_entity_cypher(label)
+            result = await self._graph.execute_query(cy, {"keyword": keyword, "limit": per_label_limit})
+            rows = getattr(result, "data", None) or []
+            for row in rows:
+                if isinstance(row, dict):
+                    results.append({
+                        "name": str(row.get("name", "") or ""),
+                        "type": str(row.get("type", "") or ""),
+                        "file": str(row.get("file", "") or ""),
+                        "signature": str(row.get("signature", "") or ""),
+                        "docstring": str(row.get("docstring", "") or ""),
+                    })
+        truncated = len(results) >= limit
+        return {"results": results[:limit], "total": len(results), "truncated": truncated}
+
+    async def _tool_read_wiki_page(self, args: dict[str, Any]) -> dict[str, Any]:
+        query = str(args.get("query", ""))
+        if not query:
+            return {"title": "", "path": "", "content": ""}
+        if self._existing_pages:
+            q_lower = query.lower()
+            for page in self._existing_pages:
+                if not isinstance(page, dict):
+                    continue
+                title = str(page.get("title", "") or "")
+                path = str(page.get("path", "") or "")
+                content = str(page.get("content", "") or "")
+                if q_lower in title.lower() or q_lower in path.lower():
+                    return {"title": title, "path": path, "content": content[: SINGLE_RESULT_LIMIT]}
+        if self._graph and hasattr(self._graph, "execute_query"):
+            from wiki.cypher_queries import WIKI_PAGE_BY_QUERY_CY
+
+            result = await self._graph.execute_query(
+                WIKI_PAGE_BY_QUERY_CY, {"query": query, "content_max_chars": SINGLE_RESULT_LIMIT},
+            )
+            rows = getattr(result, "data", None) or []
+            for row in rows:
+                if isinstance(row, dict):
+                    return {
+                        "title": str(row.get("title", "") or ""),
+                        "path": str(row.get("path", "") or ""),
+                        "content": str(row.get("content", "") or ""),
+                    }
+        return {"title": "", "path": "", "content": ""}
+
+    async def _tool_semantic_search(self, args: dict[str, Any]) -> dict[str, Any]:
+        query = str(args.get("query", ""))
+        limit = min(int(args.get("limit", 5) or 5), 10)
+        if not query:
+            return {"results": []}
+        if not self._search_service:
+            return {"error": "semantic search unavailable"}
+        try:
+            raw = await self._search_service.search_with_context(
+                query,
+                k=limit,
+                expand_depth=1,
+                include_callers=False,
+                include_callees=False,
+                use_query_expansion=False,
+            )
+            hits = raw.get("results", [])
+            results = []
+            for hit in hits[:limit]:
+                if isinstance(hit, dict):
+                    results.append({
+                        "title": str(hit.get("entity_name", "") or hit.get("name", "") or ""),
+                        "file_path": str(hit.get("file_path", "") or ""),
+                        "source": str(hit.get("source_type", "code") or "code"),
+                        "score": float(hit.get("score", 0) or 0),
+                    })
+            return {"results": results}
+        except Exception as e:
+            log.warning("semantic_search_failed", error=str(e))
             return {"error": str(e)}
 
     async def _tool_query_module_detail(self, args: dict[str, Any]) -> dict[str, Any]:

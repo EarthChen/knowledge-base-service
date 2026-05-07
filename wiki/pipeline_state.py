@@ -88,5 +88,8 @@ class WikiPipelineState(TypedDict):
     # wiki [[link]] resolution metadata (applied when persisting pages)
     resolved_links: dict[str, list[dict[str, str]]]
 
+    # Module-level summaries (populated by compose_leaf_modules_node, used by compose_leaf_pages)
+    module_summaries: NotRequired[dict[str, dict[str, Any]]]
+
     # Leaf domain summaries (populated by summarize_leaves_node)
     leaf_summaries: NotRequired[dict[str, Any]]

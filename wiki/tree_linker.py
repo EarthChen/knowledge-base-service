@@ -242,14 +242,37 @@ class WikiTreeLinker:
 
             domain_names = _flatten_names(domain_tree)
 
+            def _stem(word: str) -> str:
+                for suffix in ("tion", "sion", "ment", "ness", "ing", "ers", "er", "ed", "es", "s"):
+                    if len(word) > len(suffix) + 2 and word.endswith(suffix):
+                        return word[: -len(suffix)]
+                return word
+
             def _tokenize(name: str) -> set[str]:
                 import re as _re
-                cleaned = _re.sub(r"[()&/,\-_]", " ", name.lower())
-                return {t for t in cleaned.split() if len(t) > 1}
+                spaced = _re.sub(r"([a-z])([A-Z])", r"\1 \2", name)
+                spaced = _re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", spaced)
+                cleaned = _re.sub(r"[()&/,\-_]", " ", spaced.lower())
+                return {_stem(t) for t in cleaned.split() if len(t) > 1}
 
             domain_tokens: dict[str, set[str]] = {
                 dn: _tokenize(dn) for dn in domain_names
             }
+
+            from collections import Counter as _Counter
+            _tok_freq = _Counter(t for toks in domain_tokens.values() for t in toks)
+            _half = max(len(domain_names) // 2, 1)
+            common_tokens = {t for t, c in _tok_freq.items() if c > _half}
+
+            def _has_cjk(text: str) -> bool:
+                return any("\u4e00" <= c <= "\u9fff" for c in text)
+
+            def _cjk_char_overlap(a: str, b: str) -> float:
+                chars_a = {c for c in a if "\u4e00" <= c <= "\u9fff"}
+                chars_b = {c for c in b if "\u4e00" <= c <= "\u9fff"}
+                if not chars_a:
+                    return 0.0
+                return len(chars_a & chars_b) / len(chars_a)
 
             def _find_best_domain(page_top_level: str) -> str | None:
                 if page_top_level in domain_names:
@@ -261,19 +284,44 @@ class WikiTreeLinker:
                         return dn
                     if tl_lower.startswith(dn_lower) or dn_lower.startswith(tl_lower):
                         return dn
+                    if _has_cjk(dn) and (dn in page_top_level or page_top_level in dn):
+                        return dn
+
+                if _has_cjk(page_top_level) and any(_has_cjk(dn) for dn in domain_names):
+                    best_dn, best_score = None, 0.0
+                    for dn in domain_names:
+                        if not _has_cjk(dn):
+                            continue
+                        score = _cjk_char_overlap(dn, page_top_level)
+                        if score > best_score:
+                            best_score = score
+                            best_dn = dn
+                    if best_score >= 0.5:
+                        return best_dn
+                    return None
+
                 tl_tokens = _tokenize(page_top_level)
                 if not tl_tokens:
                     return None
-                best_dn, best_score = None, 0.0
+                best_dn, best_score, best_pos = None, 0.0, len(tl_lower) + 1
                 for dn, dn_toks in domain_tokens.items():
                     if not dn_toks:
                         continue
-                    overlap = len(tl_tokens & dn_toks)
-                    score = overlap / max(len(tl_tokens), len(dn_toks))
-                    if score > best_score:
-                        best_score = score
-                        best_dn = dn
-                if best_score >= 0.3:
+                    distinctive = dn_toks - common_tokens
+                    if distinctive:
+                        overlap = len(tl_tokens & distinctive)
+                        score = overlap / len(distinctive)
+                    else:
+                        overlap = len(tl_tokens & dn_toks)
+                        score = overlap / len(dn_toks)
+                    if score > best_score or (score == best_score and score > 0):
+                        dn_stem = _stem(dn.lower().replace("handler", "").replace("service", "").strip())
+                        pos = tl_lower.find(dn_stem) if dn_stem else len(tl_lower) + 1
+                        if score > best_score or (pos >= 0 and pos < best_pos):
+                            best_score = score
+                            best_dn = dn
+                            best_pos = pos if pos >= 0 else len(tl_lower) + 1
+                if best_score >= 0.5:
                     return best_dn
                 return None
 
@@ -365,7 +413,10 @@ class WikiTreeLinker:
 
             return "\n".join(lines)
 
-        async def _link_domain(parent_uid: str, domain: DomainNode, sort_idx: int) -> None:
+        # Phase 1: Create sections and collect overview pages
+        pending_overview_links: list[tuple[str, str]] = []  # (section_uid, overview_uid)
+
+        async def _create_sections(parent_uid: str, domain: DomainNode, sort_idx: int) -> None:
             section_uid = tree_builder.generate_domain_section_uid(business_id, domain.name)
             try:
                 await self._wiki_store.upsert_wiki_section(
@@ -388,8 +439,6 @@ class WikiTreeLinker:
                 log.warning("nested_tree_section_failed", domain=domain.name, exc_info=True)
                 return
 
-            child_sort = 0
-
             if domain.modules or domain.children:
                 overview_content = _build_domain_overview_content(domain)
                 overview_path = f"/__domains__/{domain.name}/_overview"
@@ -411,6 +460,35 @@ class WikiTreeLinker:
                 )
                 overview_pages.append(overview_page)
                 overview_uid = f"WikiPage:{business_id}:{overview_path}"
+                pending_overview_links.append((section_uid, overview_uid))
+
+            for i, child in enumerate(domain.children):
+                await _create_sections(section_uid, child, i)
+
+        for i, domain in enumerate(domain_tree):
+            await _create_sections(root_uid, domain, i)
+
+        # Phase 2: Persist overview pages so WikiPage nodes exist in graph
+        if overview_pages:
+            await self._persistence.persist_pages_to_graph(
+                business_id, overview_pages, language=language,
+            )
+            log.info(
+                "nested_tree_overview_pages_generated",
+                business_id=business_id,
+                count=len(overview_pages),
+            )
+
+        # Phase 3: Link overview pages, module pages, and topic pages to sections
+        overview_link_set = set(pending_overview_links)
+
+        async def _link_domain_pages(parent_uid: str, domain: DomainNode) -> None:
+            section_uid = tree_builder.generate_domain_section_uid(business_id, domain.name)
+            child_sort = 0
+
+            # Link overview page (now exists in graph)
+            overview_uid = f"WikiPage:{business_id}:/__domains__/{domain.name}/_overview"
+            if (section_uid, overview_uid) in overview_link_set:
                 try:
                     await self._wiki_store.add_has_child_edge(
                         parent_uid=section_uid,
@@ -465,21 +543,11 @@ class WikiTreeLinker:
                     except Exception:
                         log.warning("nested_tree_topic_link_failed", page_uid=t_uid, exc_info=True)
 
-            for i, child in enumerate(domain.children):
-                await _link_domain(section_uid, child, i)
+            for child in domain.children:
+                await _link_domain_pages(section_uid, child)
 
-        for i, domain in enumerate(domain_tree):
-            await _link_domain(root_uid, domain, i)
-
-        if overview_pages:
-            await self._persistence.persist_pages_to_graph(
-                business_id, overview_pages, language=language,
-            )
-            log.info(
-                "nested_tree_overview_pages_generated",
-                business_id=business_id,
-                count=len(overview_pages),
-            )
+        for domain in domain_tree:
+            await _link_domain_pages(root_uid, domain)
 
     @staticmethod
     def count_domain_modules(domain: DomainNode) -> int:

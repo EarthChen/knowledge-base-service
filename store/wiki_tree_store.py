@@ -37,6 +37,23 @@ class WikiTreeStoreMixin:
                 "description": description, "ts": ts},
         )
 
+    async def persist_pipeline_domain_tree(
+        self, business_id: str, domain_tree: list[Any], review_status: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist the pipeline domain tree and review status as JSON blobs on WikiSpace."""
+        uid = f"WikiSpace:{business_id}"
+        tree_json = json.dumps(domain_tree, ensure_ascii=False)
+        status_json = json.dumps(review_status or {}, ensure_ascii=False)
+        q = (
+            "MATCH (ws:WikiSpace {uid: $uid}) "
+            "SET ws.pipeline_domain_tree = $tree_json, "
+            "ws.pipeline_review_status = $status_json "
+            "RETURN ws.uid AS uid"
+        )
+        await self._store.execute_query(
+            q, {"uid": uid, "tree_json": tree_json, "status_json": status_json},
+        )
+
     async def upsert_wiki_section(
         self,
         uid: str,

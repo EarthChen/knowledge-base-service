@@ -265,13 +265,18 @@ class HierarchicalDecomposer:
             f"business domain tree.\n\n"
             f"Entry points: {entry_points}\n\n"
             f"Modules:\n{modules_block}\n\n"
+            f"## Naming Rules (CRITICAL)\n"
+            f"- Domain names MUST describe business capabilities, NOT code artifacts\n"
+            f"- FORBIDDEN: class names, method names, code identifiers (e.g. 'TypeHandler', 'BusinessService')\n"
+            f"- REQUIRED: descriptive Chinese business names (e.g. '礼物订单处理', 'IM消息路由', '用户行为追踪')\n"
+            f"- Each name should be 2-6 Chinese characters describing WHAT the domain does for users\n\n"
             f"## Constraints\n"
             f"- Maximum tree depth: {self._max_depth} levels\n"
             f"- Only create a sub-domain if it contains >= {self._min_modules} modules\n"
             f"- Prefer flatter trees when modules are loosely related\n\n"
             f"## Output Format\n"
             f"Return a JSON object:\n"
-            f'{{"domains": [{{"name": "...", "description": "...", '
+            f'{{"domains": [{{"name": "礼物订单处理", "description": "...", '
             f'"modules": ["module_name", ...], '
             f'"children": [... nested domains ...]}}]}}'
         )

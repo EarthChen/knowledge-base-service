@@ -25,6 +25,7 @@ class WikiEntityRole(StrEnum):
 DOMAIN_CLASSIFICATION_ENTITY_ROLES: frozenset[WikiEntityRole] = frozenset({
     WikiEntityRole.HAS_BUSINESS_LOGIC,
     WikiEntityRole.ENTRY_POINT,
+    WikiEntityRole.SUPPORTING,
 })
 
 
@@ -40,7 +41,11 @@ _ENTRY_POINT_ANNOTATION_NAMES = frozenset({
     "route",
 })
 _ENTRY_POINT_NAME_PATTERN = re.compile(
-    r"(Controller|Handler|Endpoint|Router)(?:\b|[_$])",
+    r"(Controller|Handler|Endpoint|Router|MoaWebService|MoaService|WebService)(?:\b|[_$])",
+    re.IGNORECASE,
+)
+_ENTRY_POINT_PATH_PATTERNS = re.compile(
+    r"(/interfaces/|/io/interfaces/|/controller/|/resource/|/endpoint/)",
     re.IGNORECASE,
 )
 
@@ -175,6 +180,11 @@ class EntityRoleClassifier:
         name = str(props.get("name", ""))
         if _ENTRY_POINT_NAME_PATTERN.search(name):
             return True
+
+        path = str(props.get("path", "") or "")
+        if path and _ENTRY_POINT_PATH_PATTERNS.search(path):
+            return True
+
         return False
 
     @staticmethod

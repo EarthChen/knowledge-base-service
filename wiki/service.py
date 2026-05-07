@@ -1044,6 +1044,14 @@ class WikiService:
             graph_store=self._store,
             wiki_store=self._wiki_store,
         )
+
+        if progress_callback:
+            await progress_callback({
+                "completed_repos": 0,
+                "total_repos": total_repos,
+                "current_repo": "",
+                "phase": "persisting_pages",
+            })
         domain_mapping = pipeline_result.domain_mapping
         domain_tree = pipeline_result.domain_tree
         all_pages: list[WikiPage] = list(pipeline_result.pages)
@@ -1082,6 +1090,17 @@ class WikiService:
         sort_idx = 1
 
         has_nested_tree = domain_tree is not None and len(domain_tree) > 0
+
+        if has_nested_tree:
+            from dataclasses import asdict
+            try:
+                tree_serializable = [asdict(node) for node in domain_tree]
+                review_status = pipeline_result.review_status if hasattr(pipeline_result, "review_status") else None
+                await self._wiki_store.persist_pipeline_domain_tree(
+                    business_id, tree_serializable, review_status,
+                )
+            except Exception:
+                log.warning("persist_pipeline_domain_tree_failed", business_id=business_id, exc_info=True)
 
         for domain_name, repo_module_pairs in domain_mapping.items():
             section_uid = tree_builder.generate_domain_section_uid(business_id, domain_name)
@@ -1200,12 +1219,36 @@ class WikiService:
         total_repos = len(all_modules)
         completed_repos = 0
 
+        # Determine which repos need per-repo wiki generation.
+        # When skip_repo_pages=True but incremental=True, still generate for
+        # repos that have never had per-repo wiki (new repos).
+        repos_needing_generation: set[str] = set()
         if not app_cfg.business_wiki_skip_repo_pages:
-            log.info("per_repo_generation_starting", business_id=business_id, repo_count=len(all_modules))
+            repos_needing_generation = set(all_modules.keys())
+        elif incremental:
+            wiki_meta = self._wiki_store
+            if wiki_meta is not None:
+                for repo_name in changed_repos:
+                    try:
+                        ver = await wiki_meta.get_wiki_generation_version(repo_name)
+                        if ver is None:
+                            repos_needing_generation.add(repo_name)
+                    except Exception:
+                        repos_needing_generation.add(repo_name)
+            if repos_needing_generation:
+                log.info(
+                    "incremental_new_repos_detected",
+                    business_id=business_id,
+                    new_repos=sorted(repos_needing_generation),
+                )
+
+        if repos_needing_generation:
+            gen_total = len(repos_needing_generation)
+            log.info("per_repo_generation_starting", business_id=business_id, repo_count=gen_total)
             if progress_callback:
                 await progress_callback({
                     "completed_repos": 0,
-                    "total_repos": total_repos,
+                    "total_repos": gen_total,
                     "current_repo": "",
                     "phase": "generating_pages",
                 })
@@ -1222,7 +1265,7 @@ class WikiService:
                     if progress_callback:
                         await progress_callback({
                             "completed_repos": done_count,
-                            "total_repos": total_repos,
+                            "total_repos": gen_total,
                             "current_repo": repo_name,
                             "phase": "generating_pages",
                             "skipped": True,
@@ -1235,7 +1278,7 @@ class WikiService:
                             "repo_wiki_generate_start",
                             repository=repo_name,
                             index=repo_index,
-                            total=total_repos,
+                            total=gen_total,
                             mode=mode,
                         )
                         await self.generate(
@@ -1264,7 +1307,7 @@ class WikiService:
                 if progress_callback:
                     await progress_callback({
                         "completed_repos": done_count,
-                        "total_repos": total_repos,
+                        "total_repos": gen_total,
                         "current_repo": repo_name,
                         "phase": "generating_pages",
                         "skipped": False,
@@ -1272,13 +1315,13 @@ class WikiService:
 
             await asyncio.gather(*(
                 run_one_repo(repo_name, idx)
-                for idx, repo_name in enumerate(all_modules.keys(), start=1)
+                for idx, repo_name in enumerate(repos_needing_generation, start=1)
             ))
         else:
             log.info(
                 "per_repo_generation_skipped",
                 business_id=business_id,
-                reason="business_wiki_skip_repo_pages=True",
+                reason="no repos need generation (skip_repo_pages=True, no new repos)",
             )
 
         await self._persistence.cleanup_stale_domain_edges(
@@ -1316,22 +1359,36 @@ class WikiService:
                 )
 
         # Build cross-page references (RELATED_TO edges)
-        # Scope: Module-level only — modules are navigation hubs.
+        # Scope: Only modules that are part of domain_mapping (have assigned domains).
         # Class/Function entities inherit reachability through graph proximity.
         from wiki.related_pages_builder import RelatedPagesBuilder
 
+        domain_module_uids: set[str] = set()
+        for _domain, repo_mod_pairs in domain_mapping.items():
+            for repo, mod_name in repo_mod_pairs:
+                for m in all_modules.get(repo, []):
+                    if m.properties.get("name") == mod_name:
+                        domain_module_uids.add(m.uid)
+                        break
+
         related_builder = RelatedPagesBuilder(self._graph)
+        log.info(
+            "related_pages_build_start",
+            business_id=business_id,
+            module_count=len(domain_module_uids),
+        )
         for repo_name, repo_modules in all_modules.items():
             for mod in repo_modules:
-                mod_uid = mod.uid
+                if mod.uid not in domain_module_uids:
+                    continue
                 mod_domain = mod.properties.get("business_domain")
                 try:
                     await related_builder.build_and_persist(
-                        entity_uid=mod_uid,
+                        entity_uid=mod.uid,
                         business_domain=mod_domain,
                     )
                 except Exception:
-                    log.warning("related_pages_build_failed", uid=mod_uid, exc_info=True)
+                    log.warning("related_pages_build_failed", uid=mod.uid, exc_info=True)
 
         ref_count = 0
         try:

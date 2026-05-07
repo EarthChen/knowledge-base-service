@@ -105,3 +105,41 @@ RETURN cf.name AS caller_method, ct.name AS callee_method,
        coalesce(ct.signature, '') AS callee_sig
 LIMIT 300
 """.strip()
+
+ENTITY_LOCATION_CY = """
+MATCH (f)
+WHERE (f:Function OR f:Class) AND f.name = $name
+RETURN f.name AS name, coalesce(f.file, '') AS file,
+       coalesce(f.start_line, 0) AS start_line,
+       coalesce(f.end_line, 0) AS end_line,
+       coalesce(f.code_snippet, '') AS snippet,
+       labels(f)[0] AS type
+LIMIT 3
+""".strip()
+
+_SEARCH_ENTITY_TEMPLATE = """
+MATCH (n:{label})
+WHERE toLower(n.name) CONTAINS toLower($keyword)
+   OR toLower(coalesce(n.docstring, '')) CONTAINS toLower($keyword)
+   OR toLower(coalesce(n.annotations, '')) CONTAINS toLower($keyword)
+RETURN n.name AS name, '{label}' AS type,
+       coalesce(n.file, '') AS file,
+       coalesce(n.signature, '') AS signature,
+       left(coalesce(n.docstring, ''), 200) AS docstring
+LIMIT $limit
+""".strip()
+
+SEARCH_ENTITY_LABELS = ("Function", "Class", "Module")
+
+
+def search_entity_cypher(label: str) -> str:
+    if label not in SEARCH_ENTITY_LABELS:
+        raise ValueError(f"unsupported label: {label}")
+    return _SEARCH_ENTITY_TEMPLATE.replace("{label}", label)
+
+WIKI_PAGE_BY_QUERY_CY = """
+MATCH (w:WikiPage)
+WHERE w.path CONTAINS $query OR toLower(w.title) CONTAINS toLower($query)
+RETURN w.title AS title, w.path AS path, left(w.content, $content_max_chars) AS content
+LIMIT 3
+""".strip()

@@ -102,3 +102,14 @@ class _LLMPortWithDefault:
         kwargs.setdefault("model", self._default_model)
         async for chunk in self._inner.complete_stream(messages, **kwargs):
             yield chunk
+
+    async def complete_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        m = model or self._default_model
+        return await self._inner.complete_with_tools(messages, tools, model=m, **kwargs)

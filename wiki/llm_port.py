@@ -33,3 +33,12 @@ class LLMPort(Protocol):
         messages: list[dict[str, str]],
         **kwargs: Any,
     ) -> AsyncIterator[str]: ...
+
+    async def complete_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]: ...

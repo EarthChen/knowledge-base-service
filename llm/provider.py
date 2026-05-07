@@ -127,6 +127,25 @@ class LLMProvider:
             logger.error("LLM returned invalid JSON: %s", raw[:200], exc_info=True)
             raise ValueError(f"LLM returned invalid JSON: {raw[:100]}") from exc
 
+    async def complete_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """OpenAI-compatible tool-calling request."""
+        body: dict[str, Any] = {
+            "model": model or self._config.model,
+            "messages": messages,
+            "tools": tools,
+            "temperature": self._config.temperature,
+            **kwargs,
+        }
+        data = await self._request(body)
+        return data["choices"][0]["message"]
+
     async def _request(self, body: dict[str, Any]) -> dict[str, Any]:
         max_attempts = self._config.retry_count
         last_exc: Exception | None = None

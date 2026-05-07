@@ -47,6 +47,15 @@ class BaseLLMProvider(Protocol):
         **kwargs: Any,
     ) -> AsyncIterator[str]: ...
 
+    async def complete_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]: ...
+
     async def close(self) -> None: ...
 
 
@@ -109,6 +118,16 @@ class GatewayLLMProviderAdapter:
             return
         yield await self.complete(messages, **kwargs)
 
+    async def complete_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        return await self._inner.complete_with_tools(messages, tools, model=model, **kwargs)
+
     async def close(self) -> None:
         await self._inner.close()
 
@@ -134,6 +153,16 @@ class LLMPortBridge:
         async for chunk in self._provider.complete_stream(messages, **kwargs):
             if chunk:
                 yield chunk
+
+    async def complete_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        return await self._provider.complete_with_tools(messages, tools, model=model, **kwargs)
 
     async def generate(
         self,

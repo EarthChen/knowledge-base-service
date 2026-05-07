@@ -65,6 +65,42 @@
 
 ---
 
+## Issue #005 — Wiki 生成 LLM 幻觉：虚构源码引用与业务逻辑
+
+| 字段 | 内容 |
+|------|------|
+| **状态** | **已修复（Layer 1）**；Layer 2-3 待开发 |
+| **严重程度** | P0（内容正确性） |
+| **影响描述** | Wiki 页面出现虚构的 `source://` 行号引用和编造的业务逻辑描述（如幂等校验、风控调用），与真实代码完全不符。 |
+
+**根因**
+
+- **直接原因**：`wiki/service.py` 调用 `run_langgraph_pipeline()` 时未传递 `graph_store` 和 `wiki_store`，导致 `ContentContextBuilder` 在空图上查询，返回零上下文，LLM 全面虚构。
+- **间接原因**：缺乏系统级反幻觉防线（机械引用注入、事实核查）。
+
+**已采取的修复**
+
+- **P0 修复**（2026-05-07）：
+  - `wiki/service.py`：传递 `graph_store=self._store` 和 `wiki_store=self._wiki_store` 到 `run_langgraph_pipeline`。
+  - `wiki/pipeline_orchestrator.py`：接受并透传 `graph_store`/`wiki_store` 到 LangGraph `configurable`。
+  - `wiki/persistence.py`：新增 `cleanup_stale_wiki_pages()` 方法，非增量全量生成后自动清理旧 topic 页面。
+  - `wiki/unified_prompt_templates.py`：添加反幻觉约束指令。
+  - `wiki/content_context_builder.py`：修复 `_CHUNK_SNIPPETS_CY` 关系类型（`HAS_CHUNK` → `PART_OF`）。
+
+**仍待开发**
+
+- **Layer 2**（P1）：Mechanical Citation Injection — 系统自动注入经图数据库验证的 `source://` 引用。
+- **Layer 3**（P2）：Post-Generation Fact Check — 提取技术实体，在图数据库中验证存在性。
+- 详见提案：[`proposals/PROPOSAL_20260507_120459_anti_hallucination_architecture.md`](proposals/PROPOSAL_20260507_120459_anti_hallucination_architecture.md)
+
+**验证**
+
+- 全量重新生成后，新页面内容中类名/方法名/服务名与真实代码吻合。
+- `source://` 引用的文件路径和行号经人工抽查确认准确。
+- 旧的幻觉页面在非增量重生成后被自动清理。
+
+---
+
 ## 维护说明
 
 - 新增 Issue 时请沿用 **`Issue #NNN`** 编号（三位序号）、并补齐「状态 / 影响 / 根因 / 修复 / 验证」五要素。

@@ -123,6 +123,8 @@ async def run_langgraph_pipeline(
     affected_domains: list[str] | None = None,
     config_overrides: dict[str, Any] | None = None,
     model_strategy: Any | None = None,
+    graph_store: Any | None = None,
+    wiki_store: Any | None = None,
 ) -> PipelineResult:
     """Execute the LangGraph wiki pipeline and return production-ready results.
 
@@ -187,6 +189,10 @@ async def run_langgraph_pipeline(
     configurable: dict[str, Any] = {"thread_id": f"biz-{business_id}", "llm": llm}
     if model_strategy is not None:
         configurable["model_strategy"] = model_strategy
+    if graph_store is not None:
+        configurable["graph_store"] = graph_store
+    if wiki_store is not None:
+        configurable["wiki_store"] = wiki_store
 
     result = await pipeline.ainvoke(
         initial_state,

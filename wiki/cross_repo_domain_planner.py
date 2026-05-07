@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from core.log import get_logger
@@ -18,6 +20,24 @@ if TYPE_CHECKING:
     from wiki.dependency_graph import DomainNode
 
 log = get_logger(__name__)
+
+
+@dataclass
+class _TriageResult:
+    """Result of Phase 1 triage: how to handle each new module."""
+    assignments: dict[tuple[str, str], str]
+    new_domains: dict[str, list[tuple[str, str]]]
+    reclassify_domains: list[str]
+
+    @classmethod
+    def assign_all_to_infra(
+        cls, pairs: list[tuple[str, str]], infra_label: str,
+    ) -> "_TriageResult":
+        return cls(
+            assignments={p: infra_label for p in pairs},
+            new_domains={},
+            reclassify_domains=[],
+        )
 
 
 def clean_repo_path(path: str) -> str:
@@ -150,6 +170,326 @@ class CrossRepoBusinessDomainPlanner:
                 exc_info=True,
             )
             return self._all_infrastructure(pairs_in_order)
+
+    async def classify_incremental(
+        self,
+        business_id: str,
+        all_modules: dict[str, list[GraphNode]],
+    ) -> dict[str, list[tuple[str, str]]]:
+        """Two-phase incremental domain classification.
+
+        Phase 1 (triage): lightweight LLM call that decides for each new module:
+          - assign to an existing domain
+          - create a new domain
+          - flag an existing domain for reclassification
+
+        Phase 2 (reclassify, only when needed): full classification of the
+        flagged domains' modules + relevant new modules.  Unaffected domains
+        are preserved as-is.
+        """
+        self._metadata_cache = self._build_metadata_cache(all_modules)
+
+        existing: dict[str, list[tuple[str, str]]] = {}
+        new_modules: dict[str, list[GraphNode]] = {}
+
+        for repo_id, modules in all_modules.items():
+            for m in modules:
+                name = m.properties.get("name")
+                if not isinstance(name, str) or not name:
+                    continue
+                domain = m.properties.get("business_domain")
+                if isinstance(domain, str) and domain.strip():
+                    existing.setdefault(domain.strip(), []).append((repo_id, name))
+                else:
+                    new_modules.setdefault(repo_id, []).append(m)
+
+        new_pairs = self._all_pairs_in_order(new_modules) if new_modules else []
+
+        if not new_pairs:
+            log.info(
+                "incremental_classify_no_new_modules",
+                business_id=business_id,
+                existing_domains=len(existing),
+            )
+            return existing
+
+        log.info(
+            "incremental_classify_start",
+            business_id=business_id,
+            existing_modules=sum(len(v) for v in existing.values()),
+            new_modules=len(new_pairs),
+            existing_domains=sorted(existing.keys()),
+        )
+
+        if self._llm is None:
+            existing.setdefault(self._infrastructure_label, []).extend(new_pairs)
+            return existing
+
+        max_retries = 2
+        triage: _TriageResult | None = None
+        for attempt in range(max_retries + 1):
+            try:
+                triage = await self._triage_new_modules(
+                    business_id, new_pairs, existing,
+                )
+                break
+            except Exception:
+                if attempt < max_retries:
+                    log.warning(
+                        "incremental_triage_retry",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        exc_info=True,
+                    )
+                    await asyncio.sleep(1 * (attempt + 1))
+                else:
+                    log.warning("incremental_triage_failed_after_retries", exc_info=True)
+        if triage is None:
+            existing.setdefault(self._infrastructure_label, []).extend(new_pairs)
+            return existing
+
+        for pair, domain in triage.assignments.items():
+            existing.setdefault(domain, []).append(pair)
+
+        for domain_name, pairs in triage.new_domains.items():
+            existing.setdefault(domain_name, []).extend(pairs)
+
+        if not triage.reclassify_domains:
+            log.info(
+                "incremental_classify_done_no_reclass",
+                business_id=business_id,
+                assigned=len(triage.assignments),
+                new_domains=len(triage.new_domains),
+            )
+            return existing
+
+        log.info(
+            "incremental_reclassify_triggered",
+            business_id=business_id,
+            affected_domains=triage.reclassify_domains,
+        )
+        reclassified: dict[str, list[tuple[str, str]]] | None = None
+        for attempt in range(max_retries + 1):
+            try:
+                reclassified = await self._reclassify_affected_domains(
+                    business_id, triage.reclassify_domains, existing,
+                )
+                break
+            except Exception:
+                if attempt < max_retries:
+                    log.warning(
+                        "incremental_reclassify_retry",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        exc_info=True,
+                    )
+                    await asyncio.sleep(1 * (attempt + 1))
+                else:
+                    log.warning("incremental_reclassify_failed_after_retries", exc_info=True)
+        if reclassified is not None:
+            for domain_name in triage.reclassify_domains:
+                existing.pop(domain_name, None)
+            for domain_name, pairs in reclassified.items():
+                existing.setdefault(domain_name, []).extend(pairs)
+
+        return existing
+
+    async def _triage_new_modules(
+        self,
+        business_id: str,
+        new_pairs: list[tuple[str, str]],
+        existing: dict[str, list[tuple[str, str]]],
+    ) -> "_TriageResult":
+        """Phase 1: lightweight LLM call to decide how to handle each new module."""
+        assert self._llm is not None
+
+        domain_overview: list[dict[str, Any]] = []
+        for domain_name, pairs in sorted(existing.items()):
+            sample = [p[1] for p in pairs[:5]]
+            domain_overview.append({
+                "domain": domain_name,
+                "module_count": len(pairs),
+                "sample_modules": sample,
+            })
+
+        new_rows: list[dict[str, str]] = []
+        for repo_id, name in new_pairs:
+            new_rows.append({
+                "repository": clean_repo_path(repo_id),
+                "name": name,
+                "summary": self._module_summary(repo_id, name),
+            })
+
+        prompt = (
+            "You are classifying NEW modules into an existing business domain structure.\n\n"
+            f"Business ID: {business_id}\n\n"
+            f"Existing domains:\n{json.dumps(domain_overview, indent=2, ensure_ascii=False)}\n\n"
+            f"New modules to classify:\n{json.dumps(new_rows, indent=2, ensure_ascii=False)}\n\n"
+            "For each new module, decide one of:\n"
+            "1. Assign to an existing domain (if it fits well)\n"
+            "2. Create a new domain (if no existing domain is appropriate)\n"
+            "3. Flag a domain for reclassification (if the new module reveals that "
+            "an existing domain should be split or reorganized)\n\n"
+            "Return ONLY valid JSON:\n"
+            "{\n"
+            '  "assignments": [{"module": "name", "repo": "repo-id", "domain": "ExistingDomainName"}],\n'
+            '  "new_domains": {"NewDomainName": [["repo-id", "module-name"]]},\n'
+            '  "reclassify_domains": ["DomainNameThatNeedsReorg"]\n'
+            "}"
+        )
+        raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
+        parsed = parse_json_robust_sync(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError(f"LLM triage response is not a valid JSON object: {raw[:200]}")
+
+        assignments: dict[tuple[str, str], str] = {}
+        for item in parsed.get("assignments", []):
+            if not isinstance(item, dict):
+                continue
+            mod = str(item.get("module", "") or "")
+            repo = str(item.get("repo", "") or "")
+            domain = str(item.get("domain", "") or "")
+            if mod and domain:
+                matched = self._find_pair(new_pairs, repo, mod)
+                if matched:
+                    assignments[matched] = domain
+
+        new_domains: dict[str, list[tuple[str, str]]] = {}
+        for domain_name, pairs_raw in (parsed.get("new_domains") or {}).items():
+            if not isinstance(pairs_raw, list):
+                continue
+            for pair in pairs_raw:
+                if isinstance(pair, list) and len(pair) >= 2:
+                    matched = self._find_pair(new_pairs, str(pair[0]), str(pair[1]))
+                    if matched:
+                        new_domains.setdefault(str(domain_name), []).append(matched)
+
+        reclassify = [
+            str(d) for d in (parsed.get("reclassify_domains") or [])
+            if isinstance(d, str) and d in existing
+        ]
+
+        unassigned = [
+            p for p in new_pairs
+            if p not in assignments
+            and not any(p in pairs for pairs in new_domains.values())
+        ]
+        if unassigned:
+            all_known_domains = list(existing.keys()) + list(new_domains.keys())
+            remaining = await self._classify_remaining(unassigned, all_known_domains)
+            for pair, domain in remaining.items():
+                assignments[pair] = domain
+
+        return _TriageResult(
+            assignments=assignments,
+            new_domains=new_domains,
+            reclassify_domains=reclassify,
+        )
+
+    @staticmethod
+    def _find_pair(
+        pairs: list[tuple[str, str]], repo_hint: str, module_name: str,
+    ) -> tuple[str, str] | None:
+        """Find a pair by module name, tolerating cleaned repo names."""
+        for p in pairs:
+            if p[1] == module_name:
+                if not repo_hint or repo_hint in p[0] or clean_repo_path(p[0]) == repo_hint:
+                    return p
+        return None
+
+    async def _classify_remaining(
+        self,
+        unassigned: list[tuple[str, str]],
+        known_domains: list[str],
+    ) -> dict[tuple[str, str], str]:
+        """Focused LLM call for modules that triage missed."""
+        assert self._llm is not None
+
+        rows = [
+            {
+                "repository": clean_repo_path(repo_id),
+                "name": name,
+                "summary": self._module_summary(repo_id, name),
+            }
+            for repo_id, name in unassigned
+        ]
+        prompt = (
+            "Classify each module into one of the existing domains, or propose a new domain.\n\n"
+            f"Existing domains: {json.dumps(known_domains, ensure_ascii=False)}\n\n"
+            f"Modules:\n{json.dumps(rows, indent=2, ensure_ascii=False)}\n\n"
+            "Return ONLY valid JSON: an object mapping module names to domain names.\n"
+            'Example: {"ModuleA": "ExistingDomain", "ModuleB": "NewDomainName"}'
+        )
+        try:
+            raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
+            parsed = parse_json_robust_sync(raw)
+        except Exception:
+            log.warning("classify_remaining_failed", exc_info=True)
+            return {p: self._infrastructure_label for p in unassigned}
+
+        if not isinstance(parsed, dict):
+            return {p: self._infrastructure_label for p in unassigned}
+
+        result: dict[tuple[str, str], str] = {}
+        for pair in unassigned:
+            domain = parsed.get(pair[1])
+            if isinstance(domain, str) and domain.strip():
+                result[pair] = domain.strip()
+            else:
+                result[pair] = self._infrastructure_label
+        return result
+
+    async def _reclassify_affected_domains(
+        self,
+        business_id: str,
+        affected_domain_names: list[str],
+        current_mapping: dict[str, list[tuple[str, str]]],
+    ) -> dict[str, list[tuple[str, str]]]:
+        """Phase 2: reclassify only the affected domains' modules."""
+        assert self._llm is not None
+
+        affected_pairs: list[tuple[str, str]] = []
+        for domain_name in affected_domain_names:
+            affected_pairs.extend(current_mapping.get(domain_name, []))
+
+        if not affected_pairs:
+            return {}
+
+        rows: list[dict[str, str]] = []
+        for repo_id, name in affected_pairs:
+            rows.append({
+                "repository": clean_repo_path(repo_id),
+                "name": name,
+                "summary": self._module_summary(repo_id, name),
+            })
+
+        unaffected = [
+            d for d in current_mapping if d not in affected_domain_names
+        ]
+        context = f"Other domains (unchanged): {json.dumps(unaffected, ensure_ascii=False)}" if unaffected else ""
+
+        prompt = (
+            "Reclassify the following modules into business domains.\n"
+            f"These modules were previously in domains: {json.dumps(affected_domain_names, ensure_ascii=False)}\n"
+            "Split, merge, or rename domains as needed for better organization.\n"
+            f'{context}\n\n'
+            f"Business ID: {business_id}\n\n"
+            f"Modules:\n{json.dumps(rows, indent=2, ensure_ascii=False)}\n\n"
+            "Return ONLY valid JSON: an object whose keys are domain names and whose "
+            "values are arrays of [repository_id, module_name] pairs."
+        )
+        raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
+        parsed = self._parse_cross_repo_map(raw)
+        if not parsed:
+            original: dict[str, list[tuple[str, str]]] = {}
+            for dn in affected_domain_names:
+                pairs_in_domain = current_mapping.get(dn, [])
+                if pairs_in_domain:
+                    original[dn] = list(pairs_in_domain)
+            return original if original else {}
+
+        valid = set(affected_pairs)
+        return self._merge_llm_assignment(parsed, valid, affected_pairs)
 
     def _build_metadata_cache(
         self,

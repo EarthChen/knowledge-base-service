@@ -449,7 +449,8 @@ class TopicPageComposer:
                 "3. ## 核心服务要点 — For each service: responsibilities, key design decisions, "
                 "error handling strategy, and file path references\n"
                 "4. ## 设计要点与注意事项 — Key architectural decisions, trade-offs, and edge cases\n"
-                "- Source code references using `source://repo/file:line` notation when available\n"
+                "- Do NOT fabricate source:// links or line numbers. "
+                "Source references will be injected automatically from verified graph data.\n"
                 "- When describing cross-repo interactions, annotate which repository each service belongs to\n"
             ) + tail + self._token_budget_instruction()
         return (
@@ -467,7 +468,8 @@ class TopicPageComposer:
             "- Core business flow with Mermaid diagram "
             "(sequenceDiagram or flowchart based on CALLS relationships)\n"
             "- Key services with their responsibilities and interactions\n"
-            "- Source code references using `source://repo/file:line` notation when available\n"
+            "- Do NOT fabricate source:// links or line numbers. "
+            "Source references will be injected automatically from verified graph data.\n"
             "- When describing cross-repo interactions, annotate which repository each service belongs to\n"
             f"- Related topics using [[wiki-link]] notation for these related domains: {siblings or 'none'}\n"
         ) + tail + self._token_budget_instruction()
@@ -520,7 +522,8 @@ class TopicPageComposer:
             "- Core business flow with Mermaid diagram "
             "(sequenceDiagram or flowchart based on CALLS relationships)\n"
             "- Key services with their responsibilities and interactions\n"
-            "- Source code references using `source://repo/file:line` notation when available\n"
+            "- Do NOT fabricate source:// links or line numbers. "
+            "Source references will be injected automatically from verified graph data.\n"
             "- When describing cross-repo interactions, annotate which repository each service belongs to\n"
             f"- Related topics using [[wiki-link]] notation for these sibling pages: {siblings or 'none'}\n"
         ) + tail + self._token_budget_instruction(max_tokens)

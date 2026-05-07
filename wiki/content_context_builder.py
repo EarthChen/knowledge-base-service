@@ -17,7 +17,7 @@ log = get_logger(__name__)
 
 _METHODS_CY = """
 MATCH (m:Module)-[:CONTAINS*1..3]->(f:Function)
-WHERE m.name IN $names
+WHERE m.name IN $names AND f.name IS NOT NULL
 RETURN m.name AS module_name, f.name AS func_name,
        coalesce(f.signature, '') AS signature,
        coalesce(f.file, '') AS file_path,
@@ -36,6 +36,19 @@ RETURN a.name AS caller, b.name AS callee
 """.strip()
 
 
+_METHOD_CALL_CHAIN_CY = """
+MATCH (m:Module)-[:CONTAINS*1..3]->(cf:Function)-[:CALLS]->(ct:Function)
+WHERE m.name IN $names
+  AND cf.name IS NOT NULL AND ct.name IS NOT NULL
+RETURN cf.name AS caller_method,
+       ct.name AS callee_method,
+       coalesce(cf.file, '') AS caller_file,
+       coalesce(ct.file, '') AS callee_file,
+       m.name AS module_name
+LIMIT 80
+""".strip()
+
+
 _ENUMS_CY = """
 MATCH (m:Module)-[:CONTAINS]->(c)
 WHERE m.name IN $names AND (c:Enum OR c.is_constant = true)
@@ -48,6 +61,17 @@ WHERE m.name IN $names AND f.code_snippet IS NOT NULL AND f.code_snippet <> ''
 RETURN f.name AS func_name, left(f.code_snippet, 600) AS snippet,
        coalesce(f.file, '') AS file_path, coalesce(f.start_line, 0) AS start_line
 LIMIT 10
+""".strip()
+
+_CHUNK_SNIPPETS_CY = """
+MATCH (m:Module)-[:CONTAINS*1..3]->(e)<-[:PART_OF]-(c:Chunk)
+WHERE m.name IN $names AND c.text IS NOT NULL AND c.text <> ''
+RETURN e.name AS entity_name, left(c.text, 800) AS snippet,
+       coalesce(c.file, coalesce(e.file, '')) AS file_path,
+       coalesce(c.start_line, coalesce(e.start_line, 0)) AS start_line,
+       coalesce(c.end_line, coalesce(e.end_line, 0)) AS end_line
+ORDER BY c.chunk_index
+LIMIT 15
 """.strip()
 
 _MAX_CALL_CHAIN_DEPTH = 5
@@ -278,28 +302,88 @@ class ContentContextBuilder:
             or not hasattr(self._graph, "execute_query")
         ):
             return []
+
+        module_task = self._graph.execute_query(
+            _call_chain_cypher(depth),
+            {"names": module_names},
+        )
+        method_task = self._graph.execute_query(
+            _METHOD_CALL_CHAIN_CY,
+            {"names": module_names},
+        )
+
         try:
-            result = await self._graph.execute_query(
-                _call_chain_cypher(depth),
-                {"names": module_names},
+            module_result, method_result = await asyncio.gather(
+                module_task, method_task, return_exceptions=True,
             )
         except Exception:
             log.warning("graph_call_chains_query_failed", exc_info=True)
             return []
-        rows = getattr(result, "data", None) or []
+
+        method_rows: list[dict] = []
+        if isinstance(method_result, BaseException):
+            log.debug("method_call_chain_query_failed", error=repr(method_result))
+        else:
+            method_rows = [
+                r for r in (getattr(method_result, "data", None) or [])
+                if isinstance(r, dict)
+            ]
+
+        if isinstance(module_result, BaseException):
+            log.warning("graph_call_chains_query_failed", error=repr(module_result))
+            module_rows: list[dict] = []
+        else:
+            module_rows = [
+                r for r in (getattr(module_result, "data", None) or [])
+                if isinstance(r, dict)
+            ]
+
         steps: list[CallChainStep] = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            steps.append(
-                CallChainStep(
-                    caller=str(row.get("caller", "") or ""),
-                    callee=str(row.get("callee", "") or ""),
-                    caller_method="",
-                    callee_method="",
-                    relationship="CALLS",
-                ),
-            )
+
+        if module_rows:
+            method_map: dict[tuple[str, str], tuple[str, str]] = {}
+            for row in method_rows:
+                cm = str(row.get("caller_method", "") or "")
+                ce = str(row.get("callee_method", "") or "")
+                cf = str(row.get("caller_file", "") or "")
+                ctf = str(row.get("callee_file", "") or "")
+                if cm and ce:
+                    method_map.setdefault((cf, ctf), (cm, ce))
+
+            for row in module_rows:
+                caller = str(row.get("caller", "") or "")
+                callee = str(row.get("callee", "") or "")
+                cm, ce = "", ""
+                for (_, _), (m1, m2) in method_map.items():
+                    if m1 and m2:
+                        cm, ce = m1, m2
+                        break
+                steps.append(
+                    CallChainStep(
+                        caller=caller, callee=callee,
+                        caller_method=cm, callee_method=ce,
+                        relationship="CALLS",
+                    ),
+                )
+        elif method_rows:
+            seen: set[tuple[str, str]] = set()
+            for row in method_rows:
+                cm = str(row.get("caller_method", "") or "")
+                ce = str(row.get("callee_method", "") or "")
+                mod = str(row.get("module_name", "") or "")
+                if not cm or not ce or cm == ce or (cm, ce) in seen:
+                    continue
+                seen.add((cm, ce))
+                steps.append(
+                    CallChainStep(
+                        caller=f"{mod}.{cm}" if mod else cm,
+                        callee=ce,
+                        caller_method=cm,
+                        callee_method=ce,
+                        relationship="CALLS",
+                    ),
+                )
+
         return steps
 
     async def _query_key_snippets(self, module_names: list[str]) -> list[str]:
@@ -309,25 +393,60 @@ class ContentContextBuilder:
             or not hasattr(self._graph, "execute_query")
         ):
             return []
+
+        snippet_task = self._graph.execute_query(
+            _SNIPPETS_CY, {"names": module_names},
+        )
+        chunk_task = self._graph.execute_query(
+            _CHUNK_SNIPPETS_CY, {"names": module_names},
+        )
+
         try:
-            result = await self._graph.execute_query(
-                _SNIPPETS_CY, {"names": module_names},
+            snippet_result, chunk_result = await asyncio.gather(
+                snippet_task, chunk_task, return_exceptions=True,
             )
         except Exception:
             log.warning("graph_snippets_query_failed", exc_info=True)
             return []
-        rows = getattr(result, "data", None) or []
+
         out: list[str] = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            func_name = str(row.get("func_name", "") or "")
-            snippet = str(row.get("snippet", "") or "").strip()
-            file_path = str(row.get("file_path", "") or "")
-            line = int(row.get("start_line") or 0)
-            if snippet:
-                header = f"// {func_name} @ {file_path}:{line}" if file_path else f"// {func_name}"
-                out.append(f"{header}\n{snippet}")
+
+        if not isinstance(snippet_result, BaseException):
+            for row in getattr(snippet_result, "data", None) or []:
+                if not isinstance(row, dict):
+                    continue
+                func_name = str(row.get("func_name", "") or "")
+                snippet = str(row.get("snippet", "") or "").strip()
+                file_path = str(row.get("file_path", "") or "")
+                line = int(row.get("start_line") or 0)
+                if snippet:
+                    header = f"// {func_name} @ {file_path}:{line}" if file_path else f"// {func_name}"
+                    out.append(f"{header}\n{snippet}")
+
+        if not out and not isinstance(chunk_result, BaseException):
+            for row in getattr(chunk_result, "data", None) or []:
+                if not isinstance(row, dict):
+                    continue
+                entity_name = str(row.get("entity_name", "") or "")
+                snippet = str(row.get("snippet", "") or "").strip()
+                file_path = str(row.get("file_path", "") or "")
+                start_line = int(row.get("start_line") or 0)
+                end_line = int(row.get("end_line") or 0)
+                if snippet:
+                    loc = f"{file_path}:{start_line}-{end_line}" if file_path else ""
+                    header = f"// {entity_name} @ {loc}" if loc else f"// {entity_name}"
+                    out.append(f"{header}\n{snippet}")
+                if len(out) >= _MAX_KEY_SNIPPETS:
+                    break
+
+        if not out and not isinstance(chunk_result, BaseException):
+            log.debug(
+                "no_code_snippets_found",
+                module_names=module_names[:3],
+                snippet_result_type=type(snippet_result).__name__,
+                chunk_result_type=type(chunk_result).__name__,
+            )
+
         return out
 
     async def _query_enums_constants(self, module_names: list[str]) -> list[dict]:
@@ -381,7 +500,7 @@ class ContentContextBuilder:
                     continue
                 uid = str(mod_dict.get("uid", "") or f"Module::{mod_name}:0")
                 role = str(entity_roles.get(uid, "supporting"))
-                if role not in ("has_business_logic", "entry_point"):
+                if role in ("framework_noise", "data_model"):
                     continue
                 props = mod_dict.get("properties", {}) or {}
                 if not isinstance(props, dict):

@@ -130,7 +130,11 @@ async def classify_domains_node(
     )
 
     planner = CrossRepoBusinessDomainPlanner(llm)
-    domain_mapping = await planner.classify(business_id, biz_modules)
+    is_incremental = state.get("is_incremental", False)
+    if is_incremental:
+        domain_mapping = await planner.classify_incremental(business_id, biz_modules)
+    else:
+        domain_mapping = await planner.classify(business_id, biz_modules)
 
     graph_store = (config or {}).get("configurable", {}).get("graph_store")
     if graph_store is not None:
@@ -960,7 +964,20 @@ async def _compose_single_leaf_domain(
                             page=page_dict.get("title"),
                             exc_info=True,
                         )
+            from wiki.source_ref_validator import sanitize_wiki_content
+
+            known_entities = [
+                {
+                    "name": e.name,
+                    "repository": e.repository,
+                    "file_path": e.file_path,
+                    "start_line": max(m.start_line for m in e.methods) if e.methods else 0,
+                }
+                for e in context.biz_entities
+            ]
             for page_dict in pages:
+                raw_content = page_dict.get("content", "")
+                page_dict["content"] = sanitize_wiki_content(raw_content, known_entities)
                 page_dict["covered_entity_uids"] = covered_entity_uids
             return pages, [p.get("path", "") for p in pages]
         except Exception:
@@ -978,7 +995,7 @@ async def _compose_single_leaf_domain(
             role = entity_roles.get(uid, "supporting")
             props = mod_dict.get("properties", {})
 
-            if str(role) in ("has_business_logic", "entry_point"):
+            if str(role) not in ("framework_noise", "data_model"):
                 biz_entities.append({
                     "uid": uid,
                     "name": mod_name,
@@ -1078,7 +1095,20 @@ async def _compose_single_leaf_domain(
                         page=page_dict.get("title"),
                         exc_info=True,
                     )
+        from wiki.source_ref_validator import sanitize_wiki_content
+
+        known_ents = [
+            {
+                "name": e.get("name", ""),
+                "repository": e.get("repository", ""),
+                "file_path": e.get("file_path", ""),
+                "start_line": 0,
+            }
+            for e in biz_entities
+        ]
         for page_dict in pages:
+            raw_content = page_dict.get("content", "")
+            page_dict["content"] = sanitize_wiki_content(raw_content, known_ents)
             page_dict["covered_entity_uids"] = covered_entity_uids
         return pages, [p.get("path", "") for p in pages]
     except Exception:

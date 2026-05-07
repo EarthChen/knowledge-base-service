@@ -262,6 +262,8 @@ class GitManager:
                 "pre_head": pre_head_sha,
             }
 
+        await self._restore_worktree(local_path, repo_name)
+
         already_up_to_date = "Already up to date" in stdout
         status = "up_to_date" if already_up_to_date else "pulled"
 
@@ -273,3 +275,39 @@ class GitManager:
             "detail": stdout[:200],
             "pre_head": pre_head_sha,
         }
+
+    async def _restore_worktree(
+        self, local_path: Path, repo_name: str
+    ) -> None:
+        """Detect and restore files deleted from the working tree but tracked by HEAD."""
+        rc, stdout, _ = await self._run_git(
+            ["status", "--porcelain"],
+            cwd=str(local_path),
+            timeout=30,
+        )
+        if rc != 0 or not stdout:
+            return
+        deleted = [
+            line[3:] for line in stdout.splitlines()
+            if line.startswith(" D ") or line.startswith("D  ")
+        ]
+        if not deleted:
+            return
+        log.warning(
+            "git_worktree_deleted_files_detected",
+            repo=repo_name,
+            deleted_count=len(deleted),
+        )
+        rc2, _, err = await self._run_git(
+            ["checkout", "--", "."],
+            cwd=str(local_path),
+            timeout=60,
+        )
+        if rc2 == 0:
+            log.info(
+                "git_worktree_restored",
+                repo=repo_name,
+                restored_count=len(deleted),
+            )
+        else:
+            log.warning("git_worktree_restore_failed", repo=repo_name, error=err[:300])

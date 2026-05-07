@@ -1041,6 +1041,8 @@ class WikiService:
             all_modules=all_modules,
             llm=llm_port,
             is_incremental=incremental and bool(skipped_repos),
+            graph_store=self._store,
+            wiki_store=self._wiki_store,
         )
         domain_mapping = pipeline_result.domain_mapping
         domain_tree = pipeline_result.domain_tree
@@ -1180,6 +1182,16 @@ class WikiService:
         if all_pages:
             await self._persist_pages_to_graph(business_id, all_pages, language=language)
 
+            current_paths = [p.path for p in all_pages]
+            deleted = await self._persistence.cleanup_stale_wiki_pages(business_id, current_paths)
+            if deleted > 0:
+                log.info(
+                    "stale_domain_pages_cleaned",
+                    business_id=business_id,
+                    deleted=deleted,
+                    incremental=incremental,
+                )
+
         await self._persist_resolved_pipeline_wikilinks(
             business_id, all_pages, pipeline_result.resolved_links,
         )
@@ -1268,6 +1280,13 @@ class WikiService:
                 business_id=business_id,
                 reason="business_wiki_skip_repo_pages=True",
             )
+
+        await self._persistence.cleanup_stale_domain_edges(
+            business_id, domain_names,
+        )
+        await self._persistence.cleanup_stale_domain_sections(
+            business_id, domain_names,
+        )
 
         await self._link_pages_to_tree(
             business_id, domain_mapping, list(all_modules.keys()), tree_builder,

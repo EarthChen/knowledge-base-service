@@ -1038,6 +1038,34 @@ async def _compose_single_leaf_domain(
                             page=page_dict.get("title"),
                             exc_info=True,
                         )
+            import re as _re
+
+            _ctx_gap_re = _re.compile(r"<!--\s*CONTEXT_GAP:")
+            if llm and graph_store:
+                for page_dict in pages:
+                    raw = page_dict.get("content", "")
+                    gap_count = len(_ctx_gap_re.findall(raw))
+                    if gap_count > 0:
+                        try:
+                            from wiki.page_agent import WikiPageAgent
+
+                            agent = WikiPageAgent(llm, graph_store)
+                            enriched = await agent.enrich(
+                                raw, domain_name=domain_name,
+                            )
+                            page_dict["content"] = enriched
+                            log.info(
+                                "agent_enrichment_applied",
+                                domain=domain_name,
+                                gaps=gap_count,
+                            )
+                        except Exception:
+                            log.warning(
+                                "agent_enrichment_failed",
+                                domain=domain_name,
+                                exc_info=True,
+                            )
+
             from wiki.source_ref_validator import sanitize_wiki_content
 
             known_entities = [

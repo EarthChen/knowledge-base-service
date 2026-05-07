@@ -1,7 +1,7 @@
 # 提案: Wiki生成流水线上下文增强策略
 
 **日期**: 2026-05-07  
-**状态**: Phase 1-3A Implemented  
+**状态**: Phase 1-3B Implemented (Native API Migration Complete)  
 **背景**: 当前wiki生成流水线在上下文不足时无法自主补充，导致生成内容缺少外部接口逻辑和跨服务调用关系。
 
 ---
@@ -232,3 +232,50 @@ Phase 4 (索引增强) 是 Phase 2/3 的数据质量前提，但非阻塞依赖�
 3. **Working Memory 模式**: 每轮 tool 结果通过规则化提炼写入 `WorkingMemory`（而非堆积原始消息），总量控制在 6000 字符内，确保上下文不线性膨胀
 4. **Fallback**: MAX_ROUNDS=5 后调用 `generate()` 兜底，所有 tool 失败时返回原始页面内容
 5. **集成**: 在 `_compose_single_leaf_domain` 中，页面生成后、sanitize 之前，检测 CONTEXT_GAP 标记并触发 Agent enrichment
+
+### Phase 3B 实施结果: Native API 全面迁移 (2026-05-07)
+
+**目标**: 将所有 LLM JSON 输出从 `generate()` + 手动解析迁移到 `complete_json()` 结构化输出，将适用组件迁移到原生 Tool-Calling API。
+
+**LLM Provider 扩展**
+
+1. **`llm/provider.py`**: `LLMProvider` 新增 `complete_json()` 方法 (`response_format: json_object`)
+2. **`wiki/llm_port.py`**: `LLMPort` Protocol 新增 `complete_json()` 签名
+3. **`llm/base_provider.py`**: `LLMPortBridge` 新增 `complete_json()` 转发
+4. **`wiki/model_strategy.py`**: `_LLMPortWithDefault` 新增 `complete_json()` 注入默认模型
+
+**Phase B1: 质量/声明/矛盾/治愈组件 (4 组件)**
+
+- `wiki/quality_evaluator.py`: `llm_judge_evaluate` 改用 `complete_json`
+- `wiki/claim_extractor.py`: `extract_claims` 改用 `complete_json`（prompt 从数组改为 `{"claims": [...]}`）
+- `wiki/contradiction_detector.py`: `_maybe_flag_pair` 改用 `complete_json`
+- `wiki/targeted_healer.py`: `heal` 改用 `complete_json`
+
+**Phase B2: 域分类 + 主题规划 (3 组件)**
+
+- `wiki/business_domain_planner.py`: `_classify_single_batch` 改用 `complete_json`
+- `wiki/topic_structure_planner.py`: `plan` 改用 `complete_json`（prompt 从数组改为 `{"topics": [...]}`）
+- `wiki/cross_repo_domain_planner.py`: 5 个方法均改用 `complete_json`
+
+**Phase B3: Pipeline 节点 + 其他组件 (5 组件)**
+
+- `wiki/pipeline_nodes.py`: `compose_parent_pages_node` 和 `_generate_single_module_summary` 改用 `complete_json`
+- `wiki/context.py`: `WikiContextBuilder.build_glossary` 改用 `complete_json`
+- `wiki/reasoning.py`: `MultiStepReasoner._plan_structure` 改用 `complete_json`
+- `wiki/structure_planner.py`: `_semantic_group_modules` 改用 `complete_json`（数组包裹为 `{"groups": [...]}`）
+
+**Phase A1: NL-Cypher 原生 Tool-Calling**
+
+- `query/nl_cypher.py`: `_generate_cypher` 和 `_fix_cypher` 改用 `complete_with_tools`
+- 定义 `_CYPHER_TOOL` schema，LLM 通过结构化参数返回 Cypher 查询，消除 `_extract_cypher` 文本解析
+- 保留 `complete()` + `_extract_cypher()` 作为 fallback
+
+**Phase A2: RAG Engine 结构化输出**
+
+- `wiki/rag/engine.py`: `generate_draft`、`plan`、`evaluate` 三个节点改用 `complete_json`
+- 新增 `_complete_reflection_dict()` 共享帮助函数
+- 保留 `_parse_reflection()` 作为 fallback
+
+**统一改造模式**: 所有组件使用 `hasattr(llm, "complete_json")` / `hasattr(llm, "complete_with_tools")` 安全检查，保持向后兼容。
+
+**回归测试**: 2739 个测试全部通过

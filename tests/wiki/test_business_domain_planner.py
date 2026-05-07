@@ -15,7 +15,7 @@ def _make_module(name: str, summary: str = "") -> GraphNode:
 @pytest.mark.asyncio
 async def test_classify_with_llm():
     """With LLM, modules should be classified into business domains."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(return_value='{"用户管理": ["user_service", "auth_module"], "__infrastructure__": ["utils"]}')
     planner = BusinessDomainPlanner(llm)
     modules = [
@@ -41,7 +41,7 @@ async def test_classify_without_llm():
 @pytest.mark.asyncio
 async def test_classify_llm_failure_degrades():
     """LLM failure should degrade to all-infrastructure classification."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(side_effect=Exception("LLM error"))
     planner = BusinessDomainPlanner(llm)
     modules = [_make_module("user_service"), _make_module("utils")]
@@ -53,7 +53,7 @@ async def test_classify_llm_failure_degrades():
 @pytest.mark.asyncio
 async def test_classify_empty_modules():
     """Empty module list should return empty result."""
-    planner = BusinessDomainPlanner(llm=AsyncMock())
+    planner = BusinessDomainPlanner(llm=AsyncMock(spec=["generate"]))
     result = await planner.classify("test-repo", [])
     assert result == {}
 
@@ -61,7 +61,7 @@ async def test_classify_empty_modules():
 @pytest.mark.asyncio
 async def test_classify_llm_invalid_json_degrades():
     """Invalid LLM JSON response should degrade gracefully."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(return_value="This is not JSON")
     planner = BusinessDomainPlanner(llm)
     modules = [_make_module("user_service")]
@@ -81,7 +81,7 @@ async def test_classify_custom_infrastructure_label():
 @pytest.mark.asyncio
 async def test_classify_unclassified_modules_go_to_infrastructure():
     """Modules not in LLM output should be added to infrastructure."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(return_value='{"用户管理": ["user_service"]}')
     planner = BusinessDomainPlanner(llm)
     modules = [
@@ -97,7 +97,7 @@ async def test_classify_unclassified_modules_go_to_infrastructure():
 @pytest.mark.asyncio
 async def test_classify_large_repo_splits_into_batches():
     """When modules exceed sub_batch_size, multiple LLM calls should be made concurrently."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(
         side_effect=[
             '{"用户域": ["mod_0", "mod_1", "mod_2"]}',
@@ -115,7 +115,7 @@ async def test_classify_large_repo_splits_into_batches():
 @pytest.mark.asyncio
 async def test_classify_batch_failure_isolates_to_infrastructure():
     """If one batch fails, its modules go to infrastructure; other batches succeed."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(
         side_effect=[
             '{"域A": ["mod_0", "mod_1"]}',
@@ -136,7 +136,7 @@ async def test_classify_batch_failure_isolates_to_infrastructure():
 @pytest.mark.asyncio
 async def test_classify_merges_same_domain_across_batches():
     """Same domain name across batches should merge module lists."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(
         side_effect=[
             '{"用户域": ["mod_0", "mod_1"]}',
@@ -152,7 +152,7 @@ async def test_classify_merges_same_domain_across_batches():
 @pytest.mark.asyncio
 async def test_classify_all_batches_fail_degrades_to_infrastructure():
     """If all batches fail, all modules go to infrastructure."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(side_effect=RuntimeError("LLM down"))
     planner = BusinessDomainPlanner(llm)
     modules = [_make_module(f"mod_{i}") for i in range(5)]
@@ -164,7 +164,7 @@ async def test_classify_all_batches_fail_degrades_to_infrastructure():
 @pytest.mark.asyncio
 async def test_classify_small_repo_single_batch_unchanged():
     """Modules within sub_batch_size should still use a single LLM call (regression guard)."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(return_value='{"域X": ["a", "b"]}')
     planner = BusinessDomainPlanner(llm)
     modules = [_make_module("a"), _make_module("b")]

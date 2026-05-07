@@ -41,21 +41,40 @@ class TopicBasedStructurePlanner:
         target_pages: tuple[int, int] = (40, 80),
     ) -> list[TopicPage]:
         prompt = self._build_prompt(domain_mapping, module_metadata, importance_tiers, target_pages)
-        system = "Respond with valid JSON only: a single JSON array. No markdown fences or explanation."
+        system = (
+            'Respond with valid JSON only: a single JSON object of the form {"topics": [...]} '
+            "where \"topics\" is the array of topic objects described in the user message. "
+            "No markdown fences or explanation."
+        )
 
+        llm_raw: str | None = None
         try:
-            raw = await self._llm.generate(prompt, system=system)
+            if hasattr(self._llm, "complete_json"):
+                messages = [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ]
+                try:
+                    parsed = await self._llm.complete_json(messages, {})
+                except (ValueError, Exception) as exc:
+                    log.warning("topic_planner_llm_failed", error=str(exc)[:200])
+                    return self._fallback(domain_mapping)
+                parsed_list = parsed.get("topics") if isinstance(parsed, dict) else parsed
+            else:
+                llm_raw = await self._llm.generate(prompt, system=system)
+                parsed = parse_json_robust_sync(llm_raw)
+                parsed_list = parsed
         except Exception as exc:
             log.warning("topic_planner_llm_failed", error=str(exc)[:200])
             return self._fallback(domain_mapping)
 
-        parsed = parse_json_robust_sync(raw)
-        if not isinstance(parsed, list):
-            log.warning("topic_planner_parse_failed", raw_preview=str(raw)[:200])
+        if not isinstance(parsed_list, list):
+            raw_preview = llm_raw[:200] if llm_raw is not None else str(parsed_list)[:200]
+            log.warning("topic_planner_parse_failed", raw_preview=raw_preview)
             return self._fallback(domain_mapping)
 
         try:
-            pages = self._parse_pages(parsed)
+            pages = self._parse_pages(parsed_list)
         except (TypeError, KeyError, ValueError) as exc:
             log.warning("topic_planner_validation_failed", error=str(exc)[:200])
             return self._fallback(domain_mapping)
@@ -103,6 +122,16 @@ class TopicBasedStructurePlanner:
         domains_text = "\n".join(domain_lines)
         min_pages, max_pages = target_pages
 
+        has_chinese_domains = any(
+            any("\u4e00" <= c <= "\u9fff" for c in domain)
+            for domain in domain_mapping
+        )
+        lang_rule = (
+            "9. Topic titles and descriptions MUST be in Chinese (简体中文), "
+            "matching the domain names language.\n"
+            if has_chinese_domains else ""
+        )
+
         return (
             "Based on the following business domain classification, plan a Wiki structure.\n\n"
             "Rules:\n"
@@ -116,9 +145,12 @@ class TopicBasedStructurePlanner:
             "Do NOT invent capabilities (e.g., 'Analytics', 'Monitoring', 'Dashboard') that have NO corresponding modules. "
             "If a domain has only 1-2 handler modules, the topic should describe what those handlers actually do, "
             "not speculate about broader infrastructure.\n"
-            "8. Each topic's description MUST be derivable from the module summaries listed under it.\n\n"
+            "8. Each topic's description MUST be derivable from the module summaries listed under it.\n"
+            f"{lang_rule}\n"
             f"Domains:\n{domains_text}\n\n"
-            'Output JSON: array of {title, description, modules: [[repo, name], ...], sub_topics: [...]}'
+            'Output JSON: an object {"topics": [<array of {title, description, '
+            "modules: [[repo, name], ...], sub_topics: [...]}>]}. "
+            'The root must be a JSON object with key "topics".'
         )
 
     def _parse_pages(self, data: list[Any]) -> list[TopicPage]:

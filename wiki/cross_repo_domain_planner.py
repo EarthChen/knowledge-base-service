@@ -337,8 +337,23 @@ class CrossRepoBusinessDomainPlanner:
             '  "reclassify_domains": ["DomainNameThatNeedsReorg"]\n'
             "}"
         )
-        raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
-        parsed = parse_json_robust_sync(raw)
+        if hasattr(self._llm, "complete_json"):
+            messages = [
+                {"role": "system", "content": SYSTEM_JSON_ONLY},
+                {"role": "user", "content": prompt},
+            ]
+            try:
+                parsed = await self._llm.complete_json(messages, {})
+            except (ValueError, Exception):
+                log.warning(
+                    "cross_repo_triage_complete_json_failed",
+                    business_id=business_id,
+                    exc_info=True,
+                )
+                raise
+        else:
+            raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
+            parsed = parse_json_robust_sync(raw)
         if not isinstance(parsed, dict):
             raise ValueError(f"LLM triage response is not a valid JSON object: {raw[:200]}")
 
@@ -421,8 +436,19 @@ class CrossRepoBusinessDomainPlanner:
             'Example: {"ModuleA": "ExistingDomain", "ModuleB": "NewDomainName"}'
         )
         try:
-            raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
-            parsed = parse_json_robust_sync(raw)
+            if hasattr(self._llm, "complete_json"):
+                messages = [
+                    {"role": "system", "content": SYSTEM_JSON_ONLY},
+                    {"role": "user", "content": prompt},
+                ]
+                try:
+                    parsed = await self._llm.complete_json(messages, {})
+                except (ValueError, Exception):
+                    log.warning("classify_remaining_failed", exc_info=True)
+                    return {p: self._infrastructure_label for p in unassigned}
+            else:
+                raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
+                parsed = parse_json_robust_sync(raw)
         except Exception:
             log.warning("classify_remaining_failed", exc_info=True)
             return {p: self._infrastructure_label for p in unassigned}
@@ -478,8 +504,25 @@ class CrossRepoBusinessDomainPlanner:
             "Return ONLY valid JSON: an object whose keys are domain names and whose "
             "values are arrays of [repository_id, module_name] pairs."
         )
-        raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
-        parsed = self._parse_cross_repo_map(raw)
+        if hasattr(self._llm, "complete_json"):
+            messages = [
+                {"role": "system", "content": SYSTEM_JSON_ONLY},
+                {"role": "user", "content": prompt},
+            ]
+            try:
+                data = await self._llm.complete_json(messages, {})
+            except (ValueError, Exception):
+                log.warning(
+                    "reclassify_affected_domains_complete_json_failed",
+                    business_id=business_id,
+                    exc_info=True,
+                )
+                parsed = {}
+            else:
+                parsed = self._cross_repo_map_from_dict(data)
+        else:
+            raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
+            parsed = self._parse_cross_repo_map(raw)
         if not parsed:
             original: dict[str, list[tuple[str, str]]] = {}
             for dn in affected_domain_names:
@@ -532,8 +575,24 @@ class CrossRepoBusinessDomainPlanner:
         assert self._llm is not None
         valid_pairs = set(pairs_in_order)
         prompt = self._build_single_batch_prompt(business_id, pairs_in_order)
-        raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
-        parsed = self._parse_cross_repo_map(raw)
+        if hasattr(self._llm, "complete_json"):
+            messages = [
+                {"role": "system", "content": SYSTEM_JSON_ONLY},
+                {"role": "user", "content": prompt},
+            ]
+            try:
+                data = await self._llm.complete_json(messages, {})
+            except (ValueError, Exception):
+                log.warning(
+                    "cross_repo_single_batch_complete_json_failed",
+                    business_id=business_id,
+                    exc_info=True,
+                )
+                return self._all_infrastructure(pairs_in_order)
+            parsed = self._cross_repo_map_from_dict(data)
+        else:
+            raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
+            parsed = self._parse_cross_repo_map(raw)
         if not parsed:
             return self._all_infrastructure(pairs_in_order)
         return self._merge_llm_assignment(parsed, valid_pairs, pairs_in_order)
@@ -561,8 +620,25 @@ class CrossRepoBusinessDomainPlanner:
 
         try:
             prompt = self._build_lightweight_merge_prompt(business_id, per_repo)
-            raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
-            mapping = self._parse_domain_name_mapping(raw)
+            if hasattr(self._llm, "complete_json"):
+                messages = [
+                    {"role": "system", "content": SYSTEM_JSON_ONLY},
+                    {"role": "user", "content": prompt},
+                ]
+                try:
+                    merge_data = await self._llm.complete_json(messages, {})
+                except (ValueError, Exception):
+                    log.warning(
+                        "cross_repo_lightweight_merge_json_failed",
+                        business_id=business_id,
+                        exc_info=True,
+                    )
+                    mapping = None
+                else:
+                    mapping = self._domain_name_mapping_from_dict(merge_data)
+            else:
+                raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
+                mapping = self._parse_domain_name_mapping(raw)
             if mapping:
                 return self._apply_domain_name_mapping(mapping, per_repo, valid_pairs, pairs_in_order)
         except Exception:
@@ -644,11 +720,28 @@ class CrossRepoBusinessDomainPlanner:
             "Every per-repo domain name must appear exactly once."
         )
 
-    def _parse_domain_name_mapping(
-        self,
-        raw: str,
-    ) -> dict[str, dict[str, str]] | None:
-        data = parse_json_robust_sync(raw)
+    @staticmethod
+    def _cross_repo_map_from_dict(data: Any) -> dict[str, list[tuple[str, str]]]:
+        if not isinstance(data, dict):
+            return {}
+        out: dict[str, list[tuple[str, str]]] = {}
+        for k, v in data.items():
+            if not isinstance(k, str):
+                continue
+            if not isinstance(v, list):
+                continue
+            pairs: list[tuple[str, str]] = []
+            for item in v:
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    a, b = item
+                    if isinstance(a, str) and isinstance(b, str) and a and b:
+                        pairs.append((a, b))
+            if pairs:
+                out[k] = pairs
+        return out
+
+    @staticmethod
+    def _domain_name_mapping_from_dict(data: Any) -> dict[str, dict[str, str]] | None:
         if not isinstance(data, dict):
             return None
         result: dict[str, dict[str, str]] = {}
@@ -662,6 +755,13 @@ class CrossRepoBusinessDomainPlanner:
             if clean_map:
                 result[unified_name] = clean_map
         return result if result else None
+
+    def _parse_domain_name_mapping(
+        self,
+        raw: str,
+    ) -> dict[str, dict[str, str]] | None:
+        data = parse_json_robust_sync(raw)
+        return self._domain_name_mapping_from_dict(data)
 
     def _apply_domain_name_mapping(
         self,
@@ -713,23 +813,7 @@ class CrossRepoBusinessDomainPlanner:
 
     def _parse_cross_repo_map(self, raw: str) -> dict[str, list[tuple[str, str]]]:
         data = parse_json_robust_sync(raw)
-        if not isinstance(data, dict):
-            return {}
-        out: dict[str, list[tuple[str, str]]] = {}
-        for k, v in data.items():
-            if not isinstance(k, str):
-                continue
-            if not isinstance(v, list):
-                continue
-            pairs: list[tuple[str, str]] = []
-            for item in v:
-                if isinstance(item, (list, tuple)) and len(item) == 2:
-                    a, b = item
-                    if isinstance(a, str) and isinstance(b, str) and a and b:
-                        pairs.append((a, b))
-            if pairs:
-                out[k] = pairs
-        return out
+        return self._cross_repo_map_from_dict(data)
 
     def _merge_llm_assignment(
         self,

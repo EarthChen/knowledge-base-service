@@ -208,15 +208,32 @@ class BusinessDomainPlanner:
     ) -> dict[str, list[str]]:
         metadata = self._collect_metadata(modules)
         prompt = self._build_prompt(repository_id, metadata)
-        raw = (
-            await self._llm.generate(
-                prompt, system=SYSTEM_JSON_ONLY,
-            )
-        ).strip()
-        parsed = parse_json_robust_sync(raw)
-        if not parsed or not isinstance(parsed, dict):
-            log.warning("domain_classify_json_parse_failed", repository=repository_id)
-            return self._all_infrastructure(names_in_order)
+        if hasattr(self._llm, "complete_json"):
+            messages = [
+                {"role": "system", "content": SYSTEM_JSON_ONLY},
+                {"role": "user", "content": prompt},
+            ]
+            try:
+                parsed = await self._llm.complete_json(messages, {})
+            except (ValueError, Exception):
+                log.warning(
+                    "domain_classify_json_parse_failed",
+                    repository=repository_id,
+                    exc_info=True,
+                )
+                return self._all_infrastructure(names_in_order)
+            if not isinstance(parsed, dict):
+                return self._all_infrastructure(names_in_order)
+        else:
+            raw = (
+                await self._llm.generate(
+                    prompt, system=SYSTEM_JSON_ONLY,
+                )
+            ).strip()
+            parsed = parse_json_robust_sync(raw)
+            if not parsed or not isinstance(parsed, dict):
+                log.warning("domain_classify_json_parse_failed", repository=repository_id)
+                return self._all_infrastructure(names_in_order)
         domain_map = self._validate_domain_map(parsed)
         if not domain_map:
             return self._all_infrastructure(names_in_order)
@@ -267,7 +284,9 @@ class BusinessDomainPlanner:
     def _build_prompt(self, repository_id: str, metadata: list[dict[str, str]]) -> str:
         return (
             "Classify the following repository modules into business domains.\n"
-            "Use short, human-readable domain names (e.g. product areas).\n"
+            "Use short Chinese business domain names that describe capabilities "
+            "(e.g. '礼物订单', 'IM消息', '用户关系', '直播互动').\n"
+            "NEVER use code identifiers (class names, method names) as domain names.\n"
             "Place shared utilities, cross-cutting helpers, or generic support modules under "
             f'the domain key "{self._infrastructure_label}" when appropriate.\n\n'
             f"Repository: {repository_id}\n\n"

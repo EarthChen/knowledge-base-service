@@ -21,7 +21,7 @@ def _make_module(name: str, summary: str = "", docstring: str = "") -> GraphNode
 @pytest.mark.asyncio
 async def test_classify_small_batch_single_llm_call():
     """When total modules <= batch_threshold, one LLM call classifies all repos."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(
         return_value=(
             '{"支付域": [["repo-a", "billing"], ["repo-b", "payments"]], '
@@ -46,7 +46,7 @@ async def test_classify_small_batch_single_llm_call():
 @pytest.mark.asyncio
 async def test_classify_large_batch_splits_by_repo():
     """When total modules > batch_threshold, per-repo planner runs then one merge LLM call."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(
         side_effect=[
             '{"域A": ["a1"], "__infrastructure__": ["a2"]}',
@@ -87,7 +87,7 @@ async def test_classify_without_llm_all_infrastructure():
 @pytest.mark.asyncio
 async def test_classify_llm_failure_degrades():
     """LLM errors degrade to all modules under infrastructure."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
     planner = CrossRepoBusinessDomainPlanner(llm)
     all_modules = {"repo-z": [_make_module("u1"), _make_module("u2")]}
@@ -98,7 +98,7 @@ async def test_classify_llm_failure_degrades():
 @pytest.mark.asyncio
 async def test_classify_empty_repos():
     """No modules anywhere yields an empty dict."""
-    planner = CrossRepoBusinessDomainPlanner(llm=AsyncMock())
+    planner = CrossRepoBusinessDomainPlanner(llm=AsyncMock(spec=["generate"]))
     assert await planner.classify("biz-5", {}) == {}
     assert await planner.classify("biz-5", {"r": []}) == {}
 
@@ -106,7 +106,7 @@ async def test_classify_empty_repos():
 @pytest.mark.asyncio
 async def test_classify_unclassified_modules_go_to_infra():
     """Pairs absent from the LLM JSON are bucketed into infrastructure."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(
         return_value='{"核心": [["repo-p", "seen"]]}'
     )
@@ -123,7 +123,7 @@ async def test_classify_unclassified_modules_go_to_infra():
 @pytest.mark.asyncio
 async def test_classify_large_batch_forwards_sub_batch_size_and_concurrency():
     """When using multi-batch path, sub_batch_size and max_concurrency should be forwarded."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(
         side_effect=[
             '{"域A": ["a1"], "__infrastructure__": ["a2"]}',
@@ -161,7 +161,7 @@ async def test_lightweight_merge_sends_domain_names_only():
             '"Payments": {"r1": "Pay", "r2": "Pay"}}'
         )
 
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(side_effect=capture_generate)
 
     planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=2)
@@ -195,7 +195,7 @@ async def test_merge_failure_preserves_per_repo_domains():
             return '{"Auth": ["mod1"], "Pay": ["mod2"]}'
         raise Exception("LLM merge failed")
 
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(side_effect=failing_merge)
 
     planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=2)
@@ -218,7 +218,7 @@ async def test_merge_failure_preserves_per_repo_domains():
 @pytest.mark.asyncio
 async def test_apply_domain_name_mapping_preserves_all_modules():
     """Programmatic reassignment should not lose any modules."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
 
     async def mock_generate(prompt, system=""):
         if "Classify" in prompt:

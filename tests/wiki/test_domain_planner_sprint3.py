@@ -22,7 +22,7 @@ def _make_module(name: str, summary: str = "") -> GraphNode:
 @pytest.mark.asyncio
 async def test_parse_json_robust_handles_trailing_comma():
     """JSON with trailing comma should be auto-repaired by parse_json_robust."""
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(return_value='{"auth": ["UserService",], "core": ["MainApp"]}')
 
     planner = BusinessDomainPlanner(llm)
@@ -45,7 +45,7 @@ async def test_timeout_split_retry():
             await asyncio.sleep(999)
         return json.dumps({"A": [f"mod-{i}" for i in range(modules_in_prompt)]})
 
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(side_effect=mock_generate)
 
     modules = [_make_module(f"mod-{i}") for i in range(30)]
@@ -70,7 +70,7 @@ async def test_adaptive_batch_sizer_shrinks_on_slow():
         await asyncio.sleep(0.05)
         return json.dumps({"A": [f"m{i}" for i in range(modules_in_prompt)]})
 
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(side_effect=slow_generate)
 
     modules = [_make_module(f"m{i}") for i in range(200)]

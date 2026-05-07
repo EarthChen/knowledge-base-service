@@ -97,7 +97,7 @@ async def test_generate_stream_fallback_to_generate() -> None:
 
 @pytest.mark.asyncio
 async def test_business_domain_planner_sub_batching() -> None:
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     calls: list[str] = []
 
     async def generate(prompt: str, system: str = "") -> str:
@@ -159,7 +159,7 @@ async def test_cross_repo_parallel_classification() -> None:
             )
         return json.dumps({"D": ["m"]})
 
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(side_effect=generate)
     all_modules = {
         "a": [_make_cross_module("m", "a")],
@@ -195,7 +195,7 @@ async def test_cross_repo_per_repo_timeout() -> None:
             )
         return json.dumps({"Z": []})
 
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(side_effect=generate)
     all_modules = {
         "slow-repo": [_make_cross_module("x", "slow-repo")],
@@ -210,7 +210,7 @@ async def test_cross_repo_per_repo_timeout() -> None:
 
 @pytest.mark.asyncio
 async def test_cross_repo_classification_cache() -> None:
-    llm = AsyncMock()
+    llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(
         return_value=json.dumps({"C": [["r1", "a"]]}),
     )

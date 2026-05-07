@@ -12,7 +12,7 @@ from wiki.topic_structure_planner import TopicBasedStructurePlanner, TopicPage
 
 @pytest.fixture
 def llm() -> AsyncMock:
-    return AsyncMock()
+    return AsyncMock(spec=["generate"])
 
 
 @pytest.fixture
@@ -81,7 +81,7 @@ def _valid_llm_response() -> str:
 
 @pytest.mark.asyncio
 async def test_plan_returns_topic_pages(planner: TopicBasedStructurePlanner, llm: AsyncMock) -> None:
-    llm.generate.return_value = _valid_llm_response()
+    llm.generate = AsyncMock(return_value=_valid_llm_response())
     pages = await planner.plan(DOMAIN_MAPPING, MODULE_METADATA, IMPORTANCE_TIERS)
 
     assert isinstance(pages, list)
@@ -93,7 +93,7 @@ async def test_plan_returns_topic_pages(planner: TopicBasedStructurePlanner, llm
 
 @pytest.mark.asyncio
 async def test_plan_assigns_all_modules(planner: TopicBasedStructurePlanner, llm: AsyncMock) -> None:
-    llm.generate.return_value = _valid_llm_response()
+    llm.generate = AsyncMock(return_value=_valid_llm_response())
     pages = await planner.plan(DOMAIN_MAPPING, MODULE_METADATA, IMPORTANCE_TIERS)
 
     all_modules: set[tuple[str, str]] = set()
@@ -112,7 +112,7 @@ async def test_plan_assigns_all_modules(planner: TopicBasedStructurePlanner, llm
 
 @pytest.mark.asyncio
 async def test_fallback_on_invalid_json(planner: TopicBasedStructurePlanner, llm: AsyncMock) -> None:
-    llm.generate.return_value = "not valid json at all{{"
+    llm.generate = AsyncMock(return_value="not valid json at all{{")
     pages = await planner.plan(DOMAIN_MAPPING, MODULE_METADATA, IMPORTANCE_TIERS)
 
     assert isinstance(pages, list)
@@ -125,7 +125,7 @@ async def test_fallback_on_invalid_json(planner: TopicBasedStructurePlanner, llm
 
 @pytest.mark.asyncio
 async def test_fallback_on_llm_exception(planner: TopicBasedStructurePlanner, llm: AsyncMock) -> None:
-    llm.generate.side_effect = RuntimeError("LLM down")
+    llm.generate = AsyncMock(side_effect=RuntimeError("LLM down"))
     pages = await planner.plan(DOMAIN_MAPPING, MODULE_METADATA, IMPORTANCE_TIERS)
 
     assert isinstance(pages, list)
@@ -134,7 +134,7 @@ async def test_fallback_on_llm_exception(planner: TopicBasedStructurePlanner, ll
 
 @pytest.mark.asyncio
 async def test_target_pages_passed_to_prompt(planner: TopicBasedStructurePlanner, llm: AsyncMock) -> None:
-    llm.generate.return_value = _valid_llm_response()
+    llm.generate = AsyncMock(return_value=_valid_llm_response())
     await planner.plan(DOMAIN_MAPPING, MODULE_METADATA, IMPORTANCE_TIERS, target_pages=(20, 40))
 
     prompt = llm.generate.call_args[0][0]

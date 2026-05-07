@@ -1,7 +1,8 @@
 """Tests for WikiPageAgent WorkingMemory and Agent loop."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from wiki.page_agent import WikiPageAgent, ToolResult, WorkingMemory
 
@@ -72,17 +73,17 @@ class TestWorkingMemory:
 
 
 class TestWikiPageAgent:
-    def test_no_gaps_returns_original(self):
+    @pytest.mark.asyncio
+    async def test_no_gaps_returns_original(self):
         llm = MagicMock()
         gs = MagicMock()
         agent = WikiPageAgent(llm, gs)
         content = "No gaps here. ## 业务概述\nSome content."
-        result = asyncio.get_event_loop().run_until_complete(
-            agent.enrich(content, domain_name="test")
-        )
+        result = await agent.enrich(content, domain_name="test")
         assert result == content
 
-    def test_with_gaps_calls_llm(self):
+    @pytest.mark.asyncio
+    async def test_with_gaps_calls_llm(self):
         llm = MagicMock()
         llm.complete_with_tools = AsyncMock(return_value={
             "content": "Enriched content without gaps.",
@@ -91,13 +92,12 @@ class TestWikiPageAgent:
         gs = MagicMock()
         agent = WikiPageAgent(llm, gs)
         content = "## 业务概述\n<!-- CONTEXT_GAP: missing order flow -->"
-        result = asyncio.get_event_loop().run_until_complete(
-            agent.enrich(content, domain_name="test")
-        )
+        result = await agent.enrich(content, domain_name="test")
         llm.complete_with_tools.assert_called()
         assert result == "Enriched content without gaps."
 
-    def test_max_rounds_enforced(self):
+    @pytest.mark.asyncio
+    async def test_max_rounds_enforced(self):
         llm = MagicMock()
         call_count = 0
 
@@ -115,12 +115,11 @@ class TestWikiPageAgent:
         gs.execute_query = AsyncMock(return_value=MagicMock(data=[]))
         agent = WikiPageAgent(llm, gs)
         content = "<!-- CONTEXT_GAP: x -->"
-        result = asyncio.get_event_loop().run_until_complete(
-            agent.enrich(content, domain_name="test")
-        )
+        result = await agent.enrich(content, domain_name="test")
         assert call_count <= WikiPageAgent.MAX_ROUNDS
 
-    def test_tool_execution_failure_continues(self):
+    @pytest.mark.asyncio
+    async def test_tool_execution_failure_continues(self):
         llm = MagicMock()
         call_count = 0
 
@@ -139,7 +138,5 @@ class TestWikiPageAgent:
         gs.execute_query = AsyncMock(side_effect=Exception("db down"))
         agent = WikiPageAgent(llm, gs)
         content = "<!-- CONTEXT_GAP: something -->"
-        result = asyncio.get_event_loop().run_until_complete(
-            agent.enrich(content, domain_name="test")
-        )
+        result = await agent.enrich(content, domain_name="test")
         assert result == "final result"

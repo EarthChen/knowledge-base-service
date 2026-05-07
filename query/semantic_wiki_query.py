@@ -157,7 +157,7 @@ class SemanticWikiQuery:
         self, query: str, repository: str, limit: int,
     ) -> list[WikiSearchHit]:
         if self._emb_gen is None:
-            log.warning("wiki_vector_search_skipped", reason="no_embedding_generator")
+            log.warning("wiki_vector_search_skipped reason=%s", "no_embedding_generator")
             return []
         try:
             vecs = await self._emb_gen.generate_for_query([query])

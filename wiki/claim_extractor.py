@@ -87,6 +87,9 @@ async def extract_claims(llm: Any, page_markdown: str, language: str) -> list[Ex
 
     out: list[ExtractedClaim] = []
     for item in parsed:
+        if isinstance(item, ExtractedClaim):
+            out.append(item)
+            continue
         if not isinstance(item, dict):
             continue
         try:

@@ -1,6 +1,5 @@
 """Tests for method-level call chain builder."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -17,15 +16,15 @@ def _mock_graph_store(rows: list[dict]) -> MagicMock:
 
 
 class TestCallChainBuilderBasic:
-    def test_empty_modules_returns_empty(self):
+    @pytest.mark.asyncio
+    async def test_empty_modules_returns_empty(self):
         gs = _mock_graph_store([])
         builder = CallChainBuilder(gs)
-        chains = asyncio.get_event_loop().run_until_complete(
-            builder.build_chains([]),
-        )
+        chains = await builder.build_chains([])
         assert chains == []
 
-    def test_simple_two_step_chain(self):
+    @pytest.mark.asyncio
+    async def test_simple_two_step_chain(self):
         rows = [
             {
                 "caller_method": "handleRequest",
@@ -50,9 +49,7 @@ class TestCallChainBuilderBasic:
         ]
         gs = _mock_graph_store(rows)
         builder = CallChainBuilder(gs)
-        chains = asyncio.get_event_loop().run_until_complete(
-            builder.build_chains(["OrderController", "OrderService", "OrderDAO"]),
-        )
+        chains = await builder.build_chains(["OrderController", "OrderService", "OrderDAO"])
         assert len(chains) >= 1
         longest = max(chains, key=lambda c: c.depth)
         assert longest.depth >= 2
@@ -61,7 +58,8 @@ class TestCallChainBuilderBasic:
 
 
 class TestCallChainBuilderEdgeCases:
-    def test_cycle_prevention(self):
+    @pytest.mark.asyncio
+    async def test_cycle_prevention(self):
         rows = [
             {
                 "caller_method": "a",
@@ -86,15 +84,14 @@ class TestCallChainBuilderEdgeCases:
         ]
         gs = _mock_graph_store(rows)
         builder = CallChainBuilder(gs)
-        chains = asyncio.get_event_loop().run_until_complete(
-            builder.build_chains(["M1", "M2"], max_depth=10),
-        )
+        chains = await builder.build_chains(["M1", "M2"], max_depth=10)
         for chain in chains:
             assert chain.depth <= 10
             keys = [f"{n.module_name}.{n.func_name}" for n in chain.chain]
             assert len(keys) == len(set(keys)), "cycle detected in chain"
 
-    def test_depth_limit_respected(self):
+    @pytest.mark.asyncio
+    async def test_depth_limit_respected(self):
         gs = _mock_graph_store([
             {
                 "caller_method": f"f{i}",
@@ -109,13 +106,12 @@ class TestCallChainBuilderEdgeCases:
             for i in range(20)
         ])
         builder = CallChainBuilder(gs)
-        chains = asyncio.get_event_loop().run_until_complete(
-            builder.build_chains(["M"], max_depth=3),
-        )
+        chains = await builder.build_chains(["M"], max_depth=3)
         for chain in chains:
             assert chain.depth <= 3
 
-    def test_max_chains_limit(self):
+    @pytest.mark.asyncio
+    async def test_max_chains_limit(self):
         rows = [
             {
                 "caller_method": f"entry{i}",
@@ -131,18 +127,15 @@ class TestCallChainBuilderEdgeCases:
         ]
         gs = _mock_graph_store(rows)
         builder = CallChainBuilder(gs)
-        chains = asyncio.get_event_loop().run_until_complete(
-            builder.build_chains(["M"], max_chains=5),
-        )
+        chains = await builder.build_chains(["M"], max_chains=5)
         assert len(chains) <= 5
 
-    def test_graph_store_failure_returns_empty(self):
+    @pytest.mark.asyncio
+    async def test_graph_store_failure_returns_empty(self):
         gs = MagicMock()
         gs.execute_query = AsyncMock(side_effect=Exception("db error"))
         builder = CallChainBuilder(gs)
-        chains = asyncio.get_event_loop().run_until_complete(
-            builder.build_chains(["M"]),
-        )
+        chains = await builder.build_chains(["M"])
         assert chains == []
 
 

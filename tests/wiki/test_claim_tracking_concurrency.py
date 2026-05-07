@@ -249,7 +249,7 @@ async def test_claim_tracking_still_persists_supersession_when_concurrent(monkey
     wiki_store.set_wiki_claim_superseded = AsyncMock()
     wiki_store.set_wiki_page_supersedes = AsyncMock()
 
-    llm = MagicMock()
+    llm = MagicMock(spec=["generate"])
     llm.generate = AsyncMock(
         side_effect=[
             json.dumps([{"claim_text": "X", "subject_entity": "E"}]),

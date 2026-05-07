@@ -84,6 +84,7 @@ def test_entry_point_backward_compat_in_domain_filter():
     assert DOMAIN_CLASSIFICATION_ENTITY_ROLES == frozenset({
         WikiEntityRole.HAS_BUSINESS_LOGIC,
         WikiEntityRole.ENTRY_POINT,
+        WikiEntityRole.SUPPORTING,
     })
 
 

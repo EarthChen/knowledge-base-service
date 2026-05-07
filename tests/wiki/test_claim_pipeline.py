@@ -84,7 +84,7 @@ async def test_supersession_creates_claim_history(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_: mgen)
     monkeypatch.setattr("wiki.service.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
 
-    llm = MagicMock()
+    llm = MagicMock(spec=["generate"])
     llm.generate = AsyncMock(
         side_effect=[
             json.dumps([{"claim_text": "X", "subject_entity": "E"}]),  # old

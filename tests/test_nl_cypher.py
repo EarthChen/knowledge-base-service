@@ -1,6 +1,7 @@
 """Tests for NL→Cypher query translator."""
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -21,7 +22,8 @@ def mock_store():
 
 @pytest.fixture
 def mock_llm():
-    llm = MagicMock()
+    # Restrict spec so `hasattr(llm, "complete_with_tools")` is false unless tests add it.
+    llm = MagicMock(spec=["complete"])
     llm.complete = AsyncMock()
     return llm
 
@@ -181,6 +183,78 @@ def test_validate_read_only_requires_allowed_clause_prefix() -> None:
     """Queries must begin with MATCH / OPTIONAL MATCH / WITH / UNWIND / RETURN / CALL proc."""
     with pytest.raises(CypherValidationError, match="read-only clause"):
         NLCypherService._validate_read_only("WHERE true MATCH (n) RETURN n LIMIT 5")
+
+
+def _tool_call_response(query: str) -> dict:
+    return {
+        "role": "assistant",
+        "tool_calls": [{
+            "id": "call_1",
+            "type": "function",
+            "function": {
+                "name": "execute_cypher",
+                "arguments": json.dumps({"query": query}),
+            },
+        }],
+    }
+
+
+@pytest.mark.asyncio
+async def test_nl_cypher_uses_tool_calling(mock_store):
+    llm = MagicMock(spec=["complete", "complete_with_tools"])
+    llm.complete = AsyncMock()
+    llm.complete_with_tools = AsyncMock(
+        return_value=_tool_call_response(
+            "MATCH (f:Function) WHERE f.name = 'login' RETURN f.name, f.file LIMIT 10",
+        ),
+    )
+    mock_store.execute_query.return_value = MagicMock(
+        data=[{"f.name": "login", "f.file": "auth/service.py"}],
+    )
+
+    svc = NLCypherService(mock_store, llm)
+    result = await svc.query("Find the login function")
+
+    assert result["total"] == 1
+    llm.complete_with_tools.assert_awaited_once()
+    llm.complete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_nl_cypher_tool_calling_fallback(mock_store):
+    llm = MagicMock(spec=["complete", "complete_with_tools"])
+    llm.complete = AsyncMock(
+        return_value=(
+            "MATCH (f:Function) WHERE f.name = 'login' RETURN f.name, f.file LIMIT 10"
+        ),
+    )
+    llm.complete_with_tools = AsyncMock(side_effect=RuntimeError("tool calling unavailable"))
+    mock_store.execute_query.return_value = MagicMock(
+        data=[{"f.name": "login", "f.file": "auth/service.py"}],
+    )
+
+    svc = NLCypherService(mock_store, llm)
+    result = await svc.query("Find the login function")
+
+    assert result["total"] == 1
+    llm.complete_with_tools.assert_awaited_once()
+    llm.complete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_nl_cypher_no_tool_calling_support(mock_store, mock_llm):
+    mock_llm.complete.return_value = (
+        "MATCH (f:Function) WHERE f.name = 'login' RETURN f.name, f.file LIMIT 10"
+    )
+    mock_store.execute_query.return_value = MagicMock(
+        data=[{"f.name": "login", "f.file": "auth/service.py"}],
+    )
+
+    svc = NLCypherService(mock_store, mock_llm)
+    result = await svc.query("Find the login function")
+
+    assert result["total"] == 1
+    assert not hasattr(mock_llm, "complete_with_tools")
 
 
 @pytest.mark.asyncio

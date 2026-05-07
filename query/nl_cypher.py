@@ -9,6 +9,7 @@ Given a natural language question about the code knowledge graph, this module:
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -65,6 +66,27 @@ GRAPH_SCHEMA_PROMPT = """You are a Cypher query generator for a code knowledge g
 8. Property access: use n.property syntax
 """
 
+_CYPHER_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "execute_cypher",
+        "description": "Execute a read-only Cypher query against the code knowledge graph",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "A valid read-only Cypher query "
+                        "(MATCH/RETURN only, no CREATE/DELETE/SET)"
+                    ),
+                }
+            },
+            "required": ["query"],
+        },
+    },
+}
+
 
 class CypherValidationError(ValueError):
     """Raised when generated Cypher contains forbidden operations."""
@@ -83,6 +105,28 @@ class NLCypherService:
         self._store = store
         self._llm = llm
         self._max_retries = max(1, max_retries)
+
+    def _extract_cypher_from_tool_call(self, response: dict[str, Any]) -> str | None:
+        """Extract Cypher query from a tool-calling response."""
+        tool_calls = response.get("tool_calls")
+        if not tool_calls:
+            return None
+        for tc in tool_calls:
+            func = tc.get("function", {})
+            if func.get("name") == "execute_cypher":
+                raw_args = func.get("arguments", "{}")
+                try:
+                    if isinstance(raw_args, str):
+                        args = json.loads(raw_args)
+                    elif isinstance(raw_args, dict):
+                        args = raw_args
+                    else:
+                        return None
+                    query = args.get("query")
+                    return query if isinstance(query, str) else None
+                except (json.JSONDecodeError, TypeError):
+                    return None
+        return None
 
     async def query(self, question: str, *, repository: str | None = None) -> dict[str, Any]:
         """Execute a natural language query against the knowledge graph."""
@@ -177,6 +221,18 @@ class NLCypherService:
             {"role": "system", "content": GRAPH_SCHEMA_PROMPT + repo_hint},
             {"role": "user", "content": f"Generate a Cypher query for: {question[:2000]}"},
         ]
+
+        if hasattr(self._llm, "complete_with_tools"):
+            try:
+                resp = await self._llm.complete_with_tools(
+                    messages, [_CYPHER_TOOL], temperature=0.0,
+                )
+                cypher = self._extract_cypher_from_tool_call(resp)
+                if cypher:
+                    return cypher
+            except Exception:
+                log.warning("nl_cypher_tool_calling_failed", exc_info=True)
+
         raw = await self._llm.complete(messages, temperature=0.0)
         return self._extract_cypher(raw)
 
@@ -196,6 +252,18 @@ class NLCypherService:
                 f"Fix the query and return only the corrected Cypher."
             )},
         ]
+
+        if hasattr(self._llm, "complete_with_tools"):
+            try:
+                resp = await self._llm.complete_with_tools(
+                    messages, [_CYPHER_TOOL], temperature=0.0,
+                )
+                cypher = self._extract_cypher_from_tool_call(resp)
+                if cypher:
+                    return cypher
+            except Exception:
+                log.warning("nl_cypher_tool_calling_failed", exc_info=True)
+
         raw = await self._llm.complete(messages, temperature=0.0)
         return self._extract_cypher(raw)
 

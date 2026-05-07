@@ -93,17 +93,18 @@ class TestHeal:
         patch_json = json.dumps(
             {"patches": [{"action": "replace_section", "target_heading": "Foo", "content": "Patched.\n"}]}
         )
-        mock_llm = AsyncMock()
-        mock_llm.generate = AsyncMock(return_value=patch_json)
+        mock_llm = AsyncMock(spec=["generate", "complete_json"])
+        mock_llm.complete_json = AsyncMock(return_value=json.loads(patch_json))
         got = await healer.heal(page, "hints", mock_llm, "ctx")
         assert got is not None
         assert got.content.strip() == "## Foo\nPatched."
-        mock_llm.generate.assert_called_once()
+        mock_llm.complete_json.assert_awaited_once()
+        mock_llm.generate.assert_not_called()
 
     async def test_heal_returns_none_when_llm_raises(self, healer: TargetedHealer) -> None:
         page = _page("# x")
-        mock_llm = AsyncMock()
-        mock_llm.generate = AsyncMock(side_effect=RuntimeError("boom"))
+        mock_llm = AsyncMock(spec=["generate", "complete_json"])
+        mock_llm.complete_json = AsyncMock(side_effect=RuntimeError("boom"))
 
         got = await healer.heal(page, "hints", mock_llm, "")
         assert got is None
@@ -112,10 +113,10 @@ class TestHeal:
 @pytest.mark.asyncio
 async def test_heal_passes_max_tokens(healer: TargetedHealer) -> None:
     page = _page("## A\nb")
-    mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(
-        return_value=json.dumps({"patches": [{"action": "append", "content": "."}]})
+    mock_llm = AsyncMock(spec=["generate", "complete_json"])
+    mock_llm.complete_json = AsyncMock(
+        return_value={"patches": [{"action": "append", "content": "."}]}
     )
     await healer.heal(page, "h", mock_llm, "d", max_tokens=777)
-    _args, kw = mock_llm.generate.call_args
+    _args, kw = mock_llm.complete_json.call_args
     assert kw.get("max_tokens") == 777

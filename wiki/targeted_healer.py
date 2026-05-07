@@ -89,8 +89,21 @@ class TargetedHealer:
             gen_kw: dict[str, Any] = {}
             if max_tokens is not None:
                 gen_kw["max_tokens"] = max_tokens
-            response = await llm.generate(prompt, system=self._DIAGNOSIS_SYSTEM, **gen_kw)
-            result = self._parse_response(response)
+            messages = [
+                {"role": "system", "content": self._DIAGNOSIS_SYSTEM},
+                {"role": "user", "content": prompt},
+            ]
+            if hasattr(llm, "complete_json"):
+                try:
+                    result = await llm.complete_json(messages, {}, **gen_kw)
+                except (ValueError, Exception):
+                    log.warning("targeted_heal_json_failed", page=page.path, exc_info=True)
+                    return None
+            else:
+                response = await llm.generate(
+                    prompt, system=self._DIAGNOSIS_SYSTEM, **gen_kw
+                )
+                result = self._parse_response(response)
             if not result or not isinstance(result.get("patches"), list):
                 return None
             patches_raw = result["patches"]

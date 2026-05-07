@@ -24,11 +24,11 @@ def test_parse_claims_json_array() -> None:
 
 @pytest.mark.asyncio
 async def test_extract_claims_invokes_llm() -> None:
-    llm = MagicMock()
-    llm.generate = AsyncMock(
-        return_value=json.dumps(
-            [{"claim_text": "A", "subject_entity": "E"}],
-        ),
+    llm = MagicMock(spec=["generate", "complete_json"])
+    llm.complete_json = AsyncMock(
+        return_value={"claims": [{"claim_text": "A", "subject_entity": "E"}]},
     )
     out = await extract_claims(llm, "# Title\n\nBody.", "en")
     assert out == [ExtractedClaim(claim_text="A", subject_entity="E")]
+    llm.complete_json.assert_awaited_once()
+    llm.generate.assert_not_called()

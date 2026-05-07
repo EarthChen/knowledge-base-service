@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -36,6 +35,7 @@ _WIKILINK = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 _SOURCE_REF = re.compile(r"source://[^\s)\]>]+")
 _HTTP_LINK = re.compile(r"https?://[^\s)\]>]+")
 _CODE_FENCE = re.compile(r"```")
+_CONTEXT_GAP = re.compile(r"<!--\s*CONTEXT_GAP:\s*(.+?)\s*-->")
 
 _STRUCT_OVERVIEW_MARKERS = ("## Overview", "## 业务概述", "## 概述")
 _STRUCT_COMPONENT_MARKERS = (
@@ -116,6 +116,13 @@ class WikiQualityEvaluator:
                 completeness += weight
             else:
                 issues.append(issue_id)
+
+        context_gaps = _CONTEXT_GAP.findall(body)
+        if context_gaps:
+            issues.append(f"context_gaps:{len(context_gaps)}")
+            for gap in context_gaps[:5]:
+                log.info("context_gap_detected", page=page.path, gap=gap[:120])
+
         return WikiPageQualityScore(
             page_path=page.path,
             completeness=round(completeness, 2),
@@ -273,18 +280,22 @@ class WikiQualityEvaluator:
             'Output JSON: {"completeness": 0.0, "helpfulness": 0.0, "truthfulness": 0.0, "issues": ["issue1"]}'
         )
 
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a documentation quality evaluator. Output valid JSON only."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ]
         try:
-            raw = await self._llm.generate(
-                prompt,
-                system="You are a documentation quality evaluator. Output valid JSON only.",
+            result = await self._llm.complete_json(
+                messages,
+                {},
                 model=self._judge_model or None,
             )
-            cleaned = raw.strip()
-            fence_match = re.search(r"```(?:json)?\s*\n?(.*?)```", cleaned, re.DOTALL)
-            if fence_match:
-                cleaned = fence_match.group(1).strip()
-            result = json.loads(cleaned)
-        except (json.JSONDecodeError, Exception):
+        except (ValueError, Exception):
             log.warning("llm_judge_parse_failed", page=page.path, exc_info=True)
             return self.structural_check(page)
 

@@ -161,9 +161,19 @@ class ContradictionDetector:
             "Reply with JSON only: "
             '{"is_contradiction": <bool>, "description": <string>, "severity": "high"|"medium"|"low"}\n'
         )
-        raw = (await self._llm.generate(prompt, system="JSON only, no markdown.")).strip()
-        verdict = _parse_verdict_json(raw)
-        if verdict is None or not verdict.is_contradiction:
+        messages = [
+            {"role": "system", "content": "JSON only, no markdown."},
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            data = await self._llm.complete_json(messages, {})
+        except (ValueError, Exception):
+            return None
+        try:
+            verdict = LlmVerdict.model_validate(data)
+        except Exception:
+            return None
+        if not verdict.is_contradiction:
             return None
         if verdict.severity not in ("high", "medium", "low"):
             verdict = verdict.model_copy(update={"severity": "medium"})

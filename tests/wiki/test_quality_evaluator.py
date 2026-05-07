@@ -192,8 +192,13 @@ def test_structural_check_partial():
 @pytest.mark.asyncio
 async def test_llm_judge_evaluate_parses_json():
     llm = AsyncMock()
-    llm.generate = AsyncMock(
-        return_value='{"completeness": 0.8, "helpfulness": 0.7, "truthfulness": 0.9, "issues": ["minor_gap"]}'
+    llm.complete_json = AsyncMock(
+        return_value={
+            "completeness": 0.8,
+            "helpfulness": 0.7,
+            "truthfulness": 0.9,
+            "issues": ["minor_gap"],
+        },
     )
     evaluator = WikiQualityEvaluator(llm=llm)
     page = WikiPage(
@@ -215,7 +220,7 @@ async def test_llm_judge_evaluate_parses_json():
 @pytest.mark.asyncio
 async def test_llm_judge_fallback_on_parse_error():
     llm = AsyncMock()
-    llm.generate = AsyncMock(return_value="not valid json")
+    llm.complete_json = AsyncMock(side_effect=ValueError("bad json"))
     evaluator = WikiQualityEvaluator(llm=llm)
     page = WikiPage(
         path="test.md",

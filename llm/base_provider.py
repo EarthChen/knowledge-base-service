@@ -154,6 +154,18 @@ class LLMPortBridge:
             if chunk:
                 yield chunk
 
+    async def complete_json(
+        self,
+        messages: list[dict[str, str]],
+        schema: dict[str, Any],
+        *,
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        return await self._provider.complete_json(
+            messages, schema, model=model, **kwargs
+        )
+
     async def complete_with_tools(
         self,
         messages: list[dict[str, Any]],

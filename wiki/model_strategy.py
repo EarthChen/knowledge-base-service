@@ -103,6 +103,17 @@ class _LLMPortWithDefault:
         async for chunk in self._inner.complete_stream(messages, **kwargs):
             yield chunk
 
+    async def complete_json(
+        self,
+        messages: list[dict[str, str]],
+        schema: dict[str, Any],
+        *,
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        m = model or self._default_model
+        return await self._inner.complete_json(messages, schema, model=m, **kwargs)
+
     async def complete_with_tools(
         self,
         messages: list[dict[str, Any]],

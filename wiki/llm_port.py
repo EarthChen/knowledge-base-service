@@ -34,6 +34,15 @@ class LLMPort(Protocol):
         **kwargs: Any,
     ) -> AsyncIterator[str]: ...
 
+    async def complete_json(
+        self,
+        messages: list[dict[str, str]],
+        schema: dict[str, Any],
+        *,
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]: ...
+
     async def complete_with_tools(
         self,
         messages: list[dict[str, Any]],

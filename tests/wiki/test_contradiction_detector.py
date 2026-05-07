@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -40,8 +39,8 @@ def test_cosine_identical() -> None:
 @pytest.mark.asyncio
 async def test_detector_skips_high_similarity_without_llm() -> None:
     store = MagicMock()
-    llm = MagicMock()
-    llm.generate = AsyncMock()
+    llm = MagicMock(spec=["complete_json"])
+    llm.complete_json = AsyncMock()
     det = ContradictionDetector(
         graph=store,
         embedding_fn=AsyncMock(),
@@ -55,21 +54,19 @@ async def test_detector_skips_high_similarity_without_llm() -> None:
         repository="r",
     )
     assert out is None
-    llm.generate.assert_not_awaited()
+    llm.complete_json.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_detector_invokes_llm_when_low_similarity_and_contradiction() -> None:
     store = MagicMock()
-    llm = MagicMock()
-    llm.generate = AsyncMock(
-        return_value=json.dumps(
-            {
-                "is_contradiction": True,
-                "description": "Conflicting return types",
-                "severity": "high",
-            },
-        ),
+    llm = MagicMock(spec=["complete_json"])
+    llm.complete_json = AsyncMock(
+        return_value={
+            "is_contradiction": True,
+            "description": "Conflicting return types",
+            "severity": "high",
+        },
     )
     det = ContradictionDetector(
         graph=store,
@@ -86,7 +83,7 @@ async def test_detector_invokes_llm_when_low_similarity_and_contradiction() -> N
     assert out is not None
     assert isinstance(out, ContradictionRecord)
     assert out.severity == "high"
-    llm.generate.assert_awaited_once()
+    llm.complete_json.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -96,15 +93,13 @@ async def test_detect_scans_entity_group() -> None:
         return [1.0, 0.0, 0.0] if "one two" in content else [0.0, 1.0, 0.0]
 
     emb = AsyncMock(side_effect=_emb)
-    llm = MagicMock()
-    llm.generate = AsyncMock(
-        return_value=json.dumps(
-            {
-                "is_contradiction": True,
-                "description": "Mismatch",
-                "severity": "medium",
-            },
-        ),
+    llm = MagicMock(spec=["complete_json"])
+    llm.complete_json = AsyncMock(
+        return_value={
+            "is_contradiction": True,
+            "description": "Mismatch",
+            "severity": "medium",
+        },
     )
     det = ContradictionDetector(
         graph=store,

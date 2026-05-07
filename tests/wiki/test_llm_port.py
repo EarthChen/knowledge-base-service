@@ -14,6 +14,7 @@ def test_llm_port_bridge_satisfies_llm_port():
 
     inner = MagicMock()
     inner.complete = AsyncMock(return_value="ok")
+    inner.complete_json = AsyncMock(return_value={})
     inner.complete_stream = AsyncMock()
     bridge = LLMPortBridge(inner)
     assert isinstance(bridge, LLMPort)
@@ -23,3 +24,4 @@ def test_llm_port_has_generate_and_complete():
     assert hasattr(LLMPort, "generate")
     assert hasattr(LLMPort, "complete")
     assert hasattr(LLMPort, "complete_stream")
+    assert hasattr(LLMPort, "complete_json")

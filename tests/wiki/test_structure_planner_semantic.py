@@ -29,9 +29,11 @@ def _mock_graph(modules: list[GraphNode]) -> AsyncMock:
 def _mock_llm(groups_json: list[dict] | Exception) -> AsyncMock:
     llm = AsyncMock()
     if isinstance(groups_json, Exception):
+        llm.complete_json = AsyncMock(side_effect=groups_json)
         llm.generate = AsyncMock(side_effect=groups_json)
     else:
-        llm.generate = AsyncMock(return_value=json.dumps(groups_json))
+        llm.complete_json = AsyncMock(return_value={"groups": groups_json})
+        llm.generate = AsyncMock(return_value=json.dumps({"groups": groups_json}))
     return llm
 
 
@@ -48,6 +50,7 @@ async def test_small_repo_no_semantic_grouping():
 
     assert structure.root.page_type == PageType.REPO_OVERVIEW
     assert len(structure.root.children) == 5
+    llm.complete_json.assert_not_awaited()
     llm.generate.assert_not_awaited()
 
 
@@ -85,7 +88,7 @@ async def test_large_repo_triggers_semantic_grouping():
     structure = await planner.plan("test-repo", scope)
 
     assert structure.root.page_type == PageType.REPO_OVERVIEW
-    llm.generate.assert_awaited_once()
+    llm.complete_json.assert_awaited_once()
 
     group_names = [c.title for c in structure.root.children]
     assert "Core Business" in group_names
@@ -130,7 +133,7 @@ async def test_semantic_grouping_respects_threshold():
     scope = ScopeParam(scope_type="repo", value="test-repo")
     structure = await planner.plan("test-repo", scope)
 
-    llm.generate.assert_awaited_once()
+    llm.complete_json.assert_awaited_once()
     assert len(structure.root.children) == 2  # Two groups
 
 

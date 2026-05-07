@@ -73,6 +73,22 @@ def _mock_llm_generate(prompt: str, system: str = "", **kwargs) -> str:
             "user-management": {"test-repo": "user-management"},
         })
 
+    if "分析以下代码模块" in prompt:
+        return json.dumps({
+            "summary_text": "E2E module summary.",
+            "key_methods": [],
+            "dependencies": [],
+            "callers": [],
+        })
+
+    if "create a domain overview page" in lower and "sub-domain summaries" in lower:
+        return json.dumps({
+            "title": "Parent Overview",
+            "content": "# Parent\n",
+            "executive_summary": "E2E parent executive summary.",
+            "page_type": "domain_overview",
+        })
+
     return (
         "# Business Wiki Page\n\n"
         "## 业务概述\nThis service handles business logic.\n\n"
@@ -80,6 +96,28 @@ def _mock_llm_generate(prompt: str, system: str = "", **kwargs) -> str:
         "## 核心服务详情\n### Service\nProcesses requests.\n\n"
         "## 关联主题\n- [[user-management]]"
     )
+
+
+async def _mock_llm_complete_json(
+    messages: list[dict[str, str]],
+    schema: dict,
+    **kwargs: object,
+) -> dict:
+    """Mirror ``_mock_llm_generate`` for call sites that use ``complete_json``."""
+    prompt = ""
+    system = ""
+    for m in messages:
+        if m.get("role") == "system":
+            system = str(m.get("content", ""))
+        elif m.get("role") == "user":
+            prompt = str(m.get("content", ""))
+    raw = _mock_llm_generate(prompt, system, **kwargs)
+    text = raw.strip()
+    try:
+        out = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    return out if isinstance(out, dict) else {}
 
 
 def _build_test_modules() -> dict[str, list[dict]]:
@@ -176,6 +214,7 @@ async def test_full_pipeline_e2e_with_mock_llm():
     """Exercise the complete pipeline: Phase 1-4 with realistic data."""
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(side_effect=_mock_llm_generate)
+    mock_llm.complete_json = AsyncMock(side_effect=_mock_llm_complete_json)
 
     pipeline = build_wiki_pipeline()
 
@@ -362,6 +401,7 @@ async def test_pipeline_light_reorg():
     """Incremental run with affected domains and small change should route through classify_domains."""
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(side_effect=_mock_llm_generate)
+    mock_llm.complete_json = AsyncMock(side_effect=_mock_llm_complete_json)
 
     pipeline = build_wiki_pipeline()
 
@@ -417,6 +457,7 @@ async def test_pipeline_full_reorg():
     """Non-incremental run with existing domain_tree should do full reorg."""
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(side_effect=_mock_llm_generate)
+    mock_llm.complete_json = AsyncMock(side_effect=_mock_llm_complete_json)
 
     pipeline = build_wiki_pipeline()
 

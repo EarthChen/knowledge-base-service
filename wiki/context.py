@@ -36,12 +36,28 @@ class WikiContextBuilder:
                 f"Entry points:\n{json.dumps(entry_points, indent=2)}\n\n"
                 "Return ONLY valid JSON: an object whose keys are terms and values are one-line definitions."
             )
-            raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
-            parsed = self._parse_json_object(raw)
+            messages = [
+                {"role": "system", "content": SYSTEM_JSON_ONLY},
+                {"role": "user", "content": prompt},
+            ]
+            parsed: dict[str, str] = {}
+            if hasattr(self._llm, "complete_json"):
+                try:
+                    data = await self._llm.complete_json(messages, {})
+                except (ValueError, Exception):
+                    log.warning("build_glossary_complete_json_failed", exc_info=True)
+                    data = None
+                if isinstance(data, dict):
+                    parsed = {
+                        k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)
+                    }
+            else:
+                raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
+                parsed = self._parse_json_object(raw)
             if parsed:
                 log.info("build_glossary_done", term_count=len(parsed), source="llm")
                 return parsed
-            log.warning("build_glossary_llm_parse_failed", raw_len=len(raw))
+            log.warning("build_glossary_llm_parse_failed", raw_len=0)
         result = {name: f"Module `{name}` — code area in this repository." for name in module_names}
         log.info("build_glossary_done", term_count=len(result), source="fallback")
         return result

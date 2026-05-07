@@ -745,14 +745,43 @@ async def compose_parent_pages_node(
                 "and reference key interfaces naturally.\n"
                 "executive_summary should be 150-300 chars capturing the domain's core purpose."
             )
+            messages = [
+                {"role": "system", "content": SYSTEM_WIKI_PARENT_OVERVIEW},
+                {"role": "user", "content": prompt},
+            ]
+            parsed: dict[str, Any] | None = None
+            if hasattr(llm, "complete_json"):
+                try:
+                    result = await llm.complete_json(messages, {}, max_tokens=gen_budget)
+                except (ValueError, Exception):
+                    log.warning(
+                        "compose_parent_pages_complete_json_failed",
+                        domain=parent_name,
+                        exc_info=True,
+                    )
+                    continue
+                if isinstance(result, dict):
+                    parsed = result
+                else:
+                    log.warning("compose_parent_pages_bad_json", domain=parent_name)
+                    continue
+            else:
+                try:
+                    response = await llm.generate(
+                        prompt,
+                        system=SYSTEM_WIKI_PARENT_OVERVIEW,
+                        max_tokens=gen_budget,
+                    )
+                    raw = response if isinstance(response, str) else str(response)
+                    parsed = parse_json_robust_sync(raw)
+                except Exception:
+                    log.warning(
+                        "compose_parent_pages_failed",
+                        domain=parent_name,
+                        exc_info=True,
+                    )
+                    continue
             try:
-                response = await llm.generate(
-                    prompt,
-                    system=SYSTEM_WIKI_PARENT_OVERVIEW,
-                    max_tokens=gen_budget,
-                )
-                raw = response if isinstance(response, str) else str(response)
-                parsed = parse_json_robust_sync(raw)
                 if not isinstance(parsed, dict):
                     log.warning("compose_parent_pages_bad_json", domain=parent_name)
                     continue
@@ -1337,7 +1366,24 @@ async def _generate_single_module_summary(
         snippets=snippets_text,
     ) + neighbor_block
 
+    messages = [
+        {"role": "system", "content": _LEAF_MODULE_SUMMARY_SYSTEM},
+        {"role": "user", "content": prompt},
+    ]
     try:
+        if hasattr(llm, "complete_json"):
+            try:
+                result = await llm.complete_json(messages, {}, max_tokens=2000)
+            except (ValueError, Exception):
+                log.warning(
+                    "leaf_module_summary_complete_json_failed",
+                    module=module_name,
+                    exc_info=True,
+                )
+                return module_name, {}
+            if isinstance(result, dict) and result.get("summary_text"):
+                return module_name, result
+            return module_name, {}
         raw = await llm.generate(prompt, system=_LEAF_MODULE_SUMMARY_SYSTEM, max_tokens=2000)
         parsed = parse_json_robust_sync(raw)
         if isinstance(parsed, dict) and parsed.get("summary_text"):

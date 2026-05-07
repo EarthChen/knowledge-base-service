@@ -56,12 +56,13 @@ class TestHealPagesEnhanced:
             )
 
         mock_llm = AsyncMock()
+        mock_llm.complete_json = AsyncMock(return_value={"patches": []})
         mock_llm.generate = AsyncMock(side_effect=capture_prompt)
         config = {"configurable": {"llm": mock_llm}}
 
         await heal_pages_node(state_with_poor_page, config)
 
-        assert len(captured_prompts) >= 2
+        assert len(captured_prompts) >= 1
         heal_prompt = _fallback_heal_prompt(captured_prompts)
         assert (
             "业务概述" in heal_prompt
@@ -80,12 +81,13 @@ class TestHealPagesEnhanced:
             return "## 业务概述\n改进内容\n"
 
         mock_llm = AsyncMock()
+        mock_llm.complete_json = AsyncMock(return_value={"patches": []})
         mock_llm.generate = AsyncMock(side_effect=capture_prompt)
         config = {"configurable": {"llm": mock_llm}}
 
         await heal_pages_node(state_with_poor_page, config)
 
-        assert len(captured_prompts) >= 2
+        assert len(captured_prompts) >= 1
         heal_prompt = _fallback_heal_prompt(captured_prompts)
         assert "user-management" in heal_prompt
 
@@ -93,6 +95,7 @@ class TestHealPagesEnhanced:
     async def test_heal_uses_bench_score(self, state_with_poor_page):
         """修复应使用多维度评测结果。"""
         mock_llm = AsyncMock()
+        mock_llm.complete_json = AsyncMock(return_value={"patches": []})
         mock_llm.generate = AsyncMock(return_value="## 业务概述\n改进内容\n")
         config = {"configurable": {"llm": mock_llm}}
 
@@ -112,12 +115,13 @@ class TestHealPagesEnhanced:
             return "## 业务概述\n改进内容\n"
 
         mock_llm = AsyncMock()
+        mock_llm.complete_json = AsyncMock(return_value={"patches": []})
         mock_llm.generate = AsyncMock(side_effect=capture_system)
         config = {"configurable": {"llm": mock_llm}}
 
         await heal_pages_node(state_with_poor_page, config)
 
-        assert len(captured_systems) >= 2
+        assert len(captured_systems) >= 1
         systems_for_heal = [
             sys
             for p, sys in captured_systems

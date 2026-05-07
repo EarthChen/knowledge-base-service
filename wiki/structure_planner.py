@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Protocol
+from typing import Any, Protocol
 
 from core.log import get_logger
 from store.schema import GraphEdge, GraphNode, NodeLabel
@@ -175,32 +175,62 @@ class WikiStructurePlanner:
             "You are organizing repository top-level modules into 3-7 thematic groups "
             "for wiki navigation.\nModules list:\n"
             + "\n".join(lines)
-            + "\n\nReturn ONLY a JSON array of objects. Each object must have "
+            + "\n\nReturn ONLY a JSON object with key \"groups\" whose value is a JSON array. "
+            "Each array element must be an object with "
             '"group_name" (string) and "modules" (array of module names exactly as listed above, '
             "without the description part).\n"
             "Assign every module to exactly one group."
         )
-        system = "Respond with valid JSON only: a single JSON array. No markdown fences or explanation."
+        system = (
+            'Respond with valid JSON only: a single object of the form {"groups": [...]}. '
+            "No markdown fences or explanation."
+        )
 
-        try:
-            raw = await self._llm.generate(prompt, system=system)
-        except Exception as exc:
-            log.warning("semantic_group_llm_failed", repository=repository, error=str(exc))
-            return [
-                self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
-                for m in sorted(modules, key=self._sort_key_for_module_list)
-            ]
+        groups_list: list[Any] | None = None
 
-        try:
-            parsed = json.loads(self._strip_json_code_fences(raw))
-        except (json.JSONDecodeError, TypeError) as exc:
-            log.warning("semantic_group_json_parse_failed", repository=repository, error=str(exc))
-            return [
-                self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
-                for m in sorted(modules, key=self._sort_key_for_module_list)
-            ]
+        if hasattr(self._llm, "complete_json"):
+            try:
+                result = await self._llm.complete_json(
+                    [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                    {},
+                )
+            except Exception as exc:
+                log.warning("semantic_group_llm_failed", repository=repository, error=str(exc))
+                return [
+                    self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
+                    for m in sorted(modules, key=self._sort_key_for_module_list)
+                ]
+            if isinstance(result, dict):
+                gr = result.get("groups")
+                if isinstance(gr, list):
+                    groups_list = gr
+        else:
+            try:
+                raw = await self._llm.generate(prompt, system=system)
+            except Exception as exc:
+                log.warning("semantic_group_llm_failed", repository=repository, error=str(exc))
+                return [
+                    self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
+                    for m in sorted(modules, key=self._sort_key_for_module_list)
+                ]
 
-        if not isinstance(parsed, list):
+            try:
+                parsed = json.loads(self._strip_json_code_fences(raw))
+            except (json.JSONDecodeError, TypeError) as exc:
+                log.warning("semantic_group_json_parse_failed", repository=repository, error=str(exc))
+                return [
+                    self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
+                    for m in sorted(modules, key=self._sort_key_for_module_list)
+                ]
+
+            if isinstance(parsed, dict):
+                gr = parsed.get("groups")
+                if isinstance(gr, list):
+                    groups_list = gr
+            elif isinstance(parsed, list):
+                groups_list = parsed
+
+        if not isinstance(groups_list, list):
             return [
                 self._leaf_wiki_node(m, PageType.MODULE_OVERVIEW)
                 for m in sorted(modules, key=self._sort_key_for_module_list)
@@ -214,7 +244,7 @@ class WikiStructurePlanner:
         assigned: set[str] = set()
         group_nodes: list[WikiStructureNode] = []
 
-        for item in parsed:
+        for item in groups_list:
             if not isinstance(item, dict):
                 continue
             gname = item.get("group_name")

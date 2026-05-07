@@ -157,18 +157,14 @@ async def test_nested_domain_tree_compose_parent_pages_and_executive_summary():
     assert route_parent_or_overview(pre_route) == "compose_parent_pages"
 
     mock_llm = AsyncMock()
-
-    async def _gen(prompt: str, system: str = "", **kwargs) -> str:
-        return json.dumps(
-            {
-                "title": "Commerce",
-                "content": "# Commerce\n\nSynthesizes payment and billing.",
-                "executive_summary": "Unified commerce: payments and billing under one umbrella.",
-                "page_type": "domain_overview",
-            }
-        )
-
-    mock_llm.generate = AsyncMock(side_effect=_gen)
+    mock_llm.complete_json = AsyncMock(
+        return_value={
+            "title": "Commerce",
+            "content": "# Commerce\n\nSynthesizes payment and billing.",
+            "executive_summary": "Unified commerce: payments and billing under one umbrella.",
+            "page_type": "domain_overview",
+        }
+    )
     config = {"configurable": {"llm": mock_llm}}
 
     comp_out = await compose_parent_pages_node(pre_route, config=config)
@@ -233,19 +229,18 @@ async def test_compose_parent_prompt_includes_code_snippets_from_modules():
 
     captured: list[str] = []
 
-    async def _gen(prompt: str, system: str = "", **kwargs) -> str:
-        captured.append(prompt)
-        return json.dumps(
-            {
-                "title": "Platform",
-                "content": "x",
-                "executive_summary": "y",
-                "page_type": "domain_overview",
-            }
-        )
+    async def _complete_json(messages: list, schema: dict, **kwargs: object) -> dict:
+        user = next((str(m.get("content", "")) for m in messages if m.get("role") == "user"), "")
+        captured.append(user)
+        return {
+            "title": "Platform",
+            "content": "x",
+            "executive_summary": "y",
+            "page_type": "domain_overview",
+        }
 
     mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(side_effect=_gen)
+    mock_llm.complete_json = AsyncMock(side_effect=_complete_json)
     await compose_parent_pages_node(pre_route, config={"configurable": {"llm": mock_llm}})
 
     assert captured, "LLM should be called for parent composition"

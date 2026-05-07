@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import fields
 
+import json
+
 import pytest
 from unittest.mock import AsyncMock
 
@@ -61,9 +63,11 @@ async def test_compose_parent_pages_flat_tree():
 @pytest.mark.asyncio
 async def test_compose_parent_pages_nested(monkeypatch):
     mock_llm = AsyncMock()
-    mock_llm.generate.return_value = (
-        '{"title": "Parent Overview", "content": "Overview of parent.", '
-        '"executive_summary": "Parent handles X and Y.", "page_type": "domain_overview"}'
+    mock_llm.complete_json = AsyncMock(
+        return_value=json.loads(
+            '{"title": "Parent Overview", "content": "Overview of parent.", '
+            '"executive_summary": "Parent handles X and Y.", "page_type": "domain_overview"}'
+        )
     )
 
     state = {
@@ -97,7 +101,7 @@ async def test_compose_parent_pages_nested(monkeypatch):
     pages = result.get("pages", [])
     assert len(pages) >= 1
     assert pages[0]["page_type"] == "domain_overview"
-    mock_llm.generate.assert_called_once()
+    mock_llm.complete_json.assert_awaited_once()
     parent_summary = result.get("leaf_summaries", {}).get("parent_domain", {})
     assert _leaf_summary_field_names() == set(parent_summary.keys())
     assert parent_summary["domain_name"] == "parent_domain"

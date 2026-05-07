@@ -1,7 +1,6 @@
 """Tests for adaptive reasoning level selection and enhancement."""
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -72,16 +71,15 @@ class TestMultiStepReasoner:
     @pytest.mark.asyncio
     async def test_plan_and_compose_makes_two_llm_calls(self):
         llm = AsyncMock()
-        plan_json = json.dumps(
-            {
-                "sections": [
-                    {"heading": "业务概述", "key_points": ["order processing"]},
-                    {"heading": "核心流程", "key_points": ["create→pay→ship"]},
-                ],
-                "diagrams": ["sequenceDiagram showing order flow"],
-            }
-        )
-        llm.generate = AsyncMock(side_effect=[plan_json, "# Order Domain\n\n## 业务概述\nContent..."])
+        plan_obj = {
+            "sections": [
+                {"heading": "业务概述", "key_points": ["order processing"]},
+                {"heading": "核心流程", "key_points": ["create→pay→ship"]},
+            ],
+            "diagrams": ["sequenceDiagram showing order flow"],
+        }
+        llm.complete_json = AsyncMock(return_value=plan_obj)
+        llm.generate = AsyncMock(return_value="# Order Domain\n\n## 业务概述\nContent...")
         domain = {
             "name": "order",
             "biz_entities": [{"name": "OrderService", "summary": "handles orders", "methods": ["create"], "calls": []}],
@@ -89,18 +87,21 @@ class TestMultiStepReasoner:
 
         result = await self.reasoner.plan_and_compose(domain, llm, system="test", max_tokens=4000)
 
-        assert llm.generate.call_count == 2
+        llm.complete_json.assert_awaited_once()
+        llm.generate.assert_awaited_once()
         assert "Order Domain" in result or "order" in result.lower()
 
     @pytest.mark.asyncio
     async def test_plan_and_compose_fallback_on_bad_plan(self):
         llm = AsyncMock()
-        llm.generate = AsyncMock(side_effect=["not valid json", "# Fallback Content\nGenerated"])
+        llm.complete_json = AsyncMock(side_effect=ValueError("bad"))
+        llm.generate = AsyncMock(return_value="# Fallback Content\nGenerated")
         domain = {"name": "order", "biz_entities": []}
 
         result = await self.reasoner.plan_and_compose(domain, llm, system="test", max_tokens=4000)
 
-        assert llm.generate.call_count == 2
+        llm.complete_json.assert_awaited_once()
+        llm.generate.assert_awaited_once()
         assert "Fallback" in result or len(result) > 0
 
     @pytest.mark.asyncio

@@ -12,6 +12,19 @@ class TestGlossary:
         captured: dict[str, str] = {}
 
         class MockLLM:
+            async def complete_json(
+                self,
+                messages: list[dict[str, str]],
+                schema: dict,
+                **_: object,
+            ) -> dict[str, str]:
+                for m in messages:
+                    if m.get("role") == "user":
+                        captured["prompt"] = m["content"]
+                    if m.get("role") == "system":
+                        captured["system"] = m["content"]
+                return {"KBS": "Knowledge-Base-Service", "API": "Application Programming Interface"}
+
             async def generate(  # noqa: PLR0913
                 self, prompt: str, system: str = "", **_: object
             ) -> str:

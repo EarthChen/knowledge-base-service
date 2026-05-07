@@ -179,6 +179,19 @@ class MultiStepReasoner:
         gen_kw: dict[str, Any] = {}
         if kw.get("reasoning_effort"):
             gen_kw["reasoning_effort"] = kw["reasoning_effort"]
+        messages = [
+            {"role": "system", "content": self._PLAN_SYSTEM},
+            {"role": "user", "content": prompt},
+        ]
+        if hasattr(llm, "complete_json"):
+            try:
+                plan = await llm.complete_json(messages, {}, **gen_kw)
+            except (ValueError, Exception):
+                log.warning("multi_step_plan_complete_json_failed", domain=name, exc_info=True)
+                return {"sections": [], "diagrams": []}
+            if isinstance(plan, dict) and "sections" in plan:
+                return plan
+            return {"sections": [], "diagrams": []}
         raw = await llm.generate(prompt, system=self._PLAN_SYSTEM, **gen_kw)
         try:
             cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()

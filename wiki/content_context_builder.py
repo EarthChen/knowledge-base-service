@@ -13,66 +13,23 @@ from typing import Any
 
 from core.log import get_logger
 
-log = get_logger(__name__)
+from wiki.cypher_queries import (
+    METHODS_CY as _METHODS_CY,
+    call_chain_cypher as _call_chain_cypher_fn,
+    METHOD_CALL_CHAIN_CY as _METHOD_CALL_CHAIN_CY,
+    ENUMS_CY as _ENUMS_CY,
+    SNIPPETS_CY as _SNIPPETS_CY,
+    CHUNK_SNIPPETS_CY as _CHUNK_SNIPPETS_CY,
+    IMPLEMENTS_CY as _IMPLEMENTS_CY,
+    CALLERS_CY as _CALLERS_CY,
+)
 
-_METHODS_CY = """
-MATCH (m:Module)-[:CONTAINS*1..3]->(f:Function)
-WHERE m.name IN $names AND f.name IS NOT NULL
-RETURN m.name AS module_name, f.name AS func_name,
-       coalesce(f.signature, '') AS signature,
-       coalesce(f.file, '') AS file_path,
-       coalesce(f.start_line, 0) AS start_line,
-       coalesce(f.repository, '') AS repository,
-       coalesce(f.docstring, '') AS docstring
-""".strip()
+log = get_logger(__name__)
 
 
 def _call_chain_cypher(depth: int) -> str:
-    d = max(1, int(depth))
-    return f"""
-MATCH (a:Module)-[:CALLS*1..{d}]->(b:Module)
-WHERE a.name IN $names
-RETURN a.name AS caller, b.name AS callee
-""".strip()
+    return _call_chain_cypher_fn(depth)
 
-
-_METHOD_CALL_CHAIN_CY = """
-MATCH (m:Module)-[:CONTAINS*1..3]->(cf:Function)-[:CALLS]->(ct:Function)
-WHERE m.name IN $names
-  AND cf.name IS NOT NULL AND ct.name IS NOT NULL
-RETURN cf.name AS caller_method,
-       ct.name AS callee_method,
-       coalesce(cf.file, '') AS caller_file,
-       coalesce(ct.file, '') AS callee_file,
-       m.name AS module_name
-LIMIT 80
-""".strip()
-
-
-_ENUMS_CY = """
-MATCH (m:Module)-[:CONTAINS]->(c)
-WHERE m.name IN $names AND (c:Enum OR c.is_constant = true)
-RETURN c.name AS name, c.file AS file, labels(c) AS labels
-""".strip()
-
-_SNIPPETS_CY = """
-MATCH (m:Module)-[:CONTAINS*1..2]->(f:Function)
-WHERE m.name IN $names AND f.code_snippet IS NOT NULL AND f.code_snippet <> ''
-RETURN f.name AS func_name, left(f.code_snippet, 600) AS snippet,
-       coalesce(f.file, '') AS file_path, coalesce(f.start_line, 0) AS start_line
-LIMIT 10
-""".strip()
-
-_CHUNK_SNIPPETS_CY = """
-MATCH (m:Module)-[:CONTAINS*1..3]->(e)<-[:PART_OF]-(c:Chunk)
-WHERE m.name IN $names AND c.text IS NOT NULL AND c.text <> ''
-RETURN e.name AS entity_name, left(c.text, 800) AS snippet,
-       coalesce(c.file, coalesce(e.file, '')) AS file_path,
-       coalesce(c.start_line, coalesce(e.start_line, 0)) AS start_line,
-       coalesce(c.end_line, coalesce(e.end_line, 0)) AS end_line
-ORDER BY c.chunk_index
-LIMIT 15
-""".strip()
 
 _MAX_CALL_CHAIN_DEPTH = 5
 _MAX_DATA_MODELS = 20
@@ -80,6 +37,8 @@ _MAX_FIELDS_PER_MODEL = 8
 _MAX_CROSS_DOMAIN_CALLS = 10
 _MAX_SIBLING_DOMAINS = 10
 _MAX_KEY_SNIPPETS = 6
+_MAX_INTERFACE_IMPLS = 20
+_MAX_EXTERNAL_CALLERS = 15
 
 
 @dataclass
@@ -132,6 +91,11 @@ class EnrichedDomainContext:
     dependent_domains: list[str] = field(default_factory=list)
     dependee_domains: list[str] = field(default_factory=list)
 
+    interface_impls: list[dict] = field(default_factory=list)
+    external_callers: list[dict] = field(default_factory=list)
+
+    module_leaf_summaries: dict[str, str] = field(default_factory=dict)
+
     sub_topics: list[dict] = field(default_factory=list)
 
     existing_wiki_context: str = ""  # Summaries of existing wiki pages in same domain
@@ -163,12 +127,19 @@ class ContentContextBuilder:
         calls_task = self._query_call_chains(module_names, capped_depth)
         enums_task = self._query_enums_constants(module_names)
         snippets_task = self._query_key_snippets(module_names)
+        impls_task = self._query_implementations(module_names)
+        callers_task = self._query_callers(module_names)
 
-        methods_result, calls_result, enums_result, snippets_result = await asyncio.gather(
+        (
+            methods_result, calls_result, enums_result, snippets_result,
+            impls_result, callers_result,
+        ) = await asyncio.gather(
             methods_task,
             calls_task,
             enums_task,
             snippets_task,
+            impls_task,
+            callers_task,
             return_exceptions=True,
         )
 
@@ -204,6 +175,24 @@ class ContentContextBuilder:
             log.warning(
                 "content_context_snippets_query_failed",
                 error=repr(snippets_result),
+            )
+
+        impls_list: list[dict] = (
+            impls_result if isinstance(impls_result, list) else []
+        )
+        if isinstance(impls_result, BaseException):
+            log.warning(
+                "content_context_impls_query_failed",
+                error=repr(impls_result),
+            )
+
+        callers_list: list[dict] = (
+            callers_result if isinstance(callers_result, list) else []
+        )
+        if isinstance(callers_result, BaseException):
+            log.warning(
+                "content_context_callers_query_failed",
+                error=repr(callers_result),
             )
 
         biz_entities = self._build_entities(
@@ -255,6 +244,8 @@ class ContentContextBuilder:
             sibling_domains=sibling_domains[:_MAX_SIBLING_DOMAINS],
             dependent_domains=dependent_domains,
             dependee_domains=dependee_domains,
+            interface_impls=impls_list[:_MAX_INTERFACE_IMPLS],
+            external_callers=callers_list[:_MAX_EXTERNAL_CALLERS],
             sub_topics=sub_topics or [],
             existing_wiki_context=existing_wiki_ctx,
         )
@@ -476,6 +467,74 @@ class ContentContextBuilder:
                 "name": str(row.get("name") or ""),
                 "file": str(row.get("file") or ""),
                 "labels": labels,
+            })
+        return out
+
+    async def _query_implementations(self, module_names: list[str]) -> list[dict]:
+        if (
+            not module_names
+            or self._graph is None
+            or not hasattr(self._graph, "execute_query")
+        ):
+            return []
+        try:
+            result = await self._graph.execute_query(
+                _IMPLEMENTS_CY,
+                {"names": module_names},
+            )
+        except Exception:
+            log.warning("graph_implements_query_failed", exc_info=True)
+            return []
+        rows = getattr(result, "data", None) or []
+        out: list[dict] = []
+        seen: set[tuple[str, str]] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            impl = str(row.get("impl_name", "") or "")
+            intf = str(row.get("interface_name", "") or "")
+            if not impl or not intf or (impl, intf) in seen:
+                continue
+            seen.add((impl, intf))
+            out.append({
+                "impl_name": impl,
+                "interface_name": intf,
+                "impl_repo": str(row.get("impl_repo", "") or ""),
+                "intf_repo": str(row.get("intf_repo", "") or ""),
+                "module_name": str(row.get("module_name", "") or ""),
+            })
+        return out
+
+    async def _query_callers(self, module_names: list[str]) -> list[dict]:
+        if (
+            not module_names
+            or self._graph is None
+            or not hasattr(self._graph, "execute_query")
+        ):
+            return []
+        try:
+            result = await self._graph.execute_query(
+                _CALLERS_CY,
+                {"names": module_names},
+            )
+        except Exception:
+            log.warning("graph_callers_query_failed", exc_info=True)
+            return []
+        rows = getattr(result, "data", None) or []
+        out: list[dict] = []
+        seen: set[tuple[str, str]] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            caller = str(row.get("caller_name", "") or "")
+            target = str(row.get("target_name", "") or "")
+            if not caller or not target or (caller, target) in seen:
+                continue
+            seen.add((caller, target))
+            out.append({
+                "caller_name": caller,
+                "target_name": target,
+                "caller_repo": str(row.get("caller_repo", "") or ""),
             })
         return out
 

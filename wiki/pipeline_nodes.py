@@ -97,23 +97,88 @@ async def classify_domains_node(
     entity_roles = state.get("entity_roles", {})
     modules = state.get("modules", {})
 
+    _MAX_MODULES_FOR_CLASSIFICATION = 200
+    _DATA_MODEL_NAME_SUFFIXES = (
+        "DTO", "Dto", "VO", "Vo", "Req", "Resp", "Request", "Response",
+        "Param", "Form", "Query", "Result", "Enum", "Constants", "Entity",
+        "Bo", "PO", "Po", "Config",
+    )
+    _DATA_MODEL_PATH_MARKERS = ("/dto/", "/model/", "/entity/", "/enums/", "/config/")
+    _SERVICE_PATH_PATTERNS = re.compile(
+        r"(/service/service/|/facade/|/manager/|/kafka/|/service/moa/)",
+        re.IGNORECASE,
+    )
+    _ENTRY_PATH_PATTERNS = re.compile(
+        r"(/interfaces/|/io/interfaces/|/controller/|/service/moa/)",
+        re.IGNORECASE,
+    )
+
+    def _is_data_model(name: str, path: str) -> bool:
+        if any(name.endswith(suffix) for suffix in _DATA_MODEL_NAME_SUFFIXES):
+            return True
+        if any(marker in path.lower() for marker in _DATA_MODEL_PATH_MARKERS):
+            return True
+        return False
+
     biz_modules: dict[str, list[GraphNode]] = {}
+    excluded_data_models = 0
     for repo, mod_list in modules.items():
         filtered: list[GraphNode] = []
         for mod_dict in mod_list:
             uid = mod_dict.get("uid", "")
-            if entity_roles.get(uid) in DOMAIN_CLASSIFICATION_ENTITY_ROLES:
-                props = mod_dict.get("properties", {})
-                label_str = mod_dict.get("label", "Module")
-                try:
-                    label = NodeLabel(label_str)
-                except ValueError:
-                    label = NodeLabel.MODULE
-                filtered.append(GraphNode(label=label, properties=props, uid=uid))
+            if entity_roles.get(uid) not in DOMAIN_CLASSIFICATION_ENTITY_ROLES:
+                continue
+            props = mod_dict.get("properties", {})
+            name = str(props.get("name", ""))
+            path = str(props.get("path", "") or "")
+            if path.startswith("<import:"):
+                continue
+            if _is_data_model(name, path):
+                excluded_data_models += 1
+                continue
+            label_str = mod_dict.get("label", "Module")
+            try:
+                label = NodeLabel(label_str)
+            except ValueError:
+                label = NodeLabel.MODULE
+            filtered.append(GraphNode(label=label, properties=props, uid=uid))
         if filtered:
             biz_modules[repo] = filtered
 
     module_total = sum(len(v) for v in biz_modules.values())
+    log.info(
+        "classify_domains_filter",
+        included=module_total,
+        excluded_data_models=excluded_data_models,
+    )
+
+    if module_total > _MAX_MODULES_FOR_CLASSIFICATION:
+        capped_modules: dict[str, list[GraphNode]] = {}
+        for repo, nodes in biz_modules.items():
+            tier1 = []  # RPC interfaces + entry points
+            tier2 = []  # Service implementations
+            tier3 = []  # Other business logic
+            for n in nodes:
+                path = str(n.properties.get("path", "") or "")
+                role = entity_roles.get(n.uid)
+                if _ENTRY_PATH_PATTERNS.search(path) or role == WikiEntityRole.ENTRY_POINT:
+                    tier1.append(n)
+                elif _SERVICE_PATH_PATTERNS.search(path):
+                    tier2.append(n)
+                else:
+                    tier3.append(n)
+            capped_modules[repo] = tier1 + tier2 + tier3
+        budget = _MAX_MODULES_FOR_CLASSIFICATION
+        final: dict[str, list[GraphNode]] = {}
+        for repo, nodes in capped_modules.items():
+            take = min(len(nodes), max(budget // max(len(capped_modules), 1), 10))
+            final[repo] = nodes[:take]
+            budget -= take
+            if budget <= 0:
+                break
+        biz_modules = {r: v for r, v in final.items() if v}
+        module_total = sum(len(v) for v in biz_modules.values())
+        log.info("classify_domains_capped", capped_total=module_total)
     classify_complexity = (
         DomainComplexity.LOW
         if module_total <= 10
@@ -894,6 +959,7 @@ async def _compose_single_leaf_domain(
     graph_store: Any | None = None,
     wiki_store: Any | None = None,
     domain_mapping: dict[str, list] | None = None,
+    module_summaries: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Compose pages for one leaf domain (and optional diagrams when llm is set)."""
     domain_name = leaf.get("name", "unknown")
@@ -913,6 +979,14 @@ async def _compose_single_leaf_domain(
                 depth=2,
                 parent_domain=str(leaf.get("parent") or "root"),
             )
+            if module_summaries:
+                names_set = set(module_names)
+                relevant = {
+                    k: str(v.get("summary_text", ""))
+                    for k, v in module_summaries.items()
+                    if k in names_set and v.get("summary_text")
+                }
+                context.module_leaf_summaries = relevant
             covered_entity_uids = [e.uid for e in context.biz_entities] + [
                 str(d["uid"]) for d in context.data_models if d.get("uid")
             ]
@@ -1116,6 +1190,254 @@ async def _compose_single_leaf_domain(
         return [], []
 
 
+_LEAF_MODULE_SUMMARY_SYSTEM = (
+    "你是代码模块分析专家。根据提供的模块信息生成结构化摘要。"
+    "输出纯 JSON，不要 markdown 围栏。"
+    "如果某些依赖模块或外部调用的上下文不足，在 summary_text 中用 "
+    "<!-- CONTEXT_GAP: 描述 --> 标记缺失部分。"
+)
+
+_LEAF_MODULE_SUMMARY_PROMPT = """分析以下代码模块并生成结构化摘要。
+
+模块名: {module_name}
+仓库: {repository}
+
+方法签名:
+{methods}
+
+调用关系:
+{calls}
+
+接口实现:
+{impls}
+
+外部调用者:
+{callers}
+
+代码片段:
+{snippets}
+
+请输出 JSON:
+{{"summary_text": "该模块的职责和核心业务逻辑描述（200-500字）", "key_methods": ["最重要的方法名, 最多5个"], "dependencies": ["该模块依赖的其他模块名"], "callers": ["调用该模块的外部模块名"]}}"""
+
+
+async def _generate_single_module_summary(
+    module_name: str,
+    module_dicts: list[dict],
+    entity_roles: dict[str, str],
+    llm: Any,
+    *,
+    graph_store: Any | None = None,
+    neighbor_summaries: dict[str, str] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Generate a leaf summary for a single module."""
+    repo = ""
+    methods_lines: list[str] = []
+    calls_lines: list[str] = []
+    for md in module_dicts:
+        uid = md.get("uid", "")
+        role = str(entity_roles.get(uid, "supporting"))
+        if role == "framework_noise":
+            return module_name, {}
+        repo = repo or md.get("_repo", "")
+        props = md.get("properties", {}) or {}
+        for m in (props.get("methods", []) or [])[:10]:
+            methods_lines.append(f"  - {m}")
+        for c in (props.get("calls", []) or [])[:10]:
+            calls_lines.append(f"  - {c}")
+
+    impls_text = "（无）"
+    callers_text = "（无）"
+    snippets_text = "（无）"
+
+    if graph_store is not None and hasattr(graph_store, "execute_query"):
+        from wiki.cypher_queries import (
+            IMPLEMENTS_CY as _IMPLEMENTS_CY,
+            CALLERS_CY as _CALLERS_CY,
+            SNIPPETS_CY as _SNIPPETS_CY,
+        )
+        try:
+            impls_r, callers_r, snippets_r = await asyncio.gather(
+                graph_store.execute_query(_IMPLEMENTS_CY, {"names": [module_name]}),
+                graph_store.execute_query(_CALLERS_CY, {"names": [module_name]}),
+                graph_store.execute_query(_SNIPPETS_CY, {"names": [module_name]}),
+                return_exceptions=True,
+            )
+            if not isinstance(impls_r, BaseException):
+                rows = getattr(impls_r, "data", None) or []
+                il = [f"  - {r.get('impl_name', '')} implements {r.get('interface_name', '')}" for r in rows if isinstance(r, dict)]
+                if il:
+                    impls_text = "\n".join(il)
+            if not isinstance(callers_r, BaseException):
+                rows = getattr(callers_r, "data", None) or []
+                cl = [f"  - {r.get('caller_name', '')} → {module_name}" for r in rows if isinstance(r, dict)]
+                if cl:
+                    callers_text = "\n".join(cl)
+            if not isinstance(snippets_r, BaseException):
+                rows = getattr(snippets_r, "data", None) or []
+                sl = []
+                for r in rows:
+                    if isinstance(r, dict):
+                        sn = str(r.get("snippet", "") or "").strip()
+                        fn = str(r.get("func_name", "") or "")
+                        if sn:
+                            sl.append(f"// {fn}\n{sn[:400]}")
+                if sl:
+                    snippets_text = "\n".join(sl[:3])
+        except Exception:
+            log.warning("leaf_module_graph_query_failed", module=module_name, exc_info=True)
+
+    neighbor_block = ""
+    if neighbor_summaries:
+        deps = set()
+        for c in calls_lines:
+            parts = c.strip().lstrip("- ").split(".")
+            if parts:
+                deps.add(parts[0])
+        relevant = {k: v for k, v in neighbor_summaries.items() if k in deps and k != module_name}
+        if relevant:
+            nb_lines = [f"  - {k}: {v[:200]}" for k, v in list(relevant.items())[:5]]
+            neighbor_block = "\n\n依赖模块的摘要:\n" + "\n".join(nb_lines)
+
+    prompt = _LEAF_MODULE_SUMMARY_PROMPT.format(
+        module_name=module_name,
+        repository=repo,
+        methods="\n".join(methods_lines) or "（无）",
+        calls="\n".join(calls_lines) or "（无）",
+        impls=impls_text,
+        callers=callers_text,
+        snippets=snippets_text,
+    ) + neighbor_block
+
+    try:
+        raw = await llm.generate(prompt, system=_LEAF_MODULE_SUMMARY_SYSTEM, max_tokens=2000)
+        parsed = parse_json_robust_sync(raw)
+        if isinstance(parsed, dict) and parsed.get("summary_text"):
+            return module_name, parsed
+        return module_name, {"summary_text": (raw or "").strip()[:500]}
+    except Exception:
+        log.warning("leaf_module_summary_failed", module=module_name, exc_info=True)
+        return module_name, {}
+
+
+async def compose_leaf_modules_node(
+    state: dict[str, Any], config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Generate leaf-level summaries for individual modules (Bottom-Up Phase).
+
+    Round 1: all modules independently in parallel.
+    Round 2: modules with CONTEXT_GAP re-generated with neighbor summaries.
+    """
+    configurable = (config or {}).get("configurable", {}) or {}
+    llm = configurable.get("llm")
+    graph_store = configurable.get("graph_store")
+
+    if not llm:
+        log.info("compose_leaf_modules_skip", reason="no_llm")
+        return {"module_summaries": {}}
+
+    modules = state.get("modules", {})
+    entity_roles = state.get("entity_roles", {})
+
+    module_index: dict[str, list[dict]] = {}
+    for repo_name, mod_list in modules.items():
+        for mod_dict in mod_list:
+            name = mod_dict.get("properties", {}).get("name", "")
+            if name:
+                mod_dict["_repo"] = repo_name
+                module_index.setdefault(name, []).append(mod_dict)
+
+    target_modules = []
+    for name, dicts in module_index.items():
+        dominated_role = "supporting"
+        for d in dicts:
+            uid = d.get("uid", "")
+            role = str(entity_roles.get(uid, "supporting"))
+            if role in ("entry_point", "has_business_logic"):
+                dominated_role = role
+                break
+            elif role != "framework_noise":
+                dominated_role = role
+        if dominated_role not in ("framework_noise", "data_model"):
+            target_modules.append(name)
+
+    if not target_modules:
+        return {"module_summaries": {}}
+
+    sem = asyncio.Semaphore(_COMPOSE_CONCURRENCY)
+
+    async def _bounded_r1(name: str) -> tuple[str, dict[str, Any]]:
+        async with sem:
+            return await _generate_single_module_summary(
+                name, module_index.get(name, []), entity_roles, llm,
+                graph_store=graph_store,
+            )
+
+    log.info("compose_leaf_modules_round1_start", module_count=len(target_modules))
+    r1_results = await asyncio.gather(
+        *[_bounded_r1(m) for m in target_modules],
+        return_exceptions=True,
+    )
+
+    module_summaries: dict[str, dict[str, Any]] = {}
+    for item in r1_results:
+        if isinstance(item, BaseException):
+            log.warning("compose_leaf_module_failed", exc_info=item)
+            continue
+        name, summary = item
+        if summary:
+            module_summaries[name] = summary
+
+    r1_summary_texts = {
+        k: str(v.get("summary_text", ""))
+        for k, v in module_summaries.items()
+        if v.get("summary_text")
+    }
+
+    def _needs_round2(name: str, s: dict[str, Any]) -> bool:
+        text = str(s.get("summary_text", ""))
+        if "CONTEXT_GAP" in text:
+            return True
+        if len(text) < 100:
+            return True
+        deps = s.get("dependencies") or []
+        if isinstance(deps, list) and any(d in r1_summary_texts for d in deps):
+            return True
+        return False
+
+    gaps = [name for name, s in module_summaries.items() if _needs_round2(name, s)]
+
+    if gaps and r1_summary_texts:
+        log.info("compose_leaf_modules_round2_start", gap_count=len(gaps))
+
+        async def _bounded_r2(name: str) -> tuple[str, dict[str, Any]]:
+            async with sem:
+                return await _generate_single_module_summary(
+                    name, module_index.get(name, []), entity_roles, llm,
+                    graph_store=graph_store,
+                    neighbor_summaries=r1_summary_texts,
+                )
+
+        r2_results = await asyncio.gather(
+            *[_bounded_r2(m) for m in gaps],
+            return_exceptions=True,
+        )
+        for item in r2_results:
+            if isinstance(item, BaseException):
+                continue
+            name, summary = item
+            if summary:
+                module_summaries[name] = summary
+
+    log.info(
+        "compose_leaf_modules_done",
+        total_modules=len(target_modules),
+        summaries_generated=len(module_summaries),
+        round2_count=len(gaps),
+    )
+    return {"module_summaries": module_summaries}
+
+
 async def plan_topic_structure_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
@@ -1205,6 +1527,7 @@ async def _compose_from_topic_structure(
     graph_store: Any | None = None,
     wiki_store: Any | None = None,
     domain_mapping: dict[str, list] | None = None,
+    module_summaries: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Compose pages from TopicBasedStructurePlanner output."""
     budget_resolver = TokenBudgetResolver()
@@ -1226,6 +1549,7 @@ async def _compose_from_topic_structure(
                 graph_store=graph_store,
                 wiki_store=wiki_store,
                 domain_mapping=domain_mapping,
+                module_summaries=module_summaries,
             )
 
     all_topics = list(topic_structure)
@@ -1270,6 +1594,8 @@ async def compose_leaf_pages_node(
                 mod_dict["_repo"] = repo_name
                 module_index.setdefault(name, []).append(mod_dict)
 
+    mod_summaries = state.get("module_summaries") or {}
+
     topic_structure = state.get("topic_structure")
     if topic_structure:
         return await _compose_from_topic_structure(
@@ -1280,6 +1606,7 @@ async def compose_leaf_pages_node(
             graph_store=graph_store,
             wiki_store=wiki_store,
             domain_mapping=domain_mapping,
+            module_summaries=mod_summaries,
         )
 
     budget_resolver = TokenBudgetResolver()
@@ -1303,6 +1630,7 @@ async def compose_leaf_pages_node(
                 graph_store=graph_store,
                 wiki_store=wiki_store,
                 domain_mapping=domain_mapping,
+                module_summaries=mod_summaries,
             )
 
     results = await asyncio.gather(

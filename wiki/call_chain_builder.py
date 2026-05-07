@@ -31,7 +31,6 @@ class MethodCallChain:
 class CallChainBuilder:
     MAX_DEPTH = 5
     MAX_CHAINS = 20
-    MAX_QUERY_RESULTS = 300
 
     def __init__(self, graph_store: Any) -> None:
         self._graph = graph_store
@@ -116,7 +115,7 @@ class CallChainBuilder:
             if not entry_node:
                 continue
             bfs_chains = self._bfs(
-                entry_key, entry_node, adjacency, node_cache, effective_depth,
+                entry_key, entry_node, adjacency, effective_depth,
             )
             for c in bfs_chains:
                 if len(chains) >= effective_chains:
@@ -131,7 +130,6 @@ class CallChainBuilder:
         start_key: str,
         start_node: CallChainNode,
         adjacency: dict[str, list[tuple[str, CallChainNode]]],
-        node_cache: dict[str, CallChainNode],
         max_depth: int,
     ) -> list[MethodCallChain]:
         # BFS: each queue item is (current_key, path_so_far)

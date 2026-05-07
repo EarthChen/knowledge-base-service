@@ -399,7 +399,11 @@ class ContentContextBuilder:
         return steps
 
     async def _query_method_call_chains(self, module_names: list[str]) -> list[dict]:
-        if not module_names or self._graph is None:
+        if (
+            not module_names
+            or self._graph is None
+            or not hasattr(self._graph, "execute_query")
+        ):
             return []
         try:
             builder = CallChainBuilder(self._graph)

@@ -108,6 +108,7 @@ class GraphQueryRepository:
     async def list_repositories(self) -> list[dict[str, Any]]:
         result = await self._store.execute_query(
             "MATCH (n) WHERE n.repository IS NOT NULL "
+            "AND NOT n:WikiPage AND NOT n:WikiSection AND NOT n:WikiSpace AND NOT n:WikiQA "
             "RETURN n.repository AS repo, count(n) AS cnt, max(n.git_url) AS git_url "
             "ORDER BY cnt DESC",
         )
@@ -136,6 +137,7 @@ class GraphQueryRepository:
     async def list_repositories_with_samples(self) -> list[dict[str, Any]]:
         result = await self._store.execute_query(
             "MATCH (n) WHERE n.repository IS NOT NULL "
+            "AND NOT n:WikiPage AND NOT n:WikiSection AND NOT n:WikiSpace AND NOT n:WikiQA "
             "RETURN DISTINCT n.repository AS repo, collect(DISTINCT n.file)[0] AS sample_file",
         )
         return result.data
@@ -143,6 +145,7 @@ class GraphQueryRepository:
     async def list_repositories_with_multiple_samples(self) -> list[dict[str, Any]]:
         result = await self._store.execute_query(
             "MATCH (n) WHERE n.repository IS NOT NULL "
+            "AND NOT n:WikiPage AND NOT n:WikiSection AND NOT n:WikiSpace AND NOT n:WikiQA "
             "RETURN DISTINCT n.repository AS repo, collect(DISTINCT n.file)[0..3] AS samples",
         )
         return result.data

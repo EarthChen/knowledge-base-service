@@ -3,9 +3,7 @@
 **日期**: 2026-05-08
 **状态**: Draft
 **关联文档**:
-- `PROPOSAL_20260507_193240_context_augmentation_strategy.md`
-- `SPEC_20260507_224402_agent_tools_enhancement.md`
-- `PLAN_20260507_call_chain_and_agent.md`
+- (已实施并清理) context_augmentation_strategy, agent_tools_enhancement, call_chain_and_agent
 
 ---
 

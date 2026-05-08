@@ -6,11 +6,11 @@ import asyncio
 import inspect
 import json
 import time as _time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from core.log import get_logger
+from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
 from store.schema import NodeLabel
 from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
 from wiki.confidence_scorer import confidence_scorer_from_wiki_app_config
@@ -42,8 +42,8 @@ class WikiPagePersistence:
         return bool(getattr(self._wiki_cfg, "confidence_scoring_enabled", False))
 
     async def bulk_set_wiki_code_hashes(self, repository: str) -> None:
-        """After full generation, mark all entities as wiki-synced."""
-        query_port = self._store if self._store is not None else self._graph
+        """After full generation, mark all source code entities as wiki-synced."""
+        query_port = self._graph
         if query_port is None or not hasattr(query_port, "execute_query"):
             return
         await query_port.execute_query(
@@ -106,10 +106,10 @@ class WikiPagePersistence:
             log.warning("wiki_sync_references_inject_failed", repository=repository, exc_info=True)
 
     async def update_wiki_code_hashes(self, repository: str, uids: list[str]) -> None:
-        """After successful wiki page generation, set wiki_code_hash = code_hash."""
+        """After successful wiki page generation, set wiki_code_hash = code_hash on source nodes."""
         if not uids:
             return
-        query_port = self._store if self._store is not None else self._graph
+        query_port = self._graph
         if query_port is None or not hasattr(query_port, "execute_query"):
             return
         await query_port.execute_query(
@@ -163,7 +163,7 @@ class WikiPagePersistence:
                     old_contents[p.path] = ""
             log.info("supersession_tracking_done", repository=repository, elapsed_s=round(_time.monotonic() - _t0, 1))
 
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = datetime.now(UTC).isoformat()
         page_dicts = [
             {
                 "path": p.path,

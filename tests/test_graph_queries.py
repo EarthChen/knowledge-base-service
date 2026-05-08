@@ -72,3 +72,38 @@ class TestSearchClassesByArchitectureLayer:
         }
         assert "c.repository = $repo" in _cypher
         assert "toLower(c.name) CONTAINS $search" in _cypher
+
+
+@pytest.mark.asyncio
+class TestListRepositoriesExcludesWikiNodes:
+    """list_repositories queries must exclude Wiki label nodes."""
+
+    async def test_list_repositories_excludes_wiki_labels(self) -> None:
+        store = MagicMock()
+        store.execute_query = AsyncMock(
+            return_value=QueryResultWrapper(
+                [{"repo": "my-repo", "cnt": 42, "git_url": "https://example.com"}]
+            )
+        )
+        repo = GraphQueryRepository(store)
+        result = await repo.list_repositories()
+        cypher = store.execute_query.call_args[0][0]
+        for label in ("WikiPage", "WikiSection", "WikiSpace", "WikiQA"):
+            assert f"NOT n:{label}" in cypher
+        assert result == [{"repository": "my-repo", "nodes": 42, "git_url": "https://example.com"}]
+
+    async def test_list_repositories_with_samples_excludes_wiki_labels(self) -> None:
+        store = MagicMock()
+        store.execute_query = AsyncMock(return_value=QueryResultWrapper([]))
+        repo = GraphQueryRepository(store)
+        await repo.list_repositories_with_samples()
+        cypher = store.execute_query.call_args[0][0]
+        assert "NOT n:WikiPage" in cypher
+
+    async def test_list_repositories_with_multiple_samples_excludes_wiki_labels(self) -> None:
+        store = MagicMock()
+        store.execute_query = AsyncMock(return_value=QueryResultWrapper([]))
+        repo = GraphQueryRepository(store)
+        await repo.list_repositories_with_multiple_samples()
+        cypher = store.execute_query.call_args[0][0]
+        assert "NOT n:WikiPage" in cypher

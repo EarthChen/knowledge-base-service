@@ -32,6 +32,7 @@ def graph_name_for(business_id: str) -> str:
     return f"{_GRAPH_PREFIX}{business_id}"
 
 
+
 class BusinessManager:
     """Manages business metadata via Redis hashes on the FalkorDB connection."""
 

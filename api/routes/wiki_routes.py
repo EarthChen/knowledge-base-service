@@ -4,29 +4,28 @@ from __future__ import annotations
 
 import time
 
-from core.config import get_settings
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from store.graph_queries import GraphQueryRepository  # re-export: tests patch this on wiki_routes
-from core.auth import Role, require_role
+
+from api.models.wiki_entity import RelatedEntity, WikiPageEntitiesResponse
+from api.models.wiki_models import (
+    IngestRequest,
+    WikiQuickBody,
+)
+from api.routes import wiki_shared
 from api.routes.wiki_ask_routes import router as wiki_ask_router
 from api.routes.wiki_contradiction_routes import router as wiki_contradiction_router
 from api.routes.wiki_feedback_routes import router as wiki_feedback_router
 from api.routes.wiki_mcp_routes import router as wiki_mcp_tools_router
 from api.routes.wiki_page_routes import router as wiki_page_router
 from api.routes.wiki_task_routes import router as wiki_task_router
-from api.routes import wiki_shared
+from core.auth import Role, require_role
+from core.config import get_settings
 from query.semantic_wiki_query import SemanticWikiQuery, semantic_search_result_to_dict
+from store.graph_queries import GraphQueryRepository  # re-export: tests patch this on wiki_routes
 from store.wiki_store import WikiStore
 from wiki.quality_score import WikiQualityScorer
 from wiki.task_registry import WIKI_TASK_TTL_SEC, WikiTaskRegistry
-from api.models.wiki_entity import RelatedEntity, WikiPageEntitiesResponse
-from api.models.wiki_models import (
-    IngestRequest,
-    WikiGenerateBody,
-    WikiIncrementalGenerateBody,
-    WikiQuickBody,
-)
 
 wiki_router = APIRouter(
     prefix="/api/v1/wiki",
@@ -121,8 +120,6 @@ __all__ = [
     "_GLOBAL_SEARCH_CONCURRENCY",
     "_GLOBAL_SEARCH_MAX_REPOS",
     "time",
-    "WikiGenerateBody",
-    "WikiIncrementalGenerateBody",
     "WikiQuickBody",
     "IngestRequest",
     "RelatedEntity",

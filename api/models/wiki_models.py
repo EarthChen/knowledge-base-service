@@ -5,22 +5,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class WikiGenerateBody(BaseModel):
-    repository: str = Field(..., min_length=1)
-    scope: str = Field(..., min_length=1)
-    mode: str = Field(default="structure", pattern="^(full|structure)$")
-    format: str = Field(default="json", pattern="^(markdown|json)$")
-    language: str = Field(default="en", pattern="^(en|zh)$")
-    llm_provider: str | None = None
-
-
-class WikiIncrementalGenerateBody(BaseModel):
-    """Trigger graph-diff incremental wiki refresh for one repository."""
-
-    repository: str = Field(..., min_length=1)
-    language: str = Field(default="en", pattern="^(en|zh)$")
-
-
 class WikiQuickBody(BaseModel):
     git_url: str = Field(..., min_length=1)
     branch: str | None = None

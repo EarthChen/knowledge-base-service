@@ -9,13 +9,15 @@ from typing import Any
 
 from fastapi import Depends, Request
 
-from wiki.editing_store import WikiEditingStore
+from api.exceptions import KbServiceUnavailable
+from core.log import get_logger
+from query.graph_query import GraphQueryService
 from store.wiki_feedback_store import WikiFeedbackStore
-from store.wiki_store import WikiStore
 from wiki.ask import WikiAskService
 from wiki.cache import WikiCache
 from wiki.deep_research import DeepResearchService
-from wiki.exporter import WikiExporter
+from wiki.editing_store import WikiEditingStore
+from wiki.lint import WikiLintService
 from wiki.memory_loop import MemoryLoop
 from wiki.models import (
     DiagramType,
@@ -29,14 +31,9 @@ from wiki.models import (
 )
 from wiki.search import SearchResponse, WikiSearchService
 from wiki.service import WikiRepoNotFoundError, WikiService
-from wiki.wiki_docs_exporter import WikiDocsExporter
-from wiki.lint import WikiLintService
-from query.graph_query import GraphQueryService
-from api.exceptions import KbServiceUnavailable
-from core.log import get_logger
-from api.models.wiki_models import WikiGenerateBody
-from wiki.task_registry import WIKI_TASK_TTL_SEC, WikiTaskRegistry
 from wiki.structure_planner import WikiScopeError
+from wiki.task_registry import WIKI_TASK_TTL_SEC, WikiTaskRegistry
+from wiki.wiki_docs_exporter import WikiDocsExporter
 
 # Re-export for test patches and compatibility
 __all__ = [
@@ -63,7 +60,6 @@ __all__ = [
     "_page_type_to_scope",
     "_wiki_structure_from_pages",
     "_invalid_scope_detail",
-    "_run_wiki_task",
     "_run_wiki_quick_task",
     "_GLOBAL_SEARCH_MAX_REPOS",
     "_GLOBAL_SEARCH_CONCURRENCY",
@@ -336,46 +332,6 @@ def _invalid_scope_detail(exc: ValueError) -> str:
         return "Scope must be 'repo', 'module:<path>', or 'class:<fqn>'"
     log.warning("wiki invalid scope", error=msg)
     return "Invalid scope"
-
-
-async def _run_wiki_task(
-    task_id: str,
-    svc: WikiService,
-    body: WikiGenerateBody,
-    registry: WikiTaskRegistry,
-    sem: asyncio.Semaphore,
-) -> None:
-    rec = registry.tasks[task_id]
-    try:
-        rec["status"] = "queued"
-        async with sem:
-            rec["status"] = "running"
-            result = await svc.generate(
-                body.repository,
-                body.scope,
-                body.mode,
-                body.format,
-                body.language,
-                llm_provider=body.llm_provider,
-            )
-            rec["result"] = result
-            rec["status"] = "completed"
-    except WikiRepoNotFoundError as exc:
-        rec["status"] = "failed"
-        rec["error"] = {
-            "error": "repo_not_found",
-            "detail": f"Repository '{exc.repository}' is not indexed.",
-        }
-    except WikiScopeError as exc:
-        log.warning("wiki task scope error", error=str(exc))
-        rec["status"] = "failed"
-        rec["error"] = {"error": "scope_not_found", "detail": "The requested wiki scope could not be found."}
-    except Exception:  # noqa: BLE001 — surface as failed task
-        log.exception("wiki generation task failed")
-        rec["status"] = "failed"
-        rec["error"] = {"error": "generation_failed", "detail": "Wiki generation failed."}
-    finally:
-        registry.put_task(task_id, rec)
 
 
 async def _run_wiki_quick_task(

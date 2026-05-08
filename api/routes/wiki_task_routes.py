@@ -6,31 +6,19 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from api.exceptions import KbClientError, KbNotFound, KbServiceUnavailable
-from core.auth import Role, require_role
-from services.git_manager import normalize_repo_name
-from utils.git_utils import looks_like_git_url
-from wiki.models import parse_scope
-from wiki.service import WikiRepoNotFoundError, WikiService
-from wiki.structure_planner import WikiScopeError
-from wiki.exporter import WikiExporter
-from wiki.task_store import WikiTaskStore
+from api.exceptions import KbClientError, KbNotFound
 from api.models.wiki_models import (
     BusinessWikiGenerateBody,
-    WikiGenerateBody,
-    WikiIncrementalGenerateBody,
     WikiQuickBody,
 )
 from api.routes.wiki_shared import (
-    _invalid_scope_detail,
     _maybe_call,
     _run_wiki_quick_task,
-    _run_wiki_task,
     _wiki_page_from_export_dict,
     _wiki_structure_from_pages,
     get_task_registry_dep,
@@ -39,8 +27,15 @@ from api.routes.wiki_shared import (
     get_wiki_service_dep,
     log,
 )
+from core.auth import Role, require_role
+from services.git_manager import normalize_repo_name
+from utils.git_utils import looks_like_git_url
 from wiki.event_bus import WikiEvent, WikiEventBus
+from wiki.exporter import WikiExporter
+from wiki.service import WikiRepoNotFoundError, WikiService
+from wiki.structure_planner import WikiScopeError
 from wiki.task_registry import WikiTaskRegistry
+from wiki.task_store import WikiTaskStore
 
 router = APIRouter(tags=["wiki", "tasks"])
 
@@ -190,153 +185,6 @@ def _wiki_event_to_sse_data(ev: WikiEvent) -> str:
     if rest:
         d["payload"] = rest
     return json.dumps(d, default=str)
-
-
-@router.post("/generate", response_model=None)
-async def wiki_generate(
-    body: WikiGenerateBody,
-    request: Request,
-    accept: Annotated[str | None, Header()] = None,
-    svc: WikiService = Depends(get_wiki_service_dep),
-    registry: WikiTaskRegistry = Depends(get_task_registry_dep),
-    sem: asyncio.Semaphore = Depends(get_wiki_generation_sem),
-) -> StreamingResponse | JSONResponse | dict[str, Any]:
-    try:
-        scope_param = parse_scope(body.scope)
-    except ValueError as exc:
-        raise KbClientError(_invalid_scope_detail(exc)) from exc
-
-    wants_stream = accept is not None and "text/event-stream" in accept.lower()
-
-    if wants_stream:
-
-        async def sse() -> Any:
-            try:
-
-                async for ev in svc.generate_stream_events(
-                    body.repository,
-                    body.scope,
-                    body.mode,
-                    body.format,
-                    body.language,
-                    llm_provider=body.llm_provider,
-                ):
-                    if "page" in ev:
-                        payload = json.dumps(ev["page"])
-                        yield f"event: wiki-page\ndata: {payload}\n\n"
-                    elif "enrichment" in ev:
-                        payload = json.dumps(ev["enrichment"])
-                        yield f"event: wiki-enrichment\ndata: {payload}\n\n"
-                    elif "complete" in ev:
-                        payload = json.dumps(ev["complete"])
-                        yield f"event: wiki-complete\ndata: {payload}\n\n"
-            except WikiRepoNotFoundError as exc:
-                err = json.dumps(
-                    {
-                        "error": "repo_not_found",
-                        "detail": f"Repository '{exc.repository}' is not indexed.",
-                    }
-                )
-                yield f"event: error\ndata: {err}\n\n"
-            except WikiScopeError as exc:
-                log.warning("wiki sse scope error", error=str(exc))
-                err = json.dumps(
-                    {
-                        "error": "scope_not_found",
-                        "detail": "The requested wiki scope could not be found.",
-                    }
-                )
-                yield f"event: error\ndata: {err}\n\n"
-            except ValueError as exc:
-                err = json.dumps({"error": "invalid_scope", "detail": _invalid_scope_detail(exc)})
-                yield f"event: error\ndata: {err}\n\n"
-            except Exception:
-                log.exception("wiki_generate_sse_unexpected_error")
-                err = json.dumps({"error": "internal_error", "detail": "An unexpected error occurred during wiki generation."})
-                yield f"event: error\ndata: {err}\n\n"
-
-        # Streaming uses same concurrency gate as sync generation
-        async def sse_wrapped() -> Any:
-            async with sem:
-                async for chunk in sse():
-                    yield chunk
-
-        return StreamingResponse(sse_wrapped(), media_type="text/event-stream")
-
-    if scope_param.scope_type == "repo":
-        task_id = f"wiki-{uuid.uuid4().hex}"
-        registry.put_task(
-            task_id,
-            {
-                "task_id": task_id,
-                "status": "pending",
-                "repository": body.repository,
-                "scope": body.scope,
-            },
-        )
-        supervisor = getattr(
-            getattr(request.app.state, "container", None),
-            "task_supervisor",
-            None,
-        )
-        if supervisor is not None:
-            supervisor.spawn(
-                lambda tid=task_id, wsvc=svc, b=body, reg=registry, semaphore=sem: _run_wiki_task(
-                    tid, wsvc, b, reg, semaphore
-                ),
-                name="wiki:generate",
-                max_retries=1,
-            )
-        else:
-            asyncio.create_task(
-                _run_wiki_task(task_id, svc, body, registry, sem),
-            )
-        return JSONResponse(
-            status_code=202,
-            content={"task_id": task_id, "status": "pending"},
-        )
-
-    try:
-        async with sem:
-            result = await svc.generate(
-                body.repository,
-                body.scope,
-                body.mode,
-                body.format,
-                body.language,
-                llm_provider=body.llm_provider,
-            )
-    except WikiRepoNotFoundError as exc:
-        raise KbNotFound(
-            f"Repository '{exc.repository}' not indexed. Use /wiki/quick to auto-index."
-        ) from exc
-    except WikiScopeError as exc:
-        log.warning("wiki generate scope error", error=str(exc))
-        raise KbNotFound("The requested wiki scope could not be found.") from exc
-
-    return result
-
-
-@router.post("/generate-incremental")
-async def wiki_generate_incremental(
-    body: WikiIncrementalGenerateBody,
-    request: Request,
-    svc: WikiService = Depends(get_wiki_service_dep),
-    sem: asyncio.Semaphore = Depends(get_wiki_generation_sem),
-) -> dict[str, Any]:
-    """Run incremental wiki update from graph diff (code_hash vs wiki_code_hash)."""
-    if not getattr(svc._wiki_cfg, "incremental_enabled", False):
-        raise KbClientError(
-            "Incremental updates are not enabled",
-            detail="incremental_enabled",
-        )
-
-    store: Any = getattr(request.app.state, "wiki_store", None)
-    if store is None or not hasattr(store, "execute_query"):
-        raise KbServiceUnavailable("Graph store not configured")
-
-    async with sem:
-        return await svc.generate_incremental(body.repository, language=body.language)
 
 
 @router.post("/quick", response_model=None)

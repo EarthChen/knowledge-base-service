@@ -175,7 +175,7 @@ class CrossRepoBusinessDomainPlanner:
         self,
         business_id: str,
         all_modules: dict[str, list[GraphNode]],
-    ) -> dict[str, list[tuple[str, str]]]:
+    ) -> tuple[dict[str, list[tuple[str, str]]], set[str]]:
         """Two-phase incremental domain classification.
 
         Phase 1 (triage): lightweight LLM call that decides for each new module:
@@ -211,7 +211,7 @@ class CrossRepoBusinessDomainPlanner:
                 business_id=business_id,
                 existing_domains=len(existing),
             )
-            return existing
+            return existing, set()
 
         log.info(
             "incremental_classify_start",
@@ -223,7 +223,7 @@ class CrossRepoBusinessDomainPlanner:
 
         if self._llm is None:
             existing.setdefault(self._infrastructure_label, []).extend(new_pairs)
-            return existing
+            return existing, {self._infrastructure_label}
 
         max_retries = 2
         triage: _TriageResult | None = None
@@ -246,13 +246,16 @@ class CrossRepoBusinessDomainPlanner:
                     log.warning("incremental_triage_failed_after_retries", exc_info=True)
         if triage is None:
             existing.setdefault(self._infrastructure_label, []).extend(new_pairs)
-            return existing
+            return existing, {self._infrastructure_label}
 
+        affected: set[str] = set()
         for pair, domain in triage.assignments.items():
             existing.setdefault(domain, []).append(pair)
+            affected.add(domain)
 
         for domain_name, pairs in triage.new_domains.items():
             existing.setdefault(domain_name, []).extend(pairs)
+            affected.add(domain_name)
 
         if not triage.reclassify_domains:
             log.info(
@@ -261,7 +264,7 @@ class CrossRepoBusinessDomainPlanner:
                 assigned=len(triage.assignments),
                 new_domains=len(triage.new_domains),
             )
-            return existing
+            return existing, affected
 
         log.info(
             "incremental_reclassify_triggered",
@@ -286,13 +289,18 @@ class CrossRepoBusinessDomainPlanner:
                     await asyncio.sleep(1 * (attempt + 1))
                 else:
                     log.warning("incremental_reclassify_failed_after_retries", exc_info=True)
+
         if reclassified is not None:
             for domain_name in triage.reclassify_domains:
                 existing.pop(domain_name, None)
+                affected.add(domain_name)
             for domain_name, pairs in reclassified.items():
                 existing.setdefault(domain_name, []).extend(pairs)
+                affected.add(domain_name)
+        else:
+            affected.update(triage.reclassify_domains)
 
-        return existing
+        return existing, affected
 
     async def _triage_new_modules(
         self,

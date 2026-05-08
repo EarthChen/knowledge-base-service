@@ -1,0 +1,139 @@
+# tests/wiki/test_incremental_affected_domains.py
+"""Tests for P0.1: incremental generation uses affected_domains to filter compose."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
+
+
+class TestClassifyIncrementalReturnsAffected:
+    @pytest.mark.asyncio
+    async def test_returns_tuple_with_affected_set(self):
+        """classify_incremental should return (mapping, affected_domains)."""
+        llm = AsyncMock()
+        planner = CrossRepoBusinessDomainPlanner(llm)
+
+        from store.schema import GraphNode, NodeLabel
+
+        existing_mod = GraphNode(
+            label=NodeLabel.MODULE,
+            properties={"name": "OldService", "business_domain": "Payment"},
+            uid="Module::OldService:0",
+        )
+        new_mod = GraphNode(
+            label=NodeLabel.MODULE,
+            properties={"name": "NewService"},
+            uid="Module::NewService:0",
+        )
+
+        all_modules = {"repo1": [existing_mod, new_mod]}
+
+        with patch.object(planner, "_triage_new_modules") as mock_triage:
+            from wiki.cross_repo_domain_planner import _TriageResult
+
+            mock_triage.return_value = _TriageResult(
+                assignments={("repo1", "NewService"): "Payment"},
+                new_domains={},
+                reclassify_domains=[],
+            )
+
+            result = await planner.classify_incremental("biz1", all_modules)
+
+        assert isinstance(result, tuple), f"Expected tuple, got {type(result)}"
+        assert len(result) == 2
+        mapping, affected = result
+        assert isinstance(mapping, dict)
+        assert isinstance(affected, set)
+        assert "Payment" in affected
+
+    @pytest.mark.asyncio
+    async def test_no_new_modules_returns_empty_affected(self):
+        """When no new modules, affected_domains should be empty."""
+        llm = AsyncMock()
+        planner = CrossRepoBusinessDomainPlanner(llm)
+
+        from store.schema import GraphNode, NodeLabel
+
+        existing_mod = GraphNode(
+            label=NodeLabel.MODULE,
+            properties={"name": "OldService", "business_domain": "Payment"},
+            uid="Module::OldService:0",
+        )
+
+        result = await planner.classify_incremental("biz1", {"repo1": [existing_mod]})
+
+        assert isinstance(result, tuple)
+        mapping, affected = result
+        assert affected == set()
+
+    @pytest.mark.asyncio
+    async def test_new_domain_in_affected(self):
+        """New domains created during triage should be in affected set."""
+        llm = AsyncMock()
+        planner = CrossRepoBusinessDomainPlanner(llm)
+
+        from store.schema import GraphNode, NodeLabel
+
+        new_mod = GraphNode(
+            label=NodeLabel.MODULE,
+            properties={"name": "BrandNew"},
+            uid="Module::BrandNew:0",
+        )
+
+        with patch.object(planner, "_triage_new_modules") as mock_triage:
+            from wiki.cross_repo_domain_planner import _TriageResult
+
+            mock_triage.return_value = _TriageResult(
+                assignments={},
+                new_domains={"NewDomain": [("repo1", "BrandNew")]},
+                reclassify_domains=[],
+            )
+
+            result = await planner.classify_incremental("biz1", {"repo1": [new_mod]})
+
+        mapping, affected = result
+        assert "NewDomain" in affected
+
+    @pytest.mark.asyncio
+    async def test_reclassify_domains_in_affected(self):
+        """Reclassified domains should be in affected set."""
+        llm = AsyncMock()
+        planner = CrossRepoBusinessDomainPlanner(llm)
+
+        from store.schema import GraphNode, NodeLabel
+
+        existing_mod = GraphNode(
+            label=NodeLabel.MODULE,
+            properties={"name": "OldService", "business_domain": "Payment"},
+            uid="Module::OldService:0",
+        )
+        new_mod = GraphNode(
+            label=NodeLabel.MODULE,
+            properties={"name": "NewService"},
+            uid="Module::NewService:0",
+        )
+
+        with (
+            patch.object(planner, "_triage_new_modules") as mock_triage,
+            patch.object(planner, "_reclassify_affected_domains") as mock_reclass,
+        ):
+            from wiki.cross_repo_domain_planner import _TriageResult
+
+            mock_triage.return_value = _TriageResult(
+                assignments={},
+                new_domains={},
+                reclassify_domains=["Payment"],
+            )
+            mock_reclass.return_value = {
+                "Payment-v2": [("repo1", "OldService"), ("repo1", "NewService")]
+            }
+
+            result = await planner.classify_incremental("biz1", {"repo1": [existing_mod, new_mod]})
+
+        mapping, affected = result
+        assert "Payment" in affected
+        assert "Payment-v2" in affected

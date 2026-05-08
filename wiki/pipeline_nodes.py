@@ -198,9 +198,10 @@ async def classify_domains_node(
     planner = CrossRepoBusinessDomainPlanner(llm)
     is_incremental = state.get("is_incremental", False)
     if is_incremental:
-        domain_mapping = await planner.classify_incremental(business_id, biz_modules)
+        domain_mapping, affected_domains = await planner.classify_incremental(business_id, biz_modules)
     else:
         domain_mapping = await planner.classify(business_id, biz_modules)
+        affected_domains = set(domain_mapping.keys())
 
     graph_store = (config or {}).get("configurable", {}).get("graph_store")
     if graph_store is not None:
@@ -209,6 +210,7 @@ async def classify_domains_node(
         stabilizer = DomainStabilizer(graph_store)
         try:
             rename_map = await stabilizer.stabilize(list(domain_mapping.keys()))
+            affected_domains = {rename_map.get(d, d) for d in affected_domains}
             stabilized: dict[str, list] = {}
             for proposed, pairs in domain_mapping.items():
                 stable = rename_map.get(proposed, proposed)
@@ -226,7 +228,7 @@ async def classify_domains_node(
         domains=len(domain_mapping),
         total_modules=sum(len(v) for v in domain_mapping.values()),
     )
-    return {"domain_mapping": domain_mapping}
+    return {"domain_mapping": domain_mapping, "affected_domains": list(affected_domains)}
 
 
 async def detect_reorg_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -1728,6 +1730,24 @@ async def compose_leaf_pages_node(
     generated_uids: list[str] = []
 
     leaf_domains = _collect_leaf_domains(domain_tree)
+
+    # P0.1: Filter by affected domains in light reorg
+    reorg_type = state.get("reorg_type", "full")
+    affected_domains_list = state.get("affected_domains", [])
+    affected_domains_set = set(affected_domains_list) if affected_domains_list else set()
+
+    if reorg_type == "light" and affected_domains_set:
+        original_count = len(leaf_domains)
+        leaf_domains = [d for d in leaf_domains if d.get("name") in affected_domains_set]
+        log.info(
+            "compose_leaf_pages_filtered",
+            original=original_count,
+            filtered=len(leaf_domains),
+            reorg_type=reorg_type,
+        )
+    elif reorg_type == "none":
+        log.info("compose_leaf_pages_skip_none_reorg")
+        return {"pages": [], "generated_topic_pages": []}
 
     sem = asyncio.Semaphore(_COMPOSE_CONCURRENCY)
 

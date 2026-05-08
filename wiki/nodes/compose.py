@@ -1,6 +1,7 @@
 """Leaf module summaries and topic / domain page composition."""
 
 import asyncio
+import re
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -22,6 +23,13 @@ from wiki.token_budget import TokenBudgetCalculator, TokenBudgetResolver
 from wiki.topic_structure_planner import TopicBasedStructurePlanner
 
 log = get_logger(__name__)
+
+_CONTEXT_GAP_CLEANUP_RE = re.compile(r"<!--\s*CONTEXT_GAP:\s*(.+?)\s*-->")
+
+
+def cleanup_context_gaps(content: str) -> str:
+    """Replace CONTEXT_GAP HTML comments with user-visible info notices."""
+    return _CONTEXT_GAP_CLEANUP_RE.sub(r"> ℹ️ 此处信息待补充: \1", content)
 
 _LEAF_MODULE_SUMMARY_SYSTEM = (
     "你是代码模块分析专家。根据提供的模块信息生成结构化摘要。"
@@ -144,6 +152,7 @@ def _sanitize_pages(
     for page_dict in pages:
         raw_content = page_dict.get("content", "")
         page_dict["content"] = sanitize_wiki_content(raw_content, known_entities)
+        page_dict["content"] = cleanup_context_gaps(page_dict.get("content", ""))
         page_dict["covered_entity_uids"] = covered_entity_uids
 
 

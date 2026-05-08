@@ -667,6 +667,39 @@ def _collect_parent_domains_by_level(
     return [lvl for lvl in levels if lvl]
 
 
+def _build_subdomain_interactions(child_pages: list[dict[str, Any]]) -> str:
+    """Build a text description of interactions between child sub-domains.
+
+    Aggregates cross_domain_calls metadata from child page dicts into a
+    structured summary for parent domain overview generation.
+    """
+    interactions: list[str] = []
+    for page in child_pages:
+        meta = page.get("metadata")
+        if not isinstance(meta, dict):
+            continue
+        domain_name = meta.get("domain_name", page.get("title", ""))
+        calls = meta.get("cross_domain_calls", [])
+        if not isinstance(calls, list) or not calls:
+            continue
+        targets: dict[str, list[str]] = {}
+        for call in calls:
+            if not isinstance(call, dict):
+                continue
+            to_domain = call.get("to_domain", "")
+            to_target = call.get("to", "")
+            if to_domain:
+                targets.setdefault(to_domain, []).append(to_target)
+        for target_domain, callees in targets.items():
+            unique_callees = list(dict.fromkeys(c for c in callees if c))[:3]
+            callee_str = ", ".join(unique_callees) if unique_callees else "..."
+            interactions.append(f"- {domain_name} → {target_domain}: {callee_str}")
+
+    if not interactions:
+        return ""
+    return "## Sub-domain Interactions\n" + "\n".join(interactions[:20])
+
+
 def _collect_module_names_in_subtree(domain: dict[str, Any]) -> list[str]:
     names: list[str] = []
     mods = domain.get("modules", []) or []

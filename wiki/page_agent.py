@@ -624,7 +624,7 @@ class WikiPageAgent:
 
         system = AGENT_GENERATE_SYSTEM.format(max_rounds=max_rounds)
         modules_desc = ", ".join(module_names)
-        baseline_str = str(baseline_context)[:2000]
+        baseline_str = str(baseline_context)[:6000]
 
         user_prompt = (
             f"为以下模块生成 Wiki 页面:\n"

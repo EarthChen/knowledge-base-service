@@ -114,8 +114,9 @@ class EnrichedDomainContext:
     sub_topics: list[dict] = field(default_factory=list)
 
     existing_wiki_context: str = ""  # Summaries of existing wiki pages in same domain
+    domain_description: str = ""
 
-    def format_summary_for_agent(self, max_chars: int = 2000) -> str:
+    def format_summary_for_agent(self, max_chars: int = 6000) -> str:
         """Compress already-queried context into a structured summary for WikiPageAgent.
 
         This avoids redundant tool-calling by the agent for information CCB
@@ -153,6 +154,26 @@ class EnrichedDomainContext:
                 for d in self.external_callers[:10]
             ]
             sections.append("## Known External Callers\n" + "\n".join(caller_lines))
+
+        if self.module_leaf_summaries:
+            summary_lines = [
+                f"  - {name}: {text[:120]}"
+                for name, text in list(self.module_leaf_summaries.items())[:15]
+                if text
+            ]
+            if summary_lines:
+                sections.append("## Module Summaries\n" + "\n".join(summary_lines))
+
+        if self.data_models:
+            dm_lines = [
+                f"  - {d.get('name', '?')}: fields={d.get('fields', [])[:5]}"
+                for d in self.data_models[:10]
+            ]
+            if dm_lines:
+                sections.append("## Data Models\n" + "\n".join(dm_lines))
+
+        if self.domain_description:
+            sections.insert(0, f"## Domain Description\n{self.domain_description[:500]}")
 
         if not sections:
             return ""

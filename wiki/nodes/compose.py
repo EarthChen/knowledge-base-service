@@ -264,52 +264,9 @@ async def _compose_single_leaf_domain(
     domain_name = leaf.get("name", "unknown")
     module_names = leaf.get("modules", [])
 
-    # --- Agent-Driven generation path (opt-in via WIKI__AGENT_DRIVEN_GENERATION=true) ---
-    if graph_store is not None and llm is not None:
-        from wiki.agent_config import AgentConfig
-
-        agent_cfg = AgentConfig.from_env()
-        if agent_cfg.should_use_agent(len(module_names)):
-            try:
-                from wiki.page_agent import WikiPageAgent
-
-                agent = WikiPageAgent(llm, graph_store)
-                baseline = ""
-                if module_summaries:
-                    names_set = set(module_names)
-                    relevant = [
-                        f"- {k}: {v.get('summary_text', '')}"
-                        for k, v in module_summaries.items()
-                        if k in names_set and v.get("summary_text")
-                    ]
-                    baseline = "\n".join(relevant)
-
-                content = await agent.generate(
-                    module_names=list(module_names),
-                    domain_name=domain_name,
-                    baseline_context=baseline or None,
-                )
-                if content and len(content) > 100:
-                    page = {
-                        "title": domain_name,
-                        "content": content,
-                        "path": f"wiki/{domain_name}",
-                        "page_type": "topic",
-                        "domain": domain_name,
-                        "covered_entity_uids": [],
-                    }
-                    pages = [page]
-                    known_entities: list[dict] = []
-                    _sanitize_pages(pages, known_entities, [])
-                    _pn.log.info("agent_driven_generation_complete", domain=domain_name)
-                    return pages, [page["path"]]
-            except Exception:
-                _pn.log.warning(
-                    "agent_driven_failed_fallback_to_ccb",
-                    domain=domain_name,
-                    exc_info=True,
-                )
-
+    # --- Step 1: Always run CCB to collect structured context ---
+    context = None
+    covered_entity_uids: list[str] = []
     if graph_store is not None:
         from wiki.content_context_builder import ContentContextBuilder
 
@@ -335,6 +292,62 @@ async def _compose_single_leaf_domain(
             covered_entity_uids = [e.uid for e in context.biz_entities] + [
                 str(d["uid"]) for d in context.data_models if d.get("uid")
             ]
+        except Exception:
+            _pn.log.warning(
+                "ccb_context_build_failed",
+                domain=domain_name,
+                exc_info=True,
+            )
+
+    # --- Step 2: Agent-Driven path (uses CCB context as rich baseline) ---
+    if llm is not None and graph_store is not None:
+        from wiki.agent_config import AgentConfig
+
+        agent_cfg = AgentConfig.from_env()
+        if agent_cfg.should_use_agent(len(module_names)):
+            try:
+                from wiki.page_agent import WikiPageAgent
+
+                agent = WikiPageAgent(llm, graph_store)
+                ccb_summary = context.format_summary_for_agent(max_chars=6000) if context else ""
+                content = await agent.generate(
+                    module_names=list(module_names),
+                    domain_name=domain_name,
+                    baseline_context=ccb_summary or None,
+                    max_rounds=5,
+                )
+                if content and len(content) > 100:
+                    page = {
+                        "title": domain_name,
+                        "content": content,
+                        "path": f"wiki/{domain_name}",
+                        "page_type": "topic",
+                        "domain": domain_name,
+                        "covered_entity_uids": covered_entity_uids,
+                    }
+                    pages = [page]
+                    known_entities = [
+                        {
+                            "name": e.name,
+                            "repository": e.repository,
+                            "file_path": e.file_path,
+                            "start_line": max(m.start_line for m in e.methods) if e.methods else 0,
+                        }
+                        for e in context.biz_entities
+                    ] if context else []
+                    _sanitize_pages(pages, known_entities, covered_entity_uids)
+                    _pn.log.info("agent_driven_generation_complete", domain=domain_name)
+                    return pages, [page["path"]]
+            except Exception:
+                _pn.log.warning(
+                    "agent_driven_failed_fallback_to_composer",
+                    domain=domain_name,
+                    exc_info=True,
+                )
+
+    # --- Step 3: TopicPageComposer path (uses same CCB context) ---
+    if context is not None and llm is not None:
+        try:
             overview_composer = DomainOverviewComposer(llm=llm)
             composer = _pn.TopicPageComposer(llm, token_budget=token_budget)
             pages = await composer.compose_leaf_domain_from_context(
@@ -357,7 +370,7 @@ async def _compose_single_leaf_domain(
             return pages, [p.get("path", "") for p in pages]
         except Exception:
             _pn.log.warning(
-                "ccb_compose_failed_fallback_to_legacy",
+                "composer_failed_fallback_to_legacy",
                 domain=domain_name,
                 exc_info=True,
             )

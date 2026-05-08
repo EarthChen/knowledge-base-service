@@ -5,6 +5,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from core.log import get_logger
+from wiki.context_gap import cleanup_context_gaps
 from wiki.domain_complexity import DomainComplexityScorer
 from wiki.models import ImportanceTier, WikiPage
 from wiki.nodes.utils import _find_domain_in_tree
@@ -118,7 +119,7 @@ async def _heal_one_page(
             max_tokens=heal_budget,
         )
         if targeted_result:
-            page_dict["content"] = targeted_result.content
+            page_dict["content"] = cleanup_context_gaps(targeted_result.content)
             log.info("targeted_heal_success", page=page_path)
             return True
         heal_scorer = DomainComplexityScorer()
@@ -138,7 +139,7 @@ async def _heal_one_page(
             system=SYSTEM_WIKI_HEAL,
             max_tokens=heal_budget,
         )
-        page_dict["content"] = new_content
+        page_dict["content"] = cleanup_context_gaps(new_content)
         log.info("page_healed", page=page_path, attempt=heal_attempts[page_path])
         return True
     except Exception:

@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from core.log import get_logger
 from wiki.dependency_graph import DomainNode
 from wiki.domain_complexity import DomainComplexity
+from wiki.context_gap import cleanup_context_gaps
 from wiki.json_robust import parse_json_robust_sync
 from wiki.models import LeafSummary, PageType
 from wiki.nodes.utils import (
@@ -203,7 +204,7 @@ async def compose_parent_pages_node(
                     log.warning("compose_parent_pages_bad_json", domain=parent_name)
                     continue
                 title = parsed.get("title", parent_name)
-                content = parsed.get("content", "")
+                content = cleanup_context_gaps(parsed.get("content", ""))
                 exec_summary = parsed.get("executive_summary", "")
                 page_type_val = parsed.get("page_type") or "domain_overview"
                 page_type = str(page_type_val)
@@ -460,6 +461,7 @@ async def synthesize_overviews_node(
             system=overview_system_prompt,
             max_tokens=overview_budget,
         )
+        overview_markdown = cleanup_context_gaps(overview_markdown)
         overview_multi = {
             "title": "System Overview",
             "content": overview_markdown,
@@ -499,6 +501,7 @@ async def synthesize_overviews_node(
             sys_prompt,
             system="You are a technical wiki author. Output Markdown with Mermaid.",
         )
+        overview_content = cleanup_context_gaps(overview_content)
         overview_page = {
             "title": "System Overview",
             "content": overview_content,

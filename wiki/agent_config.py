@@ -14,7 +14,10 @@ class AgentConfig:
     @classmethod
     def from_env(cls) -> AgentConfig:
         enabled = os.environ.get("WIKI__AGENT_DRIVEN_GENERATION", "false").lower() in ("true", "1", "yes")
-        threshold = int(os.environ.get("WIKI__AGENT_SIMPLE_THRESHOLD", "3"))
+        try:
+            threshold = int(os.environ.get("WIKI__AGENT_SIMPLE_THRESHOLD", "3"))
+        except ValueError:
+            threshold = 3
         return cls(enabled=enabled, simple_threshold=threshold)
 
     def should_use_agent(self, module_count: int) -> bool:

@@ -45,6 +45,9 @@ def merge_small_domains(domains: list, min_size: int = 3) -> list:
             break
         best = max(large, key=lambda ld: _name_similarity(sd, ld))
         best.modules.extend(sd.modules)
+        if hasattr(sd, "children") and sd.children:
+            if hasattr(best, "children"):
+                best.children.extend(sd.children)
         log.info("domain_merged", small=sd.name, into=best.name, added=len(sd.modules))
 
     return large

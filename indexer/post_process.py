@@ -63,10 +63,17 @@ async def supplement_contains_relationships(graph_store, graph_name: str) -> int
 
     pairs = match_functions_to_modules(modules, functions)
 
-    created = 0
+    seen: set[tuple[str, str]] = set()
+    unique_pairs = []
+    for pair in pairs:
+        if pair not in seen:
+            seen.add(pair)
+            unique_pairs.append(pair)
+
+    attempted = 0
     batch_size = 100
-    for i in range(0, len(pairs), batch_size):
-        batch = pairs[i : i + batch_size]
+    for i in range(0, len(unique_pairs), batch_size):
+        batch = unique_pairs[i : i + batch_size]
         for mod_name, fn_name in batch:
             cypher = """
             MATCH (m:Module {name: $mod_name}), (f:Function {name: $fn_name})
@@ -76,7 +83,7 @@ async def supplement_contains_relationships(graph_store, graph_name: str) -> int
             await graph_store.execute_query(
                 cypher, {"mod_name": mod_name, "fn_name": fn_name}, graph_name=graph_name
             )
-            created += 1
+            attempted += 1
 
-    log.info("supplement_contains_done", created=created, total_functions=len(functions))
-    return created
+    log.info("supplement_contains_done", attempted=attempted, total_functions=len(functions))
+    return attempted

@@ -157,6 +157,19 @@ class WorkingMemory:
                         method_names = [str(m.get("name", "")) for m in methods[:5]]
                         entry += f" [methods: {', '.join(method_names)}]"
                     self.discovered_call_chains.append(entry)
+            elif tool == "query_domain_dependencies":
+                deps = data.get("outgoing", [])
+                for d in deps[:5]:
+                    if isinstance(d, dict):
+                        self.discovered_call_chains.append(
+                            f"{data.get('domain', '')} → {d.get('target_domain', '')}: {d.get('via', '')}"
+                        )
+                incoming = data.get("incoming", [])
+                for d in incoming[:5]:
+                    if isinstance(d, dict):
+                        self.discovered_callers.append(
+                            f"{d.get('source_domain', '')} → {data.get('domain', '')}: {d.get('via', '')}"
+                        )
         self._enforce_limit()
 
     def _enforce_limit(self) -> None:
@@ -295,6 +308,23 @@ AGENT_TOOLS = [
                 "type": "object",
                 "properties": {"module_name": {"type": "string", "description": "Entry module name"}},
                 "required": ["module_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_domain_dependencies",
+            "description": (
+                "Query cross-domain call dependencies for a domain. Use when writing domain overviews "
+                "to understand how this domain interacts with other domains."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "domain_name": {"type": "string", "description": "Domain name to query dependencies for"},
+                },
+                "required": ["domain_name"],
             },
         },
     },
@@ -460,6 +490,7 @@ _AGENT_SYSTEM = """你是一个代码知识库 Agent。你的任务是通过调�
 class WikiPageAgent:
     MAX_ROUNDS = 6
     MAX_TOOL_CALLS = 15
+    _MAX_HISTORY_MESSAGES = 30
 
     def __init__(
         self,
@@ -533,10 +564,12 @@ class WikiPageAgent:
                 break
 
             memory.incorporate(tool_results)
-            messages = [
-                {"role": "system", "content": _AGENT_SYSTEM},
-                {"role": "user", "content": self._build_user_prompt(content, gaps, memory, domain_name)},
-            ]
+            if len(messages) > self._MAX_HISTORY_MESSAGES:
+                messages = [
+                    {"role": "system", "content": _AGENT_SYSTEM},
+                    {"role": "user", "content": self._build_user_prompt(content, gaps, memory, domain_name)},
+                ]
+                log.info("agent_history_compressed", round=round_num)
 
         try:
             fallback = await self._llm.generate(
@@ -592,6 +625,8 @@ class WikiPageAgent:
                 return await self._tool_query_implementations(args)
             elif tool_name == "query_call_chain":
                 return await self._tool_query_call_chain(args)
+            elif tool_name == "query_domain_dependencies":
+                return await self._tool_query_domain_dependencies(args)
             elif tool_name == "read_source_snippet":
                 return await self._tool_read_source_snippet(args)
             else:
@@ -954,6 +989,57 @@ class WikiPageAgent:
                 for c in chains
             ]
         }
+
+    async def _tool_query_domain_dependencies(self, args: dict[str, Any]) -> dict[str, Any]:
+        domain_name = str(args.get("domain_name", ""))
+        if not domain_name or not self._graph:
+            return {"error": "missing domain_name or graph"}
+
+        # Query outgoing: modules in this domain that call modules in other domains
+        outgoing_cy = (
+            "MATCH (caller)-[:CALLS]->(callee) "
+            "WHERE caller.business_domain = $domain AND callee.business_domain <> $domain "
+            "AND callee.business_domain IS NOT NULL "
+            "RETURN DISTINCT callee.business_domain AS target_domain, "
+            "caller.name AS caller_name, callee.name AS callee_name "
+            "LIMIT 20"
+        )
+        # Query incoming: modules in other domains that call modules in this domain
+        incoming_cy = (
+            "MATCH (caller)-[:CALLS]->(callee) "
+            "WHERE callee.business_domain = $domain AND caller.business_domain <> $domain "
+            "AND caller.business_domain IS NOT NULL "
+            "RETURN DISTINCT caller.business_domain AS source_domain, "
+            "caller.name AS caller_name, callee.name AS callee_name "
+            "LIMIT 20"
+        )
+
+        outgoing: list[dict[str, str]] = []
+        incoming: list[dict[str, str]] = []
+
+        try:
+            out_result = await self._graph.execute_query(outgoing_cy, {"domain": domain_name})
+            for row in (getattr(out_result, "data", None) or []):
+                if isinstance(row, dict):
+                    outgoing.append({
+                        "target_domain": str(row.get("target_domain", "") or ""),
+                        "via": f"{row.get('caller_name', '')} → {row.get('callee_name', '')}",
+                    })
+        except Exception:
+            log.warning("query_domain_deps_outgoing_failed", domain=domain_name, exc_info=True)
+
+        try:
+            in_result = await self._graph.execute_query(incoming_cy, {"domain": domain_name})
+            for row in (getattr(in_result, "data", None) or []):
+                if isinstance(row, dict):
+                    incoming.append({
+                        "source_domain": str(row.get("source_domain", "") or ""),
+                        "via": f"{row.get('caller_name', '')} → {row.get('callee_name', '')}",
+                    })
+        except Exception:
+            log.warning("query_domain_deps_incoming_failed", domain=domain_name, exc_info=True)
+
+        return {"domain": domain_name, "outgoing": outgoing[:15], "incoming": incoming[:15]}
 
     async def _tool_read_source_snippet(self, args: dict[str, Any]) -> dict[str, Any]:
         name = str(args.get("name", ""))

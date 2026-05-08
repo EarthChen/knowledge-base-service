@@ -14,7 +14,7 @@ from wiki.content_context_builder import EnrichedDomainContext
 from wiki.domain_complexity import DomainComplexity, DomainComplexityScorer
 from wiki.domain_overview_composer import DomainOverviewComposer
 from wiki.llm_port import LLMPort
-from wiki.json_robust import parse_json_robust_sync
+from wiki.json_robust import _strip_fences, parse_json_robust_sync
 from wiki.models import WikiPage
 from wiki.prompts import (
     SYSTEM_JSON_ONLY,
@@ -84,7 +84,7 @@ class TopicPageComposer:
             body = parsed.get("content")
             if isinstance(body, str) and body.strip():
                 return body.strip(), summary
-        return stripped, ""
+        return _strip_fences(stripped), ""
 
     def _page_metadata(self, executive_summary: str) -> dict[str, str]:
         return {"executive_summary": executive_summary or ""}

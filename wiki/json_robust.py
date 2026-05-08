@@ -21,8 +21,8 @@ def _strip_fences(raw: str) -> str:
     """Remove markdown code fences from LLM output."""
     text = raw.strip()
     if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*\n?", "", text)
-        text = re.sub(r"\n?```\s*$", "", text)
+        text = re.sub(r"^```\w*\s*\n?", "", text, count=1)
+        text = re.sub(r"\n?```\s*$", "", text, count=1)
     return text.strip()
 
 

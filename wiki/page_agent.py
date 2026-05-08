@@ -31,7 +31,7 @@ class WorkingMemory:
     wiki_references: list[str] = field(default_factory=list)
     search_findings: list[str] = field(default_factory=list)
 
-    MAX_TOTAL_CHARS = 18000
+    MAX_TOTAL_CHARS = 50000
 
     def incorporate(self, results: list[ToolResult]) -> None:
         for r in results:
@@ -193,7 +193,10 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "query_module_detail",
-            "description": "Query detailed info about a module including methods, annotations, summary",
+            "description": (
+                "Query detailed info about a module including methods and annotations. "
+                "Use when you need to understand a module's internal structure."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"name": {"type": "string", "description": "Module name"}},
@@ -205,7 +208,10 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "query_callers",
-            "description": "Query which modules call the given module",
+            "description": (
+                "Query which modules call the given module. "
+                "Use when you need to understand who depends on a module."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"name": {"type": "string", "description": "Target module name"}},
@@ -217,7 +223,10 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "query_callees",
-            "description": "Query which modules the given module calls",
+            "description": (
+                "Query which modules the given module calls. "
+                "Use when you need to understand a module's outgoing dependencies."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"name": {"type": "string", "description": "Caller module name"}},
@@ -229,7 +238,10 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "query_implementations",
-            "description": "Query implementations of an interface",
+            "description": (
+                "Query implementations of an interface. "
+                "Use when you need to find concrete classes for an abstract interface."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"interface": {"type": "string", "description": "Interface name"}},
@@ -241,7 +253,10 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "query_call_chain",
-            "description": "Query method-level call chain starting from a module",
+            "description": (
+                "Query method-level call chain starting from a module. "
+                "Use when you need to trace execution flow across multiple modules."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {"module_name": {"type": "string", "description": "Entry module name"}},
@@ -252,23 +267,11 @@ AGENT_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "read_source_snippet",
-            "description": "Read source code snippet for a function",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Function or class name"},
-                    "max_lines": {"type": "integer", "description": "Max lines to return", "default": 30},
-                },
-                "required": ["name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "read_code",
-            "description": "Read source code for a function or class by name. Returns code snippet with file location.",
+            "description": (
+                "Read source code for a function or class by name (up to 3000 chars). "
+                "Use when you need to understand implementation details of a specific indexed entity."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -283,7 +286,10 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read file content by path. Supports any file type including config files.",
+            "description": (
+                "Read file content by relative path. Use for config files, non-indexed source, "
+                "or any file not in the code graph (e.g. .yaml, .xml, .properties)."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -299,7 +305,10 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "search_entities",
-            "description": "Search code entities by keyword in names, docstrings, and annotations",
+            "description": (
+                "Search code entities by keyword in names and docstrings. "
+                "Use when you don't know the exact name and need to discover related functions or classes."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -314,7 +323,10 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "read_wiki_page",
-            "description": "Read an existing wiki page by path or title keyword. Helps avoid content duplication.",
+            "description": (
+                "Read an existing wiki page by path or title keyword. "
+                "Use to check what's already documented and avoid content duplication."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -328,7 +340,10 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "semantic_search",
-            "description": "Semantic search across code and wiki using natural language",
+            "description": (
+                "Semantic search across code and wiki using natural language. "
+                "Use when keyword search fails and you need conceptual or fuzzy matching."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {

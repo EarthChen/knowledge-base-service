@@ -406,6 +406,15 @@ class IncrementalIndexer:
         enrich_stats = await enricher.enrich()
         log.info("graph_enrichment_complete", **enrich_stats)
 
+        # Supplement missing CONTAINS relationships (Function→Module)
+        from indexer.post_process import supplement_contains_relationships
+        graph_name = self._store.graph_name if hasattr(self._store, "graph_name") else ""
+        try:
+            contains_count = await supplement_contains_relationships(self._store, graph_name)
+            log.info("supplement_contains_complete", attempted=contains_count)
+        except Exception:
+            log.warning("supplement_contains_failed", exc_info=True)
+
         report.duration_seconds = time.monotonic() - start_time
         report.finalize()
         self._last_report = report

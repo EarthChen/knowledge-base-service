@@ -15,9 +15,12 @@ RETURN m.name AS module_name, f.name AS func_name,
 def call_chain_cypher(depth: int) -> str:
     d = max(1, int(depth))
     return f"""
-MATCH (a:Module)-[:CALLS*1..{d}]->(b:Module)
-WHERE a.name IN $names
-RETURN a.name AS caller, b.name AS callee
+MATCH (m1:Module)-[:CONTAINS]->(f1:Function)-[:CALLS*1..{d}]->(f2:Function)<-[:CONTAINS]-(m2:Module)
+WHERE m1.name IN $names AND m1 <> m2
+RETURN DISTINCT m1.name AS caller, m2.name AS callee,
+       collect(DISTINCT f1.name)[..5] AS caller_functions,
+       collect(DISTINCT f2.name)[..5] AS callee_functions
+ORDER BY caller, callee
 """.strip()
 
 

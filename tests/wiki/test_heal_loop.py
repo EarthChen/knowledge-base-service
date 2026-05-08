@@ -133,8 +133,14 @@ async def test_heal_pages_truncates_content_via_token_budget_and_passes_max_toke
         "heal_attempts": {},
         "heal_hints": {},
     }
+    # Content must pass L1 post-heal check so multi-round loop stops after one round.
+    _pass_after_heal = (
+        "## Overview\n"
+        + "x" * 220
+        + "\n## Key components\nCore\n## Relationships\n- [[peer]]\n"
+    )
     mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(return_value="## Overview\n" + "x" * 250)
+    mock_llm.generate = AsyncMock(return_value=_pass_after_heal)
     mock_llm.complete_json = AsyncMock(return_value={"patches": []})
 
     await heal_pages_node(state, {"configurable": {"llm": mock_llm}})

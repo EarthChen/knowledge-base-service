@@ -52,10 +52,10 @@ class TestFormatSummaryForAgent:
                 ),
             ],
             interface_impls=[
-                {"interface": "PaymentGateway", "impl": "StripeGateway", "module": "PaymentService"}
+                {"interface_name": "PaymentGateway", "impl_name": "StripeGateway", "module_name": "PaymentService"}
             ],
             external_callers=[
-                {"caller": "OrderService", "method": "checkout", "target": "PaymentService.processPayment"}
+                {"caller_name": "OrderService", "target_name": "PaymentService.processPayment"}
             ],
         )
 

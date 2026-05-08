@@ -143,14 +143,14 @@ class EnrichedDomainContext:
 
         if self.interface_impls:
             impl_lines = [
-                f"  - {d.get('interface', '?')} ← {d.get('impl', '?')}"
+                f"  - {d.get('interface_name', '?')} ← {d.get('impl_name', '?')}"
                 for d in self.interface_impls[:10]
             ]
             sections.append("## Known Implementations\n" + "\n".join(impl_lines))
 
         if self.external_callers:
             caller_lines = [
-                f"  - {d.get('caller', '?')}.{d.get('method', '?')} → {d.get('target', '?')}"
+                f"  - {d.get('caller_name', '?')} → {d.get('target_name', '?')}"
                 for d in self.external_callers[:10]
             ]
             sections.append("## Known External Callers\n" + "\n".join(caller_lines))

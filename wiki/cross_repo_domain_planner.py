@@ -165,7 +165,7 @@ class CrossRepoBusinessDomainPlanner:
                 return await self._classify_single_batch(
                     business_id, pairs_in_order, pre_groups=pre_groups
                 )
-            return await self._classify_multi_batch(business_id, all_modules, pairs_in_order)
+            return await self._classify_multi_batch(business_id, all_modules, pairs_in_order, pre_groups=pre_groups)
         except Exception:
             log.warning(
                 "cross_repo_business_domain_classification_failed",
@@ -616,6 +616,7 @@ class CrossRepoBusinessDomainPlanner:
         business_id: str,
         all_modules: dict[str, list[GraphNode]],
         pairs_in_order: list[tuple[str, str]],
+        pre_groups: list | None = None,
     ) -> dict[str, list[tuple[str, str]]]:
         assert self._llm is not None
         valid_pairs = set(pairs_in_order)
@@ -633,7 +634,7 @@ class CrossRepoBusinessDomainPlanner:
             )
 
         try:
-            prompt = self._build_lightweight_merge_prompt(business_id, per_repo)
+            prompt = self._build_lightweight_merge_prompt(business_id, per_repo, pre_groups=pre_groups)
             if hasattr(self._llm, "complete_json"):
                 messages = [
                     {"role": "system", "content": SYSTEM_JSON_ONLY},
@@ -732,10 +733,22 @@ class CrossRepoBusinessDomainPlanner:
         self,
         business_id: str,
         per_repo: dict[str, dict[str, list[str]]],
+        pre_groups: list | None = None,
     ) -> str:
         domain_names_per_repo: dict[str, list[str]] = {}
         for repo_id, domain_map in per_repo.items():
             domain_names_per_repo[repo_id] = sorted(domain_map.keys())
+
+        pre_group_section = ""
+        if pre_groups:
+            lines = ["Cross-repo module relationship hints (modules that call each other):"]
+            for g in pre_groups:
+                prefix = g.directory_prefix or "mixed"
+                names = ", ".join(g.module_names[:10])
+                lines.append(f"  Group {g.group_id + 1} ({prefix}): [{names}]")
+            lines.append("Consider grouping related domains when modules call each other.\n")
+            pre_group_section = "\n".join(lines) + "\n"
+
         return (
             "Unify the following per-repository business domain names into a single "
             "consistent set of domain names across all repositories.\n"
@@ -744,6 +757,7 @@ class CrossRepoBusinessDomainPlanner:
             f'Use "{self._infrastructure_label}" for ambiguous infrastructure domains.\n\n'
             f"Business ID: {business_id}\n\n"
             f"Domain names per repository:\n{json.dumps(domain_names_per_repo, indent=2, ensure_ascii=False)}\n\n"
+            f"{pre_group_section}"
             "Return ONLY valid JSON: an object whose keys are unified domain names and whose "
             "values are objects mapping repository_id to the original per-repo domain name.\n"
             "Every per-repo domain name must appear exactly once."

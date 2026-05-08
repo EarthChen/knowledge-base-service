@@ -147,6 +147,88 @@ def _sanitize_pages(
         page_dict["covered_entity_uids"] = covered_entity_uids
 
 
+try:
+    from wiki.llm_port import LLMPort
+except ImportError:  # pragma: no cover
+
+    class _LLMPortUnavailable:  # noqa: N801
+        """Placeholder when wiki.llm_port is missing; isinstance never matches."""
+
+        pass
+
+    LLMPort = _LLMPortUnavailable  # type: ignore[misc, assignment]
+
+
+_INCREMENTAL_CHANGE_RATIO = 0.3
+
+
+async def _incremental_update_pages(
+    domain_name: str,
+    old_pages: list[dict[str, Any]],
+    new_module_summaries: dict[str, str],
+    llm: Any,
+    token_budget: int = 4000,
+) -> list[dict[str, Any]] | None:
+    """Incrementally update existing pages with new module information.
+
+    Returns updated pages, or None if incremental update is not possible
+    (caller should fallback to full rewrite).
+    """
+    import wiki.pipeline_nodes as _pn
+
+    if not old_pages or not new_module_summaries or not llm:
+        return None
+
+    change_desc_lines = []
+    for mod_name, summary in new_module_summaries.items():
+        change_desc_lines.append(f"- **{mod_name}**: {summary[:200]}")
+    change_description = "\n".join(change_desc_lines)
+
+    updated_pages: list[dict[str, Any]] = []
+    for page in old_pages:
+        old_content = page.get("content", "")
+        if not old_content:
+            return None
+
+        prompt = (
+            f'You are a Wiki editor. The domain "{domain_name}" has received new modules.\n'
+            "Update the existing page to incorporate the new information.\n"
+            "Keep most existing content unchanged. Only modify/add sections related to the changes.\n\n"
+            f"## Existing Page Content\n{old_content[:3000]}\n\n"
+            f"## New Modules Added\n{change_description}\n\n"
+            "Output the complete updated page in markdown format."
+        )
+
+        messages = [{"role": "user", "content": prompt}]
+        try:
+            if isinstance(llm, LLMPort):
+                result = await llm.complete_json(messages, {}, max_tokens=token_budget)
+                if isinstance(result, str):
+                    new_content = result.strip() or old_content
+                elif isinstance(result, dict):
+                    new_content = (
+                        result.get("content")
+                        or result.get("markdown")
+                        or result.get("page")
+                        or ""
+                    )
+                    if isinstance(new_content, str):
+                        new_content = new_content.strip() or old_content
+                    else:
+                        new_content = old_content
+                else:
+                    new_content = str(result).strip() if result else old_content
+            else:
+                new_content = old_content
+        except Exception:
+            _pn.log.warning("incremental_update_failed", domain=domain_name, exc_info=True)
+            return None
+
+        updated_pages.append({**page, "content": new_content})
+
+    return updated_pages
+
+
 async def _compose_single_leaf_domain(
     leaf: dict[str, Any],
     module_index: dict[str, list[dict]],

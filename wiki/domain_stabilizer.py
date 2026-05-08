@@ -99,7 +99,12 @@ class DomainStabilizer:
             return 0.0
         inter = len(ta & tb)
         union = len(ta | tb)
-        return inter / union if union else 0.0
+        j = inter / union if union else 0.0
+        pa = na.split()
+        pb = nb.split()
+        if len(pa) >= 2 and len(pb) >= 2 and pa[0] == pb[0]:
+            return max(j, 0.85)
+        return j
 
     _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
@@ -131,13 +136,31 @@ class DomainStabilizer:
         proposed_domains: list[str],
         existing_domains: list[str],
     ) -> dict[str, str]:
-        """Synchronous version without graph store query.
+        """Synchronous stabilization with Phase 1 (vs existing) + Phase 2 (vs batch).
 
         Pre-indexes existing domains by their first normalized token to reduce
         comparisons from O(proposed * existing) to roughly O(proposed * bucket).
+        Phase 2 compares against already-confirmed batch canonicals when no
+        existing domain matched.
         """
+        if not proposed_domains:
+            return {}
+
         if not existing_domains:
-            return {p: p for p in proposed_domains}
+            result: dict[str, str] = {}
+            batch_canonical: list[str] = []
+            for proposed in proposed_domains:
+                best_batch: tuple[float, str] = (-1.0, proposed)
+                for canonical in batch_canonical:
+                    sim = self.compute_similarity(proposed, canonical)
+                    if sim > best_batch[0]:
+                        best_batch = (sim, canonical)
+                if best_batch[0] >= self._threshold:
+                    result[proposed] = best_batch[1]
+                else:
+                    result[proposed] = proposed
+                    batch_canonical.append(proposed)
+            return result
 
         index: dict[str, list[str]] = {}
         for ed in existing_domains:
@@ -148,6 +171,8 @@ class DomainStabilizer:
                 index.setdefault(tk, []).append(ed)
 
         result: dict[str, str] = {}
+        batch_canonical: list[str] = []
+
         for proposed in proposed_domains:
             pnorm = self.normalize_domain_name(proposed)
             ptokens = self._tokenize_for_jaccard(pnorm)
@@ -163,8 +188,21 @@ class DomainStabilizer:
                 sim = self.compute_similarity(proposed, existing)
                 if sim > best[0]:
                     best = (sim, existing)
+
             if best[0] >= self._threshold:
                 result[proposed] = best[1]
+                continue
+
+            best_batch: tuple[float, str] = (-1.0, proposed)
+            for canonical in batch_canonical:
+                sim = self.compute_similarity(proposed, canonical)
+                if sim > best_batch[0]:
+                    best_batch = (sim, canonical)
+
+            if best_batch[0] >= self._threshold:
+                result[proposed] = best_batch[1]
             else:
                 result[proposed] = proposed
+                batch_canonical.append(proposed)
+
         return result

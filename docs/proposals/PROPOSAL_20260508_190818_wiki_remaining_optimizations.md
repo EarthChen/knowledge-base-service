@@ -1,6 +1,6 @@
 # 提案: Wiki 生成剩余优化项 (统一汇总)
 
-**状态**: Draft
+**状态**: Superseded → see `docs/superpowers/specs/2026-05-08-wiki-remaining-optimizations-design.md` and `docs/superpowers/plans/2026-05-08-wiki-remaining-optimizations.md`
 **创建时间**: 2026-05-08 19:08
 **优先级**: P2 (优化改进, 非阻塞)
 **前置**: 所有核心功能已实现并接入 Pipeline (1858 测试通过)

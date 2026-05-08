@@ -27,12 +27,13 @@ Positional:
 
 Behavior:
   - For each service, POST /api/v1/index with JSON:
-    {"directory":"<BASE_DIR>/<SERVICE>","mode":"<MODE>","repository":"<SERVICE>"}
+    {"business_id":"<KB_BUSINESS_ID or default>","directory":"<BASE_DIR>/<SERVICE>","mode":"<MODE>","repository":"<SERVICE>"}
   - Skips services whose directory does not exist (warning only).
   - Exits with status 1 if any HTTP request fails.
 
 Environment:
   KB_URL, KB_TOKEN   Defaults when --kb-url / --kb-token are omitted.
+  KB_BUSINESS_ID     business_id in JSON body (default: default).
 
 Examples:
   # Index default services under ~/repos
@@ -58,7 +59,8 @@ json_body() {
   local dir="$1"
   local mode="$2"
   local repo="$3"
-  python3 -c 'import json,sys; print(json.dumps({"directory":sys.argv[1],"mode":sys.argv[2],"repository":sys.argv[3]}))' "$dir" "$mode" "$repo"
+  local bid="${KB_BUSINESS_ID:-default}"
+  python3 -c 'import json,sys; print(json.dumps({"business_id":sys.argv[4],"directory":sys.argv[1],"mode":sys.argv[2],"repository":sys.argv[3]}))' "$dir" "$mode" "$repo" "$bid"
 }
 
 BASE_DIR=""

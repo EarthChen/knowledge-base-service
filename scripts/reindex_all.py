@@ -58,8 +58,10 @@ async def reindex_repo(
     base_url: str,
     directory: str,
     repository: str,
+    business_id: str,
 ) -> dict[str, Any]:
     payload = {
+        "business_id": business_id,
         "directory": directory,
         "repository": repository,
         "mode": "full",
@@ -175,7 +177,7 @@ async def main() -> None:
 
             print(f"[{i}/{len(names)}] START {repo} -> {directory}", flush=True)
             try:
-                result = await reindex_repo(client, base_url, directory, repo)
+                result = await reindex_repo(client, base_url, directory, repo, business_id)
             except Exception as exc:
                 print(f"[{i}/{len(names)}] FAIL {repo}: {exc}", flush=True)
                 failed.append({"repository": repo, "error": str(exc)})

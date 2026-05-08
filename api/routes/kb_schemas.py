@@ -101,6 +101,11 @@ class DeepSearchRequest(BaseModel):
 
 
 class IndexRequest(BaseModel):
+    business_id: str = Field(
+        ...,
+        min_length=1,
+        description="Business / tenant id — graph name will be kb_{business_id}",
+    )
     directory: str = ""
     git_url: str = ""
     branch: str | None = None
@@ -108,6 +113,15 @@ class IndexRequest(BaseModel):
     base_ref: str = "HEAD~1"
     head_ref: str = "HEAD"
     repository: str | None = None
+
+    @field_validator("business_id", mode="before")
+    @classmethod
+    def _normalize_business_id(cls, value: Any) -> str:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            raise ValueError("business_id is required")
+        if not isinstance(value, str):
+            raise TypeError("business_id must be a string")
+        return value.strip()
 
 
 class ReindexAllRequest(BaseModel):

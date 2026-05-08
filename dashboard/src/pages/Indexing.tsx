@@ -23,6 +23,7 @@ import { getErrorMessage } from "../utils/errorUtils";
 import { useToast } from "../components/Toast";
 import JsonView from "../components/JsonView";
 import type { IndexTask } from "../api/types";
+import { getCurrentBusiness } from "../currentBusiness";
 
 const UPLOAD_EXT = [".java", ".py", ".go", ".js", ".ts", ".tsx", ".md", ".txt"] as const;
 
@@ -307,6 +308,7 @@ export default function Indexing() {
       val.endsWith(".git");
 
     const body: Record<string, unknown> = {
+      business_id: getCurrentBusiness(),
       mode,
     };
     if (isGitUrl) {

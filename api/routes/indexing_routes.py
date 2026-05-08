@@ -63,10 +63,11 @@ async def get_index_task(task_id: str) -> dict[str, Any]:
 async def trigger_index(
     request: Request,
     req: IndexRequest,
-    business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
     if kb_state.task_manager is None or kb_state.registry is None:
         raise KbServiceUnavailable("Service not ready")
+
+    business_id = req.business_id
 
     if not req.directory and not req.git_url:
         raise HTTPException(
@@ -185,7 +186,12 @@ async def reindex_all_repositories(
                 })
                 continue
 
-        idx = IndexRequest(directory=directory, repository=repo, mode="full")
+        idx = IndexRequest(
+            business_id=business_id,
+            directory=directory,
+            repository=repo,
+            mode="full",
+        )
         task = kb_state.task_manager.create_task(
             mode="full",
             directory=directory,

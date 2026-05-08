@@ -27,6 +27,7 @@
 # Optional CI/CD variables:
 #   KB_REPOSITORY — Override the repository name stored in the KB
 #                   (defaults to CI_PROJECT_PATH, e.g. ultron/ultron-basic-user)
+#   KB_BUSINESS_ID — Target KB graph tenant (defaults to default → graph kb_default)
 # ============================================================
 
 kb-incremental-index:
@@ -38,6 +39,7 @@ kb-incremental-index:
     - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "main")'
   variables:
     KB_REPOSITORY: "${KB_REPOSITORY:-$CI_PROJECT_PATH}"
+    KB_BUSINESS_ID: "${KB_BUSINESS_ID:-default}"
   before_script:
     - apk add --no-cache curl jq
   script:
@@ -58,6 +60,7 @@ kb-incremental-index:
         -H "Authorization: Bearer ${KB_API_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "{
+          \"business_id\": \"${KB_BUSINESS_ID}\",
           \"git_url\": \"${CI_PROJECT_URL}.git\",
           \"branch\": \"${CI_COMMIT_BRANCH}\",
           \"mode\": \"incremental\",

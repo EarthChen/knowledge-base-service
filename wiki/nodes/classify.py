@@ -285,7 +285,27 @@ async def decompose_hierarchy_node(
         return {"domain_tree": []}
 
     decomposer = pn.HierarchicalDecomposer(llm, max_depth=3, min_modules_for_nesting=3)
-    module_graph = ModuleGraph(modules=all_module_infos, edges=[], entry_points=[])
+
+    graph_store = (config or {}).get("configurable", {}).get("graph_store")
+    filtered_edges = []
+    if graph_store is not None:
+        from wiki.dependency_graph import ModuleDependencyGraph
+
+        dep_graph = ModuleDependencyGraph(graph_store)
+        repos = {repo_id for pairs in domain_mapping.values() for repo_id, _ in pairs}
+        all_edges = []
+        module_name_set = {m.name for m in all_module_infos}
+        for repo in repos:
+            try:
+                repo_graph = await dep_graph.build(repo)
+                all_edges.extend(repo_graph.edges)
+            except Exception:
+                log.warning("decompose_load_edges_failed", repo=repo, exc_info=True)
+        filtered_edges = [e for e in all_edges if e.source in module_name_set and e.target in module_name_set]
+        entry_points = dep_graph._identify_entry_points(all_module_infos, filtered_edges)
+        module_graph = ModuleGraph(modules=all_module_infos, edges=filtered_edges, entry_points=entry_points)
+    else:
+        module_graph = ModuleGraph(modules=all_module_infos, edges=filtered_edges, entry_points=[])
 
     try:
         raw_tree = await decomposer.decompose(all_module_infos, module_graph)
@@ -306,7 +326,13 @@ async def decompose_hierarchy_node(
             leaf_modules = [m for m in all_module_infos if m.name in leaf_module_names_set]
             if not leaf_modules:
                 continue
-            rebal_graph = ModuleGraph(modules=leaf_modules, edges=[], entry_points=[])
+            leaf_module_names_set_edges = set(leaf_module_names_set)
+            rebal_edges = [
+                e
+                for e in filtered_edges
+                if e.source in leaf_module_names_set_edges or e.target in leaf_module_names_set_edges
+            ]
+            rebal_graph = ModuleGraph(modules=leaf_modules, edges=rebal_edges, entry_points=[])
             try:
                 sub_tree = await rebalance_decomposer.decompose(leaf_modules, rebal_graph)
                 if sub_tree and len(sub_tree) > 1:

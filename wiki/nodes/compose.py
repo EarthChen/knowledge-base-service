@@ -257,6 +257,8 @@ async def _compose_single_leaf_domain(
     wiki_store: Any | None = None,
     domain_mapping: dict[str, list] | None = None,
     module_summaries: dict[str, dict[str, Any]] | None = None,
+    repo_path: str | None = None,
+    search_service: Any | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Compose pages for one leaf domain (and optional diagrams when llm is set)."""
     import wiki.pipeline_nodes as _pn
@@ -301,21 +303,36 @@ async def _compose_single_leaf_domain(
 
     # --- Step 2: Agent-Driven path (uses CCB context as rich baseline) ---
     if llm is not None and graph_store is not None:
-        from wiki.agent_config import AgentConfig
+        from wiki.agent_config import AgentConfig, HarnessConfig
 
         agent_cfg = AgentConfig.from_env()
         if agent_cfg.should_use_agent(len(module_names)):
             try:
                 from wiki.page_agent import WikiPageAgent
+                from wiki.harness import WikiGenerationHarness
 
-                agent = WikiPageAgent(llm, graph_store)
-                ccb_summary = context.format_summary_for_agent(max_chars=6000) if context else ""
-                content = await agent.generate(
-                    module_names=list(module_names),
-                    domain_name=domain_name,
-                    baseline_context=ccb_summary or None,
-                    max_rounds=5,
+                agent = WikiPageAgent(
+                    llm, graph_store, repo_path=repo_path, search_service=search_service
                 )
+                ccb_summary = context.format_summary_for_agent(max_chars=6000) if context else ""
+
+                harness_cfg = HarnessConfig.from_env()
+                if harness_cfg.enabled:
+                    harness = WikiGenerationHarness(
+                        agent=agent, graph_store=graph_store, llm=llm, config=harness_cfg
+                    )
+                    content = await harness.run(
+                        domain=domain_name,
+                        modules=list(module_names),
+                        ccb_context=context,
+                    )
+                else:
+                    content = await agent.generate(
+                        module_names=list(module_names),
+                        domain_name=domain_name,
+                        baseline_context=ccb_summary or None,
+                        max_rounds=5,
+                    )
                 if content and len(content) > 100:
                     page = {
                         "title": domain_name,
@@ -815,6 +832,8 @@ async def _compose_from_topic_structure(
     wiki_store: Any | None = None,
     domain_mapping: dict[str, list] | None = None,
     module_summaries: dict[str, dict[str, Any]] | None = None,
+    repo_path: str | None = None,
+    search_service: Any | None = None,
 ) -> dict[str, Any]:
     """Compose pages from TopicBasedStructurePlanner output."""
     import wiki.pipeline_nodes as _pn
@@ -839,6 +858,8 @@ async def _compose_from_topic_structure(
                 wiki_store=wiki_store,
                 domain_mapping=domain_mapping,
                 module_summaries=module_summaries,
+                repo_path=repo_path,
+                search_service=search_service,
             )
 
     all_topics = list(topic_structure)
@@ -901,6 +922,8 @@ async def compose_leaf_pages_node(
     llm = configurable.get("llm")
     graph_store = configurable.get("graph_store")
     wiki_store = configurable.get("wiki_store")
+    repo_path = state.get("repo_path") or configurable.get("repo_path")
+    search_service = state.get("search_service") or configurable.get("search_service")
     domain_mapping = state.get("domain_mapping") or {}
     domain_tree = state.get("domain_tree") or []
     entity_roles = state.get("entity_roles", {})
@@ -931,6 +954,8 @@ async def compose_leaf_pages_node(
             wiki_store=wiki_store,
             domain_mapping=domain_mapping,
             module_summaries=mod_summaries,
+            repo_path=repo_path,
+            search_service=search_service,
         )
         pages_out = out.get("pages") or []
         await _maybe_pipeline_progress(
@@ -1015,6 +1040,8 @@ async def compose_leaf_pages_node(
                 wiki_store=wiki_store,
                 domain_mapping=domain_mapping,
                 module_summaries=mod_summaries,
+                repo_path=repo_path,
+                search_service=search_service,
             )
 
     results = await asyncio.gather(

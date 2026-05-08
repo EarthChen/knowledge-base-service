@@ -150,6 +150,7 @@ class CrossRepoBusinessDomainPlanner:
         self,
         business_id: str,
         all_modules: dict[str, list[GraphNode]],
+        pre_groups: list | None = None,
     ) -> dict[str, list[tuple[str, str]]]:
         self._metadata_cache = self._build_metadata_cache(all_modules)
         pairs_in_order = self._all_pairs_in_order(all_modules)
@@ -161,7 +162,9 @@ class CrossRepoBusinessDomainPlanner:
 
         try:
             if len(pairs_in_order) <= self._batch_threshold:
-                return await self._classify_single_batch(business_id, pairs_in_order)
+                return await self._classify_single_batch(
+                    business_id, pairs_in_order, pre_groups=pre_groups
+                )
             return await self._classify_multi_batch(business_id, all_modules, pairs_in_order)
         except Exception:
             log.warning(
@@ -579,10 +582,13 @@ class CrossRepoBusinessDomainPlanner:
         self,
         business_id: str,
         pairs_in_order: list[tuple[str, str]],
+        pre_groups: list | None = None,
     ) -> dict[str, list[tuple[str, str]]]:
         assert self._llm is not None
         valid_pairs = set(pairs_in_order)
-        prompt = self._build_single_batch_prompt(business_id, pairs_in_order)
+        prompt = self._build_single_batch_prompt(
+            business_id, pairs_in_order, pre_groups=pre_groups
+        )
         if hasattr(self._llm, "complete_json"):
             messages = [
                 {"role": "system", "content": SYSTEM_JSON_ONLY},
@@ -662,6 +668,7 @@ class CrossRepoBusinessDomainPlanner:
         self,
         business_id: str,
         pairs_in_order: list[tuple[str, str]],
+        pre_groups: list | None = None,
     ) -> str:
         rows: list[dict[str, str]] = []
         for repo_id, name in pairs_in_order:
@@ -676,6 +683,19 @@ class CrossRepoBusinessDomainPlanner:
                     "path": path_str,
                 }
             )
+        pre_group_section = ""
+        if pre_groups:
+            lines = [
+                "Pre-grouping hints (modules that call each other or share directory structure):"
+            ]
+            for g in pre_groups:
+                prefix = g.directory_prefix or "mixed"
+                names = ", ".join(g.module_names[:10])
+                lines.append(f"  Group {g.group_id + 1} ({prefix}): [{names}]")
+            lines.append(
+                "Use these groups as a REFERENCE — you may split or merge them as appropriate.\n"
+            )
+            pre_group_section = "\n".join(lines) + "\n"
         return (
             "Classify the following modules from multiple repositories into business domains.\n"
             "Use short, human-readable domain names (e.g. product areas).\n"
@@ -683,6 +703,7 @@ class CrossRepoBusinessDomainPlanner:
             f'the domain key "{self._infrastructure_label}" when appropriate.\n\n'
             f"Business ID: {business_id}\n\n"
             f"Modules:\n{json.dumps(rows, indent=2, ensure_ascii=False)}\n\n"
+            f"{pre_group_section}"
             "Return ONLY valid JSON: an object whose keys are domain names and whose values are "
             "arrays of [repository_id, module_name] pairs. Each module_name must match a "
             '"name" from the input for the given repository_id.'

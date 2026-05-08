@@ -177,15 +177,34 @@ async def classify_domains_node(
         reasoning_level=classify_reasoning.value,
     )
 
+    graph_store = (config or {}).get("configurable", {}).get("graph_store")
+    pre_groups = None
+    if graph_store is not None:
+        from wiki.graph_pre_grouper import compute_pre_groups
+
+        module_paths: dict[str, str] = {}
+        for repo, nodes in biz_modules.items():
+            for n in nodes:
+                name = str(n.properties.get("name", ""))
+                path = str(n.properties.get("path", "") or "")
+                if name:
+                    module_paths[name] = path
+        try:
+            pre_groups = await compute_pre_groups(
+                graph_store, list(biz_modules.keys()), module_paths
+            )
+        except Exception:
+            log.warning("pre_groups_computation_failed", exc_info=True)
+
     planner = CrossRepoBusinessDomainPlanner(llm)
     is_incremental = state.get("is_incremental", False)
     if is_incremental:
         domain_mapping, affected_domains = await planner.classify_incremental(business_id, biz_modules)
     else:
-        domain_mapping = await planner.classify(business_id, biz_modules)
+        domain_mapping = await planner.classify(
+            business_id, biz_modules, pre_groups=pre_groups
+        )
         affected_domains = set(domain_mapping.keys())
-
-    graph_store = (config or {}).get("configurable", {}).get("graph_store")
     if graph_store is not None:
         from wiki.domain_stabilizer import DomainStabilizer
 

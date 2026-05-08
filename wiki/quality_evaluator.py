@@ -13,6 +13,7 @@ from wiki.models import (
     WikiPage,
     WikiPageQualityScore,
 )
+from wiki.page_agent import _THINKING_PREFIX_RE as _THINKING_LEAK_RE
 
 log = get_logger(__name__)
 
@@ -36,7 +37,6 @@ _SOURCE_REF = re.compile(r"source://[^\s)\]>]+")
 _HTTP_LINK = re.compile(r"https?://[^\s)\]>]+")
 _CODE_FENCE = re.compile(r"```")
 _CONTEXT_GAP = re.compile(r"<!--\s*CONTEXT_GAP:\s*(.+?)\s*-->")
-_THINKING_LEAK_RE = re.compile(r"^(我需要|让我|从工作记忆|I need to|Let me)")
 _FAKE_SOURCE_RE = re.compile(r"com/xxx/|source://src/")
 
 _STRUCT_OVERVIEW_MARKERS = ("## Overview", "## 业务概述", "## 概述")
@@ -140,7 +140,7 @@ class WikiQualityEvaluator:
             completeness=round(completeness, 2),
             helpfulness=round(completeness * 0.8, 2),
             truthfulness=truthfulness,
-            overall=round(completeness * 0.9, 2),
+            overall=round(completeness * 0.9 * truthfulness, 2),
             issues=issues,
         )
 

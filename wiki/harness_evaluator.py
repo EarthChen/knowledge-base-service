@@ -91,6 +91,6 @@ class WikiPageEvaluator:
             suggestions=[i.suggestion for i in issues if i.severity == "error"],
         )
 
-    async def evaluate_l2(self, content, modules, llm, l1_result) -> EvalResult:
-        """LLM Judge — fallback to L1 result for now."""
+    def evaluate_l2(self, content, modules, llm, l1_result) -> EvalResult:
+        """LLM Judge — stub returns L1 result. Will be async when real implementation lands."""
         return l1_result

@@ -18,7 +18,10 @@ class WikiGenerationHarness:
         self.graph_store = graph_store
         self.llm = llm
         self.config = config
-        self.router = AdaptiveRouter()
+        self.router = AdaptiveRouter(
+            simple_threshold=config.simple_threshold if config else 5,
+            complex_threshold=config.complex_threshold if config else 15,
+        )
         self.planner = WikiPagePlanner()
         self.evaluator = WikiPageEvaluator()
         self.domain_cache: dict[str, str] = {}
@@ -69,11 +72,16 @@ class WikiGenerationHarness:
         )
 
         # 6. Evaluate + Repair loop
-        for round_i in range(assessment.max_repair_rounds + 1):
+        max_repairs = assessment.max_repair_rounds
+        if self.config and self.config.max_repair_rounds < max_repairs:
+            max_repairs = self.config.max_repair_rounds
+        if self.config and not self.config.llm_judge_enabled:
+            assessment.use_llm_judge = False
+        for round_i in range(max_repairs + 1):
             eval_result = self.evaluator.evaluate(content, modules, assessment, self.llm)
             if eval_result.passed:
                 break
-            if round_i < assessment.max_repair_rounds:
+            if round_i < max_repairs:
                 log.info(
                     "harness_repair",
                     domain=domain,

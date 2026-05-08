@@ -1,8 +1,9 @@
 # Wiki 质量修复 + Agent-Driven 生成引擎设计
 
-**状态**: Draft → AwaitingApproval  
+**状态**: Implementing (Tasks 1-13 完成, 2026-05-08)  
 **审阅**: sequential-thinking 深度审阅完成, 15 项发现已纳入  
 **创建**: 2026-05-08  
+**分支**: `feat/wiki-quality-agent-driven` (15 commits, 61 新增测试全部通过)  
 **合并来源**:
 - `PROPOSAL_20260508_135807_business_indexing_and_progress.md` (Closed, 剩余 gap)
 - `PROPOSAL_20260508_150922_wiki_quality_remediation.md` (部分内容)
@@ -622,3 +623,60 @@ Phase 5 (Day 11-12): 集成验证
 | Agent 不调用工具直接编造 | 行为验证：生成调用链但未调用 query_call_chain → 警告 |
 | 循环依赖导致拓扑排序失败 | SCC 分解，同 SCC 内模块同组生成 |
 | Phase 4 时间偏乐观 | 拆分为 4a(基础) + 4b(高级)，可独立交付 |
+
+---
+
+## 11. 实施完成度追踪 (2026-05-08 更新)
+
+### Layer 1: P0 Bug Fix — ✅ 全部完成
+| 节 | 内容 | 状态 | 备注 |
+|----|------|------|------|
+| 3.1 | CONTEXT_GAP 正则统一 | ✅ | `wiki/context_gap.py` — T1 |
+| 3.2 | cleanup 全路径覆盖 | ✅ | heal.py + aggregate.py — T2 |
+| 3.3 | Markdown 围栏剥离 | ✅ | json_robust.py + topic_page_composer.py — T3 |
+| 3.4 | tree_linker 截断修复 | ✅ | `_safe_truncate` + 中文标题 — T4 |
+| 3.5 | 进度 callback 透传 | ✅ | service.py — T5 |
+| 3.6 | 测试清单 | ✅ | 全部覆盖 |
+
+### Layer 2: Graph Data Fix — ✅ 核心完成, ⚠️ 接入待办
+| 节 | 内容 | 状态 | 备注 |
+|----|------|------|------|
+| 4.1 | CONTAINS 补全策略 | ✅ 逻辑 | `indexer/post_process.py` — T6 |
+| 4.1 | 接入 indexer 流程 | ❌ 待接入 | `supplement_contains_relationships` 需要在 indexer pipeline 中调用 |
+| 4.2 | CCB Cypher 查询改造 | ✅ | `call_chain_cypher` 已更新 — T7 |
+| 4.2 | content_context_builder 适配 | ❌ 待适配 | CCB 中使用新 Cypher 返回的 caller_functions/callee_functions |
+| 4.3 | 物化 Module-level CALLS | ❌ 可选 | 设计中标记为可选 |
+
+### Layer 3: Domain Classification Fix — ⚠️ 部分完成
+| 节 | 内容 | 状态 | 备注 |
+|----|------|------|------|
+| 5.1 | 域分类优化 | ⚠️ 部分 | 反幻觉 prompt ✅, 图拓扑预分组 + 目录辅助 ❌ |
+| 5.2 | 小域合并后处理 | ✅ | `wiki/domain_merger.py` — T8 |
+| 5.3 | Overview 反幻觉 prompt | ✅ | `SYSTEM_DOMAIN_CLASSIFICATION` — T8 |
+| 5.4 | 小域页面合并 | ❌ 未实现 | 1-2 模块域 → 单页合并 |
+| 5.5 | Overview 自底向上合成 | ✅ 逻辑 | `wiki/overview_synthesizer.py` — T12, 未接入 pipeline |
+
+### Layer 4: Agent-Driven Engine — ⚠️ 核心已实现, 接入待办
+| 节 | 内容 | 状态 | 备注 |
+|----|------|------|------|
+| 6.2 | WikiPageAgent.generate() | ✅ | `wiki/page_agent.py` — T9 |
+| 6.3 | Agent System Prompt | ✅ | `wiki/agent_prompts.py` — T9 |
+| 6.4 | 路由策略 + 配置开关 | ✅ 逻辑 | `wiki/agent_config.py` — T10 |
+| 6.4 | 接入 compose pipeline | ❌ 待接入 | AgentConfig 未 wire 到 `_compose_single_leaf_domain` |
+| 6.5 | 拓扑排序 + SCC | ✅ | `wiki/topo_sort.py` — T11 |
+| 6.5 | 接入生成流程 | ❌ 待接入 | 拓扑排序未 wire 到页面生成批次 |
+| 6.6 | 源码引用验证 | ✅ | `wiki/citation_verifier.py` — T13 |
+| 6.6 | 接入质量验证 | ❌ 待接入 | 未在 pipeline 中调用 |
+| 6.7 | Fallback + 配置 | ✅ | generate() 内置 skeleton fallback |
+
+### 待完成项汇总 (Pipeline 接入层)
+| # | 内容 | 优先级 | 说明 |
+|---|------|--------|------|
+| W1 | `supplement_contains_relationships` 接入 indexer | P0 | 新 Cypher 查询依赖 CONTAINS 关系 |
+| W2 | `AgentConfig` + `generate()` 接入 compose pipeline | P0 | Agent-Driven 生效的关键 |
+| W3 | `content_context_builder.py` 适配新 Cypher 返回 | P1 | caller_functions/callee_functions 字段 |
+| W4 | `overview_synthesizer` 接入 tree_linker/aggregate | P1 | 消除 overview 虚构 |
+| W5 | `citation_verifier` 接入质量验证 | P1 | 检测幻觉实体 |
+| W6 | `topo_sort` 接入页面生成批次 | P2 | 优化生成顺序 |
+| W7 | 图拓扑预分组 + 目录辅助域分类 | P2 | 需额外开发 |
+| W8 | 小域页面合并 (1-2 模块 → 单页) | P2 | 需在 compose 中处理 |

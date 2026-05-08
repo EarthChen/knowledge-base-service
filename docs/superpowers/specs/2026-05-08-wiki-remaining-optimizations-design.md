@@ -257,12 +257,12 @@ async def _compose_single_leaf_domain(...):
         except Exception:
             log.warning("ccb_context_failed", ...)
 
-    # ② Agent-Driven 路径 (使用 CCB 上下文作为 baseline)
-    if context is not None and llm is not None:
+    # ② Agent-Driven 路径 (使用 CCB 上下文作为 baseline，CCB 失败时仍可运行)
+    if llm is not None and graph_store is not None:
         from wiki.agent_config import AgentConfig
         agent_cfg = AgentConfig.from_env()
         if agent_cfg.should_use_agent(len(module_names)):
-            ccb_summary = context.format_summary_for_agent(max_chars=6000)
+            ccb_summary = context.format_summary_for_agent(max_chars=6000) if context else ""
             try:
                 agent = WikiPageAgent(llm, graph_store)
                 content = await agent.generate(

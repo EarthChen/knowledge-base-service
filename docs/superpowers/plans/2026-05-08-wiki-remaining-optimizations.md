@@ -192,7 +192,7 @@ import inspect
 import pytest
 
 
-def test_compose_always_runs_ccb_before_agent():
+def test_compose_runs_ccb_before_agent():
     """In _compose_single_leaf_domain, CCB context building should appear before Agent check."""
     from wiki.nodes import compose as compose_mod
     source = inspect.getsource(compose_mod._compose_single_leaf_domain)
@@ -206,6 +206,14 @@ def test_compose_always_runs_ccb_before_agent():
         "CCB context building should appear BEFORE AgentConfig check — "
         "CCB must always run first to provide baseline context to Agent"
     )
+
+
+def test_agent_runs_even_without_ccb_context():
+    """Agent-Driven path should check 'llm is not None and graph_store is not None', not 'context is not None'."""
+    from wiki.nodes import compose as compose_mod
+    source = inspect.getsource(compose_mod._compose_single_leaf_domain)
+    # Agent check should not be gated on context being non-None
+    assert "if context is not None and llm" not in source.split("AgentConfig")[0][-200:]
 
 
 def test_agent_uses_format_summary_for_agent():
@@ -332,15 +340,15 @@ Replace the Agent-Driven block (L267-311) and CCB block (L313-357) with:
         except Exception:
             _pn.log.warning("ccb_context_build_failed", domain=domain_name, exc_info=True)
 
-    # --- Step 2: Agent-Driven path (uses CCB context as rich baseline) ---
-    if context is not None and llm is not None:
+    # --- Step 2: Agent-Driven path (uses CCB context as rich baseline; runs even if CCB failed) ---
+    if llm is not None and graph_store is not None:
         from wiki.agent_config import AgentConfig
         agent_cfg = AgentConfig.from_env()
         if agent_cfg.should_use_agent(len(module_names)):
             try:
                 from wiki.page_agent import WikiPageAgent
                 agent = WikiPageAgent(llm, graph_store)
-                ccb_summary = context.format_summary_for_agent(max_chars=6000)
+                ccb_summary = context.format_summary_for_agent(max_chars=6000) if context else ""
                 content = await agent.generate(
                     module_names=list(module_names),
                     domain_name=domain_name,

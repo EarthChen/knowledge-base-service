@@ -413,27 +413,17 @@ class ContentContextBuilder:
         steps: list[CallChainStep] = []
 
         if module_rows:
-            method_map: dict[tuple[str, str], tuple[str, str]] = {}
-            for row in method_rows:
-                cm = str(row.get("caller_method", "") or "")
-                ce = str(row.get("callee_method", "") or "")
-                cf = str(row.get("caller_file", "") or "")
-                ctf = str(row.get("callee_file", "") or "")
-                if cm and ce:
-                    method_map.setdefault((cf, ctf), (cm, ce))
-
             for row in module_rows:
                 caller = str(row.get("caller", "") or "")
                 callee = str(row.get("callee", "") or "")
-                cm, ce = "", ""
-                for (_, _), (m1, m2) in method_map.items():
-                    if m1 and m2:
-                        cm, ce = m1, m2
-                        break
+                caller_fns = row.get("caller_functions") or []
+                callee_fns = row.get("callee_functions") or []
                 steps.append(
                     CallChainStep(
-                        caller=caller, callee=callee,
-                        caller_method=cm, callee_method=ce,
+                        caller=caller,
+                        callee=callee,
+                        caller_method=str(caller_fns[0]) if caller_fns else "",
+                        callee_method=str(callee_fns[0]) if callee_fns else "",
                         relationship="CALLS",
                     ),
                 )

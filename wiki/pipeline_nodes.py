@@ -1771,7 +1771,10 @@ async def compose_leaf_pages_node(
 
     if reorg_type == "light" and affected_domains_set:
         original_count = len(leaf_domains)
-        leaf_domains = [d for d in leaf_domains if d.get("name") in affected_domains_set]
+        leaf_domains = [
+            d for d in leaf_domains
+            if d.get("name") in affected_domains_set or d.get("parent") in affected_domains_set
+        ]
         log.info(
             "compose_leaf_pages_filtered",
             original=original_count,

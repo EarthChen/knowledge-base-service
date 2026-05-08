@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
+from wiki.pipeline_nodes import compose_leaf_pages_node
 
 
 class TestClassifyIncrementalReturnsAffected:
@@ -137,3 +138,80 @@ class TestClassifyIncrementalReturnsAffected:
         mapping, affected = result
         assert "Payment" in affected
         assert "Payment-v2" in affected
+
+
+class TestComposeLeafPagesFiltering:
+    """compose_leaf_pages_node should include nested leaves whose parent is affected."""
+
+    @pytest.mark.asyncio
+    async def test_light_reorg_includes_child_of_affected_parent(self):
+        """Leaves under an affected parent domain should be included."""
+        state = {
+            "domain_tree": [
+                {
+                    "name": "Payment",
+                    "modules": [],
+                    "children": [
+                        {"name": "PaymentCore", "modules": ["PaySvc"], "children": []},
+                        {"name": "PaymentGateway", "modules": ["GatewaySvc"], "children": []},
+                    ],
+                },
+                {"name": "Meeting", "modules": ["MeetSvc"], "children": []},
+            ],
+            "domain_mapping": {
+                "Payment": [("r", "PaySvc"), ("r", "GatewaySvc")],
+                "Meeting": [("r", "MeetSvc")],
+            },
+            "modules": {"r": [
+                {"uid": "m1", "label": "Module", "properties": {"name": "PaySvc", "path": "a.java"}},
+                {"uid": "m2", "label": "Module", "properties": {"name": "GatewaySvc", "path": "b.java"}},
+                {"uid": "m3", "label": "Module", "properties": {"name": "MeetSvc", "path": "c.java"}},
+            ]},
+            "entity_roles": {},
+            "module_summaries": {},
+            "reorg_type": "light",
+            "affected_domains": ["Payment"],
+        }
+
+        config = {"configurable": {"llm": AsyncMock(), "graph_store": None, "wiki_store": None}}
+
+        with patch("wiki.pipeline_nodes._compose_single_leaf_domain") as mock_compose:
+            mock_compose.return_value = ([], [])
+            await compose_leaf_pages_node(state, config)
+
+        composed_names = [call.args[0]["name"] for call in mock_compose.call_args_list]
+        assert "PaymentCore" in composed_names
+        assert "PaymentGateway" in composed_names
+        assert "Meeting" not in composed_names
+
+    @pytest.mark.asyncio
+    async def test_light_reorg_direct_leaf_match(self):
+        """Flat leaf domains directly matching affected_domains should be included."""
+        state = {
+            "domain_tree": [
+                {"name": "Payment", "modules": ["PaySvc"], "children": []},
+                {"name": "Meeting", "modules": ["MeetSvc"], "children": []},
+            ],
+            "domain_mapping": {
+                "Payment": [("r", "PaySvc")],
+                "Meeting": [("r", "MeetSvc")],
+            },
+            "modules": {"r": [
+                {"uid": "m1", "label": "Module", "properties": {"name": "PaySvc", "path": "a.java"}},
+                {"uid": "m2", "label": "Module", "properties": {"name": "MeetSvc", "path": "b.java"}},
+            ]},
+            "entity_roles": {},
+            "module_summaries": {},
+            "reorg_type": "light",
+            "affected_domains": ["Payment"],
+        }
+
+        config = {"configurable": {"llm": AsyncMock(), "graph_store": None, "wiki_store": None}}
+
+        with patch("wiki.pipeline_nodes._compose_single_leaf_domain") as mock_compose:
+            mock_compose.return_value = ([], [])
+            await compose_leaf_pages_node(state, config)
+
+        composed_names = [call.args[0]["name"] for call in mock_compose.call_args_list]
+        assert "Payment" in composed_names
+        assert "Meeting" not in composed_names

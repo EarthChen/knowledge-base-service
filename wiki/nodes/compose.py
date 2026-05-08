@@ -1,12 +1,12 @@
 """Leaf module summaries and topic / domain page composition."""
 
 import asyncio
-import re
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
 from core.log import get_logger
+from wiki.context_gap import CONTEXT_GAP_RE, cleanup_context_gaps
 from wiki.domain_complexity import DomainComplexityScorer
 from wiki.domain_overview_composer import DomainOverviewComposer
 from wiki.json_robust import parse_json_robust_sync
@@ -24,8 +24,6 @@ from wiki.topic_structure_planner import TopicBasedStructurePlanner
 
 log = get_logger(__name__)
 
-_CONTEXT_GAP_CLEANUP_RE = re.compile(r"<!--\s*CONTEXT_GAP:\s*(.+?)\s*-->")
-
 
 async def _maybe_pipeline_progress(
     configurable: dict[str, Any],
@@ -40,10 +38,6 @@ async def _maybe_pipeline_progress(
     except Exception:
         log.debug("pipeline_progress_callback_failed", exc_info=True)
 
-
-def cleanup_context_gaps(content: str) -> str:
-    """Replace CONTEXT_GAP HTML comments with user-visible info notices."""
-    return _CONTEXT_GAP_CLEANUP_RE.sub(r"> ℹ️ 此处信息待补充: \1", content)
 
 _LEAF_MODULE_SUMMARY_SYSTEM = (
     "你是代码模块分析专家。根据提供的模块信息生成结构化摘要。"
@@ -135,16 +129,14 @@ async def _enrich_pages_with_agent(
     domain_name: str,
 ) -> None:
     """Run WikiPageAgent on pages with CONTEXT_GAP markers (in-place)."""
-    import re as _re
     import wiki.pipeline_nodes as _pn
 
     if not llm or not graph_store:
         return
 
-    _ctx_gap_re = _re.compile(r"<!--\s*CONTEXT_GAP:")
     for page_dict in pages:
         raw = page_dict.get("content", "")
-        gap_count = len(_ctx_gap_re.findall(raw))
+        gap_count = len(CONTEXT_GAP_RE.findall(raw))
         if gap_count > 0:
             try:
                 from wiki.page_agent import WikiPageAgent

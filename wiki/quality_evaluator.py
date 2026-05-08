@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.log import get_logger
+from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP
 from wiki.mermaid_validator import validate_mermaid_block
 from wiki.models import (
     ImportanceTier,
@@ -36,7 +37,6 @@ _WIKILINK = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 _SOURCE_REF = re.compile(r"source://[^\s)\]>]+")
 _HTTP_LINK = re.compile(r"https?://[^\s)\]>]+")
 _CODE_FENCE = re.compile(r"```")
-_CONTEXT_GAP = re.compile(r"<!--\s*CONTEXT_GAP:\s*(.+?)\s*-->")
 _FAKE_SOURCE_RE = re.compile(r"com/xxx/|source://src/")
 
 _STRUCT_OVERVIEW_MARKERS = ("## Overview", "## 业务概述", "## 概述")

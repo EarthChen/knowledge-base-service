@@ -8,10 +8,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.log import get_logger
+from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP_RE
 
 log = get_logger(__name__)
 
-_CONTEXT_GAP_RE = re.compile(r"<!--\s*CONTEXT_GAP:\s*(.+?)\s*-->")
 _THINKING_PREFIX_RE = re.compile(
     r"^(我需要|让我|从工作记忆|需要先|接下来我|首先我|I need to|Let me)",
 )

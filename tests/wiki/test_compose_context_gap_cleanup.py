@@ -20,3 +20,11 @@ def test_cleanup_context_gaps_no_markers():
     content = "## Clean page\n\nNo gaps here."
     result = cleanup_context_gaps(content)
     assert result == content
+
+
+def test_cleanup_context_gaps_chinese_colon_variant():
+    content = "text\n\n<!-- CONTEXT_GAP 已补充：补充了接口信息 -->\n\nmore"
+    result = cleanup_context_gaps(content)
+    assert "CONTEXT_GAP" not in result
+    assert "已补充" in result
+    assert "> ℹ️" in result

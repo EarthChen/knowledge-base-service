@@ -13,7 +13,9 @@
 - `docs/superpowers/specs/2026-05-06-wiki-topic-filter-parallel-design.md` (U3b/U3c/U3d remaining)
 - `docs/superpowers/specs/2026-05-06-unified-wiki-enterprise-kb-design.md` (U6 tree_linker)
 
-**Branch:** `feat/wiki-quality-agent-driven` (continue from existing 15 commits)
+**Branch:** `feat/wiki-quality-agent-driven`
+
+**Status:** ✅ All 7 tasks completed (2026-05-08). 1858 tests passing. 6 new commits.
 
 ---
 

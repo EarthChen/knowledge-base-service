@@ -63,9 +63,19 @@ async def get_index_task(task_id: str) -> dict[str, Any]:
 async def trigger_index(
     request: Request,
     req: IndexRequest,
+    effective_business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
     if kb_state.task_manager is None or kb_state.registry is None:
         raise KbServiceUnavailable("Service not ready")
+
+    if effective_business_id != "default" and req.business_id != effective_business_id:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Token is bound to business '{effective_business_id}', "
+                f"cannot index to '{req.business_id}'"
+            ),
+        )
 
     business_id = req.business_id
 

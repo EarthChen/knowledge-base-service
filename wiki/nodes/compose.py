@@ -264,6 +264,52 @@ async def _compose_single_leaf_domain(
     domain_name = leaf.get("name", "unknown")
     module_names = leaf.get("modules", [])
 
+    # --- Agent-Driven generation path (opt-in via WIKI__AGENT_DRIVEN_GENERATION=true) ---
+    if graph_store is not None and llm is not None:
+        from wiki.agent_config import AgentConfig
+
+        agent_cfg = AgentConfig.from_env()
+        if agent_cfg.should_use_agent(len(module_names)):
+            try:
+                from wiki.page_agent import WikiPageAgent
+
+                agent = WikiPageAgent(llm, graph_store)
+                baseline = ""
+                if module_summaries:
+                    names_set = set(module_names)
+                    relevant = [
+                        f"- {k}: {v.get('summary_text', '')}"
+                        for k, v in module_summaries.items()
+                        if k in names_set and v.get("summary_text")
+                    ]
+                    baseline = "\n".join(relevant)
+
+                content = await agent.generate(
+                    module_names=list(module_names),
+                    domain_name=domain_name,
+                    baseline_context=baseline or None,
+                )
+                if content and len(content) > 100:
+                    page = {
+                        "title": domain_name,
+                        "content": content,
+                        "path": f"wiki/{domain_name}",
+                        "page_type": "topic",
+                        "domain": domain_name,
+                        "covered_entity_uids": [],
+                    }
+                    pages = [page]
+                    known_entities: list[dict] = []
+                    _sanitize_pages(pages, known_entities, [])
+                    _pn.log.info("agent_driven_generation_complete", domain=domain_name)
+                    return pages, [page["path"]]
+            except Exception:
+                _pn.log.warning(
+                    "agent_driven_failed_fallback_to_ccb",
+                    domain=domain_name,
+                    exc_info=True,
+                )
+
     if graph_store is not None:
         from wiki.content_context_builder import ContentContextBuilder
 

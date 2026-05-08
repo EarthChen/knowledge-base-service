@@ -91,10 +91,11 @@ async def compute_pre_groups(
 ```
 
 算法:
-1. 跨仓库查询 Module→Module CALLS 边（复用 `ModuleDependencyGraph._MODULE_CALLS_CYPHER` 的 Cypher 模式）
+1. 按仓库查询 Module→Module CALLS 边（复用 `ModuleDependencyGraph._MODULE_CALLS_CYPHER` 的 Cypher 模式）
 2. Union-Find 构建连通分量
-3. 对每个分量计算最长公共目录前缀（基于模块 path 字段）
-4. 返回 `PreGroup` 列表
+3. **过滤单元素分量**（孤立模块不提供聚类信号，仅保留 >= 2 个模块的分量）
+4. 对每个分量计算最长公共目录前缀（基于模块 path 字段）
+5. 返回 `PreGroup` 列表
 
 **注入点**: `classify_domains_node` (classify.py)，在 `planner.classify()` 调用前：
 
@@ -120,6 +121,10 @@ Group 2 (com.example.user.*): [UserService, UserFacade]
 Use these groups as a REFERENCE — you may split or merge them as appropriate.
 ```
 
+**多 batch 路径处理**: `classify()` 有两条路径：
+- 单 batch: `_build_single_batch_prompt` 直接注入全部 `pre_groups`
+- 多 batch (按 repo 分): 每个 repo 的 prompt 仅注入**该 repo 相关的** `pre_groups`（按 `PreGroup.module_names` 与该 repo 模块取交集过滤）
+
 ### 3.3 子任务 R2c: 修复 decompose_hierarchy_node 空图边
 
 当前代码 (classify.py L288):
@@ -139,9 +144,10 @@ if graph_store is not None:
     for repo in repos:
         repo_graph = await dep_graph.build(repo)
         all_edges.extend(repo_graph.edges)
-    entry_points = [e.source for e in all_edges
-                    if not any(e2.target == e.source for e2 in all_edges)]
-    module_graph = ModuleGraph(modules=all_module_infos, edges=all_edges, entry_points=entry_points)
+    module_name_set = {m.name for m in all_module_infos}
+    filtered_edges = [e for e in all_edges if e.source in module_name_set and e.target in module_name_set]
+    entry_points = dep_graph._identify_entry_points(all_module_infos, filtered_edges)
+    module_graph = ModuleGraph(modules=all_module_infos, edges=filtered_edges, entry_points=entry_points)
 else:
     module_graph = ModuleGraph(modules=all_module_infos, edges=[], entry_points=[])
 ```
@@ -181,6 +187,7 @@ def _merge_small_leaves(
             large.append(sl)
             continue
         target["modules"] = list(set(target.get("modules", []) + sl.get("modules", [])))
+        log.info("compose_leaf_merged", small=sl.get("name"), into=target.get("name"), added=len(sl.get("modules", [])))
 
     return large
 ```
@@ -216,10 +223,16 @@ leaf_domains = _merge_small_leaves(leaf_domains, min_modules=3)  # 新增
 ## 6. 实施顺序
 
 ```
-R1 (CCB 修复) → R3 (小域合并) → R2a+R2b (预分组) → R2c (空图边) → R4 (部署验证)
+[R1 (CCB 修复)] ─┐
+                  ├─→ R2c (空图边修复) → R2a (连通分量) → R2b (prompt 注入) → R4 (部署验证)
+[R3 (小域合并)] ─┘
 ```
 
-R1 和 R3 互不依赖，可并行。R2c 依赖 R2a 的图加载基础设施。R4 在所有代码变更之后。
+- R1 和 R3 互不依赖，可并行
+- R2c 独立于 R2a/R2b，但为后续图分析提供基础，应先执行
+- R2a 依赖图查询能力（与 R2c 共享 `ModuleDependencyGraph`）
+- R2b 依赖 R2a 的 `PreGroup` 结果
+- R4 在所有代码变更之后
 
 ---
 

@@ -14,6 +14,27 @@ log = get_logger(__name__)
 _CONTEXT_GAP_RE = re.compile(r"<!--\s*CONTEXT_GAP:\s*(.+?)\s*-->")
 SINGLE_RESULT_LIMIT = 4000
 
+_GREP_MAX_FILE_SIZE = 512 * 1024  # 512 KB
+_GREP_BINARY_EXTENSIONS = {
+    ".jar",
+    ".class",
+    ".pyc",
+    ".pyo",
+    ".so",
+    ".dll",
+    ".exe",
+    ".bin",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".png",
+    ".jpg",
+    ".gif",
+    ".ico",
+    ".woff",
+    ".ttf",
+}
+
 
 @dataclass
 class ToolResult:
@@ -73,6 +94,19 @@ class WorkingMemory:
                     if isinstance(item, dict):
                         self.search_findings.append(
                             f"[{item.get('source', '')}] {item.get('title', '')} ({item.get('file_path', '')})"
+                        )
+            elif tool == "list_files":
+                files = data.get("files", [])
+                if files:
+                    listing = "\n".join(f"  {f}" for f in files[:30])
+                    self.search_findings.append(f"[{data.get('directory', '')}]\n{listing}")
+            elif tool == "grep_code":
+                matches = data.get("matches", [])
+                for m in matches[:5]:
+                    if isinstance(m, dict):
+                        self.search_findings.append(
+                            f"[grep:{m.get('file', '')}:{m.get('line', '')}] "
+                            f"{str(m.get('content', '') or '')[:200]}"
                         )
             elif tool == "query_call_chain":
                 chains = data.get("chains", [])
@@ -354,6 +388,61 @@ AGENT_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": (
+                "List files in a directory. Use when you need to explore project structure or "
+                "find related config/resource files near a module."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {
+                        "type": "string",
+                        "description": "Relative directory path from repo root (e.g. 'src/main/java/com/payment')",
+                    },
+                    "max_depth": {
+                        "type": "integer",
+                        "description": "Max directory depth to traverse (default 2, max 3)",
+                    },
+                },
+                "required": ["directory"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "grep_code",
+            "description": (
+                "Search for text patterns in source files. Use when you need to find specific "
+                "string literals, error messages, constants, or usage patterns across the codebase."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Text or regex pattern to search for",
+                    },
+                    "file_pattern": {
+                        "type": "string",
+                        "description": (
+                            "Glob pattern to filter files (e.g. '*.java', '*.py'). "
+                            "Default: all text files."
+                        ),
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max matching lines to return (default 10, max 20)",
+                    },
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
 ]
 
 _AGENT_SYSTEM = """你是一个代码知识库 Agent。你的任务是通过调用 tools 来补充 Wiki 页面中标记为 CONTEXT_GAP 的缺失信息。
@@ -489,6 +578,10 @@ class WikiPageAgent:
                 return await self._tool_read_wiki_page(args)
             elif tool_name == "semantic_search":
                 return await self._tool_semantic_search(args)
+            elif tool_name == "list_files":
+                return await self._tool_list_files(args)
+            elif tool_name == "grep_code":
+                return await self._tool_grep_code(args)
             elif tool_name == "query_module_detail":
                 return await self._tool_query_module_detail(args)
             elif tool_name == "query_callers":
@@ -664,6 +757,114 @@ class WikiPageAgent:
         except Exception as e:
             log.warning("semantic_search_failed", error=str(e))
             return {"error": str(e)}
+
+    async def _tool_list_files(self, args: dict[str, Any]) -> dict[str, Any]:
+        from pathlib import Path
+
+        directory = str(args.get("directory", ""))
+        max_depth = min(max(1, int(args.get("max_depth", 2) or 2)), 3)
+        if not directory or directory.startswith("/"):
+            return {"error": "missing or absolute directory path"}
+        if not self._repo_path:
+            return {"error": "file listing unavailable"}
+        repo_root = Path(self._repo_path).resolve()
+        target = (repo_root / directory).resolve()
+        if not target.is_relative_to(repo_root):
+            return {"error": "path traversal not allowed"}
+        if not target.is_dir():
+            return {"error": f"not a directory: {directory}"}
+
+        files: list[str] = []
+        _MAX_ENTRIES = 50
+
+        def _walk(path: Path, depth: int) -> None:
+            if depth > max_depth or len(files) >= _MAX_ENTRIES:
+                return
+            try:
+                entries = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name))
+            except PermissionError:
+                return
+            for entry in entries:
+                if entry.name.startswith("."):
+                    continue
+                rel = str(entry.relative_to(repo_root))
+                if entry.is_dir():
+                    files.append(rel + "/")
+                    _walk(entry, depth + 1)
+                else:
+                    files.append(rel)
+                if len(files) >= _MAX_ENTRIES:
+                    return
+
+        _walk(target, 1)
+        return {
+            "directory": directory,
+            "files": files[:_MAX_ENTRIES],
+            "total": len(files),
+            "truncated": len(files) >= _MAX_ENTRIES,
+        }
+
+    async def _tool_grep_code(self, args: dict[str, Any]) -> dict[str, Any]:
+        from pathlib import Path
+
+        pattern_str = str(args.get("pattern", ""))
+        file_pattern = str(args.get("file_pattern", "") or "")
+        try:
+            max_results = min(max(1, int(args.get("max_results", 10) or 10)), 20)
+        except (TypeError, ValueError):
+            max_results = 10
+
+        if not pattern_str:
+            return {"error": "missing pattern"}
+        if not self._repo_path:
+            return {"error": "grep unavailable"}
+
+        repo_root = Path(self._repo_path).resolve()
+        try:
+            regex = re.compile(pattern_str, re.IGNORECASE)
+        except re.error:
+            regex = re.compile(re.escape(pattern_str), re.IGNORECASE)
+
+        matches: list[dict[str, Any]] = []
+        glob_pattern = file_pattern if file_pattern else "*"
+
+        for file_path in repo_root.rglob(glob_pattern):
+            if len(matches) >= max_results:
+                break
+            if not file_path.is_file():
+                continue
+            if file_path.suffix.lower() in _GREP_BINARY_EXTENSIONS:
+                continue
+            if any(part.startswith(".") for part in file_path.parts):
+                continue
+            try:
+                if file_path.stat().st_size > _GREP_MAX_FILE_SIZE:
+                    continue
+            except OSError:
+                continue
+
+            try:
+                content = file_path.read_text(encoding="utf-8", errors="replace")
+            except (OSError, UnicodeDecodeError):
+                continue
+
+            for line_num, line in enumerate(content.splitlines(), 1):
+                if regex.search(line):
+                    rel_path = str(file_path.relative_to(repo_root))
+                    matches.append({
+                        "file": rel_path,
+                        "line": line_num,
+                        "content": line.strip()[:300],
+                    })
+                    if len(matches) >= max_results:
+                        break
+
+        return {
+            "pattern": pattern_str,
+            "matches": matches,
+            "total": len(matches),
+            "truncated": len(matches) >= max_results,
+        }
 
     async def _tool_query_module_detail(self, args: dict[str, Any]) -> dict[str, Any]:
         name = str(args.get("name", ""))

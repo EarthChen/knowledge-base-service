@@ -862,6 +862,35 @@ async def _compose_from_topic_structure(
     return {"pages": all_pages, "generated_topic_pages": generated_uids}
 
 
+def _merge_small_leaves(
+    leaves: list[dict], min_modules: int = 3
+) -> list[dict]:
+    """Merge leaf domains with < min_modules into sibling or nearest leaf."""
+    import wiki.pipeline_nodes as _pn
+
+    large = [l for l in leaves if len(l.get("modules", [])) >= min_modules]
+    small = [l for l in leaves if len(l.get("modules", [])) < min_modules]
+
+    if not small:
+        return large
+
+    for sl in small:
+        same_parent = [l for l in large if l.get("parent") == sl.get("parent")]
+        target = same_parent[0] if same_parent else (large[0] if large else None)
+        if target is None:
+            large.append(sl)
+            continue
+        target["modules"] = list(set(target.get("modules", []) + sl.get("modules", [])))
+        _pn.log.info(
+            "compose_leaf_merged",
+            small=sl.get("name"),
+            into=target.get("name"),
+            added=len(sl.get("modules", [])),
+        )
+
+    return large
+
+
 async def compose_leaf_pages_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
@@ -921,6 +950,7 @@ async def compose_leaf_pages_node(
     generated_uids: list[str] = []
 
     leaf_domains = _collect_leaf_domains(domain_tree)
+    leaf_domains = _merge_small_leaves(leaf_domains, min_modules=3)
 
     # P0.1: Filter by affected domains in light reorg
     reorg_type = state.get("reorg_type", "full")

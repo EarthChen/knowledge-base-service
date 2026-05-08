@@ -53,16 +53,23 @@ async def test_compose_pages_parallelizes_leaf_domains_with_bounded_concurrency(
             ]
 
     n_domains = 8
+    # Each leaf needs >= min_modules (3) so compose still sees 8 independent leaves for concurrency.
     domain_tree = [
-        {"name": f"domain{i}", "modules": [f"Mod{i}"], "children": []} for i in range(n_domains)
+        {
+            "name": f"domain{i}",
+            "modules": [f"Mod{i}a", f"Mod{i}b", f"Mod{i}c"],
+            "children": [],
+        }
+        for i in range(n_domains)
     ]
     modules_list = [
         {
-            "uid": f"Module::Mod{i}:0",
+            "uid": f"Module::Mod{i}{s}:0",
             "label": "Module",
-            "properties": {"name": f"Mod{i}"},
+            "properties": {"name": f"Mod{i}{s}"},
         }
         for i in range(n_domains)
+        for s in ("a", "b", "c")
     ]
 
     with patch("wiki.pipeline_nodes.TopicPageComposer", FakeComposer):

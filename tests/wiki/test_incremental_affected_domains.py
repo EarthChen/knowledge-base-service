@@ -180,8 +180,11 @@ class TestComposeLeafPagesFiltering:
             await compose_leaf_pages_node(state, config)
 
         composed_names = [call.args[0]["name"] for call in mock_compose.call_args_list]
-        assert "PaymentCore" in composed_names
-        assert "PaymentGateway" in composed_names
+        # Small leaves (<3 modules) merge at compose; PaymentCore absorbs siblings + Meeting.
+        assert composed_names == ["PaymentCore"]
+        merged_modules = set(mock_compose.call_args_list[0].args[0]["modules"])
+        assert merged_modules == {"PaySvc", "GatewaySvc", "MeetSvc"}
+        assert "PaymentGateway" not in composed_names
         assert "Meeting" not in composed_names
 
     @pytest.mark.asyncio

@@ -241,6 +241,7 @@ const zh: Translations = {
   },
   repos: {
     title: "仓库管理",
+    currentBusinessContext: "当前业务",
     repository: "仓库",
     nodes: "节点数",
     actions: "操作",
@@ -278,6 +279,8 @@ const zh: Translations = {
   },
   indexing: {
     title: "索引",
+    businessLabel: "业务",
+    createBusinessFirst: "请先创建业务",
     full: "全量",
     fullDesc: "扫描并索引目录中所有代码和文档文件，首次导入请使用此模式。",
     incremental: "增量",

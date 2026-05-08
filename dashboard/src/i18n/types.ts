@@ -273,6 +273,7 @@ export interface Translations {
     deleteConfirm: string;
     deletedNodes: string;
     deleteFailed: string;
+    currentBusinessContext: string;
   };
   documents: {
     title: string;
@@ -300,6 +301,8 @@ export interface Translations {
   };
   indexing: {
     title: string;
+    businessLabel: string;
+    createBusinessFirst: string;
     full: string;
     fullDesc: string;
     incremental: string;

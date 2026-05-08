@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import FocusTrap from "../components/FocusTrap";
 import {
   Database,
@@ -9,6 +9,7 @@ import {
   ArrowRight,
   CloudUpload,
   X,
+  Building2,
 } from "lucide-react";
 import {
   useEnrich,
@@ -23,7 +24,8 @@ import { getErrorMessage } from "../utils/errorUtils";
 import { useToast } from "../components/Toast";
 import JsonView from "../components/JsonView";
 import type { IndexTask } from "../api/types";
-import { getCurrentBusiness } from "../currentBusiness";
+import { useBusiness } from "../contexts/BusinessContext";
+import { useBusinessRepositories } from "../hooks/useBusinessRepositories";
 
 const UPLOAD_EXT = [".java", ".py", ".go", ".js", ".ts", ".tsx", ".md", ".txt"] as const;
 
@@ -223,6 +225,27 @@ export default function Indexing() {
   const enrichMutation = useEnrich();
   const indexFilesMutation = useIndexFiles();
   const reposQuery = useRepositories();
+  const { currentBusiness, setCurrentBusiness, businesses, isLoading: businessesLoading, isBound } =
+    useBusiness();
+  const currentBizName =
+    businesses.find((b) => b.id === currentBusiness)?.name || currentBusiness;
+  const boundReposQuery = useBusinessRepositories(currentBusiness);
+  const filteredRepositories = useMemo(() => {
+    if (!boundReposQuery.isFetched) return [];
+    const all = reposQuery.data?.repositories ?? [];
+    const bound = boundReposQuery.data?.repositories ?? [];
+    const set = new Set(bound);
+    if (currentBusiness === "default" && set.size === 0) {
+      return all;
+    }
+    return all.filter((r) => set.has(r.repository));
+  }, [
+    reposQuery.data?.repositories,
+    boundReposQuery.data?.repositories,
+    boundReposQuery.isFetched,
+    currentBusiness,
+  ]);
+  const noBusinessAvailable = !businessesLoading && businesses.length === 0;
   const { toast } = useToast();
   const activeTask = useIndexTask(activeTaskId);
   const tasksList = useIndexTasks();
@@ -254,7 +277,7 @@ export default function Indexing() {
   }, [activeTask.data?.status, activeTask.data?.task_id]);
 
   function openEnrichModal() {
-    const list = reposQuery.data?.repositories ?? [];
+    const list = filteredRepositories;
     const fromIndex = repository.trim();
     if (fromIndex && list.some((r) => r.repository === fromIndex)) {
       setEnrichRepository(fromIndex);
@@ -308,7 +331,7 @@ export default function Indexing() {
       val.endsWith(".git");
 
     const body: Record<string, unknown> = {
-      business_id: getCurrentBusiness(),
+      business_id: currentBusiness,
       mode,
     };
     if (isGitUrl) {
@@ -417,6 +440,40 @@ export default function Indexing() {
         onSubmit={handleSubmit}
         className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900"
       >
+        {isBound ? (
+          <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:border-gray-600 dark:bg-gray-800/80 dark:text-gray-300">
+            <Building2 size={16} aria-hidden className="shrink-0 text-gray-500 dark:text-gray-400" />
+            <span>
+              <span className="text-gray-500 dark:text-gray-400">{t.indexing.businessLabel}: </span>
+              <span className="font-medium text-gray-800 dark:text-gray-100">{currentBizName}</span>
+            </span>
+          </div>
+        ) : businessesLoading ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+            <Loader2 size={16} className="animate-spin" aria-hidden />
+            {t.common.loading}
+          </div>
+        ) : businesses.length > 0 ? (
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">
+            {t.indexing.businessLabel}
+            <select
+              value={currentBusiness}
+              onChange={(e) => setCurrentBusiness(e.target.value)}
+              className={`mt-1 ${inputClass}`}
+            >
+              {businesses.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <p className="text-sm text-amber-800 dark:text-amber-200" role="status">
+            {t.indexing.createBusinessFirst}
+          </p>
+        )}
+
         <div className="space-y-1">
           <div className="flex gap-4">
             {(["full", "incremental"] as const).map((m) => (
@@ -485,7 +542,8 @@ export default function Indexing() {
 
         <button
           type="submit"
-          disabled={mutation.isPending || isRunning}
+          disabled={mutation.isPending || isRunning || noBusinessAvailable}
+          title={noBusinessAvailable ? t.indexing.createBusinessFirst : undefined}
           className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
         >
           {(mutation.isPending || isRunning) && <Loader2 size={16} className="animate-spin" />}
@@ -497,7 +555,8 @@ export default function Indexing() {
           <button
             type="button"
             onClick={openEnrichModal}
-            disabled={enrichMutation.isPending || isRunning}
+            disabled={enrichMutation.isPending || isRunning || noBusinessAvailable}
+            title={noBusinessAvailable ? t.indexing.createBusinessFirst : undefined}
             className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-sky-600 bg-white px-5 py-2.5 text-sm font-medium text-sky-700 transition-colors hover:bg-sky-50 disabled:opacity-50 dark:border-sky-500 dark:bg-gray-900 dark:text-sky-400 dark:hover:bg-sky-950"
           >
             {(enrichMutation.isPending || isRunning) && <Loader2 size={16} className="animate-spin" />}
@@ -620,8 +679,10 @@ export default function Indexing() {
             queuedFiles.length === 0 ||
             uploadPhase === "reading" ||
             uploadPhase === "sending" ||
-            indexFilesMutation.isPending
+            indexFilesMutation.isPending ||
+            noBusinessAvailable
           }
+          title={noBusinessAvailable ? t.indexing.createBusinessFirst : undefined}
           className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
         >
           {(uploadPhase === "reading" ||
@@ -651,14 +712,14 @@ export default function Indexing() {
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">
                   {t.indexing.enrichRepository}
                 </label>
-                {(reposQuery.data?.repositories?.length ?? 0) > 0 ? (
+                {(filteredRepositories.length ?? 0) > 0 ? (
                   <select
                     value={enrichRepository}
                     onChange={(e) => setEnrichRepository(e.target.value)}
                     className={inputClass}
                   >
                     <option value="">{t.indexing.enrichRepository}</option>
-                    {reposQuery.data!.repositories.map((r) => (
+                    {filteredRepositories.map((r) => (
                       <option key={r.repository} value={r.repository}>
                         {r.repository}
                       </option>

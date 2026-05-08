@@ -244,6 +244,7 @@ const en: Translations = {
   },
   repos: {
     title: "Repositories",
+    currentBusinessContext: "Current business",
     repository: "Repository",
     nodes: "Nodes",
     actions: "Actions",
@@ -281,6 +282,8 @@ const en: Translations = {
   },
   indexing: {
     title: "Indexing",
+    businessLabel: "Business",
+    createBusinessFirst: "Create a business first",
     full: "Full",
     fullDesc: "Scan and index all code & document files in the directory. Use for first-time import.",
     incremental: "Incremental",

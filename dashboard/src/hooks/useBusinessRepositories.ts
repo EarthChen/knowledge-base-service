@@ -13,7 +13,7 @@ export function useBusinessRepositories(businessId: string) {
   return useQuery<RepoListResponse>({
     queryKey: queryKeys.businessRepositories(businessId),
     queryFn: () => api(`/businesses/${encodeURIComponent(businessId)}/repositories`),
-    enabled: !!businessId && businessId !== "default",
+    enabled: !!businessId,
     staleTime: 30_000,
   });
 }

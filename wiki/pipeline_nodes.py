@@ -41,6 +41,7 @@ from wiki.token_budget import TokenBudgetCalculator, TokenBudgetResolver
 log = get_logger(__name__)
 
 _COMPOSE_CONCURRENCY = get_settings().wiki.compose_concurrency
+_MAX_LEAF_MODULES = 15
 
 
 async def classify_entities_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -336,6 +337,25 @@ async def decompose_hierarchy_node(
             for domain, pairs in domain_mapping.items()
         ]
 
+    # P0.2 Sub-B+C: detect oversized leaves and rebalance (one pass only)
+    oversized = _detect_oversized_leaves(domain_tree)
+    if oversized and llm:
+        rebalance_decomposer = HierarchicalDecomposer(llm, max_depth=1, min_modules_for_nesting=3)
+        for leaf in oversized:
+            leaf_module_names = set(leaf.get("modules", []))
+            leaf_modules = [m for m in all_module_infos if m.name in leaf_module_names]
+            if not leaf_modules:
+                continue
+            rebal_graph = ModuleGraph(modules=leaf_modules, edges=[], entry_points=[])
+            try:
+                sub_tree = await rebalance_decomposer.decompose(leaf_modules, rebal_graph)
+                if sub_tree and len(sub_tree) > 1:
+                    leaf["children"] = _normalize_domain_tree(sub_tree)
+                    leaf["modules"] = []
+                    log.info("leaf_rebalanced", domain=leaf.get("name"), sub_domains=len(sub_tree))
+            except Exception:
+                log.warning("leaf_rebalance_failed", domain=leaf.get("name"), exc_info=True)
+
     log.info("decompose_hierarchy_done", domains=len(domain_tree) if domain_tree else 0)
     return {"domain_tree": domain_tree}
 
@@ -427,6 +447,24 @@ def _build_page_data_for_semantic_diagrams(
         business_summary=joined_summary if joined_summary else None,
         methods=[],
     )
+
+
+def _detect_oversized_leaves(domain_tree: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return leaf domains whose module count exceeds _MAX_LEAF_MODULES.
+
+    Uses the same leaf criterion as ``_collect_leaf_domains`` but returns the
+    original dict nodes from ``domain_tree`` so callers can mutate the tree in place.
+    """
+    oversized: list[dict[str, Any]] = []
+    for node in domain_tree:
+        children = node.get("children") or []
+        if not children:
+            modules = node.get("modules", [])
+            if len(modules) > _MAX_LEAF_MODULES:
+                oversized.append(node)
+        else:
+            oversized.extend(_detect_oversized_leaves(children))
+    return oversized
 
 
 def _collect_leaf_domains(tree: list[dict[str, Any]], parent: str = "root") -> list[dict[str, Any]]:

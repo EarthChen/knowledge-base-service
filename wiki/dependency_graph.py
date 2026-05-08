@@ -9,12 +9,21 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from core.log import get_logger
-from wiki.prompts import SYSTEM_JSON_ONLY
+from wiki.domain_merger import merge_small_domains
 
 if TYPE_CHECKING:
     from store.falkordb_store import FalkorDBGraphStore
 
 log = get_logger(__name__)
+
+SYSTEM_DOMAIN_CLASSIFICATION = """Reply with JSON only. No markdown fences.
+
+CRITICAL RULES:
+1. domain.description MUST only summarize capabilities directly evidenced by the module names
+2. Do NOT invent capabilities not reflected in the modules
+3. If unsure about a domain's scope, use a conservative generic description
+4. Each domain must contain at least 3 modules
+"""
 
 _RPC_ENTRY_ROLES = frozenset({"rpc_provider", "http_controller", "message_listener", "scheduled_task"})
 _ENTRY_NAME_HINTS = frozenset({"controller", "endpoint", "handler", "main", "gateway"})
@@ -251,8 +260,10 @@ class HierarchicalDecomposer:
             budget.used += len(text) // 4
             module_texts.append(text)
         prompt = self._build_decomposition_prompt(module_texts, graph.entry_points)
-        response = await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)
-        return self._parse_domain_tree(response, modules)
+        response = await self._llm.generate(prompt, system=SYSTEM_DOMAIN_CLASSIFICATION)
+        domains = self._parse_domain_tree(response, modules)
+        domains = merge_small_domains(domains, min_size=self._min_modules)
+        return domains
 
     def _build_decomposition_prompt(
         self,

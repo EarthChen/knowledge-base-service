@@ -50,9 +50,11 @@ class TestHierarchicalDecomposer:
         graph = ModuleGraph(modules=modules, edges=[], entry_points=["UserController"])
         decomposer = HierarchicalDecomposer(llm=mock_llm, max_depth=3, min_modules_for_nesting=2)
         result = await decomposer.decompose(modules, graph)
-        assert len(result) == 2
+        # Single-module "Data Access" merges into the most similar large sibling
+        assert len(result) == 1
         assert result[0].name == "User Management"
         assert "UserController" in result[0].modules
+        assert "UserRepository" in result[0].modules
 
     @pytest.mark.asyncio
     async def test_json_parse_failure_returns_uncategorized(self):

@@ -1,6 +1,6 @@
 # 提案: Dashboard 业务强制选择 + 索引关联 + 任务进度增强
 
-**状态**: AwaitingApproval  
+**状态**: Closed (大部分已实现, 剩余 gap 合并至 wiki 质量统一提案)  
 **创建时间**: 2026-05-08 13:58:07  
 **关联文件**: Indexing.tsx, Repositories.tsx, Businesses.tsx, WikiActiveTasks.tsx, wiki_task_routes.py, service.py
 

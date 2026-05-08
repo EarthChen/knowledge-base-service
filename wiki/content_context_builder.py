@@ -12,17 +12,30 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.log import get_logger
-
 from wiki.call_chain_builder import CallChainBuilder
 from wiki.cypher_queries import (
-    METHODS_CY as _METHODS_CY,
-    call_chain_cypher as _call_chain_cypher_fn,
-    METHOD_CALL_CHAIN_CY as _METHOD_CALL_CHAIN_CY,
-    ENUMS_CY as _ENUMS_CY,
-    SNIPPETS_CY as _SNIPPETS_CY,
-    CHUNK_SNIPPETS_CY as _CHUNK_SNIPPETS_CY,
-    IMPLEMENTS_CY as _IMPLEMENTS_CY,
     CALLERS_CY as _CALLERS_CY,
+)
+from wiki.cypher_queries import (
+    CHUNK_SNIPPETS_CY as _CHUNK_SNIPPETS_CY,
+)
+from wiki.cypher_queries import (
+    ENUMS_CY as _ENUMS_CY,
+)
+from wiki.cypher_queries import (
+    IMPLEMENTS_CY as _IMPLEMENTS_CY,
+)
+from wiki.cypher_queries import (
+    METHOD_CALL_CHAIN_CY as _METHOD_CALL_CHAIN_CY,
+)
+from wiki.cypher_queries import (
+    METHODS_CY as _METHODS_CY,
+)
+from wiki.cypher_queries import (
+    SNIPPETS_CY as _SNIPPETS_CY,
+)
+from wiki.cypher_queries import (
+    call_chain_cypher as _call_chain_cypher_fn,
 )
 
 log = get_logger(__name__)
@@ -101,6 +114,53 @@ class EnrichedDomainContext:
     sub_topics: list[dict] = field(default_factory=list)
 
     existing_wiki_context: str = ""  # Summaries of existing wiki pages in same domain
+
+    def format_summary_for_agent(self, max_chars: int = 2000) -> str:
+        """Compress already-queried context into a structured summary for WikiPageAgent.
+
+        This avoids redundant tool-calling by the agent for information CCB
+        already retrieved from the graph.
+        """
+        sections: list[str] = []
+
+        if self.biz_entities:
+            method_lines: list[str] = []
+            for ent in self.biz_entities:
+                for m in ent.methods[:5]:
+                    method_lines.append(f"  - {ent.name}.{m.name}: {m.signature}")
+            if method_lines:
+                sections.append("## Known Methods\n" + "\n".join(method_lines[:15]))
+
+        if self.intra_domain_calls or self.cross_domain_calls:
+            call_lines: list[str] = []
+            for step in (self.intra_domain_calls + self.cross_domain_calls)[:10]:
+                call_lines.append(
+                    f"  - {step.caller}.{step.caller_method} → {step.callee}.{step.callee_method}"
+                )
+            if call_lines:
+                sections.append("## Known Call Chains\n" + "\n".join(call_lines))
+
+        if self.interface_impls:
+            impl_lines = [
+                f"  - {d.get('interface', '?')} ← {d.get('impl', '?')}"
+                for d in self.interface_impls[:10]
+            ]
+            sections.append("## Known Implementations\n" + "\n".join(impl_lines))
+
+        if self.external_callers:
+            caller_lines = [
+                f"  - {d.get('caller', '?')}.{d.get('method', '?')} → {d.get('target', '?')}"
+                for d in self.external_callers[:10]
+            ]
+            sections.append("## Known External Callers\n" + "\n".join(caller_lines))
+
+        if not sections:
+            return ""
+
+        full = f"# Already-queried context for domain: {self.domain_name}\n\n" + "\n\n".join(sections)
+        if len(full) > max_chars:
+            return full[: max_chars - 3] + "..."
+        return full
 
 
 class ContentContextBuilder:

@@ -697,6 +697,31 @@ class WikiPageAgent:
 
         return self._generate_skeleton(module_names, domain_name)
 
+    async def repair(self, content: str, eval_result) -> str:
+        """Repair content based on Evaluator feedback. No tool calls — pure LLM rewrite."""
+        issues_text = "\n".join(
+            f"- [{getattr(i, 'category', '?')}] {getattr(i, 'message', str(i))}"
+            for i in (eval_result.issues or [])
+        )
+        suggestions_text = "\n".join(
+            f"- {s}" for s in (eval_result.suggestions or [])
+        )
+
+        repair_prompt = (
+            "以下 Wiki 页面有质量问题需要修正:\n\n"
+            f"## 当前问题\n{issues_text}\n\n"
+            f"## 修正建议\n{suggestions_text}\n\n"
+            f"## 当前内容\n{content[:4000]}\n\n"
+            "请修正上述问题, 输出完整的修正后页面。保持原有正确内容不变, 只修复指出的问题。"
+        )
+
+        try:
+            response = await self._llm.generate(repair_prompt, system="")
+            repaired = strip_agent_artifacts(response) if response else ""
+            return repaired if len(repaired) > 200 else content
+        except Exception:
+            return content
+
     def _generate_skeleton(self, module_names: list[str], domain_name: str) -> str:
         """Generate minimal page skeleton when agent fails."""
         modules_list = "\n".join(f"- `{m}`" for m in module_names)

@@ -11,6 +11,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph
 
 from core.log import get_logger
+from wiki.citation_verifier import verify_citations
 from wiki.models import ImportanceTier, WikiPage
 from wiki.pipeline_nodes import (
     classify_domains_node,
@@ -164,6 +165,13 @@ async def quality_gate_node(
     quality_scores: dict[str, dict[str, Any]] = {}
     pages_to_heal: list[str] = []
 
+    all_module_names: set[str] = set()
+    for repo_mods in state.get("modules", {}).values():
+        for mod in repo_mods:
+            mod_name = mod.get("properties", {}).get("name", "")
+            if mod_name:
+                all_module_names.add(mod_name)
+
     for page_dict in state.get("pages", []):
         try:
             page = WikiPage.from_dict(page_dict)
@@ -185,6 +193,15 @@ async def quality_gate_node(
 
         l1 = evaluator.structural_check(page)
         score_dict["l1_structural"] = l1.overall
+
+        # Citation verification — detect hallucinated entity references
+        citation_result = verify_citations(page.content, all_module_names)
+        if citation_result.invalid_count > 0:
+            score_dict["citation_invalid_count"] = citation_result.invalid_count
+            score_dict["citation_invalid_refs"] = citation_result.invalid_refs[:5]
+            penalty = min(0.2, citation_result.invalid_count * 0.05)
+            l1_adjusted = max(0.0, l1.overall - penalty)
+            score_dict["l1_structural"] = round(l1_adjusted, 4)
 
         gap_issues = [i for i in l1.issues if i.startswith("context_gaps:")]
         if gap_issues:

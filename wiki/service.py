@@ -1290,6 +1290,7 @@ class WikiService:
                             language,
                             llm_provider,
                             token_budget_multiplier=token_budget_multiplier,
+                            progress_callback=progress_callback,
                         )
                         log.info("repo_wiki_generate_done", repository=repo_name)
                     except Exception as exc:

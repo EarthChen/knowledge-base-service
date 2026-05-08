@@ -930,6 +930,34 @@ async def compose_leaf_pages_node(
         _pn.log.info("compose_leaf_pages_skip_none_reorg")
         return {"pages": [], "generated_topic_pages": []}
 
+    # Apply topological ordering for dependency-first generation
+    from wiki.topo_sort import topological_order
+
+    leaves = leaf_domains
+    if len(leaves) > 1:
+        domain_edges: dict[str, list[str]] = {}
+        leaf_name_set = {leaf.get("name", ""): set(leaf.get("modules", [])) for leaf in leaves}
+
+        for leaf in leaves:
+            leaf_name = leaf.get("name", "")
+            leaf_mods = leaf_name_set.get(leaf_name, set())
+            deps = []
+            for other_name, other_mods in leaf_name_set.items():
+                if other_name != leaf_name and leaf_mods & other_mods:
+                    deps.append(other_name)
+            if deps:
+                domain_edges[leaf_name] = deps
+
+        if domain_edges:
+            ordered_names = topological_order(domain_edges)
+            name_to_leaf = {leaf.get("name", ""): leaf for leaf in leaves}
+            ordered_leaves = []
+            for name in ordered_names:
+                if name in name_to_leaf:
+                    ordered_leaves.append(name_to_leaf.pop(name))
+            ordered_leaves.extend(name_to_leaf.values())
+            leaf_domains = ordered_leaves
+
     sem = asyncio.Semaphore(_COMPOSE_CONCURRENCY)
 
     async def _bounded(leaf: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:

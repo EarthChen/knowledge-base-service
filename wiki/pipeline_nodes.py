@@ -9,6 +9,7 @@ from core.log import get_logger
 from wiki.dependency_graph import HierarchicalDecomposer
 from wiki.token_budget import TokenBudgetResolver
 from wiki.topic_page_composer import TopicPageComposer
+from wiki.topo_sort import topological_order  # noqa: F401
 
 log = get_logger(__name__)
 

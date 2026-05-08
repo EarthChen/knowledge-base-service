@@ -36,6 +36,8 @@ _SOURCE_REF = re.compile(r"source://[^\s)\]>]+")
 _HTTP_LINK = re.compile(r"https?://[^\s)\]>]+")
 _CODE_FENCE = re.compile(r"```")
 _CONTEXT_GAP = re.compile(r"<!--\s*CONTEXT_GAP:\s*(.+?)\s*-->")
+_THINKING_LEAK_RE = re.compile(r"^(我需要|让我|从工作记忆|I need to|Let me)")
+_FAKE_SOURCE_RE = re.compile(r"com/xxx/|source://src/")
 
 _STRUCT_OVERVIEW_MARKERS = ("## Overview", "## 业务概述", "## 概述")
 _STRUCT_COMPONENT_MARKERS = (
@@ -123,11 +125,21 @@ class WikiQualityEvaluator:
             for gap in context_gaps[:5]:
                 log.info("context_gap_detected", page=page.path, gap=gap[:120])
 
+        truthfulness = 1.0
+        body_stripped = body.strip()
+        if _THINKING_LEAK_RE.match(body_stripped):
+            truthfulness -= 0.4
+            issues.append("thinking_leak_detected")
+        if _FAKE_SOURCE_RE.search(body_stripped):
+            truthfulness -= 0.3
+            issues.append("fake_source_detected")
+        truthfulness = max(0.0, round(truthfulness, 2))
+
         return WikiPageQualityScore(
             page_path=page.path,
             completeness=round(completeness, 2),
             helpfulness=round(completeness * 0.8, 2),
-            truthfulness=1.0,
+            truthfulness=truthfulness,
             overall=round(completeness * 0.9, 2),
             issues=issues,
         )

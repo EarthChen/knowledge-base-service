@@ -612,6 +612,106 @@ class WikiPageAgent:
             log.warning("agent_fallback_failed", exc_info=True)
             return content
 
+    async def generate(
+        self,
+        module_names: list[str],
+        domain_name: str,
+        baseline_context: dict[str, Any],
+        max_rounds: int = 10,
+    ) -> str:
+        """Agent-Driven: query context with tools and generate a full Wiki page."""
+        from wiki.agent_prompts import AGENT_GENERATE_SYSTEM
+
+        system = AGENT_GENERATE_SYSTEM.format(max_rounds=max_rounds)
+        modules_desc = ", ".join(module_names)
+        baseline_str = str(baseline_context)[:2000]
+
+        user_prompt = (
+            f"为以下模块生成 Wiki 页面:\n"
+            f"域名: {domain_name}\n"
+            f"模块: {modules_desc}\n"
+            f"基线上下文: {baseline_str}\n\n"
+            f"请使用工具查询更多信息后生成完整页面。"
+        )
+
+        try:
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_prompt},
+            ]
+
+            total_tool_calls = 0
+            for round_num in range(max_rounds):
+                try:
+                    response = await self._llm.complete_with_tools(messages, AGENT_TOOLS)
+                except Exception:
+                    log.warning("agent_generate_llm_failed", round=round_num, exc_info=True)
+                    break
+
+                tool_calls = response.get("tool_calls")
+                text_content = response.get("content")
+
+                if not tool_calls:
+                    if text_content:
+                        cleaned = strip_agent_artifacts(str(text_content))
+                        if cleaned and len(cleaned) > 200:
+                            return cleaned
+                    break
+
+                messages.append(response)
+                for tc in tool_calls:
+                    func = tc.get("function", {})
+                    tool_name = func.get("name", "")
+                    try:
+                        args = json.loads(func.get("arguments", "{}"))
+                    except json.JSONDecodeError:
+                        args = {}
+                    result_data = await self._execute_tool(tool_name, args)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", ""),
+                        "content": json.dumps(result_data, ensure_ascii=False, default=str)[:SINGLE_RESULT_LIMIT],
+                    })
+
+                total_tool_calls += len(tool_calls)
+                if total_tool_calls >= self.MAX_TOOL_CALLS:
+                    break
+
+                if len(messages) > self._MAX_HISTORY_MESSAGES:
+                    messages = [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user_prompt + "\n\n请基于已有信息直接生成完整页面。"},
+                    ]
+
+            # Final attempt: ask LLM to generate with accumulated context
+            fallback = await self._llm.generate(
+                prompt=user_prompt + "\n\n请基于已有信息直接生成完整 Wiki 页面。",
+                system=system,
+            )
+            cleaned = strip_agent_artifacts(fallback)
+            if cleaned and len(cleaned) > 200:
+                return cleaned
+
+        except Exception:
+            log.warning("agent_generate_failed", domain=domain_name, exc_info=True)
+
+        return self._generate_skeleton(module_names, domain_name)
+
+    def _generate_skeleton(self, module_names: list[str], domain_name: str) -> str:
+        """Generate minimal page skeleton when agent fails."""
+        modules_list = "\n".join(f"- `{m}`" for m in module_names)
+        return (
+            f"# {domain_name}\n\n"
+            f"## 概述\n\n{domain_name} 包含以下模块:\n{modules_list}\n\n"
+            f"<!-- CONTEXT_GAP: Agent 生成失败，需要手动补充内容 -->\n\n"
+            f"## 核心业务流程\n\n"
+            f"<!-- CONTEXT_GAP: 调用链数据未能获取 -->\n\n"
+            f"## 关键实现\n\n"
+            f"<!-- CONTEXT_GAP: 代码实现细节未能获取 -->\n\n"
+            f"## 依赖关系\n\n"
+            f"<!-- CONTEXT_GAP: 依赖关系数据未能获取 -->\n"
+        )
+
     def _build_user_prompt(
         self, content: str, gaps: list[str], memory: WorkingMemory, domain_name: str,
     ) -> str:

@@ -368,6 +368,32 @@ class WikiTreeLinker:
 
         def _build_domain_overview_content(domain: DomainNode, depth: int = 0) -> str:
             """Build a rich structural overview document for a nested domain."""
+            from wiki.overview_synthesizer import synthesize_overview_from_children
+
+            # Try content-based synthesis when child pages exist
+            child_pages = []
+            for mod_name in domain.modules:
+                page = pages_by_entity_uid.get(mod_name)
+                if page and isinstance(page, dict) and page.get("content"):
+                    child_pages.append(
+                        {
+                            "title": mod_name,
+                            "content": page.get("content", ""),
+                        }
+                    )
+            for child in domain.children:
+                if child.description:
+                    child_pages.append(
+                        {
+                            "title": child.name,
+                            "content": child.description,
+                        }
+                    )
+
+            if child_pages:
+                return synthesize_overview_from_children(domain.name, child_pages)
+
+            # Fallback to static template when no child content is available
             is_zh = language.startswith("zh")
             lines: list[str] = []
             lines.append(f"# {domain.name}")

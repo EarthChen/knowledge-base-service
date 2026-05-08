@@ -34,8 +34,10 @@ def cleanup_context_gaps(content: str) -> str:
 _LEAF_MODULE_SUMMARY_SYSTEM = (
     "你是代码模块分析专家。根据提供的模块信息生成结构化摘要。"
     "输出纯 JSON，不要 markdown 围栏。"
+    "核心约束：你的输出必须严格基于提供的代码信息。"
+    "禁止编造不存在的类名、方法名、服务名或架构组件。"
     "如果某些依赖模块或外部调用的上下文不足，在 summary_text 中用 "
-    "<!-- CONTEXT_GAP: 描述 --> 标记缺失部分。"
+    "<!-- CONTEXT_GAP: 描述 --> 标记缺失部分，不要编造。"
 )
 
 _LEAF_MODULE_SUMMARY_PROMPT = (

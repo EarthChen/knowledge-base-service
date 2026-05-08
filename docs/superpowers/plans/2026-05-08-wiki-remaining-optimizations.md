@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fix CCB call chain bug, add graph-based pre-grouping for domain classification, merge small leaf domains at compose, and fix empty graph edges in hierarchy decomposition.
+**Goal:** Fix CCB call chain bug, fuse CCB+Agent-Driven generation paths, add graph-based pre-grouping for domain classification, merge small leaf domains at compose, and fix empty graph edges in hierarchy decomposition.
 
-**Architecture:** Layered approach — fix data layer (R1 CCB), then classification layer (R2c empty edges → R2a pre-grouping → R2b prompt injection), then compose layer (R3 leaf merge). Each layer change is independently testable.
+**Architecture:** Layered approach — fix data layer (R1 CCB), then fuse generation paths (R5 CCB+Agent), then classification layer (R2c empty edges → R2a pre-grouping → R2b prompt injection), then compose layer (R3 leaf merge). Each layer change is independently testable.
 
 **Tech Stack:** Python 3.11, pytest, asyncio, FalkorDB Cypher, LangGraph pipeline
 
@@ -22,6 +22,9 @@
 | Modify | `wiki/nodes/classify.py` | R2a: Inject pre_groups into classify_domains_node |
 | Modify | `wiki/cross_repo_domain_planner.py` | R2b: Add pre_groups to classification prompt |
 | Modify | `wiki/nodes/compose.py` | R3: `_merge_small_leaves` before topo sort |
+| Modify | `wiki/nodes/compose.py` | R5: Fuse CCB+Agent — CCB always runs first, feeds Agent |
+| Modify | `wiki/content_context_builder.py` | R5: Enhance `format_summary_for_agent` |
+| Modify | `wiki/page_agent.py` | R5: Increase baseline_str limit |
 | Create | `tests/wiki/test_ccb_caller_functions.py` | R1 tests |
 | Create | `tests/wiki/test_decompose_real_edges.py` | R2c tests |
 | Create | `tests/wiki/test_graph_pre_grouper.py` | R2a tests |
@@ -165,6 +168,244 @@ Expected: All tests pass
 ```bash
 git add wiki/content_context_builder.py tests/wiki/test_ccb_caller_functions.py
 git commit -m "fix: use caller_functions/callee_functions in CCB call chain, remove buggy method_map"
+```
+
+---
+
+### Task 1.5: R5 — Fuse CCB + Agent-Driven Generation Paths
+
+**Files:**
+- Modify: `wiki/nodes/compose.py:250-360` (refactor `_compose_single_leaf_domain`)
+- Modify: `wiki/content_context_builder.py:118-163` (enhance `format_summary_for_agent`)
+- Modify: `wiki/page_agent.py:627` (increase `baseline_str` limit)
+- Test: `tests/wiki/test_ccb_agent_fusion.py`
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/wiki/test_ccb_agent_fusion.py`:
+
+```python
+"""Test that CCB + Agent-Driven fusion: CCB always runs first, Agent uses CCB context."""
+import ast
+import inspect
+
+import pytest
+
+
+def test_compose_always_runs_ccb_before_agent():
+    """In _compose_single_leaf_domain, CCB context building should appear before Agent check."""
+    from wiki.nodes import compose as compose_mod
+    source = inspect.getsource(compose_mod._compose_single_leaf_domain)
+
+    ccb_pos = source.find("ContentContextBuilder")
+    agent_pos = source.find("AgentConfig")
+
+    assert ccb_pos != -1, "ContentContextBuilder should be used in _compose_single_leaf_domain"
+    assert agent_pos != -1, "AgentConfig should be used in _compose_single_leaf_domain"
+    assert ccb_pos < agent_pos, (
+        "CCB context building should appear BEFORE AgentConfig check — "
+        "CCB must always run first to provide baseline context to Agent"
+    )
+
+
+def test_agent_uses_format_summary_for_agent():
+    """Agent path should use format_summary_for_agent for rich baseline context."""
+    from wiki.nodes import compose as compose_mod
+    source = inspect.getsource(compose_mod._compose_single_leaf_domain)
+    assert "format_summary_for_agent" in source, (
+        "Agent path should use format_summary_for_agent to pass CCB context"
+    )
+
+
+def test_format_summary_includes_module_summaries():
+    """format_summary_for_agent should include module_leaf_summaries section."""
+    from wiki.content_context_builder import EnrichedDomainContext
+    ctx = EnrichedDomainContext(domain_name="TestDomain")
+    ctx.module_leaf_summaries = {"ModA": "Handles auth", "ModB": "Handles payments"}
+    summary = ctx.format_summary_for_agent(max_chars=6000)
+    assert "ModA" in summary
+    assert "Handles auth" in summary
+
+
+def test_baseline_str_limit_increased():
+    """page_agent.generate should use baseline_str with > 2000 char limit."""
+    from wiki import page_agent
+    source = inspect.getsource(page_agent.WikiPageAgent.generate)
+    # Should NOT truncate to 2000
+    assert "[:2000]" not in source or "[:6000]" in source or "[:8000]" in source
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_ccb_agent_fusion.py -v --no-header --no-cov 2>&1 | tail -20`
+Expected: FAIL (CCB appears after AgentConfig in current code, format_summary_for_agent not called, module_summaries not in format output)
+
+- [ ] **Step 3a: Enhance `format_summary_for_agent`**
+
+In `wiki/content_context_builder.py`, modify `format_summary_for_agent` (around line 118-163):
+
+After the existing `external_callers` section, add:
+
+```python
+        if self.module_leaf_summaries:
+            summary_lines = [
+                f"  - {name}: {text[:120]}"
+                for name, text in list(self.module_leaf_summaries.items())[:15]
+                if text
+            ]
+            if summary_lines:
+                sections.append("## Module Summaries\n" + "\n".join(summary_lines))
+
+        if self.data_models:
+            dm_lines = [
+                f"  - {d.get('name', '?')}: fields={d.get('fields', [])[:5]}"
+                for d in self.data_models[:10]
+            ]
+            if dm_lines:
+                sections.append("## Data Models\n" + "\n".join(dm_lines))
+
+        if self.domain_description:
+            sections.insert(0, f"## Domain Description\n{self.domain_description[:500]}")
+```
+
+Also change the default `max_chars` from 2000 to 6000:
+```python
+    def format_summary_for_agent(self, max_chars: int = 6000) -> str:
+```
+
+- [ ] **Step 3b: Increase baseline_str limit in page_agent.py**
+
+In `wiki/page_agent.py` line 627, change:
+```python
+        baseline_str = str(baseline_context)[:2000]
+```
+to:
+```python
+        baseline_str = str(baseline_context)[:6000]
+```
+
+- [ ] **Step 3c: Refactor `_compose_single_leaf_domain` in compose.py**
+
+Restructure the flow so CCB runs first, then Agent uses CCB context:
+
+**Current order** (compose.py ~L267-360):
+1. Agent-Driven check (with minimal baseline)
+2. CCB + TopicPageComposer
+3. Legacy fallback
+
+**New order:**
+1. CCB context building (always, when graph_store available)
+2. Agent-Driven check (with CCB's `format_summary_for_agent` as baseline)
+3. TopicPageComposer (using same CCB context)
+4. Legacy fallback
+
+Replace the Agent-Driven block (L267-311) and CCB block (L313-357) with:
+
+```python
+    # --- Step 1: Always run CCB to collect structured context ---
+    context = None
+    covered_entity_uids: list[str] = []
+    if graph_store is not None:
+        from wiki.content_context_builder import ContentContextBuilder
+        try:
+            ccb = ContentContextBuilder(graph_store, wiki_store=wiki_store)
+            context = await ccb.build_context(
+                domain_name=domain_name,
+                module_names=list(module_names),
+                module_index=module_index,
+                entity_roles=entity_roles,
+                domain_mapping=domain_mapping or {},
+                depth=2,
+                parent_domain=str(leaf.get("parent") or "root"),
+            )
+            if module_summaries:
+                names_set = set(module_names)
+                relevant = {
+                    k: str(v.get("summary_text", ""))
+                    for k, v in module_summaries.items()
+                    if k in names_set and v.get("summary_text")
+                }
+                context.module_leaf_summaries = relevant
+            covered_entity_uids = [e.uid for e in context.biz_entities] + [
+                str(d["uid"]) for d in context.data_models if d.get("uid")
+            ]
+        except Exception:
+            _pn.log.warning("ccb_context_build_failed", domain=domain_name, exc_info=True)
+
+    # --- Step 2: Agent-Driven path (uses CCB context as rich baseline) ---
+    if context is not None and llm is not None:
+        from wiki.agent_config import AgentConfig
+        agent_cfg = AgentConfig.from_env()
+        if agent_cfg.should_use_agent(len(module_names)):
+            try:
+                from wiki.page_agent import WikiPageAgent
+                agent = WikiPageAgent(llm, graph_store)
+                ccb_summary = context.format_summary_for_agent(max_chars=6000)
+                content = await agent.generate(
+                    module_names=list(module_names),
+                    domain_name=domain_name,
+                    baseline_context=ccb_summary or None,
+                    max_rounds=5,
+                )
+                if content and len(content) > 100:
+                    page = {
+                        "title": domain_name,
+                        "content": content,
+                        "path": f"wiki/{domain_name}",
+                        "page_type": "topic",
+                        "domain": domain_name,
+                        "covered_entity_uids": covered_entity_uids,
+                    }
+                    pages = [page]
+                    known_entities = [
+                        {"name": e.name, "repository": e.repository, "file_path": e.file_path,
+                         "start_line": max(m.start_line for m in e.methods) if e.methods else 0}
+                        for e in context.biz_entities
+                    ]
+                    _sanitize_pages(pages, known_entities, covered_entity_uids)
+                    _pn.log.info("agent_driven_generation_complete", domain=domain_name)
+                    return pages, [page["path"]]
+            except Exception:
+                _pn.log.warning("agent_driven_failed_fallback_to_composer", domain=domain_name, exc_info=True)
+
+    # --- Step 3: TopicPageComposer path (uses same CCB context) ---
+    if context is not None and llm is not None:
+        try:
+            overview_composer = DomainOverviewComposer(llm=llm)
+            composer = _pn.TopicPageComposer(llm, token_budget=token_budget)
+            pages = await composer.compose_leaf_domain_from_context(context, overview_composer=overview_composer)
+            if not pages:
+                return [], []
+            await _generate_diagrams_for_pages(pages, llm, domain_name, module_names, module_index)
+            await _enrich_pages_with_agent(pages, llm, graph_store, domain_name)
+            known_entities = [
+                {"name": e.name, "repository": e.repository, "file_path": e.file_path,
+                 "start_line": max(m.start_line for m in e.methods) if e.methods else 0}
+                for e in context.biz_entities
+            ]
+            _sanitize_pages(pages, known_entities, covered_entity_uids)
+            return pages, [p.get("path", "") for p in pages]
+        except Exception:
+            _pn.log.warning("composer_failed_fallback_to_legacy", domain=domain_name, exc_info=True)
+
+    # --- Step 4: Legacy fallback (no graph_store) ---
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_ccb_agent_fusion.py -v --no-header --no-cov 2>&1 | tail -20`
+Expected: PASS
+
+- [ ] **Step 5: Run full test suite for regression**
+
+Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest --no-cov -x -q 2>&1 | tail -10`
+Expected: All tests pass
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add wiki/nodes/compose.py wiki/content_context_builder.py wiki/page_agent.py tests/wiki/test_ccb_agent_fusion.py
+git commit -m "feat: fuse CCB + Agent-Driven — CCB always provides context, Agent uses rich baseline"
 ```
 
 ---
@@ -912,6 +1153,22 @@ def test_r3_compose_calls_merge_small_leaves():
     from wiki.nodes import compose
     source = inspect.getsource(compose.compose_leaf_pages_node)
     assert "_merge_small_leaves" in source
+
+
+def test_r5_ccb_before_agent_in_compose():
+    """CCB context should be built before Agent check in _compose_single_leaf_domain."""
+    from wiki.nodes import compose
+    source = inspect.getsource(compose._compose_single_leaf_domain)
+    ccb_pos = source.find("ContentContextBuilder")
+    agent_pos = source.find("AgentConfig")
+    assert ccb_pos < agent_pos, "CCB should run before AgentConfig check"
+
+
+def test_r5_agent_uses_format_summary():
+    """Agent path should reference format_summary_for_agent."""
+    from wiki.nodes import compose
+    source = inspect.getsource(compose._compose_single_leaf_domain)
+    assert "format_summary_for_agent" in source
 ```
 
 - [ ] **Step 2: Run smoke test**
@@ -928,5 +1185,5 @@ Expected: All tests pass
 
 ```bash
 git add tests/wiki/test_remaining_optimizations_smoke.py
-git commit -m "test: add integration smoke test for remaining optimizations (R1-R3)"
+git commit -m "test: add integration smoke test for remaining optimizations (R1-R5)"
 ```

@@ -1043,6 +1043,7 @@ class WikiService:
             is_incremental=incremental and bool(skipped_repos),
             graph_store=self._store,
             wiki_store=self._wiki_store,
+            progress_callback=progress_callback,
         )
 
         if progress_callback:

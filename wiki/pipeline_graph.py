@@ -1,6 +1,9 @@
 """LangGraph StateGraph definition for Wiki generation pipeline."""
 from __future__ import annotations
 
+import functools
+import inspect
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -31,6 +34,73 @@ from wiki.quality_evaluator import WikiQualityEvaluator
 log = get_logger(__name__)
 
 HEAL_LOOP_MAX_TOTAL_ATTEMPTS = 10
+
+# Node name → (API phase label, baseline progress 0..1 for task status / UI)
+_NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
+    "classify_entity_roles": ("classify_entities", 0.0),
+    "detect_reorg": ("detect_reorg", 0.02),
+    "classify_domains": ("classify_domains", 0.05),
+    "decompose_hierarchy": ("decompose_hierarchy", 0.08),
+    "set_review_status": ("set_review_status", 0.09),
+    "compose_leaf_modules": ("compose_leaf_modules", 0.10),
+    "plan_topic_structure": ("plan_topic_structure", 0.25),
+    "compose_leaf_pages": ("compose_leaf", 0.30),
+    "quality_gate": ("quality_gate", 0.65),
+    "heal_pages": ("heal_pages", 0.70),
+    "summarize_leaves": ("summarize_leaves", 0.75),
+    "compose_parent_pages": ("parent_aggregate", 0.80),
+    "synthesize_overviews": ("overview", 0.85),
+    "create_links": ("linking", 0.90),
+    "finalize": ("finalize", 0.95),
+}
+
+
+def _with_progress(
+    node_name: str,
+    func: Callable[..., Awaitable[dict[str, Any]]],
+) -> Callable[..., Awaitable[dict[str, Any]]]:
+    """Wrap a graph node to invoke ``configurable[\"progress_callback\"]`` on entry."""
+    mapping = _NODE_PHASE_MAP.get(node_name)
+    if mapping is None:
+        return func
+    phase, pct = mapping
+    _sig = inspect.signature(func)
+    params = [
+        p
+        for p in _sig.parameters.values()
+        if p.kind
+        in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    ]
+    pass_config = len(params) >= 2
+
+    if pass_config:
+        @functools.wraps(func)
+        async def _wrapper(
+            state: WikiPipelineState,
+            config: RunnableConfig | None = None,
+        ) -> dict[str, Any]:
+            configurable = (config or {}).get("configurable", {}) or {}
+            cb = configurable.get("progress_callback")
+            if cb:
+                try:
+                    await cb({
+                        "phase": phase,
+                        "progress_pct": pct,
+                        "detail": f"{phase} 开始",
+                    })
+                except Exception:
+                    log.debug("progress_callback_failed", phase=phase, exc_info=True)
+            return await func(state, config)
+    else:
+        @functools.wraps(func)
+        async def _wrapper(state: WikiPipelineState) -> dict[str, Any]:  # type: ignore[misc]
+            return await func(state)
+
+    return _wrapper
 
 # ---------------------------------------------------------------------------
 # Conditional edges
@@ -204,21 +274,21 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     """
     graph = StateGraph(WikiPipelineState)
 
-    graph.add_node("classify_entity_roles", classify_entities_node)
-    graph.add_node("detect_reorg", detect_reorg_node)
-    graph.add_node("classify_domains", classify_domains_node)
-    graph.add_node("decompose_hierarchy", decompose_hierarchy_node)
-    graph.add_node("set_review_status", set_review_status_node)
-    graph.add_node("compose_leaf_modules", compose_leaf_modules_node)
-    graph.add_node("plan_topic_structure", plan_topic_structure_node)
-    graph.add_node("compose_leaf_pages", compose_leaf_pages_node)
-    graph.add_node("quality_gate", quality_gate_node)
-    graph.add_node("heal_pages", heal_pages_node)
-    graph.add_node("summarize_leaves", summarize_leaves_node)
-    graph.add_node("compose_parent_pages", compose_parent_pages_node)
-    graph.add_node("synthesize_overviews", synthesize_overviews_node)
-    graph.add_node("create_links", create_links_node)
-    graph.add_node("finalize", finalize_node)
+    graph.add_node("classify_entity_roles", _with_progress("classify_entity_roles", classify_entities_node))
+    graph.add_node("detect_reorg", _with_progress("detect_reorg", detect_reorg_node))
+    graph.add_node("classify_domains", _with_progress("classify_domains", classify_domains_node))
+    graph.add_node("decompose_hierarchy", _with_progress("decompose_hierarchy", decompose_hierarchy_node))
+    graph.add_node("set_review_status", _with_progress("set_review_status", set_review_status_node))
+    graph.add_node("compose_leaf_modules", _with_progress("compose_leaf_modules", compose_leaf_modules_node))
+    graph.add_node("plan_topic_structure", _with_progress("plan_topic_structure", plan_topic_structure_node))
+    graph.add_node("compose_leaf_pages", _with_progress("compose_leaf_pages", compose_leaf_pages_node))
+    graph.add_node("quality_gate", _with_progress("quality_gate", quality_gate_node))
+    graph.add_node("heal_pages", _with_progress("heal_pages", heal_pages_node))
+    graph.add_node("summarize_leaves", _with_progress("summarize_leaves", summarize_leaves_node))
+    graph.add_node("compose_parent_pages", _with_progress("compose_parent_pages", compose_parent_pages_node))
+    graph.add_node("synthesize_overviews", _with_progress("synthesize_overviews", synthesize_overviews_node))
+    graph.add_node("create_links", _with_progress("create_links", create_links_node))
+    graph.add_node("finalize", _with_progress("finalize", finalize_node))
 
     graph.add_edge("classify_entity_roles", "detect_reorg")
     graph.add_conditional_edges(

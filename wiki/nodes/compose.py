@@ -27,6 +27,20 @@ log = get_logger(__name__)
 _CONTEXT_GAP_CLEANUP_RE = re.compile(r"<!--\s*CONTEXT_GAP:\s*(.+?)\s*-->")
 
 
+async def _maybe_pipeline_progress(
+    configurable: dict[str, Any],
+    payload: dict[str, Any],
+) -> None:
+    """Call optional ``progress_callback`` from LangGraph configurable; swallow errors."""
+    cb = configurable.get("progress_callback")
+    if not cb:
+        return
+    try:
+        await cb(payload)
+    except Exception:
+        log.debug("pipeline_progress_callback_failed", exc_info=True)
+
+
 def cleanup_context_gaps(content: str) -> str:
     """Replace CONTEXT_GAP HTML comments with user-visible info notices."""
     return _CONTEXT_GAP_CLEANUP_RE.sub(r"> ℹ️ 此处信息待补充: \1", content)
@@ -582,13 +596,23 @@ async def compose_leaf_modules_node(
     )
 
     module_summaries: dict[str, dict[str, Any]] = {}
-    for item in r1_results:
+    total_mod = len(target_modules)
+    for i, item in enumerate(r1_results, start=1):
         if isinstance(item, BaseException):
             log.warning("compose_leaf_module_failed", exc_info=item)
             continue
         name, summary = item
         if summary:
             module_summaries[name] = summary
+        frac = i / max(total_mod, 1)
+        await _maybe_pipeline_progress(
+            configurable,
+            {
+                "phase": "compose_leaf_modules",
+                "progress_pct": 0.10 + frac * 0.15,
+                "detail": f"模块摘要 {i}/{total_mod}",
+            },
+        )
 
     r1_summary_texts = {
         k: str(v.get("summary_text", ""))
@@ -630,6 +654,16 @@ async def compose_leaf_modules_node(
             name, summary = item
             if summary:
                 module_summaries[name] = summary
+
+    await _maybe_pipeline_progress(
+        configurable,
+        {
+            "phase": "compose_leaf_modules",
+            "progress_pct": 0.10
+            + (len(module_summaries) / max(total_mod, 1)) * 0.15,
+            "detail": f"模块摘要 {len(module_summaries)}/{total_mod}（完成）",
+        },
+    )
 
     log.info(
         "compose_leaf_modules_done",
@@ -804,7 +838,11 @@ async def compose_leaf_pages_node(
 
     topic_structure = state.get("topic_structure")
     if topic_structure:
-        return await _compose_from_topic_structure(
+        all_topics = list(topic_structure)
+        for t in topic_structure:
+            for sub in t.get("sub_topics", []):
+                all_topics.append(sub)
+        out = await _compose_from_topic_structure(
             topic_structure,
             module_index,
             entity_roles,
@@ -814,6 +852,16 @@ async def compose_leaf_pages_node(
             domain_mapping=domain_mapping,
             module_summaries=mod_summaries,
         )
+        pages_out = out.get("pages") or []
+        await _maybe_pipeline_progress(
+            configurable,
+            {
+                "phase": "compose_leaf",
+                "progress_pct": 0.64,
+                "detail": f"页面合成 {len(pages_out)} 页, {len(all_topics)} 域",
+            },
+        )
+        return out
 
     budget_resolver = TokenBudgetResolver()
     budget = budget_resolver.budget("topic_page_generate")
@@ -871,6 +919,15 @@ async def compose_leaf_pages_node(
         pages, uids = item
         all_pages.extend(pages)
         generated_uids.extend(uids)
+
+    await _maybe_pipeline_progress(
+        configurable,
+        {
+            "phase": "compose_leaf",
+            "progress_pct": 0.64,
+            "detail": f"页面合成 {len(all_pages)} 页, {len(leaf_domains)} 域",
+        },
+    )
 
     _pn.log.info("compose_pages_done", total_pages=len(all_pages), domains_processed=len(leaf_domains))
     return {"pages": all_pages, "generated_topic_pages": generated_uids}

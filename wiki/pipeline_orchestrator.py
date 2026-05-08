@@ -5,6 +5,7 @@ plain-dict format expected by the LangGraph ``WikiPipelineState``.
 """
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -125,6 +126,7 @@ async def run_langgraph_pipeline(
     model_strategy: Any | None = None,
     graph_store: Any | None = None,
     wiki_store: Any | None = None,
+    progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> PipelineResult:
     """Execute the LangGraph wiki pipeline and return production-ready results.
 
@@ -193,6 +195,8 @@ async def run_langgraph_pipeline(
         configurable["graph_store"] = graph_store
     if wiki_store is not None:
         configurable["wiki_store"] = wiki_store
+    if progress_callback is not None:
+        configurable["progress_callback"] = progress_callback
 
     result = await pipeline.ainvoke(
         initial_state,

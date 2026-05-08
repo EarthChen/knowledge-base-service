@@ -73,7 +73,11 @@ async def _run_business_wiki_background(
             tr = int(info.get("total_repos", 0) or 0)
             cr = int(info.get("completed_repos", 0) or 0)
             denom = max(tr, 1)
-            pct = int(cr / denom * 100)
+            raw_pct = info.get("progress_pct")
+            if isinstance(raw_pct, (int, float)) and not isinstance(raw_pct, bool):
+                pct = int(max(0.0, min(1.0, float(raw_pct))) * 100)
+            else:
+                pct = int(cr / denom * 100)
             extra: dict[str, Any] = {
                 "completed_repos": str(cr),
                 "total_repos": str(tr),
@@ -83,6 +87,9 @@ async def _run_business_wiki_background(
             phase = info.get("phase")
             if phase:
                 extra["phase"] = str(phase)
+            detail = info.get("detail")
+            if detail:
+                extra["detail"] = str(detail)
             await task_store.update_status(task_id, "running", **extra)
         if event_bus:
             await event_bus.publish(

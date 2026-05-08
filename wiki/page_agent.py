@@ -12,7 +12,30 @@ from core.log import get_logger
 log = get_logger(__name__)
 
 _CONTEXT_GAP_RE = re.compile(r"<!--\s*CONTEXT_GAP:\s*(.+?)\s*-->")
+_THINKING_PREFIX_RE = re.compile(
+    r"^(我需要|让我|从工作记忆|需要先|接下来我|首先我|I need to|Let me)",
+)
+_TOOL_JSON_BLOCK_RE = re.compile(
+    r"```json\s*\{[\s\S]*?\"tools\"[\s\S]*?\}\s*```",
+    re.MULTILINE,
+)
+_FIRST_HEADING_RE = re.compile(r"^(#{1,3}\s)", re.MULTILINE)
 SINGLE_RESULT_LIMIT = 4000
+
+
+def strip_agent_artifacts(text: str) -> str:
+    """Remove LLM agent thinking/reasoning text and inline tool-call JSON from wiki content."""
+    if not text or not text.strip():
+        return ""
+    stripped = _TOOL_JSON_BLOCK_RE.sub("", text)
+    stripped = stripped.strip()
+    if _THINKING_PREFIX_RE.match(stripped):
+        m = _FIRST_HEADING_RE.search(stripped)
+        if m:
+            stripped = stripped[m.start():]
+        else:
+            stripped = ""
+    return stripped.strip()
 
 _GREP_MAX_FILE_SIZE = 512 * 1024  # 512 KB
 _GREP_BINARY_EXTENSIONS = {
@@ -537,7 +560,11 @@ class WikiPageAgent:
 
             if not tool_calls:
                 if text_content:
-                    return str(text_content)
+                    cleaned = strip_agent_artifacts(str(text_content))
+                    if cleaned:
+                        return cleaned
+                    log.warning("agent_output_was_pure_thinking", domain=domain_name)
+                    break
                 break
 
             tool_results: list[ToolResult] = []
@@ -576,7 +603,11 @@ class WikiPageAgent:
                 prompt=self._build_user_prompt(content, gaps, memory, domain_name),
                 system=_AGENT_SYSTEM,
             )
-            return fallback
+            cleaned = strip_agent_artifacts(fallback)
+            if cleaned:
+                return cleaned
+            log.warning("agent_fallback_was_pure_thinking", domain=domain_name)
+            return content
         except Exception:
             log.warning("agent_fallback_failed", exc_info=True)
             return content

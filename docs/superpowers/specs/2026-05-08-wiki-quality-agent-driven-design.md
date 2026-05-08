@@ -1,6 +1,6 @@
 # Wiki 质量修复 + Agent-Driven 生成引擎设计
 
-**状态**: Implementing (Tasks 1-13 完成, 2026-05-08)  
+**状态**: Implementing (Tasks 1-13 完成, Pipeline 接入 → 合并至 wiki-pipeline-integration 计划)  
 **审阅**: sequential-thinking 深度审阅完成, 15 项发现已纳入  
 **创建**: 2026-05-08  
 **分支**: `feat/wiki-quality-agent-driven` (15 commits, 61 新增测试全部通过)  

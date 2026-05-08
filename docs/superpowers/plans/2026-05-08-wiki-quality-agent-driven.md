@@ -10,8 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-08-wiki-quality-agent-driven-design.md`
 
-**Status:** ✅ Tasks 1-13 全部完成 (2026-05-08)，61 个新增测试全部通过。Task 14（集成验证）待部署后执行。
-**Branch:** `feat/wiki-quality-agent-driven` (14 commits, 28 files changed, +741/-30)
+**Status:** ✅ Tasks 1-13 全部完成 (2026-05-08)。Pipeline 接入工作迁移至 `2026-05-08-wiki-pipeline-integration.md`。
+**Branch:** `feat/wiki-quality-agent-driven`
 
 ---
 

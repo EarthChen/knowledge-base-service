@@ -1,7 +1,7 @@
 # 统一 Wiki 企业级知识库设计
 
 **日期**: 2026-05-06
-**状态**: 待审批
+**状态**: ✅ Mostly Implemented (U1-U5/U7-U12 已实现; U6 tree_linker LLM 集成 → 合并至 wiki-pipeline-integration 计划)
 **范围**: wiki 生成管线全链路 — 风格统一 / 内容深度 / 实体关联 / 搜索增强 / 前端视角整合
 **前置**: `2026-05-06-wiki-topic-filter-parallel-design.md`（过滤 / 并行优化，已批准待实施）
 

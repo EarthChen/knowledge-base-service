@@ -1,16 +1,4 @@
-"""LangGraph pipeline node implementations for Wiki generation.
-
-Implementations live in ``wiki.nodes``; this module re-exports the public API
-and patch targets (``log``, ``HierarchicalDecomposer``, ``TopicPageComposer``,
-``TokenBudgetResolver``) for backward compatibility.
-"""
-
-from core.log import get_logger
-from wiki.dependency_graph import HierarchicalDecomposer
-from wiki.token_budget import TokenBudgetResolver
-from wiki.topic_page_composer import TopicPageComposer
-
-log = get_logger(__name__)
+"""Wiki pipeline node implementations split by responsibility."""
 
 from wiki.nodes.aggregate import (
     compose_parent_pages_node,
@@ -58,9 +46,6 @@ from wiki.nodes.utils import (
 )
 
 __all__ = [
-    "HierarchicalDecomposer",
-    "TokenBudgetResolver",
-    "TopicPageComposer",
     "_COMPOSE_CONCURRENCY",
     "_MAX_LEAF_MODULES",
     "_build_page_data_for_semantic_diagrams",
@@ -92,7 +77,6 @@ __all__ = [
     "detect_reorg_node",
     "has_parent_domains",
     "heal_pages_node",
-    "log",
     "plan_topic_structure_node",
     "select_key_snippets",
     "set_review_status_node",

@@ -1,0 +1,329 @@
+"""Classification and domain hierarchy nodes."""
+
+import re
+from collections import Counter
+from typing import Any
+
+from langchain_core.runnables import RunnableConfig
+
+from core.log import get_logger
+from store.schema import GraphNode, NodeLabel
+from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
+from wiki.dependency_graph import ModuleGraph, ModuleInfo
+from wiki.domain_complexity import DomainComplexity
+from wiki.entity_role_classifier import (
+    DOMAIN_CLASSIFICATION_ENTITY_ROLES,
+    EntityRoleClassifier,
+    WikiEntityRole,
+)
+from wiki.nodes.utils import (
+    _count_modules_in_domain_tree,
+    _detect_oversized_leaves,
+    _normalize_domain_tree,
+)
+from wiki.reasoning import TaskType, select_reasoning_level
+
+log = get_logger(__name__)
+
+
+async def classify_entities_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Phase 1: classify all entities using EntityRoleClassifier."""
+    classifier = EntityRoleClassifier()
+    entity_roles: dict[str, WikiEntityRole] = {}
+    role_counter: Counter[WikiEntityRole] = Counter()
+
+    for _repo, modules in state.get("modules", {}).items():
+        for mod_dict in modules:
+            uid = mod_dict.get("uid", "")
+            props = mod_dict.get("properties", {})
+            label_str = mod_dict.get("label", "Module")
+            try:
+                label = NodeLabel(label_str)
+            except ValueError:
+                label = NodeLabel.MODULE
+            node = GraphNode(label=label, properties=props, uid=uid)
+
+            calls = props.get("calls", []) or []
+            imports = props.get("imports", []) or []
+            if isinstance(calls, list) and isinstance(imports, list):
+                edge_count = len(calls) + len(imports)
+            else:
+                edge_count = 0
+
+            children_count = int(props.get("inner_class_count", 0) or 0)
+
+            role = classifier.classify(node, edge_count=edge_count, children_count=children_count)
+            entity_roles[uid] = role
+            role_counter[role] += 1
+
+    log.info(
+        "classify_entities_done",
+        total=len(entity_roles),
+        **{str(r): c for r, c in role_counter.items()},
+    )
+    return {
+        "entity_roles": entity_roles,
+        "role_stats": {str(r): c for r, c in role_counter.items()},
+    }
+
+
+async def classify_domains_node(
+    state: dict[str, Any], config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Phase 2a-2b: classify modules into business domains using LLM.
+
+    Filters to HAS_BUSINESS_LOGIC and ENTRY_POINT entities, then delegates to
+    CrossRepoBusinessDomainPlanner for per-repo classification + cross-repo merge.
+    """
+    llm = (config or {}).get("configurable", {}).get("llm")
+    business_id = state.get("business_id", "")
+    entity_roles = state.get("entity_roles", {})
+    modules = state.get("modules", {})
+
+    _MAX_MODULES_FOR_CLASSIFICATION = 200
+    _DATA_MODEL_NAME_SUFFIXES = (
+        "DTO", "Dto", "VO", "Vo", "Req", "Resp", "Request", "Response",
+        "Param", "Form", "Query", "Result", "Enum", "Constants", "Entity",
+        "Bo", "PO", "Po", "Config",
+    )
+    _DATA_MODEL_PATH_MARKERS = ("/dto/", "/model/", "/entity/", "/enums/", "/config/")
+    _SERVICE_PATH_PATTERNS = re.compile(
+        r"(/service/service/|/facade/|/manager/|/kafka/|/service/moa/)",
+        re.IGNORECASE,
+    )
+    _ENTRY_PATH_PATTERNS = re.compile(
+        r"(/interfaces/|/io/interfaces/|/controller/|/service/moa/)",
+        re.IGNORECASE,
+    )
+
+    def _is_data_model(name: str, path: str) -> bool:
+        if any(name.endswith(suffix) for suffix in _DATA_MODEL_NAME_SUFFIXES):
+            return True
+        if any(marker in path.lower() for marker in _DATA_MODEL_PATH_MARKERS):
+            return True
+        return False
+
+    biz_modules: dict[str, list[GraphNode]] = {}
+    excluded_data_models = 0
+    for repo, mod_list in modules.items():
+        filtered: list[GraphNode] = []
+        for mod_dict in mod_list:
+            uid = mod_dict.get("uid", "")
+            if entity_roles.get(uid) not in DOMAIN_CLASSIFICATION_ENTITY_ROLES:
+                continue
+            props = mod_dict.get("properties", {})
+            name = str(props.get("name", ""))
+            path = str(props.get("path", "") or "")
+            if path.startswith("<import:"):
+                continue
+            if _is_data_model(name, path):
+                excluded_data_models += 1
+                continue
+            label_str = mod_dict.get("label", "Module")
+            try:
+                label = NodeLabel(label_str)
+            except ValueError:
+                label = NodeLabel.MODULE
+            filtered.append(GraphNode(label=label, properties=props, uid=uid))
+        if filtered:
+            biz_modules[repo] = filtered
+
+    module_total = sum(len(v) for v in biz_modules.values())
+    log.info(
+        "classify_domains_filter",
+        included=module_total,
+        excluded_data_models=excluded_data_models,
+    )
+
+    if module_total > _MAX_MODULES_FOR_CLASSIFICATION:
+        capped_modules: dict[str, list[GraphNode]] = {}
+        for repo, nodes in biz_modules.items():
+            tier1 = []  # RPC interfaces + entry points
+            tier2 = []  # Service implementations
+            tier3 = []  # Other business logic
+            for n in nodes:
+                path = str(n.properties.get("path", "") or "")
+                role = entity_roles.get(n.uid)
+                if _ENTRY_PATH_PATTERNS.search(path) or role == WikiEntityRole.ENTRY_POINT:
+                    tier1.append(n)
+                elif _SERVICE_PATH_PATTERNS.search(path):
+                    tier2.append(n)
+                else:
+                    tier3.append(n)
+            capped_modules[repo] = tier1 + tier2 + tier3
+        budget = _MAX_MODULES_FOR_CLASSIFICATION
+        final: dict[str, list[GraphNode]] = {}
+        for repo, nodes in capped_modules.items():
+            take = min(len(nodes), max(budget // max(len(capped_modules), 1), 10))
+            final[repo] = nodes[:take]
+            budget -= take
+            if budget <= 0:
+                break
+        biz_modules = {r: v for r, v in final.items() if v}
+        module_total = sum(len(v) for v in biz_modules.values())
+        log.info("classify_domains_capped", capped_total=module_total)
+    classify_complexity = (
+        DomainComplexity.LOW
+        if module_total <= 10
+        else DomainComplexity.MEDIUM
+        if module_total <= 40
+        else DomainComplexity.HIGH
+    )
+    classify_reasoning = select_reasoning_level(TaskType.CLASSIFY, classify_complexity)
+    log.info(
+        "classify_reasoning_selection",
+        module_count=module_total,
+        complexity=classify_complexity.value,
+        reasoning_level=classify_reasoning.value,
+    )
+
+    planner = CrossRepoBusinessDomainPlanner(llm)
+    is_incremental = state.get("is_incremental", False)
+    if is_incremental:
+        domain_mapping, affected_domains = await planner.classify_incremental(business_id, biz_modules)
+    else:
+        domain_mapping = await planner.classify(business_id, biz_modules)
+        affected_domains = set(domain_mapping.keys())
+
+    graph_store = (config or {}).get("configurable", {}).get("graph_store")
+    if graph_store is not None:
+        from wiki.domain_stabilizer import DomainStabilizer
+
+        stabilizer = DomainStabilizer(graph_store)
+        try:
+            rename_map = await stabilizer.stabilize(list(domain_mapping.keys()))
+            affected_domains = {rename_map.get(d, d) for d in affected_domains}
+            stabilized: dict[str, list] = {}
+            for proposed, pairs in domain_mapping.items():
+                stable = rename_map.get(proposed, proposed)
+                stabilized.setdefault(stable, []).extend(pairs)
+            if stabilized != domain_mapping:
+                renamed = {p: s for p, s in rename_map.items() if p != s}
+                log.info("domain_stabilizer_applied", renamed=renamed)
+                domain_mapping = stabilized
+        except Exception:
+            log.warning("domain_stabilizer_failed", exc_info=True)
+
+    log.info(
+        "classify_domains_done",
+        business_id=business_id,
+        domains=len(domain_mapping),
+        total_modules=sum(len(v) for v in domain_mapping.values()),
+    )
+    return {"domain_mapping": domain_mapping, "affected_domains": list(affected_domains)}
+
+
+async def detect_reorg_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Determine reorganization type based on pipeline state.
+
+    Returns reorg_type: first_run | full | heavy | light | none
+    """
+    domain_tree = state.get("domain_tree")
+    is_incremental = state.get("is_incremental", False)
+    affected_domains = state.get("affected_domains", [])
+
+    if domain_tree is None:
+        reorg_type = "first_run"
+    elif not is_incremental:
+        reorg_type = "full"
+    elif affected_domains:
+        biz_count = state.get("role_stats", {}).get("has_business_logic", 0)
+        prev_biz = _count_modules_in_domain_tree(
+            domain_tree if isinstance(domain_tree, list) else []
+        )
+        ratio = abs(biz_count - prev_biz) / max(prev_biz, 1)
+        if ratio > 0.3:
+            reorg_type = "heavy"
+        else:
+            reorg_type = "light"
+    else:
+        reorg_type = "none"
+
+    log.info("detect_reorg_done", reorg_type=reorg_type, is_incremental=is_incremental)
+    return {"reorg_type": reorg_type}
+
+
+async def decompose_hierarchy_node(
+    state: dict[str, Any], config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Phase 2c: build hierarchical domain tree from flat domain mapping."""
+    import wiki.pipeline_nodes as pn
+
+    llm = (config or {}).get("configurable", {}).get("llm")
+    domain_mapping = state.get("domain_mapping", {})
+    modules = state.get("modules", {})
+
+    if not llm or not domain_mapping:
+        log.info("decompose_hierarchy_skip", reason="no llm or empty domain_mapping")
+        flat_tree = [
+            {"name": domain, "modules": [m for _, m in pairs], "children": []}
+            for domain, pairs in domain_mapping.items()
+        ]
+        return {"domain_tree": flat_tree}
+
+    module_lookup: dict[str, dict] = {}
+    for repo, mod_list in modules.items():
+        for mod_dict in mod_list:
+            name = mod_dict.get("properties", {}).get("name", "")
+            if name:
+                module_lookup[name] = mod_dict
+
+    all_module_infos: list[ModuleInfo] = []
+    for domain, pairs in domain_mapping.items():
+        for repo_id, mod_name in pairs:
+            mod_dict = module_lookup.get(mod_name, {})
+            props = mod_dict.get("properties", {})
+            all_module_infos.append(ModuleInfo(
+                name=mod_name,
+                path=str(props.get("path", "")),
+                uid=mod_dict.get("uid", f"Module::{mod_name}:0"),
+                summary=str(props.get("business_summary", "") or props.get("docstring", "") or ""),
+                semantic_roles=list(props.get("semantic_roles", []) or []),
+            ))
+
+    if not all_module_infos:
+        return {"domain_tree": []}
+
+    decomposer = pn.HierarchicalDecomposer(llm, max_depth=3, min_modules_for_nesting=3)
+    module_graph = ModuleGraph(modules=all_module_infos, edges=[], entry_points=[])
+
+    try:
+        raw_tree = await decomposer.decompose(all_module_infos, module_graph)
+        domain_tree = _normalize_domain_tree(raw_tree)
+    except Exception:
+        log.warning("decompose_hierarchy_failed", exc_info=True)
+        domain_tree = [
+            {"name": domain, "modules": [m for _, m in pairs], "children": []}
+            for domain, pairs in domain_mapping.items()
+        ]
+
+    # P0.2 Sub-B+C: detect oversized leaves and rebalance (one pass only)
+    oversized = _detect_oversized_leaves(domain_tree)
+    if oversized and llm:
+        rebalance_decomposer = pn.HierarchicalDecomposer(llm, max_depth=1, min_modules_for_nesting=3)
+        for leaf in oversized:
+            leaf_module_names_set = set(leaf.get("modules", []))
+            leaf_modules = [m for m in all_module_infos if m.name in leaf_module_names_set]
+            if not leaf_modules:
+                continue
+            rebal_graph = ModuleGraph(modules=leaf_modules, edges=[], entry_points=[])
+            try:
+                sub_tree = await rebalance_decomposer.decompose(leaf_modules, rebal_graph)
+                if sub_tree and len(sub_tree) > 1:
+                    leaf["children"] = _normalize_domain_tree(sub_tree)
+                    leaf["modules"] = []
+                    log.info("leaf_rebalanced", domain=leaf.get("name"), sub_domains=len(sub_tree))
+            except Exception:
+                log.warning("leaf_rebalance_failed", domain=leaf.get("name"), exc_info=True)
+
+    log.info("decompose_hierarchy_done", domains=len(domain_tree) if domain_tree else 0)
+    return {"domain_tree": domain_tree}
+
+
+async def set_review_status_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Mark domain tree as pending_review and continue (non-blocking)."""
+    review_status = dict(state.get("review_status", {}))
+    review_status["domain_tree"] = "pending_review"
+
+    log.info("set_review_status_marked_review", tree_size=len(state.get("domain_tree") or []))
+    return {"review_status": review_status}

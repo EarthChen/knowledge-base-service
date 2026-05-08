@@ -45,7 +45,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["core", "indexer", "indexer.languages", "store", "query", "api", "api.models", "llm", "services", "wiki"]
+packages = ["core", "indexer", "indexer.languages", "store", "query", "api", "api.models", "llm", "services", "wiki", "wiki.nodes"]
 py-modules = ["main"]
 
 [tool.ruff]
@@ -54,6 +54,10 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"wiki/pipeline_nodes.py" = ["E402"]
+"wiki/nodes/classify.py" = ["N806"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

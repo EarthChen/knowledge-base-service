@@ -78,8 +78,8 @@ class TestWorkingMemory:
         assert isinstance(wm.wiki_references, list)
         assert isinstance(wm.search_findings, list)
 
-    def test_max_total_chars_18k(self):
-        assert WorkingMemory.MAX_TOTAL_CHARS == 18000
+    def test_max_total_chars_50k(self):
+        assert WorkingMemory.MAX_TOTAL_CHARS == 50000
 
     def test_incorporate_read_code(self):
         wm = WorkingMemory()
@@ -154,7 +154,7 @@ class TestWorkingMemory:
         ])
         assert len(wm.search_findings) == 1
 
-    def test_working_memory_18k_capacity(self):
+    def test_working_memory_respects_max_total_chars(self):
         wm = WorkingMemory()
         for i in range(200):
             wm.incorporate([

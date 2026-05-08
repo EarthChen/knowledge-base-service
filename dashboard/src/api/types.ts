@@ -162,7 +162,11 @@ export interface WikiAsyncTask {
   skipped_repos?: string[] | number;
   current_repo?: string;
   progress_pct?: number;
-  /** Multi-phase generation step from SSE / task status (e.g. leaf_compose, quality_eval). */
+  /** Pipeline phase name from LangGraph node progress (e.g. compose_leaf, quality_gate). */
+  phase?: string;
+  /** Human-readable detail text from the running pipeline step. */
+  detail?: string;
+  /** @deprecated Prefer `phase`; legacy field from older task payloads. */
   current_phase?: string;
   incremental?: string;
   partial_errors?: Array<{ repository: string; error: string }>;

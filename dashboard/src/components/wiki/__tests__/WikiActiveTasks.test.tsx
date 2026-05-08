@@ -88,14 +88,14 @@ describe("WikiActiveTasks", () => {
     expect(bar).toHaveAttribute("aria-valuenow", "42");
   });
 
-  it("shows localized phase label for known current_phase keys", async () => {
+  it("shows localized phase label for known pipeline phase keys", async () => {
     apiMocks.tasks = [
       {
         task_id: "tid-phase",
         status: "running",
         business_id: "biz-one",
         progress_pct: 0,
-        current_phase: "leaf_compose",
+        phase: "leaf_compose",
       },
     ];
     renderTasks();

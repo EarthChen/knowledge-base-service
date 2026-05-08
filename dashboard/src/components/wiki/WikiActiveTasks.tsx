@@ -6,24 +6,83 @@ import type { Translations } from "../../i18n/types";
 import { useI18n } from "../../i18n/context";
 import { useToast } from "../Toast";
 
-type PhaseKey = "leaf_compose" | "parent_aggregate" | "business_flow" | "navigation" | "quality_eval";
+type PhaseKey =
+  | "classify_entities"
+  | "detect_reorg"
+  | "classify_domains"
+  | "decompose_hierarchy"
+  | "set_review_status"
+  | "compose_leaf_modules"
+  | "plan_topic_structure"
+  | "compose_leaf"
+  | "quality_gate"
+  | "heal_pages"
+  | "summarize_leaves"
+  | "parent_aggregate"
+  | "overview"
+  | "linking"
+  | "finalize"
+  | "leaf_compose"
+  | "business_flow"
+  | "navigation"
+  | "quality_eval"
+  | "classifying_domains"
+  | "persisting_pages"
+  | "generating_pages";
+
+const ORDERED_PHASES: PhaseKey[] = [
+  "classify_entities",
+  "classify_domains",
+  "compose_leaf_modules",
+  "compose_leaf",
+  "quality_gate",
+  "parent_aggregate",
+  "overview",
+  "linking",
+  "finalize",
+];
 
 type WikiPhaseTranslationKey =
-  | "phaseLeafCompose"
+  | "phaseClassifyEntities"
+  | "phaseClassifyDomains"
+  | "phaseComposeLeafModules"
+  | "phaseComposeLeaf"
+  | "phaseQualityGate"
   | "phaseParentAggregate"
+  | "phaseOverview"
+  | "phaseLinking"
+  | "phaseFinalize"
+  | "phaseLeafCompose"
   | "phaseBusinessFlow"
   | "phaseNavigation"
-  | "phaseQualityEval";
+  | "phaseQualityEval"
+  | "phaseClassifyingDomains"
+  | "phasePersistingPages"
+  | "phaseGeneratingPages";
 
-type WikiPhaseTranslations = Pick<Translations["wiki"], WikiPhaseTranslationKey>;
-
-const phaseI18nKeys: Record<PhaseKey, WikiPhaseTranslationKey> = {
-  leaf_compose: "phaseLeafCompose",
+const phaseI18nKeys: Record<string, WikiPhaseTranslationKey> = {
+  classify_entities: "phaseClassifyEntities",
+  classify_domains: "phaseClassifyDomains",
+  compose_leaf_modules: "phaseComposeLeafModules",
+  compose_leaf: "phaseComposeLeaf",
+  quality_gate: "phaseQualityGate",
   parent_aggregate: "phaseParentAggregate",
+  overview: "phaseOverview",
+  linking: "phaseLinking",
+  finalize: "phaseFinalize",
+  leaf_compose: "phaseLeafCompose",
   business_flow: "phaseBusinessFlow",
   navigation: "phaseNavigation",
   quality_eval: "phaseQualityEval",
+  classifying_domains: "phaseClassifyingDomains",
+  persisting_pages: "phasePersistingPages",
+  generating_pages: "phaseGeneratingPages",
 };
+
+function wikiPhaseLabel(wiki: Translations["wiki"], phaseId: string): string {
+  const key = phaseI18nKeys[phaseId];
+  return key ? wiki[key] : phaseId;
+}
 
 interface WikiActiveTasksProps {
   businessId: string;
@@ -159,13 +218,50 @@ export default function WikiActiveTasks({ businessId }: WikiActiveTasksProps) {
               </p>
             )}
 
-            {task.current_phase && (
+            {task.phase && (
               <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {phaseI18nKeys[task.current_phase as PhaseKey]
-                  ? (t.wiki as WikiPhaseTranslations)[phaseI18nKeys[task.current_phase as PhaseKey]]
-                  : task.current_phase}
+                {wikiPhaseLabel(t.wiki, task.phase)}
               </div>
             )}
+
+            {task.detail && (
+              <p className="mt-0.5 text-xs text-sky-600 dark:text-sky-400">{task.detail}</p>
+            )}
+
+            {/* Stage flow indicator */}
+            <div className="mt-1.5 flex items-center gap-1">
+              {ORDERED_PHASES.map((phase, idx) => {
+                const currentPhase = task.phase;
+                const currentIdx = currentPhase
+                  ? ORDERED_PHASES.indexOf(currentPhase as PhaseKey)
+                  : -1;
+                const isCompleted = currentIdx > idx;
+                const isCurrent = currentIdx === idx;
+                return (
+                  <div key={phase} className="flex items-center gap-1">
+                    <div
+                      className={`h-2 w-2 rounded-full transition-colors ${
+                        isCurrent
+                          ? "bg-sky-500 ring-2 ring-sky-300 dark:ring-sky-700"
+                          : isCompleted
+                            ? "bg-sky-400 dark:bg-sky-500"
+                            : "bg-gray-200 dark:bg-gray-700"
+                      }`}
+                      title={wikiPhaseLabel(t.wiki, phase)}
+                    />
+                    {idx < ORDERED_PHASES.length - 1 && (
+                      <div
+                        className={`h-px w-2 ${
+                          isCompleted
+                            ? "bg-sky-400 dark:bg-sky-500"
+                            : "bg-gray-200 dark:bg-gray-700"
+                        }`}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
 
             {pct > 0 && (
               <div

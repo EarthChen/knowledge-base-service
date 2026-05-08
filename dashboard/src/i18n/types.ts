@@ -929,10 +929,21 @@ export interface Translations {
     /** Use {count} */
     docQualityBelowThreshold: string;
     phaseLeafCompose: string;
+    phaseClassifyEntities: string;
+    phaseClassifyDomains: string;
+    phaseComposeLeafModules: string;
+    phaseComposeLeaf: string;
+    phaseQualityGate: string;
     phaseParentAggregate: string;
+    phaseOverview: string;
+    phaseLinking: string;
+    phaseFinalize: string;
     phaseBusinessFlow: string;
     phaseNavigation: string;
     phaseQualityEval: string;
+    phaseClassifyingDomains: string;
+    phasePersistingPages: string;
+    phaseGeneratingPages: string;
     /** Nested wiki UI strings for topic/domain review and related surfaces */
     domain_review: {
       pending_review_message: string;

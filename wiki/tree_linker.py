@@ -13,6 +13,22 @@ from wiki.tree_builder import WikiTreeBuilder
 log = get_logger(__name__)
 
 
+def _safe_truncate(text: str, max_len: int = 150) -> str:
+    """Truncate text at a Markdown-safe boundary."""
+    if len(text) <= max_len:
+        return text
+    cut = text[:max_len]
+    if cut.count("`") % 2 != 0:
+        last_tick = cut.rfind("`")
+        if last_tick > 0:
+            cut = cut[:last_tick]
+    for sep in ("。", ". ", "，", ", ", " "):
+        pos = cut.rfind(sep)
+        if pos > max_len // 2:
+            return cut[: pos + len(sep)].rstrip()
+    return cut.rstrip()
+
+
 class WikiTreeLinker:
     """Manages the hierarchical tree structure for wiki spaces and sections."""
 
@@ -387,16 +403,21 @@ class WikiTreeLinker:
                     if page:
                         content = page.get("content", "") if isinstance(page, dict) else ""
                         if content:
-                            overview_start = content.find("## Overview")
-                            if overview_start >= 0:
-                                after = content[overview_start + len("## Overview"):].strip()
+                            for overview_heading in ("## Overview", "## 概述", "## 业务概述"):
+                                overview_start = content.find(overview_heading)
+                                if overview_start >= 0:
+                                    after = content[overview_start + len(overview_heading) :].strip()
+                                    break
+                            else:
+                                after = ""
+                            if after:
                                 next_h = after.find("\n## ")
                                 snippet = after[:next_h].strip() if next_h > 0 else after[:200].strip()
                                 non_heading = [
                                     l for l in snippet.split("\n")
                                     if l.strip() and not l.strip().startswith("#")
                                 ]
-                                summary = " ".join(non_heading)[:150]
+                                summary = _safe_truncate(" ".join(non_heading))
                     if summary:
                         lines.append(f"- **{mod_name}**: {summary}")
                     else:

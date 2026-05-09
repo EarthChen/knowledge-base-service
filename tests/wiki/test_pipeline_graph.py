@@ -9,13 +9,13 @@ def test_build_wiki_pipeline_returns_compiled_graph():
     assert hasattr(graph, "ainvoke")
 
 
-def test_should_heal_returns_synthesize_when_no_pages_to_heal():
+def test_should_heal_returns_create_links_when_no_pages_to_heal():
     from wiki.pipeline_graph import should_heal
     state = {
         "pages_to_heal": [],
         "heal_attempts": {},
     }
-    assert should_heal(state) == "summarize_leaves"
+    assert should_heal(state) == "create_links"
 
 
 def test_should_heal_returns_heal_when_pages_need_healing():
@@ -34,7 +34,7 @@ def test_should_heal_respects_global_attempt_budget():
         "pages_to_heal": ["page/a"],
         "heal_attempts": {"page/a": HEAL_LOOP_MAX_TOTAL_ATTEMPTS, "page/b": 1},
     }
-    assert should_heal(state) == "summarize_leaves"
+    assert should_heal(state) == "create_links"
 
 
 def test_should_heal_routes_to_heal_when_pages_present():
@@ -53,50 +53,43 @@ def test_pipeline_graph_has_expected_nodes():
     drawable = graph.get_graph()
     node_ids = set(drawable.nodes.keys())
     expected = {
-        "classify_entity_roles", "detect_reorg", "classify_domains", "decompose_hierarchy",
-        "set_review_status", "compose_leaf_pages", "quality_gate",
-        "heal_pages", "summarize_leaves", "compose_parent_pages",
-        "synthesize_overviews", "create_links",
-        "finalize", "__start__", "__end__",
+        "classify_entity_roles",
+        "detect_reorg",
+        "graph_decompose",
+        "assign_canonical_keys",
+        "generate_titles",
+        "set_review_status",
+        "compose_leaf_modules",
+        "compose_bottomup",
+        "quality_gate",
+        "heal_pages",
+        "create_links",
+        "finalize",
+        "__start__",
+        "__end__",
     }
     assert expected.issubset(node_ids)
 
 
 def test_pipeline_has_all_expected_nodes():
-    """Pipeline should include all Phase 1-4 nodes plus detect_reorg."""
+    """Pipeline should include graph-decompose → bottom-up compose stages plus linking."""
     from wiki.pipeline_graph import build_wiki_pipeline
     pipeline = build_wiki_pipeline()
     graph_data = pipeline.get_graph()
     node_names = set(graph_data.nodes.keys())
     expected = {
-        "classify_entity_roles", "detect_reorg", "classify_domains",
-        "decompose_hierarchy", "set_review_status", "compose_leaf_pages",
-        "summarize_leaves", "compose_parent_pages",
-        "synthesize_overviews", "create_links",
-        "quality_gate", "heal_pages", "finalize",
+        "classify_entity_roles",
+        "detect_reorg",
+        "graph_decompose",
+        "assign_canonical_keys",
+        "generate_titles",
+        "set_review_status",
+        "compose_leaf_modules",
+        "compose_bottomup",
+        "quality_gate",
+        "heal_pages",
+        "create_links",
+        "finalize",
     }
     missing = expected - node_names
     assert not missing, f"Missing nodes: {missing}"
-
-
-def test_route_parent_or_overview_with_parents():
-    from wiki.pipeline_graph import route_parent_or_overview
-    state = {
-        "domain_tree": [
-            {"name": "root", "modules": [], "children": [
-                {"name": "child", "modules": ["A"], "children": []},
-            ]},
-        ],
-    }
-    assert route_parent_or_overview(state) == "compose_parent_pages"
-
-
-def test_route_parent_or_overview_flat():
-    from wiki.pipeline_graph import route_parent_or_overview
-    state = {
-        "domain_tree": [
-            {"name": "d1", "modules": ["A"], "children": []},
-            {"name": "d2", "modules": ["B"], "children": []},
-        ],
-    }
-    assert route_parent_or_overview(state) == "synthesize_overviews"

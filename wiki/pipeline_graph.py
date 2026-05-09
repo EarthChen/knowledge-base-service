@@ -14,20 +14,16 @@ from core.log import get_logger
 from wiki.citation_verifier import verify_citations
 from wiki.models import ImportanceTier, WikiPage
 from wiki.pipeline_nodes import (
-    classify_domains_node,
+    assign_canonical_keys_node,
     classify_entities_node,
+    compose_bottomup_node,
     compose_leaf_modules_node,
-    compose_leaf_pages_node,
-    compose_parent_pages_node,
     create_links_node,
-    decompose_hierarchy_node,
     detect_reorg_node,
-    has_parent_domains,
+    generate_titles_node,
+    graph_decompose_node,
     heal_pages_node,
-    plan_topic_structure_node,
     set_review_status_node,
-    summarize_leaves_node,
-    synthesize_overviews_node,
 )
 from wiki.pipeline_state import WikiPipelineState
 from wiki.quality_evaluator import WikiQualityEvaluator
@@ -40,17 +36,14 @@ HEAL_LOOP_MAX_TOTAL_ATTEMPTS = 10
 _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "classify_entity_roles": ("classify_entities", 0.0),
     "detect_reorg": ("detect_reorg", 0.02),
-    "classify_domains": ("classify_domains", 0.05),
-    "decompose_hierarchy": ("decompose_hierarchy", 0.08),
-    "set_review_status": ("set_review_status", 0.09),
-    "compose_leaf_modules": ("compose_leaf_modules", 0.10),
-    "plan_topic_structure": ("plan_topic_structure", 0.25),
-    "compose_leaf_pages": ("compose_leaf", 0.30),
-    "quality_gate": ("quality_gate", 0.65),
-    "heal_pages": ("heal_pages", 0.70),
-    "summarize_leaves": ("summarize_leaves", 0.75),
-    "compose_parent_pages": ("parent_aggregate", 0.80),
-    "synthesize_overviews": ("overview", 0.85),
+    "graph_decompose": ("graph_decompose", 0.05),
+    "assign_canonical_keys": ("assign_keys", 0.10),
+    "generate_titles": ("generate_titles", 0.12),
+    "set_review_status": ("set_review_status", 0.15),
+    "compose_leaf_modules": ("compose_leaf_modules", 0.18),
+    "compose_bottomup": ("compose_bottomup", 0.25),
+    "quality_gate": ("quality_gate", 0.70),
+    "heal_pages": ("heal_pages", 0.80),
     "create_links": ("linking", 0.90),
     "finalize": ("finalize", 0.95),
 }
@@ -112,7 +105,7 @@ def route_by_reorg_type(state: WikiPipelineState) -> str:
     reorg_type = state.get("reorg_type", "first_run")
     if reorg_type == "none":
         return "finalize"
-    return "classify_domains"
+    return "graph_decompose"
 
 
 def should_heal(state: WikiPipelineState) -> str:
@@ -125,16 +118,9 @@ def should_heal(state: WikiPipelineState) -> str:
                 total_attempts=total_heal_attempts,
                 limit=HEAL_LOOP_MAX_TOTAL_ATTEMPTS,
             )
-            return "summarize_leaves"
+            return "create_links"
         return "heal_pages"
-    return "summarize_leaves"
-
-
-def route_parent_or_overview(state: WikiPipelineState) -> str:
-    """Route to compose_parent_pages if nested domains exist, else skip."""
-    if has_parent_domains(state):
-        return "compose_parent_pages"
-    return "synthesize_overviews"
+    return "create_links"
 
 
 # ---------------------------------------------------------------------------
@@ -293,17 +279,14 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
 
     graph.add_node("classify_entity_roles", _with_progress("classify_entity_roles", classify_entities_node))
     graph.add_node("detect_reorg", _with_progress("detect_reorg", detect_reorg_node))
-    graph.add_node("classify_domains", _with_progress("classify_domains", classify_domains_node))
-    graph.add_node("decompose_hierarchy", _with_progress("decompose_hierarchy", decompose_hierarchy_node))
+    graph.add_node("graph_decompose", _with_progress("graph_decompose", graph_decompose_node))
+    graph.add_node("assign_canonical_keys", _with_progress("assign_canonical_keys", assign_canonical_keys_node))
+    graph.add_node("generate_titles", _with_progress("generate_titles", generate_titles_node))
     graph.add_node("set_review_status", _with_progress("set_review_status", set_review_status_node))
     graph.add_node("compose_leaf_modules", _with_progress("compose_leaf_modules", compose_leaf_modules_node))
-    graph.add_node("plan_topic_structure", _with_progress("plan_topic_structure", plan_topic_structure_node))
-    graph.add_node("compose_leaf_pages", _with_progress("compose_leaf_pages", compose_leaf_pages_node))
+    graph.add_node("compose_bottomup", _with_progress("compose_bottomup", compose_bottomup_node))
     graph.add_node("quality_gate", _with_progress("quality_gate", quality_gate_node))
     graph.add_node("heal_pages", _with_progress("heal_pages", heal_pages_node))
-    graph.add_node("summarize_leaves", _with_progress("summarize_leaves", summarize_leaves_node))
-    graph.add_node("compose_parent_pages", _with_progress("compose_parent_pages", compose_parent_pages_node))
-    graph.add_node("synthesize_overviews", _with_progress("synthesize_overviews", synthesize_overviews_node))
     graph.add_node("create_links", _with_progress("create_links", create_links_node))
     graph.add_node("finalize", _with_progress("finalize", finalize_node))
 
@@ -311,27 +294,20 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_conditional_edges(
         "detect_reorg",
         route_by_reorg_type,
-        {"classify_domains": "classify_domains", "finalize": "finalize"},
+        {"graph_decompose": "graph_decompose", "finalize": "finalize"},
     )
-    graph.add_edge("classify_domains", "decompose_hierarchy")
-    graph.add_edge("decompose_hierarchy", "set_review_status")
+    graph.add_edge("graph_decompose", "assign_canonical_keys")
+    graph.add_edge("assign_canonical_keys", "generate_titles")
+    graph.add_edge("generate_titles", "set_review_status")
     graph.add_edge("set_review_status", "compose_leaf_modules")
-    graph.add_edge("compose_leaf_modules", "plan_topic_structure")
-    graph.add_edge("plan_topic_structure", "compose_leaf_pages")
-    graph.add_edge("compose_leaf_pages", "quality_gate")
+    graph.add_edge("compose_leaf_modules", "compose_bottomup")
+    graph.add_edge("compose_bottomup", "quality_gate")
     graph.add_conditional_edges(
         "quality_gate",
         should_heal,
-        {"heal_pages": "heal_pages", "summarize_leaves": "summarize_leaves"},
+        {"heal_pages": "heal_pages", "create_links": "create_links"},
     )
     graph.add_edge("heal_pages", "quality_gate")
-    graph.add_conditional_edges(
-        "summarize_leaves",
-        route_parent_or_overview,
-        {"compose_parent_pages": "compose_parent_pages", "synthesize_overviews": "synthesize_overviews"},
-    )
-    graph.add_edge("compose_parent_pages", "synthesize_overviews")
-    graph.add_edge("synthesize_overviews", "create_links")
     graph.add_edge("create_links", "finalize")
 
     graph.set_entry_point("classify_entity_roles")

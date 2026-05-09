@@ -24,8 +24,16 @@ class ParentSynthesizer:
         child_contents: list[str],
     ) -> str:
         child_sections = []
+        n_children = min(len(parent.children), len(child_contents))
+        if n_children < len(parent.children):
+            log.warning(
+                "parent_synthesizer_child_mismatch",
+                parent=parent.canonical_key,
+                children=len(parent.children),
+                contents=len(child_contents),
+            )
         for i, (child, content) in enumerate(
-            zip(parent.children, child_contents, strict=False)
+            zip(parent.children[:n_children], child_contents[:n_children])
         ):
             child_sections.append(
                 f"### 子模块 {i + 1}: {child.title or child.canonical_key}\n"

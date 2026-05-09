@@ -163,12 +163,13 @@ async def compose_bottomup_node(
     tree = ModuleTree.from_dicts(tree_data, repo_id=state.get("business_id", ""))
     domain_cache = dict(state.get("domain_cache", {}))
 
+    module_summaries = state.get("module_summaries", {})
     pages: list[dict[str, Any]] = list(state.get("pages", []))
     node_contents: dict[str, str] = {}
 
     for node in tree.topological_order():
         if node.is_leaf():
-            page_dict = await _compose_leaf_for_bottomup(node, llm)
+            page_dict = await _compose_leaf_for_bottomup(node, llm, module_summaries)
         else:
             child_contents = [
                 node_contents.get(c.canonical_key, "")
@@ -181,7 +182,9 @@ async def compose_bottomup_node(
     return {"pages": pages, "domain_cache": domain_cache}
 
 
-async def _compose_leaf_for_bottomup(node: Any, llm: Any) -> dict[str, Any]:
+async def _compose_leaf_for_bottomup(
+    node: Any, llm: Any, module_summaries: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     title = node.title or node.canonical_key
     if not llm:
         return {
@@ -192,11 +195,20 @@ async def _compose_leaf_for_bottomup(node: Any, llm: Any) -> dict[str, Any]:
             "canonical_key": node.canonical_key,
         }
 
+    existing_summary = ""
+    if module_summaries:
+        for uid in node.entity_uids:
+            s = module_summaries.get(uid)
+            if s and isinstance(s, dict):
+                existing_summary += s.get("summary", "") + "\n"
+
     prompt = (
         f"为代码模块「{title}」生成 Wiki 文档。\n"
         f"包含的代码实体: {', '.join(node.entity_uids[:15])}\n"
         f"文件路径: {', '.join(node.file_paths[:10])}\n"
     )
+    if existing_summary.strip():
+        prompt += f"\n已有模块摘要:\n{existing_summary[:3000]}\n"
     try:
         raw = await llm.agenerate([[{"role": "user", "content": prompt}]])
         content = _llm_text_response(raw)

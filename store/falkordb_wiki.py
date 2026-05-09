@@ -35,6 +35,7 @@ class FalkorDBWikiMixin:
                         or ""
                     ),
                     "business_domain": page.get("business_domain") or "",
+                    "canonical_key": page.get("canonical_key") or "",
                 }
             )
         cypher = (
@@ -60,7 +61,11 @@ class FalkorDBWikiMixin:
             "ELSE page.business_domain END, "
             "w.source_origin = CASE "
             "WHEN page.source_origin IS NULL OR page.source_origin = '' "
-            "THEN w.source_origin ELSE page.source_origin END "
+            "THEN w.source_origin ELSE page.source_origin END, "
+            "w.canonical_key = CASE "
+            "WHEN page.canonical_key IS NULL OR page.canonical_key = '' "
+            "THEN coalesce(w.canonical_key, '') "
+            "ELSE page.canonical_key END "
             "RETURN count(*) AS cnt"
         )
         result = await self.execute_query(cypher, {"batch": batch})

@@ -12,7 +12,7 @@ from typing import Any
 from core.log import get_logger
 from store.schema import GraphNode
 from wiki.dependency_graph import DomainNode
-from wiki.models import WikiPage
+from wiki.models import PageType, WikiPage
 from wiki.pipeline_graph import build_wiki_pipeline
 
 log = get_logger(__name__)
@@ -99,11 +99,27 @@ def _extract_domain_mapping(
     return mapping
 
 
+def _normalize_pipeline_page_dict(p: dict[str, Any]) -> dict[str, Any]:
+    """Fill fields required by ``WikiPage.from_dict`` for minimal graph-pipeline dicts."""
+    d = dict(p)
+    d.setdefault("page_type", PageType.MODULE_OVERVIEW.value)
+    d.setdefault("diagrams", [])
+    d.setdefault("source_locations", [])
+    d.setdefault("method_locations", [])
+    if not isinstance(d.get("metadata"), dict):
+        d["metadata"] = {
+            "node_count": 0,
+            "edge_count": 0,
+            "generation_mode": "structure",
+        }
+    return d
+
+
 def _pages_from_state(state: dict[str, Any]) -> list[WikiPage]:
     pages: list[WikiPage] = []
     for p in state.get("pages", []):
         try:
-            wp = WikiPage.from_dict(p)
+            wp = WikiPage.from_dict(_normalize_pipeline_page_dict(p))
             covered = p.get("covered_entity_uids")
             if covered:
                 wp.covered_entity_uids = covered  # type: ignore[attr-defined]

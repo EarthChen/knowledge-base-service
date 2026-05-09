@@ -156,7 +156,11 @@ async def test_full_pipeline_pages_have_canonical_keys():
     first = await run_langgraph_pipeline(**kwargs)
     second = await run_langgraph_pipeline(**kwargs)
 
-    keys_a = sorted({getattr(p, "canonical_key", None) or p.path for p in first.pages})
-    keys_b = sorted({getattr(p, "canonical_key", None) or p.path for p in second.pages})
+    for pages in (first.pages, second.pages):
+        for p in pages:
+            ck = getattr(p, "canonical_key", None)
+            assert ck, f"expected canonical_key on page path={p.path!r}"
+
+    keys_a = sorted({str(getattr(p, "canonical_key")) for p in first.pages})
+    keys_b = sorted({str(getattr(p, "canonical_key")) for p in second.pages})
     assert keys_a == keys_b
-    assert all(keys_a)

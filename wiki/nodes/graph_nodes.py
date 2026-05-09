@@ -12,6 +12,26 @@ log = get_logger(__name__)
 
 _BOTTOMUP_CONCURRENCY = 24
 
+# Indexed code nodes use ``repository``, not ``repo_id``. Edges must be rolled up to
+# :Module endpoints because CALLS/INHERITS/DEPENDS_ON usually attach to Function/Class.
+_GRAPH_DECOMPOSE_MODULE_EDGES_CY = """
+MATCH (ma:Module)-[:IMPORTS]->(mb:Module)
+WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
+RETURN ma.name AS a_uid, mb.name AS b_uid
+UNION
+MATCH (ma:Module)-[:CONTAINS*1..3]->(fa:Function)-[:CALLS]->(fb:Function)<-[:CONTAINS*1..3]-(mb:Module)
+WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
+RETURN ma.name AS a_uid, mb.name AS b_uid
+UNION
+MATCH (ma:Module)-[:CONTAINS*1..2]->(ca:Class)-[:DEPENDS_ON]->(cb:Class)<-[:CONTAINS*1..2]-(mb:Module)
+WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
+RETURN ma.name AS a_uid, mb.name AS b_uid
+UNION
+MATCH (ma:Module)-[:CONTAINS*1..2]->(ca:Class)-[:INHERITS]->(cb:Class)<-[:CONTAINS*1..2]-(mb:Module)
+WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
+RETURN ma.name AS a_uid, mb.name AS b_uid
+""".strip()
+
 
 async def graph_decompose_node(
     state: dict[str, Any],
@@ -39,24 +59,24 @@ async def graph_decompose_node(
             node_files[name] = [fp] if fp else []
             node_tokens[name] = int(props.get("code_length", 0) or 0) // 4
 
-    edges: list[tuple[str, str]] = []
+    edge_pairs: set[tuple[str, str]] = set()
     if graph_store:
         node_set = set(nodes)
         for repo in state.get("repositories", []):
             try:
                 result = await graph_store.execute_query(
-                    "MATCH (a)-[r:DEPENDS_ON|CALLS|IMPORTS]->(b) "
-                    "WHERE a.repo_id = $repo_id AND b.repo_id = $repo_id "
-                    "RETURN a.name AS a_uid, b.name AS b_uid",
-                    {"repo_id": repo},
+                    _GRAPH_DECOMPOSE_MODULE_EDGES_CY,
+                    {"repo": repo},
                 )
                 for row in getattr(result, "data", []) or []:
-                    a = row.get("a_uid", "")
-                    b = row.get("b_uid", "")
-                    if a and b and a in node_set and b in node_set:
-                        edges.append((a, b))
+                    a = str(row.get("a_uid") or "").strip()
+                    b = str(row.get("b_uid") or "").strip()
+                    if a and b and a in node_set and b in node_set and a != b:
+                        edge_pairs.add((a, b))
             except Exception:
                 log.warning("graph_decompose_query_failed", repo=repo, exc_info=True)
+
+    edges = sorted(edge_pairs)
 
     llm = configurable.get("llm")
     decomposer = GraphModuleDecomposer(llm=llm)

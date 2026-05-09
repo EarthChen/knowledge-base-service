@@ -32,7 +32,7 @@ from core.log import get_logger
 from store.falkordb_store import FalkorDBStore
 from store.indexer_store import IndexerStore
 from store.settings_store import SettingsStore
-from store.schema import GraphNode, NodeLabel
+from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 from wiki.incremental import WikiIncrementalUpdater
 from wiki.models import WikiConfig
 
@@ -270,6 +270,8 @@ class IncrementalIndexer:
         batch_buffer: list[dict[str, str]] = []
         commit_sha = _try_git_head_sha(directory)
 
+        deferred_import_edges: list[GraphEdge] = []
+
         _sentinel_sent = False
         try:
             for fpath, nodes, edges in self._builder.iter_directory_with_cross_file(directory):
@@ -288,7 +290,11 @@ class IncrementalIndexer:
 
                     apply_content_hash_to_nodes(nodes)
                     _stamp_repository_metadata(nodes, repository, commit_sha=commit_sha)
-                    await self._store.batch_upsert(nodes, edges)
+                    immediate_edges = [e for e in edges if e.edge_type != EdgeType.IMPORTS]
+                    deferred_import_edges.extend(
+                        e for e in edges if e.edge_type == EdgeType.IMPORTS
+                    )
+                    await self._store.batch_upsert(nodes, immediate_edges)
                     total_nodes += len(nodes)
                     total_edges += len(edges)
                     file_paths_for_embed.append(fpath)
@@ -363,6 +369,17 @@ class IncrementalIndexer:
                 directory=directory,
                 error=str(exc),
             )
+
+        if deferred_import_edges:
+            idx_store = IndexerStore(self._store)
+            import_count = await idx_store.upsert_edges_batch(
+                repository or "", deferred_import_edges,
+            )
+            total_edges += import_count
+            report.edge_counts["IMPORTS"] = (
+                report.edge_counts.get("IMPORTS", 0) + import_count
+            )
+            log.info("deferred_import_edges_upserted", count=import_count)
 
         enriched = 0
         for name, summary in summary_map.items():
@@ -486,6 +503,7 @@ class IncrementalIndexer:
         total_edges = 0
         total_doc_nodes = 0
         total_doc_edges = 0
+        deferred_import_edges: list[GraphEdge] = []
 
         enrich_items: list[dict[str, str]] = []
         enrich_refs: list[tuple] = []
@@ -579,7 +597,11 @@ class IncrementalIndexer:
                     if stale:
                         await self._store.delete_nodes_by_uids(stale)
                     _stamp_repository_metadata(nodes, repository, commit_sha=commit_sha)
-                    await self._store.batch_upsert(nodes, edges)
+                    immediate_edges = [e for e in edges if e.edge_type != EdgeType.IMPORTS]
+                    deferred_import_edges.extend(
+                        e for e in edges if e.edge_type == EdgeType.IMPORTS
+                    )
+                    await self._store.batch_upsert(nodes, immediate_edges)
                     code_file_paths.append(fpath)
                     total_nodes += len(nodes)
                     total_edges += len(edges)
@@ -654,6 +676,17 @@ class IncrementalIndexer:
                 self._last_report = report
                 log.info("index_quality_report", report=report.to_dict())
                 raise
+
+        if deferred_import_edges:
+            idx_store = IndexerStore(self._store)
+            import_count = await idx_store.upsert_edges_batch(
+                repository or "", deferred_import_edges,
+            )
+            total_edges += import_count
+            report.edge_counts["IMPORTS"] = (
+                report.edge_counts.get("IMPORTS", 0) + import_count
+            )
+            log.info("deferred_import_edges_upserted", count=import_count)
 
         enrich_backend = self._enrichment_backend_label()
         if enrich_backend and progress_callback:

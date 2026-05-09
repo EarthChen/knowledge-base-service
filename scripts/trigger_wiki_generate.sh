@@ -5,7 +5,7 @@ set -euo pipefail
 API_BASE="${API_BASE:-http://172.18.228.71:8100}"
 AUTH_TOKEN="${AUTH_TOKEN:-sk-admin-test}"
 BUSINESS_ID="${BUSINESS_ID:-default}"
-LANGUAGE="${LANGUAGE:-zh}"
+LANGUAGE="${WIKI_LANGUAGE:-zh}"
 INCREMENTAL="${INCREMENTAL:-false}"
 MODE="${MODE:-full}"
 TIMEOUT="${TIMEOUT:-30}"

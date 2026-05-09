@@ -1,5 +1,8 @@
+import json
+from unittest.mock import AsyncMock
+
 import pytest
-from wiki.graph_module_decomposer import make_canonical_key
+from wiki.graph_module_decomposer import GraphModuleDecomposer, make_canonical_key
 
 
 def test_canonical_key_from_single_path():
@@ -29,9 +32,6 @@ def test_canonical_key_collision_appends_hash():
 def test_canonical_key_empty_paths():
     key = make_canonical_key([], existing_keys=set())
     assert key == "unknown"
-
-
-from wiki.graph_module_decomposer import GraphModuleDecomposer
 
 
 def _make_graph_data():
@@ -69,15 +69,16 @@ def test_topological_sort_entry_first():
     assert len(topo) == 2  # {A,B,C} and {D}
 
 
-def test_decompose_produces_deterministic_tree():
+@pytest.mark.asyncio
+async def test_decompose_produces_deterministic_tree():
     graph = _make_graph_data()
     decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)
-    tree1 = decomposer.decompose_from_graph(
+    tree1 = await decomposer.decompose_from_graph(
         graph["nodes"], graph["edges"],
         graph["node_files"], graph["node_tokens"],
         repo_id="test",
     )
-    tree2 = decomposer.decompose_from_graph(
+    tree2 = await decomposer.decompose_from_graph(
         graph["nodes"], graph["edges"],
         graph["node_files"], graph["node_tokens"],
         repo_id="test",
@@ -87,10 +88,11 @@ def test_decompose_produces_deterministic_tree():
     assert keys1 == keys2  # deterministic
 
 
-def test_decompose_isolated_nodes():
+@pytest.mark.asyncio
+async def test_decompose_isolated_nodes():
     """Nodes with no edges each become their own module."""
     decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)
-    tree = decomposer.decompose_from_graph(
+    tree = await decomposer.decompose_from_graph(
         ["X", "Y", "Z"], [],
         {"X": ["x.py"], "Y": ["y.py"], "Z": ["z.py"]},
         {"X": 100, "Y": 200, "Z": 300},
@@ -127,21 +129,23 @@ def test_find_connected_components_isolated_nodes():
     assert components == [["X"], ["Y"], ["Z"]]
 
 
-def test_maybe_split_small_scc_returns_leaf():
+@pytest.mark.asyncio
+async def test_maybe_split_small_scc_returns_leaf():
     """SCC within token budget should remain a single leaf node."""
     decomposer = GraphModuleDecomposer(max_tokens_per_module=5000)
     members = ["A", "B"]
     node_files = {"A": ["src/a.py"], "B": ["src/b.py"]}
     node_tokens = {"A": 1000, "B": 1000}
     edges = [("A", "B"), ("B", "A")]
-    result = decomposer._maybe_split_scc(
+    result = await decomposer._maybe_split_scc(
         members, node_files, node_tokens, edges, existing_keys=set(),
     )
     assert result.is_leaf()
     assert set(result.entity_uids) == {"A", "B"}
 
 
-def test_maybe_split_large_scc_creates_children():
+@pytest.mark.asyncio
+async def test_maybe_split_large_scc_creates_children():
     """SCC exceeding token budget with disconnectable subgraphs should split into parent+children."""
     decomposer = GraphModuleDecomposer(max_tokens_per_module=3000)
     members = ["A", "B", "C", "D"]
@@ -152,7 +156,7 @@ def test_maybe_split_large_scc_creates_children():
     node_tokens = {"A": 1000, "B": 1000, "C": 1000, "D": 1000}
     # Only intra-group edges — CC will find 2 components
     edges = [("A", "B"), ("B", "A"), ("C", "D"), ("D", "C")]
-    result = decomposer._maybe_split_scc(
+    result = await decomposer._maybe_split_scc(
         members, node_files, node_tokens, edges, existing_keys=set(),
     )
     assert not result.is_leaf(), "Should have children"
@@ -162,7 +166,8 @@ def test_maybe_split_large_scc_creates_children():
     assert {"C", "D"} in child_uids
 
 
-def test_maybe_split_large_single_component_uses_path_prefix():
+@pytest.mark.asyncio
+async def test_maybe_split_large_single_component_uses_path_prefix():
     """Large SCC that can't be split by CC should use path-prefix grouping."""
     decomposer = GraphModuleDecomposer(max_tokens_per_module=2000)
     members = ["A", "B", "C", "D"]
@@ -173,14 +178,15 @@ def test_maybe_split_large_single_component_uses_path_prefix():
     node_tokens = {"A": 1000, "B": 1000, "C": 1000, "D": 1000}
     # Fully connected — CC yields 1 component
     edges = [("A", "B"), ("B", "C"), ("C", "D"), ("D", "A")]
-    result = decomposer._maybe_split_scc(
+    result = await decomposer._maybe_split_scc(
         members, node_files, node_tokens, edges, existing_keys=set(),
     )
     assert not result.is_leaf(), "Should have children from path-prefix grouping"
     assert len(result.children) >= 2
 
 
-def test_decompose_large_scc_creates_hierarchical_tree():
+@pytest.mark.asyncio
+async def test_decompose_large_scc_creates_hierarchical_tree():
     """A large SCC (tokens > max) with splittable CC should produce parent+children."""
     decomposer = GraphModuleDecomposer(max_tokens_per_module=3000)
     nodes = ["A", "B", "C", "D", "E"]
@@ -195,7 +201,7 @@ def test_decompose_large_scc_creates_hierarchical_tree():
     }
     # Sum for {A,B,C} must exceed max_tokens (not <=); equality is treated as within budget.
     node_tokens = {"A": 1100, "B": 1100, "C": 1100, "D": 1000, "E": 1000}
-    tree = decomposer.decompose_from_graph(nodes, edges, node_files, node_tokens, "test")
+    tree = await decomposer.decompose_from_graph(nodes, edges, node_files, node_tokens, "test")
 
     all_nodes = tree.all_nodes()
     parents = [n for n in all_nodes if not n.is_leaf()]
@@ -205,14 +211,58 @@ def test_decompose_large_scc_creates_hierarchical_tree():
     assert len(leaves) >= 2, f"Expected at least 2 leaf nodes, got {len(leaves)}"
 
 
-def test_decompose_small_scc_stays_flat():
+@pytest.mark.asyncio
+async def test_decompose_small_scc_stays_flat():
     """SCCs within token budget should remain flat leaf nodes."""
     decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)
     graph = _make_graph_data()
-    tree = decomposer.decompose_from_graph(
+    tree = await decomposer.decompose_from_graph(
         graph["nodes"], graph["edges"],
         graph["node_files"], graph["node_tokens"],
         repo_id="test",
     )
     # All nodes should be leaves (tokens well within budget)
     assert all(r.is_leaf() for r in tree.roots)
+
+
+@pytest.mark.asyncio
+async def test_maybe_split_scc_uses_llm_clustering_when_available():
+    """When LLM is available and members > 10, should attempt LLM clustering."""
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(return_value=json.dumps({
+        "groups": [
+            ["A", "B", "C", "D", "E"],
+            ["F", "G", "H", "I", "J", "K"],
+        ]
+    }))
+
+    decomposer = GraphModuleDecomposer(llm=mock_llm, max_tokens_per_module=100)
+    members = [chr(65 + i) for i in range(11)]  # A-K
+    node_files = {m: [f"src/{m.lower()}.py"] for m in members}
+    node_tokens = {m: 50 for m in members}  # total 550 > 100
+    # Single connected component so split proceeds to LLM (not 11 isolated CCs).
+    edges = [(members[i], members[i + 1]) for i in range(len(members) - 1)]
+
+    node = await decomposer._maybe_split_scc(members, node_files, node_tokens, edges, set())
+
+    assert node.children is not None
+    assert len(node.children) == 2
+    mock_llm.generate.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_maybe_split_scc_falls_back_on_llm_failure():
+    """When LLM clustering fails, should fall back to path-prefix grouping."""
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(side_effect=Exception("LLM unavailable"))
+
+    decomposer = GraphModuleDecomposer(llm=mock_llm, max_tokens_per_module=100)
+    members = [chr(65 + i) for i in range(11)]
+    node_files = {m: [f"src/{'auth' if i < 5 else 'api'}/{m.lower()}.py"] for i, m in enumerate(members)}
+    node_tokens = {m: 50 for m in members}
+    edges = [(members[i], members[i + 1]) for i in range(len(members) - 1)]
+
+    node = await decomposer._maybe_split_scc(members, node_files, node_tokens, edges, set())
+
+    assert node.children is not None
+    assert len(node.children) >= 2

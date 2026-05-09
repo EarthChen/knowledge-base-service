@@ -63,13 +63,8 @@ async def test_quality_gate_l3_requires_llm_and_core():
     from wiki.pipeline_graph import quality_gate_node
 
     mock_llm = AsyncMock()
-    mock_llm.complete_json = AsyncMock(
-        return_value={
-            "completeness": 0.9,
-            "helpfulness": 0.8,
-            "truthfulness": 0.95,
-            "issues": [],
-        },
+    mock_llm.generate = AsyncMock(
+        return_value='{"completeness": 4, "accuracy": 4, "readability": 4, "structure": 4}',
     )
     state = {
         "pages": [_make_page("wiki/svc", GOOD_CONTENT)],
@@ -84,7 +79,7 @@ async def test_quality_gate_l3_requires_llm_and_core():
     scores = result.get("quality_scores", {})
     score = scores["wiki/svc"]
     assert score.get("l3_llm_judge") is not None
-    mock_llm.complete_json.assert_awaited_once()
+    mock_llm.generate.assert_awaited()
 
 
 @pytest.mark.asyncio

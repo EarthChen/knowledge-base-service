@@ -107,7 +107,7 @@ class LLMConfig(BaseModel):
     model: str = "gpt-4o-mini"
     deep_search_model: str = "gpt-4o"
     max_concurrent: int = Field(
-        default=10,
+        default=50,
         validation_alias=AliasChoices("max_concurrent", "max_concurrency"),
     )
     timeout: int = 30
@@ -239,7 +239,7 @@ class AppWikiFlags(BaseModel):
     progressive_persist_batch_size: int = 20
 
     #: Max concurrent wiki subtrees during compose (sibling ``walk`` tasks) and enrichment.
-    compose_concurrency: int = Field(default=6, ge=1)
+    compose_concurrency: int = Field(default=12, ge=1)
 
     #: Skip per-repo module-level page generation in business wiki.
     #: When True, only LangGraph pipeline topic pages are generated.

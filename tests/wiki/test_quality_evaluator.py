@@ -11,6 +11,7 @@ from wiki.models import (
     WikiPageMetadata,
     WikiPageQualityScore,
 )
+from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.quality_evaluator import WikiQualityEvaluator
 
 
@@ -192,13 +193,8 @@ def test_structural_check_partial():
 @pytest.mark.asyncio
 async def test_llm_judge_evaluate_parses_json():
     llm = AsyncMock()
-    llm.complete_json = AsyncMock(
-        return_value={
-            "completeness": 0.8,
-            "helpfulness": 0.7,
-            "truthfulness": 0.9,
-            "issues": ["minor_gap"],
-        },
+    llm.generate = AsyncMock(
+        return_value='{"completeness": 4, "accuracy": 3, "readability": 5, "structure": 2}',
     )
     evaluator = WikiQualityEvaluator(llm=llm)
     page = WikiPage(
@@ -211,16 +207,49 @@ async def test_llm_judge_evaluate_parses_json():
         metadata=WikiPageMetadata(1, 1),
     )
     score = await evaluator.llm_judge_evaluate(page)
-    assert score.completeness == 0.8
-    assert score.helpfulness == 0.7
-    assert score.truthfulness == 0.9
-    assert "minor_gap" in score.issues
+    # Normalized from 1–5: (x - 1) / 4
+    assert score.completeness == 0.75  # (4-1)/4
+    assert score.truthfulness == 0.5  # accuracy (3-1)/4
+    assert score.helpfulness == 0.625  # average of readability 1.0 and structure 0.25
+    assert score.overall == 0.625  # mean 1–5 = 3.5 -> (3.5-1)/4
+    assert score.l3_dimensions == {
+        "completeness": 4.0,
+        "accuracy": 3.0,
+        "readability": 5.0,
+        "structure": 2.0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_llm_judge_evaluate_matches_evaluate_l3_dimensions():
+    """WikiQualityEvaluator.llm_judge_evaluate must use the same L3 judge as WikiPageEvaluator."""
+    raw = '{"completeness": 2, "accuracy": 5, "readability": 3, "structure": 4}'
+    llm = AsyncMock()
+    llm.generate = AsyncMock(return_value=raw)
+    page = WikiPage(
+        path="p.md",
+        title="MyMod",
+        page_type=PageType.MODULE_OVERVIEW,
+        content="# Doc\n\n## Overview\n\n" + "body " * 80,
+        diagrams=[],
+        source_locations=[],
+        metadata=WikiPageMetadata(1, 1),
+    )
+    harness = WikiPageEvaluator()
+    l3 = await harness.evaluate_l3(page.content, [page.title], llm, model=None)
+    llm.generate.reset_mock()
+    llm.generate = AsyncMock(return_value=raw)
+    score = await WikiQualityEvaluator(llm=llm).llm_judge_evaluate(page)
+
+    assert l3.dimensions == score.l3_dimensions
+    avg_15 = sum(l3.dimensions.values()) / 4.0
+    assert score.overall == round((avg_15 - 1.0) / 4.0, 3)
 
 
 @pytest.mark.asyncio
 async def test_llm_judge_fallback_on_parse_error():
     llm = AsyncMock()
-    llm.complete_json = AsyncMock(side_effect=ValueError("bad json"))
+    llm.generate = AsyncMock(side_effect=ValueError("bad json"))
     evaluator = WikiQualityEvaluator(llm=llm)
     page = WikiPage(
         path="test.md",

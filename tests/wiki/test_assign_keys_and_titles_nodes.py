@@ -30,7 +30,7 @@ async def test_generate_titles_fills_title():
     from wiki.nodes.graph_nodes import generate_titles_node
 
     mock_llm = AsyncMock()
-    mock_llm.agenerate.return_value = '{"title": "认证模块", "description": "处理登录注册"}'
+    mock_llm.generate.return_value = '{"title": "认证模块", "description": "处理登录注册"}'
 
     state = {
         "business_id": "test",
@@ -74,4 +74,5 @@ async def test_generate_titles_no_llm_uses_key():
     }
     config = {"configurable": {}}
     result = await generate_titles_node(state, config)
-    assert result["canonical_keys"]["src-auth"] == "src-auth"
+    # single entity_uid → title derived from entity name
+    assert result["canonical_keys"]["src-auth"] == "u1"

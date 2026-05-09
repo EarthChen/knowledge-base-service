@@ -91,7 +91,7 @@
 
 - **Layer 2**（P1）：Mechanical Citation Injection — 系统自动注入经图数据库验证的 `source://` 引用。
 - **Layer 3**（P2）：Post-Generation Fact Check — 提取技术实体，在图数据库中验证存在性。
-- 详见提案：[`proposals/PROPOSAL_20260507_120459_anti_hallucination_architecture.md`](proposals/PROPOSAL_20260507_120459_anti_hallucination_architecture.md)
+- 当前已实现 `wiki/citation_verifier.py` + `quality_gate_node` 中的引用校验与惩罚机制（Layer 1 级别）。
 
 **验证**
 

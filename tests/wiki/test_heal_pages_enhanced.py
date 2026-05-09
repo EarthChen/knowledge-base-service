@@ -1,132 +1,111 @@
-"""Tests for enhanced heal_pages_node prompts (WikiQualityBench hints, domain context)."""
-
-from unittest.mock import AsyncMock
-
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from wiki.pipeline_nodes import heal_pages_node
 
+@pytest.mark.asyncio
+async def test_heal_uses_agent_enrich_when_graph_store_available():
+    """heal_pages_node should pass graph_store to WikiPageAgent.enrich when available."""
+    from wiki.nodes.heal import heal_pages_node
 
-@pytest.fixture
-def state_with_poor_page():
-    return {
+    state = {
         "pages": [
             {
-                "title": "User Management",
-                "path": "wiki/user-management",
-                "content": "## Overview\nShort content.\n",
-                "page_type": "topic",
-                "domain": "user-management",
+                "path": "test-page",
+                "title": "Test Page",
+                "content": "# Test\n\n<!-- CONTEXT_GAP: missing implementation details -->\n\nShort content.",
+                "page_type": "module_overview",
                 "diagrams": [],
                 "source_locations": [],
-                "metadata": {"node_count": 0, "edge_count": 0},
+                "method_locations": [],
+                "metadata": {"node_count": 0, "edge_count": 0, "generation_mode": "structure"},
             }
         ],
-        "pages_to_heal": ["wiki/user-management"],
+        "pages_to_heal": ["test-page"],
         "heal_attempts": {},
         "heal_hints": {},
-        "domain_tree": [
-            {"name": "user-management", "modules": ["UserService"], "children": []}
-        ],
+        "quality_scores": {"test-page": {"l1_structural": 0.3, "overall": 0.3}},
+        # Skeleton tier skips strict post-heal structural re-check so one heal round suffices.
+        "config": {"importance_tiers": {"test-page": "skeleton"}},
+        "modules": {},
     }
 
+    mock_llm = MagicMock(spec_set=["generate"])
+    mock_llm.generate = AsyncMock(
+        return_value="# Test\n\n## 概述\n\nThis is a well-written test page with proper content and structure.\n\n## 核心业务流程\n\nThe test module handles testing workflows.",
+    )
+    mock_graph = AsyncMock()
 
-def _fallback_heal_prompt(captured_prompts: list[str]) -> str:
-    healing = [
-        p
-        for p in captured_prompts
-        if isinstance(p, str) and "Improve this wiki page" in p
-    ]
-    assert healing, "expected fallback full-regeneration heal prompt among LLM calls"
-    return healing[0]
+    config = {"configurable": {"llm": mock_llm, "graph_store": mock_graph}}
+
+    with patch("wiki.nodes.heal.WikiPageAgent") as MockAgent:
+        mock_agent_instance = AsyncMock()
+        mock_agent_instance.enrich = AsyncMock(return_value="# Test\n\n## 概述\n\nEnriched content with graph context.\n\n## 核心业务流程\n\nDetailed flow.")
+        MockAgent.return_value = mock_agent_instance
+
+        result = await heal_pages_node(state, config)
+
+    MockAgent.assert_called_once()
+    call_kwargs = MockAgent.call_args
+    assert call_kwargs[1].get("graph_store") == mock_graph or (len(call_kwargs[0]) > 1 and call_kwargs[0][1] == mock_graph)
 
 
-class TestHealPagesEnhanced:
-    @pytest.mark.asyncio
-    async def test_heal_prompt_includes_structured_sections(self, state_with_poor_page):
-        """修复 prompt 应包含结构化章节要求。"""
-        captured_prompts = []
+@pytest.mark.asyncio
+async def test_heal_calls_enrich_after_targeted_when_context_gaps_remain():
+    """TargetedHealer may return content that still has CONTEXT_GAP; graph enrich should run too."""
+    from wiki.models import WikiPage
+    from wiki.nodes.heal import heal_pages_node
 
-        async def capture_prompt(prompt, system="", **kwargs):
-            captured_prompts.append(prompt)
-            return (
-                "## 业务概述\n用户管理模块\n\n"
-                "## 核心业务流程\n```mermaid\nsequenceDiagram\n```\n\n"
-                "## 核心服务详情\n### UserService\n内容\n"
+    page_row = {
+        "path": "gap-page",
+        "title": "Gap Page",
+        "content": "# X\n\n<!-- CONTEXT_GAP: original -->\n\nold.",
+        "page_type": "module_overview",
+        "diagrams": [],
+        "source_locations": [],
+        "method_locations": [],
+        "metadata": {"node_count": 0, "edge_count": 0, "generation_mode": "structure"},
+    }
+    state = {
+        "pages": [dict(page_row)],
+        "pages_to_heal": ["gap-page"],
+        "heal_attempts": {},
+        "heal_hints": {},
+        "quality_scores": {"gap-page": {"l1_structural": 0.3, "overall": 0.3}},
+        "config": {"importance_tiers": {"gap-page": "skeleton"}},
+        "modules": {},
+    }
+
+    mock_llm = MagicMock()
+    mock_graph = AsyncMock()
+    config = {"configurable": {"llm": mock_llm, "graph_store": mock_graph}}
+
+    still_gappy = (
+        "## 业务概述\n\nBrief.\n\n"
+        "<!-- CONTEXT_GAP: targeted healer left this -->\n\n"
+        "## 核心业务流程\n\n```mermaid\nsequenceDiagram\n  A->>B: test\n```\n"
+    )
+    patched_page = WikiPage.from_dict({**page_row, "content": still_gappy})
+
+    with patch("wiki.targeted_healer.TargetedHealer") as MockHealer:
+        mock_healer = MagicMock()
+        mock_healer.heal = AsyncMock(return_value=patched_page)
+        MockHealer.return_value = mock_healer
+
+        with patch("wiki.nodes.heal.WikiPageAgent") as MockAgent:
+            mock_agent_instance = AsyncMock()
+            mock_agent_instance.enrich = AsyncMock(
+                return_value=still_gappy.replace(
+                    "<!-- CONTEXT_GAP: targeted healer left this -->",
+                    "Filled by graph enrich.",
+                )
             )
+            MockAgent.return_value = mock_agent_instance
 
-        mock_llm = AsyncMock()
-        mock_llm.complete_json = AsyncMock(return_value={"patches": []})
-        mock_llm.generate = AsyncMock(side_effect=capture_prompt)
-        config = {"configurable": {"llm": mock_llm}}
+            await heal_pages_node(state, config)
 
-        await heal_pages_node(state_with_poor_page, config)
+        mock_healer.heal.assert_awaited()
 
-        assert len(captured_prompts) >= 1
-        heal_prompt = _fallback_heal_prompt(captured_prompts)
-        assert (
-            "业务概述" in heal_prompt
-            or "Purpose" in heal_prompt
-            or "Required sections" in heal_prompt
-        )
-        assert "Mermaid" in heal_prompt or "diagram" in heal_prompt.lower()
-
-    @pytest.mark.asyncio
-    async def test_heal_prompt_includes_domain_context(self, state_with_poor_page):
-        """修复 prompt 应包含域上下文。"""
-        captured_prompts = []
-
-        async def capture_prompt(prompt, system="", **kwargs):
-            captured_prompts.append(prompt)
-            return "## 业务概述\n改进内容\n"
-
-        mock_llm = AsyncMock()
-        mock_llm.complete_json = AsyncMock(return_value={"patches": []})
-        mock_llm.generate = AsyncMock(side_effect=capture_prompt)
-        config = {"configurable": {"llm": mock_llm}}
-
-        await heal_pages_node(state_with_poor_page, config)
-
-        assert len(captured_prompts) >= 1
-        heal_prompt = _fallback_heal_prompt(captured_prompts)
-        assert "user-management" in heal_prompt
-
-    @pytest.mark.asyncio
-    async def test_heal_uses_bench_score(self, state_with_poor_page):
-        """修复应使用多维度评测结果。"""
-        mock_llm = AsyncMock()
-        mock_llm.complete_json = AsyncMock(return_value={"patches": []})
-        mock_llm.generate = AsyncMock(return_value="## 业务概述\n改进内容\n")
-        config = {"configurable": {"llm": mock_llm}}
-
-        result = await heal_pages_node(state_with_poor_page, config)
-        heal_hints = result.get("heal_hints", {})
-        if "wiki/user-management" in heal_hints:
-            hint = heal_hints["wiki/user-management"]
-            assert len(hint) > 10
-
-    @pytest.mark.asyncio
-    async def test_heal_system_prompt_enhanced(self, state_with_poor_page):
-        """system prompt 应更详细。"""
-        captured_systems = []
-
-        async def capture_system(prompt, system="", **kwargs):
-            captured_systems.append((prompt, system))
-            return "## 业务概述\n改进内容\n"
-
-        mock_llm = AsyncMock()
-        mock_llm.complete_json = AsyncMock(return_value={"patches": []})
-        mock_llm.generate = AsyncMock(side_effect=capture_system)
-        config = {"configurable": {"llm": mock_llm}}
-
-        await heal_pages_node(state_with_poor_page, config)
-
-        assert len(captured_systems) >= 1
-        systems_for_heal = [
-            sys
-            for p, sys in captured_systems
-            if isinstance(p, str) and "Improve this wiki page" in p
-        ]
-        assert systems_for_heal
-        system = systems_for_heal[0]
-        assert "wiki" in system.lower() or "documentation" in system.lower()
+    mock_agent_instance.enrich.assert_awaited_once()
+    enriched_input = mock_agent_instance.enrich.await_args[0][0]
+    assert "<!-- CONTEXT_GAP" not in enriched_input
+    assert "Brief" in enriched_input or "业务概述" in enriched_input

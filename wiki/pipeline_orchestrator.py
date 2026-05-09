@@ -226,6 +226,13 @@ async def run_langgraph_pipeline(
     if progress_callback is not None:
         configurable["progress_callback"] = progress_callback
 
+    log.info(
+        "langgraph_pipeline_config_debug",
+        has_llm=llm is not None,
+        llm_type=type(llm).__name__ if llm else "NoneType",
+        configurable_keys=list(configurable.keys()),
+    )
+
     result = await pipeline.ainvoke(
         initial_state,
         config={"configurable": configurable},

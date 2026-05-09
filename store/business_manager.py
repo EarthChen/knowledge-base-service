@@ -77,14 +77,40 @@ class BusinessManager:
             return None
         return self._deserialize(raw)
 
+    def update_business(self, business_id: str, name: str | None = None, description: str | None = None) -> dict[str, Any] | None:
+        key = _meta_key(business_id)
+        if not self._conn.exists(key):
+            return None
+        if name is not None:
+            self._conn.hset(key, "name", name)
+        if description is not None:
+            self._conn.hset(key, "description", description)
+        log.info("business_updated", business_id=business_id)
+        return self.get_business(business_id)
+
     def delete_business(self, business_id: str) -> bool:
         if business_id == "default":
             raise ValueError("Cannot delete the default business")
         key = _meta_key(business_id)
+        self._conn.delete(f"{_REDIS_PREFIX}:repos:{business_id}")
         deleted = self._conn.delete(key)
         if deleted:
             log.info("business_deleted", business_id=business_id)
         return bool(deleted)
+
+    def get_repos(self, business_id: str) -> list[str]:
+        raw = self._conn.smembers(f"{_REDIS_PREFIX}:repos:{business_id}")
+        return sorted(
+            (r.decode() if isinstance(r, bytes) else r) for r in raw
+        )
+
+    def set_repos(self, business_id: str, repos: list[str]) -> list[str]:
+        key = f"{_REDIS_PREFIX}:repos:{business_id}"
+        self._conn.delete(key)
+        if repos:
+            self._conn.sadd(key, *repos)
+        log.info("business_repos_updated", business_id=business_id, count=len(repos))
+        return sorted(repos)
 
     def ensure_default(self) -> None:
         """Ensure the 'default' business exists."""

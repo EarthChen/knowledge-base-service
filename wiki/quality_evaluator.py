@@ -9,6 +9,7 @@ from typing import Any
 from core.log import get_logger
 from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP
 from wiki.mermaid_validator import validate_mermaid_block
+from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.models import (
     ImportanceTier,
     WikiPage,
@@ -17,6 +18,33 @@ from wiki.models import (
 from wiki.page_agent import _THINKING_PREFIX_RE as _THINKING_LEAK_RE
 
 log = get_logger(__name__)
+
+
+def _l3_dimensions_to_wiki_page_quality(
+    page_path: str,
+    dims: dict[str, float],
+    issues: list[str],
+) -> WikiPageQualityScore:
+    """Map L3 1–5 dimensions to persisted 0–1 fields (same normalization as quality_gate l3_llm_judge)."""
+
+    def norm_15_to_01(x: float) -> float:
+        v = max(1.0, min(5.0, float(x)))
+        return round((v - 1.0) / 4.0, 3)
+
+    c = dims["completeness"]
+    a = dims["accuracy"]
+    r = dims["readability"]
+    s = dims["structure"]
+    avg_15 = (c + a + r + s) / 4.0
+    return WikiPageQualityScore(
+        page_path=page_path,
+        completeness=norm_15_to_01(c),
+        helpfulness=round((norm_15_to_01(r) + norm_15_to_01(s)) / 2.0, 3),
+        truthfulness=norm_15_to_01(a),
+        overall=round((avg_15 - 1.0) / 4.0, 3),
+        issues=list(issues),
+        l3_dimensions=dict(dims),
+    )
 
 _MERMAID_FENCE = re.compile(r"```mermaid\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 _MERMAID_VALID_PREFIXES = (
@@ -276,61 +304,27 @@ class WikiQualityEvaluator:
         source_code: str = "",
         graph_metadata: str = "",
     ) -> WikiPageQualityScore:
-        """Full quality evaluation using LLM as judge."""
+        """LLM judge via ``WikiPageEvaluator.evaluate_l3`` (4 dimensions, 1–5 scale).
+
+        ``source_code`` / ``graph_metadata`` are retained for call compatibility; the L3
+        prompt is defined on ``WikiPageEvaluator`` (content + module names only).
+        """
+        _ = source_code, graph_metadata
         if not self._llm:
             return self.structural_check(page)
 
-        prompt = (
-            "Evaluate this documentation page on three dimensions.\n\n"
-            f"Page content:\n{page.content[:3000]}\n\n"
-            f"Source code context:\n{source_code[:2000]}\n\n"
-            f"Graph metadata:\n{graph_metadata[:1000]}\n\n"
-            "Score each dimension 0.0-1.0 and list any issues:\n"
-            "1. Completeness: Does it cover purpose, methods, relationships, usage patterns?\n"
-            "2. Helpfulness: Can a developer new to this codebase understand the component?\n"
-            "3. Truthfulness: Are code references accurate? Any hallucinations?\n\n"
-            'Output JSON: {"completeness": 0.0, "helpfulness": 0.0, "truthfulness": 0.0, "issues": ["issue1"]}'
+        modules = [page.title or page.path]
+        harness = WikiPageEvaluator()
+        l3_result = await harness.evaluate_l3(
+            page.content or "",
+            modules,
+            self._llm,
+            model=self._judge_model or None,
         )
-
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are a documentation quality evaluator. Output valid JSON only."
-                ),
-            },
-            {"role": "user", "content": prompt},
-        ]
-        try:
-            result = await self._llm.complete_json(
-                messages,
-                {},
-                model=self._judge_model or None,
-            )
-        except (ValueError, Exception):
-            log.warning("llm_judge_parse_failed", page=page.path, exc_info=True)
+        if not l3_result.dimensions:
             return self.structural_check(page)
 
-        completeness = max(0.0, min(1.0, float(result.get("completeness", 0))))
-        helpfulness = max(0.0, min(1.0, float(result.get("helpfulness", 0))))
-        truthfulness = max(0.0, min(1.0, float(result.get("truthfulness", 0))))
-
-        raw_issues = result.get("issues", [])
-        if isinstance(raw_issues, list):
-            issues = [str(i) for i in raw_issues if i]
-        elif isinstance(raw_issues, str):
-            issues = [raw_issues] if raw_issues else []
-        else:
-            issues = []
-
-        return WikiPageQualityScore(
-            page_path=page.path,
-            completeness=completeness,
-            helpfulness=helpfulness,
-            truthfulness=truthfulness,
-            overall=round((completeness + helpfulness + truthfulness) / 3, 3),
-            issues=issues,
-        )
+        return _l3_dimensions_to_wiki_page_quality(page.path, l3_result.dimensions, [])
 
     def aggregate_scores(
         self,

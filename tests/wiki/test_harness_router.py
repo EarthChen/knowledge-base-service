@@ -19,7 +19,7 @@ class TestAdaptiveRouter:
         assert result.max_tool_calls == 5
         assert result.generation_mode == "whole_page"
         assert result.max_repair_rounds == 0
-        assert result.use_llm_judge is False
+        assert result.use_l2_benchmark is False
 
     def test_moderate_domain_mid_modules(self):
         from wiki.harness_router import AdaptiveRouter
@@ -48,7 +48,7 @@ class TestAdaptiveRouter:
         assert result.max_tool_calls == 15
         assert result.generation_mode == "sectional"
         assert result.max_repair_rounds == 2
-        assert result.use_llm_judge is True
+        assert result.use_l2_benchmark is True
 
     def test_high_edge_density_forces_complex(self):
         from wiki.harness_router import AdaptiveRouter
@@ -73,3 +73,8 @@ class TestAdaptiveRouter:
         ctx = _FakeCCBContext(cross_domain_calls=[], module_summaries=[])
         result = router.assess([f"Mod{i}" for i in range(5)], ctx)
         assert result.level == "moderate"
+
+    def test_complex_context_budget_max_chars_per_section_is_6000(self):
+        from wiki.harness_router import CONTEXT_BUDGETS
+
+        assert CONTEXT_BUDGETS["complex"]["max_chars_per_section"] == 6000

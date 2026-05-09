@@ -10,7 +10,7 @@ from core.log import get_logger
 
 log = get_logger(__name__)
 
-_BOTTOMUP_CONCURRENCY = 12
+_BOTTOMUP_CONCURRENCY = 24
 
 
 async def graph_decompose_node(
@@ -69,7 +69,7 @@ async def graph_decompose_node(
         has_llm=llm is not None,
     )
 
-    tree = decomposer.decompose_from_graph(
+    tree = await decomposer.decompose_from_graph(
         nodes, edges, node_files, node_tokens, repo_id,
     )
 
@@ -178,7 +178,6 @@ async def compose_bottomup_node(
     configurable = (config or {}).get("configurable", {}) or {}
     llm = configurable.get("llm")
     graph_store = configurable.get("graph_store")
-    repo_path = configurable.get("repo_path")
     tree_data = state.get("module_tree", [])
     tree = ModuleTree.from_dicts(tree_data, repo_id=state.get("business_id", ""))
     domain_cache = dict(state.get("domain_cache", {}))
@@ -188,7 +187,6 @@ async def compose_bottomup_node(
         tree_roots=len(tree.roots),
         tree_nodes=len(tree.all_nodes()),
         has_llm=llm is not None,
-        has_graph_store=graph_store is not None,
         existing_pages=len(state.get("pages", [])),
         config_is_none=config is None,
         configurable_keys=list(configurable.keys()) if configurable else [],
@@ -233,11 +231,7 @@ async def compose_bottomup_node(
     async def _bounded_leaf(node: Any) -> dict[str, Any]:
         async with sem:
             result = await _compose_leaf_for_bottomup(
-                node,
-                llm,
-                module_summaries,
-                graph_store=graph_store,
-                repo_path=repo_path,
+                node, llm, module_summaries, graph_store=graph_store
             )
             progress_counter[0] += 1
             if progress_counter[0] % 100 == 0:
@@ -275,13 +269,77 @@ async def compose_bottomup_node(
     return {"pages": pages, "domain_cache": domain_cache}
 
 
+async def _enrich_leaf_context(node: Any, graph_store: Any) -> str:
+    """Batch graph queries to gather rich context for a leaf node. No LLM calls."""
+    from wiki.cypher_queries import METHODS_CY, CALLERS_CY, CHUNK_SNIPPETS_CY, call_chain_cypher
+
+    names = list(node.entity_uids[:15])
+    if not names:
+        return ""
+
+    params = {"names": names}
+
+    async def _safe_query(cypher: str) -> list[dict]:
+        try:
+            result = await graph_store.execute_query(cypher, params)
+            return getattr(result, "data", []) or []
+        except Exception:
+            log.warning("enrich_context_query_failed", exc_info=True)
+            return []
+
+    methods_rows, callers_rows, chain_rows, snippet_rows = await asyncio.gather(
+        _safe_query(METHODS_CY),
+        _safe_query(CALLERS_CY),
+        _safe_query(call_chain_cypher(2)),
+        _safe_query(CHUNK_SNIPPETS_CY),
+    )
+
+    sections: list[str] = []
+
+    if methods_rows:
+        lines = ["### 方法签名"]
+        for r in methods_rows[:20]:
+            sig = r.get("signature", "")
+            doc = r.get("docstring", "")
+            lines.append(
+                f"- `{r.get('module_name', '')}.{r.get('func_name', '')}({sig})`"
+                + (f" — {doc[:80]}" if doc else "")
+            )
+        sections.append("\n".join(lines))
+
+    if callers_rows:
+        lines = ["### 调用方"]
+        for r in callers_rows[:15]:
+            lines.append(f"- {r.get('caller_name', '')} → {r.get('target_name', '')}")
+        sections.append("\n".join(lines))
+
+    if chain_rows:
+        lines = ["### 调用链"]
+        for r in chain_rows[:10]:
+            c_fns = r.get("caller_functions", [])
+            e_fns = r.get("callee_functions", [])
+            fn_info = f" [{','.join(c_fns[:3])} → {','.join(e_fns[:3])}]" if c_fns or e_fns else ""
+            lines.append(f"- {r.get('caller', '')} → {r.get('callee', '')}{fn_info}")
+        sections.append("\n".join(lines))
+
+    if snippet_rows:
+        lines = ["### 关键代码"]
+        for r in snippet_rows[:5]:
+            snippet = r.get("snippet", "")[:1500]
+            lines.append(f"**{r.get('entity_name', '')}** ({r.get('file_path', '')})")
+            lines.append(f"```\n{snippet}\n```")
+        sections.append("\n".join(lines))
+
+    context = "\n\n".join(sections)
+    return context[:8000]
+
+
 async def _compose_leaf_for_bottomup(
     node: Any,
     llm: Any,
     module_summaries: dict[str, Any] | None = None,
     *,
     graph_store: Any | None = None,
-    repo_path: str | None = None,
 ) -> dict[str, Any]:
     title = node.title or node.canonical_key
 
@@ -292,7 +350,13 @@ async def _compose_leaf_for_bottomup(
             if s and isinstance(s, dict) and (s.get("summary_text") or s.get("summary")):
                 collected_summaries.append(s)
 
-    baseline_context = ""
+    enriched_context = ""
+    if graph_store and not collected_summaries:
+        try:
+            enriched_context = await _enrich_leaf_context(node, graph_store)
+        except Exception:
+            log.warning("enrich_context_failed", key=node.canonical_key, exc_info=True)
+
     if collected_summaries:
         sections: list[str] = []
         for s in collected_summaries:
@@ -304,45 +368,18 @@ async def _compose_leaf_for_bottomup(
             if deps:
                 section += "\n\n**Dependencies:** " + ", ".join(f"`{d}`" for d in deps[:5])
             sections.append(section)
-        baseline_context = "\n\n---\n\n".join(sections)
-
-    if llm and graph_store:
-        from wiki.page_agent import WikiPageAgent
-
-        try:
-            agent = WikiPageAgent(
-                llm=llm,
-                graph_store=graph_store,
-                repo_path=repo_path,
-            )
-            result_content = await agent.generate(
-                module_names=list(node.entity_uids[:15]),
-                domain_name=node.canonical_key,
-                baseline_context=baseline_context,
-                max_rounds=6,
-            )
-            if result_content and len(str(result_content).strip()) > 50:
-                return {
-                    "path": node.canonical_key,
-                    "title": title,
-                    "content": result_content if isinstance(result_content, str) else str(result_content),
-                    "business_domain": node.canonical_key,
-                    "canonical_key": node.canonical_key,
-                }
-        except Exception:
-            log.warning("compose_leaf_agent_failed", canonical_key=node.canonical_key, exc_info=True)
-
-    if baseline_context:
-        content = f"# {title}\n\n{baseline_context}"
-        log.debug("compose_leaf_reused", key=node.canonical_key, sections=len(collected_summaries))
+        content = f"# {title}\n\n" + "\n\n---\n\n".join(sections)
+        log.debug("compose_leaf_reused", key=node.canonical_key, sections=len(sections))
     elif not llm:
         content = f"# {title}\n\n(No LLM available)"
     else:
         system = "你是代码文档专家，根据代码模块信息生成清晰的 Wiki 文档页面。输出 Markdown 格式。"
+        context_section = f"\n\n## 代码上下文\n\n{enriched_context}" if enriched_context else ""
         prompt = (
             f"为代码模块「{title}」生成 Wiki 文档。\n"
             f"包含的代码实体: {', '.join(node.entity_uids[:15])}\n"
             f"文件路径: {', '.join(node.file_paths[:10])}\n"
+            f"{context_section}"
         )
         try:
             content = await llm.generate(prompt, system=system, max_tokens=2000)

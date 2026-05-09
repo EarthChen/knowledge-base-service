@@ -65,6 +65,8 @@ class WikiPageQualityScore:
     truthfulness: float
     overall: float
     issues: list[str] = field(default_factory=list)
+    # Present when scores come from L3 (1–5 each): completeness, accuracy, readability, structure.
+    l3_dimensions: dict[str, float] | None = None
 
 
 class EnrichmentLevel(StrEnum):

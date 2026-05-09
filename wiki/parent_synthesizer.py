@@ -54,9 +54,8 @@ class ParentSynthesizer:
         )
 
         try:
-            result = await self._llm.agenerate(
-                [[{"role": "system", "content": _SYNTHESIS_SYSTEM},
-                  {"role": "user", "content": prompt}]]
+            result = await self._llm.generate(
+                prompt, system=_SYNTHESIS_SYSTEM, max_tokens=3000,
             )
             return result
         except Exception:

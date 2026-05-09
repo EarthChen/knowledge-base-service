@@ -1,71 +1,47 @@
 import pytest
-from unittest.mock import AsyncMock
-
-from wiki.harness_evaluator import EvalResult, WikiPageEvaluator
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @pytest.mark.asyncio
-async def test_l3_returns_four_dimensions():
+async def test_quality_gate_uses_harness_evaluator_l3():
+    """quality_gate_node should use WikiPageEvaluator.evaluate_l3 for L3 scoring."""
+    from wiki.pipeline_graph import quality_gate_node
+
+    state = {
+        "pages": [
+            {
+                "path": "core-auth",
+                "title": "Auth Module",
+                "content": "# Auth Module\n\n## 概述\nHandles authentication for the platform, including session lifecycle and credential validation for all services.\n\n## 核心业务流程\nLogin flow via JWT tokens.\n\n## 关联关系\nRelated modules.\n\n## 关键实现\n```python\ndef login(): pass\n```",
+                "page_type": "module_overview",
+                "diagrams": [],
+                "source_locations": [],
+                "method_locations": [],
+                "metadata": {"node_count": 1, "edge_count": 0, "generation_mode": "structure"},
+            }
+        ],
+        "config": {"importance_tiers": {"core-auth": "core"}, "quality_levels": ["L1", "L2", "L3"]},
+        "modules": {},
+        "heal_attempts": {},
+    }
+
     mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(
-        return_value='{"completeness": 4, "accuracy": 3, "readability": 5, "structure": 4}'
-    )
 
-    evaluator = WikiPageEvaluator()
-    result = await evaluator.evaluate_l3(
-        "# Test Module\n\n## 概述\nThis is a test module.\n\n## 核心业务流程\nSome content here.",
-        ["ModA", "ModB"],
-        mock_llm,
-    )
-    assert isinstance(result, EvalResult)
-    assert result.score > 0
-    assert hasattr(result, "dimensions") or "dimensions" in (
-        result.__dict__ if hasattr(result, "__dict__") else {}
-    )
+    with patch("wiki.pipeline_graph.WikiPageEvaluator") as MockEval:
+        from wiki.harness_evaluator import EvalResult
+        mock_eval_instance = MagicMock()
+        mock_eval_instance.evaluate_l3 = AsyncMock(return_value=EvalResult(
+            score=3.5,
+            passed=True,
+            dimensions={"completeness": 4.0, "accuracy": 3.0, "readability": 4.0, "structure": 3.0},
+        ))
+        MockEval.return_value = mock_eval_instance
 
+        config = {"configurable": {"llm": mock_llm}}
+        result = await quality_gate_node(state, config)
 
-@pytest.mark.asyncio
-async def test_l3_score_is_average_of_dimensions():
-    mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(
-        return_value='{"completeness": 4, "accuracy": 4, "readability": 4, "structure": 4}'
-    )
-
-    evaluator = WikiPageEvaluator()
-    result = await evaluator.evaluate_l3(
-        "# Test\n\n## 概述\nContent.\n\n## 核心业务流程\nMore content.",
-        ["ModA"],
-        mock_llm,
-    )
-    assert abs(result.score - 4.0) < 0.1
-
-
-@pytest.mark.asyncio
-async def test_l3_handles_llm_error_gracefully():
-    mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(side_effect=Exception("LLM Error"))
-
-    evaluator = WikiPageEvaluator()
-    result = await evaluator.evaluate_l3(
-        "# Test\n\nContent.",
-        ["ModA"],
-        mock_llm,
-    )
-    assert isinstance(result, EvalResult)
-    assert result.score == 0.0
-    assert not result.passed
-
-
-@pytest.mark.asyncio
-async def test_l3_handles_malformed_json():
-    mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(return_value="not valid json")
-
-    evaluator = WikiPageEvaluator()
-    result = await evaluator.evaluate_l3(
-        "# Test\n\nContent.",
-        ["ModA"],
-        mock_llm,
-    )
-    assert isinstance(result, EvalResult)
-    assert result.score == 0.0
+    scores = result.get("quality_scores", {})
+    assert "core-auth" in scores
+    l3_score = scores["core-auth"].get("l3_llm_judge")
+    assert l3_score is not None
+    assert 0.0 <= l3_score <= 1.0

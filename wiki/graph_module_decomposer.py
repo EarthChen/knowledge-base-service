@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from collections import defaultdict
 from typing import Any
@@ -187,7 +188,32 @@ class GraphModuleDecomposer:
             return [sorted(members[:mid]), sorted(members[mid:])]
         return groups
 
-    def _maybe_split_scc(
+    async def _llm_cluster(self, members: list[str]) -> list[list[str]] | None:
+        """Ask LLM to semantically cluster members into ≤5 groups."""
+        if not self._llm:
+            return None
+        prompt = (
+            f"将以下 {len(members)} 个代码模块按语义相关性分为 2-5 个组。\n"
+            f"模块列表: {', '.join(members)}\n"
+            f'输出 JSON: {{"groups": [["mod1", "mod2"], ["mod3", "mod4"]]}}'
+        )
+        raw = await self._llm.generate(prompt, max_tokens=500)
+        data = json.loads(raw)
+        groups = data.get("groups", [])
+        if not groups or not all(isinstance(g, list) for g in groups):
+            return None
+        all_members_set = set(members)
+        valid_groups = [[m for m in g if m in all_members_set] for g in groups]
+        valid_groups = [g for g in valid_groups if g]
+        covered: set[str] = set()
+        for g in valid_groups:
+            covered.update(g)
+        uncovered = all_members_set - covered
+        if uncovered:
+            valid_groups.append(sorted(uncovered))
+        return valid_groups if len(valid_groups) > 1 else None
+
+    async def _maybe_split_scc(
         self,
         members: list[str],
         node_files: dict[str, list[str]],
@@ -214,16 +240,40 @@ class GraphModuleDecomposer:
 
         if len(components) > 1:
             children = [
-                self._maybe_split_scc(comp, node_files, node_tokens, edges, existing_keys)
+                await self._maybe_split_scc(
+                    comp, node_files, node_tokens, edges, existing_keys,
+                )
                 for comp in components
             ]
         else:
-            groups = self._group_by_path_prefix(members, node_files)
-            children = [
-                self._maybe_split_scc(g, node_files, node_tokens, edges, existing_keys)
-                for g in groups
-                if g
-            ]
+            children_llm: list[ModuleNode] | None = None
+            if self._llm and len(members) > 10:
+                try:
+                    cluster_result = await self._llm_cluster(members)
+                    if cluster_result and len(cluster_result) > 1:
+                        children_llm = [
+                            await self._maybe_split_scc(
+                                group, node_files, node_tokens, edges, existing_keys,
+                            )
+                            for group in cluster_result
+                        ]
+                except Exception:
+                    log.warning(
+                        "llm_clustering_failed",
+                        member_count=len(members),
+                        exc_info=True,
+                    )
+            if children_llm is not None:
+                children = children_llm
+            else:
+                groups = self._group_by_path_prefix(members, node_files)
+                children = [
+                    await self._maybe_split_scc(
+                        g, node_files, node_tokens, edges, existing_keys,
+                    )
+                    for g in groups
+                    if g
+                ]
 
         parent_key = make_canonical_key(all_files, existing_keys, entity_uids=all_uids)
         existing_keys.add(parent_key)
@@ -235,7 +285,7 @@ class GraphModuleDecomposer:
             children=children,
         )
 
-    def decompose_from_graph(
+    async def decompose_from_graph(
         self,
         nodes: list[str],
         edges: list[tuple[str, str]],
@@ -251,7 +301,7 @@ class GraphModuleDecomposer:
         module_nodes: list[ModuleNode] = []
         for scc_set in topo_order:
             members = sorted(scc_set)
-            node = self._maybe_split_scc(
+            node = await self._maybe_split_scc(
                 members, node_files, node_tokens, edges, existing_keys,
             )
             module_nodes.append(node)

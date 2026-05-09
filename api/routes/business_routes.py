@@ -1,25 +1,29 @@
-"""Business management CRUD API routes."""
+"""Business management CRUD API routes.
+
+All operations delegate to BusinessManager (Redis) as the single source of truth.
+"""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import asyncio
 from typing import Any
-from uuid import uuid4
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field, ValidationError
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
+import api.kb_state as kb_state
+from api.exceptions import KbServiceUnavailable
+from api.pagination import slice_page
 from core.auth import Role, require_role
 from core.log import get_logger
-
-from api.pagination import slice_page
 
 log = get_logger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["business"])
 
 
 class BusinessCreate(BaseModel):
+    id: str = Field(..., min_length=1, max_length=63, pattern=r"^[a-z0-9][a-z0-9_-]{0,62}$")
     name: str = Field(..., min_length=1, max_length=100)
-    description: str = Field(..., min_length=1, max_length=500)
+    description: str = Field(default="", max_length=500)
 
 
 class BusinessUpdate(BaseModel):
@@ -31,23 +35,20 @@ class RepositoryBind(BaseModel):
     repositories: list[str] = Field(..., min_length=1)
 
 
+def _get_bm():
+    if kb_state.registry is None:
+        raise KbServiceUnavailable("Service not ready")
+    return kb_state.registry.business_manager
+
+
 @router.get("/businesses")
 async def list_businesses(
-    request: Request,
     offset: int = Query(default=0, ge=0),
     limit: int | None = Query(default=None, ge=1, le=100),
 ) -> dict[str, Any]:
-    graph = request.app.state.graph
-    q = "MATCH (b:Business) RETURN b.uid AS id, b.name AS name, b.description AS description, b.created_at AS created_at ORDER BY b.created_at DESC"
-    result = await graph.query(q)
-    businesses = []
-    for row in result.result_set:
-        businesses.append({
-            "id": row[0],
-            "name": row[1],
-            "description": row[2],
-            "created_at": row[3],
-        })
+    bm = _get_bm()
+    loop = asyncio.get_running_loop()
+    businesses = await loop.run_in_executor(None, bm.list_businesses)
     total = len(businesses)
     window, _ = slice_page(businesses, offset=offset, limit=limit)
     out: dict[str, Any] = {"businesses": window, "total": total}
@@ -58,95 +59,61 @@ async def list_businesses(
 
 
 @router.post("/businesses", status_code=201, dependencies=[Depends(require_role(Role.EDITOR))])
-async def create_business(request: Request, body: BusinessCreate) -> dict[str, Any]:
-    graph = request.app.state.graph
-    uid = f"business:{uuid4().hex[:12]}"
-    now = datetime.now(timezone.utc).isoformat()
-    q = (
-        "CREATE (b:Business {uid: $uid, name: $name, description: $desc, created_at: $now}) "
-        "RETURN b.uid AS id"
-    )
-    result = await graph.query(q, params={"uid": uid, "name": body.name, "desc": body.description, "now": now})
-    return {"id": uid, "name": body.name, "description": body.description}
+async def create_business(body: BusinessCreate) -> dict[str, Any]:
+    bm = _get_bm()
+    loop = asyncio.get_running_loop()
+    try:
+        meta = await loop.run_in_executor(
+            None, lambda: bm.create_business(body.id, body.name, body.description),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return meta
 
 
 @router.put("/businesses/{business_id}", dependencies=[Depends(require_role(Role.EDITOR))])
-async def update_business(request: Request, business_id: str, body: BusinessUpdate) -> dict[str, Any]:
-    graph = request.app.state.graph
-    sets = []
-    params: dict[str, Any] = {"bid": business_id}
-    if body.name is not None:
-        sets.append("b.name = $name")
-        params["name"] = body.name
-    if body.description is not None:
-        sets.append("b.description = $desc")
-        params["desc"] = body.description
-    if not sets:
+async def update_business(business_id: str, body: BusinessUpdate) -> dict[str, Any]:
+    if body.name is None and body.description is None:
         raise HTTPException(400, "No fields to update")
-    q = f"MATCH (b:Business {{uid: $bid}}) SET {', '.join(sets)} RETURN b.uid AS id, b.name AS name, b.description AS description"
-    result = await graph.query(q, params=params)
-    if not result.result_set:
+    bm = _get_bm()
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None, lambda: bm.update_business(business_id, name=body.name, description=body.description),
+    )
+    if result is None:
         raise HTTPException(404, f"Business {business_id} not found")
-    row = result.result_set[0]
-    return {"id": row[0], "name": row[1], "description": row[2]}
+    return result
 
 
 @router.delete("/businesses/{business_id}", dependencies=[Depends(require_role(Role.EDITOR))])
-async def delete_business(request: Request, business_id: str) -> dict[str, str]:
-    graph = request.app.state.graph
-    await graph.query(
-        "MATCH (b:Business {uid: $bid})-[r:CONTAINS_REPO]->() DELETE r",
-        params={"bid": business_id},
-    )
-    q = "MATCH (b:Business {uid: $bid}) DELETE b RETURN count(b) AS deleted"
-    result = await graph.query(q, params={"bid": business_id})
-    deleted = result.result_set[0][0] if result.result_set else 0
-    if deleted == 0:
+async def delete_business(business_id: str) -> dict[str, str]:
+    bm = _get_bm()
+    loop = asyncio.get_running_loop()
+    try:
+        deleted = await loop.run_in_executor(None, lambda: bm.delete_business(business_id))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not deleted:
         raise HTTPException(404, f"Business {business_id} not found")
     return {"status": "deleted"}
 
 
 @router.put("/businesses/{business_id}/repositories", dependencies=[Depends(require_role(Role.EDITOR))])
-async def bind_repositories(
-    request: Request,
-    business_id: str,
-    payload: dict[str, Any] = Body(...),
-) -> dict[str, Any]:
-    graph = request.app.state.graph
-    if payload.get("repositories") == []:
-        raise HTTPException(
-            status_code=400,
-            detail="repositories list must not be empty; use DELETE to unbind",
-        )
-    try:
-        body = RepositoryBind.model_validate(payload)
-    except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors()) from exc
-    check = "MATCH (b:Business {uid: $bid}) RETURN b.uid"
-    result = await graph.query(check, params={"bid": business_id})
-    if not result.result_set:
+async def bind_repositories(business_id: str, body: RepositoryBind) -> dict[str, Any]:
+    bm = _get_bm()
+    loop = asyncio.get_running_loop()
+    meta = await loop.run_in_executor(None, bm.get_business, business_id)
+    if meta is None:
         raise HTTPException(404, f"Business {business_id} not found")
-    await graph.query(
-        "MATCH (b:Business {uid: $bid})-[r:CONTAINS_REPO]->() DELETE r",
-        params={"bid": business_id},
+    repos = await loop.run_in_executor(
+        None, lambda: bm.set_repos(business_id, body.repositories),
     )
-    bind_q = (
-        "MATCH (b:Business {uid: $bid}) "
-        "UNWIND $repos AS repo_name "
-        "MERGE (r:Repository {name: repo_name}) "
-        "MERGE (b)-[:CONTAINS_REPO]->(r)"
-    )
-    await graph.query(bind_q, params={"bid": business_id, "repos": body.repositories})
-    return {"business_id": business_id, "repositories": body.repositories}
+    return {"business_id": business_id, "repositories": repos}
 
 
 @router.get("/businesses/{business_id}/repositories")
-async def get_repositories(request: Request, business_id: str) -> dict[str, Any]:
-    graph = request.app.state.graph
-    q = (
-        "MATCH (b:Business {uid: $bid})-[:CONTAINS_REPO]->(r) "
-        "RETURN r.name AS repo ORDER BY repo"
-    )
-    result = await graph.query(q, params={"bid": business_id})
-    repos = [row[0] for row in result.result_set]
+async def get_repositories(business_id: str) -> dict[str, Any]:
+    bm = _get_bm()
+    loop = asyncio.get_running_loop()
+    repos = await loop.run_in_executor(None, bm.get_repos, business_id)
     return {"business_id": business_id, "repositories": repos}

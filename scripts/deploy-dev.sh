@@ -4,7 +4,7 @@ set -euo pipefail
 # ── Configuration ──────────────────────────────────────────────
 DEV_HOST="dev"
 REMOTE_DIR="~/review-bot/knowledge-base-service"
-LOCAL_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOCAL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DASHBOARD_DIR="$LOCAL_DIR/dashboard"
 
 RED='\033[0;31m'

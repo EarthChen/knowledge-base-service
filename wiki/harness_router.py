@@ -21,7 +21,7 @@ CONTEXT_BUDGETS: dict[str, dict[str, int | None]] = {
         "eval_input": 2000,
     },
     "complex": {
-        "max_chars_per_section": 5000,
+        "max_chars_per_section": 6000,
         "distill_total": 20000,
         "coherence_pass": 8000,
         "repair_input": 6000,
@@ -36,7 +36,8 @@ class ComplexityAssessment:
     max_tool_calls: int
     generation_mode: Literal["whole_page", "sectional"]
     max_repair_rounds: int
-    use_llm_judge: bool
+    use_l2_benchmark: bool
+    use_l3_llm_judge: bool = False
 
     @property
     def budget(self) -> dict[str, int | None]:
@@ -61,7 +62,7 @@ class AdaptiveRouter:
                 max_tool_calls=15,
                 generation_mode="sectional",
                 max_repair_rounds=2,
-                use_llm_judge=True,
+                use_l2_benchmark=True,
             )
         elif module_count <= self.simple_threshold and edge_count < 5:
             return ComplexityAssessment(
@@ -69,7 +70,7 @@ class AdaptiveRouter:
                 max_tool_calls=5,
                 generation_mode="whole_page",
                 max_repair_rounds=0,
-                use_llm_judge=False,
+                use_l2_benchmark=False,
             )
         else:
             return ComplexityAssessment(
@@ -77,5 +78,5 @@ class AdaptiveRouter:
                 max_tool_calls=10,
                 generation_mode="whole_page",
                 max_repair_rounds=1,
-                use_llm_judge=False,
+                use_l2_benchmark=False,
             )

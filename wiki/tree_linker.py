@@ -194,6 +194,38 @@ class WikiTreeLinker:
             total_pages=total_pages,
         )
 
+    @staticmethod
+    def build_canonical_key_maps(
+        domain_tree: list[DomainNode],
+        pages_by_entity_uid: dict[str, dict[str, Any]],
+    ) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
+        """Map canonical_key → owning domain name and → representative page row.
+
+        Built from domain tree module membership so topic pages can resolve by
+        exact ``canonical_key`` instead of fuzzy path matching. First assignment
+        wins when the same key appears more than once.
+        """
+        canonical_key_to_domain: dict[str, str] = {}
+        canonical_key_to_page: dict[str, dict[str, Any]] = {}
+
+        def visit(domain: DomainNode) -> None:
+            for mod_name in domain.modules:
+                page = pages_by_entity_uid.get(mod_name)
+                if not page or not isinstance(page, dict):
+                    continue
+                ck = str(page.get("canonical_key") or "").strip()
+                if not ck:
+                    continue
+                if ck not in canonical_key_to_domain:
+                    canonical_key_to_domain[ck] = domain.name
+                    canonical_key_to_page[ck] = page
+            for child in domain.children:
+                visit(child)
+
+        for root in domain_tree:
+            visit(root)
+        return canonical_key_to_domain, canonical_key_to_page
+
     async def link_pages_to_nested_tree(
         self,
         business_id: str,
@@ -239,12 +271,18 @@ class WikiTreeLinker:
         await _ensure_root()
 
         topic_pages_by_domain: dict[str, list[str]] = {}
+        canonical_key_to_domain, _canonical_key_to_page = WikiTreeLinker.build_canonical_key_maps(
+            domain_tree,
+            pages_by_entity_uid,
+        )
         try:
             tp_q = (
                 "MATCH (wp:WikiPage) "
                 "WHERE wp.repository = $biz AND wp.page_type = 'topic' "
                 "AND wp.path STARTS WITH 'wiki/' "
-                "RETURN wp.uid AS uid, wp.path AS path ORDER BY wp.path"
+                "RETURN wp.uid AS uid, wp.path AS path, "
+                "coalesce(wp.canonical_key, '') AS canonical_key "
+                "ORDER BY wp.path"
             )
             tp_result = await self._wiki_store.execute_query(tp_q, {"biz": business_id})
             tp_rows = getattr(tp_result, "data", None) or []
@@ -291,6 +329,11 @@ class WikiTreeLinker:
                 return len(chars_a & chars_b) / len(chars_a)
 
             def _find_best_domain(page_top_level: str) -> str | None:
+                """Legacy fallback: fuzzy / token overlap between path segment and domain names.
+
+                Prefer exact ``canonical_key`` resolution via ``canonical_key_to_domain``.
+                Used only when the topic has no ``canonical_key`` (legacy pages).
+                """
                 if page_top_level in domain_names:
                     return page_top_level
                 tl_lower = page_top_level.lower()
@@ -350,7 +393,24 @@ class WikiTreeLinker:
                 slash_idx = after_wiki.find("/")
                 top_level = after_wiki[:slash_idx] if slash_idx > 0 else after_wiki
 
-                matched_domain = _find_best_domain(top_level)
+                ck = str(row.get("canonical_key") or "").strip()
+                matched_domain = canonical_key_to_domain.get(ck) if ck else None
+                if not matched_domain and ck:
+                    log.warning(
+                        "nested_tree_topic_canonical_key_unresolved",
+                        business_id=business_id,
+                        path=path,
+                        canonical_key=ck,
+                    )
+                elif not matched_domain:
+                    matched_domain = _find_best_domain(top_level)
+                    if matched_domain:
+                        log.info(
+                            "nested_tree_topic_domain_fuzzy_fallback",
+                            business_id=business_id,
+                            path=path,
+                            matched_domain=matched_domain,
+                        )
                 if matched_domain:
                     topic_pages_by_domain.setdefault(matched_domain, []).append(uid)
 

@@ -12,6 +12,7 @@ from langgraph.graph import StateGraph
 
 from core.log import get_logger
 from wiki.citation_verifier import verify_citations
+from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.models import ImportanceTier, WikiPage
 from wiki.pipeline_nodes import (
     assign_canonical_keys_node,
@@ -202,9 +203,13 @@ async def quality_gate_node(
         if "L3" in levels and tier == ImportanceTier.CORE and l1.overall >= 0.7:
             llm = (config or {}).get("configurable", {}).get("llm")
             if llm:
-                evaluator_with_llm = WikiQualityEvaluator(llm=llm)
-                l3 = await evaluator_with_llm.llm_judge_evaluate(page)
-                score_dict["l3_llm_judge"] = l3.overall
+                harness_eval = WikiPageEvaluator()
+                page_modules = page_dict.get("entity_uids") or [page.title or page.path]
+                l3_result = await harness_eval.evaluate_l3(page.content, page_modules, llm)
+                if l3_result.dimensions:
+                    avg_1_5 = sum(l3_result.dimensions.values()) / len(l3_result.dimensions)
+                    score_dict["l3_llm_judge"] = round((avg_1_5 - 1.0) / 4.0, 4)
+                    score_dict["l3_dimensions"] = l3_result.dimensions
 
         numeric_scores = [
             v

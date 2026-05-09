@@ -1,6 +1,6 @@
 # 实施状态（代码为准）
 
-**最后更新：** 2026-05-02
+**最后更新：** 2026-05-09
 
 本文档是仓库内关于「**当前已实现能力**」与「**历史规划 / 已归档设计**」区分的**唯一权威快照**。详细 Wiki 生成管线与 Phase 0–6 扩展说明另见 [wiki-generation-architecture.md](wiki-generation-architecture.md)；架构演变与安全加固细节另见 [ARCHITECTURE.md](ARCHITECTURE.md)、[superpowers/specs/2026-05-02-architecture-refactor-design.md](superpowers/specs/2026-05-02-architecture-refactor-design.md)。代码审计与竞品缺口可参考 [superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md](superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md)。
 
@@ -154,7 +154,7 @@
 | 主题 | 实现 | 说明 |
 |------|------|------|
 | **EntityRoleClassifier** | `wiki/entity_role_classifier.py`，`wiki/pipeline_nodes.py` **`classify_entities_node`** | 实体角色分类，供给后续域与写作 |
-| **LangGraph StateGraph（四阶段宏观结构）** | `wiki/pipeline_graph.py` **`build_wiki_pipeline`** | **(1)** 实体角色 + 重组检测：`classify_entity_roles` → `detect_reorg`；(**2**) 域分解与叶子写作环：`classify_domains` → … → **`compose_leaf_pages`** ↔ **`quality_gate`** ↔ **`heal_pages`**；(**3**) 汇总与总览：`summarize_leaves` → 可选 **`compose_parent_pages`** → **`synthesize_overviews`**；(**4)** 链接与收尾：**`create_links`** → **`finalize`**。Checkpoint 可选 **`MemorySaver`** / 持久化 saver。 |
+| **LangGraph StateGraph（图驱动管线）** | `wiki/pipeline_graph.py` **`build_wiki_pipeline`** | `classify_entity_roles` → `detect_reorg` →（条件）`graph_decompose` → `assign_canonical_keys` → `generate_titles` → `set_review_status` → `compose_leaf_modules` → `compose_bottomup` → **`quality_gate`** ⇄ **`heal_pages`** → `create_links` → `finalize`。质量门支持 L1 结构 + `verify_citations` 引用校验 / L2 静态 benchmark / L3 LLM judge（4×1-5 via `WikiPageEvaluator`）。Checkpoint 可选 **`MemorySaver`** / 持久化 saver。 |
 | **TopicPageComposer** | `wiki/topic_page_composer.py`，pipeline 合成节点调用 | Topic / Guided 页面正文组合 |
 | **Business 管理 API** | `store/business_manager.py`；`api/routes/business_sync_routes.py`（viewer/admin）；另 **`business_routes.py`**（图谱侧 CRUD / 绑定仓库） | 多租户 **`business_id`** 与独立图 **`kb_{business_id}`** |
 | **Dashboard 组件** | `dashboard/src/components/wiki/WikiToolPanel.tsx`、`WikiLandingPage`、域审核面板、`Businesses.tsx`、`BusinessContext.tsx` | **`business_domain` / `code_structure`** 视图、域树图、覆盖率与健康等 Tab |

@@ -1,9 +1,13 @@
-"""Wiki page evaluator with L1 deterministic checks and optional L2 LLM judge."""
+"""Wiki page evaluator: L1 deterministic checks, L2 static benchmark, optional L3 LLM judge."""
 from __future__ import annotations
 
 import json
 import re
 from dataclasses import dataclass, field
+
+from core.log import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -44,11 +48,25 @@ class WikiPageEvaluator:
     MIN_CHARS = 500
     MAX_CHARS = 15000
 
+    @staticmethod
+    def _use_l2_benchmark(assessment) -> bool:
+        """True when L2 static analysis should run (``use_l2_benchmark`` or deprecated ``use_llm_judge``)."""
+        return bool(getattr(assessment, "use_l2_benchmark", False)) or bool(
+            getattr(assessment, "use_llm_judge", False)
+        )
+
+    @staticmethod
+    def should_run_l3_llm_judge(assessment, l1_result: EvalResult) -> bool:
+        """L3 LLM judge runs only when enabled on assessment and L1 meets the pass threshold."""
+        if not getattr(assessment, "use_l3_llm_judge", False):
+            return False
+        return l1_result.passed and l1_result.score >= WikiPageEvaluator.PASS_THRESHOLD
+
     def evaluate(self, content: str, modules: list[str], assessment, llm=None) -> EvalResult:
-        result = self.evaluate_l1(content, modules)
-        if getattr(assessment, "use_llm_judge", False) and not result.passed and llm:
-            result = self.evaluate_l2(content, modules, llm, result)
-        return result
+        l1_result = self.evaluate_l1(content, modules)
+        if self._use_l2_benchmark(assessment):
+            return self.evaluate_l2(content, modules, llm, l1_result)
+        return l1_result
 
     def evaluate_l1(self, content: str, modules: list[str]) -> EvalResult:
         issues: list[Issue] = []
@@ -110,14 +128,64 @@ class WikiPageEvaluator:
         )
 
     def evaluate_l2(self, content, modules, llm, l1_result) -> EvalResult:
-        """LLM Judge — stub. For async L3, call evaluate_l3 directly."""
-        return l1_result
+        """Static analysis benchmark: code refs, Mermaid diagrams, cross-references."""
+        issues: list[Issue] = list(l1_result.issues)
+        scores: list[float] = [l1_result.score]
+
+        # Code reference coverage: backtick-quoted identifiers matching modules
+        code_refs = set(re.findall(r"`([A-Za-z_]\w+)`", content))
+        module_set = {m.lower() for m in modules}
+        matched_refs = sum(1 for r in code_refs if r.lower() in module_set)
+        ref_coverage = matched_refs / max(len(modules), 1)
+        scores.append(min(1.0, ref_coverage))
+        if ref_coverage < 0.5:
+            issues.append(Issue(
+                "code_refs",
+                "warning",
+                f"代码引用覆盖率 {ref_coverage:.0%}",
+                "添加更多 `ModuleName` 引用",
+            ))
+
+        # Mermaid diagram presence and basic validity
+        mermaid_blocks = re.findall(r"```mermaid\s*(.*?)```", content, re.DOTALL)
+        has_mermaid = len(mermaid_blocks) > 0
+        mermaid_valid = all(
+            any(kw in block for kw in (
+                "graph",
+                "flowchart",
+                "sequenceDiagram",
+                "classDiagram",
+                "stateDiagram",
+            ))
+            for block in mermaid_blocks
+        ) if mermaid_blocks else False
+        mermaid_score = 1.0 if (has_mermaid and mermaid_valid) else (0.5 if has_mermaid else 0.0)
+        scores.append(mermaid_score)
+        if not has_mermaid:
+            issues.append(Issue("diagram", "warning", "缺少 Mermaid 架构图", "添加 ```mermaid 图表"))
+
+        # Cross-reference links [[...]]
+        cross_refs = re.findall(r"\[\[([^\]]+)\]\]", content)
+        cross_ref_score = min(1.0, len(cross_refs) * 0.25)
+        scores.append(cross_ref_score)
+        if not cross_refs:
+            issues.append(Issue("cross_refs", "info", "无交叉引用链接", "添加 [[related-module]] 链接"))
+
+        final_score = sum(scores) / len(scores) if scores else 0.0
+        return EvalResult(
+            score=round(final_score, 4),
+            passed=final_score >= self.PASS_THRESHOLD,
+            issues=issues,
+            suggestions=[i.suggestion for i in issues if i.severity == "error"],
+        )
 
     async def evaluate_l3(
         self,
         content: str,
         modules: list[str],
         llm,
+        *,
+        model: str | None = None,
     ) -> EvalResult:
         """4-dimension LLM Judge evaluation (CodeWikiBench aligned)."""
         prompt = _L3_JUDGE_PROMPT.format(
@@ -128,6 +196,7 @@ class WikiPageEvaluator:
             raw = await llm.generate(
                 prompt=prompt,
                 system="You are a wiki quality evaluator. Output JSON only.",
+                model=model,
             )
             data = json.loads(raw.strip())
             dims = {
@@ -143,4 +212,5 @@ class WikiPageEvaluator:
                 dimensions=dims,
             )
         except Exception:
+            log.warning("evaluate_l3_failed", exc_info=True)
             return EvalResult(score=0.0, passed=False, dimensions={})

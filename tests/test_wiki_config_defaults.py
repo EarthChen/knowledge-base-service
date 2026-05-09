@@ -20,7 +20,7 @@ def test_wiki_supersession_default_enabled() -> None:
 
 
 def test_wiki_compose_concurrency_default() -> None:
-    assert AppWikiFlags().compose_concurrency == 6
+    assert AppWikiFlags().compose_concurrency == 12
 
 
 def test_decomposition_max_tokens_deprecated_field_still_works() -> None:

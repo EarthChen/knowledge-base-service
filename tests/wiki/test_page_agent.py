@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wiki.page_agent import WikiPageAgent, ToolResult, WorkingMemory
+from wiki.page_agent import SINGLE_RESULT_LIMIT, WikiPageAgent, ToolResult, WorkingMemory
 
 
 class TestWorkingMemory:
@@ -78,8 +78,8 @@ class TestWorkingMemory:
         assert isinstance(wm.wiki_references, list)
         assert isinstance(wm.search_findings, list)
 
-    def test_max_total_chars_50k(self):
-        assert WorkingMemory.MAX_TOTAL_CHARS == 50000
+    def test_max_total_chars_80k(self):
+        assert WorkingMemory.MAX_TOTAL_CHARS == 80000
 
     def test_incorporate_read_code(self):
         wm = WorkingMemory()
@@ -307,7 +307,7 @@ class TestWikiPageAgent:
         ]))
         agent = WikiPageAgent(llm, gs)
         result = await agent._execute_tool("read_code", {"entity_name": "foo", "max_chars": "not_a_number"})
-        assert len(result["code"]) <= 3000
+        assert len(result["code"]) <= SINGLE_RESULT_LIMIT
 
     @pytest.mark.asyncio
     async def test_read_file_success(self, tmp_path):

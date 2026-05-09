@@ -225,6 +225,24 @@ class LLMPortBridge:
                     await asyncio.sleep(min(2**attempt, 10))
         raise last_exc  # type: ignore[misc]
 
+    async def agenerate(
+        self,
+        messages: list[list[dict[str, str]]],
+        **kwargs: Any,
+    ) -> str:
+        """LangChain-compatible async generate: accepts list-of-conversations, uses the first."""
+        if not messages or not messages[0]:
+            return ""
+        conversation = messages[0]
+        system = ""
+        prompt = ""
+        for msg in conversation:
+            if msg.get("role") == "system":
+                system = msg.get("content", "")
+            elif msg.get("role") == "user":
+                prompt = msg.get("content", "")
+        return await self.generate(prompt, system=system, **kwargs)
+
     async def generate_stream(self, prompt: str, system: str = "", **kwargs: Any) -> str:
         messages: list[dict[str, str]] = []
         if system:

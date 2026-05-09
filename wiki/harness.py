@@ -14,8 +14,8 @@ from wiki.domain_summary_cache import extract_summary_card
 from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.harness_facts import GatheredFacts
 from wiki.harness_guardrails import HarnessGuardRails
-from wiki.harness_planner import WikiPagePlanner
-from wiki.harness_router import AdaptiveRouter
+from wiki.harness_planner import GenerationPlan, WikiPagePlanner
+from wiki.harness_router import AdaptiveRouter, ComplexityAssessment
 
 log = get_logger(__name__)
 
@@ -43,6 +43,8 @@ class WikiGenerationHarness:
     ) -> str:
         # 1. Complexity assessment
         assessment = self.router.assess(modules, ccb_context)
+        if self.config:
+            assessment.use_l3_llm_judge = self.config.llm_judge_enabled
         log.info(
             "harness_assess",
             domain=domain,
@@ -57,7 +59,7 @@ class WikiGenerationHarness:
         )
 
         # 3. Gather
-        facts = await self._gather(plan)
+        facts = await self._gather(plan, ccb_context)
 
         # 4. Distill
         domain_summaries = [
@@ -72,19 +74,22 @@ class WikiGenerationHarness:
 
         # 5. Generate
         baseline = distilled if distilled else None
-        content = await self.agent.generate(
-            module_names=modules,
-            domain_name=domain,
-            baseline_context=baseline,
-            max_rounds=3 if assessment.level == "simple" else 5,
-        )
+        if assessment.level == "complex" and len(plan.outline) > 1:
+            content = await self._generate_sectional(
+                plan, modules, domain, baseline, assessment
+            )
+        else:
+            content = await self.agent.generate(
+                module_names=modules,
+                domain_name=domain,
+                baseline_context=baseline,
+                max_rounds=3 if assessment.level == "simple" else 5,
+            )
 
         # 6. Evaluate + Repair loop
         max_repairs = assessment.max_repair_rounds
         if self.config and self.config.max_repair_rounds < max_repairs:
             max_repairs = self.config.max_repair_rounds
-        if self.config and not self.config.llm_judge_enabled:
-            assessment.use_llm_judge = False
         for round_i in range(max_repairs + 1):
             eval_result = self.evaluator.evaluate(content, modules, assessment, self.llm)
             if eval_result.passed:
@@ -103,7 +108,58 @@ class WikiGenerationHarness:
 
         return content
 
-    async def _gather(self, plan) -> GatheredFacts:
+    async def _generate_sectional(
+        self,
+        plan: GenerationPlan,
+        modules: list[str],
+        domain: str,
+        baseline: str | None,
+        assessment: ComplexityAssessment,
+    ) -> str:
+        """Generate content section-by-section for complex modules, then coherence pass."""
+        sections: list[str] = []
+        for section in plan.outline:
+            mod_subset = (
+                section.modules
+                if getattr(section, "modules", None)
+                else modules[:5]
+            )
+            section_modules = [m for m in modules if m in mod_subset]
+            if not section_modules and modules:
+                section_modules = modules[:5]
+            section_content = await self.agent.generate(
+                module_names=section_modules,
+                domain_name=f"{domain} — {section.name}",
+                baseline_context=baseline,
+                max_rounds=3 if assessment.level == "simple" else 5,
+            )
+            sections.append(f"## {section.name}\n\n{section_content}")
+
+        combined = f"# {domain}\n\n" + "\n\n---\n\n".join(sections)
+
+        coherence_cap = assessment.budget.get("coherence_pass") or 6000
+        if coherence_cap is None:
+            coherence_cap = 6000
+        snippet = combined[: int(coherence_cap)]
+
+        coherence_prompt = (
+            "以下 Wiki 页面由多个部分拼接而成，请检查并修复:\n"
+            "1. 重复内容\n2. 矛盾信息\n3. 不连贯的过渡\n\n"
+            f"{snippet}\n\n"
+            "输出修正后的完整页面。"
+        )
+        try:
+            coherent = await self.llm.generate(
+                coherence_prompt, system="你是文档编辑专家。"
+            )
+            if coherent and len(coherent.strip()) > len(combined) * 0.5:
+                return coherent
+        except Exception:
+            log.warning("coherence_pass_failed", domain=domain, exc_info=True)
+
+        return combined
+
+    async def _gather(self, plan, ccb_context=None) -> GatheredFacts:
         """Execute planned queries against graph_store. No LLM involved."""
         facts = GatheredFacts()
         guardrails = HarnessGuardRails()
@@ -115,6 +171,13 @@ class WikiGenerationHarness:
                     log.warning("harness_guardrail", rule=violation.rule)
                     continue
                 try:
+                    names = self._planned_query_names(query)
+                    if not names:
+                        continue
+                    from_ccb = self._gather_from_ccb(query.tool_name, names, ccb_context)
+                    if from_ccb:
+                        facts.add(section.name, query.tool_name, str(from_ccb))
+                        continue
                     result = await self._execute_planned_query(query)
                     if result:
                         facts.add(section.name, query.tool_name, str(result))
@@ -122,6 +185,138 @@ class WikiGenerationHarness:
                     log.warning("harness_gather_error", tool=query.tool_name, error=str(e))
 
         return facts
+
+    @staticmethod
+    def _planned_query_names(query) -> list[str]:
+        params = query.params
+        names = list(params.get("module_names", []) or [])
+        if not names:
+            name = params.get("module_name") or params.get("domain_name", "")
+            if name:
+                names = [name]
+        return names
+
+    def _gather_from_ccb(self, tool_name: str, names: list[str], ccb) -> str | None:
+        """Reuse EnrichedDomainContext (CCB) fields when they satisfy a planned graph query."""
+        if ccb is None or not names:
+            return None
+
+        if tool_name == "query_module_detail":
+            biz_entities = getattr(ccb, "biz_entities", None) or []
+            by_name = {getattr(e, "name", None): e for e in biz_entities if getattr(e, "name", None)}
+            lines: list[str] = []
+            for n in names:
+                ent = by_name.get(n)
+                if ent is None:
+                    return None
+                methods = getattr(ent, "methods", None) or []
+                for m in methods[:30]:
+                    mod = getattr(m, "module_name", "") or n
+                    fn = getattr(m, "name", "")
+                    sig = getattr(m, "signature", "")
+                    doc = getattr(m, "docstring", "") or ""
+                    lines.append(
+                        f"- {mod}.{fn}({sig})" + (f" — {doc[:100]}" if doc else ""),
+                    )
+            return "\n".join(lines) if lines else None
+
+        if tool_name == "query_call_chain":
+            intra = getattr(ccb, "intra_domain_calls", None) or []
+            cross = getattr(ccb, "cross_domain_calls", None) or []
+            mchains = getattr(ccb, "method_call_chains", None) or []
+            if not intra and not cross and not mchains:
+                return None
+            ns = set(names)
+            lines: list[str] = []
+
+            def _step_in_scope(step) -> bool:
+                ca = getattr(step, "caller", "") or ""
+                ce = getattr(step, "callee", "") or ""
+                if ca in ns or ce in ns:
+                    return True
+                for mod in ns:
+                    if ca.startswith(f"{mod}.") or ce.startswith(f"{mod}."):
+                        return True
+                return False
+
+            for step in list(intra) + list(cross):
+                if not _step_in_scope(step):
+                    continue
+                ca = getattr(step, "caller", "") or ""
+                ce = getattr(step, "callee", "") or ""
+                cm = getattr(step, "caller_method", "") or ""
+                em = getattr(step, "callee_method", "") or ""
+                fn_info = ""
+                if cm or em:
+                    fn_info = f" [{cm},{em}]"
+                lines.append(f"- {ca} → {ce}{fn_info}")
+                if len(lines) >= 20:
+                    break
+
+            for mc in mchains[:30]:
+                if not isinstance(mc, dict):
+                    continue
+                emod = str(mc.get("entry_module", "") or "")
+                if emod and emod not in ns:
+                    continue
+                ch = mc.get("chain") or []
+                if len(ch) >= 2 and isinstance(ch[0], dict) and isinstance(ch[1], dict):
+                    a0, b0 = ch[0], ch[1]
+                    mod = str(b0.get("module", "") or emod)
+                    caller_m = str(a0.get("func", "") or "")
+                    callee_m = str(b0.get("func", "") or "")
+                    lines.append(f"- {mod}: {caller_m}() → {callee_m}()")
+                elif emod:
+                    emeth = str(mc.get("entry_method", "") or "")
+                    if emeth:
+                        lines.append(f"- {emod}: {emeth}() → …")
+
+            return "\n".join(lines[:50]) if lines else None
+
+        if tool_name in ("query_callers", "query_domain_dependencies"):
+            rows = getattr(ccb, "external_callers", None) or []
+            if not rows:
+                return None
+            ns = set(names)
+            lines = []
+            for r in rows[:20]:
+                if not isinstance(r, dict):
+                    continue
+                caller = str(r.get("caller_name", "") or "")
+                target = str(r.get("target_name", "") or "")
+                if target not in ns:
+                    continue
+                prefix = "- " if tool_name == "query_callers" else "- 被调用: "
+                lines.append(f"{prefix}{caller} → {target}")
+            return "\n".join(lines) if lines else None
+
+        if tool_name == "query_implementations":
+            rows = getattr(ccb, "interface_impls", None) or []
+            if not rows:
+                return None
+            ns = set(names)
+            lines = []
+            for r in rows[:15]:
+                if not isinstance(r, dict):
+                    continue
+                impl = str(r.get("impl_name", "") or "")
+                intf = str(r.get("interface_name", "") or "")
+                mod = str(r.get("module_name", "") or "")
+                if mod not in ns and impl not in ns:
+                    continue
+                lines.append(f"- {impl} implements {intf}")
+            return "\n".join(lines) if lines else None
+
+        if tool_name == "read_code":
+            snippets = getattr(ccb, "key_snippets", None) or []
+            if not snippets:
+                return None
+            blocks = []
+            for i, block in enumerate(snippets[:10]):
+                blocks.append(f"### ccb_snippet_{i}\n```java\n{block}\n```")
+            return "\n".join(blocks)
+
+        return None
 
     async def _execute_planned_query(self, query) -> str | None:
         """Execute a single planned query via graph_store using real Cypher queries."""

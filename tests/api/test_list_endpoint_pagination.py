@@ -127,27 +127,21 @@ async def test_list_documents_paginated() -> None:
 
 @pytest.mark.asyncio
 async def test_list_businesses_includes_total_and_optional_window() -> None:
-    graph = AsyncMock()
-
-    async def query_side_effect(cypher: str, params: dict[str, Any] | None = None) -> MagicMock:
-        if "MATCH (b:Business)" in cypher:
-            return MagicMock(result_set=[
-                ["b1", "One", "d1", "t1"],
-                ["b2", "Two", "d2", "t2"],
-                ["b3", "Three", "d3", "t3"],
-            ])
-        return MagicMock(result_set=[])
-
-    graph.query = AsyncMock(side_effect=query_side_effect)
+    mock_bm = MagicMock()
+    mock_bm.list_businesses.return_value = [
+        {"id": "b1", "name": "One", "description": "d1"},
+        {"id": "b2", "name": "Two", "description": "d2"},
+        {"id": "b3", "name": "Three", "description": "d3"},
+    ]
 
     app = FastAPI()
     register_exception_handlers(app)
     app.include_router(business_routes.router)
-    app.state.graph = graph
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as ac:
-        r_all = await ac.get("/api/v1/businesses")
-        r_page = await ac.get("/api/v1/businesses", params={"offset": 1, "limit": 2})
+    with patch.object(business_routes, "_get_bm", return_value=mock_bm):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as ac:
+            r_all = await ac.get("/api/v1/businesses")
+            r_page = await ac.get("/api/v1/businesses", params={"offset": 1, "limit": 2})
 
     assert r_all.status_code == 200
     all_body = r_all.json()

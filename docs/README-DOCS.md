@@ -26,6 +26,7 @@
 | [`ONBOARDING.md`](ONBOARDING.md) | **产品与上手**：功能地图、首次索引、仪表盘与 MCP 客户端配置心智模型。 |
 | [`wiki-generation-architecture.md`](wiki-generation-architecture.md) | **Wiki 生成架构**：管道阶段、增量 Ingest、LLM Wiki v2（置信度、矛盾、主张、记忆层）、与异步任务/新鲜度 API 的关系。 |
 | [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md) | **已知问题登记**：编号、状态（已修复/已缓解/待处理）、影响、根因、修复与**可重复验证**说明（若适用）。 |
+| [`REMAINING-WORK.md`](REMAINING-WORK.md) | **统一剩余工作清单**：Sprint 2 审计后汇总的 P1–P3 项，含代码健壮性、产品差距与反幻觉层。 |
 
 ---
 
@@ -35,12 +36,11 @@
 
 | 文档 | 说明 |
 |------|------|
-| [`proposals/PROPOSAL_20260507_120459_anti_hallucination_architecture.md`](proposals/PROPOSAL_20260507_120459_anti_hallucination_architecture.md) | **Wiki 反幻觉三层架构提案**：根因分析、行业方案研究（Auburn/DeepWiki/CodeWiki）、Source-Grounded Generation + Mechanical Citation Injection + Post-Generation Fact Check 设计与路线图。 |
 | [`superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md`](superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md) | 全仓库向的代码审计摘要，以及与 DeepWiki/CodeWiki/LLMWiki 等方向的**多维度对标**与追赶路线归纳。 |
 | [`superpowers/specs/2026-05-02-architecture-refactor-design.md`](superpowers/specs/2026-05-02-architecture-refactor-design.md) | **架构重构设计**：DI 容器、`@mcp_tool` 注册策略、`lifespan` 分段与关停顺序等。 |
 | [`superpowers/plans/2026-05-02-architecture-refactor.md`](superpowers/plans/2026-05-02-architecture-refactor.md) | **架构重构实施计划**：分 Task/Phase 的落地顺序与验收线索。 |
-| [`superpowers/specs/2026-05-09-graph-driven-deterministic-decomposition.md`](superpowers/specs/2026-05-09-graph-driven-deterministic-decomposition.md) | **图算法确定性分解分析**：借鉴 CodeWiki (ACL 2026) 的分解策略分析，CodeWiki 论文 vs 实际代码对比，Harness+Agent 系统 P0-P3 问题清单。 |
-| [`superpowers/specs/2026-05-09-codewiki-aligned-pipeline-design.md`](superpowers/specs/2026-05-09-codewiki-aligned-pipeline-design.md) | **CodeWiki 对齐管线重设计**：管线内置换方案，GraphModuleDecomposer (SCC+拓扑+CC+LLM)、canonical_key、bottom-up synthesis、ParentSynthesizer、4 维 LLM Judge、delegate_submodule tool。 |
+| ~~`specs/2026-05-09-graph-driven-deterministic-decomposition.md`~~ | (已实现并移除) CodeWiki 图驱动确定性分解 — 设计要点已固化至 `wiki/graph_module_decomposer.py`、`wiki/pipeline_graph.py`。 |
+| ~~`specs/2026-05-09-codewiki-aligned-pipeline-design.md`~~ | (已实现并移除) CodeWiki 对齐管线重设计 — 设计要点已固化至 `wiki/harness.py`、`wiki/harness_evaluator.py`、`wiki/page_agent.py`。 |
 
 ---
 

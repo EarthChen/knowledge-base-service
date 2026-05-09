@@ -9,6 +9,7 @@ from wiki.context_gap import cleanup_context_gaps
 from wiki.domain_complexity import DomainComplexityScorer
 from wiki.models import ImportanceTier, WikiPage
 from wiki.nodes.utils import _find_domain_in_tree
+from wiki.page_agent import WikiPageAgent
 from wiki.prompts import SYSTEM_WIKI_HEAL
 from wiki.quality_evaluator import WikiQualityEvaluator
 from wiki.reasoning import GuidedPromptEnhancer, ReasoningLevel, TaskType, select_reasoning_level
@@ -70,6 +71,7 @@ async def _heal_one_page(
     llm: Any,
     heal_hints: dict[str, str],
     heal_attempts: dict[str, int],
+    graph_store: Any | None = None,
 ) -> bool:
     import wiki.pipeline_nodes as pn
 
@@ -119,7 +121,21 @@ async def _heal_one_page(
             max_tokens=heal_budget,
         )
         if targeted_result:
-            page_dict["content"] = cleanup_context_gaps(targeted_result.content)
+            raw_content = targeted_result.content or ""
+            cleaned = cleanup_context_gaps(raw_content)
+            page_dict["content"] = cleaned
+            raw_has_context_gap = "<!-- CONTEXT_GAP" in raw_content
+            too_short_after_clean = len(cleaned.strip()) < 200
+            if graph_store is not None and (
+                raw_has_context_gap or too_short_after_clean
+            ):
+                agent = WikiPageAgent(llm, graph_store)
+                new_content = await agent.enrich(
+                    page_dict["content"],
+                    domain_name=domain_name,
+                    existing_pages=state.get("pages"),
+                )
+                page_dict["content"] = cleanup_context_gaps(new_content)
             log.info("targeted_heal_success", page=page_path)
             return True
         heal_scorer = DomainComplexityScorer()
@@ -134,11 +150,20 @@ async def _heal_one_page(
         fallback_prompt = heal_prompt
         if heal_level == ReasoningLevel.GUIDED:
             fallback_prompt = GuidedPromptEnhancer().enhance_heal_prompt(heal_prompt)
-        new_content = await llm.generate(
-            fallback_prompt,
-            system=SYSTEM_WIKI_HEAL,
-            max_tokens=heal_budget,
-        )
+        if graph_store is not None:
+            agent = WikiPageAgent(llm, graph_store)
+            raw_for_enrich = page_dict.get("content", "")
+            new_content = await agent.enrich(
+                raw_for_enrich,
+                domain_name=domain_name,
+                existing_pages=state.get("pages"),
+            )
+        else:
+            new_content = await llm.generate(
+                fallback_prompt,
+                system=SYSTEM_WIKI_HEAL,
+                max_tokens=heal_budget,
+            )
         page_dict["content"] = cleanup_context_gaps(new_content)
         log.info("page_healed", page=page_path, attempt=heal_attempts[page_path])
         return True
@@ -151,7 +176,9 @@ async def heal_pages_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
     """Regenerate pages that failed the quality gate (replaces them via merge_wiki_pages)."""
-    llm = (config or {}).get("configurable", {}).get("llm")
+    configurable = (config or {}).get("configurable", {})
+    llm = configurable.get("llm")
+    graph_store = configurable.get("graph_store")
     evaluator = WikiQualityEvaluator()
     heal_attempts = dict(state.get("heal_attempts", {}))
     heal_hints = dict(state.get("heal_hints", {}))
@@ -202,6 +229,7 @@ async def heal_pages_node(
                     llm=llm,
                     heal_hints=heal_hints,
                     heal_attempts=heal_attempts,
+                    graph_store=graph_store,
                 )
                 if ok:
                     healed_by_path[page_path] = dict(page_dict)

@@ -18,7 +18,7 @@ class TestWikiPagePlanner:
         assessment = ComplexityAssessment(
             level="moderate", max_tool_calls=10,
             generation_mode="whole_page", max_repair_rounds=1,
-            use_llm_judge=False,
+            use_l2_benchmark=False,
         )
         plan = planner.plan("UserAuth", ["UserService", "AuthController"], ctx, assessment)
         section_names = [s.name for s in plan.outline]
@@ -35,7 +35,7 @@ class TestWikiPagePlanner:
         assessment = ComplexityAssessment(
             level="moderate", max_tool_calls=10,
             generation_mode="whole_page", max_repair_rounds=1,
-            use_llm_judge=False,
+            use_l2_benchmark=False,
         )
         plan = planner.plan("Auth", ["Mod1", "Mod2", "Mod3"], ctx, assessment)
         overview = next(s for s in plan.outline if s.name == "概述")
@@ -50,7 +50,7 @@ class TestWikiPagePlanner:
         assessment = ComplexityAssessment(
             level="moderate", max_tool_calls=10,
             generation_mode="whole_page", max_repair_rounds=1,
-            use_llm_judge=False,
+            use_l2_benchmark=False,
         )
         plan = planner.plan("Auth", ["Mod1"], ctx, assessment)
         flow = next(s for s in plan.outline if s.name == "核心业务流程")
@@ -66,7 +66,7 @@ class TestWikiPagePlanner:
         assessment = ComplexityAssessment(
             level="simple", max_tool_calls=5,
             generation_mode="whole_page", max_repair_rounds=0,
-            use_llm_judge=False,
+            use_l2_benchmark=False,
         )
         plan = planner.plan("Small", ["Mod1"], ctx, assessment)
         impl = next(s for s in plan.outline if s.name == "关键实现")
@@ -81,7 +81,7 @@ class TestWikiPagePlanner:
         assessment = ComplexityAssessment(
             level="moderate", max_tool_calls=10,
             generation_mode="whole_page", max_repair_rounds=1,
-            use_llm_judge=False,
+            use_l2_benchmark=False,
         )
         plan = planner.plan("Auth", ["Mod1", "Mod2"], ctx, assessment)
         assert plan.total_queries == sum(len(s.queries) for s in plan.outline)
@@ -95,7 +95,7 @@ class TestWikiPagePlanner:
         assessment = ComplexityAssessment(
             level="moderate", max_tool_calls=10,
             generation_mode="whole_page", max_repair_rounds=1,
-            use_llm_judge=False,
+            use_l2_benchmark=False,
         )
         cache = {"PaymentDomain": "card data"}
         plan = planner.plan("Auth", ["Mod1"], ctx, assessment, domain_cache=cache)

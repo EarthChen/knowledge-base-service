@@ -40,7 +40,7 @@ _JSON_PREAMBLE_RE = re.compile(
     r"^##\s*当前\s*Wiki\s*页面[^\n]*\n\{[\s\S]*?\"executive_summary\"[\s\S]*?\}\s*\n",
     re.MULTILINE,
 )
-SINGLE_RESULT_LIMIT = 4000
+SINGLE_RESULT_LIMIT = 6000
 
 
 def strip_agent_artifacts(text: str) -> str:
@@ -168,7 +168,7 @@ class WorkingMemory:
     wiki_references: list[str] = field(default_factory=list)
     search_findings: list[str] = field(default_factory=list)
 
-    MAX_TOTAL_CHARS = 50000
+    MAX_TOTAL_CHARS = 80000
 
     def incorporate(self, results: list[ToolResult]) -> None:
         for r in results:
@@ -449,14 +449,17 @@ AGENT_TOOLS = [
         "function": {
             "name": "read_code",
             "description": (
-                "Read source code for a function or class by name (up to 3000 chars). "
+                f"Read source code for a function or class by name (up to {SINGLE_RESULT_LIMIT} chars). "
                 "Use when you need to understand implementation details of a specific indexed entity."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "entity_name": {"type": "string", "description": "Function or class name"},
-                    "max_chars": {"type": "integer", "description": "Max characters to return (default 3000)"},
+                    "max_chars": {
+                        "type": "integer",
+                        "description": f"Max characters to return (default {SINGLE_RESULT_LIMIT})",
+                    },
                 },
                 "required": ["entity_name"],
             },
@@ -475,7 +478,7 @@ AGENT_TOOLS = [
                 "properties": {
                     "file_path": {"type": "string", "description": "Relative path from repository root"},
                     "start_line": {"type": "integer", "description": "Start line (1-based, default 1)"},
-                    "end_line": {"type": "integer", "description": "End line (default start+100)"},
+                    "end_line": {"type": "integer", "description": "End line (default start+200)"},
                 },
                 "required": ["file_path"],
             },
@@ -938,24 +941,55 @@ class WikiPageAgent:
         count = getattr(self, "_delegation_count", 0)
 
         if depth >= self._MAX_DELEGATION_DEPTH:
-            return {"error": "max delegation depth reached", "depth": depth}
+            return {"error": f"max delegation depth reached: {depth}"}
         if count >= self._MAX_DELEGATIONS_PER_AGENT:
-            return {"error": "max delegations per agent reached", "count": count}
+            return {"error": f"max delegations per agent reached: {count}"}
 
         self._delegation_count = count + 1
-        return {
-            "delegated": True,
-            "entity_names": entity_names,
-            "focus": focus,
-            "note": "Sub-agent delegation placeholder — full integration in compose_bottomup",
-        }
+
+        try:
+            sub_agent = WikiPageAgent(
+                llm=self._llm,
+                graph_store=self._graph,
+                repo_path=self._repo_path,
+                search_service=self._search_service,
+            )
+            sub_agent._delegation_depth = depth + 1
+            sub_agent._delegation_count = 0
+            sub_agent._existing_pages = self._existing_pages
+
+            domain_name = focus or ", ".join(entity_names[:3])
+            content = await sub_agent.generate(
+                module_names=entity_names,
+                domain_name=domain_name,
+                baseline_context={},
+                max_rounds=3,
+            )
+            return {
+                "delegated": True,
+                "entity_names": entity_names,
+                "focus": focus,
+                "content": content,
+            }
+        except Exception as e:
+            log.warning("delegate_submodule_failed", entities=entity_names, error=str(e))
+            return {
+                "delegated": True,
+                "entity_names": entity_names,
+                "focus": focus,
+                "content": "",
+                "error": str(e),
+            }
 
     async def _tool_read_code(self, args: dict[str, Any]) -> dict[str, Any]:
         entity_name = str(args.get("entity_name", ""))
         try:
-            max_chars = max(0, min(int(args.get("max_chars", 3000) or 3000), 10000))
+            max_chars = max(
+                0,
+                min(int(args.get("max_chars", SINGLE_RESULT_LIMIT) or SINGLE_RESULT_LIMIT), 10000),
+            )
         except (TypeError, ValueError):
-            max_chars = 3000
+            max_chars = SINGLE_RESULT_LIMIT
         if not entity_name or not self._graph or not hasattr(self._graph, "execute_query"):
             return {"name": entity_name, "code": "", "file": "", "type": ""}
         from wiki.cypher_queries import ENTITY_LOCATION_CY
@@ -989,9 +1023,9 @@ class WikiPageAgent:
         start_line = max(1, int(args.get("start_line", 1) or 1))
         end_line = int(args.get("end_line", 0) or 0)
         if not end_line:
-            end_line = start_line + 100
+            end_line = start_line + 200
         if end_line < start_line:
-            end_line = start_line + 100
+            end_line = start_line + 200
         if not file_path or file_path.startswith("/"):
             return {"error": "missing or absolute file_path"}
         if not self._repo_path:

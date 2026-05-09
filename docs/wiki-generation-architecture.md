@@ -338,21 +338,24 @@ sequenceDiagram
 
 ### 11.2 Wiki 生成 StateGraph（节点级真相）
 
-**`wiki/pipeline_graph.build_wiki_pipeline()`** 编译 **`StateGraph(WikiPipelineState)`**，主线大致为：
+**`wiki/pipeline_graph.build_wiki_pipeline()`** 编译 **`StateGraph(WikiPipelineState)`**，主线为：
 
-`classify_entity_roles` → `detect_reorg` →（条件）`classify_domains` → `decompose_hierarchy` → `set_review_status` → `compose_leaf_pages` → **`quality_gate`** ⇄ **`heal_pages`** → `summarize_leaves` →（条件）`compose_parent_pages` → `synthesize_overviews` → `create_links` → `finalize`。
+`classify_entity_roles` → `detect_reorg` →（条件）`graph_decompose` → `assign_canonical_keys` → `generate_titles` → `set_review_status` → `compose_leaf_modules` → `compose_bottomup` → **`quality_gate`** ⇄ **`heal_pages`** → `create_links` → `finalize`。
 
 - **detect_reorg**：若 **`reorg_type == none`** 可直接 **`finalize`**（无变更短路）。
-- **quality_gate**：**`WikiQualityEvaluator`** L1 结构 / L2 bench / 可选 L3 LLM judge（Core Tier）；超标页进入 **heal** 循环，总尝试 **`HEAL_LOOP_MAX_TOTAL_ATTEMPTS`**（默认 10）兜底。
+- **graph_decompose**：`GraphModuleDecomposer` 通过 FalkorDB 图查询生成确定性模块树，大 SCC 支持 LLM 语义聚类回退。
+- **assign_canonical_keys / generate_titles**：为模块树节点分配稳定 canonical key 和人类可读标题。
+- **compose_leaf_modules**：`WikiGenerationHarness` 驱动叶模块页面生成（含 `WikiPageAgent` 工具调用、sectional 生成策略）。
+- **compose_bottomup**：自下而上合成父模块页面（`ParentSynthesizer`），叶节点可使用图查询上下文增强。
+- **quality_gate**：L1 结构检查 + `verify_citations` 引用校验（罚分）/ L2 静态 benchmark（代码引用、Mermaid、交叉引用）/ 可选 L3 LLM judge（4×1-5 via `WikiPageEvaluator`，仅 Core Tier）；不合格页进入 **heal** 循环，总尝试 **`HEAL_LOOP_MAX_TOTAL_ATTEMPTS`**（默认 10）兜底。
 
 ### 11.3 与「四阶段」概念的映射（便于对照 RFC）
 
 | 概念阶段 | 图节点 |
 |----------|--------|
-| **Classify** | `classify_entity_roles`、`detect_reorg`、`classify_domains`、`decompose_hierarchy`、`set_review_status` |
-| **Domain plan** | `classify_domains`（跨仓 **`CrossRepoBusinessDomainPlanner`**）、层级分解 |
-| **Leaf content** | `compose_leaf_pages` + **`quality_gate`** / **`heal_pages`** |
-| **Synthesis** | `summarize_leaves`、`compose_parent_pages`、`synthesize_overviews`、`create_links` |
+| **Classify & Decompose** | `classify_entity_roles`、`detect_reorg`、`graph_decompose`、`assign_canonical_keys`、`generate_titles`、`set_review_status` |
+| **Leaf content** | `compose_leaf_modules` + `compose_bottomup` + **`quality_gate`** / **`heal_pages`** |
+| **Link & Finalize** | `create_links`、`finalize` |
 
 ### 11.4 TopicPageComposer
 

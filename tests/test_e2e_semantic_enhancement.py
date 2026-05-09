@@ -229,7 +229,7 @@ class TestConfigExtensions:
         config = LLMConfig()
         assert config.enabled is False
         assert config.model == "gpt-4o-mini"
-        assert config.max_concurrent == 10
+        assert config.max_concurrent == 50
 
     def test_llm_config_accepts_max_concurrency_alias(self):
         assert LLMConfig.model_validate({"max_concurrency": 5}).max_concurrent == 5

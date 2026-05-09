@@ -1,14 +1,15 @@
-"""Tests for business API routes (repository binding)."""
+"""Tests for business API routes (Redis-backed BusinessManager)."""
 
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+import api.kb_state as kb_state
 import core.auth as auth
 from api.error_handler import register_exception_handlers
 from api.routes import business_routes
@@ -21,28 +22,30 @@ def open_auth(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def mock_graph() -> AsyncMock:
-    graph = AsyncMock()
-
-    async def query_side_effect(cypher: str, params: dict[str, Any] | None = None) -> MagicMock:
-        if (
-            "MATCH (b:Business {uid: $bid}) RETURN b.uid" in cypher
-            or cypher.strip().startswith("MATCH (b:Business {uid: $bid}) RETURN b.uid")
-        ):
-            return MagicMock(result_set=[["business:test"]])
-        return MagicMock(result_set=[])
-
-    graph.query = AsyncMock(side_effect=query_side_effect)
-    return graph
+def mock_bm() -> MagicMock:
+    bm = MagicMock()
+    bm.list_businesses.return_value = [
+        {"id": "default", "name": "Default", "description": "", "created_at": 1000.0},
+    ]
+    bm.get_business.return_value = {"id": "test-biz", "name": "Test", "description": "", "created_at": 1000.0}
+    bm.create_business.return_value = {"id": "test-biz", "name": "Test", "description": "", "created_at": 1000.0}
+    bm.update_business.return_value = {"id": "test-biz", "name": "Updated", "description": "", "created_at": 1000.0}
+    bm.delete_business.return_value = True
+    bm.get_repos.return_value = []
+    bm.set_repos.return_value = ["repo-a", "repo-b"]
+    return bm
 
 
 @pytest.fixture
-def app(open_auth: None, mock_graph: AsyncMock) -> FastAPI:
+def app(open_auth: None, mock_bm: MagicMock) -> FastAPI:
     application = FastAPI()
     register_exception_handlers(application)
     application.include_router(business_routes.router)
-    application.state.graph = mock_graph
-    return application
+
+    mock_registry = MagicMock()
+    mock_registry.business_manager = mock_bm
+    with patch.object(kb_state, "registry", mock_registry):
+        yield application
 
 
 @pytest.fixture
@@ -52,48 +55,87 @@ async def client(app: FastAPI):
 
 
 @pytest.mark.asyncio
-async def test_bind_repositories_empty_list_returns_400(client: AsyncClient) -> None:
-    r = await client.put(
-        "/api/v1/businesses/business:test/repositories",
-        json={"repositories": []},
-    )
-    assert r.status_code == 400
-    assert r.json()["detail"] == (
-        "repositories list must not be empty; use DELETE to unbind"
-    )
+async def test_list_businesses_returns_from_manager(client: AsyncClient) -> None:
+    r = await client.get("/api/v1/businesses")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 1
+    assert data["businesses"][0]["id"] == "default"
 
 
 @pytest.mark.asyncio
-async def test_bind_repositories_valid_list_succeeds(app: FastAPI) -> None:
+async def test_create_business_returns_201(client: AsyncClient) -> None:
+    r = await client.post(
+        "/api/v1/businesses",
+        json={"id": "test-biz", "name": "Test", "description": "A test business"},
+    )
+    assert r.status_code == 201
+    assert r.json()["id"] == "test-biz"
+
+
+@pytest.mark.asyncio
+async def test_create_business_duplicate_returns_409(app: FastAPI, mock_bm: MagicMock) -> None:
+    mock_bm.create_business.side_effect = ValueError("Business 'test-biz' already exists")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        r = await ac.post(
+            "/api/v1/businesses",
+            json={"id": "test-biz", "name": "Test"},
+        )
+    assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_update_business_returns_updated(client: AsyncClient) -> None:
+    r = await client.put(
+        "/api/v1/businesses/test-biz",
+        json={"name": "Updated"},
+    )
+    assert r.status_code == 200
+    assert r.json()["name"] == "Updated"
+
+
+@pytest.mark.asyncio
+async def test_update_business_not_found(app: FastAPI, mock_bm: MagicMock) -> None:
+    mock_bm.update_business.return_value = None
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         r = await ac.put(
-            "/api/v1/businesses/business:test/repositories",
-            json={"repositories": ["repo-a", "repo-b"]},
+            "/api/v1/businesses/nonexistent",
+            json={"name": "New"},
         )
-    assert r.status_code == 200
-    assert r.json() == {
-        "business_id": "business:test",
-        "repositories": ["repo-a", "repo-b"],
-    }
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_bind_repositories_runs_two_graph_queries_after_existence_check(
-    app: FastAPI, mock_graph: AsyncMock
-) -> None:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        await ac.put(
-            "/api/v1/businesses/business:test/repositories",
-            json={"repositories": ["r1"]},
-        )
+async def test_delete_business_returns_deleted(client: AsyncClient) -> None:
+    r = await client.delete("/api/v1/businesses/test-biz")
+    assert r.status_code == 200
+    assert r.json()["status"] == "deleted"
 
-    calls = [c.args[0] for c in mock_graph.query.call_args_list]
-    assert len(calls) == 3
-    assert calls[0] == "MATCH (b:Business {uid: $bid}) RETURN b.uid"
-    assert calls[1] == "MATCH (b:Business {uid: $bid})-[r:CONTAINS_REPO]->() DELETE r"
-    assert calls[2] == (
-        "MATCH (b:Business {uid: $bid}) "
-        "UNWIND $repos AS repo_name "
-        "MERGE (r:Repository {name: repo_name}) "
-        "MERGE (b)-[:CONTAINS_REPO]->(r)"
+
+@pytest.mark.asyncio
+async def test_bind_repositories_valid_list_succeeds(client: AsyncClient) -> None:
+    r = await client.put(
+        "/api/v1/businesses/test-biz/repositories",
+        json={"repositories": ["repo-a", "repo-b"]},
     )
+    assert r.status_code == 200
+    assert r.json()["repositories"] == ["repo-a", "repo-b"]
+
+
+@pytest.mark.asyncio
+async def test_bind_repositories_not_found(app: FastAPI, mock_bm: MagicMock) -> None:
+    mock_bm.get_business.return_value = None
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        r = await ac.put(
+            "/api/v1/businesses/nonexistent/repositories",
+            json={"repositories": ["repo-a"]},
+        )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_repositories(client: AsyncClient, mock_bm: MagicMock) -> None:
+    mock_bm.get_repos.return_value = ["repo-x"]
+    r = await client.get("/api/v1/businesses/test-biz/repositories")
+    assert r.status_code == 200
+    assert r.json()["repositories"] == ["repo-x"]

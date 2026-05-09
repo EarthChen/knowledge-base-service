@@ -298,7 +298,7 @@ async def test_hierarchical_tree_end_to_end():
     }
     node_tokens = {n: 1000 for n in nodes}
 
-    tree = decomposer.decompose_from_graph(nodes, edges, node_files, node_tokens, "e2e-test")
+    tree = await decomposer.decompose_from_graph(nodes, edges, node_files, node_tokens, "e2e-test")
     all_tree_nodes = tree.all_nodes()
     leaves = [n for n in all_tree_nodes if n.is_leaf()]
 

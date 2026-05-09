@@ -1,5 +1,7 @@
 """Smoke test: verify all harness components are importable and wired correctly."""
 import inspect
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 
@@ -41,3 +43,37 @@ def test_harness_config_from_env():
     config = HarnessConfig.from_env()
     assert isinstance(config.enabled, bool)
     assert isinstance(config.max_repair_rounds, int)
+
+
+@pytest.mark.asyncio
+async def test_harness_uses_sectional_mode_for_complex():
+    """When assessment.level == 'complex', harness should generate sections separately."""
+    from wiki.harness import WikiGenerationHarness
+
+    mock_agent = AsyncMock()
+    mock_agent.generate = AsyncMock(return_value="# Section\n\nContent for this section with enough detail.")
+    mock_agent.repair = AsyncMock(return_value="# Repaired\n\nFixed content.")
+
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(return_value="# Coherent\n\nCombined coherent content with no contradictions.")
+
+    mock_graph = AsyncMock()
+    mock_config = MagicMock()
+    mock_config.simple_threshold = 5
+    mock_config.complex_threshold = 15
+    mock_config.max_repair_rounds = 1
+    mock_config.llm_judge_enabled = False
+
+    harness = WikiGenerationHarness(mock_agent, mock_graph, mock_llm, mock_config)
+
+    mock_ccb = MagicMock()
+    mock_ccb.entity_count = 20
+    mock_ccb.edge_count = 30
+
+    modules = [f"Module{i}" for i in range(20)]
+
+    result = await harness.run("complex-domain", modules, mock_ccb)
+
+    assert isinstance(result, str)
+    assert len(result) > 0
+    assert mock_agent.generate.call_count >= 1

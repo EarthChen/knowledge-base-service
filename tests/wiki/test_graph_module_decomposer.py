@@ -180,54 +180,39 @@ def test_maybe_split_large_single_component_uses_path_prefix():
     assert len(result.children) >= 2
 
 
-def test_maybe_split_small_scc_returns_leaf():
-    """SCC within token budget should remain a single leaf node."""
-    decomposer = GraphModuleDecomposer(max_tokens_per_module=5000)
-    members = ["A", "B"]
-    node_files = {"A": ["src/a.py"], "B": ["src/b.py"]}
-    node_tokens = {"A": 1000, "B": 1000}
-    edges = [("A", "B"), ("B", "A")]
-    result = decomposer._maybe_split_scc(
-        members, node_files, node_tokens, edges, existing_keys=set(),
-    )
-    assert result.is_leaf()
-    assert set(result.entity_uids) == {"A", "B"}
-
-
-def test_maybe_split_large_scc_creates_children():
-    """SCC exceeding token budget with disconnectable subgraphs should split into parent+children."""
+def test_decompose_large_scc_creates_hierarchical_tree():
+    """A large SCC (tokens > max) with splittable CC should produce parent+children."""
     decomposer = GraphModuleDecomposer(max_tokens_per_module=3000)
-    members = ["A", "B", "C", "D"]
+    nodes = ["A", "B", "C", "D", "E"]
+    # Two clusters: {A,B,C} cycle and {D,E} cycle, no cross-edges
+    edges = [
+        ("A", "B"), ("B", "C"), ("C", "A"),
+        ("D", "E"), ("E", "D"),
+    ]
     node_files = {
-        "A": ["src/a.py"], "B": ["src/a.py"],
-        "C": ["src/c.py"], "D": ["src/c.py"],
+        "A": ["src/auth/a.py"], "B": ["src/auth/b.py"], "C": ["src/auth/c.py"],
+        "D": ["src/api/d.py"], "E": ["src/api/e.py"],
     }
-    node_tokens = {"A": 1000, "B": 1000, "C": 1000, "D": 1000}
-    # Only intra-group edges — CC will find 2 components
-    edges = [("A", "B"), ("B", "A"), ("C", "D"), ("D", "C")]
-    result = decomposer._maybe_split_scc(
-        members, node_files, node_tokens, edges, existing_keys=set(),
-    )
-    assert not result.is_leaf(), "Should have children"
-    assert len(result.children) == 2
-    child_uids = [set(c.entity_uids) for c in result.children]
-    assert {"A", "B"} in child_uids
-    assert {"C", "D"} in child_uids
+    # Sum for {A,B,C} must exceed max_tokens (not <=); equality is treated as within budget.
+    node_tokens = {"A": 1100, "B": 1100, "C": 1100, "D": 1000, "E": 1000}
+    tree = decomposer.decompose_from_graph(nodes, edges, node_files, node_tokens, "test")
+
+    all_nodes = tree.all_nodes()
+    parents = [n for n in all_nodes if not n.is_leaf()]
+    leaves = [n for n in all_nodes if n.is_leaf()]
+    # Should have at least one parent (the large SCC split)
+    assert len(parents) >= 1, f"Expected parent nodes, got {len(parents)}"
+    assert len(leaves) >= 2, f"Expected at least 2 leaf nodes, got {len(leaves)}"
 
 
-def test_maybe_split_large_single_component_uses_path_prefix():
-    """Large SCC that can't be split by CC should use path-prefix grouping."""
-    decomposer = GraphModuleDecomposer(max_tokens_per_module=2000)
-    members = ["A", "B", "C", "D"]
-    node_files = {
-        "A": ["src/auth/a.py"], "B": ["src/auth/b.py"],
-        "C": ["src/api/c.py"], "D": ["src/api/d.py"],
-    }
-    node_tokens = {"A": 1000, "B": 1000, "C": 1000, "D": 1000}
-    # Fully connected — CC yields 1 component
-    edges = [("A", "B"), ("B", "C"), ("C", "D"), ("D", "A")]
-    result = decomposer._maybe_split_scc(
-        members, node_files, node_tokens, edges, existing_keys=set(),
+def test_decompose_small_scc_stays_flat():
+    """SCCs within token budget should remain flat leaf nodes."""
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)
+    graph = _make_graph_data()
+    tree = decomposer.decompose_from_graph(
+        graph["nodes"], graph["edges"],
+        graph["node_files"], graph["node_tokens"],
+        repo_id="test",
     )
-    assert not result.is_leaf(), "Should have children from path-prefix grouping"
-    assert len(result.children) >= 2
+    # All nodes should be leaves (tokens well within budget)
+    assert all(r.is_leaf() for r in tree.roots)

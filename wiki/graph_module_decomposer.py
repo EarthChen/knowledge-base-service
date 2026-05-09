@@ -251,20 +251,8 @@ class GraphModuleDecomposer:
         module_nodes: list[ModuleNode] = []
         for scc_set in topo_order:
             members = sorted(scc_set)
-            all_files: list[str] = []
-            all_uids: list[str] = list(members)
-            total_tokens = 0
-            for m in members:
-                all_files.extend(node_files.get(m, []))
-                total_tokens += node_tokens.get(m, 0)
-            all_files = sorted(set(all_files))
-            key = make_canonical_key(all_files, existing_keys, entity_uids=all_uids)
-            existing_keys.add(key)
-            node = ModuleNode(
-                canonical_key=key,
-                entity_uids=all_uids,
-                file_paths=all_files,
-                token_estimate=total_tokens,
+            node = self._maybe_split_scc(
+                members, node_files, node_tokens, edges, existing_keys,
             )
             module_nodes.append(node)
 

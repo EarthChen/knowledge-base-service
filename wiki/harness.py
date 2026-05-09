@@ -13,7 +13,7 @@ log = get_logger(__name__)
 
 
 class WikiGenerationHarness:
-    def __init__(self, agent, graph_store, llm, config=None):
+    def __init__(self, agent, graph_store, llm, config=None, domain_cache=None):
         self.agent = agent
         self.graph_store = graph_store
         self.llm = llm
@@ -24,7 +24,7 @@ class WikiGenerationHarness:
         )
         self.planner = WikiPagePlanner()
         self.evaluator = WikiPageEvaluator()
-        self.domain_cache: dict[str, str] = {}
+        self.domain_cache: dict[str, str] = domain_cache if domain_cache is not None else {}
 
     async def run(
         self,

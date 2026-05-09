@@ -113,6 +113,8 @@ Sprint 1 完成了递归分解 (P0a)、Agent 集成 (P0b，后回退)、LLMPort 
 2. 实例化 `WikiPageAgent(llm, graph_store)` 并调用 `agent.enrich(content)` 替代纯 LLM rewrite
 3. 复用 B0 中已验证的 graph_store 传递模式
 
+**性能说明**: heal 路径仅处理 <10% 的低分页面，Agent 多轮在此场景下可接受。
+
 **测试**: mock graph_store + mock llm，验证 heal 后内容包含图查询结果。
 
 ---
@@ -128,8 +130,8 @@ Sprint 1 完成了递归分解 (P0a)、Agent 集成 (P0b，后回退)、LLMPort 
 - `WikiPageEvaluator.evaluate_l3` (4 维 1-5 分) — 已实现但未接入
 
 **实现**:
-1. `quality_evaluator.py`: `llm_judge_evaluate` 调用 `HarnessEvaluator.evaluate_l3` 并将 1-5 分制归一化到 0-1
-2. `pipeline_graph.py` `quality_gate_node`: L3 分数写入 `quality_scores` dict
+1. `pipeline_graph.py` `quality_gate_node`: 实例化 `WikiPageEvaluator` 并调用其 `evaluate_l3(content, modules, llm)` 方法
+2. 将 1-5 分制归一化到 0-1 范围，写入 `quality_scores[page.path]["l3_llm_judge"]`
 3. 统一 4 维: Completeness, Accuracy, Readability, Structure
 
 **测试**: 验证 `llm_judge_evaluate` 返回 4 维分数，分值在 0-1 范围。
@@ -161,6 +163,8 @@ Sprint 1 完成了递归分解 (P0a)、Agent 集成 (P0b，后回退)、LLMPort 
     - 调用 `self._llm.generate()` 请求将成员聚类为 ≤5 个语义组
     - 解析 JSON 结果，若失败则 fallback 到 path-prefix
   - 非关键路径: LLM 失败时静默降级
+
+**注意**: `decompose_from_graph` 和 `_maybe_split_scc` 当前是同步方法，需改为 `async` 以支持 `await llm.generate()`。`graph_decompose_node` 已是 async，且 decomposer 仅在此处调用，影响范围可控。
 
 **测试**: mock llm 返回聚类结果，验证分组正确; mock llm 异常，验证 fallback 到 path-prefix。
 
@@ -200,7 +204,8 @@ Sprint 1 完成了递归分解 (P0a)、Agent 集成 (P0b，后回退)、LLMPort 
 1. `harness.py` `WikiGenerationHarness.run`:
    - `assessment.level == "complex"` 时进入 sectional 模式
    - 按 plan.outline sections 逐段调用 `agent.generate`
-   - 最终 coherence pass: 单次 LLM 检查全文连贯性并修复
+   - 流程: sectional generate → concatenate → coherence pass → evaluate → repair
+   - coherence pass: 单次 LLM 检查全文连贯性并修复重复/矛盾内容
 
 **测试**: mock complex assessment，验证 sectional 模式触发和 coherence pass 调用。
 

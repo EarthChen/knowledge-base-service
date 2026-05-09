@@ -98,3 +98,34 @@ def test_decompose_isolated_nodes():
     )
     assert len(tree.roots) == 3
     assert all(r.is_leaf() for r in tree.roots)
+
+
+def test_find_connected_components_two_clusters():
+    """Two disconnected groups should yield two components."""
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)
+    members = ["A", "B", "C", "D"]
+    edges = [("A", "B"), ("C", "D")]
+    components = decomposer._find_connected_components(members, edges)
+    assert len(components) == 2
+    component_sets = [set(c) for c in components]
+    assert {"A", "B"} in component_sets
+    assert {"C", "D"} in component_sets
+
+
+def test_find_connected_components_single_cluster():
+    """Fully connected members should yield one component."""
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)
+    members = ["A", "B", "C"]
+    edges = [("A", "B"), ("B", "C")]
+    components = decomposer._find_connected_components(members, edges)
+    assert len(components) == 1
+    assert set(components[0]) == {"A", "B", "C"}
+
+
+def test_find_connected_components_isolated_nodes():
+    """Nodes with no edges should each be their own component."""
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)
+    members = ["X", "Y", "Z"]
+    edges = []
+    components = decomposer._find_connected_components(members, edges)
+    assert len(components) == 3

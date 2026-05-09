@@ -21,8 +21,8 @@ def make_canonical_key(
     entity_uids: list[str] | None = None,
 ) -> str:
     if not file_paths:
-        return "unknown"
-    if len(file_paths) == 1:
+        slug = "unknown"
+    elif len(file_paths) == 1:
         slug = file_paths[0].strip("/").replace("/", "-").replace("_", "-").lower()
     else:
         prefix = os.path.commonpath(file_paths)
@@ -132,6 +132,38 @@ class GraphModuleDecomposer:
                     queue.append(neighbor)
             queue.sort(key=lambda x: sorted(x))
         return result
+
+    def _find_connected_components(
+        self,
+        members: list[str],
+        edges: list[tuple[str, str]],
+    ) -> list[list[str]]:
+        """Find connected components in undirected view of subgraph restricted to members."""
+        member_set = set(members)
+        adj: dict[str, set[str]] = {m: set() for m in members}
+        for u, v in edges:
+            if u in member_set and v in member_set:
+                adj[u].add(v)
+                adj[v].add(u)
+
+        visited: set[str] = set()
+        components: list[list[str]] = []
+        for start in sorted(members):
+            if start in visited:
+                continue
+            component: list[str] = []
+            stack = [start]
+            while stack:
+                node = stack.pop()
+                if node in visited:
+                    continue
+                visited.add(node)
+                component.append(node)
+                for neighbor in sorted(adj[node]):
+                    if neighbor not in visited:
+                        stack.append(neighbor)
+            components.append(sorted(component))
+        return components
 
     def decompose_from_graph(
         self,

@@ -159,8 +159,12 @@ async def compose_parent_pages_node(
                 f"{snippet_text}\n\n"
                 'Return ONLY valid JSON (no markdown fences) with keys: "title", '
                 '"content", "executive_summary", "page_type".\n'
-                "The content should explain how sub-domains relate, describe data flow, "
-                "and reference key interfaces naturally.\n"
+                "Requirements for content:\n"
+                "- Use Chinese (简体中文) for all text including the title\n"
+                "- Explain how sub-domains relate and describe data flow between them\n"
+                "- Include at least one Mermaid sequenceDiagram or flowchart showing interactions\n"
+                "- Reference key interfaces naturally in the explanation\n"
+                "- Do NOT just list module names and summaries; explain the business story\n\n"
                 "executive_summary should be 150-300 chars capturing the domain's core purpose."
             )
             messages = [
@@ -245,7 +249,11 @@ _BUSINESS_SUMMARY_SECTION = re.compile(
 
 def _summarize_domain_for_system_overview(domain_name: str, pages: list[dict[str, Any]]) -> str:
     """Use ## 业务概述 body when present, else first ~300 chars of the best matching page."""
-    domain_pages = [p for p in pages if p.get("domain") == domain_name]
+    domain_pages = [
+        p
+        for p in pages
+        if p.get("domain") == domain_name or p.get("business_domain") == domain_name
+    ]
     if not domain_pages:
         return ""
     preferred: str | None = None
@@ -394,7 +402,11 @@ async def synthesize_overviews_node(
         if isinstance(ls, dict) and ls.get("summary_text"):
             summary = ls["summary_text"]
         else:
-            domain_pages = [p for p in pages if p.get("domain") == name]
+            domain_pages = [
+                p
+                for p in pages
+                if p.get("domain") == name or p.get("business_domain") == name
+            ]
             summary = domain_pages[0].get("content", "")[:200] if domain_pages else ""
         thin_domain_lines.append(f"- **{name}**: {summary}")
 

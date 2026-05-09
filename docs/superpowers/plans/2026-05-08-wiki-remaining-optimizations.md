@@ -39,7 +39,7 @@
 - Modify: `wiki/content_context_builder.py:415-439`
 - Test: `tests/wiki/test_ccb_caller_functions.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/wiki/test_ccb_caller_functions.py`:
 
@@ -124,12 +124,12 @@ def test_old_method_map_bug_not_present(mock_graph):
     assert steps[0].caller_method != steps[1].caller_method
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_ccb_caller_functions.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: FAIL (old code ignores `caller_functions`, uses method_map bug)
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `wiki/content_context_builder.py`, replace lines 415-439 (the `if module_rows:` branch):
 
@@ -153,17 +153,17 @@ In `wiki/content_context_builder.py`, replace lines 415-439 (the `if module_rows
                 )
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_ccb_caller_functions.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: PASS
 
-- [ ] **Step 5: Run full test suite for regression**
+- [x] **Step 5: Run full test suite for regression**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest --no-cov -x -q 2>&1 | tail -10`
 Expected: All tests pass
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add wiki/content_context_builder.py tests/wiki/test_ccb_caller_functions.py
@@ -180,7 +180,7 @@ git commit -m "fix: use caller_functions/callee_functions in CCB call chain, rem
 - Modify: `wiki/page_agent.py:627` (increase `baseline_str` limit)
 - Test: `tests/wiki/test_ccb_agent_fusion.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/wiki/test_ccb_agent_fusion.py`:
 
@@ -243,12 +243,12 @@ def test_baseline_str_limit_increased():
     assert "[:2000]" not in source or "[:6000]" in source or "[:8000]" in source
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_ccb_agent_fusion.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: FAIL (CCB appears after AgentConfig in current code, format_summary_for_agent not called, module_summaries not in format output)
 
-- [ ] **Step 3a: Enhance `format_summary_for_agent`**
+- [x] **Step 3a: Enhance `format_summary_for_agent`**
 
 In `wiki/content_context_builder.py`, modify `format_summary_for_agent` (around line 118-163):
 
@@ -281,7 +281,7 @@ Also change the default `max_chars` from 2000 to 6000:
     def format_summary_for_agent(self, max_chars: int = 6000) -> str:
 ```
 
-- [ ] **Step 3b: Increase baseline_str limit in page_agent.py**
+- [x] **Step 3b: Increase baseline_str limit in page_agent.py**
 
 In `wiki/page_agent.py` line 627, change:
 ```python
@@ -292,7 +292,7 @@ to:
         baseline_str = str(baseline_context)[:6000]
 ```
 
-- [ ] **Step 3c: Refactor `_compose_single_leaf_domain` in compose.py**
+- [x] **Step 3c: Refactor `_compose_single_leaf_domain` in compose.py**
 
 Restructure the flow so CCB runs first, then Agent uses CCB context:
 
@@ -399,17 +399,17 @@ Replace the Agent-Driven block (L267-311) and CCB block (L313-357) with:
     # --- Step 4: Legacy fallback (no graph_store) ---
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_ccb_agent_fusion.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: PASS
 
-- [ ] **Step 5: Run full test suite for regression**
+- [x] **Step 5: Run full test suite for regression**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest --no-cov -x -q 2>&1 | tail -10`
 Expected: All tests pass
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add wiki/nodes/compose.py wiki/content_context_builder.py wiki/page_agent.py tests/wiki/test_ccb_agent_fusion.py
@@ -424,7 +424,7 @@ git commit -m "feat: fuse CCB + Agent-Driven — CCB always provides context, Ag
 - Modify: `wiki/nodes/classify.py:287-288`
 - Test: `tests/wiki/test_decompose_real_edges.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/wiki/test_decompose_real_edges.py`:
 
@@ -462,12 +462,12 @@ def test_decompose_hierarchy_node_imports_module_dependency_graph():
     )
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_decompose_real_edges.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: FAIL (current code has `edges=[]` hardcoded)
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `wiki/nodes/classify.py`, replace the `decompose_hierarchy_node` section around line 287-288.
 
@@ -511,17 +511,17 @@ Replace with:
             rebal_graph = ModuleGraph(modules=leaf_modules, edges=rebal_edges, entry_points=[])
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_decompose_real_edges.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: PASS
 
-- [ ] **Step 5: Run full test suite for regression**
+- [x] **Step 5: Run full test suite for regression**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest --no-cov -x -q 2>&1 | tail -10`
 Expected: All tests pass
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add wiki/nodes/classify.py tests/wiki/test_decompose_real_edges.py
@@ -537,7 +537,7 @@ git commit -m "fix: load real graph edges in decompose_hierarchy_node instead of
 - Modify: `wiki/nodes/classify.py` (inject pre_groups computation)
 - Test: `tests/wiki/test_graph_pre_grouper.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/wiki/test_graph_pre_grouper.py`:
 
@@ -644,12 +644,12 @@ def test_empty_graph_returns_no_groups(mock_graph):
     assert groups == []
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_graph_pre_grouper.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: FAIL (module does not exist)
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `wiki/graph_pre_grouper.py`:
 
@@ -772,17 +772,17 @@ async def compute_pre_groups(
     return groups
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_graph_pre_grouper.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: PASS
 
-- [ ] **Step 5: Run full test suite for regression**
+- [x] **Step 5: Run full test suite for regression**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest --no-cov -x -q 2>&1 | tail -10`
 Expected: All tests pass
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add wiki/graph_pre_grouper.py tests/wiki/test_graph_pre_grouper.py
@@ -798,7 +798,7 @@ git commit -m "feat: add graph_pre_grouper with Union-Find connected components 
 - Modify: `wiki/nodes/classify.py` (pass pre_groups to planner)
 - Test: `tests/wiki/test_planner_pre_groups_prompt.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/wiki/test_planner_pre_groups_prompt.py`:
 
@@ -850,12 +850,12 @@ def test_single_batch_prompt_without_pre_groups():
     assert "Pre-grouping hints" not in prompt
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_planner_pre_groups_prompt.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: FAIL (`_build_single_batch_prompt` does not accept `pre_groups` parameter)
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `wiki/cross_repo_domain_planner.py`, modify `_build_single_batch_prompt`:
 
@@ -936,17 +936,17 @@ After the `biz_modules` filtering section (~line 164), add:
 
 Then pass `pre_groups` to `planner.classify()` — this requires adding `pre_groups` parameter to `classify()` and forwarding to `_build_single_batch_prompt`. If `classify()` already delegates to `_build_single_batch_prompt`, thread the parameter through.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_planner_pre_groups_prompt.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: PASS
 
-- [ ] **Step 5: Run full test suite for regression**
+- [x] **Step 5: Run full test suite for regression**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest --no-cov -x -q 2>&1 | tail -10`
 Expected: All tests pass
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add wiki/cross_repo_domain_planner.py wiki/nodes/classify.py tests/wiki/test_planner_pre_groups_prompt.py
@@ -961,7 +961,7 @@ git commit -m "feat: inject graph pre-groups into domain classification prompt"
 - Modify: `wiki/nodes/compose.py:910` (add `_merge_small_leaves` call)
 - Test: `tests/wiki/test_compose_merge_small_leaves.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/wiki/test_compose_merge_small_leaves.py`:
 
@@ -1038,12 +1038,12 @@ def test_prefer_same_parent_for_merge():
             assert "M4" in leaf["modules"]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_compose_merge_small_leaves.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: FAIL (`_merge_small_leaves` does not exist)
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `wiki/nodes/compose.py`, add the function (before `compose_leaf_pages_node`):
 
@@ -1083,17 +1083,17 @@ Then in `compose_leaf_pages_node`, after line 910 (`leaf_domains = _collect_leaf
     leaf_domains = _merge_small_leaves(leaf_domains, min_modules=3)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_compose_merge_small_leaves.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: PASS
 
-- [ ] **Step 5: Run full test suite for regression**
+- [x] **Step 5: Run full test suite for regression**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest --no-cov -x -q 2>&1 | tail -10`
 Expected: All tests pass
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add wiki/nodes/compose.py tests/wiki/test_compose_merge_small_leaves.py
@@ -1107,7 +1107,7 @@ git commit -m "feat: merge small leaf domains (<3 modules) at compose stage"
 **Files:**
 - Create: `tests/wiki/test_remaining_optimizations_smoke.py`
 
-- [ ] **Step 1: Write integration smoke test**
+- [x] **Step 1: Write integration smoke test**
 
 Create `tests/wiki/test_remaining_optimizations_smoke.py`:
 
@@ -1179,17 +1179,17 @@ def test_r5_agent_uses_format_summary():
     assert "format_summary_for_agent" in source
 ```
 
-- [ ] **Step 2: Run smoke test**
+- [x] **Step 2: Run smoke test**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest tests/wiki/test_remaining_optimizations_smoke.py -v --no-header --no-cov 2>&1 | tail -20`
 Expected: PASS
 
-- [ ] **Step 3: Run full test suite**
+- [x] **Step 3: Run full test suite**
 
 Run: `cd /Users/earthchen/ai-work/agent-work/knowledge-base-service && python -m pytest --no-cov -x -q 2>&1 | tail -10`
 Expected: All tests pass
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/wiki/test_remaining_optimizations_smoke.py

@@ -5,7 +5,7 @@ class TestAgentConfig:
     def test_defaults(self):
         config = AgentConfig()
         assert config.enabled is False
-        assert config.simple_threshold == 3
+        assert config.simple_threshold == 1
 
     def test_from_env(self, monkeypatch):
         monkeypatch.setenv("WIKI__AGENT_DRIVEN_GENERATION", "true")

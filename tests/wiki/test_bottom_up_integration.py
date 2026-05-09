@@ -1,11 +1,14 @@
-"""Integration tests for bottom-up wiki stages: summarize_leaves, compose_parent_pages, routing."""
+"""Integration tests for bottom-up wiki stages: summarize_leaves, compose_parent_pages."""
 from __future__ import annotations
 
 import json
 from unittest.mock import AsyncMock
 
-from wiki.pipeline_graph import route_parent_or_overview
-from wiki.pipeline_nodes import compose_parent_pages_node, summarize_leaves_node
+from wiki.pipeline_nodes import (
+    compose_parent_pages_node,
+    has_parent_domains,
+    summarize_leaves_node,
+)
 from wiki.snippet_selector import select_key_snippets
 
 
@@ -77,7 +80,7 @@ async def test_flat_domain_tree_summarize_and_routes_to_synthesize_overviews():
     assert leaf_summaries["user-management"]["source"] == "llm"
 
     merged = {**state, **out}
-    assert route_parent_or_overview(merged) == "synthesize_overviews"
+    assert not has_parent_domains(merged)
 
 
 async def test_nested_domain_tree_compose_parent_pages_and_executive_summary():
@@ -154,7 +157,7 @@ async def test_nested_domain_tree_compose_parent_pages_and_executive_summary():
     assert sum_out.get("leaf_summaries", {}).get("payment", {}).get("source") == "llm"
 
     pre_route = {**state, **sum_out}
-    assert route_parent_or_overview(pre_route) == "compose_parent_pages"
+    assert has_parent_domains(pre_route)
 
     mock_llm = AsyncMock()
     mock_llm.complete_json = AsyncMock(

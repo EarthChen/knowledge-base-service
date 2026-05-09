@@ -1044,6 +1044,7 @@ class WikiService:
             graph_store=self._store,
             wiki_store=self._wiki_store,
             progress_callback=progress_callback,
+            config_overrides={"language": language},
         )
 
         if progress_callback:
@@ -1341,14 +1342,19 @@ class WikiService:
         if domain_tree:
             try:
                 pages_result = await self._wiki_store.get_wiki_pages_for_business(business_id)
+                if not pages_result:
+                    pages_result = await self._wiki_store.get_wiki_pages_for_business("default")
                 pages_by_entity: dict[str, dict[str, Any]] = {}
                 for page in pages_result:
                     entity_uid = page.get("entity_uid", "")
                     title = page.get("title", "")
+                    uid = page.get("uid", "")
                     if entity_uid:
                         pages_by_entity[str(entity_uid)] = page
                     if title:
                         pages_by_entity[str(title)] = page
+                    if uid:
+                        pages_by_entity[str(uid)] = page
                 await self._link_pages_to_nested_tree(
                     business_id, domain_tree, pages_by_entity, tree_builder,
                     language=language,

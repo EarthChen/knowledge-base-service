@@ -39,6 +39,8 @@
 | [`superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md`](superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md) | 全仓库向的代码审计摘要，以及与 DeepWiki/CodeWiki/LLMWiki 等方向的**多维度对标**与追赶路线归纳。 |
 | [`superpowers/specs/2026-05-02-architecture-refactor-design.md`](superpowers/specs/2026-05-02-architecture-refactor-design.md) | **架构重构设计**：DI 容器、`@mcp_tool` 注册策略、`lifespan` 分段与关停顺序等。 |
 | [`superpowers/plans/2026-05-02-architecture-refactor.md`](superpowers/plans/2026-05-02-architecture-refactor.md) | **架构重构实施计划**：分 Task/Phase 的落地顺序与验收线索。 |
+| [`superpowers/specs/2026-05-09-graph-driven-deterministic-decomposition.md`](superpowers/specs/2026-05-09-graph-driven-deterministic-decomposition.md) | **图算法确定性分解分析**：借鉴 CodeWiki (ACL 2026) 的分解策略分析，CodeWiki 论文 vs 实际代码对比，Harness+Agent 系统 P0-P3 问题清单。 |
+| [`superpowers/specs/2026-05-09-codewiki-aligned-pipeline-design.md`](superpowers/specs/2026-05-09-codewiki-aligned-pipeline-design.md) | **CodeWiki 对齐管线重设计**：管线内置换方案，GraphModuleDecomposer (SCC+拓扑+CC+LLM)、canonical_key、bottom-up synthesis、ParentSynthesizer、4 维 LLM Judge、delegate_submodule tool。 |
 
 ---
 

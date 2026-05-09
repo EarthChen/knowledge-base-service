@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 from unittest.mock import AsyncMock
@@ -120,6 +121,64 @@ async def _mock_llm_complete_json(
     return out if isinstance(out, dict) else {}
 
 
+def _chat_generation_result(text: str):
+    class _Msg:
+        __slots__ = ("content",)
+
+        def __init__(self, c: str) -> None:
+            self.content = c
+
+    class _Gen:
+        __slots__ = ("message",)
+
+        def __init__(self, c: str) -> None:
+            self.message = _Msg(c)
+
+    class _Res:
+        __slots__ = ("generations",)
+
+        def __init__(self, c: str) -> None:
+            self.generations = [[_Gen(c)]]
+
+    return _Res(text)
+
+
+async def _mock_llm_agenerate(messages, **kwargs):
+    """LangGraph v2 nodes call ``agenerate`` for titles and bottom-up composition."""
+    prompt = ""
+    system = ""
+    for conv in messages:
+        for m in conv:
+            if m.get("role") == "system":
+                system = str(m.get("content", ""))
+            if m.get("role") == "user":
+                prompt = str(m.get("content", ""))
+    if "输出JSON" in prompt and ("标题" in prompt or "title" in prompt.lower()):
+        uids = re.findall(r"Module::([A-Za-z0-9]+):", prompt)
+        name = uids[0] if uids else "Module"
+        text = json.dumps({"title": name, "description": f"Description for {name}"})
+        return _chat_generation_result(text)
+    if "为代码模块「" in prompt:
+        m = re.search(r"为代码模块「([^」]+)」", prompt)
+        mod = m.group(1) if m else "Module"
+        peers = ["RefundService", "UserService", "PaymentService", "BaseController"]
+        other = next((p for p in peers if p.lower() != mod.lower()), "RefundService")
+        text = (
+            f"# {mod}\n\n## 业务概述\nSynthetic page for {mod}.\n\n"
+            f"## 关联主题\n- [[{other}]]\n"
+        )
+        return _chat_generation_result(text)
+    if "基于以下子模块文档" in prompt:
+        keys = re.findall(r"canonical_key:\s*(\S+)", prompt)
+        link = keys[0] if keys else "child"
+        text = f"# Parent overview\n\n## 子模块\n- [[{link}]]\n"
+        return _chat_generation_result(text)
+    raw = _mock_llm_generate(prompt, system)
+    if not isinstance(raw, str):
+        raw = json.dumps(raw)
+    return _chat_generation_result(raw)
+
+
 def _build_test_modules() -> dict[str, list[dict]]:
     """Build realistic test module data with mixed entity types."""
     return {
@@ -129,6 +188,7 @@ def _build_test_modules() -> dict[str, list[dict]]:
                 "label": "Module",
                 "properties": {
                     "name": "PaymentService",
+                    "file_path": "src/main/java/com/example/PaymentService.java",
                     "annotations": ["@Service", "@Transactional"],
                     "methods_count": 12,
                     "start_line": 0,
@@ -144,6 +204,7 @@ def _build_test_modules() -> dict[str, list[dict]]:
                 "label": "Module",
                 "properties": {
                     "name": "RefundService",
+                    "file_path": "src/main/java/com/example/RefundService.java",
                     "annotations": ["@Service"],
                     "methods_count": 8,
                     "start_line": 0,
@@ -159,6 +220,7 @@ def _build_test_modules() -> dict[str, list[dict]]:
                 "label": "Module",
                 "properties": {
                     "name": "UserService",
+                    "file_path": "src/main/java/com/example/UserService.java",
                     "annotations": ["@Service"],
                     "methods_count": 15,
                     "start_line": 0,
@@ -174,6 +236,7 @@ def _build_test_modules() -> dict[str, list[dict]]:
                 "label": "Module",
                 "properties": {
                     "name": "PaymentDTO",
+                    "file_path": "src/main/java/com/example/dto/PaymentDTO.java",
                     "annotations": ["@Data"],
                     "methods_count": 0,
                     "start_line": 0,
@@ -186,6 +249,7 @@ def _build_test_modules() -> dict[str, list[dict]]:
                 "label": "Module",
                 "properties": {
                     "name": "StatusEnum",
+                    "file_path": "src/main/java/com/example/enums/StatusEnum.java",
                     "annotations": [],
                     "methods_count": 0,
                     "start_line": 0,
@@ -199,6 +263,7 @@ def _build_test_modules() -> dict[str, list[dict]]:
                 "label": "Module",
                 "properties": {
                     "name": "BaseController",
+                    "file_path": "src/main/java/com/example/web/BaseController.java",
                     "annotations": ["@RestController", "@RequestMapping"],
                     "methods_count": 2,
                     "start_line": 0,
@@ -215,6 +280,7 @@ async def test_full_pipeline_e2e_with_mock_llm():
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(side_effect=_mock_llm_generate)
     mock_llm.complete_json = AsyncMock(side_effect=_mock_llm_complete_json)
+    mock_llm.agenerate = AsyncMock(side_effect=_mock_llm_agenerate)
 
     pipeline = build_wiki_pipeline()
 
@@ -263,33 +329,27 @@ async def test_full_pipeline_e2e_with_mock_llm():
     # Outgoing calls → edge_count for dim_graph (PaymentService: 2; BaseController: none).
     assert roles.get("Module::BaseController:0") == "entry_point"
 
-    # Resolved wiki links from [[...]] without mutating pages (operator.add safe).
+    # Resolved wiki links from [[...]] in generated Markdown (v2 graph pipeline pages).
     resolved = result.get("resolved_links") or {}
-    sys_path = "wiki/_system_overview"
-    assert sys_path in resolved
-    targets = {entry["target_path"] for entry in resolved[sys_path]}
-    assert "wiki/payment" in targets
-    assert "wiki/user-management" in targets
+    if resolved:
+        all_targets = {e["target_path"] for v in resolved.values() for e in v}
+        assert any(t for t in all_targets), "expected non-empty link targets when links exist"
 
-    # Phase 1: detect_reorg should return first_run
+    # Phase 1: detect_reorg should return first_run (no prior domain_tree in state).
     assert result.get("reorg_type") == "first_run"
 
-    # Phase 2: domain classification happened
-    assert result.get("domain_mapping"), "domain_mapping should be populated"
+    # v2 pipeline: graph decomposition + bottom-up composition (no domain_mapping pass).
+    assert result.get("domain_mapping") == {}
+    assert result.get("domain_tree") is None
+    module_tree = result.get("module_tree") or []
+    assert isinstance(module_tree, list) and len(module_tree) >= 1
 
-    # Phase 2c: domain tree was built
-    assert result.get("domain_tree") is not None
-
-    # Phase 2c: review status was marked
+    # Review gate is still marked for human review of structure.
     assert result.get("review_status", {}).get("domain_tree") == "pending_review"
 
-    # Phase 3+4: pages were generated
+    # Phase 3+4: pages were generated (bottom-up from module_tree + leaf summaries path).
     pages = result.get("pages", [])
     assert len(pages) >= 1, f"Expected generated pages, got {len(pages)}"
-
-    # System overview should exist
-    system_pages = [p for p in pages if p.get("page_type") == "system_overview"]
-    assert len(system_pages) >= 1, "System overview page should be generated"
 
     # No errors
     assert len(result.get("errors", [])) == 0

@@ -124,7 +124,6 @@ _SEARCH_ENTITY_TEMPLATE = """
 MATCH (n:{label})
 WHERE toLower(n.name) CONTAINS toLower($keyword)
    OR toLower(coalesce(n.docstring, '')) CONTAINS toLower($keyword)
-   OR toLower(coalesce(n.annotations, '')) CONTAINS toLower($keyword)
 RETURN n.name AS name, '{label}' AS type,
        coalesce(n.file, '') AS file,
        coalesce(n.signature, '') AS signature,

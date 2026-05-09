@@ -15,7 +15,7 @@ class TestSynthesizeOverview:
     def test_empty_children(self):
         result = synthesize_overview_from_children("空域", [])
         assert "空域" in result
-        assert "CONTEXT_GAP" in result
+        assert "暂无子模块" in result
 
     def test_single_child(self):
         children = [

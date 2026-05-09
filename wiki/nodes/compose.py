@@ -1,6 +1,7 @@
 """Leaf module summaries and topic / domain page composition."""
 
 import asyncio
+from collections import Counter
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -155,10 +156,13 @@ def _sanitize_pages(
     covered_entity_uids: list[str],
 ) -> None:
     """Sanitize wiki content and set covered_entity_uids (in-place)."""
+    from wiki.page_agent import strip_agent_artifacts
     from wiki.source_ref_validator import sanitize_wiki_content
 
     for page_dict in pages:
         raw_content = page_dict.get("content", "")
+        # Strip LLM artifacts (```markdown fence, thinking prefixes, JSON preambles)
+        raw_content = strip_agent_artifacts(raw_content)
         page_dict["content"] = sanitize_wiki_content(raw_content, known_entities)
         page_dict["content"] = cleanup_context_gaps(page_dict.get("content", ""))
         page_dict["covered_entity_uids"] = covered_entity_uids
@@ -265,6 +269,7 @@ async def _compose_single_leaf_domain(
 
     domain_name = leaf.get("name", "unknown")
     module_names = leaf.get("modules", [])
+    biz_domain = _effective_business_domain(leaf)
 
     # --- Step 1: Always run CCB to collect structured context ---
     context = None
@@ -353,6 +358,7 @@ async def _compose_single_leaf_domain(
                         for e in context.biz_entities
                     ] if context else []
                     _sanitize_pages(pages, known_entities, covered_entity_uids)
+                    _attach_business_domain_to_pages(pages, biz_domain)
                     _pn.log.info("agent_driven_generation_complete", domain=domain_name)
                     return pages, [page["path"]]
             except Exception:
@@ -384,6 +390,7 @@ async def _compose_single_leaf_domain(
                 for e in context.biz_entities
             ]
             _sanitize_pages(pages, known_entities, covered_entity_uids)
+            _attach_business_domain_to_pages(pages, biz_domain)
             return pages, [p.get("path", "") for p in pages]
         except Exception:
             _pn.log.warning(
@@ -470,6 +477,7 @@ async def _compose_single_leaf_domain(
             for e in biz_entities
         ]
         _sanitize_pages(pages, known_ents, covered_entity_uids)
+        _attach_business_domain_to_pages(pages, biz_domain)
         return pages, [p.get("path", "") for p in pages]
     except Exception:
         _pn.log.warning("compose_pages_domain_failed", domain=domain_name, exc_info=True)
@@ -781,9 +789,12 @@ async def plan_topic_structure_node(
             else:
                 importance_tiers[name] = "standard"
 
+    language = state.get("language", "zh") or "zh"
+
     planner = TopicBasedStructurePlanner(llm)
     topic_pages = await planner.plan(
-        domain_mapping, module_metadata, importance_tiers
+        domain_mapping, module_metadata, importance_tiers,
+        language=language,
     )
 
     topic_dicts = [
@@ -807,18 +818,62 @@ async def plan_topic_structure_node(
     return {"topic_structure": topic_dicts}
 
 
+def _business_domain_for_topic_modules(
+    covered_modules: list[Any],
+    domain_mapping: dict[str, list],
+) -> str | None:
+    """Resolve canonical domain name(s) from topic ``covered_modules`` via ``domain_mapping``."""
+    if not covered_modules or not domain_mapping:
+        return None
+    mod_to_domain: dict[tuple[str, str], str] = {}
+    for dom_name, pairs in domain_mapping.items():
+        for pair in pairs or []:
+            if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                mod_to_domain[(str(pair[0]), str(pair[1]))] = str(dom_name)
+    votes: Counter[str] = Counter()
+    for entry in covered_modules:
+        if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+            d = mod_to_domain.get((str(entry[0]), str(entry[1])))
+            if d:
+                votes[d] += 1
+    if not votes:
+        return None
+    return votes.most_common(1)[0][0]
+
+
+def _effective_business_domain(leaf: dict[str, Any]) -> str | None:
+    """Chinese business-domain label for tree linking; topic leaves set explicit ``business_domain``."""
+    if "business_domain" in leaf:
+        raw = leaf.get("business_domain")
+        return str(raw).strip() if raw else None
+    name = leaf.get("name")
+    return str(name).strip() if name else None
+
+
+def _attach_business_domain_to_pages(
+    pages: list[dict[str, Any]], biz_domain: str | None
+) -> None:
+    if not biz_domain:
+        return
+    for p in pages:
+        p["business_domain"] = biz_domain
+
+
 def _topic_to_domain_dict(
     topic: dict[str, Any],
     module_index: dict[str, list[dict]],
+    domain_mapping: dict[str, list] | None = None,
 ) -> dict[str, Any]:
     """Convert a TopicPage dict into the domain dict format expected by
     _compose_single_leaf_domain."""
     covered = topic.get("covered_modules", [])
     module_names = [name for _repo, name in covered]
+    bd = _business_domain_for_topic_modules(covered, domain_mapping or {})
     return {
         "name": topic["title"],
         "modules": module_names,
         "children": [],
+        "business_domain": bd,
     }
 
 
@@ -847,7 +902,7 @@ async def _compose_from_topic_structure(
 
     async def _compose_topic(topic: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
         async with sem:
-            domain_dict = _topic_to_domain_dict(topic, module_index)
+            domain_dict = _topic_to_domain_dict(topic, module_index, domain_mapping)
             return await _pn._compose_single_leaf_domain(
                 domain_dict,
                 module_index,
@@ -958,6 +1013,54 @@ async def compose_leaf_pages_node(
             search_service=search_service,
         )
         pages_out = out.get("pages") or []
+
+        # Ensure every leaf domain in domain_tree has at least one topic page
+        if domain_tree:
+            covered_modules: set[str] = set()
+            for t in all_topics:
+                for _repo, name in t.get("covered_modules", []):
+                    covered_modules.add(name)
+
+            leaf_domains = _collect_leaf_domains(domain_tree)
+            uncovered_leaves = [
+                leaf for leaf in leaf_domains
+                if leaf.get("modules") and not (set(leaf.get("modules", [])) & covered_modules)
+            ]
+
+            if uncovered_leaves:
+                _pn.log.info(
+                    "topic_coverage_gap_detected",
+                    uncovered_count=len(uncovered_leaves),
+                    names=[l.get("name") for l in uncovered_leaves[:10]],
+                )
+                budget_resolver = TokenBudgetResolver()
+                budget = budget_resolver.budget("topic_page_generate")
+                sem = asyncio.Semaphore(_COMPOSE_CONCURRENCY)
+
+                async def _fill_gap(leaf: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+                    async with sem:
+                        return await _pn._compose_single_leaf_domain(
+                            leaf, module_index, entity_roles, llm, budget,
+                            graph_store=graph_store, wiki_store=wiki_store,
+                            domain_mapping=domain_mapping, module_summaries=mod_summaries,
+                            repo_path=repo_path, search_service=search_service,
+                        )
+
+                gap_results = await asyncio.gather(
+                    *[_fill_gap(leaf) for leaf in uncovered_leaves],
+                    return_exceptions=True,
+                )
+                for item in gap_results:
+                    if isinstance(item, BaseException):
+                        _pn.log.warning("compose_gap_fill_failed", exc_info=item)
+                        continue
+                    gap_pages, gap_uids = item
+                    pages_out.extend(gap_pages)
+                    out.setdefault("generated_topic_pages", []).extend(gap_uids)
+
+                out["pages"] = pages_out
+                _pn.log.info("topic_coverage_filled", extra_pages=len(pages_out) - len(out.get("pages", [])))
+
         await _maybe_pipeline_progress(
             configurable,
             {

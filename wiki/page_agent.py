@@ -594,7 +594,7 @@ AGENT_TOOLS = [
         "function": {
             "name": "delegate_submodule",
             "description": (
-                "When the current module is too complex to document in one pass, "
+                "Use when the current module is too complex to document in one pass: "
                 "delegate a sub-section to a specialized sub-agent. Returns the "
                 "generated documentation for that sub-section."
             ),

@@ -31,6 +31,9 @@ SYSTEM_WIKI_PARENT_OVERVIEW = (
     "You are a senior technical writer creating a domain overview page that "
     "synthesizes information from its sub-domains. Write like a technical blog post "
     "— explain HOW sub-domains relate and WHY they exist together. "
+    "Use Chinese (简体中文) for all business descriptions, titles, and section headers. "
+    "Include at least one Mermaid sequenceDiagram or flowchart showing "
+    "how the sub-domains interact with each other. "
     "Output valid JSON only."
 )
 

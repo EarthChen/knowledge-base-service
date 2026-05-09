@@ -2,6 +2,14 @@
 from __future__ import annotations
 
 from core.log import get_logger
+from wiki.cypher_queries import (
+    CALLERS_CY,
+    CHUNK_SNIPPETS_CY,
+    IMPLEMENTS_CY,
+    METHOD_CALL_CHAIN_CY,
+    METHODS_CY,
+    call_chain_cypher,
+)
 from wiki.domain_summary_cache import extract_summary_card
 from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.harness_facts import GatheredFacts
@@ -116,19 +124,120 @@ class WikiGenerationHarness:
         return facts
 
     async def _execute_planned_query(self, query) -> str | None:
-        """Execute a single planned query via graph_store."""
+        """Execute a single planned query via graph_store using real Cypher queries."""
         if not self.graph_store:
             return None
+
+        tool = query.tool_name
+        params = query.params
+        names = params.get("module_names", [])
+        if not names:
+            name = params.get("module_name") or params.get("domain_name", "")
+            if name:
+                names = [name]
+
+        if not names:
+            return None
+
         try:
-            result = await self.graph_store.execute_query(
-                f"MATCH (n) WHERE n.name IN $names RETURN n.name LIMIT 5",
-                params={"names": query.params.get("module_names", [query.params.get("module_name", "")])},
-            )
-            if hasattr(result, "data") and result.data:
-                return str(result.data[:5])
-        except Exception:
-            pass
-        return None
+            if tool == "query_module_detail":
+                result = await self.graph_store.execute_query(
+                    METHODS_CY, {"names": names}
+                )
+                rows = getattr(result, "data", None) or []
+                if not rows:
+                    return None
+                lines = []
+                for r in rows[:30]:
+                    mod = r.get("module_name", "")
+                    fn = r.get("func_name", "")
+                    sig = r.get("signature", "")
+                    doc = r.get("docstring", "")
+                    lines.append(f"- {mod}.{fn}({sig})" + (f" — {doc[:100]}" if doc else ""))
+                return "\n".join(lines) if lines else None
+
+            elif tool == "query_call_chain":
+                result = await self.graph_store.execute_query(
+                    call_chain_cypher(3), {"names": names}
+                )
+                rows = getattr(result, "data", None) or []
+                method_result = await self.graph_store.execute_query(
+                    METHOD_CALL_CHAIN_CY, {"names": names}
+                )
+                method_rows = getattr(method_result, "data", None) or []
+                lines = []
+                for r in rows[:20]:
+                    caller = r.get("caller", "")
+                    callee = r.get("callee", "")
+                    c_fns = r.get("caller_functions", [])
+                    e_fns = r.get("callee_functions", [])
+                    fn_info = ""
+                    if c_fns or e_fns:
+                        fn_info = f" [{','.join(c_fns[:3])} → {','.join(e_fns[:3])}]"
+                    lines.append(f"- {caller} → {callee}{fn_info}")
+                for r in method_rows[:30]:
+                    caller_m = r.get("caller_method", "")
+                    callee_m = r.get("callee_method", "")
+                    mod = r.get("module_name", "")
+                    lines.append(f"- {mod}: {caller_m}() → {callee_m}()")
+                return "\n".join(lines) if lines else None
+
+            elif tool == "query_callers":
+                result = await self.graph_store.execute_query(
+                    CALLERS_CY, {"names": names}
+                )
+                rows = getattr(result, "data", None) or []
+                lines = []
+                for r in rows[:20]:
+                    caller = r.get("caller_name", "")
+                    target = r.get("target_name", "")
+                    lines.append(f"- {caller} → {target}")
+                return "\n".join(lines) if lines else None
+
+            elif tool == "query_implementations":
+                result = await self.graph_store.execute_query(
+                    IMPLEMENTS_CY, {"names": names}
+                )
+                rows = getattr(result, "data", None) or []
+                lines = []
+                for r in rows[:15]:
+                    impl = r.get("impl_name", "")
+                    intf = r.get("interface_name", "")
+                    lines.append(f"- {impl} implements {intf}")
+                return "\n".join(lines) if lines else None
+
+            elif tool == "query_domain_dependencies":
+                result = await self.graph_store.execute_query(
+                    CALLERS_CY, {"names": names}
+                )
+                rows = getattr(result, "data", None) or []
+                lines = []
+                for r in rows[:15]:
+                    caller = r.get("caller_name", "")
+                    target = r.get("target_name", "")
+                    lines.append(f"- 被调用: {caller} → {target}")
+                return "\n".join(lines) if lines else None
+
+            elif tool == "read_code":
+                result = await self.graph_store.execute_query(
+                    CHUNK_SNIPPETS_CY, {"names": names}
+                )
+                rows = getattr(result, "data", None) or []
+                lines = []
+                for r in rows[:10]:
+                    entity = r.get("entity_name", "")
+                    snippet = r.get("snippet", "")
+                    fp = r.get("file_path", "")
+                    lines.append(f"### {entity} ({fp})\n```java\n{snippet}\n```")
+                return "\n".join(lines) if lines else None
+
+            else:
+                log.debug("harness_unknown_tool", tool=tool)
+                return None
+
+        except Exception as e:
+            log.warning("harness_query_error", tool=tool, error=str(e))
+            return None
 
     def _update_domain_cache(self, domain: str, modules: list[str], content: str) -> None:
         card = extract_summary_card(domain, modules, content)

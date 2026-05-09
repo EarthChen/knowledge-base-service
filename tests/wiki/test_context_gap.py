@@ -23,12 +23,14 @@ class TestContextGapRegex:
         text = "before <!-- CONTEXT_GAP --> after"
         assert CONTEXT_GAP_RE.search(text) is not None
 
-    def test_cleanup_replaces_with_notice(self):
+    def test_cleanup_removes_marker(self):
         text = "before <!-- CONTEXT_GAP: missing --> after"
         result = cleanup_context_gaps(text)
         assert "CONTEXT_GAP" not in result
-        assert "此处信息待补充" in result
-        assert "missing" in result
+        assert "此处信息待补充" not in result
+        assert "missing" not in result
+        assert "before" in result
+        assert "after" in result
 
     def test_cleanup_multiline(self):
         text = "before <!-- CONTEXT_GAP: line1\nline2 --> after"

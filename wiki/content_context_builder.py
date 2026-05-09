@@ -124,6 +124,14 @@ class EnrichedDomainContext:
         """
         sections: list[str] = []
 
+        # Always include full module list so agent knows what to cover
+        if self.biz_entities:
+            module_list = [f"  - {ent.name} ({ent.file_path})" for ent in self.biz_entities]
+            sections.append(
+                "## 必须覆盖的模块列表（以下所有模块必须在 Wiki 中被介绍）\n"
+                + "\n".join(module_list)
+            )
+
         if self.biz_entities:
             method_lines: list[str] = []
             for ent in self.biz_entities:

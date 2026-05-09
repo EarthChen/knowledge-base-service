@@ -34,6 +34,7 @@ class FalkorDBWikiMixin:
                         (page.get("metadata") or {}).get("executive_summary", "")
                         or ""
                     ),
+                    "business_domain": page.get("business_domain") or "",
                 }
             )
         cypher = (
@@ -53,6 +54,10 @@ class FalkorDBWikiMixin:
             "w.confidence_score = coalesce(page.confidence_score, w.confidence_score), "
             "w.navigation_json = page.navigation_json, "
             "w.executive_summary = page.executive_summary, "
+            "w.business_domain = CASE "
+            "WHEN page.business_domain IS NULL OR page.business_domain = '' "
+            "THEN coalesce(w.business_domain, '') "
+            "ELSE page.business_domain END, "
             "w.source_origin = CASE "
             "WHEN page.source_origin IS NULL OR page.source_origin = '' "
             "THEN w.source_origin ELSE page.source_origin END "

@@ -31,7 +31,7 @@ def test_agent_config_defaults():
 
     cfg = AgentConfig.from_env()
     assert cfg.enabled is False, "Agent-Driven should be disabled by default"
-    assert cfg.simple_threshold == 3
+    assert cfg.simple_threshold == 1
 
 
 def test_compose_has_agent_path():

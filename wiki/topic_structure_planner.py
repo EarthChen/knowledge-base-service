@@ -18,6 +18,48 @@ from wiki.llm_port import LLMPort
 log = get_logger(__name__)
 
 
+def _should_use_chinese(language: str, domain_mapping: dict[str, list[tuple[str, str]]]) -> bool:
+    has_chinese_domains = any(
+        any("\u4e00" <= c <= "\u9fff" for c in domain)
+        for domain in domain_mapping
+    )
+    return language == "zh" or has_chinese_domains
+
+
+def _is_ascii_only_text(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    return all(ord(c) < 128 for c in t)
+
+
+def _best_domain_for_modules(
+    covered_modules: list[tuple[str, str]],
+    domain_mapping: dict[str, list[tuple[str, str]]],
+) -> str | None:
+    """Pick a domain key from ``domain_mapping`` that best explains ``covered_modules``."""
+    if not covered_modules:
+        return None
+    covered_set = set(covered_modules)
+    full_containers: list[str] = []
+    best_partial: tuple[str, int] | None = None
+    for domain, mods in domain_mapping.items():
+        mod_set = set(mods)
+        if covered_set <= mod_set:
+            full_containers.append(domain)
+        else:
+            overlap = len(covered_set & mod_set)
+            if overlap > 0 and (best_partial is None or overlap > best_partial[1]):
+                best_partial = (domain, overlap)
+    if len(full_containers) == 1:
+        return full_containers[0]
+    if len(full_containers) > 1:
+        return full_containers[0]
+    if best_partial is not None:
+        return best_partial[0]
+    return None
+
+
 @dataclass
 class TopicPage:
     title: str
@@ -39,8 +81,9 @@ class TopicBasedStructurePlanner:
         importance_tiers: dict[str, str],
         *,
         target_pages: tuple[int, int] = (40, 80),
+        language: str = "zh",
     ) -> list[TopicPage]:
-        prompt = self._build_prompt(domain_mapping, module_metadata, importance_tiers, target_pages)
+        prompt = self._build_prompt(domain_mapping, module_metadata, importance_tiers, target_pages, language=language)
         system = (
             'Respond with valid JSON only: a single JSON object of the form {"topics": [...]} '
             "where \"topics\" is the array of topic objects described in the user message. "
@@ -82,6 +125,9 @@ class TopicBasedStructurePlanner:
         if not pages:
             return self._fallback(domain_mapping)
 
+        if _should_use_chinese(language, domain_mapping):
+            self._fix_ascii_only_titles(pages, domain_mapping)
+
         covered = set()
         for p in pages:
             covered.update(p.covered_modules)
@@ -102,12 +148,44 @@ class TopicBasedStructurePlanner:
 
         return pages
 
+    def _fix_ascii_only_titles(
+        self,
+        pages: list[TopicPage],
+        domain_mapping: dict[str, list[tuple[str, str]]],
+    ) -> None:
+        """Replace ASCII-only titles using Chinese domain keys that cover the page modules."""
+
+        def fix_page(page: TopicPage) -> None:
+            for st in page.sub_topics:
+                fix_page(st)
+            if not _is_ascii_only_text(page.title):
+                return
+            domain_guess = _best_domain_for_modules(page.covered_modules, domain_mapping)
+            if not domain_guess:
+                log.warning(
+                    "topic_planner_ascii_title_no_domain",
+                    title=page.title[:120],
+                    module_count=len(page.covered_modules),
+                )
+                return
+            log.warning(
+                "topic_planner_ascii_title_fallback",
+                old_title=page.title[:200],
+                domain=domain_guess,
+            )
+            page.title = domain_guess
+
+        for p in pages:
+            fix_page(p)
+
     def _build_prompt(
         self,
         domain_mapping: dict[str, list[tuple[str, str]]],
         module_metadata: dict[tuple[str, str], dict[str, Any]],
         importance_tiers: dict[str, str],
         target_pages: tuple[int, int],
+        *,
+        language: str = "zh",
     ) -> str:
         domain_lines: list[str] = []
         for domain, modules in domain_mapping.items():
@@ -122,19 +200,28 @@ class TopicBasedStructurePlanner:
         domains_text = "\n".join(domain_lines)
         min_pages, max_pages = target_pages
 
-        has_chinese_domains = any(
-            any("\u4e00" <= c <= "\u9fff" for c in domain)
-            for domain in domain_mapping
-        )
-        lang_rule = (
-            "9. Topic titles and descriptions MUST be in Chinese (简体中文), "
-            "matching the domain names language.\n"
-            if has_chinese_domains else ""
-        )
+        use_chinese = _should_use_chinese(language, domain_mapping)
+        lang_block = ""
+        if use_chinese:
+            lang_block = (
+                "Rules — READ THIS BLOCK FIRST (HIGHEST PRIORITY, NON-NEGOTIABLE):\n"
+                "- OUTPUT LANGUAGE IS 简体中文 ONLY for every \"title\" and \"description\" field in the JSON. "
+                "English-only titles or descriptions are INVALID and FORBIDDEN.\n"
+                "- Topic titles MUST contain Chinese characters (CJK). Pure ASCII titles like "
+                "\"User Relationship and Rank Management\" or \"Gift Sending\" are REJECTED.\n"
+                "- Each topic title MUST semantically align with its domain label and modules below: "
+                "reuse meaningful words from the Chinese domain name. "
+                "Example: domain \"用户关系管理\" → title MUST include wording such as \"用户关系\" / \"关系管理\" (not \"User Relationship\").\n"
+                "Example: domain \"礼物订单处理\" → title MUST include \"礼物\" or \"订单\" in Chinese (not \"Gift Order\").\n"
+                "Example ACCEPTED titles: \"用户关系与等级管理\", \"亲密度与亲密关系\", \"礼物与订单流转\".\n"
+                "Example REJECTED titles: \"User Relationship Management\", \"Intimacy Handling\", \"App Store Interaction\".\n"
+                "- Sub-topic titles follow the same rules: Chinese only, domain-aligned vocabulary.\n\n"
+                "Further rules:\n"
+            )
 
         return (
             "Based on the following business domain classification, plan a Wiki structure.\n\n"
-            "Rules:\n"
+            f"{lang_block}"
             f"1. Generate {min_pages}-{max_pages} topic pages total\n"
             "2. Each top-level topic = one business domain or a merge of related domains\n"
             "3. Each topic can have 3-5 sub-pages\n"
@@ -146,7 +233,9 @@ class TopicBasedStructurePlanner:
             "If a domain has only 1-2 handler modules, the topic should describe what those handlers actually do, "
             "not speculate about broader infrastructure.\n"
             "8. Each topic's description MUST be derivable from the module summaries listed under it.\n"
-            f"{lang_rule}\n"
+            "9. IMPORTANT: Each domain listed below MUST have at least one dedicated topic page. "
+            "Do NOT merge all modules from different domains into a single topic. "
+            "Even if a domain only has 1-2 modules, create a focused topic for it.\n\n"
             f"Domains:\n{domains_text}\n\n"
             'Output JSON: an object {"topics": [<array of {title, description, '
             "modules: [[repo, name], ...], sub_topics: [...]}>]}. "

@@ -7,7 +7,7 @@ def test_cleanup_after_heal_content():
     page = {"content": "healed <!-- CONTEXT_GAP: missing --> text"}
     page["content"] = cleanup_context_gaps(page["content"])
     assert "<!-- CONTEXT_GAP" not in page["content"]
-    assert "此处信息待补充" in page["content"]
+    assert page["content"].strip() == "healed text"
 
 
 def test_cleanup_after_aggregate_content():

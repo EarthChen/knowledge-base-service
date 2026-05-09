@@ -23,8 +23,8 @@ class TestToolDefinitions:
             assert "Use " in desc, f"{name} description lacks usage guidance"
 
     def test_expected_tool_count(self):
-        """Should have exactly 13 tools (list_files, grep_code, query_domain_dependencies added; read_source_snippet removed)."""
-        assert len(AGENT_TOOLS) == 13
+        """Should have exactly 14 tools (includes delegate_submodule and graph/wiki query tools)."""
+        assert len(AGENT_TOOLS) == 14
 
     def test_tool_names_are_unique(self):
         names = [t["function"]["name"] for t in AGENT_TOOLS]

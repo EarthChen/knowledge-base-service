@@ -107,6 +107,12 @@ def _pages_from_state(state: dict[str, Any]) -> list[WikiPage]:
             covered = p.get("covered_entity_uids")
             if covered:
                 wp.covered_entity_uids = covered  # type: ignore[attr-defined]
+            biz_dom = p.get("business_domain")
+            if biz_dom:
+                setattr(wp, "business_domain", str(biz_dom))
+            ck = p.get("canonical_key")
+            if ck:
+                setattr(wp, "canonical_key", str(ck))
             pages.append(wp)
         except Exception:
             log.warning("pipeline_page_conversion_failed", page_path=p.get("path", "?"))
@@ -149,6 +155,8 @@ async def run_langgraph_pipeline(
             elif isinstance(node, dict):
                 existing_tree_dicts.append(node)
 
+    language = (config_overrides or {}).get("language", "zh")
+
     initial_state: dict[str, Any] = {
         "business_id": business_id,
         "repositories": repositories,
@@ -176,6 +184,10 @@ async def run_langgraph_pipeline(
         "overview_pages": [],
         "system_overview_uid": "",
         "resolved_links": {},
+        "module_tree": [],
+        "canonical_keys": {},
+        "domain_cache": {},
+        "language": language,
     }
 
     pipeline = build_wiki_pipeline()

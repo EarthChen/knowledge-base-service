@@ -240,32 +240,13 @@ class WikiTreeLinker:
 
         topic_pages_by_domain: dict[str, list[str]] = {}
         try:
-            # Query topic pages with their linked domain section for direct mapping
             tp_q = (
-                "MATCH (ws:WikiSpace)-[:HAS_CHILD*1..10]->(wp:WikiPage) "
-                "WHERE ws.business_id = $biz AND wp.page_type = 'topic' "
+                "MATCH (wp:WikiPage) "
+                "WHERE wp.repository = $biz AND wp.page_type = 'topic' "
                 "AND wp.path STARTS WITH 'wiki/' "
-                "OPTIONAL MATCH (sec:WikiSection)-[:HAS_CHILD]->(wp) "
-                "WHERE sec.uid CONTAINS ':domain:' "
-                "RETURN wp.uid AS uid, wp.path AS path, wp.content AS content, "
-                "coalesce(wp.business_domain, wp.domain, '') AS page_domain, "
-                "sec.title AS linked_domain "
-                "ORDER BY wp.path"
+                "RETURN wp.uid AS uid, wp.path AS path ORDER BY wp.path"
             )
             tp_result = await self._wiki_store.execute_query(tp_q, {"biz": business_id})
-            if not (getattr(tp_result, "data", None) or []):
-                tp_q_fallback = (
-                    "MATCH (wp:WikiPage) "
-                    "WHERE wp.page_type = 'topic' "
-                    "AND wp.path STARTS WITH 'wiki/' "
-                    "OPTIONAL MATCH (sec:WikiSection)-[:HAS_CHILD]->(wp) "
-                    "WHERE sec.uid CONTAINS ':domain:' "
-                    "RETURN wp.uid AS uid, wp.path AS path, wp.content AS content, "
-                    "coalesce(wp.business_domain, wp.domain, '') AS page_domain, "
-                    "sec.title AS linked_domain "
-                    "ORDER BY wp.path"
-                )
-                tp_result = await self._wiki_store.execute_query(tp_q_fallback, {})
             tp_rows = getattr(tp_result, "data", None) or []
 
             def _flatten_names(nodes: list[DomainNode]) -> set[str]:
@@ -309,13 +290,7 @@ class WikiTreeLinker:
                     return 0.0
                 return len(chars_a & chars_b) / len(chars_a)
 
-            def _find_best_domain(
-                page_top_level: str, stored_domain: str | None = None
-            ) -> str | None:
-                if stored_domain and stored_domain.strip():
-                    sd = stored_domain.strip()
-                    if sd in domain_names:
-                        return sd
+            def _find_best_domain(page_top_level: str) -> str | None:
                 if page_top_level in domain_names:
                     return page_top_level
                 tl_lower = page_top_level.lower()
@@ -366,34 +341,16 @@ class WikiTreeLinker:
                     return best_dn
                 return None
 
-            topic_content_by_uid: dict[str, str] = {}
             for row in tp_rows:
                 uid = str(row.get("uid", ""))
                 path = str(row.get("path", ""))
                 if not uid or not path:
                     continue
-                content = row.get("content", "") or ""
-                if content:
-                    topic_content_by_uid[uid] = content
-
-                page_domain_raw = row.get("page_domain", "") or ""
-                page_domain = str(page_domain_raw).strip()
-                if page_domain and page_domain in domain_names:
-                    topic_pages_by_domain.setdefault(page_domain, []).append(uid)
-                    continue
-
-                linked_domain = row.get("linked_domain", "") or ""
-                if linked_domain and linked_domain in domain_names:
-                    topic_pages_by_domain.setdefault(linked_domain, []).append(uid)
-                    continue
-
                 after_wiki = path[len("wiki/"):]
                 slash_idx = after_wiki.find("/")
                 top_level = after_wiki[:slash_idx] if slash_idx > 0 else after_wiki
 
-                matched_domain = _find_best_domain(
-                    top_level, stored_domain=page_domain or None
-                )
+                matched_domain = _find_best_domain(top_level)
                 if matched_domain:
                     topic_pages_by_domain.setdefault(matched_domain, []).append(uid)
 
@@ -413,53 +370,7 @@ class WikiTreeLinker:
             """Build a rich structural overview document for a nested domain."""
             from wiki.overview_synthesizer import synthesize_overview_from_children
 
-            # Priority 1: Use topic page content as domain overview basis
-            domain_topic_uids = topic_pages_by_domain.get(domain.name, [])
-            if domain_topic_uids:
-                topic_contents: list[str] = []
-                for t_uid in domain_topic_uids:
-                    content = topic_content_by_uid.get(t_uid, "")
-                    if not content:
-                        page = pages_by_entity_uid.get(t_uid)
-                        if not page:
-                            path_part = t_uid.split(":", 2)[-1] if ":" in t_uid else ""
-                            title_from_uid = path_part.split("/")[-1] if "/" in path_part else ""
-                            if title_from_uid:
-                                page = pages_by_entity_uid.get(title_from_uid)
-                        if page and isinstance(page, dict):
-                            content = page.get("content", "")
-                    if content:
-                        topic_contents.append(content)
-                if topic_contents:
-                    is_zh = language.startswith("zh")
-                    lines: list[str] = [f"# {domain.name}", ""]
-                    if domain.description:
-                        lines.append(domain.description)
-                        lines.append("")
-                    combined = topic_contents[0]
-                    # Strip leading title if it duplicates the domain name
-                    if combined.startswith("# "):
-                        first_nl = combined.find("\n")
-                        if first_nl > 0:
-                            combined = combined[first_nl + 1:].lstrip("\n")
-                    # Truncate to reasonable length for overview
-                    if len(combined) > 4000:
-                        cut = combined.rfind("\n", 0, 4000)
-                        combined = combined[:cut] if cut > 0 else combined[:4000]
-                        combined += "\n\n" + ("_…更多内容请查看子页面。_" if is_zh else "_…see sub-pages for more._")
-                    lines.append(combined)
-                    if len(topic_contents) > 1:
-                        lines.append("")
-                        lines.append("---")
-                        heading = "## 相关子主题" if is_zh else "## Related Sub-Topics"
-                        lines.append(heading)
-                        lines.append("")
-                        for extra in topic_contents[1:]:
-                            first_line = extra.split("\n", 1)[0].lstrip("# ").strip()
-                            lines.append(f"- **{first_line}**")
-                    return "\n".join(lines)
-
-            # Priority 2: Content-based synthesis from module pages
+            # Try content-based synthesis when child pages exist
             child_pages = []
             for mod_name in domain.modules:
                 page = pages_by_entity_uid.get(mod_name)
@@ -512,8 +423,6 @@ class WikiTreeLinker:
                 heading = "## 核心模块" if is_zh else "## Key Modules"
                 lines.append(heading)
                 lines.append("")
-                lines.append("| 模块 | 职责 |" if is_zh else "| Module | Role |")
-                lines.append("|------|------|")
                 for mod_name in domain.modules:
                     page = pages_by_entity_uid.get(mod_name)
                     summary = ""
@@ -535,7 +444,10 @@ class WikiTreeLinker:
                                     if l.strip() and not l.strip().startswith("#")
                                 ]
                                 summary = _safe_truncate(" ".join(non_heading))
-                    lines.append(f"| `{mod_name}` | {summary} |")
+                    if summary:
+                        lines.append(f"- **{mod_name}**: {summary}")
+                    else:
+                        lines.append(f"- **{mod_name}**")
                 lines.append("")
 
             total_modules = WikiTreeLinker.count_domain_modules(domain)

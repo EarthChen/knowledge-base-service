@@ -33,6 +33,12 @@ from wiki.nodes.compose import (
     compose_leaf_pages_node,
     plan_topic_structure_node,
 )
+from wiki.nodes.graph_nodes import (
+    assign_canonical_keys_node,
+    compose_bottomup_node,
+    generate_titles_node,
+    graph_decompose_node,
+)
 from wiki.nodes.heal import heal_pages_node
 from wiki.nodes.links import create_links_node
 from wiki.nodes.utils import (
@@ -83,14 +89,18 @@ __all__ = [
     "_normalize_domain_tree",
     "_normalize_pages_map",
     "_topic_to_domain_dict",
+    "assign_canonical_keys_node",
     "classify_domains_node",
     "classify_entities_node",
+    "compose_bottomup_node",
     "compose_leaf_modules_node",
     "compose_leaf_pages_node",
     "compose_parent_pages_node",
     "create_links_node",
     "decompose_hierarchy_node",
     "detect_reorg_node",
+    "generate_titles_node",
+    "graph_decompose_node",
     "has_parent_domains",
     "heal_pages_node",
     "log",

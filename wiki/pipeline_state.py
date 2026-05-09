@@ -93,3 +93,8 @@ class WikiPipelineState(TypedDict):
 
     # Leaf domain summaries (populated by summarize_leaves_node)
     leaf_summaries: NotRequired[dict[str, Any]]
+
+    # --- Graph-based decomposition (v2 pipeline) ---
+    module_tree: NotRequired[list[dict[str, Any]]]  # serialized ModuleTree
+    canonical_keys: NotRequired[dict[str, str]]  # canonical_key → readable title
+    domain_cache: NotRequired[dict[str, str]]  # pipeline-level shared domain cache

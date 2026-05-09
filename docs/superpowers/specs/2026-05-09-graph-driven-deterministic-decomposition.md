@@ -1,7 +1,7 @@
 # Graph-Driven Deterministic Decomposition — 确定性分解架构设计
 
 > Created: 2026-05-09  
-> Status: PROPOSAL  
+> Status: MOSTLY_IMPLEMENTED — 核心分解算法已实现，残余项见 `proposals/PROPOSAL_20260509_164027_codewiki_quality_improvements.md` B5-B6  
 > Category: Architecture / Wiki Quality  
 > Related: CodeWiki (ACL 2026), harness + agent-driven system
 

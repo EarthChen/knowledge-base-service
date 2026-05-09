@@ -1,6 +1,6 @@
 # CodeWiki-Aligned Pipeline Redesign
 
-> **Status**: APPROVED (brainstorming complete)
+> **Status**: MOSTLY_IMPLEMENTED — 核心架构已实现，残余项见 `proposals/PROPOSAL_20260509_164027_codewiki_quality_improvements.md` B2-B7
 > **Category**: Architecture / Wiki Quality / Pipeline Redesign
 > **Related**: CodeWiki (ACL 2026, arXiv:2510.24428v6), `2026-05-09-graph-driven-deterministic-decomposition.md`
 > **Approach**: 方案 1 — 管线内置换 (Pipeline Node Replacement)

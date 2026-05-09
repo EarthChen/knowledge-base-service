@@ -165,6 +165,76 @@ class GraphModuleDecomposer:
             components.append(sorted(component))
         return components
 
+    def _group_by_path_prefix(
+        self,
+        members: list[str],
+        node_files: dict[str, list[str]],
+    ) -> list[list[str]]:
+        """Group members by their first file's directory prefix."""
+        prefix_groups: dict[str, list[str]] = defaultdict(list)
+        for m in members:
+            files = node_files.get(m, [])
+            if files:
+                parts = files[0].strip("/").split("/")
+                prefix = "/".join(parts[:2]) if len(parts) >= 2 else parts[0]
+            else:
+                prefix = "_no_path"
+            prefix_groups[prefix].append(m)
+
+        groups = [sorted(g) for g in prefix_groups.values()]
+        if len(groups) <= 1:
+            mid = len(members) // 2
+            return [sorted(members[:mid]), sorted(members[mid:])]
+        return groups
+
+    def _maybe_split_scc(
+        self,
+        members: list[str],
+        node_files: dict[str, list[str]],
+        node_tokens: dict[str, int],
+        edges: list[tuple[str, str]],
+        existing_keys: set[str],
+    ) -> ModuleNode:
+        """Return a leaf ModuleNode if small enough, or a parent with children if too large."""
+        total_tokens = sum(node_tokens.get(m, 0) for m in members)
+        all_files = sorted({f for m in members for f in node_files.get(m, [])})
+        all_uids = sorted(members)
+
+        if total_tokens <= self._max_tokens or len(members) <= 2:
+            key = make_canonical_key(all_files, existing_keys, entity_uids=all_uids)
+            existing_keys.add(key)
+            return ModuleNode(
+                canonical_key=key,
+                entity_uids=all_uids,
+                file_paths=all_files,
+                token_estimate=total_tokens,
+            )
+
+        components = self._find_connected_components(members, edges)
+
+        if len(components) > 1:
+            children = [
+                self._maybe_split_scc(comp, node_files, node_tokens, edges, existing_keys)
+                for comp in components
+            ]
+        else:
+            groups = self._group_by_path_prefix(members, node_files)
+            children = [
+                self._maybe_split_scc(g, node_files, node_tokens, edges, existing_keys)
+                for g in groups
+                if g
+            ]
+
+        parent_key = make_canonical_key(all_files, existing_keys, entity_uids=all_uids)
+        existing_keys.add(parent_key)
+        return ModuleNode(
+            canonical_key=parent_key,
+            entity_uids=all_uids,
+            file_paths=all_files,
+            token_estimate=total_tokens,
+            children=children,
+        )
+
     def decompose_from_graph(
         self,
         nodes: list[str],

@@ -101,31 +101,133 @@ def test_decompose_isolated_nodes():
 
 
 def test_find_connected_components_two_clusters():
-    """Two disconnected groups should yield two components."""
+    """Two disconnected groups should yield two sorted components."""
     decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)
     members = ["A", "B", "C", "D"]
     edges = [("A", "B"), ("C", "D")]
     components = decomposer._find_connected_components(members, edges)
-    assert len(components) == 2
-    component_sets = [set(c) for c in components]
-    assert {"A", "B"} in component_sets
-    assert {"C", "D"} in component_sets
+    assert components == [["A", "B"], ["C", "D"]]
 
 
 def test_find_connected_components_single_cluster():
-    """Fully connected members should yield one component."""
+    """Connected chain should yield one sorted component."""
     decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)
     members = ["A", "B", "C"]
     edges = [("A", "B"), ("B", "C")]
     components = decomposer._find_connected_components(members, edges)
-    assert len(components) == 1
-    assert set(components[0]) == {"A", "B", "C"}
+    assert components == [["A", "B", "C"]]
 
 
 def test_find_connected_components_isolated_nodes():
-    """Nodes with no edges should each be their own component."""
+    """Nodes with no edges should each be their own component, in sorted order."""
     decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)
     members = ["X", "Y", "Z"]
     edges = []
     components = decomposer._find_connected_components(members, edges)
-    assert len(components) == 3
+    assert components == [["X"], ["Y"], ["Z"]]
+
+
+def test_maybe_split_small_scc_returns_leaf():
+    """SCC within token budget should remain a single leaf node."""
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=5000)
+    members = ["A", "B"]
+    node_files = {"A": ["src/a.py"], "B": ["src/b.py"]}
+    node_tokens = {"A": 1000, "B": 1000}
+    edges = [("A", "B"), ("B", "A")]
+    result = decomposer._maybe_split_scc(
+        members, node_files, node_tokens, edges, existing_keys=set(),
+    )
+    assert result.is_leaf()
+    assert set(result.entity_uids) == {"A", "B"}
+
+
+def test_maybe_split_large_scc_creates_children():
+    """SCC exceeding token budget with disconnectable subgraphs should split into parent+children."""
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=3000)
+    members = ["A", "B", "C", "D"]
+    node_files = {
+        "A": ["src/a.py"], "B": ["src/a.py"],
+        "C": ["src/c.py"], "D": ["src/c.py"],
+    }
+    node_tokens = {"A": 1000, "B": 1000, "C": 1000, "D": 1000}
+    # Only intra-group edges — CC will find 2 components
+    edges = [("A", "B"), ("B", "A"), ("C", "D"), ("D", "C")]
+    result = decomposer._maybe_split_scc(
+        members, node_files, node_tokens, edges, existing_keys=set(),
+    )
+    assert not result.is_leaf(), "Should have children"
+    assert len(result.children) == 2
+    child_uids = [set(c.entity_uids) for c in result.children]
+    assert {"A", "B"} in child_uids
+    assert {"C", "D"} in child_uids
+
+
+def test_maybe_split_large_single_component_uses_path_prefix():
+    """Large SCC that can't be split by CC should use path-prefix grouping."""
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=2000)
+    members = ["A", "B", "C", "D"]
+    node_files = {
+        "A": ["src/auth/a.py"], "B": ["src/auth/b.py"],
+        "C": ["src/api/c.py"], "D": ["src/api/d.py"],
+    }
+    node_tokens = {"A": 1000, "B": 1000, "C": 1000, "D": 1000}
+    # Fully connected — CC yields 1 component
+    edges = [("A", "B"), ("B", "C"), ("C", "D"), ("D", "A")]
+    result = decomposer._maybe_split_scc(
+        members, node_files, node_tokens, edges, existing_keys=set(),
+    )
+    assert not result.is_leaf(), "Should have children from path-prefix grouping"
+    assert len(result.children) >= 2
+
+
+def test_maybe_split_small_scc_returns_leaf():
+    """SCC within token budget should remain a single leaf node."""
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=5000)
+    members = ["A", "B"]
+    node_files = {"A": ["src/a.py"], "B": ["src/b.py"]}
+    node_tokens = {"A": 1000, "B": 1000}
+    edges = [("A", "B"), ("B", "A")]
+    result = decomposer._maybe_split_scc(
+        members, node_files, node_tokens, edges, existing_keys=set(),
+    )
+    assert result.is_leaf()
+    assert set(result.entity_uids) == {"A", "B"}
+
+
+def test_maybe_split_large_scc_creates_children():
+    """SCC exceeding token budget with disconnectable subgraphs should split into parent+children."""
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=3000)
+    members = ["A", "B", "C", "D"]
+    node_files = {
+        "A": ["src/a.py"], "B": ["src/a.py"],
+        "C": ["src/c.py"], "D": ["src/c.py"],
+    }
+    node_tokens = {"A": 1000, "B": 1000, "C": 1000, "D": 1000}
+    # Only intra-group edges — CC will find 2 components
+    edges = [("A", "B"), ("B", "A"), ("C", "D"), ("D", "C")]
+    result = decomposer._maybe_split_scc(
+        members, node_files, node_tokens, edges, existing_keys=set(),
+    )
+    assert not result.is_leaf(), "Should have children"
+    assert len(result.children) == 2
+    child_uids = [set(c.entity_uids) for c in result.children]
+    assert {"A", "B"} in child_uids
+    assert {"C", "D"} in child_uids
+
+
+def test_maybe_split_large_single_component_uses_path_prefix():
+    """Large SCC that can't be split by CC should use path-prefix grouping."""
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=2000)
+    members = ["A", "B", "C", "D"]
+    node_files = {
+        "A": ["src/auth/a.py"], "B": ["src/auth/b.py"],
+        "C": ["src/api/c.py"], "D": ["src/api/d.py"],
+    }
+    node_tokens = {"A": 1000, "B": 1000, "C": 1000, "D": 1000}
+    # Fully connected — CC yields 1 component
+    edges = [("A", "B"), ("B", "C"), ("C", "D"), ("D", "A")]
+    result = decomposer._maybe_split_scc(
+        members, node_files, node_tokens, edges, existing_keys=set(),
+    )
+    assert not result.is_leaf(), "Should have children from path-prefix grouping"
+    assert len(result.children) >= 2

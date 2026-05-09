@@ -1,6 +1,7 @@
 """Wiki page evaluator with L1 deterministic checks and optional L2 LLM judge."""
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 
@@ -19,6 +20,23 @@ class EvalResult:
     passed: bool
     issues: list[Issue] = field(default_factory=list)
     suggestions: list[str] = field(default_factory=list)
+    dimensions: dict[str, float] = field(default_factory=dict)
+
+
+_L3_JUDGE_PROMPT = """Evaluate this wiki page on 4 dimensions (1-5 scale each):
+
+1. **Completeness**: Does it cover all key functionality, public APIs, data flow?
+2. **Accuracy**: Are code references correct? No hallucinated entities?
+3. **Readability**: Clear writing, good structure, appropriate diagrams?
+4. **Structure**: Logical organization, proper heading hierarchy, navigation?
+
+Modules covered: {modules}
+
+Wiki content:
+{content}
+
+Output JSON only:
+{{"completeness": N, "accuracy": N, "readability": N, "structure": N}}"""
 
 
 class WikiPageEvaluator:
@@ -92,5 +110,37 @@ class WikiPageEvaluator:
         )
 
     def evaluate_l2(self, content, modules, llm, l1_result) -> EvalResult:
-        """LLM Judge — stub returns L1 result. Will be async when real implementation lands."""
+        """LLM Judge — stub. For async L3, call evaluate_l3 directly."""
         return l1_result
+
+    async def evaluate_l3(
+        self,
+        content: str,
+        modules: list[str],
+        llm,
+    ) -> EvalResult:
+        """4-dimension LLM Judge evaluation (CodeWikiBench aligned)."""
+        prompt = _L3_JUDGE_PROMPT.format(
+            content=content[:6000],
+            modules=", ".join(modules[:20]),
+        )
+        try:
+            raw = await llm.generate(
+                prompt=prompt,
+                system="You are a wiki quality evaluator. Output JSON only.",
+            )
+            data = json.loads(raw.strip())
+            dims = {
+                "completeness": max(1.0, min(5.0, float(data.get("completeness", 1)))),
+                "accuracy": max(1.0, min(5.0, float(data.get("accuracy", 1)))),
+                "readability": max(1.0, min(5.0, float(data.get("readability", 1)))),
+                "structure": max(1.0, min(5.0, float(data.get("structure", 1)))),
+            }
+            overall = sum(dims.values()) / len(dims)
+            return EvalResult(
+                score=overall,
+                passed=overall >= 3.0,
+                dimensions=dims,
+            )
+        except Exception:
+            return EvalResult(score=0.0, passed=False, dimensions={})

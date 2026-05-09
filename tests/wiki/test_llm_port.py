@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import inspect
+
 from llm.base_provider import LLMPortBridge
 from wiki.llm_port import LLMPort
 
@@ -25,3 +27,16 @@ def test_llm_port_has_generate_and_complete():
     assert hasattr(LLMPort, "complete")
     assert hasattr(LLMPort, "complete_stream")
     assert hasattr(LLMPort, "complete_json")
+
+
+def test_llm_port_protocol_does_not_include_agenerate():
+    """agenerate is a bridge implementation detail, not a domain protocol method."""
+    protocol_methods = [
+        name
+        for name, _ in inspect.getmembers(LLMPort, predicate=inspect.isfunction)
+        if not name.startswith("_")
+    ]
+    assert "agenerate" not in protocol_methods, (
+        "agenerate should not be in LLMPort protocol — "
+        "it belongs to LLMPortBridge implementation, not the domain interface"
+    )

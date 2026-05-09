@@ -13,13 +13,33 @@ from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP_RE
 log = get_logger(__name__)
 
 _THINKING_PREFIX_RE = re.compile(
-    r"^(我需要|让我|从工作记忆|需要先|接下来我|首先我|I need to|Let me)",
+    r"^(我需要|让我|从工作记忆|需要先|接下来我|首先我|I need to|Let me|根据您提供)",
 )
 _TOOL_JSON_BLOCK_RE = re.compile(
     r"```json\s*\{[\s\S]*?\"tools\"[\s\S]*?\}\s*```",
     re.MULTILINE,
 )
 _FIRST_HEADING_RE = re.compile(r"^(#{1,3}\s)", re.MULTILINE)
+_MARKDOWN_FENCE_WRAP_RE = re.compile(
+    r"^```(?:markdown|md)\s*\n([\s\S]*?)```\s*$",
+)
+_AGENT_SUGGESTION_RE = re.compile(
+    r"(请依次执行以下工具调用|请补充代码扫描数据|建议下一步操作|suggest.*next.*step)",
+    re.IGNORECASE,
+)
+# Lines containing LLM meta-text that should never appear in final wiki output
+_LLM_META_LINE_RE = re.compile(
+    r"(此处信息待补充|需进一步调用\s*read_code|具体实现细节暂未在上下文中提供"
+    r"|_No graph relationships were summarized|更多内容请查看子页面"
+    r"|当前上下文中?未提供|不生成流程图|信息待补充[:：]"
+    r"|未获取到上述方法的具体实现|无法确认其是否涉及"
+    r"|参考数据不足[，,]不生成图|需进一步调用\s*\w+\s*补充"
+    r"|暂未在上下文中提供|未在上下文.*展开)",
+)
+_JSON_PREAMBLE_RE = re.compile(
+    r"^##\s*当前\s*Wiki\s*页面[^\n]*\n\{[\s\S]*?\"executive_summary\"[\s\S]*?\}\s*\n",
+    re.MULTILINE,
+)
 SINGLE_RESULT_LIMIT = 4000
 
 
@@ -29,12 +49,85 @@ def strip_agent_artifacts(text: str) -> str:
         return ""
     stripped = _TOOL_JSON_BLOCK_RE.sub("", text)
     stripped = stripped.strip()
+
+    # Strip outer ```markdown ... ``` fence wrapping the entire content
+    m = _MARKDOWN_FENCE_WRAP_RE.match(stripped)
+    if m:
+        stripped = m.group(1).strip()
+    elif stripped.startswith("```markdown\n") or stripped.startswith("```md\n"):
+        fence_end = stripped.find("\n")
+        tail_fence = stripped.rfind("\n```")
+        if tail_fence > fence_end:
+            stripped = stripped[fence_end + 1:tail_fence].strip()
+
+    # Strip JSON preamble like: ## 当前 Wiki 页面（域: ...）\n{"executive_summary": "..."}
+    stripped = _JSON_PREAMBLE_RE.sub("", stripped)
+    stripped = re.sub(
+        r"^\{[^}]*\"executive_summary\"[^}]*\"content\":\s*\"",
+        "", stripped,
+    )
+
     if _THINKING_PREFIX_RE.match(stripped):
         m = _FIRST_HEADING_RE.search(stripped)
         if m:
             stripped = stripped[m.start():]
         else:
             stripped = ""
+
+    # If output is mostly agent suggestions (not wiki content), discard
+    if stripped and _AGENT_SUGGESTION_RE.search(stripped):
+        heading_m = _FIRST_HEADING_RE.search(stripped)
+        if heading_m:
+            stripped = stripped[heading_m.start():]
+        else:
+            lines = stripped.split("\n")
+            content_lines = [
+                ln for ln in lines
+                if not _AGENT_SUGGESTION_RE.search(ln)
+                and not ln.strip().startswith("```plaintext")
+            ]
+            stripped = "\n".join(content_lines).strip()
+
+    # Remove lines containing LLM meta-text artifacts
+    if stripped and _LLM_META_LINE_RE.search(stripped):
+        lines = stripped.split("\n")
+        stripped = "\n".join(
+            ln for ln in lines if not _LLM_META_LINE_RE.search(ln)
+        ).strip()
+
+    # Fix code fence issues: remove stray ```markdown fences
+    stripped = re.sub(r"^```markdown\s*$", "", stripped, flags=re.MULTILINE)
+
+    # Fix unclosed code fences: ensure even count
+    fence_count = len(re.findall(r"```", stripped))
+    if fence_count % 2 != 0:
+        lines = stripped.split("\n")
+        # Stack-based pairing: track opening fence line indices
+        stack: list[int] = []
+        unmatched_closes: list[int] = []
+        for i, ln in enumerate(lines):
+            s = ln.strip()
+            if s.startswith("```") and s != "```":
+                stack.append(i)
+            elif s == "```":
+                if stack:
+                    stack.pop()
+                else:
+                    unmatched_closes.append(i)
+        # Remove unmatched closing fences
+        for idx in reversed(unmatched_closes):
+            lines[idx] = ""
+        # Add closing fences for remaining unclosed openers
+        if stack:
+            lines.append("```")
+        stripped = "\n".join(lines).strip()
+        # Final safety: if still odd, just append a closing fence
+        if len(re.findall(r"```", stripped)) % 2 != 0:
+            stripped += "\n```"
+
+    # Collapse multiple blank lines
+    stripped = re.sub(r"\n{3,}", "\n\n", stripped)
+
     return stripped.strip()
 
 _GREP_MAX_FILE_SIZE = 512 * 1024  # 512 KB
@@ -496,6 +589,32 @@ AGENT_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "delegate_submodule",
+            "description": (
+                "When the current module is too complex to document in one pass, "
+                "delegate a sub-section to a specialized sub-agent. Returns the "
+                "generated documentation for that sub-section."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity_names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Entity names to delegate",
+                    },
+                    "focus": {
+                        "type": "string",
+                        "description": "Aspect to focus on (e.g. 'data flow', 'error handling')",
+                    },
+                },
+                "required": ["entity_names"],
+            },
+        },
+    },
 ]
 
 _AGENT_SYSTEM = """你是一个代码知识库 Agent。你的任务是通过调用 tools 来补充 Wiki 页面中标记为 CONTEXT_GAP 的缺失信息。
@@ -514,6 +633,8 @@ class WikiPageAgent:
     MAX_ROUNDS = 6
     MAX_TOOL_CALLS = 15
     _MAX_HISTORY_MESSAGES = 30
+    _MAX_DELEGATION_DEPTH = 2
+    _MAX_DELEGATIONS_PER_AGENT = 3
 
     def __init__(
         self,
@@ -562,7 +683,15 @@ class WikiPageAgent:
                 if text_content:
                     cleaned = strip_agent_artifacts(str(text_content))
                     if cleaned:
-                        return cleaned
+                        if total_tool_calls >= 1 or round_num >= 2:
+                            return cleaned
+                        # Agent skipped tools on early round - nudge it
+                        messages.append(response)
+                        messages.append({
+                            "role": "user",
+                            "content": "你还没有使用工具查询信息。请先使用 read_code 获取关键方法实现，再输出完整页面。",
+                        })
+                        continue
                     log.warning("agent_output_was_pure_thinking", domain=domain_name)
                     break
                 break
@@ -641,6 +770,7 @@ class WikiPageAgent:
             ]
 
             total_tool_calls = 0
+            min_tool_rounds = min(2, max_rounds)
             for round_num in range(max_rounds):
                 try:
                     response = await self._llm.complete_with_tools(messages, AGENT_TOOLS)
@@ -655,7 +785,15 @@ class WikiPageAgent:
                     if text_content:
                         cleaned = strip_agent_artifacts(str(text_content))
                         if cleaned and len(cleaned) > 200:
-                            return cleaned
+                            if total_tool_calls >= 1 or round_num >= min_tool_rounds:
+                                return cleaned
+                            # Early round with no tool calls - nudge agent to use tools
+                            messages.append(response)
+                            messages.append({
+                                "role": "user",
+                                "content": "请先使用 read_code、query_call_chain 等工具查询具体实现再生成页面，不要直接输出。",
+                            })
+                            continue
                     break
 
                 messages.append(response)
@@ -752,7 +890,7 @@ class WikiPageAgent:
         parts.append("## 工作记忆（之前查询的结果）")
         parts.append(memory.to_prompt_section())
         parts.append("")
-        parts.append("请使用 tools 查询缺失信息，或直接输出补充后的完整页面。")
+        parts.append("请使用 tools 查询缺失信息（如 read_code 获取关键方法实现），然后输出补充后的完整页面。")
         return "\n".join(parts)
 
     async def _execute_tool(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -785,11 +923,32 @@ class WikiPageAgent:
                 return await self._tool_query_domain_dependencies(args)
             elif tool_name == "read_source_snippet":
                 return await self._tool_read_source_snippet(args)
+            elif tool_name == "delegate_submodule":
+                return await self._tool_delegate_submodule(args)
             else:
                 return {"error": f"unknown tool: {tool_name}"}
         except Exception as e:
             log.warning("agent_tool_failed", tool=tool_name, error=str(e))
             return {"error": str(e)}
+
+    async def _tool_delegate_submodule(self, args: dict[str, Any]) -> dict[str, Any]:
+        entity_names = args.get("entity_names", [])
+        focus = args.get("focus", "")
+        depth = getattr(self, "_delegation_depth", 0)
+        count = getattr(self, "_delegation_count", 0)
+
+        if depth >= self._MAX_DELEGATION_DEPTH:
+            return {"error": "max delegation depth reached", "depth": depth}
+        if count >= self._MAX_DELEGATIONS_PER_AGENT:
+            return {"error": "max delegations per agent reached", "count": count}
+
+        self._delegation_count = count + 1
+        return {
+            "delegated": True,
+            "entity_names": entity_names,
+            "focus": focus,
+            "note": "Sub-agent delegation placeholder — full integration in compose_bottomup",
+        }
 
     async def _tool_read_code(self, args: dict[str, Any]) -> dict[str, Any]:
         entity_name = str(args.get("entity_name", ""))

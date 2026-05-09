@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 from unittest.mock import AsyncMock
 
 from wiki.pipeline_nodes import (
@@ -270,3 +272,58 @@ async def test_summarize_leaves_empty_content_fallback():
     entry = (out.get("leaf_summaries") or {}).get("empty-domain") or {}
     assert entry.get("source") == "rule_extracted"
     assert entry.get("summary_text") == ""
+
+
+@pytest.mark.asyncio
+async def test_hierarchical_tree_end_to_end():
+    """Decomposer produces hierarchical tree → compose_bottomup generates all pages."""
+    from wiki.graph_module_decomposer import GraphModuleDecomposer
+    from wiki.nodes.graph_nodes import compose_bottomup_node
+
+    # len(members) <= 2 always yields a leaf in GraphModuleDecomposer; use 3-node SCCs
+    # with total_tokens > max_tokens so the SCC splits on path prefix (not 2-node pairs).
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=2000)
+    nodes = ["A", "B", "C", "D", "E", "F"]
+    edges = [
+        ("A", "B"), ("B", "C"), ("C", "A"),
+        ("D", "E"), ("E", "F"), ("F", "D"),
+    ]
+    node_files = {
+        "A": ["src/auth/a.py"],
+        "B": ["src/auth/b.py"],
+        "C": ["src/api/c.py"],
+        "D": ["src/api/d.py"],
+        "E": ["src/api/e.py"],
+        "F": ["src/db/f.py"],
+    }
+    node_tokens = {n: 1000 for n in nodes}
+
+    tree = decomposer.decompose_from_graph(nodes, edges, node_files, node_tokens, "e2e-test")
+    all_tree_nodes = tree.all_nodes()
+    leaves = [n for n in all_tree_nodes if n.is_leaf()]
+
+    mock_llm = AsyncMock()
+    mock_llm.generate.return_value = "# Generated\n\nContent here."
+
+    state = {
+        "module_tree": tree.to_dicts(),
+        "business_id": "e2e-test",
+        "domain_cache": {},
+        "module_summaries": {},
+        "pages": [],
+    }
+    config = {"configurable": {"llm": mock_llm}}
+    result = await compose_bottomup_node(state, config)
+
+    pages = result["pages"]
+    assert len(pages) == len(all_tree_nodes), (
+        f"Expected {len(all_tree_nodes)} pages but got {len(pages)}"
+    )
+    page_keys = [p["canonical_key"] for p in pages]
+    assert len(page_keys) == len(set(page_keys)), "Duplicate canonical keys in pages"
+    parents = [n for n in all_tree_nodes if not n.is_leaf()]
+    if parents:
+        assert mock_llm.generate.call_count > len(leaves), (
+            f"Expected more LLM calls than leaves ({len(leaves)}), "
+            f"got {mock_llm.generate.call_count}"
+        )

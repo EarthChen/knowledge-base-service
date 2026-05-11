@@ -106,11 +106,11 @@ class CodeGraphBuilder:
 
     @staticmethod
     def _module_uid_for_store_path(store_path: str) -> str:
-        """UID of the Module node for a file, matching :class:`GraphNode` without ``file``."""
+        """UID of the Module node for a file, matching :class:`GraphNode` with ``file``."""
         stem = Path(store_path).stem
         return GraphNode(
             label=NodeLabel.MODULE,
-            properties={"name": stem},
+            properties={"name": stem, "file": store_path},
         ).uid
 
     def build_from_file(
@@ -575,6 +575,7 @@ class CodeGraphBuilder:
         module_name = Path(file_path).stem
         module_props: dict[str, object] = {
             "name": module_name,
+            "file": file_path,
             "path": file_path,
             "language": language,
             "imports": import_names,

@@ -201,3 +201,44 @@ class TestGlobalSymbolTable:
             matching_nodes = [n for n in nodes if n.uid == uid]
             for n in matching_nodes:
                 assert n.label != NodeLabel.MODULE
+
+
+class TestModuleUIDUniqueness:
+    def test_same_name_different_path_produces_different_uids(self, java_builder: CodeGraphBuilder):
+        """Two Java files with the same name in different packages must have different Module UIDs."""
+        code = "public class DeviceInfoDTO {}\n"
+        nodes_a, _ = java_builder.build_from_file(
+            "com/pkg/a/DeviceInfoDTO.java",
+            content=code,
+            store_path="com/pkg/a/DeviceInfoDTO.java",
+        )
+        nodes_b, _ = java_builder.build_from_file(
+            "com/pkg/b/DeviceInfoDTO.java",
+            content=code,
+            store_path="com/pkg/b/DeviceInfoDTO.java",
+        )
+        mod_a = [n for n in nodes_a if n.label == NodeLabel.MODULE][0]
+        mod_b = [n for n in nodes_b if n.label == NodeLabel.MODULE][0]
+        assert mod_a.uid != mod_b.uid, (
+            f"Same-name modules in different packages must have different UIDs: "
+            f"{mod_a.uid} == {mod_b.uid}"
+        )
+
+    def test_module_uid_for_store_path_includes_path(self, java_builder: CodeGraphBuilder):
+        """_module_uid_for_store_path should produce path-aware UIDs."""
+        uid_a = java_builder._module_uid_for_store_path("com/pkg/a/Foo.java")
+        uid_b = java_builder._module_uid_for_store_path("com/pkg/b/Foo.java")
+        assert uid_a != uid_b, "Same filename in different paths should have different UIDs"
+
+    def test_module_node_has_file_property(self, java_builder: CodeGraphBuilder):
+        """Module node should have a 'file' property for UID generation."""
+        code = "public class Foo {}\n"
+        nodes, _ = java_builder.build_from_file(
+            "com/example/Foo.java",
+            content=code,
+            store_path="com/example/Foo.java",
+        )
+        mod = [n for n in nodes if n.label == NodeLabel.MODULE][0]
+        assert mod.properties.get("file") == "com/example/Foo.java", (
+            f"Module should have file property, got: {mod.properties}"
+        )

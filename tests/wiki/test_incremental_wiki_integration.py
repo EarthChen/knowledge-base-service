@@ -315,3 +315,54 @@ class TestIncrementalCleanupWiring:
         # Domain-scoped cleanup should be used, NOT full cleanup
         mock_persistence.cleanup_stale_wiki_pages_by_domain.assert_called_once()
         mock_persistence.cleanup_stale_wiki_pages.assert_not_called()
+
+
+class TestIncrementalFlowIntegration:
+    @pytest.mark.asyncio
+    async def test_incremental_pipeline_state_has_affected_domains(self):
+        """Verify pipeline state correctly carries affected_domains through."""
+        with patch("wiki.pipeline_orchestrator.build_wiki_pipeline") as mock_build:
+            mock_pipeline = AsyncMock()
+            mock_pipeline.ainvoke = AsyncMock(
+                return_value={
+                    "pages": [],
+                    "errors": [],
+                    "domain_mapping": {},
+                    "domain_tree": [],
+                    "module_summaries": {},
+                },
+            )
+            mock_build.return_value = mock_pipeline
+
+            from wiki.pipeline_orchestrator import run_langgraph_pipeline
+
+            await run_langgraph_pipeline(
+                business_id="test-biz",
+                repositories=["repo1"],
+                all_modules={"repo1": []},
+                llm=MagicMock(),
+                is_incremental=True,
+                affected_domains=["DomainX", "DomainY"],
+                existing_domain_tree=[
+                    {"name": "DomainX", "modules": ["M1"], "children": []},
+                ],
+            )
+
+            call_args = mock_pipeline.ainvoke.call_args
+            initial_state = call_args[0][0]
+            assert initial_state["is_incremental"] is True
+            assert initial_state["affected_domains"] == ["DomainX", "DomainY"]
+            assert initial_state["domain_tree"] is not None
+
+    @pytest.mark.asyncio
+    async def test_domain_diff_empty_means_no_affected_domains(self):
+        """When DomainDiff.is_empty, affected_domains should be None/empty."""
+        from wiki.incremental_diff import DomainDiff
+
+        diff = DomainDiff(
+            affected_domains=[],
+            changed_module_uids=[],
+            total_changed=0,
+        )
+        assert diff.is_empty
+        assert diff.affected_domains == []

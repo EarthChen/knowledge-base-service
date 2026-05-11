@@ -16,10 +16,12 @@ from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.models import ImportanceTier, WikiPage
 from wiki.pipeline_nodes import (
     assign_canonical_keys_node,
+    classify_domains_node,
     classify_entities_node,
     compose_bottomup_node,
     compose_leaf_modules_node,
     create_links_node,
+    decompose_hierarchy_node,
     detect_reorg_node,
     generate_titles_node,
     graph_decompose_node,
@@ -39,6 +41,8 @@ _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "detect_reorg": ("detect_reorg", 0.02),
     "graph_decompose": ("graph_decompose", 0.05),
     "assign_canonical_keys": ("assign_keys", 0.10),
+    "classify_domains": ("classify_domains", 0.08),
+    "decompose_hierarchy": ("decompose_hierarchy", 0.10),
     "generate_titles": ("generate_titles", 0.12),
     "set_review_status": ("set_review_status", 0.15),
     "compose_leaf_modules": ("compose_leaf_modules", 0.18),
@@ -78,6 +82,7 @@ def _with_progress(
             state: WikiPipelineState,
             config: RunnableConfig | None = None,
         ) -> dict[str, Any]:
+            import time as _time
             configurable = (config or {}).get("configurable", {}) or {}
             cb = configurable.get("progress_callback")
             if cb:
@@ -89,11 +94,32 @@ def _with_progress(
                     })
                 except Exception:
                     log.debug("progress_callback_failed", phase=phase, exc_info=True)
-            return await func(state, config)
+            log.info("pipeline_node_enter", node=node_name, phase=phase)
+            t0 = _time.monotonic()
+            result = await func(state, config)
+            elapsed = _time.monotonic() - t0
+            log.info(
+                "pipeline_node_exit",
+                node=node_name,
+                phase=phase,
+                elapsed_sec=round(elapsed, 1),
+            )
+            return result
     else:
         @functools.wraps(func)
         async def _wrapper(state: WikiPipelineState) -> dict[str, Any]:  # type: ignore[misc]
-            return await func(state)
+            import time as _time
+            log.info("pipeline_node_enter", node=node_name, phase=phase)
+            t0 = _time.monotonic()
+            result = await func(state)
+            elapsed = _time.monotonic() - t0
+            log.info(
+                "pipeline_node_exit",
+                node=node_name,
+                phase=phase,
+                elapsed_sec=round(elapsed, 1),
+            )
+            return result
 
     return _wrapper
 
@@ -286,6 +312,8 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("detect_reorg", _with_progress("detect_reorg", detect_reorg_node))
     graph.add_node("graph_decompose", _with_progress("graph_decompose", graph_decompose_node))
     graph.add_node("assign_canonical_keys", _with_progress("assign_canonical_keys", assign_canonical_keys_node))
+    graph.add_node("classify_domains", _with_progress("classify_domains", classify_domains_node))
+    graph.add_node("decompose_hierarchy", _with_progress("decompose_hierarchy", decompose_hierarchy_node))
     graph.add_node("generate_titles", _with_progress("generate_titles", generate_titles_node))
     graph.add_node("set_review_status", _with_progress("set_review_status", set_review_status_node))
     graph.add_node("compose_leaf_modules", _with_progress("compose_leaf_modules", compose_leaf_modules_node))
@@ -302,7 +330,9 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
         {"graph_decompose": "graph_decompose", "finalize": "finalize"},
     )
     graph.add_edge("graph_decompose", "assign_canonical_keys")
-    graph.add_edge("assign_canonical_keys", "generate_titles")
+    graph.add_edge("assign_canonical_keys", "classify_domains")
+    graph.add_edge("classify_domains", "decompose_hierarchy")
+    graph.add_edge("decompose_hierarchy", "generate_titles")
     graph.add_edge("generate_titles", "set_review_status")
     graph.add_edge("set_review_status", "compose_leaf_modules")
     graph.add_edge("compose_leaf_modules", "compose_bottomup")

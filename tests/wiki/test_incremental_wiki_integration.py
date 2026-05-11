@@ -3,6 +3,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from wiki.persistence import WikiPagePersistence
+
 
 class TestGenerateBusinessWikiIncremental:
     @pytest.mark.asyncio
@@ -189,3 +191,41 @@ class TestGenerateBusinessWikiIncremental:
         kwargs = mock_pipeline.call_args.kwargs
         assert kwargs.get("is_incremental") is True
         assert kwargs.get("affected_domains") == ["DomainA"]
+
+
+class TestIncrementalPersistence:
+    @pytest.mark.asyncio
+    async def test_cleanup_stale_by_domain_deletes_only_affected(self):
+        """Domain-scoped cleanup should only delete pages from affected domains."""
+        mock_store = AsyncMock()
+        mock_store.execute_query = AsyncMock(
+            return_value=MagicMock(data=[{"deleted": 3}]),
+        )
+
+        persistence = WikiPagePersistence.__new__(WikiPagePersistence)
+        persistence._store = mock_store
+
+        deleted = await persistence.cleanup_stale_wiki_pages_by_domain(
+            repository="ultron",
+            current_page_paths=["ultron/用户管理"],
+            affected_domains=["用户管理"],
+        )
+        assert deleted >= 0
+        call_args = mock_store.execute_query.call_args
+        query = call_args[0][0] if call_args[0] else ""
+        assert "$domains" in query or "title" in query.lower()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_stale_by_domain_empty_domains_is_noop(self):
+        """Empty affected_domains should not delete anything."""
+        mock_store = AsyncMock()
+        persistence = WikiPagePersistence.__new__(WikiPagePersistence)
+        persistence._store = mock_store
+
+        deleted = await persistence.cleanup_stale_wiki_pages_by_domain(
+            repository="ultron",
+            current_page_paths=[],
+            affected_domains=[],
+        )
+        assert deleted == 0
+        mock_store.execute_query.assert_not_called()

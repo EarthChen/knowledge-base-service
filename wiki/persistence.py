@@ -435,6 +435,57 @@ class WikiPagePersistence:
             )
         return deleted
 
+    async def cleanup_stale_wiki_pages_by_domain(
+        self,
+        repository: str,
+        current_page_paths: list[str],
+        affected_domains: list[str],
+    ) -> int:
+        """Remove stale WikiPage nodes only for the specified affected domains.
+
+        Unlike ``cleanup_stale_wiki_pages`` which targets all topic/domain_overview
+        pages for a repository, this variant limits deletion to pages whose title
+        matches one of the ``affected_domains``.
+        """
+        if not affected_domains:
+            return 0
+
+        if self._store is None or not hasattr(self._store, "execute_query"):
+            return 0
+
+        current_uids = set()
+        for path in current_page_paths:
+            uid = f"WikiPage:{repository}:{path}"
+            current_uids.add(uid)
+
+        deleted = 0
+        result = await self._store.execute_query(
+            "MATCH (wp:WikiPage) "
+            "WHERE wp.repository = $repo "
+            "AND wp.page_type IN ['topic', 'domain_overview'] "
+            "AND wp.title IN $domains "
+            "AND NOT wp.uid IN $keep_uids "
+            "DETACH DELETE wp "
+            "RETURN count(wp) AS deleted",
+            {
+                "repo": repository,
+                "domains": list(set(affected_domains)),
+                "keep_uids": list(current_uids),
+            },
+        )
+        if result.data and isinstance(result.data[0], dict):
+            deleted = int(result.data[0].get("deleted", 0))
+
+        if deleted > 0:
+            log.info(
+                "stale_domain_pages_cleaned",
+                repository=repository,
+                affected_domains=sorted(set(affected_domains)),
+                deleted=deleted,
+                kept=len(current_uids),
+            )
+        return deleted
+
     async def cleanup_stale_domain_sections(
         self,
         business_id: str,

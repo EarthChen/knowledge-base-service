@@ -39,3 +39,52 @@ class TestUseAgentComposeSwitch:
             nodes = set(pipeline.get_graph().nodes.keys())
             assert "compose_bottomup" in nodes
             assert "compose_domain_agents" not in nodes
+
+
+class TestAgentPipelineIntegration:
+    def test_full_pipeline_with_agent_compose(self):
+        """End-to-end: pipeline with USE_AGENT_COMPOSE=true produces domain pages."""
+        with patch.dict(os.environ, {"USE_AGENT_COMPOSE": "true"}):
+            pipeline = build_wiki_pipeline(checkpointer=False)
+            nodes = set(pipeline.get_graph().nodes.keys())
+            expected_nodes = {
+                "classify_entity_roles",
+                "detect_reorg",
+                "graph_decompose",
+                "assign_canonical_keys",
+                "classify_domains",
+                "decompose_hierarchy",
+                "generate_titles",
+                "set_review_status",
+                "compose_leaf_modules",
+                "compose_domain_agents",
+                "quality_gate",
+                "heal_pages",
+                "create_links",
+                "finalize",
+            }
+            assert expected_nodes.issubset(nodes), f"Missing: {expected_nodes - nodes}"
+
+    def test_full_pipeline_default_has_compose_bottomup(self):
+        """Default pipeline uses compose_bottomup (backward compat)."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("USE_AGENT_COMPOSE", None)
+            pipeline = build_wiki_pipeline(checkpointer=False)
+            nodes = set(pipeline.get_graph().nodes.keys())
+            expected_nodes = {
+                "classify_entity_roles",
+                "detect_reorg",
+                "graph_decompose",
+                "assign_canonical_keys",
+                "classify_domains",
+                "decompose_hierarchy",
+                "generate_titles",
+                "set_review_status",
+                "compose_leaf_modules",
+                "compose_bottomup",
+                "quality_gate",
+                "heal_pages",
+                "create_links",
+                "finalize",
+            }
+            assert expected_nodes.issubset(nodes), f"Missing: {expected_nodes - nodes}"

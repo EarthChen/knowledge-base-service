@@ -338,9 +338,11 @@ async def test_full_pipeline_e2e_with_mock_llm():
     # Phase 1: detect_reorg should return first_run (no prior domain_tree in state).
     assert result.get("reorg_type") == "first_run"
 
-    # v2 pipeline: graph decomposition + bottom-up composition (no domain_mapping pass).
-    assert result.get("domain_mapping") == {}
-    assert result.get("domain_tree") is None
+    # Domain-aware path: classify_domains fills domain_mapping; hierarchy may be in domain_tree.
+    dm = result.get("domain_mapping") or {}
+    assert dm, "domain_mapping should be populated after classify_domains"
+    assert "payment" in dm and "user-management" in dm
+    assert result.get("domain_tree") is not None
     module_tree = result.get("module_tree") or []
     assert isinstance(module_tree, list) and len(module_tree) >= 1
 

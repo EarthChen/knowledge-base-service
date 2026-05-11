@@ -643,8 +643,6 @@ _AGENT_SYSTEM = """你是一个代码知识库 Agent。你的任务是通过调�
 
 
 class WikiPageAgent:
-    MAX_ROUNDS = 6
-    MAX_TOOL_CALLS = 30
     _MAX_HISTORY_MESSAGES = 30
     _MAX_DELEGATION_DEPTH = 2
     _MAX_DELEGATIONS_PER_AGENT = 3
@@ -656,12 +654,16 @@ class WikiPageAgent:
         *,
         repo_path: str | None = None,
         search_service: Any | None = None,
+        max_rounds: int = 6,
+        max_tool_calls: int = 30,
     ) -> None:
         self._llm = llm
         self._graph = graph_store
         self._repo_path = repo_path
         self._search_service = search_service
         self._existing_pages: list[dict] | None = None
+        self.max_rounds = max_rounds
+        self.max_tool_calls = max_tool_calls
 
     async def enrich(
         self,
@@ -682,7 +684,7 @@ class WikiPageAgent:
         ]
 
         total_tool_calls = 0
-        for round_num in range(self.MAX_ROUNDS):
+        for round_num in range(self.max_rounds):
             try:
                 response = await self._llm.complete_with_tools(messages, AGENT_TOOLS)
             except Exception:
@@ -728,7 +730,7 @@ class WikiPageAgent:
                 })
 
             total_tool_calls += len(tool_calls)
-            if total_tool_calls >= self.MAX_TOOL_CALLS:
+            if total_tool_calls >= self.max_tool_calls:
                 log.info("agent_max_tool_calls_reached", total=total_tool_calls)
                 break
 
@@ -830,7 +832,7 @@ class WikiPageAgent:
                     })
 
                 total_tool_calls += len(tool_calls)
-                if total_tool_calls >= self.MAX_TOOL_CALLS:
+                if total_tool_calls >= self.max_tool_calls:
                     break
 
                 if len(messages) > self._MAX_HISTORY_MESSAGES:

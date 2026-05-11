@@ -84,7 +84,7 @@ class TestHistoryPreservation:
         gs.execute_query = AsyncMock(return_value=MagicMock(data=[]))
         agent = WikiPageAgent(llm, gs)
         # Lower max tool calls to let all 5 rounds complete
-        agent.MAX_TOOL_CALLS = 30
+        agent.max_tool_calls = 30
 
         content = "## Test\n<!-- CONTEXT_GAP: complex gap -->"
         result = await agent.enrich(content, domain_name="test")

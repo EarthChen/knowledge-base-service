@@ -218,7 +218,7 @@ class TestWikiPageAgent:
         agent = WikiPageAgent(llm, gs)
         content = "<!-- CONTEXT_GAP: x -->"
         result = await agent.enrich(content, domain_name="test")
-        assert call_count <= WikiPageAgent.MAX_ROUNDS
+        assert call_count <= agent.max_rounds
 
     @pytest.mark.asyncio
     async def test_tool_execution_failure_continues(self):
@@ -525,4 +525,22 @@ class TestWikiPageAgent:
         agent = WikiPageAgent(llm, gs)
         content = "<!-- CONTEXT_GAP: test -->"
         await agent.enrich(content, domain_name="test")
-        assert call_count <= WikiPageAgent.MAX_ROUNDS
+        assert call_count <= agent.max_rounds
+
+
+class TestWikiPageAgentConstruction:
+    def test_default_max_rounds(self):
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+        assert agent.max_rounds == 6
+
+    def test_default_max_tool_calls(self):
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+        assert agent.max_tool_calls == 30
+
+    def test_custom_max_rounds(self):
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock(), max_rounds=20)
+        assert agent.max_rounds == 20
+
+    def test_custom_max_tool_calls(self):
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock(), max_tool_calls=100)
+        assert agent.max_tool_calls == 100

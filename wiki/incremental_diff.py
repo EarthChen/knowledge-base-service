@@ -48,6 +48,63 @@ class WikiDiff:
         return len(self.changed_uids) + len(self.affected_parents)
 
 
+@dataclass(frozen=True)
+class DomainDiff:
+    """Result of domain-level diff: which domains need wiki regeneration."""
+
+    affected_domains: list[str]
+    changed_module_uids: list[str]
+    total_changed: int
+
+    @property
+    def is_empty(self) -> bool:
+        return self.total_changed == 0
+
+
+async def compute_domain_diff(
+    store: Any,
+    business_id: str,
+) -> DomainDiff:
+    """Identify domains affected by code changes since last wiki generation.
+
+    Finds Module nodes where content_hash differs from wiki_content_hash
+    (set by persistence after successful wiki generation), then maps each
+    changed module to its business_domain property.
+    """
+    changed_result = await store.execute_query(
+        "MATCH (n:Module) "
+        "WHERE (n.business_id = $bid OR n.repository IN "
+        "  [(ws:WikiSpace {business_id: $bid})-[:CONTAINS_REPO]->(r) | r.name]) "
+        "AND n.content_hash IS NOT NULL "
+        "AND (n.wiki_content_hash IS NULL OR n.content_hash <> n.wiki_content_hash) "
+        "RETURN n.uid AS uid, n.name AS name, "
+        "       coalesce(n.business_domain, '') AS domain",
+        {"bid": business_id},
+    )
+
+    rows = getattr(changed_result, "data", None) or []
+    affected_domains: set[str] = set()
+    changed_modules: list[str] = []
+    for row in rows:
+        domain = row.get("domain", "")
+        if domain:
+            affected_domains.add(domain)
+        changed_modules.append(row["uid"])
+
+    log.info(
+        "domain_diff_computed",
+        business_id=business_id,
+        changed_modules=len(changed_modules),
+        affected_domains=len(affected_domains),
+    )
+
+    return DomainDiff(
+        affected_domains=sorted(affected_domains),
+        changed_module_uids=changed_modules,
+        total_changed=len(changed_modules),
+    )
+
+
 async def compute_wiki_diff(store: Any, repository: str, since_version: int) -> WikiDiff:
     """Compare current graph state with last wiki generation to find affected entities."""
     _ = since_version  # reserved for changelog / version-scoped diff (Phase 3+)

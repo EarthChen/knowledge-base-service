@@ -1,6 +1,7 @@
 """Leaf module summaries and topic / domain page composition."""
 
 import asyncio
+import os
 from collections import Counter
 from typing import Any
 
@@ -620,6 +621,8 @@ async def compose_leaf_modules_node(
     Round 1: all modules independently in parallel.
     Round 2: modules with CONTEXT_GAP re-generated with neighbor summaries.
     """
+    summaries_only = os.environ.get("USE_AGENT_COMPOSE", "false").lower() == "true"
+
     configurable = (config or {}).get("configurable", {}) or {}
     llm = configurable.get("llm")
     graph_store = configurable.get("graph_store")
@@ -747,6 +750,12 @@ async def compose_leaf_modules_node(
         summaries_generated=len(module_summaries),
         round2_count=len(gaps),
     )
+    if summaries_only:
+        return {
+            "module_summaries": module_summaries,
+            "pages": [],
+            "errors": list(state.get("errors", [])),
+        }
     return {"module_summaries": module_summaries}
 
 

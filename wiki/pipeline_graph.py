@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -19,6 +20,7 @@ from wiki.pipeline_nodes import (
     classify_domains_node,
     classify_entities_node,
     compose_bottomup_node,
+    compose_domain_agents_node,
     compose_leaf_modules_node,
     create_links_node,
     decompose_hierarchy_node,
@@ -47,6 +49,7 @@ _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "set_review_status": ("set_review_status", 0.15),
     "compose_leaf_modules": ("compose_leaf_modules", 0.18),
     "compose_bottomup": ("compose_bottomup", 0.25),
+    "compose_domain_agents": ("compose_domain_agents", 0.30),
     "quality_gate": ("quality_gate", 0.70),
     "heal_pages": ("heal_pages", 0.80),
     "create_links": ("linking", 0.90),
@@ -317,7 +320,23 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("generate_titles", _with_progress("generate_titles", generate_titles_node))
     graph.add_node("set_review_status", _with_progress("set_review_status", set_review_status_node))
     graph.add_node("compose_leaf_modules", _with_progress("compose_leaf_modules", compose_leaf_modules_node))
-    graph.add_node("compose_bottomup", _with_progress("compose_bottomup", compose_bottomup_node))
+
+    use_agent_compose = os.environ.get("USE_AGENT_COMPOSE", "false").lower() == "true"
+    if use_agent_compose:
+        graph.add_node(
+            "compose_domain_agents",
+            _with_progress("compose_domain_agents", compose_domain_agents_node),
+        )
+        graph.add_edge("compose_leaf_modules", "compose_domain_agents")
+        graph.add_edge("compose_domain_agents", "quality_gate")
+    else:
+        graph.add_node(
+            "compose_bottomup",
+            _with_progress("compose_bottomup", compose_bottomup_node),
+        )
+        graph.add_edge("compose_leaf_modules", "compose_bottomup")
+        graph.add_edge("compose_bottomup", "quality_gate")
+
     graph.add_node("quality_gate", _with_progress("quality_gate", quality_gate_node))
     graph.add_node("heal_pages", _with_progress("heal_pages", heal_pages_node))
     graph.add_node("create_links", _with_progress("create_links", create_links_node))
@@ -335,8 +354,6 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_edge("decompose_hierarchy", "generate_titles")
     graph.add_edge("generate_titles", "set_review_status")
     graph.add_edge("set_review_status", "compose_leaf_modules")
-    graph.add_edge("compose_leaf_modules", "compose_bottomup")
-    graph.add_edge("compose_bottomup", "quality_gate")
     graph.add_conditional_edges(
         "quality_gate",
         should_heal,

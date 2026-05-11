@@ -143,3 +143,27 @@ class TestDomainDocAgentIteration:
         )
         # Should not loop more than max_iterations times
         assert agent._page_agent.enrich.call_count <= 2
+
+
+class TestDomainDocAgentObservability:
+    @pytest.mark.asyncio
+    async def test_iteration_history_populated(self):
+        agent = DomainDocAgent(
+            domain_name="test",
+            llm=MagicMock(),
+            graph_store=MagicMock(),
+        )
+        good_content = "# test\n\nModA and ModB.\n```java\ncode\n```\n```java\ncode2\n```\n"
+        agent._page_agent = AsyncMock()
+        agent._page_agent.generate = AsyncMock(return_value=good_content)
+
+        await agent.generate_with_iterations(
+            module_names=["ModA", "ModB"],
+            baseline_context="baseline",
+        )
+
+        assert len(agent.iteration_history) >= 1
+        entry = agent.iteration_history[0]
+        assert "coverage" in entry
+        assert "citation_density" in entry
+        assert "iteration" in entry

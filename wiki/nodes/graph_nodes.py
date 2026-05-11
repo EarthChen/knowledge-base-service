@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import warnings
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -11,6 +12,8 @@ from core.log import get_logger
 log = get_logger(__name__)
 
 _BOTTOMUP_CONCURRENCY = 24
+_LEAF_TIMEOUT_SEC = 120
+_PARENT_TIMEOUT_SEC = 60
 
 # Indexed code nodes use ``repository``, not ``repo_id``. Edges must be rolled up to
 # :Module endpoints because CALLS/INHERITS/IMPLEMENTS/DEPENDS_ON usually attach to Function/Class.
@@ -204,6 +207,12 @@ async def compose_bottomup_node(
     config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
     """Bottom-up generation: leaves first via LLM, parents via ParentSynthesizer."""
+    warnings.warn(
+        "compose_bottomup_node is deprecated. "
+        "Set USE_AGENT_COMPOSE=true to use compose_domain_agents_node.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from wiki.models.module_tree import ModuleTree
 
     configurable = (config or {}).get("configurable", {}) or {}
@@ -223,9 +232,35 @@ async def compose_bottomup_node(
         configurable_keys=list(configurable.keys()) if configurable else [],
     )
 
-    module_summaries = state.get("module_summaries", {})
+    raw_summaries = state.get("module_summaries", {})
     pages: list[dict[str, Any]] = list(state.get("pages", []))
     node_contents: dict[str, str] = {}
+
+    # Build uid→name mapping from modules state so we can match summaries
+    # (summaries are keyed by name, but tree entity_uids are full UIDs)
+    uid_to_name: dict[str, str] = {}
+    for _repo, mod_list in state.get("modules", {}).items():
+        for mod in mod_list:
+            uid = (mod.get("uid") or "").strip()
+            name = (mod.get("properties", {}).get("name") or "").strip()
+            if uid and name:
+                uid_to_name[uid] = name
+
+    # Expand summaries dict: add uid-keyed entries alongside name-keyed entries
+    module_summaries: dict[str, Any] = dict(raw_summaries)
+    uid_mapped = 0
+    for uid, name in uid_to_name.items():
+        if name in raw_summaries and uid not in module_summaries:
+            module_summaries[uid] = raw_summaries[name]
+            uid_mapped += 1
+
+    log.info(
+        "compose_bottomup_summary_mapping",
+        raw_summary_keys=len(raw_summaries),
+        uid_to_name_entries=len(uid_to_name),
+        uid_mapped=uid_mapped,
+        expanded_keys=len(module_summaries),
+    )
 
     topo = tree.topological_order()
     leaves = [n for n in topo if n.is_leaf()]
@@ -252,32 +287,83 @@ async def compose_bottomup_node(
         total_leaves=len(leaves),
         reuse_from_summaries=reuse_count,
         need_llm=llm_count,
-        summary_keys_sample=list(module_summaries.keys())[:5] if module_summaries else [],
+        summary_keys_sample=list(raw_summaries.keys())[:5] if raw_summaries else [],
         leaf_uids_sample=[leaves[0].entity_uids[:3] if leaves else []],
     )
 
     sem = asyncio.Semaphore(_BOTTOMUP_CONCURRENCY)
     progress_counter = [0]
+    error_counter = [0]
+    timeout_counter = [0]
+    import time as _time
+    batch_start = _time.monotonic()
 
     async def _bounded_leaf(node: Any) -> dict[str, Any]:
         async with sem:
-            result = await _compose_leaf_for_bottomup(
-                node, llm, module_summaries, graph_store=graph_store
-            )
+            leaf_start = _time.monotonic()
+            try:
+                result = await asyncio.wait_for(
+                    _compose_leaf_for_bottomup(
+                        node, llm, module_summaries, graph_store=graph_store
+                    ),
+                    timeout=_LEAF_TIMEOUT_SEC,
+                )
+            except asyncio.TimeoutError:
+                timeout_counter[0] += 1
+                log.warning(
+                    "compose_bottomup_leaf_timeout",
+                    key=node.canonical_key,
+                    timeout_sec=_LEAF_TIMEOUT_SEC,
+                    total_timeouts=timeout_counter[0],
+                )
+                result = {
+                    "path": node.canonical_key,
+                    "title": node.title or node.canonical_key,
+                    "content": f"# {node.title or node.canonical_key}\n\n(Generation timed out)",
+                    "business_domain": node.canonical_key,
+                    "canonical_key": node.canonical_key,
+                }
             progress_counter[0] += 1
-            if progress_counter[0] % 100 == 0:
-                log.info("compose_bottomup_progress", done=progress_counter[0], total=len(leaves))
+            elapsed = _time.monotonic() - leaf_start
+            if progress_counter[0] % 20 == 0 or elapsed > 30:
+                total_elapsed = _time.monotonic() - batch_start
+                log.info(
+                    "compose_bottomup_progress",
+                    done=progress_counter[0],
+                    total=len(leaves),
+                    errors=error_counter[0],
+                    timeouts=timeout_counter[0],
+                    last_leaf_sec=round(elapsed, 1),
+                    total_elapsed_sec=round(total_elapsed, 1),
+                    last_key=node.canonical_key,
+                )
             return result
 
     if leaves:
-        log.info("compose_bottomup_leaves", count=len(leaves), has_llm=llm is not None)
+        log.info(
+            "compose_bottomup_leaves",
+            count=len(leaves),
+            has_llm=llm is not None,
+            has_graph_store=graph_store is not None,
+            concurrency=_BOTTOMUP_CONCURRENCY,
+            leaf_timeout_sec=_LEAF_TIMEOUT_SEC,
+            sample_keys=[n.canonical_key for n in leaves[:5]],
+            sample_uids=[n.entity_uids[:2] for n in leaves[:3]],
+        )
         leaf_results = await asyncio.gather(
             *[_bounded_leaf(n) for n in leaves],
             return_exceptions=True,
         )
         for node, result in zip(leaves, leaf_results):
             if isinstance(result, Exception):
-                log.warning("compose_bottomup_leaf_error", key=node.canonical_key, error=str(result))
+                error_counter[0] += 1
+                log.warning(
+                    "compose_bottomup_leaf_error",
+                    key=node.canonical_key,
+                    error=str(result),
+                    error_type=type(result).__name__,
+                    total_errors=error_counter[0],
+                )
                 result = {
                     "path": node.canonical_key,
                     "title": node.title or node.canonical_key,
@@ -288,14 +374,145 @@ async def compose_bottomup_node(
             node_contents[node.canonical_key] = result.get("content", "")
             pages.append(result)
 
-    for node in parents:
-        child_contents = [
-            node_contents.get(c.canonical_key, "")
-            for c in node.children
-        ]
-        page_dict = await _synthesize_parent_for_bottomup(node, child_contents, llm)
-        node_contents[node.canonical_key] = page_dict.get("content", "")
-        pages.append(page_dict)
+        leaves_elapsed = _time.monotonic() - batch_start
+        log.info(
+            "compose_bottomup_leaves_done",
+            total=len(leaves),
+            errors=error_counter[0],
+            timeouts=timeout_counter[0],
+            elapsed_sec=round(leaves_elapsed, 1),
+        )
+
+    if parents:
+        parent_start = _time.monotonic()
+        parent_sem = asyncio.Semaphore(_BOTTOMUP_CONCURRENCY)
+        parent_by_key = {n.canonical_key: n for n in parents}
+        remaining: set[str] = set(parent_by_key.keys())
+        parents_done = 0
+        wave_num = 0
+
+        log.info(
+            "compose_bottomup_parents_start",
+            total_parents=len(parents),
+            node_contents_keys=len(node_contents),
+        )
+
+        async def _bounded_parent(node: Any) -> dict[str, Any]:
+            async with parent_sem:
+                child_contents = [
+                    node_contents.get(c.canonical_key, "")
+                    for c in node.children
+                ]
+                try:
+                    page_dict = await asyncio.wait_for(
+                        _synthesize_parent_for_bottomup(
+                            node, child_contents, llm,
+                        ),
+                        timeout=_PARENT_TIMEOUT_SEC,
+                    )
+                except asyncio.TimeoutError:
+                    log.warning(
+                        "compose_bottomup_parent_timeout",
+                        key=node.canonical_key,
+                    )
+                    page_dict = {
+                        "path": node.canonical_key,
+                        "title": node.title or node.canonical_key,
+                        "content": (
+                            f"# {node.title or node.canonical_key}\n\n"
+                            "(Synthesis timed out)"
+                        ),
+                        "business_domain": node.canonical_key,
+                        "canonical_key": node.canonical_key,
+                    }
+                return page_dict
+
+        while remaining:
+            wave_num += 1
+            ready = [
+                parent_by_key[k]
+                for k in remaining
+                if all(
+                    c.canonical_key in node_contents
+                    for c in parent_by_key[k].children
+                )
+            ]
+            if not ready:
+                blocked_sample = []
+                for k in list(remaining)[:5]:
+                    missing = [
+                        c.canonical_key
+                        for c in parent_by_key[k].children
+                        if c.canonical_key not in node_contents
+                    ]
+                    blocked_sample.append({"parent": k, "missing_children": missing[:3]})
+                log.error(
+                    "compose_bottomup_parents_deadlock",
+                    remaining_count=len(remaining),
+                    remaining_sample=sorted(remaining)[:10],
+                    blocked_sample=blocked_sample,
+                )
+                raise RuntimeError(
+                    "compose_bottomup: no ready parents while nodes remain; "
+                    "tree state is inconsistent",
+                )
+
+            log.info(
+                "compose_bottomup_parents_wave",
+                wave=wave_num,
+                ready_count=len(ready),
+                remaining_count=len(remaining),
+                ready_keys=[n.canonical_key for n in ready[:5]],
+            )
+            gathered = await asyncio.gather(
+                *[_bounded_parent(n) for n in ready],
+                return_exceptions=True,
+            )
+
+            for node, result in zip(ready, gathered):
+                if isinstance(result, Exception):
+                    log.warning(
+                        "compose_bottomup_parent_error",
+                        key=node.canonical_key,
+                        error=str(result),
+                        error_type=type(result).__name__,
+                    )
+                    page_dict = {
+                        "path": node.canonical_key,
+                        "title": node.title or node.canonical_key,
+                        "content": (
+                            f"# {node.title or node.canonical_key}\n\n"
+                            "(Generation failed)"
+                        ),
+                        "business_domain": node.canonical_key,
+                        "canonical_key": node.canonical_key,
+                    }
+                else:
+                    page_dict = result
+                node_contents[node.canonical_key] = page_dict.get("content", "")
+                pages.append(page_dict)
+                remaining.discard(node.canonical_key)
+                parents_done += 1
+                if parents_done % 20 == 0:
+                    log.info(
+                        "compose_bottomup_parents_progress",
+                        done=parents_done,
+                        total=len(parents),
+                        elapsed_sec=round(
+                            _time.monotonic() - parent_start, 1,
+                        ),
+                    )
+
+    total_elapsed = _time.monotonic() - batch_start
+    log.info(
+        "compose_bottomup_done",
+        total_pages=len(pages),
+        leaves=len(leaves),
+        parents=len(parents),
+        errors=error_counter[0],
+        timeouts=timeout_counter[0],
+        total_elapsed_sec=round(total_elapsed, 1),
+    )
 
     return {"pages": pages, "domain_cache": domain_cache}
 
@@ -303,26 +520,77 @@ async def compose_bottomup_node(
 async def _enrich_leaf_context(node: Any, graph_store: Any) -> str:
     """Batch graph queries to gather rich context for a leaf node. No LLM calls."""
     from wiki.cypher_queries import METHODS_CY, CALLERS_CY, CHUNK_SNIPPETS_CY, call_chain_cypher
+    import time as _time
 
     names = list(node.entity_uids[:15])
     if not names:
+        log.debug("enrich_context_skip_empty", key=node.canonical_key)
         return ""
 
-    params = {"names": names}
+    # UID format: "{label}:{file_path}:{name}:{start_line}" — Cypher uses m.name
+    short_names = []
+    for uid in names:
+        parts = uid.split(":")
+        short_names.append(parts[-2] if len(parts) >= 3 else uid)
 
-    async def _safe_query(cypher: str) -> list[dict]:
+    log.info(
+        "enrich_context_params",
+        key=node.canonical_key,
+        uid_count=len(names),
+        uid_sample=names[:3],
+        short_name_sample=short_names[:3],
+    )
+
+    params = {"names": short_names}
+    enrich_start = _time.monotonic()
+
+    async def _safe_query(cypher: str, label: str) -> list[dict]:
+        q_start = _time.monotonic()
         try:
-            result = await graph_store.execute_query(cypher, params)
-            return getattr(result, "data", []) or []
+            result = await asyncio.wait_for(
+                graph_store.execute_query(cypher, params),
+                timeout=30,
+            )
+            rows = getattr(result, "data", []) or []
+            elapsed = _time.monotonic() - q_start
+            if elapsed > 5:
+                log.warning(
+                    "enrich_context_slow_query",
+                    key=node.canonical_key,
+                    query_label=label,
+                    elapsed_sec=round(elapsed, 1),
+                    rows=len(rows),
+                )
+            return rows
+        except asyncio.TimeoutError:
+            log.warning(
+                "enrich_context_query_timeout",
+                key=node.canonical_key,
+                query_label=label,
+            )
+            return []
         except Exception:
-            log.warning("enrich_context_query_failed", exc_info=True)
+            log.warning("enrich_context_query_failed", query_label=label, exc_info=True)
             return []
 
     methods_rows, callers_rows, chain_rows, snippet_rows = await asyncio.gather(
-        _safe_query(METHODS_CY),
-        _safe_query(CALLERS_CY),
-        _safe_query(call_chain_cypher(2)),
-        _safe_query(CHUNK_SNIPPETS_CY),
+        _safe_query(METHODS_CY, "methods"),
+        _safe_query(CALLERS_CY, "callers"),
+        _safe_query(call_chain_cypher(2), "call_chain"),
+        _safe_query(CHUNK_SNIPPETS_CY, "snippets"),
+    )
+    enrich_elapsed = _time.monotonic() - enrich_start
+    total_rows = len(methods_rows) + len(callers_rows) + len(chain_rows) + len(snippet_rows)
+    log.info(
+        "enrich_context_result",
+        key=node.canonical_key,
+        elapsed_sec=round(enrich_elapsed, 1),
+        methods=len(methods_rows),
+        callers=len(callers_rows),
+        chains=len(chain_rows),
+        snippets=len(snippet_rows),
+        total_rows=total_rows,
+        context_empty=total_rows == 0,
     )
 
     sections: list[str] = []
@@ -372,7 +640,10 @@ async def _compose_leaf_for_bottomup(
     *,
     graph_store: Any | None = None,
 ) -> dict[str, Any]:
+    import time as _time
+    leaf_start = _time.monotonic()
     title = node.title or node.canonical_key
+    source = "unknown"
 
     collected_summaries: list[dict[str, Any]] = []
     if module_summaries:
@@ -389,6 +660,7 @@ async def _compose_leaf_for_bottomup(
             log.warning("enrich_context_failed", key=node.canonical_key, exc_info=True)
 
     if collected_summaries:
+        source = "reuse"
         sections: list[str] = []
         for s in collected_summaries:
             section = s.get("summary_text") or s.get("summary", "")
@@ -402,8 +674,10 @@ async def _compose_leaf_for_bottomup(
         content = f"# {title}\n\n" + "\n\n---\n\n".join(sections)
         log.debug("compose_leaf_reused", key=node.canonical_key, sections=len(sections))
     elif not llm:
+        source = "no_llm"
         content = f"# {title}\n\n(No LLM available)"
     else:
+        source = "llm"
         system = "你是代码文档专家，根据代码模块信息生成清晰的 Wiki 文档页面。输出 Markdown 格式。"
         context_section = f"\n\n## 代码上下文\n\n{enriched_context}" if enriched_context else ""
         prompt = (
@@ -412,11 +686,29 @@ async def _compose_leaf_for_bottomup(
             f"文件路径: {', '.join(node.file_paths[:10])}\n"
             f"{context_section}"
         )
+        llm_start = _time.monotonic()
         try:
             content = await llm.generate(prompt, system=system, max_tokens=2000)
+            llm_elapsed = _time.monotonic() - llm_start
+            if llm_elapsed > 15:
+                log.warning(
+                    "compose_leaf_llm_slow",
+                    key=node.canonical_key,
+                    llm_sec=round(llm_elapsed, 1),
+                )
         except Exception:
             log.warning("compose_leaf_failed", canonical_key=node.canonical_key, exc_info=True)
             content = f"# {title}\n\n(Generation failed)"
+
+    total_elapsed = _time.monotonic() - leaf_start
+    if total_elapsed > 20:
+        log.warning(
+            "compose_leaf_slow",
+            key=node.canonical_key,
+            source=source,
+            elapsed_sec=round(total_elapsed, 1),
+            has_context=bool(enriched_context),
+        )
 
     return {
         "path": node.canonical_key,

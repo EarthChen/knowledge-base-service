@@ -60,6 +60,8 @@ def select_poc_domain(
             candidates.append((name, modules, has_entry))
 
     if not candidates:
+        if not domains:
+            raise ValueError("No domains found — check business_id and graph data")
         by_size = sorted(domains.items(), key=lambda x: abs(len(x[1]) - 10))
         return by_size[0]
 
@@ -89,109 +91,113 @@ async def run_poc(business_id: str, domain_name: str | None, output_dir: str) ->
     graph = FalkorDBStore(settings)
     await graph.connect()
 
-    strategy = get_model_strategy(settings)
-    llm: LLMPort = await strategy.get_llm_port("wiki_compose")
-
-    # Step 1: Test function calling
-    print("=== Step 1: LLM Function Calling Test ===")
-    test_messages = [
-        {"role": "system", "content": "You are a test assistant."},
-        {"role": "user", "content": "Call the test_tool with name='hello'."},
-    ]
-    test_tools = [{
-        "type": "function",
-        "function": {
-            "name": "test_tool",
-            "description": "A test tool",
-            "parameters": {
-                "type": "object",
-                "properties": {"name": {"type": "string"}},
-                "required": ["name"],
-            },
-        },
-    }]
     try:
-        response = await llm.complete_with_tools(test_messages, test_tools)
-        tool_calls = response.get("tool_calls", [])
-        print(f"  Function calling: {'SUPPORTED' if tool_calls else 'NOT SUPPORTED (no tool_calls)'}")
-        print(f"  Response keys: {list(response.keys())}")
-        if tool_calls:
-            print(f"  Tool calls: {json.dumps(tool_calls, ensure_ascii=False, default=str)[:500]}")
-    except Exception as e:
-        print(f"  Function calling: FAILED — {e}")
+        strategy = get_model_strategy(settings)
+        llm: LLMPort = await strategy.get_llm_port("wiki_compose")
 
-    # Step 2: Get domain list
-    print("\n=== Step 2: Domain Selection ===")
-    domain_cy = (
-        "MATCH (m:Module) WHERE m.repository STARTS WITH $biz "
-        "AND m.business_domain IS NOT NULL "
-        "RETURN m.business_domain AS domain, collect(m.name) AS modules"
-    )
-    result = await graph.execute_query(domain_cy, {"biz": business_id})
-    rows = getattr(result, "data", None) or []
-    domains = {str(r["domain"]): list(r["modules"]) for r in rows if isinstance(r, dict)}
-    print(f"  Found {len(domains)} domains")
-    for d, mods in sorted(domains.items(), key=lambda x: -len(x[1]))[:10]:
-        print(f"    {d}: {len(mods)} modules")
+        # Step 1: Test function calling
+        print("=== Step 1: LLM Function Calling Test ===")
+        test_messages = [
+            {"role": "system", "content": "You are a test assistant."},
+            {"role": "user", "content": "Call the test_tool with name='hello'."},
+        ]
+        test_tools = [{
+            "type": "function",
+            "function": {
+                "name": "test_tool",
+                "description": "A test tool",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                    "required": ["name"],
+                },
+            },
+        }]
+        try:
+            response = await llm.complete_with_tools(test_messages, test_tools)
+            tool_calls = response.get("tool_calls", [])
+            print(f"  Function calling: {'SUPPORTED' if tool_calls else 'NOT SUPPORTED (no tool_calls)'}")
+            print(f"  Response keys: {list(response.keys())}")
+            if tool_calls:
+                print(f"  Tool calls: {json.dumps(tool_calls, ensure_ascii=False, default=str)[:500]}")
+        except Exception as e:
+            print(f"  Function calling: FAILED — {e}")
 
-    if domain_name and domain_name in domains:
-        selected_name = domain_name
-        selected_modules = domains[domain_name]
-    else:
-        selected_name, selected_modules = select_poc_domain(domains)
-    print(f"\n  Selected: {selected_name} ({len(selected_modules)} modules)")
-    print(f"  Modules: {selected_modules[:10]}{'...' if len(selected_modules) > 10 else ''}")
+        # Step 2: Get domain list
+        print("\n=== Step 2: Domain Selection ===")
+        domain_cy = (
+            "MATCH (m:Module) WHERE m.repository STARTS WITH $biz "
+            "AND m.business_domain IS NOT NULL "
+            "RETURN m.business_domain AS domain, collect(m.name) AS modules"
+        )
+        result = await graph.execute_query(domain_cy, {"biz": business_id})
+        rows = getattr(result, "data", None) or []
+        domains = {str(r["domain"]): list(r["modules"]) for r in rows if isinstance(r, dict)}
+        print(f"  Found {len(domains)} domains")
+        for d, mods in sorted(domains.items(), key=lambda x: -len(x[1]))[:10]:
+            print(f"    {d}: {len(mods)} modules")
 
-    # Step 3: Build baseline and run Agent
-    print("\n=== Step 3: Agent Generation ===")
-    baseline = build_structured_baseline(selected_name, selected_modules, {})
-    agent = WikiPageAgent(llm=llm, graph_store=graph, repo_path=None)
+        if domain_name:
+            if domain_name not in domains:
+                print(f"  WARNING: --domain '{domain_name}' not found, falling back to auto-select")
+        if not domain_name or domain_name not in domains:
+            selected_name, selected_modules = select_poc_domain(domains)
+        else:
+            selected_name = domain_name
+            selected_modules = domains[domain_name]
+        print(f"\n  Selected: {selected_name} ({len(selected_modules)} modules)")
+        print(f"  Modules: {selected_modules[:10]}{'...' if len(selected_modules) > 10 else ''}")
 
-    t0 = time.monotonic()
-    content = await agent.generate(
-        module_names=selected_modules,
-        domain_name=selected_name,
-        baseline_context=baseline,
-        max_rounds=10,
-    )
-    elapsed = time.monotonic() - t0
-    print(f"  Generation time: {elapsed:.1f}s")
-    print(f"  Content length: {len(content)} chars")
+        # Step 3: Build baseline and run Agent
+        print("\n=== Step 3: Agent Generation ===")
+        baseline = build_structured_baseline(selected_name, selected_modules, {})
+        agent = WikiPageAgent(llm=llm, graph_store=graph, repo_path=None)
 
-    # Step 4: Quality evaluation
-    print("\n=== Step 4: Quality Evaluation ===")
-    report = evaluate_quality(content, selected_modules)
-    print(f"  Coverage: {report.coverage:.2%}")
-    print(f"  Citation density: {report.citation_density:.2f}")
-    print(f"  Context gaps: {report.context_gap_count}")
-    print(f"  Visual aids (Mermaid): {report.visual_aids_count}")
-    print(f"  Uncovered modules: {report.uncovered_modules}")
-    print(f"  Acceptable: {report.is_acceptable}")
+        t0 = time.monotonic()
+        content = await agent.generate(
+            module_names=selected_modules,
+            domain_name=selected_name,
+            baseline_context=baseline,
+            max_rounds=10,
+        )
+        elapsed = time.monotonic() - t0
+        print(f"  Generation time: {elapsed:.1f}s")
+        print(f"  Content length: {len(content)} chars")
 
-    # Step 5: Write output
-    out = Path(output_dir)
-    out.mkdir(parents=True, exist_ok=True)
+        # Step 4: Quality evaluation
+        print("\n=== Step 4: Quality Evaluation ===")
+        report = evaluate_quality(content, selected_modules)
+        print(f"  Coverage: {report.coverage:.2%}")
+        print(f"  Citation density: {report.citation_density:.2f}")
+        print(f"  Context gaps: {report.context_gap_count}")
+        print(f"  Visual aids (Mermaid): {report.visual_aids_count}")
+        print(f"  Uncovered modules: {report.uncovered_modules}")
+        print(f"  Acceptable: {report.is_acceptable}")
 
-    (out / f"{selected_name}.md").write_text(content, encoding="utf-8")
-    (out / f"{selected_name}_report.json").write_text(
-        json.dumps({
-            "domain": selected_name,
-            "modules": selected_modules,
-            "elapsed_sec": round(elapsed, 1),
-            "content_length": len(content),
-            "coverage": report.coverage,
-            "citation_density": report.citation_density,
-            "context_gap_count": report.context_gap_count,
-            "visual_aids_count": report.visual_aids_count,
-            "uncovered_modules": report.uncovered_modules,
-            "is_acceptable": report.is_acceptable,
-        }, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    print(f"\n  Output: {out / f'{selected_name}.md'}")
-    print(f"  Report: {out / f'{selected_name}_report.json'}")
+        # Step 5: Write output
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
 
-    await graph.close()
+        (out / f"{selected_name}.md").write_text(content, encoding="utf-8")
+        (out / f"{selected_name}_report.json").write_text(
+            json.dumps({
+                "domain": selected_name,
+                "modules": selected_modules,
+                "elapsed_sec": round(elapsed, 1),
+                "content_length": len(content),
+                "coverage": report.coverage,
+                "citation_density": report.citation_density,
+                "context_gap_count": report.context_gap_count,
+                "visual_aids_count": report.visual_aids_count,
+                "uncovered_modules": report.uncovered_modules,
+                "is_acceptable": report.is_acceptable,
+            }, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(f"\n  Output: {out / f'{selected_name}.md'}")
+        print(f"  Report: {out / f'{selected_name}_report.json'}")
+    finally:
+        await graph.close()
 
 
 def main() -> None:

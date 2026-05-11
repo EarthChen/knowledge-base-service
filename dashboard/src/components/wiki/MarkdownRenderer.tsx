@@ -39,6 +39,11 @@ export function MermaidBlock({ chart }: { chart: string }) {
       el.textContent = chart;
       try {
         await mermaid.run({ nodes: [el] });
+        const svg = el.querySelector("svg");
+        if (svg) {
+          svg.style.maxWidth = "100%";
+          svg.style.height = "auto";
+        }
       } catch {
         const msg = t.common.mermaidRenderFailed;
         el.innerHTML = `<pre class="rounded-lg bg-red-50 p-3 text-xs text-red-800"></pre>`;

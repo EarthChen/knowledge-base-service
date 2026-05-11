@@ -81,19 +81,28 @@ async def run_poc(business_id: str, domain_name: str | None, output_dir: str) ->
         sys.path.insert(0, project_root)
 
     from core.config import get_settings
-    from store.falkordb_store import FalkorDBStore
-    from wiki.llm_port import LLMPort
-    from wiki.model_strategy import get_model_strategy
+    from llm.base_provider import GatewayLLMProviderAdapter, LLMPortBridge
+    from services.service_registry import ServiceRegistry
     from wiki.page_agent import WikiPageAgent
     from wiki.quality_report import evaluate_quality
 
     settings = get_settings()
-    graph = FalkorDBStore(settings)
-    await graph.connect()
+
+    registry = ServiceRegistry(settings)
+    await registry.start()
 
     try:
-        strategy = get_model_strategy(settings)
-        llm: LLMPort = await strategy.get_llm_port("wiki_compose")
+        kb = await registry.get_service(business_id)
+        graph = kb.store
+
+        raw_llm = kb.llm_provider
+        if raw_llm is None:
+            print("ERROR: LLM provider not configured. Check .env LLM settings.")
+            return
+        if hasattr(raw_llm, "generate"):
+            llm = raw_llm
+        else:
+            llm = LLMPortBridge(GatewayLLMProviderAdapter(raw_llm))
 
         # Step 1: Test function calling
         print("=== Step 1: LLM Function Calling Test ===")
@@ -123,16 +132,28 @@ async def run_poc(business_id: str, domain_name: str | None, output_dir: str) ->
         except Exception as e:
             print(f"  Function calling: FAILED — {e}")
 
-        # Step 2: Get domain list
+        # Step 2: Get domain list (group modules by Java package path)
         print("\n=== Step 2: Domain Selection ===")
-        domain_cy = (
-            "MATCH (m:Module) WHERE m.repository STARTS WITH $biz "
-            "AND m.business_domain IS NOT NULL "
-            "RETURN m.business_domain AS domain, collect(m.name) AS modules"
-        )
-        result = await graph.execute_query(domain_cy, {"biz": business_id})
+        domain_cy = "MATCH (m:Module) RETURN m.name AS name, m.path AS path"
+        result = await graph.execute_query(domain_cy, {})
         rows = getattr(result, "data", None) or []
-        domains = {str(r["domain"]): list(r["modules"]) for r in rows if isinstance(r, dict)}
+
+        from collections import defaultdict
+        pkg_groups: dict[str, list[str]] = defaultdict(list)
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            name = str(r.get("name", "") or r.get("m.name", ""))
+            path = str(r.get("path", "") or r.get("m.path", ""))
+            if name.startswith("<") or not path.startswith("ultron"):
+                continue
+            parts = path.split("/src/main/java/")
+            if len(parts) > 1:
+                segs = parts[1].split("/")
+                pkg = "/".join(segs[6:-1]) if len(segs) > 7 else "/".join(segs[5:-1])
+                if pkg:
+                    pkg_groups[pkg].append(name)
+        domains = dict(pkg_groups)
         print(f"  Found {len(domains)} domains")
         for d, mods in sorted(domains.items(), key=lambda x: -len(x[1]))[:10]:
             print(f"    {d}: {len(mods)} modules")
@@ -178,8 +199,9 @@ async def run_poc(business_id: str, domain_name: str | None, output_dir: str) ->
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
 
-        (out / f"{selected_name}.md").write_text(content, encoding="utf-8")
-        (out / f"{selected_name}_report.json").write_text(
+        safe_name = selected_name.replace("/", "_")
+        (out / f"{safe_name}.md").write_text(content, encoding="utf-8")
+        (out / f"{safe_name}_report.json").write_text(
             json.dumps({
                 "domain": selected_name,
                 "modules": selected_modules,
@@ -194,10 +216,10 @@ async def run_poc(business_id: str, domain_name: str | None, output_dir: str) ->
             }, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        print(f"\n  Output: {out / f'{selected_name}.md'}")
-        print(f"  Report: {out / f'{selected_name}_report.json'}")
+        print(f"\n  Output: {out / f'{safe_name}.md'}")
+        print(f"  Report: {out / f'{safe_name}_report.json'}")
     finally:
-        await graph.close()
+        await registry.stop()
 
 
 def main() -> None:

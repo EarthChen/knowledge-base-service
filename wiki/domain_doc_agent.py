@@ -9,6 +9,8 @@ import re
 from typing import Any
 
 from core.log import get_logger
+from wiki.page_agent import WikiPageAgent
+from wiki.quality_report import evaluate_quality
 
 log = get_logger(__name__)
 
@@ -56,3 +58,79 @@ def _maybe_split(content: str, domain_name: str) -> list[dict[str, Any]]:
 
 def _make_page(content: str, key: str) -> dict[str, Any]:
     return {"type": "domain_overview", "title": key, "content": content}
+
+
+class DomainDocAgent:
+    """Per-domain agent: skeleton-first, then progressive enrichment."""
+
+    def __init__(
+        self,
+        domain_name: str,
+        llm: Any,
+        graph_store: Any,
+        *,
+        max_iterations: int = 20,
+        repo_path: str | None = None,
+        search_service: Any | None = None,
+    ) -> None:
+        self.domain_name = domain_name
+        self._page_agent = WikiPageAgent(
+            llm,
+            graph_store,
+            max_rounds=20,
+            max_tool_calls=100,
+            repo_path=repo_path,
+            search_service=search_service,
+        )
+        self._max_iterations = max_iterations
+        self.iteration_history: list[dict[str, Any]] = []
+
+    async def generate_with_iterations(
+        self,
+        module_names: list[str],
+        baseline_context: str,
+    ) -> list[dict[str, Any]]:
+        """Generate domain documentation with quality-driven iteration."""
+        content = await self._page_agent.generate(
+            module_names=module_names,
+            domain_name=self.domain_name,
+            baseline_context=baseline_context,
+        )
+
+        for iteration in range(self._max_iterations):
+            quality = evaluate_quality(content, module_names)
+            self.iteration_history.append({
+                "iteration": iteration,
+                "coverage": quality.coverage,
+                "citation_density": quality.citation_density,
+                "context_gaps": quality.context_gap_count,
+                "uncovered_count": len(quality.uncovered_modules),
+            })
+
+            log.info(
+                "domain_agent_iteration",
+                domain=self.domain_name,
+                iteration=iteration,
+                coverage=quality.coverage,
+                citation_density=quality.citation_density,
+                gaps=quality.context_gap_count,
+            )
+
+            if (
+                quality.coverage >= 0.95
+                and quality.citation_density >= 0.5
+                and quality.context_gap_count == 0
+            ):
+                break
+
+            content = await self._page_agent.enrich(
+                content,
+                domain_name=self.domain_name,
+                focus_modules=quality.uncovered_modules or None,
+                quality_report=quality,
+            )
+
+        if len(self.iteration_history) >= self._max_iterations:
+            log.warning("max_safety_iterations", domain=self.domain_name)
+
+        return _maybe_split(content, self.domain_name)

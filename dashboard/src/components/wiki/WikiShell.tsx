@@ -29,8 +29,15 @@ export { WikiToolSuspenseFallback };
 export default function WikiShell() {
   const [searchParams, setSearchParams] = useSearchParams();
   const parsed = useMemo(() => parseWikiSearchParams(searchParams), [searchParams]);
-  const { currentBusiness } = useBusiness();
+  const { currentBusiness, setCurrentBusiness } = useBusiness();
   const businessId = parsed.businessId?.trim() || currentBusiness;
+
+  useEffect(() => {
+    const urlBiz = parsed.businessId?.trim();
+    if (urlBiz && urlBiz !== currentBusiness) {
+      setCurrentBusiness(urlBiz);
+    }
+  }, [parsed.businessId, currentBusiness, setCurrentBusiness]);
 
   const pagePath = parsed.path?.trim() ?? "";
   const viewType = parsed.viewType;

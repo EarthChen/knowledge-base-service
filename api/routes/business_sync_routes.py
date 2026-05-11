@@ -458,7 +458,7 @@ async def sync_repo_and_regenerate_wiki(
     try:
         factory = getattr(request.app.state, "wiki_service_factory", None)
         if callable(factory):
-            wiki_svc = factory()
+            wiki_svc = factory(business_id=business_id)
             if asyncio.iscoroutine(wiki_svc):
                 wiki_svc = await wiki_svc
 

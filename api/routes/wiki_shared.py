@@ -7,9 +7,10 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import Depends, Request
+from fastapi import Depends, Header, Request
 
 from api.exceptions import KbServiceUnavailable
+from core.auth import resolve_business_id, resolve_token, TokenInfo
 from core.log import get_logger
 from query.graph_query import GraphQueryService
 from store.wiki_feedback_store import WikiFeedbackStore
@@ -84,18 +85,44 @@ def get_route_settings() -> Any:
     return wiki_routes.get_settings()
 
 
+def _effective_business_id(request: Request) -> str:
+    """Extract the effective business_id from query params, header, or token binding."""
+    biz = request.query_params.get("business_id")
+    if biz and biz != "default":
+        return biz
+    header_val = request.headers.get("x-business-id", "default")
+    auth = request.headers.get("authorization")
+    token_info = resolve_token(auth) if auth else None
+    return resolve_business_id(token_info, header_val)
+
+
 async def get_wiki_service_dep(request: Request) -> WikiService:
     factory = getattr(request.app.state, "wiki_service_factory", None)
     if callable(factory):
-        out = factory()
+        business_id = _effective_business_id(request)
+        out = factory(business_id=business_id)
         if asyncio.iscoroutine(out):
             return await out
         return out  # type: ignore[no-any-return]
     raise KbServiceUnavailable("Wiki generation is not configured")
 
 
-def get_wiki_store_dep(request: Request) -> Any:
-    """Get FalkorDB store for reading persisted WikiPage nodes."""
+async def get_wiki_store_dep(request: Request) -> Any:
+    """Get FalkorDB store for reading persisted WikiPage nodes.
+
+    Routes to the per-business graph using query param, X-Business-Id header,
+    or token binding, falling back to the default graph otherwise.
+    """
+    business_id = _effective_business_id(request)
+    if business_id and business_id != "default":
+        resolver = getattr(request.app.state, "wiki_store_for_business", None)
+        if callable(resolver):
+            try:
+                store = await resolver(business_id)
+                if store is not None:
+                    return store
+            except Exception:
+                log.debug("wiki_store_for_business_fallback", business_id=business_id, exc_info=True)
     store = getattr(request.app.state, "wiki_store", None)
     if store is None:
         raise KbServiceUnavailable("Graph store not configured")
@@ -114,6 +141,8 @@ def get_wiki_editing_store_dep(request: Request) -> WikiEditingStore | None:
 
 
 async def get_wiki_search_dep(request: Request) -> WikiSearchService:
+    # TODO: Per-tenant WikiSearchService wired to wiki_store_for_business (bootstrap singleton
+    # targets default graph only). Queries filter by business_id in Cypher today.
     svc = getattr(request.app.state, "wiki_search_service", None)
     if svc is None:
         raise KbServiceUnavailable("Wiki search is not configured")
@@ -121,6 +150,8 @@ async def get_wiki_search_dep(request: Request) -> WikiSearchService:
 
 
 async def get_wiki_ask_dep(request: Request) -> WikiAskService:
+    # TODO: Per-tenant WikiAskService wired to wiki_store_for_business (bootstrap singleton
+    # targets default graph only). Queries filter by business_id in Cypher today.
     svc = getattr(request.app.state, "wiki_ask_service", None)
     if svc is None:
         raise KbServiceUnavailable("Wiki ask is not configured")
@@ -128,6 +159,8 @@ async def get_wiki_ask_dep(request: Request) -> WikiAskService:
 
 
 def get_wiki_deep_research_dep(request: Request) -> DeepResearchService:
+    # TODO: Per-tenant DeepResearchService wired to wiki_store_for_business (bootstrap singleton
+    # targets default graph only).
     svc = getattr(request.app.state, "wiki_deep_research_service", None)
     if svc is None:
         raise KbServiceUnavailable("Deep research is not configured")
@@ -138,11 +171,43 @@ def get_wiki_memory_loop_dep(request: Request) -> MemoryLoop | None:
     return getattr(request.app.state, "wiki_memory_loop", None)
 
 
-def get_graph_query_dep(request: Request) -> GraphQueryService:
-    """Resolve graph query service; use with ``Depends`` when the graph is required for every request."""
-    gq = getattr(request.app.state, "graph_query_service", None)
-    if gq is None:
+async def get_graph_query_dep(request: Request) -> GraphQueryService:
+    """Resolve graph query service for the effective business graph; cache instances per business_id."""
+    default_gq = getattr(request.app.state, "graph_query_service", None)
+    if default_gq is None:
         raise KbServiceUnavailable("Graph query is not configured")
+
+    business_id = _effective_business_id(request)
+    if not business_id or business_id == "default":
+        return default_gq
+
+    resolver = getattr(request.app.state, "wiki_store_for_business", None)
+    if not callable(resolver):
+        return default_gq
+
+    try:
+        store = await resolver(business_id)
+        if store is None:
+            return default_gq
+    except Exception:
+        log.debug(
+            "wiki_graph_query_store_fallback",
+            business_id=business_id,
+            exc_info=True,
+        )
+        return default_gq
+
+    cache = getattr(request.app.state, "_wiki_graph_query_by_business", None)
+    if cache is None:
+        cache = {}
+        request.app.state._wiki_graph_query_by_business = cache
+
+    cached = cache.get(business_id)
+    if cached is not None:
+        return cached
+
+    gq = GraphQueryService(store)
+    cache[business_id] = gq
     return gq
 
 
@@ -181,17 +246,51 @@ async def get_wiki_lint_service_dep(request: Request) -> WikiLintService:
     factory = getattr(request.app.state, "wiki_lint_service_factory", None)
     if not callable(factory):
         raise KbServiceUnavailable("Wiki lint is not configured")
-    out = factory()
+    business_id = _effective_business_id(request)
+    out = factory(business_id=business_id)
     if asyncio.iscoroutine(out):
         return await out
     return out  # type: ignore[no-any-return]
 
 
-def get_wiki_feedback_store_dep(request: Request) -> WikiFeedbackStore:
-    st = getattr(request.app.state, "wiki_feedback_store", None)
-    if st is None:
+async def get_wiki_feedback_store_dep(request: Request) -> WikiFeedbackStore:
+    """Wiki feedback persistence on the effective business graph; cache instances per business_id."""
+    default_fb = getattr(request.app.state, "wiki_feedback_store", None)
+    if default_fb is None:
         raise KbServiceUnavailable("Wiki feedback is not configured")
-    return st
+
+    business_id = _effective_business_id(request)
+    if not business_id or business_id == "default":
+        return default_fb
+
+    resolver = getattr(request.app.state, "wiki_store_for_business", None)
+    if not callable(resolver):
+        return default_fb
+
+    try:
+        store = await resolver(business_id)
+        if store is None:
+            return default_fb
+    except Exception:
+        log.debug(
+            "wiki_feedback_store_fallback",
+            business_id=business_id,
+            exc_info=True,
+        )
+        return default_fb
+
+    cache = getattr(request.app.state, "_wiki_feedback_store_by_business", None)
+    if cache is None:
+        cache = {}
+        request.app.state._wiki_feedback_store_by_business = cache
+
+    cached = cache.get(business_id)
+    if cached is not None:
+        return cached
+
+    fb = WikiFeedbackStore(store)
+    cache[business_id] = fb
+    return fb
 
 
 async def _maybe_call(fn: Callable[..., Any], *args: Any) -> Any:
@@ -271,7 +370,8 @@ async def _indexed_repository_names(
     registry = getattr(request.app.state, "registry", None)
     if registry is None:
         raise KbServiceUnavailable("Service registry is not configured")
-    kb = await registry.get_service("default")
+    business_id = _effective_business_id(request)
+    kb = await registry.get_service(business_id)
     from api.routes import wiki_routes
 
     queries = wiki_routes.GraphQueryRepository(kb.store)

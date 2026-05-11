@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from api.exceptions import KbClientError, KbNotFound
+from api.exceptions import KbClientError, KbNotFound, KbServiceUnavailable
 from api.models.wiki_models import (
     BusinessWikiGenerateBody,
     WikiQuickBody,
@@ -456,7 +456,6 @@ async def wiki_events_stream(
 async def generate_business_wiki(
     body: BusinessWikiGenerateBody,
     request: Request,
-    svc: WikiService = Depends(get_wiki_service_dep),
     registry: WikiTaskRegistry = Depends(get_task_registry_dep),
 ) -> JSONResponse:
     """Trigger cross-repo business-level wiki generation as a background task."""
@@ -476,6 +475,12 @@ async def generate_business_wiki(
                 "detail": "Business wiki generation already running.",
             },
         )
+
+    factory = getattr(request.app.state, "wiki_service_factory", None)
+    if not callable(factory):
+        raise KbServiceUnavailable("Wiki generation is not configured")
+    out = factory(business_id=body.business_id)
+    svc = await out if asyncio.iscoroutine(out) else out
 
     task_id = f"biz-wiki-{uuid.uuid4().hex[:12]}"
     try:

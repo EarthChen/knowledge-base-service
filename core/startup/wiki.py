@@ -21,8 +21,8 @@ async def init_wiki_and_lint(container: AppContainer, app: FastAPI) -> None:
     if getattr(app.state, "wiki_cache", None) is None:
         app.state.wiki_cache = WikiCache()
 
-    async def wiki_lint_service_factory() -> WikiLintService:
-        kb = await container.registry.get_service("default")
+    async def wiki_lint_service_factory(business_id: str = "default") -> WikiLintService:
+        kb = await container.registry.get_service(business_id)
         settings = get_settings()
         det = None
         if settings.wiki.contradiction_detection_enabled and kb.llm_provider is not None:

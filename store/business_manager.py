@@ -64,6 +64,14 @@ class BusinessManager:
         keys = list(self._conn.scan_iter(match=pattern, count=200))
         results: list[dict[str, Any]] = []
         for key in keys:
+            key_str = key.decode() if isinstance(key, bytes) else key
+            if ":repos:" in key_str:
+                continue
+            key_type = self._conn.type(key)
+            if isinstance(key_type, bytes):
+                key_type = key_type.decode()
+            if key_type != "hash":
+                continue
             raw = self._conn.hgetall(key)
             if raw:
                 meta = self._deserialize(raw)

@@ -4,7 +4,7 @@ set -euo pipefail
 # Configuration
 API_BASE="${API_BASE:-http://172.18.228.71:8100}"
 AUTH_TOKEN="${AUTH_TOKEN:-sk-admin-test}"
-BUSINESS_ID="${BUSINESS_ID:-default}"
+BUSINESS_ID="${BUSINESS_ID:-ultron}"
 LANGUAGE="${WIKI_LANGUAGE:-zh}"
 INCREMENTAL="${INCREMENTAL:-false}"
 MODE="${MODE:-full}"

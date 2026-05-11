@@ -261,7 +261,15 @@ async def wiki_merge_candidates(
     settings = get_route_settings()
     if not settings.wiki.concept_merging_enabled:
         raise KbNotFound("Concept merging is disabled")
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
+    resolver = getattr(request.app.state, "wiki_store_for_business", None)
+    raw_store = None
+    if callable(resolver) and business_id != "default":
+        try:
+            raw_store = await resolver(business_id)
+        except Exception:
+            pass
+    if raw_store is None:
+        raw_store = getattr(request.app.state, "wiki_store", None)
     if raw_store is None:
         raise KbServiceUnavailable("Graph store not configured")
     from wiki.concept_merger import ConceptMerger
@@ -294,7 +302,10 @@ async def wiki_ingest(req: IngestRequest, request: Request) -> dict[str, Any]:
     affected = await detector.detect_from_file_list(
         req.repository, req.files, trigger="api"
     )
-    out = factory()
+    from api.routes.wiki_shared import _effective_business_id
+
+    business_id = _effective_business_id(request)
+    out = factory(business_id=business_id)
     service = await out if asyncio.iscoroutine(out) else out
     result = await service.bump_affected_wiki_pages(req.repository, affected)
     return result

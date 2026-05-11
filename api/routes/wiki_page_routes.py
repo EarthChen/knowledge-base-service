@@ -836,7 +836,7 @@ async def analyze_pr_impact(
             "summary": {"high_impact": 0, "medium_impact": 0, "total_affected_pages": 0},
         }
 
-    graph_svc = get_graph_query_dep(request)
+    graph_svc = await get_graph_query_dep(request)
 
     try:
         await wiki_svc.ensure_repository(repository)

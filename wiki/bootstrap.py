@@ -59,7 +59,8 @@ async def _run_feedback_wiki_regen(
 
     q = (
         "MATCH (wp:WikiPage) WHERE wp.uid = $uid "
-        "RETURN wp.repository AS repository, wp.path AS path, wp.page_type AS page_type "
+        "RETURN wp.repository AS repository, wp.path AS path, "
+        "wp.page_type AS page_type, wp.business_id AS business_id "
         "LIMIT 1"
     )
     r = await store.execute_query(q, {"uid": page_uid})
@@ -67,10 +68,12 @@ async def _run_feedback_wiki_regen(
     repository: str | None = None
     path: str | None = None
     page_type: str | None = None
+    business_id: str = "default"
     if rows and isinstance(rows[0], dict):
         repository = rows[0].get("repository")
         path = rows[0].get("path")
         page_type = rows[0].get("page_type")
+        business_id = rows[0].get("business_id") or "default"
     if not repository and page_uid.startswith("WikiPage:"):
         rest = page_uid[len("WikiPage:") :]
         parts = rest.split(":", 1)
@@ -85,7 +88,7 @@ async def _run_feedback_wiki_regen(
         str(path) if path is not None else None,
         str(page_type) if page_type is not None else None,
     )
-    out = factory()
+    out = factory(business_id=business_id)
     service: WikiService = await out if asyncio.iscoroutine(out) else out
     sem = _get_wiki_generation_sem(app_state)
 
@@ -255,8 +258,8 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
         )
     app.state.wiki_memory_loop = wiki_mem
 
-    async def wiki_service_factory() -> WikiService:
-        kb_svc = await registry.get_service("default")
+    async def wiki_service_factory(business_id: str = "default") -> WikiService:
+        kb_svc = await registry.get_service(business_id)
         from store.wiki_store import WikiStore as _WikiStore
 
         community_service = None
@@ -282,8 +285,8 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
             llm=_wrap_llm(kb_svc.llm_provider),
             repository_exists=repository_exists,
             store=kb_svc.store,
-            deferred_enrichment=kb_svc.wiki_deferred_enrichment,
-            flow_inferencer=kb_svc.wiki_flow_inferencer,
+            deferred_enrichment=getattr(kb_svc, "wiki_deferred_enrichment", None),
+            flow_inferencer=getattr(kb_svc, "wiki_flow_inferencer", None),
             wiki_store=_WikiStore(kb_svc.store),
             memory_loop=wiki_mem,
             community_service=community_service,
@@ -293,6 +296,13 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
         )
 
     app.state.wiki_service_factory = wiki_service_factory
+
+    async def wiki_store_for_business(business_id: str) -> Any:
+        """Return the FalkorDB store for a specific business graph."""
+        svc = await registry.get_service(business_id)
+        return svc.store
+
+    app.state.wiki_store_for_business = wiki_store_for_business
 
     from store.wiki_changelog import WikiChangeLogStore
     from wiki.change_detector import ChangeDetector

@@ -36,7 +36,7 @@ def test_generate_business_wiki_endpoint(app):
             "repositories": ["user-svc"],
         },
     )
-    app.state.wiki_service_factory = lambda: mock_svc
+    app.state.wiki_service_factory = lambda business_id="default": mock_svc
     r = client.post(
         "/api/v1/wiki/business/generate",
         json={"business_id": "test", "language": "zh"},
@@ -55,7 +55,7 @@ def test_generate_business_wiki_scope_error(app):
     mock_svc.generate_business_wiki = AsyncMock(
         side_effect=WikiScopeError("no such business")
     )
-    app.state.wiki_service_factory = lambda: mock_svc
+    app.state.wiki_service_factory = lambda business_id="default": mock_svc
     r = client.post(
         "/api/v1/wiki/business/generate",
         json={"business_id": "missing", "language": "zh"},

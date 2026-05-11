@@ -167,7 +167,10 @@ async def webhook_wiki_ingest_push(
     affected = await detector.detect_from_file_list(
         body.repository, files, trigger="git_push",
     )
-    out = factory()
+    from api.routes.wiki_shared import _effective_business_id
+
+    business_id = _effective_business_id(request)
+    out = factory(business_id=business_id)
     service = await out if asyncio.iscoroutine(out) else out
     return await service.bump_affected_wiki_pages(body.repository, affected)
 

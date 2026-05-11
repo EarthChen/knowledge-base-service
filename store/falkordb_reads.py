@@ -102,7 +102,7 @@ class FalkorDBReadsMixin:
                 "OR starts_with(imp, 'org.xml.') OR starts_with(imp, 'org.ietf.')) "
                 "WITH m, parts[size(parts)-1] AS mod_name "
                 "MATCH (target:Module {name: mod_name}) "
-                "WHERE target.uid <> m.uid "
+                "WHERE target.uid <> m.uid AND target.repository = m.repository "
                 "MERGE (m)-[:IMPORTS]->(target) "
                 "RETURN count(*) AS cnt"
             )

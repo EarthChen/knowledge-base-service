@@ -40,7 +40,7 @@ _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "classify_entity_roles": ("classify_entities", 0.0),
     "detect_reorg": ("detect_reorg", 0.02),
     "graph_decompose": ("graph_decompose", 0.05),
-    "assign_canonical_keys": ("assign_keys", 0.10),
+    "assign_canonical_keys": ("assign_keys", 0.07),
     "classify_domains": ("classify_domains", 0.08),
     "decompose_hierarchy": ("decompose_hierarchy", 0.10),
     "generate_titles": ("generate_titles", 0.12),

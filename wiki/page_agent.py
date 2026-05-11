@@ -1086,6 +1086,8 @@ class WikiPageAgent:
                 graph_store=self._graph,
                 repo_path=self._repo_path,
                 search_service=self._search_service,
+                max_rounds=self.max_rounds,
+                max_tool_calls=self.max_tool_calls,
             )
             sub_agent._delegation_depth = depth + 1
             sub_agent._delegation_count = 0

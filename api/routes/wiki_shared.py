@@ -141,30 +141,96 @@ def get_wiki_editing_store_dep(request: Request) -> WikiEditingStore | None:
 
 
 async def get_wiki_search_dep(request: Request) -> WikiSearchService:
-    # TODO: Per-tenant WikiSearchService wired to wiki_store_for_business (bootstrap singleton
-    # targets default graph only). Queries filter by business_id in Cypher today.
-    svc = getattr(request.app.state, "wiki_search_service", None)
-    if svc is None:
+    """Resolve WikiSearchService for the effective business graph; cache per business_id."""
+    default_svc = getattr(request.app.state, "wiki_search_service", None)
+    if default_svc is None:
         raise KbServiceUnavailable("Wiki search is not configured")
-    return svc
+
+    business_id = _effective_business_id(request)
+    if not business_id or business_id == "default":
+        return default_svc
+
+    cache = getattr(request.app.state, "_wiki_search_by_business", None)
+    if cache is None:
+        cache = {}
+        request.app.state._wiki_search_by_business = cache
+
+    cached = cache.get(business_id)
+    if cached is not None:
+        return cached
+
+    factory = getattr(request.app.state, "wiki_search_service_for_business", None)
+    if callable(factory):
+        try:
+            svc = await factory(business_id)
+            cache[business_id] = svc
+            return svc
+        except Exception:
+            log.debug("wiki_search_for_business_fallback", business_id=business_id, exc_info=True)
+
+    return default_svc
 
 
 async def get_wiki_ask_dep(request: Request) -> WikiAskService:
-    # TODO: Per-tenant WikiAskService wired to wiki_store_for_business (bootstrap singleton
-    # targets default graph only). Queries filter by business_id in Cypher today.
-    svc = getattr(request.app.state, "wiki_ask_service", None)
-    if svc is None:
+    """Resolve WikiAskService for the effective business graph; cache per business_id."""
+    default_svc = getattr(request.app.state, "wiki_ask_service", None)
+    if default_svc is None:
         raise KbServiceUnavailable("Wiki ask is not configured")
-    return svc
+
+    business_id = _effective_business_id(request)
+    if not business_id or business_id == "default":
+        return default_svc
+
+    cache = getattr(request.app.state, "_wiki_ask_by_business", None)
+    if cache is None:
+        cache = {}
+        request.app.state._wiki_ask_by_business = cache
+
+    cached = cache.get(business_id)
+    if cached is not None:
+        return cached
+
+    factory = getattr(request.app.state, "wiki_ask_service_for_business", None)
+    if callable(factory):
+        try:
+            svc = await factory(business_id)
+            cache[business_id] = svc
+            return svc
+        except Exception:
+            log.debug("wiki_ask_for_business_fallback", business_id=business_id, exc_info=True)
+
+    return default_svc
 
 
-def get_wiki_deep_research_dep(request: Request) -> DeepResearchService:
-    # TODO: Per-tenant DeepResearchService wired to wiki_store_for_business (bootstrap singleton
-    # targets default graph only).
-    svc = getattr(request.app.state, "wiki_deep_research_service", None)
-    if svc is None:
+async def get_wiki_deep_research_dep(request: Request) -> DeepResearchService:
+    """Resolve DeepResearchService for the effective business graph; cache per business_id."""
+    default_svc = getattr(request.app.state, "wiki_deep_research_service", None)
+    if default_svc is None:
         raise KbServiceUnavailable("Deep research is not configured")
-    return svc
+
+    business_id = _effective_business_id(request)
+    if not business_id or business_id == "default":
+        return default_svc
+
+    cache = getattr(request.app.state, "_wiki_deep_research_by_business", None)
+    if cache is None:
+        cache = {}
+        request.app.state._wiki_deep_research_by_business = cache
+
+    cached = cache.get(business_id)
+    if cached is not None:
+        return cached
+
+    factory = getattr(request.app.state, "wiki_deep_research_for_business", None)
+    if callable(factory):
+        try:
+            svc = await factory(business_id)
+            cache[business_id] = svc
+            return svc
+        except Exception:
+            log.debug("wiki_deep_research_for_business_fallback", business_id=business_id, exc_info=True)
+
+    return default_svc
 
 
 def get_wiki_memory_loop_dep(request: Request) -> MemoryLoop | None:

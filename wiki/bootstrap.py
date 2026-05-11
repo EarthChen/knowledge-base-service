@@ -304,6 +304,18 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
 
     app.state.wiki_store_for_business = wiki_store_for_business
 
+    async def wiki_search_service_for_business(business_id: str) -> WikiSearchService:
+        """Create a WikiSearchService connected to the per-business graph."""
+        svc = await registry.get_service(business_id)
+        return WikiSearchService(
+            graph=svc.store,
+            vector=svc.semantic_query,
+            fts=svc.store,
+            embedding_gen=getattr(svc, "_embedding", None),
+        )
+
+    app.state.wiki_search_service_for_business = wiki_search_service_for_business
+
     from store.wiki_changelog import WikiChangeLogStore
     from wiki.change_detector import ChangeDetector
 
@@ -341,9 +353,40 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
             rag_engine=rag_engine,
             llm=wrapped_llm,
         )
+
+        async def wiki_ask_service_for_business(business_id: str) -> WikiAskService:
+            """Create a WikiAskService connected to the per-business graph."""
+            biz_search = await wiki_search_service_for_business(business_id)
+            biz_svc = await registry.get_service(business_id)
+            biz_rag = IterativeRAGEngine(
+                retriever=WikiRetriever(biz_search),
+                llm=wrapped_llm,
+            )
+            return WikiAskService(
+                search=biz_search,
+                llm=wrapped_llm,
+                rag_engine=biz_rag,
+                graph=biz_svc.store,
+                conversation_store=conv_store,
+            )
+
+        app.state.wiki_ask_service_for_business = wiki_ask_service_for_business
+
+        async def wiki_deep_research_for_business(business_id: str) -> DeepResearchService:
+            """Create a DeepResearchService connected to the per-business graph."""
+            biz_search = await wiki_search_service_for_business(business_id)
+            biz_rag = IterativeRAGEngine(
+                retriever=WikiRetriever(biz_search),
+                llm=wrapped_llm,
+            )
+            return DeepResearchService(rag_engine=biz_rag, llm=wrapped_llm)
+
+        app.state.wiki_deep_research_for_business = wiki_deep_research_for_business
     else:
         app.state.wiki_ask_service = None
         app.state.wiki_deep_research_service = None
+        app.state.wiki_ask_service_for_business = None
+        app.state.wiki_deep_research_for_business = None
 
     app.state.graph_query_service = kb.graph_query
 

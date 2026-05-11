@@ -33,6 +33,7 @@ from wiki.nodes.compose import (
     compose_leaf_pages_node,
     plan_topic_structure_node,
 )
+from wiki.nodes.domain_compose import compose_domain_agents_node
 from wiki.nodes.graph_nodes import (
     assign_canonical_keys_node,
     compose_bottomup_node,
@@ -93,6 +94,7 @@ __all__ = [
     "classify_domains_node",
     "classify_entities_node",
     "compose_bottomup_node",
+    "compose_domain_agents_node",
     "compose_leaf_modules_node",
     "compose_leaf_pages_node",
     "compose_parent_pages_node",

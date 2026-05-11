@@ -20,6 +20,7 @@ from wiki.nodes.compose import (
     compose_leaf_pages_node,
     plan_topic_structure_node,
 )
+from wiki.nodes.domain_compose import compose_domain_agents_node
 from wiki.nodes.heal import heal_pages_node
 from wiki.nodes.links import create_links_node
 from wiki.nodes.utils import (
@@ -69,6 +70,7 @@ __all__ = [
     "_topic_to_domain_dict",
     "classify_domains_node",
     "classify_entities_node",
+    "compose_domain_agents_node",
     "compose_leaf_modules_node",
     "compose_leaf_pages_node",
     "compose_parent_pages_node",

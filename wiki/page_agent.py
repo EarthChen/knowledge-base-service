@@ -669,9 +669,12 @@ class WikiPageAgent:
         self,
         content: str,
         *,
-        domain_name: str = "",
+        focus_modules: list[str] | None = None,
+        quality_report: Any | None = None,
+        domain_name: str | None = None,
         existing_pages: list[dict] | None = None,
     ) -> str:
+        domain_label = "" if domain_name is None else domain_name
         gaps = _CONTEXT_GAP_RE.findall(content)
         if not gaps:
             return content
@@ -680,7 +683,14 @@ class WikiPageAgent:
         memory = WorkingMemory()
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": _AGENT_SYSTEM},
-            {"role": "user", "content": self._build_user_prompt(content, gaps, memory, domain_name)},
+            {
+                "role": "user",
+                "content": self._build_user_prompt(
+                    content, gaps, memory, domain_label,
+                    focus_modules=focus_modules,
+                    quality_report=quality_report,
+                ),
+            },
         ]
 
         total_tool_calls = 0
@@ -707,7 +717,7 @@ class WikiPageAgent:
                             "content": "你还没有使用工具查询信息。请先使用 read_code 获取关键方法实现，再输出完整页面。",
                         })
                         continue
-                    log.warning("agent_output_was_pure_thinking", domain=domain_name)
+                    log.warning("agent_output_was_pure_thinking", domain=domain_label)
                     break
                 break
 
@@ -738,19 +748,30 @@ class WikiPageAgent:
             if len(messages) > self._MAX_HISTORY_MESSAGES:
                 messages = [
                     {"role": "system", "content": _AGENT_SYSTEM},
-                    {"role": "user", "content": self._build_user_prompt(content, gaps, memory, domain_name)},
+                    {
+                        "role": "user",
+                        "content": self._build_user_prompt(
+                            content, gaps, memory, domain_label,
+                            focus_modules=focus_modules,
+                            quality_report=quality_report,
+                        ),
+                    },
                 ]
                 log.info("agent_history_compressed", round=round_num)
 
         try:
             fallback = await self._llm.generate(
-                prompt=self._build_user_prompt(content, gaps, memory, domain_name),
+                prompt=self._build_user_prompt(
+                    content, gaps, memory, domain_label,
+                    focus_modules=focus_modules,
+                    quality_report=quality_report,
+                ),
                 system=_AGENT_SYSTEM,
             )
             cleaned = strip_agent_artifacts(fallback)
             if cleaned:
                 return cleaned
-            log.warning("agent_fallback_was_pure_thinking", domain=domain_name)
+            log.warning("agent_fallback_was_pure_thinking", domain=domain_label)
             return content
         except Exception:
             log.warning("agent_fallback_failed", exc_info=True)
@@ -962,7 +983,14 @@ class WikiPageAgent:
         return "\n".join(parts)
 
     def _build_user_prompt(
-        self, content: str, gaps: list[str], memory: WorkingMemory, domain_name: str,
+        self,
+        content: str,
+        gaps: list[str],
+        memory: WorkingMemory,
+        domain_name: str,
+        *,
+        focus_modules: list[str] | None = None,
+        quality_report: Any | None = None,
     ) -> str:
         parts = [
             f"## 当前 Wiki 页面（域: {domain_name}）",
@@ -977,7 +1005,28 @@ class WikiPageAgent:
         parts.append(memory.to_prompt_section())
         parts.append("")
         parts.append("请使用 tools 查询缺失信息（如 read_code 获取关键方法实现），然后输出补充后的完整页面。")
-        return "\n".join(parts)
+
+        extra_context = ""
+        if quality_report:
+            extra_context += (
+                "\n\n## Quality Report (current)\n"
+                f"- Coverage: {quality_report.coverage:.1%}\n"
+                f"- Citation density: {quality_report.citation_density:.2f}\n"
+                f"- Context gaps: {quality_report.context_gap_count}\n"
+            )
+            if hasattr(quality_report, "uncovered_modules") and quality_report.uncovered_modules:
+                extra_context += (
+                    f"- Uncovered modules: {', '.join(quality_report.uncovered_modules)}\n"
+                    "\nPrioritize covering uncovered modules and filling context gaps.\n"
+                )
+
+        if focus_modules:
+            extra_context += f"\n\nFocus on these modules: {', '.join(focus_modules)}\n"
+
+        if domain_name:
+            extra_context += f"\n\nDomain: {domain_name}\n"
+
+        return "\n".join(parts) + extra_context
 
     async def _execute_tool(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         log.info("agent_tool_call", tool=tool_name, args_keys=list(args.keys()))

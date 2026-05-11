@@ -544,3 +544,60 @@ class TestWikiPageAgentConstruction:
     def test_custom_max_tool_calls(self):
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock(), max_tool_calls=100)
         assert agent.max_tool_calls == 100
+
+
+class TestEnrichInterface:
+    @pytest.mark.asyncio
+    async def test_enrich_accepts_focus_modules(self):
+        """enrich() should accept focus_modules without TypeError."""
+        mock_llm = MagicMock()
+        mock_llm.complete_with_tools = AsyncMock(return_value={
+            "content": "# Enriched content\n\nModuleA details.",
+            "tool_calls": None,
+        })
+        mock_graph = MagicMock()
+        agent = WikiPageAgent(llm=mock_llm, graph_store=mock_graph)
+        result = await agent.enrich(
+            "# Test\ncontent",
+            focus_modules=["ModuleA", "ModuleB"],
+        )
+        assert isinstance(result, str)
+
+    @pytest.mark.asyncio
+    async def test_enrich_accepts_quality_report(self):
+        """enrich() should accept quality_report without TypeError."""
+        from wiki.quality_report import QualityReport
+        report = QualityReport(
+            coverage=0.5,
+            citation_density=0.2,
+            context_gap_count=1,
+            uncovered_modules=["ModuleC"],
+        )
+        mock_llm = MagicMock()
+        mock_llm.complete_with_tools = AsyncMock(return_value={
+            "content": "# Enriched\nModuleC details.",
+            "tool_calls": None,
+        })
+        mock_graph = MagicMock()
+        agent = WikiPageAgent(llm=mock_llm, graph_store=mock_graph)
+        result = await agent.enrich(
+            "# Test\ncontent",
+            quality_report=report,
+        )
+        assert isinstance(result, str)
+
+    @pytest.mark.asyncio
+    async def test_enrich_accepts_domain_name(self):
+        """enrich() should accept domain_name without TypeError."""
+        mock_llm = MagicMock()
+        mock_llm.complete_with_tools = AsyncMock(return_value={
+            "content": "# Content",
+            "tool_calls": None,
+        })
+        mock_graph = MagicMock()
+        agent = WikiPageAgent(llm=mock_llm, graph_store=mock_graph)
+        result = await agent.enrich(
+            "# Test\ncontent",
+            domain_name="用户管理",
+        )
+        assert isinstance(result, str)

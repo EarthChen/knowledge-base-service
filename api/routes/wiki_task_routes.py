@@ -69,6 +69,8 @@ async def _run_business_wiki_background(
 ) -> None:
     """Background coroutine: run business wiki generation and update task state."""
     async def _progress(info: dict[str, Any]) -> None:
+        if registry and registry.is_cancelled(task_id):
+            raise asyncio.CancelledError(f"task {task_id} cancelled by user")
         if task_store:
             tr = int(info.get("total_repos", 0) or 0)
             cr = int(info.get("completed_repos", 0) or 0)
@@ -144,6 +146,23 @@ async def _run_business_wiki_background(
                     data={"task_id": task_id, "pages_count": result.get("pages_count", 0)},
                 )
             )
+    except asyncio.CancelledError:
+        log.info("business_wiki_background_cancelled", task_id=task_id)
+        if task_store:
+            await task_store.update_status(task_id, "cancelled")
+        if registry:
+            prev = registry.get_task(task_id) or {}
+            registry.put_task(task_id, {**prev, "status": "cancelled"})
+        if event_bus:
+            await event_bus.publish(
+                WikiEvent(
+                    event_type="wiki:generation_failed",
+                    repository=business_id,
+                    business_id=business_id,
+                    data={"task_id": task_id, "error": "cancelled_by_user"},
+                )
+            )
+        return
     except Exception as e:
         log.exception("business_wiki_background_failed", task_id=task_id)
         detail = str(e)[:500]
@@ -373,13 +392,14 @@ async def cancel_wiki_task(
     if rec.get("status") in ("completed", "failed", "cancelled"):
         return {"task_id": task_id, "status": rec["status"], "detail": "already_terminal"}
 
+    registry.put_task(task_id, {**rec, "status": "cancelled"})
+    cancelled_task = registry.cancel_async_task(task_id)
+
     if task_store:
         await task_store.update_status(task_id, "cancelled")
         business_id = rec.get("business_id", "")
         if business_id:
             await task_store.force_release_lock(business_id)
-
-    registry.put_task(task_id, {**rec, "status": "cancelled"})
 
     if event_bus:
         business_id = rec.get("business_id", "")
@@ -392,7 +412,7 @@ async def cancel_wiki_task(
             )
         )
 
-    log.info("wiki_task_cancelled", task_id=task_id)
+    log.info("wiki_task_cancelled", task_id=task_id, async_task_cancelled=cancelled_task)
     return {"task_id": task_id, "status": "cancelled"}
 
 
@@ -527,7 +547,7 @@ async def generate_business_wiki(
                 max_retries=1,
             )
         else:
-            asyncio.create_task(
+            bg_task = asyncio.create_task(
                 _run_business_wiki_background(
                     task_id=task_id,
                     business_id=body.business_id,
@@ -542,6 +562,7 @@ async def generate_business_wiki(
                     lock_token=lock_token,
                 ),
             )
+            registry.set_async_task(task_id, bg_task)
     except Exception:
         if task_store and lock_token:
             await task_store.unlock(body.business_id, lock_token)

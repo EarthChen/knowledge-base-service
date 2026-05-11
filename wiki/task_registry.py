@@ -17,6 +17,7 @@ class WikiTaskRegistry:
         self._store = task_store
         self.tasks: dict[str, dict[str, Any]] = {}
         self._created: dict[str, float] = {}
+        self._async_tasks: dict[str, asyncio.Task[Any]] = {}
 
     def _prune(self) -> None:
         now = time.monotonic()
@@ -24,6 +25,7 @@ class WikiTaskRegistry:
         for tid in removed:
             self.tasks.pop(tid, None)
             self._created.pop(tid, None)
+            self._async_tasks.pop(tid, None)
 
     def put_task(self, task_id: str, record: dict[str, Any]) -> None:
         if self._store is not None:
@@ -38,3 +40,17 @@ class WikiTaskRegistry:
     def get_task(self, task_id: str) -> dict[str, Any] | None:
         self._prune()
         return self.tasks.get(task_id)
+
+    def set_async_task(self, task_id: str, task: asyncio.Task[Any]) -> None:
+        self._async_tasks[task_id] = task
+
+    def cancel_async_task(self, task_id: str) -> bool:
+        t = self._async_tasks.pop(task_id, None)
+        if t is not None and not t.done():
+            t.cancel()
+            return True
+        return False
+
+    def is_cancelled(self, task_id: str) -> bool:
+        rec = self.tasks.get(task_id)
+        return rec is not None and rec.get("status") == "cancelled"

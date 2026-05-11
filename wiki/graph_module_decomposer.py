@@ -285,6 +285,81 @@ class GraphModuleDecomposer:
             children=children,
         )
 
+    @staticmethod
+    def _node_primary_path(mn: ModuleNode, node_files: dict[str, list[str]]) -> str:
+        for uid in mn.entity_uids:
+            files = node_files.get(uid, [])
+            if files and files[0]:
+                return files[0].strip("/")
+        return ""
+
+    def _group_nodes_recursive(
+        self,
+        nodes_list: list[ModuleNode],
+        node_files: dict[str, list[str]],
+        existing_keys: set[str],
+        max_children: int = 25,
+        recursion_depth: int = 0,
+    ) -> list[ModuleNode]:
+        """Recursively group nodes by the next divergent directory segment."""
+        if len(nodes_list) <= max_children or recursion_depth > 10:
+            return nodes_list
+
+        paths = [self._node_primary_path(mn, node_files) for mn in nodes_list]
+        non_empty = [p for p in paths if p]
+        if not non_empty:
+            return nodes_list
+
+        split_paths = [p.split("/") for p in non_empty]
+        common_depth = 0
+        if split_paths:
+            min_len = min(len(sp) for sp in split_paths)
+            for i in range(min_len):
+                if len({sp[i] for sp in split_paths}) == 1:
+                    common_depth = i + 1
+                else:
+                    break
+
+        group_depth = common_depth + 1
+
+        dir_groups: dict[str, list[ModuleNode]] = defaultdict(list)
+        for mn, path_str in zip(nodes_list, paths):
+            if not path_str:
+                dir_groups["_other"].append(mn)
+                continue
+            parts = path_str.split("/")
+            seg = parts[group_depth - 1] if len(parts) >= group_depth else parts[-1]
+            dir_groups[seg].append(mn)
+
+        if len(dir_groups) <= 1:
+            return nodes_list
+
+        parent_nodes: list[ModuleNode] = []
+        for _seg, children in sorted(dir_groups.items()):
+            if len(children) == 1:
+                parent_nodes.append(children[0])
+                continue
+            sub_children = self._group_nodes_recursive(
+                children, node_files, existing_keys,
+                max_children=max_children,
+                recursion_depth=recursion_depth + 1,
+            )
+
+            all_uids = sorted({u for c in sub_children for u in c.entity_uids})
+            all_files = sorted({f for c in sub_children for f in c.file_paths})
+            total_tokens = sum(c.token_estimate for c in sub_children)
+            key = make_canonical_key(all_files, existing_keys, entity_uids=all_uids)
+            existing_keys.add(key)
+            parent_nodes.append(ModuleNode(
+                canonical_key=key,
+                entity_uids=all_uids,
+                file_paths=all_files,
+                token_estimate=total_tokens,
+                children=sub_children,
+            ))
+
+        return parent_nodes
+
     async def decompose_from_graph(
         self,
         nodes: list[str],
@@ -298,12 +373,28 @@ class GraphModuleDecomposer:
         topo_order = self._topological_sort(condensed_nodes, condensed_edges)
 
         existing_keys: set[str] = set()
-        module_nodes: list[ModuleNode] = []
+        scc_module_nodes: list[ModuleNode] = []
         for scc_set in topo_order:
             members = sorted(scc_set)
             node = await self._maybe_split_scc(
                 members, node_files, node_tokens, edges, existing_keys,
             )
-            module_nodes.append(node)
+            scc_module_nodes.append(node)
 
-        return ModuleTree(roots=module_nodes, repo_id=repo_id)
+        existing_keys_for_grouping = {n.canonical_key for n in scc_module_nodes}
+        grouped = self._group_nodes_recursive(
+            scc_module_nodes, node_files,
+            existing_keys=existing_keys_for_grouping,
+        )
+        if isinstance(grouped, list):
+            roots = grouped
+        else:
+            roots = [grouped]
+
+        log.info(
+            "decompose_hierarchy_built",
+            scc_roots=len(scc_module_nodes),
+            grouped_roots=len(roots),
+        )
+
+        return ModuleTree(roots=roots, repo_id=repo_id)

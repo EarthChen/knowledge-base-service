@@ -54,10 +54,17 @@ async def graph_decompose_node(
             name = (props.get("name") or mod.get("uid") or "").strip()
             if not name:
                 continue
+            fp = props.get("path") or props.get("file_path") or ""
+            if fp.startswith("<import:"):
+                continue
             nodes.append(name)
-            fp = props.get("file_path", "")
             node_files[name] = [fp] if fp else []
-            node_tokens[name] = int(props.get("code_length", 0) or 0) // 4
+            token_est = int(props.get("code_length", 0) or 0)
+            if not token_est:
+                doc = props.get("docstring") or ""
+                imports = props.get("imports") or []
+                token_est = len(doc) + sum(len(i) for i in imports) if isinstance(imports, list) else len(doc)
+            node_tokens[name] = max(token_est // 4, 50)
 
     edge_pairs: set[tuple[str, str]] = set()
     if graph_store:

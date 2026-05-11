@@ -2,6 +2,18 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 
+def test_graph_decompose_query_includes_inherits_and_implements():
+    """The module edge query should include INHERITS and IMPLEMENTS relationships."""
+    from wiki.nodes.graph_nodes import _GRAPH_DECOMPOSE_MODULE_EDGES_CY
+
+    query = _GRAPH_DECOMPOSE_MODULE_EDGES_CY
+    assert "INHERITS" in query, "Query should include INHERITS edges"
+    assert "IMPLEMENTS" in query, "Query should include IMPLEMENTS edges"
+    assert query.count("UNION") >= 4, (
+        "Should have at least 4 UNION clauses (IMPORTS, CALLS, DEPENDS_ON, INHERITS, IMPLEMENTS)"
+    )
+
+
 @pytest.mark.asyncio
 async def test_graph_decompose_node_produces_module_tree():
     from wiki.nodes.graph_nodes import graph_decompose_node

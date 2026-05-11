@@ -13,7 +13,7 @@ log = get_logger(__name__)
 _BOTTOMUP_CONCURRENCY = 24
 
 # Indexed code nodes use ``repository``, not ``repo_id``. Edges must be rolled up to
-# :Module endpoints because CALLS/INHERITS/DEPENDS_ON usually attach to Function/Class.
+# :Module endpoints because CALLS/INHERITS/IMPLEMENTS/DEPENDS_ON usually attach to Function/Class.
 _GRAPH_DECOMPOSE_MODULE_EDGES_CY = """
 MATCH (ma:Module)-[:IMPORTS]->(mb:Module)
 WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
@@ -28,6 +28,10 @@ WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
 RETURN ma.name AS a_uid, mb.name AS b_uid
 UNION
 MATCH (ma:Module)-[:CONTAINS*1..2]->(ca:Class)-[:INHERITS]->(cb:Class)<-[:CONTAINS*1..2]-(mb:Module)
+WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
+RETURN ma.name AS a_uid, mb.name AS b_uid
+UNION
+MATCH (ma:Module)-[:CONTAINS*1..2]->(ca:Class)-[:IMPLEMENTS]->(cb:Class)<-[:CONTAINS*1..2]-(mb:Module)
 WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
 RETURN ma.name AS a_uid, mb.name AS b_uid
 """.strip()

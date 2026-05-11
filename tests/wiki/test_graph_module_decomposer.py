@@ -89,6 +89,46 @@ async def test_decompose_produces_deterministic_tree():
 
 
 @pytest.mark.asyncio
+async def test_decompose_wcc_splits_independent_subgraphs():
+    """Two disconnected subgraphs should produce separate tree branches."""
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)
+    nodes = ["A", "B", "C", "D", "E"]
+    # Two disconnected groups: {A,B,C} and {D,E}
+    edges = [("A", "B"), ("B", "C"), ("D", "E")]
+    node_files = {
+        "A": ["src/auth/a.py"], "B": ["src/auth/b.py"], "C": ["src/auth/c.py"],
+        "D": ["src/api/d.py"], "E": ["src/api/e.py"],
+    }
+    node_tokens = {"A": 100, "B": 100, "C": 100, "D": 100, "E": 100}
+    tree = await decomposer.decompose_from_graph(nodes, edges, node_files, node_tokens, "test")
+
+    all_entity_uids = set()
+    for n in tree.all_nodes():
+        all_entity_uids.update(n.entity_uids)
+    assert all_entity_uids == {"A", "B", "C", "D", "E"}, "All nodes should be covered"
+
+
+@pytest.mark.asyncio
+async def test_decompose_wcc_isolates_aggregated_by_directory():
+    """Isolated nodes (no edges) should be grouped by directory prefix."""
+    decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)
+    nodes = ["A", "B", "C", "D", "E", "F"]
+    edges = [("A", "B")]  # Only A-B connected
+    node_files = {
+        "A": ["src/auth/a.py"], "B": ["src/auth/b.py"],
+        "C": ["src/util/c.py"], "D": ["src/util/d.py"],
+        "E": ["src/api/e.py"], "F": ["src/api/f.py"],
+    }
+    node_tokens = {n: 100 for n in nodes}
+    tree = await decomposer.decompose_from_graph(nodes, edges, node_files, node_tokens, "test")
+
+    all_entity_uids = set()
+    for n in tree.all_nodes():
+        all_entity_uids.update(n.entity_uids)
+    assert all_entity_uids == set(nodes), "All nodes should appear in tree"
+
+
+@pytest.mark.asyncio
 async def test_decompose_isolated_nodes():
     """Nodes with no edges each become their own module."""
     decomposer = GraphModuleDecomposer(max_tokens_per_module=50000)

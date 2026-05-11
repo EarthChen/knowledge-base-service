@@ -368,32 +368,98 @@ class GraphModuleDecomposer:
         node_tokens: dict[str, int],
         repo_id: str,
     ) -> ModuleTree:
-        sccs = self._compute_scc(nodes, edges)
-        condensed_nodes, condensed_edges = self._condense_graph(nodes, edges, sccs)
-        topo_order = self._topological_sort(condensed_nodes, condensed_edges)
+        wcc_list = self._find_connected_components(nodes, edges)
+
+        large_threshold = 10
+        large_wccs = [w for w in wcc_list if len(w) >= large_threshold]
+        small_wccs = [w for w in wcc_list if 2 <= len(w) < large_threshold]
+        small_wccs_compact: list[list[str]] = []
+        small_wccs_heavy: list[list[str]] = []
+        for wcc_members in small_wccs:
+            total_w_tok = sum(node_tokens.get(m, 0) for m in wcc_members)
+            if total_w_tok <= self._max_tokens:
+                small_wccs_compact.append(wcc_members)
+            else:
+                small_wccs_heavy.append(wcc_members)
+        isolated = [w[0] for w in wcc_list if len(w) == 1]
+
+        log.info(
+            "decompose_wcc_distribution",
+            total_wccs=len(wcc_list),
+            large=len(large_wccs),
+            small=len(small_wccs),
+            isolated=len(isolated),
+            largest_wcc=max(len(w) for w in wcc_list) if wcc_list else 0,
+        )
 
         existing_keys: set[str] = set()
-        scc_module_nodes: list[ModuleNode] = []
-        for scc_set in topo_order:
-            members = sorted(scc_set)
-            node = await self._maybe_split_scc(
-                members, node_files, node_tokens, edges, existing_keys,
-            )
-            scc_module_nodes.append(node)
+        all_scc_nodes: list[ModuleNode] = []
 
-        existing_keys_for_grouping = {n.canonical_key for n in scc_module_nodes}
+        for wcc_members in large_wccs + small_wccs_heavy:
+            wcc_set = set(wcc_members)
+            wcc_edges = [
+                (u, v) for u, v in edges
+                if u in wcc_set and v in wcc_set
+            ]
+            sccs = self._compute_scc(wcc_members, wcc_edges)
+            condensed_nodes, condensed_edges = self._condense_graph(
+                wcc_members, wcc_edges, sccs,
+            )
+            topo_order = self._topological_sort(condensed_nodes, condensed_edges)
+            for scc_set in topo_order:
+                members = sorted(scc_set)
+                node = await self._maybe_split_scc(
+                    members, node_files, node_tokens, wcc_edges, existing_keys,
+                )
+                all_scc_nodes.append(node)
+
+        for wcc_members in small_wccs_compact:
+            all_files = sorted({f for m in wcc_members for f in node_files.get(m, [])})
+            all_uids = sorted(wcc_members)
+            total_tokens = sum(node_tokens.get(m, 0) for m in wcc_members)
+            key = make_canonical_key(all_files, existing_keys, entity_uids=all_uids)
+            existing_keys.add(key)
+            all_scc_nodes.append(ModuleNode(
+                canonical_key=key,
+                entity_uids=all_uids,
+                file_paths=all_files,
+                token_estimate=total_tokens,
+            ))
+
+        if isolated:
+            dir_groups: dict[str, list[str]] = defaultdict(list)
+            for m in isolated:
+                files = node_files.get(m, [])
+                if files:
+                    parts = files[0].strip("/").split("/")
+                    prefix = "/".join(parts[:2]) if len(parts) >= 2 else parts[0]
+                else:
+                    prefix = "_no_path"
+                dir_groups[prefix].append(m)
+
+            for _prefix, group in sorted(dir_groups.items()):
+                all_files = sorted({f for m in group for f in node_files.get(m, [])})
+                all_uids = sorted(group)
+                total_tokens = sum(node_tokens.get(m, 0) for m in group)
+                key = make_canonical_key(all_files, existing_keys, entity_uids=all_uids)
+                existing_keys.add(key)
+                all_scc_nodes.append(ModuleNode(
+                    canonical_key=key,
+                    entity_uids=all_uids,
+                    file_paths=all_files,
+                    token_estimate=total_tokens,
+                ))
+
+        existing_keys_for_grouping = {n.canonical_key for n in all_scc_nodes}
         grouped = self._group_nodes_recursive(
-            scc_module_nodes, node_files,
+            all_scc_nodes, node_files,
             existing_keys=existing_keys_for_grouping,
         )
-        if isinstance(grouped, list):
-            roots = grouped
-        else:
-            roots = [grouped]
+        roots = grouped if isinstance(grouped, list) else [grouped]
 
         log.info(
             "decompose_hierarchy_built",
-            scc_roots=len(scc_module_nodes),
+            scc_roots=len(all_scc_nodes),
             grouped_roots=len(roots),
         )
 

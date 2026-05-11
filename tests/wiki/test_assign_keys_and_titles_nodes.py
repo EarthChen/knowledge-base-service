@@ -54,7 +54,7 @@ async def test_generate_titles_fills_title():
 
 
 @pytest.mark.asyncio
-async def test_generate_titles_no_llm_uses_key():
+async def test_generate_titles_no_llm_prefers_filename_from_path():
     from wiki.nodes.graph_nodes import generate_titles_node
 
     state = {
@@ -62,7 +62,7 @@ async def test_generate_titles_no_llm_uses_key():
         "module_tree": [
             {
                 "canonical_key": "src-auth",
-                "entity_uids": ["u1"],
+                "entity_uids": ["Module:src/auth/login.py:Foo:0"],
                 "file_paths": ["src/auth/login.py"],
                 "title": "",
                 "description": "",
@@ -74,5 +74,28 @@ async def test_generate_titles_no_llm_uses_key():
     }
     config = {"configurable": {}}
     result = await generate_titles_node(state, config)
-    # single entity_uid → title derived from entity name
-    assert result["canonical_keys"]["src-auth"] == "u1"
+    assert result["canonical_keys"]["src-auth"] == "login"
+
+
+@pytest.mark.asyncio
+async def test_generate_titles_no_llm_single_uid_when_no_paths():
+    from wiki.nodes.graph_nodes import generate_titles_node
+
+    state = {
+        "business_id": "test",
+        "module_tree": [
+            {
+                "canonical_key": "leaf-key",
+                "entity_uids": ["u1"],
+                "file_paths": [],
+                "title": "",
+                "description": "",
+                "token_estimate": 0,
+                "children": [],
+            },
+        ],
+        "canonical_keys": {"leaf-key": ""},
+    }
+    config = {"configurable": {}}
+    result = await generate_titles_node(state, config)
+    assert result["canonical_keys"]["leaf-key"] == "u1"

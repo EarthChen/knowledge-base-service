@@ -17,23 +17,23 @@ _BOTTOMUP_CONCURRENCY = 24
 _GRAPH_DECOMPOSE_MODULE_EDGES_CY = """
 MATCH (ma:Module)-[:IMPORTS]->(mb:Module)
 WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
-RETURN ma.name AS a_uid, mb.name AS b_uid
+RETURN ma.uid AS a_uid, mb.uid AS b_uid
 UNION
 MATCH (ma:Module)-[:CONTAINS*1..3]->(fa:Function)-[:CALLS]->(fb:Function)<-[:CONTAINS*1..3]-(mb:Module)
 WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
-RETURN ma.name AS a_uid, mb.name AS b_uid
+RETURN ma.uid AS a_uid, mb.uid AS b_uid
 UNION
 MATCH (ma:Module)-[:CONTAINS*1..2]->(ca:Class)-[:DEPENDS_ON]->(cb:Class)<-[:CONTAINS*1..2]-(mb:Module)
 WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
-RETURN ma.name AS a_uid, mb.name AS b_uid
+RETURN ma.uid AS a_uid, mb.uid AS b_uid
 UNION
 MATCH (ma:Module)-[:CONTAINS*1..2]->(ca:Class)-[:INHERITS]->(cb:Class)<-[:CONTAINS*1..2]-(mb:Module)
 WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
-RETURN ma.name AS a_uid, mb.name AS b_uid
+RETURN ma.uid AS a_uid, mb.uid AS b_uid
 UNION
 MATCH (ma:Module)-[:CONTAINS*1..2]->(ca:Class)-[:IMPLEMENTS]->(cb:Class)<-[:CONTAINS*1..2]-(mb:Module)
 WHERE ma.repository = $repo AND mb.repository = $repo AND ma <> mb
-RETURN ma.name AS a_uid, mb.name AS b_uid
+RETURN ma.uid AS a_uid, mb.uid AS b_uid
 """.strip()
 
 
@@ -55,20 +55,20 @@ async def graph_decompose_node(
     for _repo, mod_list in modules.items():
         for mod in mod_list:
             props = mod.get("properties", {})
-            name = (props.get("name") or mod.get("uid") or "").strip()
-            if not name:
+            uid = (mod.get("uid") or "").strip()
+            if not uid:
                 continue
             fp = props.get("path") or props.get("file_path") or ""
             if fp.startswith("<import:"):
                 continue
-            nodes.append(name)
-            node_files[name] = [fp] if fp else []
+            nodes.append(uid)
+            node_files[uid] = [fp] if fp else []
             token_est = int(props.get("code_length", 0) or 0)
             if not token_est:
                 doc = props.get("docstring") or ""
                 imports = props.get("imports") or []
                 token_est = len(doc) + sum(len(i) for i in imports) if isinstance(imports, list) else len(doc)
-            node_tokens[name] = max(token_est // 4, 50)
+            node_tokens[uid] = max(token_est // 4, 50)
 
     edge_pairs: set[tuple[str, str]] = set()
     if graph_store:
@@ -149,11 +149,11 @@ async def generate_titles_node(
         if node.title:
             canonical_keys[node.canonical_key] = node.title
             continue
-        if len(node.entity_uids) == 1:
-            node.title = node.entity_uids[0]
-            canonical_keys[node.canonical_key] = node.title
-        elif node.file_paths:
+        if node.file_paths:
             node.title = node.file_paths[0].rsplit("/", 1)[-1].rsplit(".", 1)[0]
+            canonical_keys[node.canonical_key] = node.title
+        elif len(node.entity_uids) == 1:
+            node.title = node.entity_uids[0]
             canonical_keys[node.canonical_key] = node.title
         elif llm:
             nodes_needing_llm.append(node)

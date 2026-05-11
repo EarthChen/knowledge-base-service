@@ -28,8 +28,8 @@ async def test_graph_decompose_node_produces_module_tree():
         "repositories": ["repo1"],
         "modules": {
             "repo1": [
-                {"uid": "uid1", "label": "Module", "properties": {"name": "ModA", "file_path": "src/a.py", "code_length": 1000}},
-                {"uid": "uid2", "label": "Module", "properties": {"name": "ModB", "file_path": "src/b.py", "code_length": 800}},
+                {"uid": "Module:src/a.py:ModA:0", "label": "Module", "properties": {"name": "ModA", "path": "src/a.py", "code_length": 1000}},
+                {"uid": "Module:src/b.py:ModB:0", "label": "Module", "properties": {"name": "ModB", "path": "src/b.py", "code_length": 800}},
             ],
         },
         "module_tree": [],
@@ -51,7 +51,7 @@ async def test_graph_decompose_node_no_graph_store():
         "repositories": ["repo1"],
         "modules": {
             "repo1": [
-                {"uid": "u1", "label": "Module", "properties": {"name": "X", "file_path": "x.py", "code_length": 100}},
+                {"uid": "Module:x.py:X:0", "label": "Module", "properties": {"name": "X", "path": "x.py", "code_length": 100}},
             ],
         },
         "module_tree": [],

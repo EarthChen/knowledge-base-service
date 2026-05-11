@@ -622,19 +622,29 @@ AGENT_TOOLS = [
 
 _AGENT_SYSTEM = """你是一个代码知识库 Agent。你的任务是通过调用 tools 来补充 Wiki 页面中标记为 CONTEXT_GAP 的缺失信息。
 
-规则：
-1. 分析页面中的 CONTEXT_GAP 标记，确定需要查询的信息
-2. 使用提供的 tools 查询缺失的上下文
-3. 当你获得足够信息后，生成补充后的完整页面内容（去掉 CONTEXT_GAP 标记）
-4. 如果某个 gap 无法通过 tools 解决，保留原始标记
+## 执行步骤
+1. 分析页面中每个 CONTEXT_GAP 标记，确定需要查询的具体信息
+2. 按以下优先级使用工具：
+   - `read_code` / `query_module_detail` — 获取缺失的实现细节
+   - `query_call_chain` / `query_callers` — 获取缺失的调用关系
+   - `search_entities` / `semantic_search` — 发现相关但未被索引的实体
+3. 当获得足够信息后，输出补充后的完整页面（去掉已解决的 CONTEXT_GAP 标记）
+4. 无法通过工具解决的 gap 保留原始标记
 
-输出要求：直接输出完整的 Wiki 页面 Markdown 内容（不需要 JSON 包装）。
+## 质量约束
+- 补充内容必须 100% 来源于工具查询结果，**绝对禁止编造**
+- 不要自行生成 `source://` 链接，系统会自动注入
+- 补充的段落应与原有内容风格一致，使用中文撰写
+- 嵌入代码片段时使用带语言标记的代码块（如 ```java），不超过 15 行
+
+## 输出要求
+直接输出完整的 Wiki 页面 Markdown 内容（不要 JSON 包装）。
 """
 
 
 class WikiPageAgent:
     MAX_ROUNDS = 6
-    MAX_TOOL_CALLS = 15
+    MAX_TOOL_CALLS = 30
     _MAX_HISTORY_MESSAGES = 30
     _MAX_DELEGATION_DEPTH = 2
     _MAX_DELEGATIONS_PER_AGENT = 3
@@ -755,15 +765,8 @@ class WikiPageAgent:
         from wiki.agent_prompts import AGENT_GENERATE_SYSTEM
 
         system = AGENT_GENERATE_SYSTEM.format(max_rounds=max_rounds)
-        modules_desc = ", ".join(module_names)
-        baseline_str = (baseline_context or "")[:6000] if isinstance(baseline_context, str) else (str(baseline_context)[:6000] if baseline_context else "")
-
-        user_prompt = (
-            f"为以下模块生成 Wiki 页面:\n"
-            f"域名: {domain_name}\n"
-            f"模块: {modules_desc}\n"
-            f"基线上下文: {baseline_str}\n\n"
-            f"请使用工具查询更多信息后生成完整页面。"
+        user_prompt = self._build_generate_user_prompt(
+            module_names, domain_name, baseline_context, max_rounds,
         )
 
         try:
@@ -773,7 +776,7 @@ class WikiPageAgent:
             ]
 
             total_tool_calls = 0
-            min_tool_rounds = min(2, max_rounds)
+            min_tool_rounds = min(3, max_rounds)
             for round_num in range(max_rounds):
                 try:
                     response = await self._llm.complete_with_tools(messages, AGENT_TOOLS)
@@ -784,17 +787,29 @@ class WikiPageAgent:
                 tool_calls = response.get("tool_calls")
                 text_content = response.get("content")
 
+                log.info(
+                    "agent_generate_round",
+                    round=round_num,
+                    has_tool_calls=bool(tool_calls),
+                    tool_call_count=len(tool_calls) if tool_calls else 0,
+                    text_len=len(str(text_content)) if text_content else 0,
+                    total_tool_calls=total_tool_calls,
+                )
+
                 if not tool_calls:
                     if text_content:
                         cleaned = strip_agent_artifacts(str(text_content))
                         if cleaned and len(cleaned) > 200:
-                            if total_tool_calls >= 1 or round_num >= min_tool_rounds:
+                            if total_tool_calls >= 3 or round_num >= min_tool_rounds:
                                 return cleaned
-                            # Early round with no tool calls - nudge agent to use tools
                             messages.append(response)
                             messages.append({
                                 "role": "user",
-                                "content": "请先使用 read_code、query_call_chain 等工具查询具体实现再生成页面，不要直接输出。",
+                                "content": (
+                                    "⚠️ 你必须先使用工具查询真实代码再生成！"
+                                    "请立即调用 read_code 查看入口模块的源码。"
+                                    "没有经过工具查询的内容不可接受。"
+                                ),
                             })
                             continue
                     break
@@ -825,9 +840,14 @@ class WikiPageAgent:
                     ]
 
             # Final attempt: ask LLM to generate with accumulated context
+            log.info("agent_generate_fallback", total_tool_calls=total_tool_calls, rounds=round_num + 1)
+            fallback_system = (
+                "你是一个代码知识库 Wiki 作者。工具调用阶段已完成，现在请基于之前收集的信息生成最终文档。"
+                "直接输出 Markdown 格式的 Wiki 页面，不要再调用工具。"
+            )
             fallback = await self._llm.generate(
-                prompt=user_prompt + "\n\n请基于已有信息直接生成完整 Wiki 页面。",
-                system=system,
+                prompt=user_prompt + "\n\n工具调用阶段已完成，你已经收集了足够的信息。现在请直接输出完整的 Markdown Wiki 页面。",
+                system=fallback_system,
             )
             cleaned = strip_agent_artifacts(fallback)
             if cleaned and len(cleaned) > 200:
@@ -878,6 +898,67 @@ class WikiPageAgent:
             f"<!-- CONTEXT_GAP: 依赖关系数据未能获取 -->\n"
         )
 
+    @staticmethod
+    def _build_generate_user_prompt(
+        module_names: list[str],
+        domain_name: str,
+        baseline_context: dict[str, Any] | str | None,
+        max_rounds: int,
+    ) -> str:
+        """Build a structured user prompt for generate() mode."""
+        # Separate entry modules from regular modules by naming convention
+        entry_keywords = ("Controller", "Handler", "Consumer", "Listener", "Endpoint", "Resource")
+        core_modules: list[str] = []
+        other_modules: list[str] = []
+        for m in module_names:
+            if any(kw in m for kw in entry_keywords):
+                core_modules.append(m)
+            else:
+                other_modules.append(m)
+
+        parts = [
+            f"## 任务",
+            f"为业务域「{domain_name}」生成一篇完整的 Wiki 页面。",
+            "",
+            f"## 域内模块清单（共 {len(module_names)} 个，必须全部覆盖）",
+        ]
+        if core_modules:
+            parts.append(f"\n### 入口模块（优先查询调用链）")
+            for i, m in enumerate(core_modules, 1):
+                parts.append(f"{i}. `{m}`")
+        if other_modules:
+            parts.append(f"\n### 其他模块")
+            for i, m in enumerate(other_modules, 1):
+                parts.append(f"{i}. `{m}`")
+
+        # Build baseline context
+        if baseline_context:
+            if isinstance(baseline_context, str):
+                baseline_str = baseline_context[:8000]
+            elif isinstance(baseline_context, dict):
+                # Structured baseline: format key fields
+                ctx_parts = []
+                for key, val in baseline_context.items():
+                    val_str = str(val) if val else ""
+                    if val_str:
+                        ctx_parts.append(f"- **{key}**: {val_str[:600]}")
+                baseline_str = "\n".join(ctx_parts)[:8000]
+            else:
+                baseline_str = str(baseline_context)[:8000]
+            parts.append(f"\n## 基线上下文\n{baseline_str}")
+
+        explore_budget = max(1, int(max_rounds * 0.6))
+        write_budget = max_rounds - explore_budget
+        parts.extend([
+            "",
+            f"## 执行要求",
+            f"- 前 {explore_budget} 轮：使用工具收集信息（每个入口模块查调用链，每个核心模块查源码）",
+            f"- 后 {write_budget} 轮：基于已收集信息生成完整 Markdown 页面",
+            f"- 必须嵌入 2-4 个关键代码片段（从 read_code 结果中选取）",
+            f"- 必须包含至少 1 个 Mermaid 图表（调用链序列图或架构流程图）",
+        ])
+        return "\n".join(parts)
+
     def _build_user_prompt(
         self, content: str, gaps: list[str], memory: WorkingMemory, domain_name: str,
     ) -> str:
@@ -897,6 +978,7 @@ class WikiPageAgent:
         return "\n".join(parts)
 
     async def _execute_tool(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+        log.info("agent_tool_call", tool=tool_name, args_keys=list(args.keys()))
         try:
             if tool_name == "read_code":
                 return await self._tool_read_code(args)

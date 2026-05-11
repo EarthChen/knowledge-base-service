@@ -97,6 +97,9 @@ class DomainDocAgent:
             baseline_context=baseline_context,
         )
 
+        if not module_names:
+            return _maybe_split(content, self.domain_name)
+
         for iteration in range(self._max_iterations):
             quality = evaluate_quality(content, module_names)
             self.iteration_history.append({

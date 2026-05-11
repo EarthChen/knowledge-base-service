@@ -676,7 +676,8 @@ class WikiPageAgent:
     ) -> str:
         domain_label = "" if domain_name is None else domain_name
         gaps = _CONTEXT_GAP_RE.findall(content)
-        if not gaps:
+        has_quality_feedback = quality_report is not None or focus_modules is not None
+        if not gaps and not has_quality_feedback:
             return content
 
         self._existing_pages = existing_pages

@@ -40,7 +40,7 @@ async def compose_domain_agents_node(
 
     async def _run_domain(domain: dict[str, Any]) -> list[dict[str, Any]]:
         async with sem:
-            domain_start = asyncio.get_event_loop().time()
+            domain_start = asyncio.get_running_loop().time()
             try:
                 agent = DomainDocAgent(
                     domain_name=domain["name"],
@@ -54,7 +54,7 @@ async def compose_domain_agents_node(
                     ),
                     timeout=DOMAIN_AGENT_TIMEOUT_SEC,
                 )
-                elapsed = asyncio.get_event_loop().time() - domain_start
+                elapsed = asyncio.get_running_loop().time() - domain_start
                 log.info(
                     "domain_agent_done",
                     domain=domain["name"],
@@ -64,7 +64,7 @@ async def compose_domain_agents_node(
                 )
                 return result
             except Exception as e:
-                elapsed = asyncio.get_event_loop().time() - domain_start
+                elapsed = asyncio.get_running_loop().time() - domain_start
                 log.error(
                     "domain_agent_failed",
                     domain=domain["name"],
@@ -102,6 +102,7 @@ def _make_error_placeholder(domain: dict[str, Any], error: BaseException) -> dic
     return {
         "type": "domain_overview",
         "title": domain["name"],
+        "_error": str(error)[:200],
         "content": (
             f"# {domain['name']}\n\n"
             f"> ⚠️ 文档生成失败: {str(error)[:200]}\n\n"

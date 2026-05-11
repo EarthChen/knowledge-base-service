@@ -62,7 +62,7 @@ class FalkorDBReadsMixin:
             loop = asyncio.get_running_loop()
             stats: dict[str, int] = {}
 
-            for edge_type in ("INHERITS", "IMPORTS", "REFERENCES"):
+            for edge_type in ("INHERITS", "REFERENCES"):
                 try:
                     await loop.run_in_executor(
                         _graph_executor,

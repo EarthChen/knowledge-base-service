@@ -83,3 +83,95 @@ class TestComposeDomainAgentsNode:
         config = {"configurable": {"llm": MagicMock(), "graph_store": MagicMock()}}
         result = await compose_domain_agents_node(state, config)
         assert result["pages"] == []
+
+
+class TestIncrementalDomainFiltering:
+    @pytest.mark.asyncio
+    async def test_incremental_filters_to_affected_domains_only(self):
+        """When is_incremental=True, only affected domains should be processed."""
+        state = {
+            "domain_tree": [
+                {"name": "ChangedDomain", "modules": ["Mod1"], "children": []},
+                {"name": "UnchangedDomain", "modules": ["Mod2"], "children": []},
+            ],
+            "module_summaries": {"Mod1": "s1", "Mod2": "s2"},
+            "errors": [],
+            "is_incremental": True,
+            "affected_domains": ["ChangedDomain"],
+        }
+        config = {"configurable": {"llm": MagicMock(), "graph_store": MagicMock()}}
+
+        with patch("wiki.nodes.domain_compose.DomainDocAgent") as MockAgent:
+            instance = AsyncMock()
+            instance.generate_with_iterations = AsyncMock(
+                return_value=[{"type": "domain_overview", "title": "ChangedDomain", "content": "ok"}]
+            )
+            instance.iteration_history = []
+            MockAgent.return_value = instance
+
+            result = await compose_domain_agents_node(state, config)
+
+        assert len(result["pages"]) == 1
+        assert result["pages"][0]["title"] == "ChangedDomain"
+        assert MockAgent.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_non_incremental_processes_all_domains(self):
+        """When is_incremental=False, all domains should be processed."""
+        state = {
+            "domain_tree": [
+                {"name": "DomainA", "modules": ["Mod1"], "children": []},
+                {"name": "DomainB", "modules": ["Mod2"], "children": []},
+            ],
+            "module_summaries": {},
+            "errors": [],
+            "is_incremental": False,
+            "affected_domains": ["DomainA"],
+        }
+        config = {"configurable": {"llm": MagicMock(), "graph_store": MagicMock()}}
+
+        with patch("wiki.nodes.domain_compose.DomainDocAgent") as MockAgent:
+            instance = AsyncMock()
+            instance.generate_with_iterations = AsyncMock(
+                return_value=[{"type": "domain_overview", "title": "D", "content": "c"}]
+            )
+            instance.iteration_history = []
+            MockAgent.return_value = instance
+
+            result = await compose_domain_agents_node(state, config)
+
+        assert len(result["pages"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_incremental_with_parent_match(self):
+        """Affected domain should include child domains under an affected parent."""
+        state = {
+            "domain_tree": [
+                {
+                    "name": "ParentDomain",
+                    "modules": [],
+                    "children": [
+                        {"name": "ChildA", "modules": ["Mod1"], "children": []},
+                        {"name": "ChildB", "modules": ["Mod2"], "children": []},
+                    ],
+                },
+            ],
+            "module_summaries": {},
+            "errors": [],
+            "is_incremental": True,
+            "affected_domains": ["ParentDomain"],
+        }
+        config = {"configurable": {"llm": MagicMock(), "graph_store": MagicMock()}}
+
+        with patch("wiki.nodes.domain_compose.DomainDocAgent") as MockAgent:
+            instance = AsyncMock()
+            instance.generate_with_iterations = AsyncMock(
+                return_value=[{"type": "domain_overview", "title": "Child", "content": "c"}]
+            )
+            instance.iteration_history = []
+            MockAgent.return_value = instance
+
+            result = await compose_domain_agents_node(state, config)
+
+        # Both children should be processed since ParentDomain is affected
+        assert len(result["pages"]) == 2

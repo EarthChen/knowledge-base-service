@@ -30,6 +30,23 @@ async def compose_domain_agents_node(
     module_summaries = state.get("module_summaries", {})
     leaf_domains = _collect_leaf_domains(domain_tree)
 
+    # Incremental filtering: only process affected domains
+    is_incremental = state.get("is_incremental", False)
+    affected = set(state.get("affected_domains") or [])
+
+    if is_incremental and affected:
+        original_count = len(leaf_domains)
+        leaf_domains = [
+            d for d in leaf_domains
+            if d["name"] in affected or d.get("parent") in affected
+        ]
+        log.info(
+            "incremental_domain_filter",
+            original=original_count,
+            filtered=len(leaf_domains),
+            affected_domains=sorted(affected),
+        )
+
     if not leaf_domains:
         log.info("no_leaf_domains_found")
         return {"pages": [], "errors": list(state.get("errors", []))}

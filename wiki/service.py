@@ -27,7 +27,7 @@ from wiki.data_collector import DataCollectorPort, WikiDataCollector
 from wiki.delegation import evaluate_delegation, group_children_by_graph
 from wiki.export_service import WikiExportService
 from wiki.flow_writer import BusinessFlowWriter
-from wiki.incremental_diff import compute_wiki_diff
+from wiki.incremental_diff import compute_domain_diff, compute_wiki_diff
 from wiki.memory_loop import MemoryLoop
 from wiki.page_composer_service import WikiPageComposerService
 from wiki.models import (
@@ -1022,6 +1022,37 @@ class WikiService:
                 changed_repos = set(all_modules.keys())
                 skipped_repos = []
 
+        # --- Domain-level incremental: detect affected domains ---
+        existing_domain_tree: list | None = None
+        affected_domain_names: list[str] | None = None
+
+        if incremental and hasattr(self._wiki_store, "get_pipeline_domain_tree_snapshot"):
+            try:
+                snapshot = await self._wiki_store.get_pipeline_domain_tree_snapshot(
+                    business_id,
+                )
+                if isinstance(snapshot, dict):
+                    existing_domain_tree = snapshot.get("tree")
+                else:
+                    existing_domain_tree = None
+            except Exception:
+                log.warning("load_existing_domain_tree_failed", business_id=business_id, exc_info=True)
+
+            try:
+                domain_diff = await compute_domain_diff(self._store, business_id)
+                if domain_diff.is_empty:
+                    log.info("wiki_no_domain_changes", business_id=business_id)
+                else:
+                    affected_domain_names = domain_diff.affected_domains
+                    log.info(
+                        "wiki_domain_diff",
+                        business_id=business_id,
+                        affected_domains=affected_domain_names,
+                        changed_modules=domain_diff.total_changed,
+                    )
+            except Exception:
+                log.warning("compute_domain_diff_failed", business_id=business_id, exc_info=True)
+
         total_repos = len(all_modules)
         if progress_callback:
             await progress_callback({
@@ -1040,7 +1071,9 @@ class WikiService:
             repositories=list(all_modules.keys()),
             all_modules=all_modules,
             llm=llm_port,
+            existing_domain_tree=existing_domain_tree,
             is_incremental=incremental and bool(skipped_repos),
+            affected_domains=affected_domain_names,
             graph_store=self._store,
             wiki_store=self._wiki_store,
             progress_callback=progress_callback,

@@ -10,6 +10,30 @@ from core.log import get_logger
 log = get_logger(__name__)
 
 
+def _query_dict_rows(result: Any) -> list[dict[str, Any]]:
+    """Named rows from FalkorDB ``QueryResultWrapper`` or test mocks.
+
+    Prefer ``data`` (dict rows); fall back to ``result_set`` / ``raw`` positional rows.
+    """
+    rows = getattr(result, "data", None)
+    if rows is None:
+        raw = getattr(result, "result_set", None) or getattr(result, "raw", None)
+        rows = list(raw) if raw else []
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if isinstance(row, dict):
+            out.append(row)
+        elif row:
+            out.append(
+                {
+                    "uid": row[0],
+                    "name": row[1] if len(row) > 1 else "",
+                    "domain": row[2] if len(row) > 2 else "",
+                },
+            )
+    return out
+
+
 def _first_column_values(result: Any) -> list[Any]:
     """Extract first column from FalkorDB ``QueryResultWrapper`` or test mocks.
 
@@ -64,25 +88,30 @@ class DomainDiff:
 async def compute_domain_diff(
     store: Any,
     business_id: str,
+    repositories: list[str] | None = None,
 ) -> DomainDiff:
     """Identify domains affected by code changes since last wiki generation.
 
-    Finds Module nodes where content_hash differs from wiki_content_hash
-    (set by persistence after successful wiki generation), then maps each
-    changed module to its business_domain property.
+    Finds Module nodes in the given repositories where ``code_hash`` differs from
+    ``wiki_code_hash`` (set by persistence after successful wiki generation),
+    then maps each changed module to its ``business_domain`` property.
     """
+    repos = list(repositories) if repositories else []
+    if not repos:
+        log.info("domain_diff_no_repos", business_id=business_id)
+        return DomainDiff(affected_domains=[], changed_module_uids=[], total_changed=0)
+
     changed_result = await store.execute_query(
         "MATCH (n:Module) "
-        "WHERE (n.business_id = $bid OR n.repository IN "
-        "  [(ws:WikiSpace {business_id: $bid})-[:CONTAINS_REPO]->(r) | r.name]) "
-        "AND n.content_hash IS NOT NULL "
-        "AND (n.wiki_content_hash IS NULL OR n.content_hash <> n.wiki_content_hash) "
+        "WHERE n.repository IN $repos "
+        "AND n.code_hash IS NOT NULL "
+        "AND (n.wiki_code_hash IS NULL OR n.code_hash <> n.wiki_code_hash) "
         "RETURN n.uid AS uid, n.name AS name, "
         "       coalesce(n.business_domain, '') AS domain",
-        {"bid": business_id},
+        {"repos": repos},
     )
 
-    rows = getattr(changed_result, "data", None) or []
+    rows = _query_dict_rows(changed_result)
     affected_domains: set[str] = set()
     changed_modules: list[str] = []
     for row in rows:

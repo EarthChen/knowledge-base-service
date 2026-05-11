@@ -30,17 +30,40 @@ class TestDomainDiff:
 
 class TestComputeDomainDiff:
     @pytest.mark.asyncio
+    async def test_returns_empty_when_no_repositories(self):
+        store = AsyncMock()
+        diff = await compute_domain_diff(store, "ultron", repositories=[])
+        assert diff.is_empty is True
+        assert diff.total_changed == 0
+        store.execute_query.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_returns_empty_when_no_hash_mismatch(self):
         store = AsyncMock()
         store.execute_query = AsyncMock(
             return_value=MagicMock(data=[])
         )
-        diff = await compute_domain_diff(store, "ultron")
+        diff = await compute_domain_diff(store, "ultron", repositories=["svc-a"])
         assert diff.is_empty is True
         assert diff.total_changed == 0
+        store.execute_query.assert_called_once()
+        call_args = store.execute_query.call_args
+        assert call_args.args[1] == {"repos": ["svc-a"]}
+        assert "code_hash" in call_args.args[0]
+        assert "wiki_code_hash" in call_args.args[0]
 
     @pytest.mark.asyncio
-    async def test_identifies_affected_domains_from_changed_modules(self):
+    async def test_reads_positional_rows_when_data_is_none(self):
+        store = AsyncMock()
+        row_result = MagicMock(spec=["data", "raw", "result_set"])
+        row_result.data = None
+        row_result.result_set = None
+        row_result.raw = [["m-uid", "Name", "Billing"]]
+        store.execute_query = AsyncMock(return_value=row_result)
+        diff = await compute_domain_diff(store, "ultron", repositories=["r1"])
+        assert diff.total_changed == 1
+        assert diff.affected_domains == ["Billing"]
+        assert diff.changed_module_uids == ["m-uid"]
         store = AsyncMock()
         store.execute_query = AsyncMock(
             return_value=MagicMock(data=[
@@ -49,7 +72,7 @@ class TestComputeDomainDiff:
                 {"uid": "Module:MsgHandler:0", "name": "MsgHandler", "domain": "消息处理"},
             ])
         )
-        diff = await compute_domain_diff(store, "ultron")
+        diff = await compute_domain_diff(store, "ultron", repositories=["svc-a"])
         assert diff.total_changed == 3
         assert set(diff.affected_domains) == {"用户管理", "消息处理"}
 
@@ -61,7 +84,7 @@ class TestComputeDomainDiff:
                 {"uid": "Module:Orphan:0", "name": "Orphan", "domain": ""},
             ])
         )
-        diff = await compute_domain_diff(store, "ultron")
+        diff = await compute_domain_diff(store, "ultron", repositories=["svc-a"])
         assert diff.total_changed == 1
         assert diff.affected_domains == []
 
@@ -75,5 +98,5 @@ class TestComputeDomainDiff:
                 {"uid": "m3", "name": "C", "domain": "X"},
             ])
         )
-        diff = await compute_domain_diff(store, "ultron")
+        diff = await compute_domain_diff(store, "ultron", repositories=["svc-a"])
         assert len(diff.affected_domains) == 1

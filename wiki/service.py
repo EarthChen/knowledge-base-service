@@ -1039,7 +1039,9 @@ class WikiService:
                 log.warning("load_existing_domain_tree_failed", business_id=business_id, exc_info=True)
 
             try:
-                domain_diff = await compute_domain_diff(self._store, business_id)
+                domain_diff = await compute_domain_diff(
+                    self._store, business_id, list(all_modules.keys()),
+                )
                 if domain_diff.is_empty:
                     log.info("wiki_no_domain_changes", business_id=business_id)
                 else:
@@ -1072,7 +1074,9 @@ class WikiService:
             all_modules=all_modules,
             llm=llm_port,
             existing_domain_tree=existing_domain_tree,
-            is_incremental=incremental and bool(skipped_repos),
+            is_incremental=incremental and (
+                bool(skipped_repos) or bool(affected_domain_names)
+            ),
             affected_domains=affected_domain_names,
             graph_store=self._store,
             wiki_store=self._wiki_store,

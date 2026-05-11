@@ -53,10 +53,10 @@ class FalkorDBReadsMixin:
         }
 
     async def resolve_cross_file_edges(self) -> dict[str, int]:
-        """Rebuild INHERITS, IMPORTS, and REFERENCES edges via name-based matching.
+        """Rebuild INHERITS and REFERENCES edges via name-based matching; supplement IMPORTS via MERGE.
 
-        Deletes stale auto-resolved edges first, then recreates from current data.
-        This ensures renamed/deleted entities don't leave orphan edges.
+        Deletes stale INHERITS/REFERENCES edges first, then recreates from current data.
+        IMPORTS edges created by the parser are preserved; only supplemental MERGE is applied.
         """
         async with _xref_lock:
             loop = asyncio.get_running_loop()

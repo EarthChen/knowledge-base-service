@@ -1241,7 +1241,17 @@ class WikiService:
             await self._persist_pages_to_graph(business_id, all_pages, language=language)
 
             current_paths = [p.path for p in all_pages]
-            deleted = await self._persistence.cleanup_stale_wiki_pages(business_id, current_paths)
+            if affected_domain_names:
+                deleted = await self._persistence.cleanup_stale_wiki_pages_by_domain(
+                    business_id,
+                    current_paths,
+                    affected_domain_names,
+                )
+            else:
+                deleted = await self._persistence.cleanup_stale_wiki_pages(
+                    business_id,
+                    current_paths,
+                )
             if deleted > 0:
                 log.info(
                     "stale_domain_pages_cleaned",

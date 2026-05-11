@@ -229,3 +229,89 @@ class TestIncrementalPersistence:
         )
         assert deleted == 0
         mock_store.execute_query.assert_not_called()
+
+
+class TestIncrementalCleanupWiring:
+    @pytest.mark.asyncio
+    async def test_incremental_with_affected_domains_uses_domain_scoped_cleanup(self):
+        """When affected_domains exist, domain-scoped cleanup should be used instead of full cleanup."""
+        from wiki.service import WikiService
+
+        mock_store = AsyncMock()
+        mock_wiki_store = AsyncMock()
+
+        svc = WikiService.__new__(WikiService)
+        svc._store = mock_store
+        svc._wiki_store = mock_wiki_store
+        svc._search_service = None
+        svc._llm_provider = None
+        svc._llm_factory = None
+        svc._llm = None
+        svc._wiki_cfg = MagicMock(
+            business_wiki_skip_repo_pages=True,
+            business_repo_concurrency=2,
+        )
+
+        mock_graph = MagicMock()
+        mock_graph.list_repository_modules = AsyncMock(return_value=[])
+        svc._graph = mock_graph
+
+        mock_persistence = MagicMock()
+        mock_persistence.cleanup_stale_wiki_pages = AsyncMock(return_value=0)
+        mock_persistence.cleanup_stale_wiki_pages_by_domain = AsyncMock(return_value=2)
+        mock_persistence.cleanup_stale_domain_edges = AsyncMock()
+        mock_persistence.cleanup_stale_domain_sections = AsyncMock()
+        svc._persistence = mock_persistence
+
+        mock_tree_linker = MagicMock()
+        mock_tree_linker.link_pages_to_tree = AsyncMock()
+        mock_tree_linker.link_pages_to_nested_tree = AsyncMock()
+        svc._tree_linker = mock_tree_linker
+
+        svc._persist_pages_to_graph = AsyncMock()
+        svc._persist_resolved_pipeline_wikilinks = AsyncMock()
+
+        mock_wiki_store.list_indexed_repositories = AsyncMock(
+            return_value=[{"repository": "repo1"}],
+        )
+        mock_wiki_store.get_repo_wiki_freshness = AsyncMock(
+            return_value={"repo1": {"has_wiki": True, "freshness_pct": 100.0}},
+        )
+        mock_wiki_store.get_pipeline_domain_tree_snapshot = AsyncMock(
+            return_value={"tree": [], "review_status": {}},
+        )
+        mock_wiki_store.get_wiki_generation_version = AsyncMock(return_value=1)
+
+        mock_diff = MagicMock()
+        mock_diff.is_empty = False
+        mock_diff.total_changed = 1
+        mock_diff.affected_domains = ["DomainA"]
+
+        # Create a mock page so all_pages is non-empty
+        mock_page = MagicMock()
+        mock_page.path = "wiki/DomainA"
+
+        with patch(
+            "wiki.service.compute_domain_diff",
+            new_callable=AsyncMock,
+            return_value=mock_diff,
+        ):
+            with patch(
+                "wiki.pipeline_orchestrator.run_langgraph_pipeline",
+                new_callable=AsyncMock,
+            ) as mock_pipeline:
+                mock_pipeline.return_value = MagicMock(
+                    pages=[mock_page],
+                    errors=[],
+                    domain_mapping={},
+                    domain_tree=[],
+                    review_status=None,
+                    resolved_links={},
+                )
+                mock_store.execute_query = AsyncMock(return_value=MagicMock(data=[]))
+
+                await svc.generate_business_wiki("ultron", incremental=True)
+
+        # Domain-scoped cleanup should be used, NOT full cleanup
+        mock_persistence.cleanup_stale_wiki_pages_by_domain.assert_called_once()
+        mock_persistence.cleanup_stale_wiki_pages.assert_not_called()

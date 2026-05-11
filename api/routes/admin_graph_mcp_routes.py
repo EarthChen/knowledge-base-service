@@ -49,6 +49,17 @@ async def delete_repository_index(
     return {"repository": repository, "deleted_nodes": deleted}
 
 
+@admin_router.delete("/wiki/{business_id}")
+async def delete_wiki_data(
+    business_id: str,
+    svc: KnowledgeBaseService = Depends(get_service),
+) -> dict[str, Any]:
+    """Delete all wiki data for a business, preserving code index."""
+    queries = GraphQueryRepository(svc.store)
+    deleted = await queries.delete_wiki_data(business_id)
+    return {"business_id": business_id, "deleted_nodes": deleted}
+
+
 @admin_router.get("/index/report/{repository:path}")
 async def get_index_report(
     repository: str,

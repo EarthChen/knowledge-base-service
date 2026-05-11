@@ -166,6 +166,32 @@ class GraphQueryRepository:
         )
         return result.data[0]["deleted"] if result.data else 0
 
+    async def delete_wiki_data(self, business_id: str) -> int:
+        """Delete only wiki-related nodes for a business, preserving code index.
+
+        Targets: WikiPage, WikiSpace, WikiSection, WikiQA, WikiMeta,
+        WikiPageVersion, WikiClaimHistory, WikiContradiction.
+        """
+        wiki_labels = [
+            "WikiPage",
+            "WikiSpace",
+            "WikiSection",
+            "WikiQA",
+            "WikiMeta",
+            "WikiPageVersion",
+            "WikiClaimHistory",
+            "WikiContradiction",
+        ]
+        total_deleted = 0
+        for label in wiki_labels:
+            result = await self._store.execute_query(
+                f"MATCH (n:{label}) WHERE n.business_id = $business_id OR n.repository = $business_id "
+                f"DETACH DELETE n RETURN count(n) AS deleted",
+                {"business_id": business_id},
+            )
+            total_deleted += result.data[0]["deleted"] if result.data else 0
+        return total_deleted
+
     async def get_knowledge_health_stats(self) -> dict[str, Any]:
         """Coverage, staleness, orphan ratio, and graph size for the health dashboard."""
 

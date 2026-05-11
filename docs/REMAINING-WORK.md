@@ -43,11 +43,12 @@
 - [x] 错误占位页面（`_make_error_placeholder` 含 `_error` 字段）
 - [x] ~~Fix Issue #006: `_enrich_leaf_context` UID→name 映射~~ — 已修复，Phase 2 后随 compose_bottomup 废弃
 
-**Phase 4 — 前端适配 + 增量更新** (1-2 天)
-- [ ] `WikiTopicContent` domain_overview 完整宽度布局
-- [ ] Mermaid 渲染增强（sequenceDiagram + classDiagram + 大图自动缩放）
-- [ ] 树状导航适配新域级结构
-- [ ] 增量 wiki 更新设计（git diff → 受影响域 → Agent 重新生成）
+**Phase 4 — 前端适配 + Wiki 数据管理** ✅ 已完成
+- [x] `WikiTopicContent` 已原生支持 `domain_overview` 类型（`max-w-none` 全宽）
+- [x] Mermaid 渲染增强（SVG `maxWidth:100%` 大图自动缩放）
+- [x] 树状导航已通过 `WikiTopicTreeNav` 适配 `domain_overview` 类型
+- [x] Wiki 数据清空 API: `DELETE /api/v1/admin/wiki/{business_id}`（仅清 Wiki，保留代码索引）
+- [ ] 增量 wiki 更新设计（git diff → 受影响域 → Agent 重新生成）— 需独立提案
 
 ---
 

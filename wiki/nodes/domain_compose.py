@@ -26,6 +26,7 @@ async def compose_domain_agents_node(
 
     domain_tree = state.get("domain_tree") or []
     module_summaries = state.get("module_summaries", {})
+    module_tree = state.get("module_tree", {})
     leaf_domains = _collect_leaf_domains(domain_tree)
 
     # Incremental filtering: only process affected domains
@@ -65,7 +66,9 @@ async def compose_domain_agents_node(
                 result = await asyncio.wait_for(
                     agent.generate_with_iterations(
                         module_names=domain.get("modules", []),
-                        baseline_context=_build_baseline(domain, module_summaries),
+                        baseline_context=_build_baseline(
+                            domain, module_summaries, module_tree=module_tree
+                        ),
                     ),
                     timeout=DOMAIN_AGENT_TIMEOUT_SEC,
                 )

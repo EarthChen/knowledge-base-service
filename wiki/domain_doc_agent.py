@@ -17,19 +17,45 @@ log = get_logger(__name__)
 MAX_PAGE_TOKENS = 5000
 
 
-def _build_baseline(domain: dict[str, Any], module_summaries: dict[str, Any]) -> str:
-    """Concatenate domain description + per-module summaries from CLM."""
+def _build_baseline(
+    domain: dict[str, Any],
+    module_summaries: dict[str, Any],
+    *,
+    module_tree: dict[str, Any] | None = None,
+) -> str:
+    """Build baseline context: domain description + topology + one-line module roles.
+
+    Provides enough structure for Agent to know the domain shape while forcing
+    deep code exploration via tools (avoids Issue #008 lazy behavior).
+    """
     parts = [f"## {domain['name']}"]
     if domain.get("description"):
         parts.append(domain["description"])
-    for mod in domain.get("modules", []):
-        raw = module_summaries.get(mod, "")
-        if isinstance(raw, dict):
-            text = str(raw.get("summary_text", "") or "")
-        else:
-            text = str(raw) if raw else ""
-        if text:
-            parts.append(f"### {mod}\n{text[:500]}")
+
+    modules = domain.get("modules", [])
+    if modules:
+        parts.append("### 模块列表")
+        for mod in modules:
+            raw = module_summaries.get(mod, "")
+            if isinstance(raw, dict):
+                text = str(raw.get("summary_text", "") or "")
+            else:
+                text = str(raw) if raw else ""
+            one_liner = text.split("\n")[0][:80] if text else ""
+            parts.append(f"- **{mod}**: {one_liner}" if one_liner else f"- **{mod}**")
+
+    if module_tree:
+        edges = module_tree.get("edges", [])
+        domain_modules = set(modules)
+        relevant_edges = [
+            e for e in edges
+            if e.get("source") in domain_modules or e.get("target") in domain_modules
+        ]
+        if relevant_edges:
+            parts.append("### 模块依赖拓扑")
+            for edge in relevant_edges[:20]:
+                parts.append(f"- {edge['source']} → {edge['target']}")
+
     return "\n\n".join(parts)
 
 

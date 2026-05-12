@@ -3,10 +3,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wiki.domain_doc_agent import DomainDocAgent, _build_baseline, _make_page, _maybe_split
-from wiki.quality_report import QualityReport
-
-
+from wiki.domain_doc_agent import (
+    DomainDocAgent,
+    _build_baseline,
+    _make_page,
+    _maybe_split,
+)
 def test_make_page_uses_domain_overview_path():
     """_make_page must generate path in /__domains__/{name}/_overview format."""
     page = _make_page("# Content", "挚友关系管理")
@@ -53,6 +55,52 @@ class TestBuildBaseline:
         domain = {"name": "空域", "modules": []}
         result = _build_baseline(domain, {})
         assert "空域" in result
+
+
+def test_build_baseline_topology_format():
+    """_build_baseline should output topology relations, not 500-char summaries."""
+    domain = {
+        "name": "支付处理",
+        "description": "处理支付相关业务",
+        "modules": ["PaymentService", "OrderValidator", "RefundHandler"],
+    }
+    module_summaries = {
+        "PaymentService": {"summary_text": "A" * 600},
+        "OrderValidator": {"summary_text": "B" * 600},
+        "RefundHandler": {"summary_text": "C" * 600},
+    }
+    module_tree = {
+        "nodes": {
+            "PaymentService": {"name": "PaymentService"},
+            "OrderValidator": {"name": "OrderValidator"},
+            "RefundHandler": {"name": "RefundHandler"},
+        },
+        "edges": [
+            {"source": "PaymentService", "target": "OrderValidator"},
+            {"source": "PaymentService", "target": "RefundHandler"},
+        ],
+    }
+    result = _build_baseline(domain, module_summaries, module_tree=module_tree)
+    # One-liners are capped at 80 chars — must not embed full 600-char blobs
+    assert "A" * 81 not in result and "B" * 81 not in result and "C" * 81 not in result
+    assert "PaymentService" in result
+    assert "→" in result or "->" in result
+
+
+def test_build_baseline_without_module_tree():
+    """_build_baseline still works without module_tree (backward compat)."""
+    domain = {
+        "name": "TestDomain",
+        "description": "test",
+        "modules": ["ModA"],
+    }
+    module_summaries = {
+        "ModA": {"summary_text": "Module A handles things and does stuff nicely"},
+    }
+    result = _build_baseline(domain, module_summaries)
+    assert "TestDomain" in result
+    assert "ModA" in result
+    assert "Module A handles" in result
 
 
 class TestMaybeSplit:

@@ -84,6 +84,35 @@ class TestComposeDomainAgentsNode:
         result = await compose_domain_agents_node(state, config)
         assert result["pages"] == []
 
+    @pytest.mark.asyncio
+    async def test_passes_module_tree_into_build_baseline(self):
+        """Graph decompose produces module_tree; compose should inject it into baseline."""
+        mt = {"nodes": {"M1": {}}, "edges": [{"source": "M1", "target": "Ext"}]}
+        state = {
+            "domain_tree": [{"name": "D1", "modules": ["M1"], "children": []}],
+            "module_summaries": {},
+            "module_tree": mt,
+            "errors": [],
+        }
+        config = {"configurable": {"llm": MagicMock(), "graph_store": MagicMock()}}
+
+        with (
+            patch("wiki.nodes.domain_compose.DomainDocAgent") as MockAgent,
+            patch("wiki.nodes.domain_compose._build_baseline") as mock_baseline,
+        ):
+            mock_baseline.return_value = "## D1 context"
+            instance = AsyncMock()
+            instance.generate_with_iterations = AsyncMock(
+                return_value=[{"type": "domain_overview", "title": "D1", "content": "c"}]
+            )
+            instance.iteration_history = []
+            MockAgent.return_value = instance
+
+            await compose_domain_agents_node(state, config)
+
+        mock_baseline.assert_called_once()
+        assert mock_baseline.call_args.kwargs.get("module_tree") == mt
+
 
 def test_error_placeholder_uses_domain_overview_path():
     domain = {"name": "挚友关系管理", "modules": ["ModA"]}

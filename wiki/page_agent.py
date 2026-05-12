@@ -146,6 +146,7 @@ def strip_agent_artifacts(text: str) -> str:
     return stripped.strip()
 
 _GREP_MAX_FILE_SIZE = 512 * 1024  # 512 KB
+MAX_GREP_FILES = 500
 _GREP_BINARY_EXTENSIONS = {
     ".jar",
     ".class",
@@ -305,24 +306,27 @@ class WorkingMemory:
 
     def _enforce_limit(self) -> None:
         total = self._total_chars()
+        if total <= self.MAX_TOTAL_CHARS:
+            return
+        all_lists = [
+            self.code_snippets,
+            self.discovered_callers,
+            self.discovered_implementations,
+            self.discovered_call_chains,
+            self.resolved_gaps,
+            self.wiki_references,
+            self.search_findings,
+        ]
         while total > self.MAX_TOTAL_CHARS:
             removed = False
-            for lst in [
-                self.code_snippets,
-                self.discovered_callers,
-                self.discovered_implementations,
-                self.discovered_call_chains,
-                self.resolved_gaps,
-                self.wiki_references,
-                self.search_findings,
-            ]:
+            for lst in all_lists:
                 if lst:
-                    lst.pop(0)
+                    total -= len(lst[0])
+                    del lst[0]
                     removed = True
                     break
             if not removed:
                 break
-            total = self._total_chars()
 
     def _total_chars(self) -> int:
         total = 0
@@ -1363,8 +1367,12 @@ class WikiPageAgent:
         matches: list[dict[str, Any]] = []
         glob_pattern = file_pattern if file_pattern else "*"
 
+        files_scanned = 0
         for file_path in repo_root.rglob(glob_pattern):
             if len(matches) >= max_results:
+                break
+            files_scanned += 1
+            if files_scanned > MAX_GREP_FILES:
                 break
             if not file_path.is_file():
                 continue

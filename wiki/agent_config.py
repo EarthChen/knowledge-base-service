@@ -5,6 +5,10 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.log import get_logger
+
+log = get_logger(__name__)
+
 
 def _load_env_fallback() -> dict[str, str]:
     """Parse .env file as fallback when vars are not in os.environ."""
@@ -61,10 +65,18 @@ class HarnessConfig:
 
     @classmethod
     def from_env(cls) -> "HarnessConfig":
+        def _safe_int(key: str, default: int) -> int:
+            raw = _get_env(key, str(default))
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                log.warning("harness_config_bad_int", key=key, raw=raw, default=default)
+                return default
+
         return cls(
             enabled=_get_env("WIKI__USE_HARNESS", "").lower() in ("true", "1", "yes"),
-            max_repair_rounds=int(_get_env("WIKI__HARNESS_MAX_REPAIR_ROUNDS", "2")),
-            simple_threshold=int(_get_env("WIKI__HARNESS_SIMPLE_THRESHOLD", "5")),
-            complex_threshold=int(_get_env("WIKI__HARNESS_COMPLEX_THRESHOLD", "15")),
+            max_repair_rounds=_safe_int("WIKI__HARNESS_MAX_REPAIR_ROUNDS", 2),
+            simple_threshold=_safe_int("WIKI__HARNESS_SIMPLE_THRESHOLD", 5),
+            complex_threshold=_safe_int("WIKI__HARNESS_COMPLEX_THRESHOLD", 15),
             llm_judge_enabled=_get_env("WIKI__HARNESS_LLM_JUDGE", "true").lower() in ("true", "1"),
         )

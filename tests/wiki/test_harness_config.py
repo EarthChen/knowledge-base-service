@@ -1,6 +1,17 @@
 """Tests for HarnessConfig."""
 import os
+from unittest.mock import patch
+
 import pytest
+
+from wiki.agent_config import HarnessConfig
+
+
+def test_harness_config_from_env_bad_int_fallback():
+    """HarnessConfig.from_env should fallback when env var is not a valid int."""
+    with patch.dict(os.environ, {"WIKI__HARNESS_MAX_REPAIR_ROUNDS": "not_a_number"}, clear=False):
+        config = HarnessConfig.from_env()
+        assert config.max_repair_rounds == 2  # default fallback
 
 
 class TestHarnessConfig:

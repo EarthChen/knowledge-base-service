@@ -707,7 +707,6 @@ class CrossRepoBusinessDomainPlanner:
         enriched_signals: dict | None = None,
     ) -> dict[str, list[tuple[str, str]]]:
         assert self._llm is not None
-        _ = enriched_signals
         valid_pairs = set(pairs_in_order)
         planner = BusinessDomainPlanner(self._llm, infrastructure_label=self._infrastructure_label)
         per_repo: dict[str, dict[str, list[str]]] = {}
@@ -720,6 +719,7 @@ class CrossRepoBusinessDomainPlanner:
                 modules,
                 sub_batch_size=self._sub_batch_size,
                 max_concurrency=self._max_concurrency,
+                anchor_context=anchor_context,
             )
 
         try:

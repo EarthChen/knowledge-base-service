@@ -1,6 +1,5 @@
 """Classification and domain hierarchy nodes."""
 
-import re
 from collections import Counter
 from typing import Any
 
@@ -80,21 +79,14 @@ async def classify_domains_node(
     entity_roles = state.get("entity_roles", {})
     modules = state.get("modules", {})
 
-    _MAX_MODULES_FOR_CLASSIFICATION = 200
+    # Cap removed in v2; large module sets are batched by CrossRepoBusinessDomainPlanner /
+    # BusinessDomainPlanner sub-batches instead of truncating here.
     _DATA_MODEL_NAME_SUFFIXES = (
         "DTO", "Dto", "VO", "Vo", "Req", "Resp", "Request", "Response",
         "Param", "Form", "Query", "Result", "Enum", "Constants", "Entity",
         "Bo", "PO", "Po", "Config",
     )
     _DATA_MODEL_PATH_MARKERS = ("/dto/", "/model/", "/entity/", "/enums/", "/config/")
-    _SERVICE_PATH_PATTERNS = re.compile(
-        r"(/service/service/|/facade/|/manager/|/kafka/|/service/moa/)",
-        re.IGNORECASE,
-    )
-    _ENTRY_PATH_PATTERNS = re.compile(
-        r"(/interfaces/|/io/interfaces/|/controller/|/service/moa/)",
-        re.IGNORECASE,
-    )
 
     def _is_data_model(name: str, path: str) -> bool:
         if any(name.endswith(suffix) for suffix in _DATA_MODEL_NAME_SUFFIXES):
@@ -183,33 +175,6 @@ async def classify_domains_node(
     )
 
     capped_work = biz_modules_work
-    if module_total > _MAX_MODULES_FOR_CLASSIFICATION:
-        capped_modules: dict[str, list[GraphNode]] = {}
-        for repo, nodes in biz_modules_work.items():
-            tier1 = []  # RPC interfaces + entry points
-            tier2 = []  # Service implementations
-            tier3 = []  # Other business logic
-            for n in nodes:
-                path = str(n.properties.get("path", "") or "")
-                role = entity_roles.get(n.uid)
-                if _ENTRY_PATH_PATTERNS.search(path) or role == WikiEntityRole.ENTRY_POINT:
-                    tier1.append(n)
-                elif _SERVICE_PATH_PATTERNS.search(path):
-                    tier2.append(n)
-                else:
-                    tier3.append(n)
-            capped_modules[repo] = tier1 + tier2 + tier3
-        budget = _MAX_MODULES_FOR_CLASSIFICATION
-        final: dict[str, list[GraphNode]] = {}
-        for repo, nodes in capped_modules.items():
-            take = min(len(nodes), max(budget // max(len(capped_modules), 1), 10))
-            final[repo] = nodes[:take]
-            budget -= take
-            if budget <= 0:
-                break
-        capped_work = {r: v for r, v in final.items() if v}
-        module_total = sum(len(v) for v in capped_work.values())
-        log.info("classify_domains_capped", capped_total=module_total)
     classify_complexity = (
         DomainComplexity.LOW
         if module_total <= 10

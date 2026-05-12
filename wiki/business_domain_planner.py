@@ -39,6 +39,7 @@ class BusinessDomainPlanner:
         sub_batch_size: int = 80,
         max_concurrency: int = 3,
         batch_timeout: float = 120.0,
+        anchor_context: str = "",
     ) -> dict[str, list[str]]:
         if not modules:
             return {}
@@ -59,6 +60,7 @@ class BusinessDomainPlanner:
             return await self._run_batch_with_retry(
                 repository_id, modules, names_in_order, valid_names,
                 timeout=batch_timeout,
+                anchor_context=anchor_context,
             )
 
         sizer = AdaptiveBatchSizer(
@@ -103,6 +105,7 @@ class BusinessDomainPlanner:
                     batch_results[idx] = await self._run_batch_with_retry(
                         repository_id, batch, batch_names, batch_valid,
                         timeout=batch_timeout,
+                        anchor_context=anchor_context,
                     )
                     elapsed_s = time.monotonic() - bt
                     sizer.record(len(batch), elapsed_s, success=True)
@@ -153,12 +156,14 @@ class BusinessDomainPlanner:
         valid_names: set[str],
         *,
         timeout: float = 120.0,
+        anchor_context: str = "",
     ) -> dict[str, list[str]]:
         """Run a single batch with timeout-split-retry."""
         try:
             return await asyncio.wait_for(
                 self._classify_single_batch(
                     repository_id, modules, names_in_order, valid_names,
+                    anchor_context=anchor_context,
                 ),
                 timeout=timeout,
             )
@@ -183,10 +188,12 @@ class BusinessDomainPlanner:
             left_names = self._module_names_in_order(left)
             right_names = self._module_names_in_order(right)
             r1 = await self._run_batch_with_retry(
-                repository_id, left, left_names, set(left_names), timeout=timeout,
+                repository_id, left, left_names, set(left_names),
+                timeout=timeout, anchor_context=anchor_context,
             )
             r2 = await self._run_batch_with_retry(
-                repository_id, right, right_names, set(right_names), timeout=timeout,
+                repository_id, right, right_names, set(right_names),
+                timeout=timeout, anchor_context=anchor_context,
             )
             return self._merge_results(r1, r2)
         except Exception:
@@ -205,9 +212,13 @@ class BusinessDomainPlanner:
         modules: list[GraphNode],
         names_in_order: list[str],
         valid_names: set[str],
+        *,
+        anchor_context: str = "",
     ) -> dict[str, list[str]]:
         metadata = self._collect_metadata(modules)
-        prompt = self._build_prompt(repository_id, metadata)
+        prompt = self._build_prompt(
+            repository_id, metadata, anchor_context=anchor_context,
+        )
         if hasattr(self._llm, "complete_json"):
             messages = [
                 {"role": "system", "content": SYSTEM_JSON_ONLY},
@@ -281,7 +292,14 @@ class BusinessDomainPlanner:
             )
         return rows
 
-    def _build_prompt(self, repository_id: str, metadata: list[dict[str, str]]) -> str:
+    def _build_prompt(
+        self,
+        repository_id: str,
+        metadata: list[dict[str, str]],
+        *,
+        anchor_context: str = "",
+    ) -> str:
+        anchor_section = f"{anchor_context}\n\n" if anchor_context else ""
         return (
             "Classify the following repository modules into business domains.\n"
             "Use short Chinese business domain names that describe capabilities "
@@ -289,6 +307,7 @@ class BusinessDomainPlanner:
             "NEVER use code identifiers (class names, method names) as domain names.\n"
             "Place shared utilities, cross-cutting helpers, or generic support modules under "
             f'the domain key "{self._infrastructure_label}" when appropriate.\n\n'
+            f"{anchor_section}"
             f"Repository: {repository_id}\n\n"
             f"Modules:\n{json.dumps(metadata, indent=2, ensure_ascii=False)}\n\n"
             "Return ONLY valid JSON: an object whose keys are domain names and values are "

@@ -25,8 +25,8 @@
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | **开发者指南**：仓库目录、`uv`/`pnpm`、测试命令、扩展语言与 MCP、本地调试惯例。 |
 | [`ONBOARDING.md`](ONBOARDING.md) | **产品与上手**：功能地图、首次索引、仪表盘与 MCP 客户端配置心智模型。 |
 | [`wiki-generation-architecture.md`](wiki-generation-architecture.md) | **Wiki 生成架构**：管道阶段、增量 Ingest、LLM Wiki v2（置信度、矛盾、主张、记忆层）、与异步任务/新鲜度 API 的关系。 |
-| [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md) | **已知问题登记**：编号、状态（已修复/已缓解/待处理）、影响、根因、修复与**可重复验证**说明（若适用）。 |
-| [`REMAINING-WORK.md`](REMAINING-WORK.md) | **统一剩余工作清单**：Sprint 2 审计后汇总的 P1–P3 项，含代码健壮性、产品差距与反幻觉层。 |
+| ~~[`KNOWN-ISSUES.md`](KNOWN-ISSUES.md)~~ | 已合并至 `specs/2026-05-12-agent-wiki-quality-and-tree-fix.md` §3，文件已删除。 |
+| [`REMAINING-WORK.md`](REMAINING-WORK.md) | **统一剩余工作清单**：引用 `specs/2026-05-12-agent-wiki-quality-and-tree-fix.md` 作为唯一活跃提案。 |
 
 ---
 
@@ -36,11 +36,15 @@
 
 | 文档 | 说明 |
 |------|------|
-| [`superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md`](superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md) | 全仓库向的代码审计摘要，以及与 DeepWiki/CodeWiki/LLMWiki 等方向的**多维度对标**与追赶路线归纳。 |
+| ~~`superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md`~~ | (已完成并移除) 2026-05-02 全仓库代码审计 + 竞品对标 — B-01~B-17/F-01~F-07 全部已修复，遗留功能缺口 B-19~B-22/F-04 已迁移至 `REMAINING-WORK.md`。 |
 | [`superpowers/specs/2026-05-02-architecture-refactor-design.md`](superpowers/specs/2026-05-02-architecture-refactor-design.md) | **架构重构设计**：DI 容器、`@mcp_tool` 注册策略、`lifespan` 分段与关停顺序等。 |
 | [`superpowers/plans/2026-05-02-architecture-refactor.md`](superpowers/plans/2026-05-02-architecture-refactor.md) | **架构重构实施计划**：分 Task/Phase 的落地顺序与验收线索。 |
 | ~~`specs/2026-05-09-graph-driven-deterministic-decomposition.md`~~ | (已实现并移除) CodeWiki 图驱动确定性分解 — 设计要点已固化至 `wiki/graph_module_decomposer.py`、`wiki/pipeline_graph.py`。 |
 | ~~`specs/2026-05-09-codewiki-aligned-pipeline-design.md`~~ | (已实现并移除) CodeWiki 对齐管线重设计 — 设计要点已固化至 `wiki/harness.py`、`wiki/harness_evaluator.py`、`wiki/page_agent.py`。 |
+| ~~`specs/2026-05-11-graph-decomposition-and-imports-fix-design.md`~~ | (已实现并移除) 图分解优化与 IMPORTS 边修复 — 设计要点已固化至 `indexer/code_graph_builder.py`、`store/falkordb_reads.py`、`wiki/graph_module_decomposer.py`。 |
+| ~~`specs/2026-05-11-agent-driven-business-wiki-design.md`~~ | (已实现并移除) Agent 驱动的业务 Wiki 生成（Phase 0-4 ✅）— 架构设计已固化至 `wiki/domain_doc_agent.py`、`wiki/nodes/domain_compose.py`、`wiki/pipeline_graph.py`、`wiki/agent_prompts.py`；遗留项已迁移至下方统一提案。 |
+| ~~`specs/2026-05-11-incremental-wiki-update-design.md`~~ | (已实现并移除) 增量 Wiki 更新设计 — 设计要点已固化至 `wiki/incremental_diff.py`、`wiki/nodes/domain_compose.py`、`wiki/pipeline_orchestrator.py`。 |
+| [`specs/2026-05-12-agent-wiki-quality-and-tree-fix.md`](superpowers/specs/2026-05-12-agent-wiki-quality-and-tree-fix.md) | **Agent Wiki 质量修复 + 前端树适配 + 全量遗留工作统一提案（当前唯一活跃）**：9 个 Task（Wiki 树路径兼容 → 图分解注入 → Prompt 优化 → quality_gate 调整 → Topic 支持 → Anti-Hallucination L2-3 → Robustness → L2 业务流 → Prompt 代码层优化）。整合了所有已知问题和遗留工作。 |
 
 ---
 

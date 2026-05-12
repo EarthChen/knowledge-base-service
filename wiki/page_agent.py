@@ -974,6 +974,42 @@ class WikiPageAgent:
 
         return "\n".join(parts)
 
+    async def write(
+        self,
+        domain_name: str,
+        baseline_context: str,
+        memory: WorkingMemory,
+    ) -> str:
+        """Phase 2: Generate wiki page from exploration results.
+
+        Pure LLM.generate() — no tools, clean context.
+        """
+        from wiki.agent_prompts import AGENT_WRITE_SYSTEM
+
+        memo_section = memory.to_prompt_section()
+        user_prompt = (
+            f"## 任务\n"
+            f"基于以下探索结果，为业务域「{domain_name}」生成一篇完整的 Wiki 页面。\n\n"
+            f"## 基线上下文\n{baseline_context[:8000]}\n\n"
+            f"## 探索结果（工作记忆）\n{memo_section}\n"
+        )
+
+        try:
+            response = await self._llm.generate(
+                prompt=user_prompt,
+                system=AGENT_WRITE_SYSTEM,
+            )
+            cleaned = strip_agent_artifacts(response) if response else ""
+            if cleaned and len(cleaned) > 200:
+                return cleaned
+        except Exception:
+            log.warning("write_llm_failed", domain=domain_name, exc_info=True)
+
+        return self._generate_skeleton(
+            [m.split("]")[0].lstrip("[") for m in memory.code_snippets[:20]],
+            domain_name,
+        )
+
     async def generate(
         self,
         module_names: list[str],

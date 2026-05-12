@@ -783,6 +783,84 @@ class TestExplorePrompt:
         assert "不要输出" in formatted or "只需调用工具" in formatted
 
 
+class TestWrite:
+    @pytest.mark.asyncio
+    async def test_write_returns_content_from_memory(self):
+        mock_llm = MagicMock()
+        mock_graph = MagicMock()
+
+        expected_content = (
+            "## 概述\n\nModA 是用户管理控制器。\n\n"
+            "## 核心业务流程\n\n调用链 A → B → C。\n\n"
+            "```java\npublic void handle() {}\n```\n"
+        )
+        mock_llm.generate = AsyncMock(return_value=expected_content)
+
+        agent = WikiPageAgent(mock_llm, mock_graph)
+
+        memory = WorkingMemory()
+        memory.discovered_call_chains.append("A → B → C")
+        memory.code_snippets.append("[ModA]\npublic void handle() {}")
+
+        result = await agent.write(
+            domain_name="test-domain",
+            baseline_context="ModA is a controller.",
+            memory=memory,
+        )
+
+        assert isinstance(result, str)
+        assert len(result) > 100
+        mock_llm.generate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_write_does_not_call_tools(self):
+        mock_llm = MagicMock()
+        mock_graph = MagicMock()
+
+        mock_llm.generate = AsyncMock(
+            return_value="## 概述\n\nContent here.\n\n" * 5,
+        )
+        mock_llm.complete_with_tools = AsyncMock()
+
+        agent = WikiPageAgent(mock_llm, mock_graph)
+
+        memory = WorkingMemory()
+        memory.code_snippets.append("[ModA]\nsome code")
+
+        await agent.write(
+            domain_name="test-domain",
+            baseline_context="baseline",
+            memory=memory,
+        )
+
+        mock_llm.complete_with_tools.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_strips_artifacts(self):
+        mock_llm = MagicMock()
+        mock_graph = MagicMock()
+
+        raw_output = (
+            "让我基于工作记忆生成文档...\n"
+            "## 概述\n\nModA 处理用户请求。\n\n"
+            "## 核心流程\n\nA 调用 B。\n\n"
+        )
+        mock_llm.generate = AsyncMock(return_value=raw_output)
+
+        agent = WikiPageAgent(mock_llm, mock_graph)
+        memory = WorkingMemory()
+        memory.code_snippets.append("[ModA]\ncode")
+
+        result = await agent.write(
+            domain_name="test-domain",
+            baseline_context="baseline",
+            memory=memory,
+        )
+
+        assert not result.startswith("让我")
+        assert "## 概述" in result
+
+
 class TestWritePrompt:
     def test_write_prompt_has_length_constraint(self):
         from wiki.agent_prompts import AGENT_WRITE_SYSTEM

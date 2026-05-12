@@ -13,7 +13,7 @@ from core.log import get_logger
 from store.schema import GraphNode
 from wiki.dependency_graph import DomainNode
 from wiki.models import PageType, WikiPage
-from wiki.pipeline_graph import build_wiki_pipeline
+from wiki.pipeline_graph import build_wiki_pipeline, get_checkpointer
 
 log = get_logger(__name__)
 
@@ -206,8 +206,6 @@ async def run_langgraph_pipeline(
         "language": language,
     }
 
-    pipeline = build_wiki_pipeline()
-
     log.info(
         "langgraph_pipeline_start",
         business_id=business_id,
@@ -235,10 +233,12 @@ async def run_langgraph_pipeline(
 
     import time as _time
     pipeline_t0 = _time.monotonic()
-    result = await pipeline.ainvoke(
-        initial_state,
-        config={"configurable": configurable},
-    )
+    async with get_checkpointer(business_id) as checkpointer:
+        pipeline = build_wiki_pipeline(checkpointer=checkpointer)
+        result = await pipeline.ainvoke(
+            initial_state,
+            config={"configurable": configurable},
+        )
     pipeline_elapsed = _time.monotonic() - pipeline_t0
 
     domain_mapping = _extract_domain_mapping(result, modules_dict)

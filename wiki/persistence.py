@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import os
 import time as _time
 from datetime import UTC, datetime
 from typing import Any
@@ -565,3 +566,121 @@ class WikiPagePersistence:
                 deleted=deleted,
             )
         return deleted
+
+
+class WikiPersistence:
+    """Graph persistence for domain anchors, module pins, and classification links."""
+
+    def __init__(self, store: Any, *, checkpoint_dir: str | None = None) -> None:
+        self._store = store
+        self._checkpoint_dir = checkpoint_dir or os.environ.get(
+            "WIKI_CHECKPOINT_DIR",
+            os.path.join(os.path.dirname(__file__), "..", "data", "checkpoints"),
+        )
+
+    def _get_checkpoint_db_path(self, business_id: str) -> str:
+        """SQLite DB path for LangGraph checkpoints for this business."""
+        os.makedirs(self._checkpoint_dir, exist_ok=True)
+        return os.path.join(self._checkpoint_dir, f"{business_id}_wiki.db")
+
+    async def get_checkpoint_info(self, business_id: str) -> dict[str, Any] | None:
+        """Return checkpoint file metadata or None when no SQLite DB exists yet."""
+        db_path = self._get_checkpoint_db_path(business_id)
+        if not os.path.exists(db_path):
+            return None
+        stat = os.stat(db_path)
+        return {
+            "business_id": business_id,
+            "db_path": db_path,
+            "last_modified": stat.st_mtime,
+            "size_bytes": stat.st_size,
+        }
+
+    async def delete_checkpoint(self, business_id: str) -> None:
+        """Remove checkpoint SQLite file (and WAL/SHM sidecars) for a business."""
+        db_path = self._get_checkpoint_db_path(business_id)
+        for path in (db_path, f"{db_path}-wal", f"{db_path}-shm"):
+            if os.path.exists(path):
+                os.remove(path)
+
+    async def list_domain_anchors(self, business_id: str) -> list[dict]:
+        """Return all domain anchors: [{slug, display_name, module_count}]."""
+        cypher = (
+            "MATCH (d:DomainAnchor {business_id: $bid}) "
+            "OPTIONAL MATCH (d)<-[:BELONGS_TO_DOMAIN]-(m:Module) "
+            "RETURN d.slug AS slug, d.display_name AS display_name, "
+            "count(m) AS module_count ORDER BY slug"
+        )
+        result = await self._store.execute_query(cypher, {"bid": business_id})
+        return result.data if result.data else []
+
+    async def upsert_domain_anchor(
+        self, business_id: str, slug: str, display_name: str
+    ) -> None:
+        """Create or update a DomainAnchor node."""
+        cypher = (
+            "MERGE (d:DomainAnchor {business_id: $bid, slug: $slug}) "
+            "SET d.display_name = $display_name"
+        )
+        await self._store.execute_query(
+            cypher, {"bid": business_id, "slug": slug, "display_name": display_name}
+        )
+
+    async def delete_domain_anchor(self, business_id: str, slug: str) -> None:
+        """Remove a DomainAnchor and its relationships."""
+        cypher = (
+            "MATCH (d:DomainAnchor {business_id: $bid, slug: $slug}) "
+            "DETACH DELETE d"
+        )
+        await self._store.execute_query(cypher, {"bid": business_id, "slug": slug})
+
+    async def pin_module_to_domain(
+        self, business_id: str, module_name: str, domain_slug: str
+    ) -> None:
+        """Pin a module to a specific domain (user override)."""
+        cypher = (
+            "MATCH (m:Module {name: $name}) "
+            "SET m.domain_slug = $slug, m.domain_pinned = true"
+        )
+        await self._store.execute_query(
+            cypher, {"name": module_name, "slug": domain_slug}
+        )
+
+    async def unpin_module(self, business_id: str, module_name: str) -> None:
+        """Remove pinned status from a module."""
+        cypher = (
+            "MATCH (m:Module {name: $name}) "
+            "SET m.domain_pinned = false "
+            "REMOVE m.domain_slug"
+        )
+        await self._store.execute_query(cypher, {"name": module_name})
+
+    async def list_pinned_modules(self, business_id: str) -> list[dict]:
+        """Return all pinned modules: [{module_name, domain_slug}]."""
+        cypher = (
+            "MATCH (m:Module {domain_pinned: true}) "
+            "RETURN m.name AS module_name, m.domain_slug AS domain_slug "
+            "ORDER BY domain_slug, module_name"
+        )
+        result = await self._store.execute_query(cypher, {})
+        return result.data if result.data else []
+
+    async def save_domain_classification(
+        self, business_id: str, mapping: dict
+    ) -> None:
+        """Persist classification: upsert anchors + link modules to domains."""
+        for slug, info in mapping.items():
+            display_name = info.get("display_name", slug)
+            await self.upsert_domain_anchor(business_id, slug, display_name)
+            modules = info.get("modules", [])
+            for repo, mod_name in modules:
+                cypher = (
+                    "MATCH (m:Module {name: $name, repository: $repo}) "
+                    "MATCH (d:DomainAnchor {business_id: $bid, slug: $slug}) "
+                    "MERGE (m)-[:BELONGS_TO_DOMAIN]->(d) "
+                    "SET m.domain_slug = $slug"
+                )
+                await self._store.execute_query(
+                    cypher,
+                    {"name": mod_name, "repo": repo, "bid": business_id, "slug": slug},
+                )

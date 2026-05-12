@@ -371,3 +371,24 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     elif checkpointer is False:
         checkpointer = None
     return graph.compile(checkpointer=checkpointer)
+
+
+def get_checkpointer(business_id: str, checkpoint_dir: str | None = None):
+    """Return an async context manager that yields ``AsyncSqliteSaver`` for ``business_id``.
+
+    Usage::
+
+        async with get_checkpointer(business_id) as checkpointer:
+            pipeline = build_wiki_pipeline(checkpointer=checkpointer)
+            await pipeline.ainvoke(...)
+    """
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+    if checkpoint_dir is None:
+        checkpoint_dir = os.environ.get(
+            "WIKI_CHECKPOINT_DIR",
+            os.path.join(os.path.dirname(__file__), "..", "data", "checkpoints"),
+        )
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    db_path = os.path.join(checkpoint_dir, f"{business_id}_wiki.db")
+    return AsyncSqliteSaver.from_conn_string(db_path)

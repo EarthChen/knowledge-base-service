@@ -9,7 +9,7 @@ from dataclasses import asdict
 from typing import Any, Literal
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.exceptions import KbNotFound, KbServiceUnavailable
@@ -21,6 +21,7 @@ from wiki.coverage_analyzer import WikiCoverageAnalyzer
 from wiki.models import ImportanceTier, PageType, WikiPage, WikiPageMetadata
 from wiki.quality_evaluator import WikiQualityEvaluator
 from wiki.quality_score import WikiQualityScorer
+from wiki.persistence import WikiPersistence
 from wiki.service import WikiRepoNotFoundError, WikiService
 from wiki.search import SearchResponse
 from api.models.wiki_entity import RelatedEntity, WikiPageEntitiesResponse
@@ -55,6 +56,30 @@ router = APIRouter(tags=["wiki", "pages"])
 
 async def _get_wiki_service(request: Request) -> WikiService:
     return await get_wiki_service_dep(request)
+
+
+async def _wiki_persistence_for_business_id(
+    request: Request,
+    business_id: str,
+) -> WikiPersistence:
+    """Resolve the graph store for *path* ``business_id`` and wrap as ``WikiPersistence``."""
+    if business_id and business_id != "default":
+        resolver = getattr(request.app.state, "wiki_store_for_business", None)
+        if callable(resolver):
+            try:
+                store = await resolver(business_id)
+                if store is not None:
+                    return WikiPersistence(store)
+            except Exception:  # noqa: BLE001
+                log.debug(
+                    "wiki_store_for_business_fallback",
+                    business_id=business_id,
+                    exc_info=True,
+                )
+    store = getattr(request.app.state, "wiki_store", None)
+    if store is None:
+        raise KbServiceUnavailable("Graph store not configured")
+    return WikiPersistence(store)
 
 
 async def _resolve_primary_source_entity_uid(
@@ -644,6 +669,114 @@ async def get_domain_edges(
     except AttributeError:
         log.warning("domain_edges_not_implemented", business_id=business_id)
         return {"edges": []}
+
+
+# --- Domain Management & checkpoint (path-scoped business_id) ---
+
+
+@router.get("/{business_id}/domains/pinned-modules", response_model=None)
+async def list_pinned_modules_for_business(
+    request: Request,
+    business_id: str,
+) -> dict[str, Any]:
+    """List all pinned modules for dashboards (path ``business_id``)."""
+    persistence = await _wiki_persistence_for_business_id(request, business_id)
+    pinned = await persistence.list_pinned_modules(business_id)
+    return {"pinned_modules": pinned}
+
+
+@router.post("/{business_id}/domains/pin-module", response_model=None)
+async def pin_module_to_domain_route(
+    request: Request,
+    business_id: str,
+    body: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
+    """Pin a module to a specific domain."""
+    if "module_name" not in body or "domain_slug" not in body:
+        raise HTTPException(
+            status_code=422,
+            detail="module_name and domain_slug are required",
+        )
+    persistence = await _wiki_persistence_for_business_id(request, business_id)
+    await persistence.pin_module_to_domain(
+        business_id,
+        str(body["module_name"]),
+        str(body["domain_slug"]),
+    )
+    return {"status": "ok"}
+
+
+@router.post("/{business_id}/domains/unpin-module", response_model=None)
+async def unpin_module_route(
+    request: Request,
+    business_id: str,
+    body: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
+    """Unpin a module from its domain."""
+    if "module_name" not in body:
+        raise HTTPException(status_code=422, detail="module_name is required")
+    persistence = await _wiki_persistence_for_business_id(request, business_id)
+    await persistence.unpin_module(business_id, str(body["module_name"]))
+    return {"status": "ok"}
+
+
+@router.get("/{business_id}/domains", response_model=None)
+async def list_domains(
+    request: Request,
+    business_id: str,
+) -> dict[str, Any]:
+    """List all domain anchors for a business."""
+    persistence = await _wiki_persistence_for_business_id(request, business_id)
+    domains = await persistence.list_domain_anchors(business_id)
+    return {"domains": domains}
+
+
+@router.put("/{business_id}/domains/{slug}", response_model=None)
+async def upsert_domain(
+    request: Request,
+    business_id: str,
+    slug: str,
+    body: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    """Create or update a domain anchor."""
+    display_name = str(body.get("display_name", slug) or slug)
+    persistence = await _wiki_persistence_for_business_id(request, business_id)
+    await persistence.upsert_domain_anchor(business_id, slug, display_name)
+    return {"status": "ok", "slug": slug, "display_name": display_name}
+
+
+@router.delete("/{business_id}/domains/{slug}", response_model=None)
+async def delete_domain(
+    request: Request,
+    business_id: str,
+    slug: str,
+) -> dict[str, Any]:
+    """Delete a domain anchor."""
+    persistence = await _wiki_persistence_for_business_id(request, business_id)
+    await persistence.delete_domain_anchor(business_id, slug)
+    return {"status": "ok"}
+
+
+@router.get("/{business_id}/checkpoint", response_model=None)
+async def get_checkpoint(
+    request: Request,
+    business_id: str,
+) -> dict[str, Any]:
+    """Get checkpoint info for a business wiki pipeline."""
+    persistence = await _wiki_persistence_for_business_id(request, business_id)
+    info = await persistence.get_checkpoint_info(business_id)
+    return {"checkpoint": info}
+
+
+@router.delete("/{business_id}/checkpoint", response_model=None)
+async def delete_checkpoint_route(
+    request: Request,
+    business_id: str,
+) -> dict[str, Any]:
+    """Delete checkpoint data for a business wiki pipeline."""
+    persistence = await _wiki_persistence_for_business_id(request, business_id)
+    await persistence.delete_checkpoint(business_id)
+    return {"status": "ok"}
 
 
 @router.post(

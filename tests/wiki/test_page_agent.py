@@ -659,3 +659,33 @@ class TestEnrichInterface:
             domain_name="用户管理",
         )
         assert isinstance(result, str)
+
+
+class TestExplorePrompt:
+    def test_explore_prompt_has_no_json_output_requirement(self):
+        from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM
+
+        formatted = AGENT_EXPLORE_SYSTEM.format(max_rounds=10)
+        assert "domain_summary" not in formatted
+        assert "core_modules" not in formatted
+        assert '"code_snippets"' not in formatted
+
+    def test_explore_prompt_instructs_tool_only(self):
+        from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM
+
+        formatted = AGENT_EXPLORE_SYSTEM.format(max_rounds=10)
+        assert "工具" in formatted
+        assert "不要输出" in formatted or "只需调用工具" in formatted
+
+
+class TestWritePrompt:
+    def test_write_prompt_has_length_constraint(self):
+        from wiki.agent_prompts import AGENT_WRITE_SYSTEM
+
+        assert "2-3 段" in AGENT_WRITE_SYSTEM or "至少" in AGENT_WRITE_SYSTEM
+
+    def test_write_prompt_has_core_constraints(self):
+        from wiki.agent_prompts import AGENT_WRITE_SYSTEM
+
+        assert "100% 代码溯源" in AGENT_WRITE_SYSTEM
+        assert "CONTEXT_GAP" in AGENT_WRITE_SYSTEM

@@ -128,16 +128,64 @@ async def classify_domains_node(
         if filtered:
             biz_modules[repo] = filtered
 
-    module_total = sum(len(v) for v in biz_modules.values())
+    biz_modules_base = biz_modules
+
+    persistence = state.get("persistence")
+    anchors: list[dict[str, Any]] = []
+    pinned_raw: list[dict[str, Any]] = []
+    if persistence:
+        try:
+            anchors = await persistence.list_domain_anchors(business_id) or []
+            pinned_raw = await persistence.list_pinned_modules(business_id) or []
+        except Exception:
+            log.warning("domain_anchor_load_failed", exc_info=True)
+
+    pinned_names = {str(p["module_name"]) for p in pinned_raw if p.get("module_name")}
+    pinned_mapping: dict[str, str] = {
+        str(p["module_name"]): str(p["domain_slug"])
+        for p in pinned_raw
+        if p.get("module_name") and p.get("domain_slug")
+    }
+
+    anchor_context = ""
+    if anchors:
+        lines = ["Existing domains (prefer reusing these):"]
+        for a in anchors:
+            slug = str(a.get("slug", "") or "")
+            disp = str(a.get("display_name", "") or slug)
+            lines.append(f"  - {slug} ({disp})")
+        anchor_context = "\n".join(lines)
+
+    pinned_nodes_by_repo: dict[str, list[GraphNode]] = {}
+    biz_modules_work = biz_modules_base
+    if pinned_names:
+        for repo, nodes in biz_modules_base.items():
+            pinned_here = [
+                n for n in nodes
+                if str(n.properties.get("name", "")) in pinned_names
+            ]
+            if pinned_here:
+                pinned_nodes_by_repo[repo] = pinned_here
+        biz_modules_work = {
+            repo: [
+                n for n in nodes
+                if str(n.properties.get("name", "")) not in pinned_names
+            ]
+            for repo, nodes in biz_modules_base.items()
+        }
+        biz_modules_work = {r: v for r, v in biz_modules_work.items() if v}
+
+    module_total = sum(len(v) for v in biz_modules_work.values())
     log.info(
         "classify_domains_filter",
         included=module_total,
         excluded_data_models=excluded_data_models,
     )
 
+    capped_work = biz_modules_work
     if module_total > _MAX_MODULES_FOR_CLASSIFICATION:
         capped_modules: dict[str, list[GraphNode]] = {}
-        for repo, nodes in biz_modules.items():
+        for repo, nodes in biz_modules_work.items():
             tier1 = []  # RPC interfaces + entry points
             tier2 = []  # Service implementations
             tier3 = []  # Other business logic
@@ -159,8 +207,8 @@ async def classify_domains_node(
             budget -= take
             if budget <= 0:
                 break
-        biz_modules = {r: v for r, v in final.items() if v}
-        module_total = sum(len(v) for v in biz_modules.values())
+        capped_work = {r: v for r, v in final.items() if v}
+        module_total = sum(len(v) for v in capped_work.values())
         log.info("classify_domains_capped", capped_total=module_total)
     classify_complexity = (
         DomainComplexity.LOW
@@ -177,13 +225,25 @@ async def classify_domains_node(
         reasoning_level=classify_reasoning.value,
     )
 
+    is_incremental = state.get("is_incremental", False)
+    if is_incremental and pinned_nodes_by_repo:
+        repos_union = set(capped_work) | set(pinned_nodes_by_repo)
+        planner_modules: dict[str, list[GraphNode]] = {}
+        for repo in sorted(repos_union):
+            nodes = list(capped_work.get(repo, []))
+            nodes.extend(pinned_nodes_by_repo.get(repo, []))
+            if nodes:
+                planner_modules[repo] = nodes
+    else:
+        planner_modules = capped_work
+
     graph_store = (config or {}).get("configurable", {}).get("graph_store")
     pre_groups = None
     if graph_store is not None:
         from wiki.graph_pre_grouper import compute_pre_groups
 
         module_paths: dict[str, str] = {}
-        for repo, nodes in biz_modules.items():
+        for repo, nodes in planner_modules.items():
             for n in nodes:
                 name = str(n.properties.get("name", ""))
                 path = str(n.properties.get("path", "") or "")
@@ -191,20 +251,48 @@ async def classify_domains_node(
                     module_paths[name] = path
         try:
             pre_groups = await compute_pre_groups(
-                graph_store, list(biz_modules.keys()), module_paths
+                graph_store, list(planner_modules.keys()), module_paths
             )
         except Exception:
             log.warning("pre_groups_computation_failed", exc_info=True)
 
     planner = CrossRepoBusinessDomainPlanner(llm)
-    is_incremental = state.get("is_incremental", False)
     if is_incremental:
-        domain_mapping, affected_domains = await planner.classify_incremental(business_id, biz_modules)
+        domain_mapping, affected_domains = await planner.classify_incremental(
+            business_id,
+            planner_modules,
+            anchor_context=anchor_context,
+            pinned_module_domains=pinned_mapping or None,
+        )
     else:
         domain_mapping = await planner.classify(
-            business_id, biz_modules, pre_groups=pre_groups
+            business_id,
+            planner_modules,
+            pre_groups=pre_groups,
+            anchor_context=anchor_context,
         )
         affected_domains = set(domain_mapping.keys())
+
+        modules_by_repo = state.get("modules", {})
+        repos = state.get("repositories") or []
+        fallback_repo = repos[0] if repos else ""
+
+        def _repo_for_pinned(mod_name: str) -> str:
+            for repo_id, mod_list in modules_by_repo.items():
+                for mod_dict in mod_list:
+                    if str(mod_dict.get("properties", {}).get("name", "")) == mod_name:
+                        return repo_id
+            if fallback_repo:
+                return fallback_repo
+            return next(iter(modules_by_repo.keys()), "") if modules_by_repo else ""
+
+        if pinned_mapping:
+            for mod_name, domain_slug in pinned_mapping.items():
+                repo = _repo_for_pinned(mod_name)
+                pair = (repo, mod_name)
+                bucket = domain_mapping.setdefault(domain_slug, [])
+                if pair not in bucket:
+                    bucket.append(pair)
     if graph_store is not None:
         from wiki.domain_stabilizer import DomainStabilizer
 

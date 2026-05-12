@@ -151,6 +151,8 @@ class CrossRepoBusinessDomainPlanner:
         business_id: str,
         all_modules: dict[str, list[GraphNode]],
         pre_groups: list | None = None,
+        *,
+        anchor_context: str = "",
     ) -> dict[str, list[tuple[str, str]]]:
         self._metadata_cache = self._build_metadata_cache(all_modules)
         pairs_in_order = self._all_pairs_in_order(all_modules)
@@ -163,9 +165,18 @@ class CrossRepoBusinessDomainPlanner:
         try:
             if len(pairs_in_order) <= self._batch_threshold:
                 return await self._classify_single_batch(
-                    business_id, pairs_in_order, pre_groups=pre_groups
+                    business_id,
+                    pairs_in_order,
+                    pre_groups=pre_groups,
+                    anchor_context=anchor_context,
                 )
-            return await self._classify_multi_batch(business_id, all_modules, pairs_in_order, pre_groups=pre_groups)
+            return await self._classify_multi_batch(
+                business_id,
+                all_modules,
+                pairs_in_order,
+                pre_groups=pre_groups,
+                anchor_context=anchor_context,
+            )
         except Exception:
             log.warning(
                 "cross_repo_business_domain_classification_failed",
@@ -178,6 +189,9 @@ class CrossRepoBusinessDomainPlanner:
         self,
         business_id: str,
         all_modules: dict[str, list[GraphNode]],
+        *,
+        anchor_context: str = "",
+        pinned_module_domains: dict[str, str] | None = None,
     ) -> tuple[dict[str, list[tuple[str, str]]], set[str]]:
         """Two-phase incremental domain classification.
 
@@ -194,11 +208,16 @@ class CrossRepoBusinessDomainPlanner:
 
         existing: dict[str, list[tuple[str, str]]] = {}
         new_modules: dict[str, list[GraphNode]] = {}
+        pin_map = pinned_module_domains or {}
 
         for repo_id, modules in all_modules.items():
             for m in modules:
                 name = m.properties.get("name")
                 if not isinstance(name, str) or not name:
+                    continue
+                pin_domain = pin_map.get(name)
+                if isinstance(pin_domain, str) and pin_domain.strip():
+                    existing.setdefault(pin_domain.strip(), []).append((repo_id, name))
                     continue
                 domain = m.properties.get("business_domain")
                 if isinstance(domain, str) and domain.strip():
@@ -233,7 +252,10 @@ class CrossRepoBusinessDomainPlanner:
         for attempt in range(max_retries + 1):
             try:
                 triage = await self._triage_new_modules(
-                    business_id, new_pairs, existing,
+                    business_id,
+                    new_pairs,
+                    existing,
+                    anchor_context=anchor_context,
                 )
                 break
             except Exception:
@@ -278,7 +300,10 @@ class CrossRepoBusinessDomainPlanner:
         for attempt in range(max_retries + 1):
             try:
                 reclassified = await self._reclassify_affected_domains(
-                    business_id, triage.reclassify_domains, existing,
+                    business_id,
+                    triage.reclassify_domains,
+                    existing,
+                    anchor_context=anchor_context,
                 )
                 break
             except Exception:
@@ -310,6 +335,8 @@ class CrossRepoBusinessDomainPlanner:
         business_id: str,
         new_pairs: list[tuple[str, str]],
         existing: dict[str, list[tuple[str, str]]],
+        *,
+        anchor_context: str = "",
     ) -> "_TriageResult":
         """Phase 1: lightweight LLM call to decide how to handle each new module."""
         assert self._llm is not None
@@ -331,9 +358,11 @@ class CrossRepoBusinessDomainPlanner:
                 "summary": self._module_summary(repo_id, name),
             })
 
+        anchor_section = f"{anchor_context}\n\n" if anchor_context else ""
         prompt = (
             "You are classifying NEW modules into an existing business domain structure.\n\n"
             f"Business ID: {business_id}\n\n"
+            f"{anchor_section}"
             f"Existing domains:\n{json.dumps(domain_overview, indent=2, ensure_ascii=False)}\n\n"
             f"New modules to classify:\n{json.dumps(new_rows, indent=2, ensure_ascii=False)}\n\n"
             "For each new module, decide one of:\n"
@@ -481,6 +510,8 @@ class CrossRepoBusinessDomainPlanner:
         business_id: str,
         affected_domain_names: list[str],
         current_mapping: dict[str, list[tuple[str, str]]],
+        *,
+        anchor_context: str = "",
     ) -> dict[str, list[tuple[str, str]]]:
         """Phase 2: reclassify only the affected domains' modules."""
         assert self._llm is not None
@@ -505,12 +536,14 @@ class CrossRepoBusinessDomainPlanner:
         ]
         context = f"Other domains (unchanged): {json.dumps(unaffected, ensure_ascii=False)}" if unaffected else ""
 
+        anchor_section = f"{anchor_context}\n\n" if anchor_context else ""
         prompt = (
             "Reclassify the following modules into business domains.\n"
             f"These modules were previously in domains: {json.dumps(affected_domain_names, ensure_ascii=False)}\n"
             "Split, merge, or rename domains as needed for better organization.\n"
             f'{context}\n\n'
             f"Business ID: {business_id}\n\n"
+            f"{anchor_section}"
             f"Modules:\n{json.dumps(rows, indent=2, ensure_ascii=False)}\n\n"
             "Return ONLY valid JSON: an object whose keys are domain names and whose "
             "values are arrays of [repository_id, module_name] pairs."
@@ -583,11 +616,16 @@ class CrossRepoBusinessDomainPlanner:
         business_id: str,
         pairs_in_order: list[tuple[str, str]],
         pre_groups: list | None = None,
+        *,
+        anchor_context: str = "",
     ) -> dict[str, list[tuple[str, str]]]:
         assert self._llm is not None
         valid_pairs = set(pairs_in_order)
         prompt = self._build_single_batch_prompt(
-            business_id, pairs_in_order, pre_groups=pre_groups
+            business_id,
+            pairs_in_order,
+            pre_groups=pre_groups,
+            anchor_context=anchor_context,
         )
         if hasattr(self._llm, "complete_json"):
             messages = [
@@ -617,6 +655,8 @@ class CrossRepoBusinessDomainPlanner:
         all_modules: dict[str, list[GraphNode]],
         pairs_in_order: list[tuple[str, str]],
         pre_groups: list | None = None,
+        *,
+        anchor_context: str = "",
     ) -> dict[str, list[tuple[str, str]]]:
         assert self._llm is not None
         valid_pairs = set(pairs_in_order)
@@ -634,7 +674,12 @@ class CrossRepoBusinessDomainPlanner:
             )
 
         try:
-            prompt = self._build_lightweight_merge_prompt(business_id, per_repo, pre_groups=pre_groups)
+            prompt = self._build_lightweight_merge_prompt(
+                business_id,
+                per_repo,
+                pre_groups=pre_groups,
+                anchor_context=anchor_context,
+            )
             if hasattr(self._llm, "complete_json"):
                 messages = [
                     {"role": "system", "content": SYSTEM_JSON_ONLY},
@@ -670,6 +715,8 @@ class CrossRepoBusinessDomainPlanner:
         business_id: str,
         pairs_in_order: list[tuple[str, str]],
         pre_groups: list | None = None,
+        *,
+        anchor_context: str = "",
     ) -> str:
         rows: list[dict[str, str]] = []
         for repo_id, name in pairs_in_order:
@@ -697,12 +744,14 @@ class CrossRepoBusinessDomainPlanner:
                 "Use these groups as a REFERENCE — you may split or merge them as appropriate.\n"
             )
             pre_group_section = "\n".join(lines) + "\n"
+        anchor_section = f"{anchor_context}\n\n" if anchor_context else ""
         return (
             "Classify the following modules from multiple repositories into business domains.\n"
             "Use short, human-readable domain names (e.g. product areas).\n"
             "Place shared utilities, cross-cutting helpers, or generic support modules under "
             f'the domain key "{self._infrastructure_label}" when appropriate.\n\n'
             f"Business ID: {business_id}\n\n"
+            f"{anchor_section}"
             f"Modules:\n{json.dumps(rows, indent=2, ensure_ascii=False)}\n\n"
             f"{pre_group_section}"
             "Return ONLY valid JSON: an object whose keys are domain names and whose values are "
@@ -734,6 +783,8 @@ class CrossRepoBusinessDomainPlanner:
         business_id: str,
         per_repo: dict[str, dict[str, list[str]]],
         pre_groups: list | None = None,
+        *,
+        anchor_context: str = "",
     ) -> str:
         domain_names_per_repo: dict[str, list[str]] = {}
         for repo_id, domain_map in per_repo.items():
@@ -749,6 +800,7 @@ class CrossRepoBusinessDomainPlanner:
             lines.append("Consider grouping related domains when modules call each other.\n")
             pre_group_section = "\n".join(lines) + "\n"
 
+        anchor_section = f"{anchor_context}\n\n" if anchor_context else ""
         return (
             "Unify the following per-repository business domain names into a single "
             "consistent set of domain names across all repositories.\n"
@@ -756,6 +808,7 @@ class CrossRepoBusinessDomainPlanner:
             "(e.g. 'Auth' and 'Authentication' → pick one).\n"
             f'Use "{self._infrastructure_label}" for ambiguous infrastructure domains.\n\n'
             f"Business ID: {business_id}\n\n"
+            f"{anchor_section}"
             f"Domain names per repository:\n{json.dumps(domain_names_per_repo, indent=2, ensure_ascii=False)}\n\n"
             f"{pre_group_section}"
             "Return ONLY valid JSON: an object whose keys are unified domain names and whose "

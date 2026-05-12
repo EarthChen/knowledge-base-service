@@ -1,8 +1,8 @@
 # Agent Wiki 质量修复 + 域分类 v2 统一提案
 
 **Created:** 2026-05-12  
-**Last Updated:** 2026-05-12 (域分类 v2 完整设计)  
-**Status:** Task A-F ✅ / Task G-H Proposed  
+**Last Updated:** 2026-05-12 (slug 全链路 + 质量修复已实现)  
+**Status:** Task A-F ✅ / Task G 核心已实现（slug + 质量 + 持久化） / Task H 待实现（Dashboard API/UI）  
 **Priority:** P0  
 **Type:** 统一提案（Spec）
 
@@ -466,21 +466,31 @@ compose_domain_agents ⏳ 8/15 域完成 (进行中...)
 
 ## 4. 实施任务清单
 
-| # | 任务 | 优先级 | 改动文件 | 依赖 |
-|---|------|--------|---------|------|
-| T1 | 域双标识体系：WikiSection 增加 slug + DomainNode 增加 slug + 路径格式 | P0 | `store/schema.py`, `store/falkordb_wiki.py`, `wiki/tree_linker.py`, `wiki/path_conventions.py`, `wiki/dependency_graph.py` | — |
-| T2 | 存储层新增域管理方法（7 个） | P0 | `store/falkordb_wiki.py` | T1 |
-| T3 | 信号增强：`enrich_module_signals` + 3 个 Cypher 查询 | P1 | `wiki/nodes/classify.py`, `wiki/cypher_queries.py` | — |
-| T4 | 锚定域加载 + domain_pinned 跳过 | P1 | `wiki/nodes/classify.py`, `store/falkordb_wiki.py` | T1, T2 |
-| T5 | Prompt 改造：中文统一 + anchor 注入 + slug 双输出 | P1 | `wiki/cross_repo_domain_planner.py`, `wiki/business_domain_planner.py` | T3, T4 |
-| T6 | DomainStabilizer 双字段匹配 + slug normalize | P1 | `wiki/domain_stabilizer.py` | T1 |
-| T7 | 去掉 200 Cap + 子批次 anchor 注入 | P1 | `wiki/nodes/classify.py`, `wiki/cross_repo_domain_planner.py` | T5 |
-| T8 | 管线中间持久化：`persist_classification_node` + 逐域 persist | P1 | `wiki/pipeline_graph.py`, `wiki/nodes/classify.py`, `wiki/nodes/domain_compose.py`, `wiki/service.py` | T1, T4 |
-| T9 | LangGraph Checkpointer 升级为 AsyncSqliteSaver | P2 | `wiki/pipeline_graph.py` | — |
-| T10 | Dashboard API（11 个端点：域管理 7 + 恢复/重执行 2 + checkpoint 查询/清除 2） | P1 | `api/routes/wiki_page_routes.py`, `wiki/service.py` | T2, T8 |
-| T11 | Dashboard UI：域列表 + 域详情 + checkpoint 面板 + 恢复/重生成/清除操作 + 生成进度展示 | P2 | `dashboard/src/` | T10 |
-| T12 | `trigger_wiki_generate.sh` 支持新命令：resume / regenerate-domain / reset-anchors | P1 | `scripts/trigger_wiki_generate.sh` | T10 |
-| T13 | 分类稳定性回归测试 | P1 | `tests/wiki/` | T5, T6 |
+| # | 任务 | 优先级 | 状态 | 改动文件 | 依赖 |
+|---|------|--------|------|---------|------|
+| T1 | 域双标识体系：slug + display_name 全链路传播 | P0 | ✅ | `wiki/path_conventions.py`, `wiki/cross_repo_domain_planner.py`, `wiki/nodes/classify.py`, `wiki/nodes/utils.py`, `wiki/nodes/domain_compose.py`, `wiki/domain_doc_agent.py` | — |
+| T2 | 存储层新增域管理方法（7 个） | P0 | 🔲 待实现 | `store/falkordb_wiki.py` | T1 |
+| T3 | 信号增强：`enrich_module_signals` + 3 个 Cypher 查询 | P1 | ✅ | `wiki/nodes/classify.py`, `wiki/cypher_queries.py`, `wiki/module_enricher.py` | — |
+| T4 | 锚定域加载 + domain_pinned 跳过 | P1 | ✅ | `wiki/nodes/classify.py`, `wiki/persistence.py` | T1, T2 |
+| T5 | Prompt 改造：anchor 注入 + slug 双输出 + 代码片段要求 | P1 | ✅ | `wiki/cross_repo_domain_planner.py`, `wiki/unified_prompt_templates.py` | T3, T4 |
+| T6 | DomainStabilizer 双字段匹配 + slug normalize | P1 | ✅ | `wiki/domain_stabilizer.py`, `wiki/nodes/classify.py` | T1 |
+| T7 | 去掉 200 Cap + 子批次 anchor 注入 | P1 | ✅ | `wiki/nodes/classify.py`, `wiki/cross_repo_domain_planner.py` | T5 |
+| T8 | 管线中间持久化：`persist_classification_node` + 逐域 persist | P1 | ✅ | `wiki/pipeline_graph.py`, `wiki/nodes/persist_classification.py`, `wiki/nodes/domain_compose.py` | T1, T4 |
+| T9 | LangGraph Checkpointer 升级为 AsyncSqliteSaver | P2 | ✅ | `wiki/pipeline_graph.py`, `wiki/persistence.py` | — |
+| T10 | Dashboard API（11 个端点：域管理 7 + 恢复/重执行 2 + checkpoint 查询/清除 2） | P1 | 🔲 待实现 | `api/routes/wiki_page_routes.py`, `wiki/service.py` | T2, T8 |
+| T11 | Dashboard UI：域列表 + 域详情 + checkpoint 面板 + 恢复/重生成/清除操作 + 生成进度展示 | P2 | 🔲 待实现 | `dashboard/src/` | T10 |
+| T12 | `trigger_wiki_generate.sh` 支持新命令：resume / regenerate-domain / reset-anchors | P1 | 🔲 待实现 | `scripts/trigger_wiki_generate.sh` | T10 |
+| T13 | 分类稳定性回归测试 | P1 | ✅ | `tests/wiki/` | T5, T6 |
+
+### 质量修复（已完成，非原计划任务）
+
+| 修复 | 内容 | 状态 |
+|------|------|------|
+| Q1 | 质量退出条件分级（perfect / acceptable / max-iter 三级） | ✅ |
+| Q2 | `citation_density` 纳入内联代码引用计算 | ✅ |
+| Q3 | Prompt 强制要求 ≥3 代码片段 | ✅ |
+| Q4 | Agent Compose 作为默认管线，移除 `compose_bottomup` | ✅ |
+| Q5 | `source_locations` 同时附加到 domain_overview 和 topic 页面 | ✅ |
 
 ### 风险评估
 

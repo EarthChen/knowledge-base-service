@@ -1,7 +1,7 @@
 # Remaining Work (Unified Backlog)
 
 **Created:** 2026-05-09  
-**Last Updated:** 2026-05-12  
+**Last Updated:** 2026-05-12 (slug全链路+质量修复已实现)  
 **Status:** Active — items checked off when merged
 
 ---
@@ -16,8 +16,9 @@
 |------|--------|------|
 | A-D: 路径/质量门/内容/Robustness | P0-P2 | ✅ 已完成 |
 | F: Explore/Write 分离 | 核心 ✅ / 优化 P3 | 核心已完成，剩工具动态解锁+PageRank |
-| G: 域分类准确度提升 | P1 | Proposed（丰富模块描述+prompt、调用矩阵、共享服务） |
-| H: 域调整机制 (Dashboard) | P1 | Proposed（domain_pinned + 域管理 API + UI） |
+| G: 域分类 v2 核心 | P1 | ✅ 核心已实现（slug全链路+锚点+信号增强+持久化+质量修复） |
+| G-剩余: 存储层域管理方法 | P1 | 🔲 待实现（T2: 7 个方法） |
+| H: Dashboard 域管理 API + UI | P1 | 🔲 待实现（T10-T12: 11端点 + UI + 脚本） |
 | E: L2 业务流文档 | P3 | 待 L1 稳定后启动 |
 
 ---
@@ -55,6 +56,10 @@ Larger feature work, each requires a standalone proposal.
 - [x] Explore/Write 分离 ✅ (2026-05-12) — 固化至 `page_agent.py` + `domain_doc_agent.py`
 - [x] Domain Agent 弹性超时 + Wiki⟷Code 深度关联 ✅ (2026-05-12) — 固化至 `domain_doc_agent.py` + `page_agent.py`
 - [x] Code Linking 合并 Bug (`_attach_domain_sources`) ✅ (2026-05-12) — 固化至 `nodes/domain_compose.py`
+- [x] 域分类 v2 slug 全链路传播 ✅ (2026-05-12) — slug 作为 canonical key 贯穿 planner→classify→persist→decompose→compose→agent→path
+- [x] 质量门改进 ✅ (2026-05-12) — 分级退出条件 + citation_density 内联代码计算 + prompt 强制代码片段
+- [x] Agent Compose 默认管线 ✅ (2026-05-12) — 移除 compose_bottomup 分支
+- [x] source_locations 覆盖 topic 页面 ✅ (2026-05-12) — domain_overview + topic 均附加代码实体
 
 ---
 

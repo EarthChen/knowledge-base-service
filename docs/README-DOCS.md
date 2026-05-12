@@ -44,7 +44,7 @@
 | ~~`specs/2026-05-11-graph-decomposition-and-imports-fix-design.md`~~ | (已实现并移除) 图分解优化与 IMPORTS 边修复 — 设计要点已固化至 `indexer/code_graph_builder.py`、`store/falkordb_reads.py`、`wiki/graph_module_decomposer.py`。 |
 | ~~`specs/2026-05-11-agent-driven-business-wiki-design.md`~~ | (已实现并移除) Agent 驱动的业务 Wiki 生成（Phase 0-4 ✅）— 架构设计已固化至 `wiki/domain_doc_agent.py`、`wiki/nodes/domain_compose.py`、`wiki/pipeline_graph.py`、`wiki/agent_prompts.py`；遗留项已迁移至下方统一提案。 |
 | ~~`specs/2026-05-11-incremental-wiki-update-design.md`~~ | (已实现并移除) 增量 Wiki 更新设计 — 设计要点已固化至 `wiki/incremental_diff.py`、`wiki/nodes/domain_compose.py`、`wiki/pipeline_orchestrator.py`。 |
-| [`specs/2026-05-12-agent-wiki-quality-and-tree-fix.md`](superpowers/specs/2026-05-12-agent-wiki-quality-and-tree-fix.md) | **唯一活跃统一提案**：Task A-F ✅；**域分类 v2 设计（锚定域+信号增强+slug体系+Dashboard调整）**；Task E L2 业务流（P3 推迟）。 |
+| [`specs/2026-05-12-agent-wiki-quality-and-tree-fix.md`](superpowers/specs/2026-05-12-agent-wiki-quality-and-tree-fix.md) | **唯一活跃统一提案**：Task A-F ✅；**域分类 v2 核心已实现**（T1 slug全链路 + T3-T9 信号/锚点/持久化/质量 ✅）；**待实现**：T2 存储层方法 + T10-T12 Dashboard API/UI/脚本。 |
 | [`specs/2026-05-12-multi-view-wiki-structure-idea.md`](superpowers/specs/2026-05-12-multi-view-wiki-structure-idea.md) | **构想记录**：多视图 Wiki 结构（域/仓库/技术文档）、域概览/主题内容定位、Agent 组件抽象化。P3 待后续提案。 |
 
 ---

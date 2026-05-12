@@ -10,6 +10,24 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-12-agent-wiki-quality-and-tree-fix.md` §2-§4
 
+## Execution Status (2026-05-12)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Task 1: Slug System Foundation | ✅ Done | slug 全链路传播已实现 |
+| Task 2: Storage Layer | 🔲 Pending | 域管理 7 方法待实现 |
+| Task 3: Signal Enrichment | ✅ Done | ModuleEnricher + Cypher 查询 |
+| Task 4: DomainStabilizer Dual-Field | ✅ Done | |
+| Task 5: Anchor Domain Loading | ✅ Done | |
+| Task 6: Prompt Redesign | ✅ Done | anchor 注入 + slug 输出 |
+| Task 7: Remove 200 Cap | ✅ Done | |
+| Task 8: Pipeline Persistence | ✅ Done | persist_classification_node + 逐域持久化 |
+| Task 9: AsyncSqliteSaver | ✅ Done | |
+| Task 10: Dashboard API | 🔲 Pending | 11 个端点待实现 |
+| Task 11: Dashboard UI | 🔲 Pending | 域管理 + checkpoint 面板 |
+| Task 12: Trigger Script | 🔲 Pending | 新命令待实现 |
+| Task 13: Regression Tests | ✅ Done | 2187 tests passing |
+
 ---
 
 ## File Structure

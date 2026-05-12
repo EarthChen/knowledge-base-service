@@ -206,3 +206,76 @@ class DomainStabilizer:
                 batch_canonical.append(proposed)
 
         return result
+
+    def stabilize_dual_sync(
+        self,
+        proposed: list[dict[str, str]],
+        existing: list[dict[str, str]],
+    ) -> dict[str, dict[str, str]]:
+        """Match proposed (slug, display_name) pairs against existing anchors.
+
+        Priority: exact slug > display_name similarity > slug similarity > new domain.
+        Returns: {final_slug: {"slug": str, "display_name": str}}
+        """
+        result: dict[str, dict[str, str]] = {}
+        used_existing: set[str] = set()
+
+        for prop in proposed:
+            p_slug = prop.get("slug", "")
+            p_display = prop.get("display_name", p_slug)
+
+            # 1. Exact slug match
+            exact = next(
+                (e for e in existing if e["slug"] == p_slug and e["slug"] not in used_existing),
+                None,
+            )
+            if exact:
+                used_existing.add(exact["slug"])
+                result[exact["slug"]] = {"slug": exact["slug"], "display_name": exact["display_name"]}
+                continue
+
+            # 2. Display name similarity
+            best_score = 0.0
+            best_match = None
+            for e in existing:
+                if e["slug"] in used_existing:
+                    continue
+                score = self.compute_similarity(
+                    self.normalize_domain_name(p_display),
+                    self.normalize_domain_name(e.get("display_name", "")),
+                )
+                if score > best_score:
+                    best_score = score
+                    best_match = e
+
+            if best_match and best_score >= self._threshold:
+                used_existing.add(best_match["slug"])
+                result[best_match["slug"]] = {
+                    "slug": best_match["slug"],
+                    "display_name": best_match["display_name"],
+                }
+                continue
+
+            # 3. Slug similarity
+            best_score = 0.0
+            best_match = None
+            for e in existing:
+                if e["slug"] in used_existing:
+                    continue
+                score = self.compute_similarity(p_slug, e["slug"])
+                if score > best_score:
+                    best_score = score
+                    best_match = e
+
+            if best_match and best_score >= self._threshold:
+                used_existing.add(best_match["slug"])
+                result[best_match["slug"]] = {
+                    "slug": best_match["slug"],
+                    "display_name": best_match["display_name"],
+                }
+                continue
+
+            # 4. New domain
+            result[p_slug] = {"slug": p_slug, "display_name": p_display}
+
+        return result

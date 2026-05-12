@@ -75,33 +75,48 @@ def test_structural_check_chinese_heading_variants():
     assert "missing_relationships" not in score.issues
 
 
-def test_structural_check_chinese_core_service_detail_and_related_topics():
-    """P0-1: ## 核心服务详情 and ## 关联主题 must count as components / relationships."""
-    long_body = "y" * 220
+def test_structural_check_agent_headings_pass():
+    """Agent prompt output uses ## 关键实现 / ## 依赖关系; structural_check must accept."""
+    long_body = "详细说明。" * 50  # > 200 chars
     page = WikiPage(
-        path="topic-detail.md",
-        title="T",
-        page_type=PageType.TOPIC,
+        path="/__domains__/TestDomain/_overview",
+        title="TestDomain",
+        page_type=PageType.DOMAIN_OVERVIEW,
         content=(
-            "# T\n\n## 业务概述\n\n"
-            + long_body
-            + "\n\n## 核心服务详情\n\n服务说明。\n\n## 关联主题\n\n[[Wiki]]"
+            "# TestDomain\n\n## 概述\n\n" + long_body
+            + "\n\n## 关键实现\n\nread_code 获取的核心代码。"
+            + "\n\n## 依赖关系\n\n跨域调用关系。"
         ),
-        diagrams=[
-            WikiDiagram(
-                diagram_type=DiagramType.SEQUENCE_DIAGRAM,
-                content="sequenceDiagram\n  A->>B: x",
-                title="S",
-            )
-        ],
+        diagrams=[],
         source_locations=[],
         metadata=WikiPageMetadata(1, 1),
     )
     evaluator = WikiQualityEvaluator(llm=None)
     score = evaluator.structural_check(page)
-    assert "missing_overview" not in score.issues
-    assert "missing_components" not in score.issues
-    assert "missing_relationships" not in score.issues
+    assert "missing_components" not in score.issues, f"Unexpected issues: {score.issues}"
+    assert "missing_relationships" not in score.issues, f"Unexpected issues: {score.issues}"
+
+
+def test_structural_check_mermaid_in_content_counts_as_diagram():
+    """Agent embeds mermaid in content body; structural_check should not penalize no_diagrams."""
+    long_body = "详细说明。" * 50
+    page = WikiPage(
+        path="test_mermaid.md",
+        title="Test",
+        page_type=PageType.DOMAIN_OVERVIEW,
+        content=(
+            "# Test\n\n## 概述\n\n" + long_body
+            + "\n\n## 核心服务要点\n\n要点。"
+            + "\n\n## 关联主题\n\n[[Other]]"
+            + "\n\n```mermaid\nflowchart TD\n  A --> B\n```"
+        ),
+        diagrams=[],  # empty — diagrams are in content
+        source_locations=[],
+        metadata=WikiPageMetadata(1, 1),
+    )
+    evaluator = WikiQualityEvaluator(llm=None)
+    score = evaluator.structural_check(page)
+    assert "no_diagrams" not in score.issues, f"Unexpected issues: {score.issues}"
 
 
 def test_structural_check_chinese_core_service_detail_and_related_topics():

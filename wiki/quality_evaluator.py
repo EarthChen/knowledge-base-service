@@ -74,8 +74,15 @@ _STRUCT_COMPONENT_MARKERS = (
     "## 核心服务要点",
     "## 核心服务详情",
     "## 核心业务流程",
+    "## 关键实现",
 )
-_STRUCT_RELATIONSHIP_MARKERS = ("## Relationships", "## 关联主题", "## 关联关系")
+_STRUCT_RELATIONSHIP_MARKERS = (
+    "## Relationships",
+    "## 关联主题",
+    "## 关联关系",
+    "## 依赖关系",
+    "## 外部依赖",
+)
 
 
 def _structural_has_overview(content: str) -> bool:
@@ -139,7 +146,11 @@ class WikiQualityEvaluator:
             (_structural_has_components(body), "missing_components", 0.25),
             (_structural_has_relationships(body), "missing_relationships", 0.2),
             (len(body) > 200, "content_too_short", 0.15),
-            (len(page.diagrams) > 0, "no_diagrams", 0.15),
+            (
+                len(page.diagrams) > 0 or bool(_MERMAID_FENCE.search(body)),
+                "no_diagrams",
+                0.15,
+            ),
         ]
         for present, issue_id, weight in checks:
             if present:

@@ -48,24 +48,31 @@ async def test_link_pages_to_tree_no_wiki_store_returns_immediately() -> None:
 
 
 @pytest.mark.asyncio
-async def test_link_pages_to_tree_empty_repo_names_no_queries() -> None:
+async def test_link_pages_to_tree_empty_repo_names_still_queries_business_id() -> None:
+    """Pages persisted with repository=business_id must be discoverable even when repo_names is empty."""
     wiki_store = MagicMock()
-    wiki_store.execute_query = AsyncMock()
-    linker = WikiTreeLinker(MagicMock(), wiki_store, MagicMock(), MagicMock())
+    wiki_store.execute_query = AsyncMock(return_value=MagicMock(data=[]))
+    wiki_store.add_has_child_edge = AsyncMock()
+    wiki_cfg = MagicMock()
+    wiki_cfg.business_domain_infrastructure_label = "Infrastructure"
+    linker = WikiTreeLinker(MagicMock(), wiki_store, wiki_cfg, MagicMock())
     await linker.link_pages_to_tree("biz", {"D": [("r1", "m")]}, [], WikiTreeBuilder())
-    wiki_store.execute_query.assert_not_called()
+    wiki_store.execute_query.assert_awaited_once()
+    call = wiki_store.execute_query.await_args_list[0]
+    assert call.args[1] == {"biz": "biz"}
+    wiki_store.add_has_child_edge.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_link_pages_to_tree_skips_rows_without_uid() -> None:
     wiki_store = MagicMock()
-    wiki_store.execute_query = AsyncMock(
-        return_value=MagicMock(
-            data=[
-                {"uid": "", "title": "x", "path": "/", "page_type": "t", "repository": "r1", "entity_uid": ""},
-            ]
-        )
+    empty = MagicMock(data=[])
+    bad_row = MagicMock(
+        data=[
+            {"uid": "", "title": "x", "path": "/", "page_type": "t", "repository": "r1", "entity_uid": ""},
+        ],
     )
+    wiki_store.execute_query = AsyncMock(side_effect=[bad_row, empty])
     wiki_store.add_has_child_edge = AsyncMock()
     linker = WikiTreeLinker(MagicMock(), wiki_store, MagicMock(), MagicMock())
     await linker.link_pages_to_tree("biz", {}, ["r1"], WikiTreeBuilder())
@@ -75,20 +82,19 @@ async def test_link_pages_to_tree_skips_rows_without_uid() -> None:
 @pytest.mark.asyncio
 async def test_link_pages_to_tree_creates_code_and_domain_edges() -> None:
     wiki_store = MagicMock()
-    wiki_store.execute_query = AsyncMock(
-        return_value=MagicMock(
-            data=[
-                {
-                    "uid": "page-1",
-                    "title": "Orders",
-                    "path": "/p",
-                    "page_type": "module_overview",
-                    "repository": "svc",
-                    "entity_uid": "",
-                },
-            ]
-        )
+    repo_rows = MagicMock(
+        data=[
+            {
+                "uid": "page-1",
+                "title": "Orders",
+                "path": "/p",
+                "page_type": "module_overview",
+                "repository": "svc",
+                "entity_uid": "",
+            },
+        ],
     )
+    wiki_store.execute_query = AsyncMock(side_effect=[repo_rows, MagicMock(data=[])])
     wiki_store.add_has_child_edge = AsyncMock()
     wiki_cfg = MagicMock()
     wiki_cfg.business_domain_infrastructure_label = "Infrastructure"
@@ -97,7 +103,7 @@ async def test_link_pages_to_tree_creates_code_and_domain_edges() -> None:
     linker = WikiTreeLinker(MagicMock(), wiki_store, wiki_cfg, MagicMock())
     await linker.link_pages_to_tree("biz", domain_mapping, ["svc"], tb)
 
-    wiki_store.execute_query.assert_awaited_once()
+    assert wiki_store.execute_query.await_count == 2
     calls = wiki_store.add_has_child_edge.await_args_list
     assert len(calls) == 2
     assert calls[0].kwargs["view_type"] == "code_structure"
@@ -109,20 +115,19 @@ async def test_link_pages_to_tree_creates_code_and_domain_edges() -> None:
 @pytest.mark.asyncio
 async def test_link_pages_to_tree_skip_business_domain_only_code_edges() -> None:
     wiki_store = MagicMock()
-    wiki_store.execute_query = AsyncMock(
-        return_value=MagicMock(
-            data=[
-                {
-                    "uid": "p1",
-                    "title": "M",
-                    "path": "/",
-                    "page_type": "module_overview",
-                    "repository": "r1",
-                    "entity_uid": "",
-                },
-            ]
-        )
+    repo_rows = MagicMock(
+        data=[
+            {
+                "uid": "p1",
+                "title": "M",
+                "path": "/",
+                "page_type": "module_overview",
+                "repository": "r1",
+                "entity_uid": "",
+            },
+        ],
     )
+    wiki_store.execute_query = AsyncMock(side_effect=[repo_rows, MagicMock(data=[])])
     wiki_store.add_has_child_edge = AsyncMock()
     tb = WikiTreeBuilder()
     linker = WikiTreeLinker(MagicMock(), wiki_store, MagicMock(), MagicMock())
@@ -135,6 +140,73 @@ async def test_link_pages_to_tree_skip_business_domain_only_code_edges() -> None
     )
     assert wiki_store.add_has_child_edge.await_count == 1
     assert wiki_store.add_has_child_edge.await_args.kwargs["view_type"] == "code_structure"
+
+
+@pytest.mark.asyncio
+async def test_link_pages_to_tree_links_pages_when_repository_is_business_id() -> None:
+    """Dashboard tree must see pages persisted with repository=business_id (not org/repo slug)."""
+    wiki_store = MagicMock()
+    wiki_store.execute_query = AsyncMock(
+        side_effect=[
+            MagicMock(data=[]),
+            MagicMock(
+                data=[
+                    {
+                        "uid": "page-biz",
+                        "title": "Orders",
+                        "path": "/p",
+                        "page_type": "module_overview",
+                        "repository": "acme",
+                        "entity_uid": "",
+                    },
+                ],
+            ),
+        ],
+    )
+    wiki_store.add_has_child_edge = AsyncMock()
+    wiki_cfg = MagicMock()
+    wiki_cfg.business_domain_infrastructure_label = "Infrastructure"
+    tb = WikiTreeBuilder()
+    domain_mapping = {"Commerce": [("org/svc", "Orders")]}
+    linker = WikiTreeLinker(MagicMock(), wiki_store, wiki_cfg, MagicMock())
+    await linker.link_pages_to_tree("acme", domain_mapping, ["org/svc"], tb)
+
+    assert wiki_store.execute_query.await_count == 2
+    calls = wiki_store.add_has_child_edge.await_args_list
+    assert len(calls) == 2
+    assert calls[0].kwargs["view_type"] == "code_structure"
+    assert calls[0].kwargs["parent_uid"] == tb.generate_repo_section_uid("acme", "org/svc")
+    assert calls[1].kwargs["view_type"] == "business_domain"
+    assert calls[1].kwargs["parent_uid"] == tb.generate_domain_section_uid("acme", "Commerce")
+
+
+@pytest.mark.asyncio
+async def test_link_pages_to_tree_dedupes_business_id_query_when_uid_already_linked() -> None:
+    """Same WikiPage uid must not receive duplicate HAS_CHILD edges from repo + business_id paths."""
+    wiki_store = MagicMock()
+    row = {
+        "uid": "page-1",
+        "title": "Orders",
+        "path": "/p",
+        "page_type": "module_overview",
+        "repository": "org/svc",
+        "entity_uid": "",
+    }
+    wiki_store.execute_query = AsyncMock(
+        side_effect=[
+            MagicMock(data=[row]),
+            MagicMock(data=[dict(row, repository="acme")]),
+        ],
+    )
+    wiki_store.add_has_child_edge = AsyncMock()
+    wiki_cfg = MagicMock()
+    wiki_cfg.business_domain_infrastructure_label = "Infrastructure"
+    tb = WikiTreeBuilder()
+    domain_mapping = {"Commerce": [("org/svc", "Orders")]}
+    linker = WikiTreeLinker(MagicMock(), wiki_store, wiki_cfg, MagicMock())
+    await linker.link_pages_to_tree("acme", domain_mapping, ["org/svc"], tb)
+
+    assert wiki_store.add_has_child_edge.await_count == 2
 
 
 @pytest.mark.asyncio

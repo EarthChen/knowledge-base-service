@@ -122,9 +122,69 @@ class WikiTreeLinker:
                     if r.get("uid")
                 ]
 
+        already_linked_uids: set[str] = set()
+        for plist in pages_by_repo.values():
+            for p in plist:
+                u = p.get("uid", "")
+                if u:
+                    already_linked_uids.add(str(u))
+
+        biz_q = (
+            "MATCH (wp:WikiPage {repository: $biz}) "
+            "OPTIONAL MATCH (wp)-[:SOURCE_ENTITY]->(e) "
+            "RETURN wp.uid AS uid, wp.title AS title, wp.path AS path, "
+            "wp.page_type AS page_type, wp.repository AS repository, "
+            "coalesce(e.uid, '') AS entity_uid "
+            "ORDER BY wp.path"
+        )
+        biz_result = await self._wiki_store.execute_query(biz_q, {"biz": business_id})
+        biz_rows = getattr(biz_result, "data", None) or []
+        biz_only_pages: list[dict[str, Any]] = []
+        for r in biz_rows:
+            uid = str(r.get("uid") or "")
+            if not uid or uid in already_linked_uids:
+                continue
+            biz_only_pages.append(
+                {
+                    "uid": uid,
+                    "title": str(r.get("title") or ""),
+                    "path": str(r.get("path") or ""),
+                    "page_type": str(r.get("page_type") or ""),
+                    "repository": str(r.get("repository") or ""),
+                    "entity_uid": str(r.get("entity_uid") or ""),
+                },
+            )
+
+        repo_name_set = set(repo_names)
+
+        def _resolve_repo_and_domain(page: dict[str, Any]) -> tuple[str | None, str]:
+            mod_name = page.get("title", "")
+            entity_uid = str(page.get("entity_uid", "") or "")
+            domain_name: str | None = None
+            resolved_repo: str | None = None
+            if entity_uid:
+                for (r, m), d in module_to_domain.items():
+                    if r in repo_name_set and entity_uid.endswith(m):
+                        domain_name = d
+                        resolved_repo = r
+                        break
+            if not domain_name:
+                for r in repo_names:
+                    d = module_to_domain.get((r, mod_name))
+                    if d:
+                        domain_name = d
+                        resolved_repo = r
+                        break
+            if not domain_name:
+                domain_name = self._wiki_cfg.business_domain_infrastructure_label
+            return resolved_repo, domain_name
+
         linked_code = 0
         linked_domain = 0
         domain_page_counters: dict[str, int] = {}
+        extra_sort_by_repo: dict[str, int] = {
+            r: len(pages_by_repo.get(r, [])) for r in repo_names
+        }
 
         for repo_name in repo_names:
             repo_pages = pages_by_repo.get(repo_name, [])
@@ -185,7 +245,51 @@ class WikiTreeLinker:
                     except Exception:
                         log.warning("link_page_business_domain_failed", page_uid=page_uid, exc_info=True)
 
-        total_pages = sum(len(pages) for pages in pages_by_repo.values())
+        for page in biz_only_pages:
+            page_uid = page.get("uid", "")
+            if not page_uid:
+                continue
+            resolved_repo, domain_name = _resolve_repo_and_domain(page)
+
+            if resolved_repo:
+                idx = extra_sort_by_repo.get(resolved_repo, 0)
+                extra_sort_by_repo[resolved_repo] = idx + 1
+                try:
+                    repo_section_uid = tree_builder.generate_repo_section_uid(
+                        business_id, resolved_repo,
+                    )
+                    await self._wiki_store.add_has_child_edge(
+                        parent_uid=repo_section_uid,
+                        parent_label="WikiSection",
+                        child_uid=page_uid,
+                        child_label="WikiPage",
+                        view_type="code_structure",
+                        sort_order=idx,
+                    )
+                    linked_code += 1
+                except Exception:
+                    log.warning("link_page_code_structure_failed", page_uid=page_uid, exc_info=True)
+
+            if not skip_business_domain:
+                domain_section_uid = tree_builder.generate_domain_section_uid(
+                    business_id, domain_name,
+                )
+                sort_idx = domain_page_counters.get(domain_name, 0)
+                domain_page_counters[domain_name] = sort_idx + 1
+                try:
+                    await self._wiki_store.add_has_child_edge(
+                        parent_uid=domain_section_uid,
+                        parent_label="WikiSection",
+                        child_uid=page_uid,
+                        child_label="WikiPage",
+                        view_type="business_domain",
+                        sort_order=sort_idx,
+                    )
+                    linked_domain += 1
+                except Exception:
+                    log.warning("link_page_business_domain_failed", page_uid=page_uid, exc_info=True)
+
+        total_pages = sum(len(pages) for pages in pages_by_repo.values()) + len(biz_only_pages)
         log.info(
             "wiki_tree_pages_linked",
             business_id=business_id,

@@ -44,7 +44,7 @@ def _client_with_ingest_mocks(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     svc.bump_affected_wiki_pages = AsyncMock(
         return_value={"pages_regenerated": 1, "pages_total": 1},
     )
-    app.state.wiki_service_factory = lambda: svc
+    app.state.wiki_service_factory = lambda business_id=None: svc
 
     app.include_router(webhook_router)
     return TestClient(app)

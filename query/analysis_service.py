@@ -119,6 +119,13 @@ def _collect_repo_files_sync(
     exclude_dirs: set[str],
 ) -> set[str]:
     """Blocking walk of repo_root; returns repo-relative posix paths."""
+    from indexer.code_graph_builder import CodeGraphBuilder
+
+    _ext_to_lang: dict[str, str] = {}
+    for lang, exts in get_settings().file_extensions.items():
+        for ext in exts:
+            _ext_to_lang[ext] = lang
+
     found: set[str] = set()
     if not repo_root.is_dir():
         return found
@@ -137,6 +144,9 @@ def _collect_repo_files_sync(
                 key = full.resolve().relative_to(repo_root.resolve()).as_posix()
             except ValueError:
                 key = full.as_posix()
+            lang = _ext_to_lang.get(suf)
+            if lang and CodeGraphBuilder.is_test_file(key, lang):
+                continue
             found.add(key)
     return found
 

@@ -17,15 +17,19 @@ log = get_logger(__name__)
 MAX_PAGE_TOKENS = 5000
 
 
-def _build_baseline(domain: dict[str, Any], module_summaries: dict[str, str]) -> str:
+def _build_baseline(domain: dict[str, Any], module_summaries: dict[str, Any]) -> str:
     """Concatenate domain description + per-module summaries from CLM."""
     parts = [f"## {domain['name']}"]
     if domain.get("description"):
         parts.append(domain["description"])
     for mod in domain.get("modules", []):
-        summary = module_summaries.get(mod, "")
-        if summary:
-            parts.append(f"### {mod}\n{summary[:500]}")
+        raw = module_summaries.get(mod, "")
+        if isinstance(raw, dict):
+            text = str(raw.get("summary_text", "") or "")
+        else:
+            text = str(raw) if raw else ""
+        if text:
+            parts.append(f"### {mod}\n{text[:500]}")
     return "\n\n".join(parts)
 
 
@@ -57,7 +61,20 @@ def _maybe_split(content: str, domain_name: str) -> list[dict[str, Any]]:
 
 
 def _make_page(content: str, key: str) -> dict[str, Any]:
-    return {"type": "domain_overview", "title": key, "content": content}
+    path = key.replace(" ", "_").replace("/", "_")
+    return {
+        "page_type": "domain_overview",
+        "title": key,
+        "path": path,
+        "content": content,
+        "diagrams": [],
+        "source_locations": [],
+        "metadata": {
+            "node_count": 0,
+            "edge_count": 0,
+            "generation_mode": "agent",
+        },
+    }
 
 
 class DomainDocAgent:

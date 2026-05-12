@@ -1,6 +1,4 @@
 """Agent-driven domain documentation composition node."""
-from __future__ import annotations
-
 import asyncio
 import os
 from typing import Any
@@ -116,13 +114,23 @@ async def compose_domain_agents_node(
 def _make_error_placeholder(domain: dict[str, Any], error: BaseException) -> dict[str, Any]:
     """Failed domain produces a placeholder page (not skipped)."""
     modules_list = "\n".join(f"- {m}" for m in domain.get("modules", []))
+    name = domain["name"]
+    path = name.replace(" ", "_").replace("/", "_")
     return {
-        "type": "domain_overview",
-        "title": domain["name"],
+        "page_type": "domain_overview",
+        "title": name,
+        "path": path,
         "_error": str(error)[:200],
         "content": (
-            f"# {domain['name']}\n\n"
+            f"# {name}\n\n"
             f"> ⚠️ 文档生成失败: {str(error)[:200]}\n\n"
             f"## 域内模块\n\n{modules_list}"
         ),
+        "diagrams": [],
+        "source_locations": [],
+        "metadata": {
+            "node_count": 0,
+            "edge_count": 0,
+            "generation_mode": "agent_error",
+        },
     }

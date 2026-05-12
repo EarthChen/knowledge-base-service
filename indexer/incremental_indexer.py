@@ -1058,8 +1058,13 @@ class IncrementalIndexer:
         parts = Path(file_path).parts
         if any(part in _get_exclude_dirs() for part in parts):
             return False
+        lang = self._builder.detect_language(file_path)
+        if lang is not None:
+            if self._builder.is_test_file(file_path, lang):
+                return False
+            return True
         ext = _config_file_extension(Path(file_path))
-        return self._builder.detect_language(file_path) is not None or ext in _DOC_EXTENSIONS
+        return ext in _DOC_EXTENSIONS
 
     async def _get_changed_files(
         self, directory: str, base_ref: str, head_ref: str,

@@ -12,6 +12,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph
 
 from core.log import get_logger
+from wiki.agent_config import _get_env
 from wiki.citation_verifier import verify_citations
 from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.models import ImportanceTier, WikiPage
@@ -321,7 +322,7 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("set_review_status", _with_progress("set_review_status", set_review_status_node))
     graph.add_node("compose_leaf_modules", _with_progress("compose_leaf_modules", compose_leaf_modules_node))
 
-    use_agent_compose = os.environ.get("USE_AGENT_COMPOSE", "false").lower() == "true"
+    use_agent_compose = _get_env("USE_AGENT_COMPOSE", "false").lower() == "true"
     if use_agent_compose:
         graph.add_node(
             "compose_domain_agents",

@@ -242,3 +242,102 @@ class TestModuleUIDUniqueness:
         assert mod.properties.get("file") == "com/example/Foo.java", (
             f"Module should have file property, got: {mod.properties}"
         )
+
+
+class TestIsTestFile:
+    """Tests for CodeGraphBuilder.is_test_file static method."""
+
+    # Java tests
+    @pytest.mark.parametrize("path,lang", [
+        ("com/example/FooTest.java", "java"),
+        ("com/example/FooTests.java", "java"),
+        ("com/example/FooIT.java", "java"),
+        ("com/example/FooTestCase.java", "java"),
+        ("src/test/java/com/example/Foo.java", "java"),
+    ])
+    def test_java_test_files_detected(self, path, lang):
+        assert CodeGraphBuilder.is_test_file(path, lang) is True
+
+    @pytest.mark.parametrize("path,lang", [
+        ("com/example/FooService.java", "java"),
+        ("com/example/TestUtils.java", "java"),
+        ("com/example/Contest.java", "java"),
+        ("src/main/java/com/example/Foo.java", "java"),
+    ])
+    def test_java_non_test_files_not_filtered(self, path, lang):
+        assert CodeGraphBuilder.is_test_file(path, lang) is False
+
+    # Kotlin tests
+    @pytest.mark.parametrize("path,lang", [
+        ("com/example/FooTest.kt", "kotlin"),
+        ("src/test/kotlin/com/example/Foo.kt", "kotlin"),
+    ])
+    def test_kotlin_test_files_detected(self, path, lang):
+        assert CodeGraphBuilder.is_test_file(path, lang) is True
+
+    def test_kotlin_non_test_files(self):
+        assert CodeGraphBuilder.is_test_file("com/example/FooService.kt", "kotlin") is False
+
+    # Python tests
+    @pytest.mark.parametrize("path,lang", [
+        ("tests/test_foo.py", "python"),
+        ("test_foo.py", "python"),
+        ("foo_test.py", "python"),
+        ("tests/conftest.py", "python"),
+    ])
+    def test_python_test_files_detected(self, path, lang):
+        assert CodeGraphBuilder.is_test_file(path, lang) is True
+
+    @pytest.mark.parametrize("path,lang", [
+        ("src/foo.py", "python"),
+        ("utils/contest.py", "python"),
+        ("utils/testing_utils.py", "python"),
+    ])
+    def test_python_non_test_files_not_filtered(self, path, lang):
+        assert CodeGraphBuilder.is_test_file(path, lang) is False
+
+    # Go tests
+    def test_go_test_file(self):
+        assert CodeGraphBuilder.is_test_file("pkg/foo_test.go", "go") is True
+
+    def test_go_non_test_file(self):
+        assert CodeGraphBuilder.is_test_file("pkg/foo.go", "go") is False
+
+    # JS/TS tests
+    @pytest.mark.parametrize("path,lang", [
+        ("src/foo.test.ts", "typescript"),
+        ("src/foo.spec.ts", "typescript"),
+        ("src/__tests__/foo.ts", "typescript"),
+        ("src/foo.test.js", "javascript"),
+        ("src/foo.spec.jsx", "javascript"),
+    ])
+    def test_js_ts_test_files_detected(self, path, lang):
+        assert CodeGraphBuilder.is_test_file(path, lang) is True
+
+    @pytest.mark.parametrize("path,lang", [
+        ("src/foo.ts", "typescript"),
+        ("src/utils.js", "javascript"),
+    ])
+    def test_js_ts_non_test_files(self, path, lang):
+        assert CodeGraphBuilder.is_test_file(path, lang) is False
+
+    # Swift tests
+    def test_swift_test_file(self):
+        assert CodeGraphBuilder.is_test_file("Tests/FooTests.swift", "swift") is True
+
+    def test_swift_non_test_file(self):
+        assert CodeGraphBuilder.is_test_file("Sources/Foo.swift", "swift") is False
+
+    # Dart tests
+    def test_dart_test_file(self):
+        assert CodeGraphBuilder.is_test_file("test/foo_test.dart", "dart") is True
+
+    def test_dart_non_test_file(self):
+        assert CodeGraphBuilder.is_test_file("lib/foo.dart", "dart") is False
+
+    # Unknown language / None
+    def test_unknown_language_returns_false(self):
+        assert CodeGraphBuilder.is_test_file("foo.xyz", None) is False
+
+    def test_none_language_returns_false(self):
+        assert CodeGraphBuilder.is_test_file("test_foo.py", None) is False

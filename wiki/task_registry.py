@@ -7,7 +7,7 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from wiki.task_store import WikiTaskStore
 
-WIKI_TASK_TTL_SEC = 30 * 60
+WIKI_TASK_TTL_SEC = 120 * 60
 
 
 class WikiTaskRegistry:

@@ -233,10 +233,13 @@ async def run_langgraph_pipeline(
         configurable_keys=list(configurable.keys()),
     )
 
+    import time as _time
+    pipeline_t0 = _time.monotonic()
     result = await pipeline.ainvoke(
         initial_state,
         config={"configurable": configurable},
     )
+    pipeline_elapsed = _time.monotonic() - pipeline_t0
 
     domain_mapping = _extract_domain_mapping(result, modules_dict)
     domain_tree = _dicts_to_domain_tree(result.get("domain_tree"))
@@ -251,6 +254,8 @@ async def run_langgraph_pipeline(
         pages=len(pages),
         domains=len(domain_mapping),
         errors=len(errors),
+        total_elapsed_sec=round(pipeline_elapsed, 1),
+        total_elapsed_min=round(pipeline_elapsed / 60, 1),
     )
 
     return PipelineResult(

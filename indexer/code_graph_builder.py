@@ -83,6 +83,60 @@ class CodeGraphBuilder:
         suffix = Path(file_path).suffix
         return self._ext_to_lang.get(suffix)
 
+    @staticmethod
+    def is_test_file(file_path: str, language: str | None) -> bool:
+        """Return True if *file_path* matches test-file conventions for *language*."""
+        if not language:
+            return False
+        p = Path(file_path)
+        stem = p.stem
+        parts = set(p.parts[:-1])
+
+        if language in ("java", "kotlin"):
+            if stem.endswith(("Test", "Tests", "IT", "TestCase")):
+                return True
+            if "src/test" in file_path:
+                return True
+            return False
+
+        if language == "python":
+            if stem.startswith("test_") or stem.endswith("_test") or stem == "conftest":
+                return True
+            if "tests" in parts:
+                return True
+            return False
+
+        if language == "go":
+            return stem.endswith("_test")
+
+        if language in ("javascript", "typescript"):
+            name = p.name
+            if any(
+                name.endswith(suffix)
+                for suffix in (".test.js", ".spec.js", ".test.ts", ".spec.ts",
+                               ".test.jsx", ".spec.jsx", ".test.tsx", ".spec.tsx")
+            ):
+                return True
+            if "__tests__" in parts:
+                return True
+            return False
+
+        if language == "swift":
+            if stem.endswith(("Test", "Tests")):
+                return True
+            if "Tests" in parts:
+                return True
+            return False
+
+        if language == "dart":
+            if stem.endswith("_test"):
+                return True
+            if "test" in parts:
+                return True
+            return False
+
+        return False
+
     def collect_relative_source_paths(
         self,
         directory: str,
@@ -98,10 +152,14 @@ class CodeGraphBuilder:
         base = Path(directory)
         out: list[str] = []
         for ext in self._ext_to_lang:
+            lang = self._ext_to_lang[ext]
             for fpath in base.rglob(f"*{ext}"):
                 if any(part in exclude for part in fpath.parts):
                     continue
-                out.append(str(fpath.relative_to(base)))
+                rel = str(fpath.relative_to(base))
+                if self.is_test_file(rel, lang):
+                    continue
+                out.append(rel)
         return out
 
     @staticmethod
@@ -169,10 +227,13 @@ class CodeGraphBuilder:
         base = Path(directory)
         tasks: list[tuple[str, Path]] = []
         for ext in self._ext_to_lang:
+            lang = self._ext_to_lang[ext]
             for fpath in base.rglob(f"*{ext}"):
                 if any(part in exclude for part in fpath.parts):
                     continue
                 rel = str(fpath.relative_to(base))
+                if self.is_test_file(rel, lang):
+                    continue
                 tasks.append((rel, fpath))
 
         resolver: ImportResolver | None = None
@@ -210,10 +271,13 @@ class CodeGraphBuilder:
         base = Path(directory)
         tasks: list[tuple[str, Path]] = []
         for ext in self._ext_to_lang:
+            lang = self._ext_to_lang[ext]
             for fpath in base.rglob(f"*{ext}"):
                 if any(part in exclude for part in fpath.parts):
                     continue
                 rel = str(fpath.relative_to(base))
+                if self.is_test_file(rel, lang):
+                    continue
                 tasks.append((rel, fpath))
 
         resolver: ImportResolver | None = None

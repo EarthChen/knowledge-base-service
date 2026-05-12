@@ -224,10 +224,52 @@ async def test_link_pages_to_nested_tree_no_wiki_store() -> None:
 
 
 @pytest.mark.asyncio
+async def test_nested_tree_skips_overview_when_agent_page_exists() -> None:
+    """When an Agent-generated page exists at /__domains__/{name}/_overview,
+    TreeLinker should not generate a synthetic overview."""
+    wiki_store = MagicMock()
+    wiki_store.upsert_wiki_section = AsyncMock()
+    wiki_store.add_has_child_edge = AsyncMock()
+
+    # First query: agent overview check — finds agent page
+    agent_page_result = MagicMock(data=[{
+        "path": "/__domains__/TestDomain/_overview",
+    }])
+    # Second query: topic pages — empty
+    empty_result = MagicMock(data=[])
+    wiki_store.execute_query = AsyncMock(side_effect=[agent_page_result, empty_result])
+
+    persistence = MagicMock()
+    persistence.persist_pages_to_graph = AsyncMock()
+
+    tree_builder = WikiTreeBuilder()
+    wiki_cfg = MagicMock()
+
+    linker = WikiTreeLinker(MagicMock(), wiki_store, wiki_cfg, persistence)
+
+    domain = DomainNode(name="TestDomain", modules=["modA"], children=[], description="test")
+
+    await linker.link_pages_to_nested_tree(
+        business_id="biz",
+        domain_tree=[domain],
+        pages_by_entity_uid={"modA": {"uid": "p1", "content": "some content"}},
+        tree_builder=tree_builder,
+    )
+
+    # Synthetic overview should NOT be generated
+    if persistence.persist_pages_to_graph.called:
+        call_args = persistence.persist_pages_to_graph.call_args
+        pages = call_args[0][1] if len(call_args[0]) > 1 else []
+        synthetic_paths = [p.path for p in pages if hasattr(p, 'path') and p.path.endswith('/_overview')]
+        assert len(synthetic_paths) == 0, f"Should not persist synthetic overview, got: {synthetic_paths}"
+
+
+@pytest.mark.asyncio
 async def test_link_pages_to_nested_tree_ensures_root_for_empty_domain_list() -> None:
     wiki_store = MagicMock()
     wiki_store.upsert_wiki_section = AsyncMock()
     wiki_store.add_has_child_edge = AsyncMock()
+    wiki_store.execute_query = AsyncMock(return_value=MagicMock(data=[]))
     persistence = MagicMock()
     persistence.persist_pages_to_graph = AsyncMock()
     tb = WikiTreeBuilder()

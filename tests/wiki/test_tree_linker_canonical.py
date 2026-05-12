@@ -99,15 +99,18 @@ async def test_nested_tree_topic_canonical_key_overrides_path_fuzzy_domain() -> 
 
     topic_uid = "wp:topic-service-path"
     wiki_store.execute_query = AsyncMock(
-        return_value=MagicMock(
-            data=[
-                {
-                    "uid": topic_uid,
-                    "path": "wiki/Service/topic-under-wrong-segment",
-                    "canonical_key": "shard-auth",
-                },
-            ],
-        ),
+        side_effect=[
+            MagicMock(data=[]),
+            MagicMock(
+                data=[
+                    {
+                        "uid": topic_uid,
+                        "path": "wiki/Service/topic-under-wrong-segment",
+                        "canonical_key": "shard-auth",
+                    },
+                ],
+            ),
+        ],
     )
 
     persistence = MagicMock()
@@ -148,15 +151,18 @@ async def test_nested_tree_topic_falls_back_to_fuzzy_when_no_canonical_match() -
     wiki_store.add_has_child_edge = AsyncMock()
     topic_uid = "wp:topic-fuzzy"
     wiki_store.execute_query = AsyncMock(
-        return_value=MagicMock(
-            data=[
-                {
-                    "uid": topic_uid,
-                    "path": "wiki/Service/only-segment",
-                    "canonical_key": "",
-                },
-            ],
-        ),
+        side_effect=[
+            MagicMock(data=[]),
+            MagicMock(
+                data=[
+                    {
+                        "uid": topic_uid,
+                        "path": "wiki/Service/only-segment",
+                        "canonical_key": "",
+                    },
+                ],
+            ),
+        ],
     )
     persistence = MagicMock()
     persistence.persist_pages_to_graph = AsyncMock()
@@ -208,15 +214,18 @@ async def test_nested_tree_topic_unknown_canonical_key_skips_fuzzy_match() -> No
 
     topic_uid = "wp:topic-unknown-ck"
     wiki_store.execute_query = AsyncMock(
-        return_value=MagicMock(
-            data=[
-                {
-                    "uid": topic_uid,
-                    "path": "wiki/Service/topic-with-unknown-canonical",
-                    "canonical_key": "no-such-key-in-domains",
-                },
-            ],
-        ),
+        side_effect=[
+            MagicMock(data=[]),
+            MagicMock(
+                data=[
+                    {
+                        "uid": topic_uid,
+                        "path": "wiki/Service/topic-with-unknown-canonical",
+                        "canonical_key": "no-such-key-in-domains",
+                    },
+                ],
+            ),
+        ],
     )
 
     persistence = MagicMock()

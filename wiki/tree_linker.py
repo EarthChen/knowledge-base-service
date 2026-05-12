@@ -374,6 +374,32 @@ class WikiTreeLinker:
 
         await _ensure_root()
 
+        # Pre-check: which domains already have Agent-generated overview pages
+        agent_overview_paths: set[str] = set()
+        try:
+            agent_q = (
+                "MATCH (wp:WikiPage) "
+                "WHERE wp.repository = $biz "
+                "AND wp.path STARTS WITH '/__domains__/' "
+                "AND wp.path ENDS WITH '/_overview' "
+                "AND wp.page_type = 'domain_overview' "
+                "RETURN wp.path AS path"
+            )
+            agent_result = await self._wiki_store.execute_query(agent_q, {"biz": business_id})
+            agent_rows = getattr(agent_result, "data", None) or []
+            for row in agent_rows:
+                p = str(row.get("path", ""))
+                if p:
+                    agent_overview_paths.add(p)
+            if agent_overview_paths:
+                log.info(
+                    "nested_tree_agent_overviews_found",
+                    business_id=business_id,
+                    count=len(agent_overview_paths),
+                )
+        except Exception:
+            log.warning("nested_tree_agent_check_failed", business_id=business_id, exc_info=True)
+
         topic_pages_by_domain: dict[str, list[str]] = {}
         canonical_key_to_domain, _canonical_key_to_page = WikiTreeLinker.build_canonical_key_maps(
             domain_tree,
@@ -651,25 +677,31 @@ class WikiTreeLinker:
                 return
 
             if domain.modules or domain.children:
-                overview_content = _build_domain_overview_content(domain)
                 overview_path = f"/__domains__/{domain.name}/_overview"
-                from wiki.models import EnrichmentLevel, PageType, WikiPageMetadata
+                if overview_path not in agent_overview_paths:
+                    # No agent page — generate synthetic overview
+                    overview_content = _build_domain_overview_content(domain)
+                    from wiki.models import EnrichmentLevel, PageType, WikiPageMetadata
 
-                overview_page = WikiPage(
-                    path=overview_path,
-                    title=f"{domain.name}" if language.startswith("zh") else f"{domain.name} Overview",
-                    page_type=PageType.DOMAIN_OVERVIEW,
-                    content=overview_content,
-                    diagrams=[],
-                    source_locations=[],
-                    metadata=WikiPageMetadata(
-                        node_count=WikiTreeLinker.count_domain_modules(domain),
-                        edge_count=0,
-                        generation_mode="business",
-                        enrichment_level=EnrichmentLevel.BASE,
-                    ),
-                )
-                overview_pages.append(overview_page)
+                    overview_page = WikiPage(
+                        path=overview_path,
+                        title=f"{domain.name}" if language.startswith("zh") else f"{domain.name} Overview",
+                        page_type=PageType.DOMAIN_OVERVIEW,
+                        content=overview_content,
+                        diagrams=[],
+                        source_locations=[],
+                        metadata=WikiPageMetadata(
+                            node_count=WikiTreeLinker.count_domain_modules(domain),
+                            edge_count=0,
+                            generation_mode="business",
+                            enrichment_level=EnrichmentLevel.BASE,
+                        ),
+                    )
+                    overview_pages.append(overview_page)
+                else:
+                    log.info("nested_tree_using_agent_overview", domain=domain.name)
+
+                # Always create the link — whether agent or synthetic
                 overview_uid = f"WikiPage:{business_id}:{overview_path}"
                 pending_overview_links.append((section_uid, overview_uid))
 

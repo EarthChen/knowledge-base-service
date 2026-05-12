@@ -60,14 +60,17 @@ def _build_baseline(
 
 
 def _maybe_split(content: str, domain_name: str) -> list[dict[str, Any]]:
-    """Split oversized documents by ## sections."""
+    """Split oversized documents by ## sections into topic sub-pages."""
     estimated_tokens = len(content) // 4
     if estimated_tokens <= MAX_PAGE_TOKENS:
         return [_make_page(content, domain_name)]
 
     sections = re.split(r"(?=^## )", content, flags=re.MULTILINE)
+    sections = [s for s in sections if s]
     if len(sections) <= 1:
         return [_make_page(content, domain_name)]
+
+    from wiki.path_conventions import domain_topic_path
 
     overview = sections[0]
     child_pages: list[dict[str, Any]] = []
@@ -76,9 +79,21 @@ def _maybe_split(content: str, domain_name: str) -> list[dict[str, Any]]:
     for section in sections[1:]:
         title_match = re.match(r"^## (.+)", section)
         section_title = title_match.group(1).strip() if title_match else "Untitled"
-        page_key = f"{domain_name}/{section_title}"
-        child_pages.append(_make_page(section, page_key))
-        child_links.append(f"- [[{page_key}|{section_title}]]")
+        topic_path = domain_topic_path(domain_name, section_title)
+        child_pages.append({
+            "page_type": "topic",
+            "title": section_title,
+            "path": topic_path,
+            "content": section,
+            "diagrams": [],
+            "source_locations": [],
+            "metadata": {
+                "node_count": 0,
+                "edge_count": 0,
+                "generation_mode": "agent",
+            },
+        })
+        child_links.append(f"- [[{section_title}]]")
 
     parent_content = overview + "\n## 章节导航\n\n" + "\n".join(child_links)
     parent_page = _make_page(parent_content, domain_name)

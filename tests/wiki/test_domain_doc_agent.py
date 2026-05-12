@@ -9,6 +9,40 @@ from wiki.domain_doc_agent import (
     _make_page,
     _maybe_split,
 )
+
+
+def test_maybe_split_generates_topic_pages_for_large_content():
+    """When content exceeds MAX_PAGE_TOKENS, _maybe_split should produce topic sub-pages."""
+    # Build content > 5000 tokens (approx 20000 chars)
+    sections = ["## 概述\n\n" + "概述内容。" * 200]
+    for i in range(5):
+        sections.append(f"## 章节{i}\n\n" + f"章节{i}的详细内容。" * 430)
+    content = "\n\n".join(sections)
+    assert len(content) > 20000, "Content must exceed token threshold (len/4 > MAX_PAGE_TOKENS)"
+
+    pages = _maybe_split(content, "大型域")
+    assert len(pages) > 1, "Should split into multiple pages"
+
+    parent = pages[0]
+    assert parent["path"] == "/__domains__/大型域/_overview"
+    assert parent["page_type"] == "domain_overview"
+    assert "章节导航" in parent["content"]
+
+    for child in pages[1:]:
+        assert child["page_type"] == "topic", f"Sub-page should be topic type, got {child['page_type']}"
+        assert child["path"].startswith("/__domains__/大型域/"), f"Bad path: {child['path']}"
+        assert child["path"].endswith("/_topic"), f"Path should end with /_topic: {child['path']}"
+
+
+def test_maybe_split_no_split_for_small_content():
+    """Content under MAX_PAGE_TOKENS should not be split."""
+    content = "## 概述\n\n短文档内容。"
+    pages = _maybe_split(content, "小域")
+    assert len(pages) == 1
+    assert pages[0]["page_type"] == "domain_overview"
+    assert pages[0]["path"] == "/__domains__/小域/_overview"
+
+
 def test_make_page_uses_domain_overview_path():
     """_make_page must generate path in /__domains__/{name}/_overview format."""
     page = _make_page("# Content", "挚友关系管理")

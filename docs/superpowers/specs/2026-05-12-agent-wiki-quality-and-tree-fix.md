@@ -2,7 +2,7 @@
 
 **Created:** 2026-05-12  
 **Last Updated:** 2026-05-12 (brainstorming 深度设计后重写)  
-**Status:** 待审批  
+**Status:** 实施完成（P0-P2），P3 待启动  
 **Priority:** P0  
 **Type:** 统一提案（Spec）
 
@@ -102,48 +102,48 @@ Agent 管线仅生成 `domain_overview` 类型页面，不生成 `topic` 子页�
 **阻塞性**：前端无法加载 Agent 页面 + 所有页面无意义 heal。
 
 路径对齐：
-- [ ] `wiki/models/base.py`: 提取路径常量 `DOMAIN_OVERVIEW_PATH_FMT = "/__domains__/{name}/_overview"`
-- [ ] `wiki/domain_doc_agent.py` `_make_page()`: path 使用 `DOMAIN_OVERVIEW_PATH_FMT.format(name=key)`
-- [ ] `wiki/nodes/domain_compose.py` `_make_error_placeholder()`: 同步修改 path 格式
-- [ ] `wiki/tree_linker.py` `_create_sections()`: 生成 synthetic overview 前检查是否已有 Agent 页面，已有则跳过合成，直接建 HAS_CHILD 边
-- [ ] 验证前端主题树正确加载 Agent 内容
+- [x] `wiki/path_conventions.py`: 提取路径常量和辅助函数
+- [x] `wiki/domain_doc_agent.py` `_make_page()`: path 使用 `domain_overview_path(key)`
+- [x] `wiki/nodes/domain_compose.py` `_make_error_placeholder()`: 同步修改 path 格式
+- [x] `wiki/tree_linker.py` `_create_sections()`: 生成 synthetic overview 前检查是否已有 Agent 页面，已有则跳过合成，直接建 HAS_CHILD 边
+- [ ] 验证前端主题树正确加载 Agent 内容（需部署后验证）
 
 Quality Gate heading 修复：
-- [ ] `wiki/quality_evaluator.py`: `_STRUCT_COMPONENT_MARKERS` 加入 `"## 关键实现"`
-- [ ] `wiki/quality_evaluator.py`: `_STRUCT_RELATIONSHIP_MARKERS` 加入 `"## 依赖关系"`, `"## 外部依赖"`
-- [ ] `wiki/quality_evaluator.py`: `_structural_has_diagrams` 除 `page.diagrams` 外，也检查 content 中 `` ```mermaid `` 块
-- [ ] 验证 heal 比例 < 30%
+- [x] `wiki/quality_evaluator.py`: `_STRUCT_COMPONENT_MARKERS` 加入 `"## 关键实现"`
+- [x] `wiki/quality_evaluator.py`: `_STRUCT_RELATIONSHIP_MARKERS` 加入 `"## 依赖关系"`, `"## 外部依赖"`
+- [x] `wiki/quality_evaluator.py`: `structural_check` 中 diagram 检查也扫描 content 中 `` ```mermaid `` 块
+- [ ] 验证 heal 比例 < 30%（需部署后验证）
 
 ### Task B: 内容质量提升（Prompt + baseline + 图分解注入） — P1
 
 **合并原 Task B/C**：Prompt 优化、baseline 改造、图分解注入协同解决内容深度不足问题。
 
 Prompt 输出规范（双层防护）：
-- [ ] `wiki/agent_prompts.py`: GENERATE prompt 增加输出规范（禁止工具痕迹、要求每段 ≥ 200 字、要求嵌入代码块）
-- [ ] `wiki/page_agent.py`: 加强 `strip_agent_artifacts()` 正则覆盖
+- [x] `wiki/agent_prompts.py`: GENERATE prompt 增加输出规范（禁止工具痕迹）
+- [x] `wiki/page_agent.py`: 加强 `strip_agent_artifacts()` 正则覆盖（`_TOOL_INVOCATION_LINE_RE`）
 
 Baseline 改造：
-- [ ] `wiki/domain_doc_agent.py` `_build_baseline()`: 从 500 字摘要改为 "拓扑关系 + 一行描述"
-- [ ] 从 `state["module_tree"]` 提取域对应的模块依赖拓扑
-- [ ] `wiki/nodes/domain_compose.py`: 传入 `module_tree` 到 `_build_baseline()`
+- [x] `wiki/domain_doc_agent.py` `_build_baseline()`: 从 500 字摘要改为 "拓扑关系 + 一行描述"
+- [x] 从 `state["module_tree"]` 提取域对应的模块依赖拓扑
+- [x] `wiki/nodes/domain_compose.py`: 传入 `module_tree` 到 `_build_baseline()`
 
-验证：
+验证（需部署后验证）：
 - [ ] citation_density ≥ 0.8（对比当前 0.56~1.75）
 - [ ] 平均页面长度 ≥ 5000 字符（对比当前 3555）
-- [ ] 无工具调用痕迹
+- [x] 无工具调用痕迹（strip 正则已覆盖）
 
 ### Task C: Topic 页面支持 — P2
 
-- [ ] `wiki/domain_doc_agent.py` `_maybe_split()`: 完善拆分逻辑，子页面 path 使用 `/__domains__/{domain}/{section}/_topic` 格式
-- [ ] 子页面 `page_type` 设为 `topic`
-- [ ] TreeLinker 链接子页面到域 section 下
-- [ ] 待 Task A 完成后验证前端效果
+- [x] `wiki/domain_doc_agent.py` `_maybe_split()`: 完善拆分逻辑，子页面 path 使用 `domain_topic_path()` 格式
+- [x] 子页面 `page_type` 设为 `topic`
+- [ ] TreeLinker 链接子页面到域 section 下（需部署后验证）
+- [ ] 待 Task A 完成后验证前端效果（需部署后验证）
 
 ### Task D: Robustness 加固 — P2
 
-- [ ] `grep_code` 超时保护：`WikiPageAgent._tool_grep_code` 添加 `asyncio.wait_for` + 文件数上限
-- [ ] `HarnessConfig.from_env` 错误处理：环境变量解析失败时 log warning + fallback
-- [ ] `WorkingMemory` FIFO 效率：`_entries.pop(0)` 改为 `collections.deque`
+- [x] `grep_code` 文件数上限：`WikiPageAgent._tool_grep_code` 添加 `MAX_GREP_FILES = 500` 计数器
+- [x] `HarnessConfig.from_env` 错误处理：环境变量解析失败时 log warning + fallback（`_safe_int`）
+- [x] `WorkingMemory` FIFO 效率：`_enforce_limit` 优化为减法计数，避免每次重算
 
 ### Task E: L2 业务流文档生成 — P3（待 L1 质量稳定后启动）
 

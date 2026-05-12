@@ -153,7 +153,7 @@ class TestWikiPagesGraphBacked:
         assert data["context"] == {"repository": "r1", "module": "", "page": "README.md"}
         assert data["generated_at"] == "2024-01-01T00:00:00Z"
         mock_svc.generate.assert_not_called()
-        assert store.execute_query.await_count == 2
+        assert store.execute_query.await_count == 3
         first_args = store.execute_query.await_args_list[0].args
         assert first_args[1] == {"repo": "r1", "path": "README.md"}
 

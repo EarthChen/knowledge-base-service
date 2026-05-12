@@ -148,3 +148,28 @@ WHERE w.path CONTAINS $query OR toLower(w.title) CONTAINS toLower($query)
 RETURN w.title AS title, w.path AS path, left(w.content, $content_max_chars) AS content
 LIMIT 3
 """.strip()
+
+MODULE_KEY_METHODS_CY = (
+    "MATCH (m:Module)-[:CONTAINS*1..2]->(f:Function) "
+    "WHERE m.repository IN $repos AND m.name IN $names "
+    "RETURN m.name AS module_name, m.repository AS repo, "
+    "collect(DISTINCT f.name)[0..5] AS key_methods"
+)
+
+MODULE_CALLEES_CY = (
+    "MATCH (m1:Module)-[:CONTAINS*1..3]->(f1:Function)"
+    "-[:CALLS]->(f2:Function)<-[:CONTAINS*1..3]-(m2:Module) "
+    "WHERE m1.repository IN $repos AND m1 <> m2 "
+    "RETURN m1.name AS source, m1.repository AS repo, "
+    "collect(DISTINCT m2.name)[0..5] AS callees, "
+    "count(DISTINCT m2) AS fan_out"
+)
+
+MODULE_CALLERS_CY = (
+    "MATCH (m1:Module)-[:CONTAINS*1..3]->(f1:Function)"
+    "-[:CALLS]->(f2:Function)<-[:CONTAINS*1..3]-(m2:Module) "
+    "WHERE m2.repository IN $repos AND m1 <> m2 "
+    "RETURN m2.name AS target, m2.repository AS repo, "
+    "collect(DISTINCT m1.name)[0..5] AS callers, "
+    "count(DISTINCT m1) AS fan_in"
+)

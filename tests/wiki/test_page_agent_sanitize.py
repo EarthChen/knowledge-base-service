@@ -33,3 +33,36 @@ def test_strip_agent_artifacts_handles_english_thinking():
     result = strip_agent_artifacts(raw)
     assert "I need to" not in result
     assert "## Overview" in result
+
+
+def test_strip_tool_invocation_descriptions():
+    """Lines describing tool invocations (e.g. '调用 read_code 查看...') must be stripped."""
+    content = (
+        "# 支付处理\n\n"
+        "## 概述\n\n"
+        "支付处理域负责核心支付逻辑。\n\n"
+        "我使用 read_code 查看了 PaymentService 的源码：\n\n"
+        "接下来调用 query_call_chain 获取调用链：\n\n"
+        "## 关键实现\n\n"
+        "PaymentService 的核心逻辑如下。"
+    )
+    result = strip_agent_artifacts(content)
+    assert "使用 read_code" not in result
+    assert "调用 query_call_chain" not in result
+    assert "## 关键实现" in result
+    assert "PaymentService" in result
+
+
+def test_strip_tool_call_inline_traces():
+    """Lines with tool call syntax like 'read_code(entity="X")' must be removed."""
+    content = (
+        "# Domain\n\n"
+        "## 概述\n\n正文内容。\n\n"
+        "调用 read_code(entity=\"PayService.pay\") 获取代码...\n"
+        "使用 search_entities(keywords=\"payment\") 搜索实体...\n"
+        "## 关键实现\n\n实际内容。"
+    )
+    result = strip_agent_artifacts(content)
+    assert 'read_code(entity=' not in result
+    assert 'search_entities(keywords=' not in result
+    assert "实际内容" in result

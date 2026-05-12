@@ -36,6 +36,14 @@ _LLM_META_LINE_RE = re.compile(
     r"|参考数据不足[，,]不生成图|需进一步调用\s*\w+\s*补充"
     r"|暂未在上下文中提供|未在上下文.*展开)",
 )
+_TOOL_INVOCATION_LINE_RE = re.compile(
+    r"((?:我|接下来|然后)?(?:使用|调用|通过)\s*(?:read_code|query_module_detail|search_entities|"
+    r"query_call_chain|query_callers|query_callees|query_domain_dependencies|"
+    r"grep_code|list_files|read_file|semantic_search|read_wiki_page|"
+    r"query_implementations|read_source_snippet|delegate_submodule)"
+    r"(?:\s*\(.*?\))?\s*(?:查看|获取|搜索|读取|查询|来|以)?.*)",
+    re.IGNORECASE,
+)
 _JSON_PREAMBLE_RE = re.compile(
     r"^##\s*当前\s*Wiki\s*页面[^\n]*\n\{[\s\S]*?\"executive_summary\"[\s\S]*?\}\s*\n",
     re.MULTILINE,
@@ -93,6 +101,13 @@ def strip_agent_artifacts(text: str) -> str:
         lines = stripped.split("\n")
         stripped = "\n".join(
             ln for ln in lines if not _LLM_META_LINE_RE.search(ln)
+        ).strip()
+
+    # Remove lines containing tool invocation descriptions
+    if stripped and _TOOL_INVOCATION_LINE_RE.search(stripped):
+        lines = stripped.split("\n")
+        stripped = "\n".join(
+            ln for ln in lines if not _TOOL_INVOCATION_LINE_RE.search(ln)
         ).strip()
 
     # Fix code fence issues: remove stray ```markdown fences

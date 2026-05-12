@@ -17,11 +17,28 @@ log = get_logger(__name__)
 MAX_PAGE_TOKENS = 5000
 
 
+def _extract_tree_edges(
+    nodes: list[dict[str, Any]],
+    domain_modules: set[str],
+    edges: list[tuple[str, str]],
+) -> None:
+    """Extract parent→child edges from module_tree (list of root dicts)."""
+    for node in nodes:
+        parent_key = node.get("canonical_key", "")
+        for child in node.get("children", []):
+            child_key = child.get("canonical_key", "")
+            if parent_key and child_key and (
+                parent_key in domain_modules or child_key in domain_modules
+            ):
+                edges.append((parent_key, child_key))
+            _extract_tree_edges([child], domain_modules, edges)
+
+
 def _build_baseline(
     domain: dict[str, Any],
     module_summaries: dict[str, Any],
     *,
-    module_tree: dict[str, Any] | None = None,
+    module_tree: list[dict[str, Any]] | None = None,
 ) -> str:
     """Build baseline context: domain description + topology + one-line module roles.
 
@@ -45,17 +62,13 @@ def _build_baseline(
             parts.append(f"- **{mod}**: {one_liner}" if one_liner else f"- **{mod}**")
 
     if module_tree:
-        edges = module_tree.get("edges", [])
         domain_modules = set(modules)
-        relevant_edges = [
-            e for e in edges
-            if (e.get("source") in domain_modules or e.get("target") in domain_modules)
-            and e.get("source") and e.get("target")
-        ]
+        relevant_edges: list[tuple[str, str]] = []
+        _extract_tree_edges(module_tree, domain_modules, relevant_edges)
         if relevant_edges:
             parts.append("### 模块依赖拓扑")
-            for edge in relevant_edges[:20]:
-                parts.append(f"- {edge.get('source', '?')} → {edge.get('target', '?')}")
+            for src, tgt in relevant_edges[:20]:
+                parts.append(f"- {src} → {tgt}")
 
     return "\n\n".join(parts)
 
@@ -150,17 +163,29 @@ class DomainDocAgent:
         module_names: list[str],
         baseline_context: str,
     ) -> list[dict[str, Any]]:
-        """Generate domain documentation with quality-driven iteration."""
-        content = await self._page_agent.generate(
+        """Generate domain documentation with Explore → Write → Quality loop."""
+        memory = await self._page_agent.explore(
             module_names=module_names,
             domain_name=self.domain_name,
             baseline_context=baseline_context,
         )
 
         if not module_names:
+            content = await self._page_agent.write(
+                self.domain_name,
+                baseline_context,
+                memory,
+            )
             return _maybe_split(content, self.domain_name)
 
+        content = ""
         for iteration in range(self._max_iterations):
+            content = await self._page_agent.write(
+                self.domain_name,
+                baseline_context,
+                memory,
+            )
+
             quality = evaluate_quality(content, module_names)
             self.iteration_history.append({
                 "iteration": iteration,
@@ -186,12 +211,13 @@ class DomainDocAgent:
             ):
                 break
 
-            content = await self._page_agent.enrich(
-                content,
-                domain_name=self.domain_name,
+            supplemental = await self._page_agent.explore(
+                module_names,
+                self.domain_name,
+                baseline_context,
                 focus_modules=quality.uncovered_modules or None,
-                quality_report=quality,
             )
+            memory.merge(supplemental)
 
         if len(self.iteration_history) >= self._max_iterations:
             log.warning("max_safety_iterations", domain=self.domain_name)

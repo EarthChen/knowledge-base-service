@@ -92,7 +92,7 @@ class TestBuildBaseline:
 
 
 def test_build_baseline_topology_format():
-    """_build_baseline should output topology relations, not 500-char summaries."""
+    """_build_baseline should output topology relations from tree structure."""
     domain = {
         "name": "支付处理",
         "description": "处理支付相关业务",
@@ -103,19 +103,16 @@ def test_build_baseline_topology_format():
         "OrderValidator": {"summary_text": "B" * 600},
         "RefundHandler": {"summary_text": "C" * 600},
     }
-    module_tree = {
-        "nodes": {
-            "PaymentService": {"name": "PaymentService"},
-            "OrderValidator": {"name": "OrderValidator"},
-            "RefundHandler": {"name": "RefundHandler"},
+    module_tree = [
+        {
+            "canonical_key": "PaymentService",
+            "children": [
+                {"canonical_key": "OrderValidator", "children": []},
+                {"canonical_key": "RefundHandler", "children": []},
+            ],
         },
-        "edges": [
-            {"source": "PaymentService", "target": "OrderValidator"},
-            {"source": "PaymentService", "target": "RefundHandler"},
-        ],
-    }
+    ]
     result = _build_baseline(domain, module_summaries, module_tree=module_tree)
-    # One-liners are capped at 80 chars — must not embed full 600-char blobs
     assert "A" * 81 not in result and "B" * 81 not in result and "C" * 81 not in result
     assert "PaymentService" in result
     assert "→" in result or "->" in result
@@ -164,7 +161,6 @@ class TestMaybeSplit:
 class TestDomainDocAgentIteration:
     @pytest.mark.asyncio
     async def test_stops_when_quality_acceptable(self):
-        """Agent should stop iterating when QualityReport is acceptable."""
         mock_llm = MagicMock()
         mock_graph = MagicMock()
 
@@ -173,15 +169,21 @@ class TestDomainDocAgentIteration:
             llm=mock_llm,
             graph_store=mock_graph,
         )
+
         good_content = (
             "# test-domain\n\n## 概述\n\n"
             "ModA handles requests. ModB processes data.\n\n"
             "```java\npublic void handle() {}\n```\n"
             "```java\npublic void process() {}\n```\n"
         )
+
+        from wiki.page_agent import WorkingMemory
+
+        mock_memory = WorkingMemory()
+
         agent._page_agent = AsyncMock()
-        agent._page_agent.generate = AsyncMock(return_value=good_content)
-        agent._page_agent.enrich = AsyncMock(return_value=good_content)
+        agent._page_agent.explore = AsyncMock(return_value=mock_memory)
+        agent._page_agent.write = AsyncMock(return_value=good_content)
 
         pages = await agent.generate_with_iterations(
             module_names=["ModA", "ModB"],
@@ -192,7 +194,6 @@ class TestDomainDocAgentIteration:
 
     @pytest.mark.asyncio
     async def test_iterates_on_low_quality(self):
-        """Agent should call enrich when initial quality is below threshold."""
         mock_llm = MagicMock()
         mock_graph = MagicMock()
 
@@ -201,24 +202,30 @@ class TestDomainDocAgentIteration:
             llm=mock_llm,
             graph_store=mock_graph,
         )
+
         low_content = "# test-domain\n\nSome sparse content about ModA."
         good_content = (
             "# test-domain\n\nModA and ModB.\n"
             "```java\ncode1\n```\n```java\ncode2\n```\n"
         )
+
+        from wiki.page_agent import WorkingMemory
+
+        mock_memory = WorkingMemory()
+        supplemental = WorkingMemory()
+
         agent._page_agent = AsyncMock()
-        agent._page_agent.generate = AsyncMock(return_value=low_content)
-        agent._page_agent.enrich = AsyncMock(return_value=good_content)
+        agent._page_agent.explore = AsyncMock(side_effect=[mock_memory, supplemental])
+        agent._page_agent.write = AsyncMock(side_effect=[low_content, good_content])
 
         pages = await agent.generate_with_iterations(
             module_names=["ModA", "ModB"],
             baseline_context="baseline",
         )
-        assert agent._page_agent.enrich.called
+        assert agent._page_agent.explore.call_count >= 2
 
     @pytest.mark.asyncio
     async def test_max_iterations_safety(self):
-        """Agent should stop after max iterations even if quality is low."""
         mock_llm = MagicMock()
         mock_graph = MagicMock()
 
@@ -228,17 +235,99 @@ class TestDomainDocAgentIteration:
             graph_store=mock_graph,
             max_iterations=2,
         )
+
         low_content = "# test-domain\n\nSparse."
+
+        from wiki.page_agent import WorkingMemory
+
+        mock_memory = WorkingMemory()
+
         agent._page_agent = AsyncMock()
-        agent._page_agent.generate = AsyncMock(return_value=low_content)
-        agent._page_agent.enrich = AsyncMock(return_value=low_content)
+        agent._page_agent.explore = AsyncMock(return_value=mock_memory)
+        agent._page_agent.write = AsyncMock(return_value=low_content)
 
         pages = await agent.generate_with_iterations(
             module_names=["ModA", "ModB", "ModC"],
             baseline_context="baseline",
         )
-        # Should not loop more than max_iterations times
-        assert agent._page_agent.enrich.call_count <= 2
+        assert agent._page_agent.explore.call_count <= 3
+
+
+class TestDomainDocAgentExploreWrite:
+    @pytest.mark.asyncio
+    async def test_explore_write_flow(self):
+        mock_llm = MagicMock()
+        mock_graph = MagicMock()
+
+        agent = DomainDocAgent(
+            domain_name="test-domain",
+            llm=mock_llm,
+            graph_store=mock_graph,
+        )
+
+        good_content = (
+            "# test-domain\n\n## 概述\n\n"
+            "ModA handles requests. ModB processes data.\n\n"
+            "```java\npublic void handle() {}\n```\n"
+            "```java\npublic void process() {}\n```\n"
+        )
+
+        from wiki.page_agent import WorkingMemory
+
+        mock_memory = WorkingMemory()
+        mock_memory.code_snippets.append("[ModA]\ncode")
+
+        agent._page_agent = AsyncMock()
+        agent._page_agent.explore = AsyncMock(return_value=mock_memory)
+        agent._page_agent.write = AsyncMock(return_value=good_content)
+
+        pages = await agent.generate_with_iterations(
+            module_names=["ModA", "ModB"],
+            baseline_context="ModA is a controller. ModB is a service.",
+        )
+
+        agent._page_agent.explore.assert_called_once()
+        agent._page_agent.write.assert_called_once()
+        assert len(pages) >= 1
+
+    @pytest.mark.asyncio
+    async def test_re_explore_on_low_quality(self):
+        mock_llm = MagicMock()
+        mock_graph = MagicMock()
+
+        agent = DomainDocAgent(
+            domain_name="test-domain",
+            llm=mock_llm,
+            graph_store=mock_graph,
+            max_iterations=2,
+        )
+
+        low_content = "# test-domain\n\nSome sparse content about ModA."
+        good_content = (
+            "# test-domain\n\nModA and ModB.\n"
+            "```java\ncode1\n```\n```java\ncode2\n```\n"
+        )
+
+        from wiki.page_agent import WorkingMemory
+
+        mock_memory = WorkingMemory()
+        mock_memory.code_snippets.append("[ModA]\ncode")
+
+        supplemental_memory = WorkingMemory()
+        supplemental_memory.code_snippets.append("[ModB]\ncode2")
+
+        agent._page_agent = AsyncMock()
+        agent._page_agent.explore = AsyncMock(side_effect=[mock_memory, supplemental_memory])
+        agent._page_agent.write = AsyncMock(side_effect=[low_content, good_content])
+
+        pages = await agent.generate_with_iterations(
+            module_names=["ModA", "ModB"],
+            baseline_context="baseline",
+        )
+
+        assert agent._page_agent.explore.call_count == 2
+        second_call_kwargs = agent._page_agent.explore.call_args_list[1]
+        assert "focus_modules" in second_call_kwargs.kwargs
 
 
 class TestDomainDocAgentObservability:
@@ -249,9 +338,16 @@ class TestDomainDocAgentObservability:
             llm=MagicMock(),
             graph_store=MagicMock(),
         )
+
         good_content = "# test\n\nModA and ModB.\n```java\ncode\n```\n```java\ncode2\n```\n"
+
+        from wiki.page_agent import WorkingMemory
+
+        mock_memory = WorkingMemory()
+
         agent._page_agent = AsyncMock()
-        agent._page_agent.generate = AsyncMock(return_value=good_content)
+        agent._page_agent.explore = AsyncMock(return_value=mock_memory)
+        agent._page_agent.write = AsyncMock(return_value=good_content)
 
         await agent.generate_with_iterations(
             module_names=["ModA", "ModB"],

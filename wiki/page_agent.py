@@ -979,6 +979,8 @@ class WikiPageAgent:
         domain_name: str,
         baseline_context: str,
         memory: WorkingMemory,
+        *,
+        module_names: list[str] | None = None,
     ) -> str:
         """Phase 2: Generate wiki page from exploration results.
 
@@ -1005,114 +1007,55 @@ class WikiPageAgent:
         except Exception:
             log.warning("write_llm_failed", domain=domain_name, exc_info=True)
 
-        return self._generate_skeleton(
-            [m.split("]")[0].lstrip("[") for m in memory.code_snippets[:20]],
-            domain_name,
-        )
+        snippet_names = [
+            m.split("]")[0].lstrip("[") for m in memory.code_snippets[:20]
+        ]
+        skel_modules = list(module_names) if module_names is not None else snippet_names
+        return self._generate_skeleton(skel_modules, domain_name)
 
     async def generate(
         self,
         module_names: list[str],
         domain_name: str,
-        baseline_context: dict[str, Any],
+        baseline_context: dict[str, Any] | str | None = None,
         max_rounds: int = 10,
     ) -> str:
-        """Agent-Driven: query context with tools and generate a full Wiki page."""
-        from wiki.agent_prompts import AGENT_GENERATE_SYSTEM
+        """Agent-Driven: query context with tools and generate a full Wiki page.
 
-        system = AGENT_GENERATE_SYSTEM.format(max_rounds=max_rounds)
-        user_prompt = self._build_generate_user_prompt(
-            module_names, domain_name, baseline_context, max_rounds,
-        )
+        Backward-compatible wrapper: internally delegates to explore() + write().
+        """
+        if isinstance(baseline_context, dict):
+            ctx_parts = []
+            for key, val in baseline_context.items():
+                val_str = str(val) if val else ""
+                if val_str:
+                    ctx_parts.append(f"- **{key}**: {val_str[:600]}")
+            baseline_str = "\n".join(ctx_parts)[:8000]
+        elif baseline_context:
+            baseline_str = str(baseline_context)[:8000]
+        else:
+            baseline_str = ""
 
+        old_max_rounds = self.max_rounds
+        self.max_rounds = max_rounds
         try:
-            messages = [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_prompt},
-            ]
-
-            total_tool_calls = 0
-            min_tool_rounds = min(3, max_rounds)
-            for round_num in range(max_rounds):
-                try:
-                    response = await self._llm.complete_with_tools(messages, AGENT_TOOLS)
-                except Exception:
-                    log.warning("agent_generate_llm_failed", round=round_num, exc_info=True)
-                    break
-
-                tool_calls = response.get("tool_calls")
-                text_content = response.get("content")
-
-                log.info(
-                    "agent_generate_round",
-                    round=round_num,
-                    has_tool_calls=bool(tool_calls),
-                    tool_call_count=len(tool_calls) if tool_calls else 0,
-                    text_len=len(str(text_content)) if text_content else 0,
-                    total_tool_calls=total_tool_calls,
-                )
-
-                if not tool_calls:
-                    if text_content:
-                        cleaned = strip_agent_artifacts(str(text_content))
-                        if cleaned and len(cleaned) > 200:
-                            if total_tool_calls >= 3 or round_num >= min_tool_rounds:
-                                return cleaned
-                            messages.append(response)
-                            messages.append({
-                                "role": "user",
-                                "content": (
-                                    "⚠️ 你必须先使用工具查询真实代码再生成！"
-                                    "请立即调用 read_code 查看入口模块的源码。"
-                                    "没有经过工具查询的内容不可接受。"
-                                ),
-                            })
-                            continue
-                    break
-
-                messages.append(response)
-                for tc in tool_calls:
-                    func = tc.get("function", {})
-                    tool_name = func.get("name", "")
-                    try:
-                        args = json.loads(func.get("arguments", "{}"))
-                    except json.JSONDecodeError:
-                        args = {}
-                    result_data = await self._execute_tool(tool_name, args)
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.get("id", ""),
-                        "content": json.dumps(result_data, ensure_ascii=False, default=str)[:SINGLE_RESULT_LIMIT],
-                    })
-
-                total_tool_calls += len(tool_calls)
-                if total_tool_calls >= self.max_tool_calls:
-                    break
-
-                if len(messages) > self._MAX_HISTORY_MESSAGES:
-                    messages = [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user_prompt + "\n\n请基于已有信息直接生成完整页面。"},
-                    ]
-
-            # Final attempt: ask LLM to generate with accumulated context
-            log.info("agent_generate_fallback", total_tool_calls=total_tool_calls, rounds=round_num + 1)
-            fallback_system = (
-                "你是一个代码知识库 Wiki 作者。工具调用阶段已完成，现在请基于之前收集的信息生成最终文档。"
-                "直接输出 Markdown 格式的 Wiki 页面，不要再调用工具。"
+            memory = await self.explore(
+                module_names=module_names,
+                domain_name=domain_name,
+                baseline_context=baseline_str,
             )
-            fallback = await self._llm.generate(
-                prompt=user_prompt + "\n\n工具调用阶段已完成，你已经收集了足够的信息。现在请直接输出完整的 Markdown Wiki 页面。",
-                system=fallback_system,
+            content = await self.write(
+                domain_name=domain_name,
+                baseline_context=baseline_str,
+                memory=memory,
+                module_names=module_names,
             )
-            cleaned = strip_agent_artifacts(fallback)
-            if cleaned and len(cleaned) > 200:
-                return cleaned
-
+            return content
         except Exception:
             log.warning("agent_generate_failed", domain=domain_name, exc_info=True)
-
-        return self._generate_skeleton(module_names, domain_name)
+            return self._generate_skeleton(module_names, domain_name)
+        finally:
+            self.max_rounds = old_max_rounds
 
     async def repair(self, content: str, eval_result) -> str:
         """Repair content based on Evaluator feedback. No tool calls — pure LLM rewrite."""

@@ -140,6 +140,24 @@ def strip_agent_artifacts(text: str) -> str:
         if len(re.findall(r"```", stripped)) % 2 != 0:
             stripped += "\n```"
 
+    # Strip fabricated metadata (handles bold markers, blockquotes, emoji variants)
+    stripped = re.sub(
+        r"^[>\s]*(?:📌|📝|🛠️?)\s*\**(?:维护人|维护团队|开发团队|负责团队|负责人|版本|联系人|"
+        r"最后更新|Last Updated|更新时间|模块路径)\**[：:].*$",
+        "",
+        stripped,
+        flags=re.MULTILINE,
+    )
+    # Strip fabricated "相关文档" sections with fake wiki links
+    stripped = re.sub(
+        r"^## 相关文档\s*\n(?:[-*]\s*\[.+?\]\(https?://wiki\.internal[^\)]*\)\s*\n?)*",
+        "",
+        stripped,
+        flags=re.MULTILINE,
+    )
+    # Strip remaining 📌/📝/🛠️ lines (catch-all)
+    stripped = re.sub(r"^[>\s]*[📌📝🛠️].+$", "", stripped, flags=re.MULTILINE)
+
     # Collapse multiple blank lines
     stripped = re.sub(r"\n{3,}", "\n\n", stripped)
 
@@ -174,6 +192,9 @@ class ToolResult:
     data: dict[str, Any]
 
 
+_MODULE_PREFIX_RE = re.compile(r"^\[([^\]]+)\]")
+
+
 @dataclass
 class WorkingMemory:
     discovered_call_chains: list[str] = field(default_factory=list)
@@ -184,7 +205,7 @@ class WorkingMemory:
     wiki_references: list[str] = field(default_factory=list)
     search_findings: list[str] = field(default_factory=list)
 
-    MAX_TOTAL_CHARS = 80000
+    MAX_TOTAL_CHARS = 200_000
 
     def incorporate(self, results: list[ToolResult]) -> None:
         for r in results:
@@ -327,6 +348,38 @@ class WorkingMemory:
                     break
             if not removed:
                 break
+
+    def merge(self, other: "WorkingMemory") -> None:
+        """Merge supplemental exploration results, deduplicate, enforce limits."""
+        existing_prefixes: dict[str, int] = {}
+        for idx, snippet in enumerate(self.code_snippets):
+            m = _MODULE_PREFIX_RE.match(snippet)
+            if m:
+                existing_prefixes[m.group(1)] = idx
+
+        indices_to_remove: set[int] = set()
+        for snippet in other.code_snippets:
+            m = _MODULE_PREFIX_RE.match(snippet)
+            if m and m.group(1) in existing_prefixes:
+                indices_to_remove.add(existing_prefixes[m.group(1)])
+        if indices_to_remove:
+            self.code_snippets = [
+                s for i, s in enumerate(self.code_snippets) if i not in indices_to_remove
+            ]
+        self.code_snippets.extend(other.code_snippets)
+
+        existing_chains = set(self.discovered_call_chains)
+        self.discovered_call_chains.extend(
+            c for c in other.discovered_call_chains if c not in existing_chains
+        )
+
+        self.discovered_implementations.extend(other.discovered_implementations)
+        self.discovered_callers.extend(other.discovered_callers)
+        self.resolved_gaps.extend(other.resolved_gaps)
+        self.wiki_references.extend(other.wiki_references)
+        self.search_findings.extend(other.search_findings)
+
+        self._enforce_limit()
 
     def _total_chars(self) -> int:
         total = 0

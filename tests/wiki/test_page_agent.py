@@ -78,8 +78,66 @@ class TestWorkingMemory:
         assert isinstance(wm.wiki_references, list)
         assert isinstance(wm.search_findings, list)
 
-    def test_max_total_chars_80k(self):
-        assert WorkingMemory.MAX_TOTAL_CHARS == 80000
+    def test_max_total_chars_200k(self):
+        assert WorkingMemory.MAX_TOTAL_CHARS == 200_000
+
+    def test_merge_combines_all_fields(self):
+        wm1 = WorkingMemory()
+        wm1.code_snippets.append("[ModA]\ncode_a")
+        wm1.discovered_call_chains.append("A → B")
+
+        wm2 = WorkingMemory()
+        wm2.code_snippets.append("[ModB]\ncode_b")
+        wm2.discovered_call_chains.append("C → D")
+        wm2.discovered_callers.append("X → Y")
+
+        wm1.merge(wm2)
+
+        assert len(wm1.code_snippets) == 2
+        assert len(wm1.discovered_call_chains) == 2
+        assert len(wm1.discovered_callers) == 1
+        assert "[ModB]\ncode_b" in wm1.code_snippets
+
+    def test_merge_deduplicates_code_snippets_by_module_prefix(self):
+        wm1 = WorkingMemory()
+        wm1.code_snippets.append("[ModA]\nold_code")
+        wm1.code_snippets.append("[ModB]\ncode_b")
+
+        wm2 = WorkingMemory()
+        wm2.code_snippets.append("[ModA]\nnew_code")
+
+        wm1.merge(wm2)
+
+        mod_a_snippets = [s for s in wm1.code_snippets if s.startswith("[ModA]")]
+        assert len(mod_a_snippets) == 1
+        assert "new_code" in mod_a_snippets[0]
+        assert len(wm1.code_snippets) == 2
+
+    def test_merge_deduplicates_call_chains(self):
+        wm1 = WorkingMemory()
+        wm1.discovered_call_chains.append("A → B → C")
+
+        wm2 = WorkingMemory()
+        wm2.discovered_call_chains.append("A → B → C")
+        wm2.discovered_call_chains.append("D → E")
+
+        wm1.merge(wm2)
+
+        assert len(wm1.discovered_call_chains) == 2
+        assert "A → B → C" in wm1.discovered_call_chains
+        assert "D → E" in wm1.discovered_call_chains
+
+    def test_merge_enforces_limit(self):
+        wm1 = WorkingMemory()
+        wm1.code_snippets.extend([f"[Mod{i}]\n{'x' * 1000}" for i in range(100)])
+
+        wm2 = WorkingMemory()
+        wm2.code_snippets.extend([f"[Mod{i+100}]\n{'y' * 1000}" for i in range(100)])
+
+        wm1.merge(wm2)
+
+        total = wm1._total_chars()
+        assert total <= WorkingMemory.MAX_TOTAL_CHARS
 
     def test_incorporate_read_code(self):
         wm = WorkingMemory()

@@ -31,6 +31,6 @@ async def test_tool_read_code_default_truncates_at_single_result_limit():
     assert len(result["code"]) == SINGLE_RESULT_LIMIT
 
 
-def test_working_memory_max_total_chars_is_80000():
+def test_working_memory_max_total_chars_is_200000():
     from wiki.page_agent import WorkingMemory
-    assert WorkingMemory.MAX_TOTAL_CHARS == 80000
+    assert WorkingMemory.MAX_TOTAL_CHARS == 200_000

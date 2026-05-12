@@ -29,6 +29,7 @@ from wiki.pipeline_nodes import (
     generate_titles_node,
     graph_decompose_node,
     heal_pages_node,
+    persist_classification_node,
     set_review_status_node,
 )
 from wiki.pipeline_state import WikiPipelineState
@@ -45,6 +46,7 @@ _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "graph_decompose": ("graph_decompose", 0.05),
     "assign_canonical_keys": ("assign_keys", 0.07),
     "classify_domains": ("classify_domains", 0.08),
+    "persist_classification": ("persist_classification", 0.09),
     "decompose_hierarchy": ("decompose_hierarchy", 0.10),
     "generate_titles": ("generate_titles", 0.12),
     "set_review_status": ("set_review_status", 0.15),
@@ -317,6 +319,10 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("graph_decompose", _with_progress("graph_decompose", graph_decompose_node))
     graph.add_node("assign_canonical_keys", _with_progress("assign_canonical_keys", assign_canonical_keys_node))
     graph.add_node("classify_domains", _with_progress("classify_domains", classify_domains_node))
+    graph.add_node(
+        "persist_classification",
+        _with_progress("persist_classification", persist_classification_node),
+    )
     graph.add_node("decompose_hierarchy", _with_progress("decompose_hierarchy", decompose_hierarchy_node))
     graph.add_node("generate_titles", _with_progress("generate_titles", generate_titles_node))
     graph.add_node("set_review_status", _with_progress("set_review_status", set_review_status_node))
@@ -351,7 +357,8 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     )
     graph.add_edge("graph_decompose", "assign_canonical_keys")
     graph.add_edge("assign_canonical_keys", "classify_domains")
-    graph.add_edge("classify_domains", "decompose_hierarchy")
+    graph.add_edge("classify_domains", "persist_classification")
+    graph.add_edge("persist_classification", "decompose_hierarchy")
     graph.add_edge("decompose_hierarchy", "generate_titles")
     graph.add_edge("generate_titles", "set_review_status")
     graph.add_edge("set_review_status", "compose_leaf_modules")

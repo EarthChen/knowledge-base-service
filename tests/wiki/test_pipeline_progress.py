@@ -12,6 +12,7 @@ def test_node_phase_map_covers_all_pipeline_nodes() -> None:
         "graph_decompose",
         "assign_canonical_keys",
         "classify_domains",
+        "persist_classification",
         "decompose_hierarchy",
         "generate_titles",
         "set_review_status",

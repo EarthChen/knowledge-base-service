@@ -42,6 +42,7 @@ from wiki.nodes.graph_nodes import (
 )
 from wiki.nodes.heal import heal_pages_node
 from wiki.nodes.links import create_links_node
+from wiki.nodes.persist_classification import persist_classification_node
 from wiki.nodes.utils import (
     _COMPOSE_CONCURRENCY,
     _MAX_LEAF_MODULES,
@@ -106,6 +107,7 @@ __all__ = [
     "has_parent_domains",
     "heal_pages_node",
     "log",
+    "persist_classification_node",
     "plan_topic_structure_node",
     "select_key_snippets",
     "set_review_status_node",

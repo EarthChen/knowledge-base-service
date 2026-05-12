@@ -17,9 +17,15 @@ def normalize_slug(raw: str) -> str:
 
 
 def domain_overview_path(name: str) -> str:
-    return DOMAIN_OVERVIEW_PATH_FMT.format(name=name)
+    slug = normalize_slug(name) if name else "unnamed"
+    if slug == "unnamed" and name:
+        slug = name
+    return DOMAIN_OVERVIEW_PATH_FMT.format(name=slug)
 
 
 def domain_topic_path(domain: str, section: str) -> str:
+    slug = normalize_slug(domain) if domain else "unnamed"
+    if slug == "unnamed" and domain:
+        slug = domain
     safe_section = section.replace("/", "_").replace(" ", "_")
-    return DOMAIN_TOPIC_PATH_FMT.format(domain=domain, section=safe_section)
+    return DOMAIN_TOPIC_PATH_FMT.format(domain=slug, section=safe_section)

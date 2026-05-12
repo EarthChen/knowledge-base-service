@@ -125,9 +125,12 @@ async def compose_domain_agents_node(
     async def _run_domain(domain: dict[str, Any]) -> list[dict[str, Any]]:
         async with sem:
             domain_start = asyncio.get_running_loop().time()
+            domain_slug = domain["name"]
+            domain_display = domain.get("display_name", domain_slug)
             try:
                 agent = DomainDocAgent(
-                    domain_name=domain["name"],
+                    domain_name=domain_slug,
+                    domain_display_name=domain_display,
                     llm=llm,
                     graph_store=graph_store,
                 )
@@ -143,7 +146,7 @@ async def compose_domain_agents_node(
                 elapsed = asyncio.get_running_loop().time() - domain_start
                 log.info(
                     "domain_agent_done",
-                    domain=domain["name"],
+                    domain=domain_slug,
                     pages=len(result),
                     elapsed_sec=round(elapsed, 1),
                     iterations=len(agent.iteration_history),
@@ -153,7 +156,7 @@ async def compose_domain_agents_node(
                 elapsed = asyncio.get_running_loop().time() - domain_start
                 log.error(
                     "domain_agent_failed",
-                    domain=domain["name"],
+                    domain=domain_slug,
                     error=str(e),
                     elapsed_sec=round(elapsed, 1),
                 )
@@ -190,14 +193,15 @@ def _make_error_placeholder(domain: dict[str, Any], error: BaseException) -> dic
     from wiki.path_conventions import domain_overview_path
 
     modules_list = "\n".join(f"- {m}" for m in domain.get("modules", []))
-    name = domain["name"]
+    slug = domain["name"]
+    display = domain.get("display_name", slug)
     return {
         "page_type": "domain_overview",
-        "title": name,
-        "path": domain_overview_path(name),
+        "title": display,
+        "path": domain_overview_path(slug),
         "_error": str(error)[:200],
         "content": (
-            f"# {name}\n\n"
+            f"# {display}\n\n"
             f"> ⚠️ 文档生成失败: {str(error)[:200]}\n\n"
             f"## 域内模块\n\n{modules_list}"
         ),

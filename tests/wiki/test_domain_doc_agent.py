@@ -21,41 +21,44 @@ def test_maybe_split_generates_topic_pages_for_large_content():
     content = "\n\n".join(sections)
     assert len(content) > 20000, "Content must exceed token threshold (len/4 > MAX_PAGE_TOKENS)"
 
-    pages = _maybe_split(content, "大型域")
+    pages = _maybe_split(content, "large-domain", "大型域")
     assert len(pages) > 1, "Should split into multiple pages"
 
     parent = pages[0]
-    assert parent["path"] == "/__domains__/大型域/_overview"
+    assert parent["path"] == "/__domains__/large-domain/_overview"
     assert parent["page_type"] == "domain_overview"
     assert "章节导航" in parent["content"]
+    assert parent["title"] == "大型域"
 
     for child in pages[1:]:
         assert child["page_type"] == "topic", f"Sub-page should be topic type, got {child['page_type']}"
-        assert child["path"].startswith("/__domains__/大型域/"), f"Bad path: {child['path']}"
+        assert child["path"].startswith("/__domains__/large-domain/"), f"Bad path: {child['path']}"
         assert child["path"].endswith("/_topic"), f"Path should end with /_topic: {child['path']}"
 
 
 def test_maybe_split_no_split_for_small_content():
     """Content under MAX_PAGE_TOKENS should not be split."""
     content = "## 概述\n\n短文档内容。"
-    pages = _maybe_split(content, "小域")
+    pages = _maybe_split(content, "friend-management", "小域")
     assert len(pages) == 1
     assert pages[0]["page_type"] == "domain_overview"
-    assert pages[0]["path"] == "/__domains__/小域/_overview"
+    assert pages[0]["path"] == "/__domains__/friend-management/_overview"
+    assert pages[0]["title"] == "小域"
 
 
-def test_make_page_uses_domain_overview_path():
-    """_make_page must generate path in /__domains__/{name}/_overview format."""
-    page = _make_page("# Content", "挚友关系管理")
-    assert page["path"] == "/__domains__/挚友关系管理/_overview"
+def test_make_page_uses_slug_for_path():
+    """_make_page must use slug for path, display_name for title."""
+    page = _make_page("# Content", "friend-management", "挚友关系管理")
+    assert page["path"] == "/__domains__/friend-management/_overview"
     assert page["page_type"] == "domain_overview"
     assert page["title"] == "挚友关系管理"
 
 
 def test_make_page_preserves_content():
-    page = _make_page("# Hello\n\nWorld", "TestDomain")
+    page = _make_page("# Hello\n\nWorld", "testdomain", "TestDomain")
     assert page["content"] == "# Hello\n\nWorld"
-    assert page["path"] == "/__domains__/TestDomain/_overview"
+    assert page["path"] == "/__domains__/testdomain/_overview"
+    assert page["title"] == "TestDomain"
 
 
 class TestBuildBaseline:

@@ -88,7 +88,7 @@ class TestPromptRedesign:
 
 
 def test_cross_repo_map_new_domains_format_normalized_slug():
-    """Parser accepts domains array with slug/display_name; keys use display name."""
+    """Parser accepts domains array with slug/display_name; keys use slug."""
     data = {
         "domains": [
             {
@@ -98,6 +98,7 @@ def test_cross_repo_map_new_domains_format_normalized_slug():
             }
         ]
     }
-    parsed = CrossRepoBusinessDomainPlanner._cross_repo_map_from_dict(data)
-    assert "Payments" in parsed
-    assert parsed["Payments"] == [("repo-a", "billing")]
+    parsed, display_names = CrossRepoBusinessDomainPlanner._cross_repo_map_from_dict(data)
+    assert "payment-processing" in parsed
+    assert parsed["payment-processing"] == [("repo-a", "billing")]
+    assert display_names["payment-processing"] == "Payments"

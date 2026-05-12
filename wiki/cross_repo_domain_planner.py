@@ -71,6 +71,7 @@ class CrossRepoBusinessDomainPlanner:
         self._max_concurrency = max_concurrency
         self._max_tokens_per_batch = max_tokens_per_batch
         self._metadata_cache: dict[tuple[str, str], dict[str, str | int | float | list[str]]] = {}
+        self.domain_display_names: dict[str, str] = {}
 
     def create_hierarchical_decomposer(
         self,
@@ -249,8 +250,9 @@ class CrossRepoBusinessDomainPlanner:
         )
 
         if self._llm is None:
-            existing.setdefault(self._infrastructure_label, []).extend(new_pairs)
-            return existing, {self._infrastructure_label}
+            infra_slug = normalize_slug(self._infrastructure_label)
+            existing.setdefault(infra_slug, []).extend(new_pairs)
+            return existing, {infra_slug}
 
         max_retries = 2
         triage: _TriageResult | None = None
@@ -276,8 +278,9 @@ class CrossRepoBusinessDomainPlanner:
                 else:
                     log.warning("incremental_triage_failed_after_retries", exc_info=True)
         if triage is None:
-            existing.setdefault(self._infrastructure_label, []).extend(new_pairs)
-            return existing, {self._infrastructure_label}
+            infra_slug = normalize_slug(self._infrastructure_label)
+            existing.setdefault(infra_slug, []).extend(new_pairs)
+            return existing, {infra_slug}
 
         affected: set[str] = set()
         for pair, domain in triage.assignments.items():
@@ -484,6 +487,7 @@ class CrossRepoBusinessDomainPlanner:
             "Return ONLY valid JSON: an object mapping module names to domain names.\n"
             'Example: {"ModuleA": "ExistingDomain", "ModuleB": "NewDomainName"}'
         )
+        infra_slug = normalize_slug(self._infrastructure_label)
         try:
             if hasattr(self._llm, "complete_json"):
                 messages = [
@@ -494,24 +498,26 @@ class CrossRepoBusinessDomainPlanner:
                     parsed = await self._llm.complete_json(messages, {})
                 except (ValueError, Exception):
                     log.warning("classify_remaining_failed", exc_info=True)
-                    return {p: self._infrastructure_label for p in unassigned}
+                    return {p: infra_slug for p in unassigned}
             else:
                 raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
                 parsed = parse_json_robust_sync(raw)
         except Exception:
             log.warning("classify_remaining_failed", exc_info=True)
-            return {p: self._infrastructure_label for p in unassigned}
+            return {p: infra_slug for p in unassigned}
 
         if not isinstance(parsed, dict):
-            return {p: self._infrastructure_label for p in unassigned}
+            return {p: infra_slug for p in unassigned}
 
         result: dict[tuple[str, str], str] = {}
         for pair in unassigned:
             domain = parsed.get(pair[1])
             if isinstance(domain, str) and domain.strip():
-                result[pair] = domain.strip()
+                slug = normalize_slug(domain.strip())
+                self.domain_display_names.setdefault(slug, domain.strip())
+                result[pair] = slug
             else:
-                result[pair] = self._infrastructure_label
+                result[pair] = infra_slug
         return result
 
     async def _reclassify_affected_domains(
@@ -577,10 +583,12 @@ class CrossRepoBusinessDomainPlanner:
                 )
                 parsed = {}
             else:
-                parsed = self._cross_repo_map_from_dict(data)
+                parsed, dn = self._cross_repo_map_from_dict(data)
+                self.domain_display_names.update(dn)
         else:
             raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
-            parsed = self._parse_cross_repo_map(raw)
+            parsed, dn = self._parse_cross_repo_map(raw)
+            self.domain_display_names.update(dn)
         if not parsed:
             original: dict[str, list[tuple[str, str]]] = {}
             for dn in affected_domain_names:
@@ -654,7 +662,9 @@ class CrossRepoBusinessDomainPlanner:
         return pairs
 
     def _all_infrastructure(self, pairs_in_order: list[tuple[str, str]]) -> dict[str, list[tuple[str, str]]]:
-        return {self._infrastructure_label: list(pairs_in_order)}
+        slug = normalize_slug(self._infrastructure_label)
+        self.domain_display_names.setdefault(slug, self._infrastructure_label)
+        return {slug: list(pairs_in_order)}
 
     async def _classify_single_batch(
         self,
@@ -688,10 +698,12 @@ class CrossRepoBusinessDomainPlanner:
                     exc_info=True,
                 )
                 return self._all_infrastructure(pairs_in_order)
-            parsed = self._cross_repo_map_from_dict(data)
+            parsed, dn = self._cross_repo_map_from_dict(data)
+            self.domain_display_names.update(dn)
         else:
             raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
-            parsed = self._parse_cross_repo_map(raw)
+            parsed, dn = self._parse_cross_repo_map(raw)
+            self.domain_display_names.update(dn)
         if not parsed:
             return self._all_infrastructure(pairs_in_order)
         return self._merge_llm_assignment(parsed, valid_pairs, pairs_in_order)
@@ -880,8 +892,15 @@ class CrossRepoBusinessDomainPlanner:
         )
 
     @staticmethod
-    def _map_from_domains_array(domains: list[Any]) -> dict[str, list[tuple[str, str]]]:
+    def _map_from_domains_array(
+        domains: list[Any],
+    ) -> tuple[dict[str, list[tuple[str, str]]], dict[str, str]]:
+        """Parse ``{"domains": [...]}`` format, keying by **slug**.
+
+        Returns ``(slug_keyed_mapping, slug_to_display_name)``.
+        """
         out: dict[str, list[tuple[str, str]]] = {}
+        display_names: dict[str, str] = {}
         for domain in domains:
             if not isinstance(domain, dict):
                 continue
@@ -897,6 +916,7 @@ class CrossRepoBusinessDomainPlanner:
             display_str = str(display).strip() if display else ""
             if not display_str:
                 display_str = slug_norm if slug_norm != "unnamed" else "unnamed"
+            display_names[slug_norm] = display_str
             pairs: list[tuple[str, str]] = []
             for item in domain.get("modules") or []:
                 if isinstance(item, (list, tuple)) and len(item) == 2:
@@ -904,17 +924,24 @@ class CrossRepoBusinessDomainPlanner:
                     if isinstance(a, str) and isinstance(b, str) and a and b:
                         pairs.append((a, b))
             if pairs:
-                out.setdefault(display_str, []).extend(pairs)
-        return out
+                out.setdefault(slug_norm, []).extend(pairs)
+        return out, display_names
 
     @staticmethod
-    def _cross_repo_map_from_dict(data: Any) -> dict[str, list[tuple[str, str]]]:
+    def _cross_repo_map_from_dict(
+        data: Any,
+    ) -> tuple[dict[str, list[tuple[str, str]]], dict[str, str]]:
+        """Parse LLM response dict, keying result by **slug**.
+
+        Returns ``(slug_keyed_mapping, slug_to_display_name)``.
+        """
         if not isinstance(data, dict):
-            return {}
+            return {}, {}
         domains = data.get("domains")
         if isinstance(domains, list) and domains:
             return CrossRepoBusinessDomainPlanner._map_from_domains_array(domains)
         out: dict[str, list[tuple[str, str]]] = {}
+        display_names: dict[str, str] = {}
         for k, v in data.items():
             if k == "domains":
                 continue
@@ -929,11 +956,12 @@ class CrossRepoBusinessDomainPlanner:
                     if isinstance(a, str) and isinstance(b, str) and a and b:
                         pairs.append((a, b))
             if pairs:
-                out[k] = pairs
-        return out
+                slug = normalize_slug(k)
+                display_names[slug] = k
+                out.setdefault(slug, []).extend(pairs)
+        return out, display_names
 
-    @staticmethod
-    def _domain_name_mapping_from_dict(data: Any) -> dict[str, dict[str, str]] | None:
+    def _domain_name_mapping_from_dict(self, data: Any) -> dict[str, dict[str, str]] | None:
         if not isinstance(data, dict):
             return None
         result: dict[str, dict[str, str]] = {}
@@ -945,7 +973,9 @@ class CrossRepoBusinessDomainPlanner:
                 if isinstance(repo_id, str) and isinstance(per_repo_name, str):
                     clean_map[repo_id] = per_repo_name
             if clean_map:
-                result[unified_name] = clean_map
+                slug = normalize_slug(unified_name)
+                self.domain_display_names[slug] = unified_name
+                result[slug] = clean_map
         return result if result else None
 
     def _parse_domain_name_mapping(
@@ -979,13 +1009,14 @@ class CrossRepoBusinessDomainPlanner:
             if bucket:
                 result[unified_name] = bucket
 
-        # Add unmapped domains as-is
         for repo_id, domain_map in per_repo.items():
             for domain_name, modules in domain_map.items():
                 if (repo_id, domain_name) not in mapped_domains:
                     bucket = [(repo_id, m) for m in modules if (repo_id, m) in valid_pairs]
                     if bucket:
-                        result.setdefault(domain_name, []).extend(bucket)
+                        slug = normalize_slug(domain_name)
+                        self.domain_display_names.setdefault(slug, domain_name)
+                        result.setdefault(slug, []).extend(bucket)
 
         return self._merge_llm_assignment(result, valid_pairs, pairs_in_order)
 
@@ -1000,10 +1031,14 @@ class CrossRepoBusinessDomainPlanner:
             for domain_name, modules in domain_map.items():
                 bucket = [(repo_id, m) for m in modules if (repo_id, m) in valid_pairs]
                 if bucket:
-                    result.setdefault(domain_name, []).extend(bucket)
+                    slug = normalize_slug(domain_name)
+                    self.domain_display_names.setdefault(slug, domain_name)
+                    result.setdefault(slug, []).extend(bucket)
         return self._merge_llm_assignment(result, valid_pairs, pairs_in_order)
 
-    def _parse_cross_repo_map(self, raw: str) -> dict[str, list[tuple[str, str]]]:
+    def _parse_cross_repo_map(
+        self, raw: str,
+    ) -> tuple[dict[str, list[tuple[str, str]]], dict[str, str]]:
         data = parse_json_robust_sync(raw)
         return self._cross_repo_map_from_dict(data)
 
@@ -1045,12 +1080,18 @@ class CrossRepoBusinessDomainPlanner:
 
         missing = [p for p in pairs_in_order if p not in assigned]
         if missing:
-            infra = list(result.get(self._infrastructure_label, []))
+            infra_slug = normalize_slug(self._infrastructure_label)
+            infra_key = (
+                self._infrastructure_label
+                if self._infrastructure_label in result
+                else infra_slug
+            )
+            infra = list(result.get(infra_key, []))
             seen = set(infra)
             for p in missing:
                 if p not in seen:
                     infra.append(p)
                     seen.add(p)
-            result[self._infrastructure_label] = infra
+            result[infra_key] = infra
 
         return result

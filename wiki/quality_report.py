@@ -12,6 +12,7 @@ _CODE_BLOCK_RE = re.compile(r"```(?!mermaid)\w*\n[\s\S]*?```")
 _CONTEXT_GAP_RE = re.compile(r"<!--\s*CONTEXT_GAP\s*:")
 _MERMAID_BLOCK_RE = re.compile(r"```mermaid\n[\s\S]*?```")
 _WIKILINK_RE = re.compile(r"\[\[.+?\]\]")
+_INLINE_CODE_RE = re.compile(r"`[A-Z][a-zA-Z0-9]+(?:\.[a-zA-Z]\w*\(\))?`")
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,17 @@ class QualityReport:
         return self.coverage >= 0.8 and self.citation_density >= 0.5
 
 
+def _count_module_inline_refs(content: str, module_names: list[str]) -> int:
+    """Count modules referenced via inline code (e.g. `ClassName` or `ClassName.method()`)."""
+    inline_codes = set(_INLINE_CODE_RE.findall(content))
+    ref_count = 0
+    for m in module_names:
+        short = m.rsplit(".", 1)[-1] if "." in m else m
+        if any(short in c for c in inline_codes):
+            ref_count += 1
+    return ref_count
+
+
 def evaluate_quality(content: str, module_names: list[str]) -> QualityReport:
     if not module_names:
         return QualityReport(
@@ -41,7 +53,8 @@ def evaluate_quality(content: str, module_names: list[str]) -> QualityReport:
 
     source_count = len(_SOURCE_LINK_RE.findall(content))
     code_count = len(_CODE_BLOCK_RE.findall(content))
-    citation_total = source_count + code_count
+    inline_ref_count = _count_module_inline_refs(content, module_names)
+    citation_total = source_count + code_count + inline_ref_count
     citation_density = citation_total / len(module_names) if module_names else 0.0
 
     gap_count = len(_CONTEXT_GAP_RE.findall(content))

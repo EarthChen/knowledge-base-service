@@ -20,6 +20,7 @@ from wiki.nodes.utils import (
     _detect_oversized_leaves,
     _normalize_domain_tree,
 )
+from wiki.path_conventions import normalize_slug
 from wiki.reasoning import TaskType, select_reasoning_level
 
 log = get_logger(__name__)
@@ -258,6 +259,9 @@ async def classify_domains_node(
                 bucket = domain_mapping.setdefault(domain_slug, [])
                 if pair not in bucket:
                     bucket.append(pair)
+
+    domain_display_names: dict[str, str] = dict(planner.domain_display_names)
+
     if graph_store is not None:
         from wiki.domain_stabilizer import DomainStabilizer
 
@@ -266,13 +270,17 @@ async def classify_domains_node(
             rename_map = await stabilizer.stabilize(list(domain_mapping.keys()))
             affected_domains = {rename_map.get(d, d) for d in affected_domains}
             stabilized: dict[str, list] = {}
+            updated_display: dict[str, str] = {}
             for proposed, pairs in domain_mapping.items():
                 stable = rename_map.get(proposed, proposed)
                 stabilized.setdefault(stable, []).extend(pairs)
+                if proposed in domain_display_names:
+                    updated_display[stable] = domain_display_names[proposed]
             if stabilized != domain_mapping:
                 renamed = {p: s for p, s in rename_map.items() if p != s}
                 log.info("domain_stabilizer_applied", renamed=renamed)
                 domain_mapping = stabilized
+                domain_display_names.update(updated_display)
         except Exception:
             log.warning("domain_stabilizer_failed", exc_info=True)
 
@@ -282,7 +290,11 @@ async def classify_domains_node(
         domains=len(domain_mapping),
         total_modules=sum(len(v) for v in domain_mapping.values()),
     )
-    return {"domain_mapping": domain_mapping, "affected_domains": list(affected_domains)}
+    return {
+        "domain_mapping": domain_mapping,
+        "affected_domains": list(affected_domains),
+        "domain_display_names": domain_display_names,
+    }
 
 
 async def detect_reorg_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -315,6 +327,66 @@ async def detect_reorg_node(state: dict[str, Any]) -> dict[str, Any]:
     return {"reorg_type": reorg_type}
 
 
+def _assign_slugs_to_tree(
+    tree: list[dict[str, Any]],
+    domain_mapping: dict[str, list[tuple[str, str]]],
+    domain_display_names: dict[str, str],
+) -> None:
+    """Post-process domain tree to assign slug-based ``name`` and ``display_name``.
+
+    Matches decomposer-created tree nodes back to classify-produced slugs
+    using module membership overlap.  When no match is found, generates a
+    slug via ``normalize_slug`` on the node's existing name.
+    """
+    module_to_slug: dict[str, str] = {}
+    for slug, pairs in domain_mapping.items():
+        for _, mod_name in pairs:
+            module_to_slug[mod_name] = slug
+
+    display_to_slug: dict[str, str] = {v: k for k, v in domain_display_names.items()}
+
+    def _assign(nodes: list[dict[str, Any]], parent_slug: str = "") -> None:
+        used_slugs: set[str] = set()
+        for idx, node in enumerate(nodes):
+            raw_name = node.get("name", "")
+            modules = node.get("modules", [])
+            slug = ""
+
+            if raw_name in display_to_slug:
+                slug = display_to_slug[raw_name]
+            elif raw_name in domain_mapping:
+                slug = raw_name
+
+            if not slug and modules:
+                slug_counts: dict[str, int] = {}
+                for m in modules:
+                    s = module_to_slug.get(m, "")
+                    if s:
+                        slug_counts[s] = slug_counts.get(s, 0) + 1
+                if slug_counts:
+                    slug = max(slug_counts, key=lambda k: slug_counts[k])
+
+            if not slug:
+                candidate = normalize_slug(raw_name)
+                slug = candidate if candidate != "unnamed" else ""
+            if not slug:
+                slug = f"{parent_slug}-sub-{idx}" if parent_slug else f"domain-{idx}"
+
+            while slug in used_slugs:
+                slug = f"{slug}-{idx}"
+            used_slugs.add(slug)
+
+            node["display_name"] = node.get("display_name", "") or raw_name
+            node["name"] = slug
+
+            if slug in domain_display_names and not node.get("display_name"):
+                node["display_name"] = domain_display_names[slug]
+
+            _assign(node.get("children", []), parent_slug=slug)
+
+    _assign(tree)
+
+
 async def decompose_hierarchy_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
@@ -323,13 +395,19 @@ async def decompose_hierarchy_node(
 
     llm = (config or {}).get("configurable", {}).get("llm")
     domain_mapping = state.get("domain_mapping", {})
+    domain_display_names: dict[str, str] = state.get("domain_display_names", {})
     modules = state.get("modules", {})
 
     if not llm or not domain_mapping:
         log.info("decompose_hierarchy_skip", reason="no llm or empty domain_mapping")
         flat_tree = [
-            {"name": domain, "modules": [m for _, m in pairs], "children": []}
-            for domain, pairs in domain_mapping.items()
+            {
+                "name": slug,
+                "display_name": domain_display_names.get(slug, slug),
+                "modules": [m for _, m in pairs],
+                "children": [],
+            }
+            for slug, pairs in domain_mapping.items()
         ]
         return {"domain_tree": flat_tree}
 
@@ -385,9 +463,16 @@ async def decompose_hierarchy_node(
     except Exception:
         log.warning("decompose_hierarchy_failed", exc_info=True)
         domain_tree = [
-            {"name": domain, "modules": [m for _, m in pairs], "children": []}
-            for domain, pairs in domain_mapping.items()
+            {
+                "name": slug,
+                "display_name": domain_display_names.get(slug, slug),
+                "modules": [m for _, m in pairs],
+                "children": [],
+            }
+            for slug, pairs in domain_mapping.items()
         ]
+
+    _assign_slugs_to_tree(domain_tree, domain_mapping, domain_display_names)
 
     # P0.2 Sub-B+C: detect oversized leaves and rebalance (one pass only)
     oversized = _detect_oversized_leaves(domain_tree)

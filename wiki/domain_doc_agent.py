@@ -50,7 +50,8 @@ def _build_baseline(
     Provides enough structure for Agent to know the domain shape while forcing
     deep code exploration via tools (avoids Issue #008 lazy behavior).
     """
-    parts = [f"## {domain['name']}"]
+    display = domain.get("display_name", domain["name"])
+    parts = [f"## {display}"]
     if domain.get("description"):
         parts.append(domain["description"])
 
@@ -78,16 +79,21 @@ def _build_baseline(
     return "\n\n".join(parts)
 
 
-def _maybe_split(content: str, domain_name: str) -> list[dict[str, Any]]:
+def _maybe_split(
+    content: str,
+    domain_slug: str,
+    domain_display_name: str = "",
+) -> list[dict[str, Any]]:
     """Split oversized documents by ## sections into topic sub-pages."""
+    display = domain_display_name or domain_slug
     estimated_tokens = len(content) // 4
     if estimated_tokens <= MAX_PAGE_TOKENS:
-        return [_make_page(content, domain_name)]
+        return [_make_page(content, domain_slug, display)]
 
     sections = re.split(r"(?=^## )", content, flags=re.MULTILINE)
     sections = [s for s in sections if s]
     if len(sections) <= 1:
-        return [_make_page(content, domain_name)]
+        return [_make_page(content, domain_slug, display)]
 
     from wiki.path_conventions import domain_topic_path
 
@@ -98,7 +104,7 @@ def _maybe_split(content: str, domain_name: str) -> list[dict[str, Any]]:
     for section in sections[1:]:
         title_match = re.match(r"^## (.+)", section)
         section_title = title_match.group(1).strip() if title_match else "Untitled"
-        topic_path = domain_topic_path(domain_name, section_title)
+        topic_path = domain_topic_path(domain_slug, section_title)
         child_pages.append({
             "page_type": "topic",
             "title": section_title,
@@ -115,18 +121,18 @@ def _maybe_split(content: str, domain_name: str) -> list[dict[str, Any]]:
         child_links.append(f"- [[{section_title}]]")
 
     parent_content = overview + "\n## 章节导航\n\n" + "\n".join(child_links)
-    parent_page = _make_page(parent_content, domain_name)
+    parent_page = _make_page(parent_content, domain_slug, display)
 
     return [parent_page, *child_pages]
 
 
-def _make_page(content: str, key: str) -> dict[str, Any]:
+def _make_page(content: str, slug: str, display_name: str = "") -> dict[str, Any]:
     from wiki.path_conventions import domain_overview_path
 
     return {
         "page_type": "domain_overview",
-        "title": key,
-        "path": domain_overview_path(key),
+        "title": display_name or slug,
+        "path": domain_overview_path(slug),
         "content": content,
         "diagrams": [],
         "source_locations": [],
@@ -147,11 +153,13 @@ class DomainDocAgent:
         llm: Any,
         graph_store: Any,
         *,
+        domain_display_name: str = "",
         max_iterations: int = 20,
         repo_path: str | None = None,
         search_service: Any | None = None,
     ) -> None:
         self.domain_name = domain_name
+        self.domain_display_name = domain_display_name or domain_name
         self._page_agent = WikiPageAgent(
             llm,
             graph_store,
@@ -207,7 +215,7 @@ class DomainDocAgent:
                 baseline_context,
                 memory,
             )
-            pages = _maybe_split(content, self.domain_name)
+            pages = _maybe_split(content, self.domain_name, self.domain_display_name)
             if memory.discovered_entity_uids:
                 entity_uids = list(memory.discovered_entity_uids)
                 for page in pages:
@@ -267,6 +275,21 @@ class DomainDocAgent:
                 and quality.citation_density >= 0.5
                 and quality.context_gap_count == 0
             ):
+                log.info("quality_perfect_exit", domain=self.domain_name, iteration=iteration)
+                break
+
+            if iteration >= 2 and quality.coverage >= 0.9 and quality.citation_density >= 0.3:
+                log.info(
+                    "quality_acceptable_exit",
+                    domain=self.domain_name,
+                    iteration=iteration,
+                    coverage=quality.coverage,
+                    citation_density=quality.citation_density,
+                )
+                break
+
+            if iteration >= 3:
+                log.info("quality_max_iteration_exit", domain=self.domain_name, iteration=iteration)
                 break
 
             if _remaining() <= 0:
@@ -299,7 +322,7 @@ class DomainDocAgent:
         if not content:
             content = self._page_agent._generate_skeleton(module_names, self.domain_name)
 
-        pages = _maybe_split(content, self.domain_name)
+        pages = _maybe_split(content, self.domain_name, self.domain_display_name)
         if memory.discovered_entity_uids:
             entity_uids = list(memory.discovered_entity_uids)
             log.info(

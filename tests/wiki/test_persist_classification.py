@@ -10,29 +10,29 @@ class TestPersistClassificationNode:
         return {
             "business_id": "biz1",
             "domain_mapping": {
-                "gift-system": {
-                    "slug": "gift-system",
-                    "display_name": "礼物系统",
-                    "modules": [("repo1", "GiftSvc"), ("repo1", "GiftDao")],
-                },
-                "im-messaging": {
-                    "slug": "im-messaging",
-                    "display_name": "IM消息",
-                    "modules": [("repo1", "MsgSvc")],
-                },
+                "gift-system": [("repo1", "GiftSvc"), ("repo1", "GiftDao")],
+                "im-messaging": [("repo1", "MsgSvc")],
+            },
+            "domain_display_names": {
+                "gift-system": "礼物系统",
+                "im-messaging": "IM消息",
             },
             "persistence": AsyncMock(),
         }
 
     @pytest.mark.asyncio
     async def test_persist_saves_mapping(self, mock_state):
-        """The node should save domain_mapping via persistence."""
+        """The node should transform domain_mapping and save via persistence."""
         from wiki.nodes.persist_classification import persist_classification_node
 
         result = await persist_classification_node(mock_state)
-        mock_state["persistence"].save_domain_classification.assert_called_once_with(
-            "biz1", mock_state["domain_mapping"]
-        )
+        call_args = mock_state["persistence"].save_domain_classification.call_args
+        assert call_args[0][0] == "biz1"
+        save_mapping = call_args[0][1]
+        assert "gift-system" in save_mapping
+        assert save_mapping["gift-system"]["display_name"] == "礼物系统"
+        assert ("repo1", "GiftSvc") in save_mapping["gift-system"]["modules"]
+        assert save_mapping["im-messaging"]["display_name"] == "IM消息"
         assert result.get("classification_persisted") is True
 
     @pytest.mark.asyncio
@@ -42,10 +42,9 @@ class TestPersistClassificationNode:
 
         state = {
             "business_id": "biz1",
-            "domain_mapping": {"test": {"slug": "test", "modules": []}},
+            "domain_mapping": {"test": [("repo1", "A")]},
         }
         result = await persist_classification_node(state)
-        # Should not raise, classification_persisted should be False or missing
         assert result.get("classification_persisted") is not True
 
     @pytest.mark.asyncio
@@ -55,7 +54,6 @@ class TestPersistClassificationNode:
 
         mock_state["domain_mapping"] = {}
         result = await persist_classification_node(mock_state)
-        # Should still call save with empty mapping
         assert result is not None
 
     @pytest.mark.asyncio
@@ -65,5 +63,4 @@ class TestPersistClassificationNode:
 
         mock_state["persistence"].save_domain_classification.side_effect = Exception("DB error")
         result = await persist_classification_node(mock_state)
-        # Should not raise
         assert result.get("classification_persisted") is not True

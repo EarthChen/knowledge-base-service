@@ -203,9 +203,10 @@ async def test_cross_repo_per_repo_timeout() -> None:
     }
     planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=1)
     result = await planner.classify("biz-to", all_modules)
-    infra_pairs = set(result.get("__infrastructure__", []))
+    infra_pairs = set(result.get("infrastructure", []))
     assert ("slow-repo", "x") in infra_pairs
-    assert ("fast-repo", "y") in result.get("Z", [])
+    z_key = next((k for k in result if k.lower() == "z"), "z")
+    assert ("fast-repo", "y") in result.get(z_key, [])
 
 
 @pytest.mark.asyncio

@@ -16,14 +16,21 @@ _MAX_LEAF_MODULES = 15
 
 
 def _normalize_domain_tree(raw_tree: list | None) -> list[dict[str, Any]]:
-    """Convert HierarchicalDecomposer output (DomainNode list) to plain dicts."""
+    """Convert HierarchicalDecomposer output (DomainNode list) to plain dicts.
+
+    Preserves ``display_name`` alongside ``name`` (slug).  When the
+    source object carries a ``slug`` field it takes precedence for ``name``.
+    """
     if not raw_tree:
         return []
     result = []
     for node in raw_tree:
         if hasattr(node, "name"):
-            d = {
-                "name": getattr(node, "name", ""),
+            raw_name = getattr(node, "name", "")
+            slug_val = getattr(node, "slug", "") or ""
+            d: dict[str, Any] = {
+                "name": slug_val if slug_val else raw_name,
+                "display_name": raw_name,
                 "description": getattr(node, "description", ""),
                 "modules": [m.name if hasattr(m, "name") else str(m) for m in getattr(node, "modules", [])],
                 "children": _normalize_domain_tree(getattr(node, "children", [])),
@@ -31,6 +38,7 @@ def _normalize_domain_tree(raw_tree: list | None) -> list[dict[str, Any]]:
         elif isinstance(node, dict):
             d = {
                 "name": node.get("name", ""),
+                "display_name": node.get("display_name", node.get("name", "")),
                 "description": node.get("description", ""),
                 "modules": node.get("modules", []),
                 "children": _normalize_domain_tree(node.get("children", [])),

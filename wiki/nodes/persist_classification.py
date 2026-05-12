@@ -12,9 +12,14 @@ async def persist_classification_node(state: dict[str, Any]) -> dict[str, Any]:
     This node runs right after classify_domains_node to persist
     intermediate results, preventing data loss if later pipeline
     stages fail.
+
+    Transforms pipeline ``domain_mapping`` (slug → [(repo, mod), ...])
+    into the format expected by ``save_domain_classification``
+    (slug → {"display_name": str, "modules": [...]}).
     """
     business_id = state.get("business_id", "")
-    domain_mapping = state.get("domain_mapping", {})
+    domain_mapping: dict[str, list] = state.get("domain_mapping", {})
+    domain_display_names: dict[str, str] = state.get("domain_display_names", {})
     persistence = state.get("persistence")
 
     if not persistence:
@@ -25,11 +30,18 @@ async def persist_classification_node(state: dict[str, Any]) -> dict[str, Any]:
         logger.info("persist_classification: empty domain_mapping, nothing to persist")
         return {"classification_persisted": False}
 
+    save_mapping: dict[str, dict[str, Any]] = {}
+    for slug, pairs in domain_mapping.items():
+        save_mapping[slug] = {
+            "display_name": domain_display_names.get(slug, slug),
+            "modules": list(pairs),
+        }
+
     try:
-        await persistence.save_domain_classification(business_id, domain_mapping)
+        await persistence.save_domain_classification(business_id, save_mapping)
         logger.info(
             "persist_classification: saved %d domains for %s",
-            len(domain_mapping),
+            len(save_mapping),
             business_id,
         )
         return {"classification_persisted": True}

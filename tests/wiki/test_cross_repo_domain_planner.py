@@ -20,12 +20,19 @@ def _make_module(name: str, summary: str = "", docstring: str = "") -> GraphNode
 
 @pytest.mark.asyncio
 async def test_classify_small_batch_single_llm_call():
-    """When total modules <= batch_threshold, one LLM call classifies all repos."""
+    """When total modules <= batch_threshold, one LLM call classifies all repos.
+
+    LLM returns new-format domains array with slug/display_name.
+    """
     llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(
         return_value=(
-            '{"支付域": [["repo-a", "billing"], ["repo-b", "payments"]], '
-            '"__infrastructure__": [["repo-a", "utils"]]}'
+            '{"domains": ['
+            '  {"domain_slug": "payment", "domain_display_name": "支付域", '
+            '   "modules": [["repo-a", "billing"], ["repo-b", "payments"]]},'
+            '  {"domain_slug": "__infrastructure__", "domain_display_name": "基础设施", '
+            '   "modules": [["repo-a", "utils"]]}'
+            ']}'
         )
     )
     planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=100)
@@ -38,9 +45,10 @@ async def test_classify_small_batch_single_llm_call():
     }
     result = await planner.classify("biz-1", all_modules)
     assert llm.generate.await_count == 1
-    assert "支付域" in result
-    assert set(result["支付域"]) == {("repo-a", "billing"), ("repo-b", "payments")}
-    assert result["__infrastructure__"] == [("repo-a", "utils")]
+    assert "payment" in result
+    assert set(result["payment"]) == {("repo-a", "billing"), ("repo-b", "payments")}
+    assert result["infrastructure"] == [("repo-a", "utils")]
+    assert planner.domain_display_names["payment"] == "支付域"
 
 
 @pytest.mark.asyncio
@@ -49,10 +57,10 @@ async def test_classify_large_batch_splits_by_repo():
     llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(
         side_effect=[
-            '{"域A": ["a1"], "__infrastructure__": ["a2"]}',
-            '{"域A": ["b1"], "__infrastructure__": ["b2"]}',
+            '{"domain-a": ["a1"], "__infrastructure__": ["a2"]}',
+            '{"domain-a": ["b1"], "__infrastructure__": ["b2"]}',
             (
-                '{"域A": {"r1": "域A", "r2": "域A"}, '
+                '{"domain-a": {"r1": "domain-a", "r2": "domain-a"}, '
                 '"__infrastructure__": {"r1": "__infrastructure__", "r2": "__infrastructure__"}}'
             ),
         ]
@@ -64,9 +72,9 @@ async def test_classify_large_batch_splits_by_repo():
     }
     result = await planner.classify("biz-2", all_modules)
     assert llm.generate.await_count == 3
-    assert "域A" in result
-    assert set(result["域A"]) == {("r1", "a1"), ("r2", "b1")}
-    infra = set(result["__infrastructure__"])
+    assert "domain-a" in result
+    assert set(result["domain-a"]) == {("r1", "a1"), ("r2", "b1")}
+    infra = set(result["infrastructure"])
     assert infra == {("r1", "a2"), ("r2", "b2")}
 
 
@@ -79,8 +87,8 @@ async def test_classify_without_llm_all_infrastructure():
         "repo-y": [_make_module("m3")],
     }
     result = await planner.classify("biz-3", all_modules)
-    assert list(result.keys()) == ["__infrastructure__"]
-    pairs = set(result["__infrastructure__"])
+    assert list(result.keys()) == ["infrastructure"]
+    pairs = set(result["infrastructure"])
     assert pairs == {("repo-x", "m1"), ("repo-x", "m2"), ("repo-y", "m3")}
 
 
@@ -92,7 +100,7 @@ async def test_classify_llm_failure_degrades():
     planner = CrossRepoBusinessDomainPlanner(llm)
     all_modules = {"repo-z": [_make_module("u1"), _make_module("u2")]}
     result = await planner.classify("biz-4", all_modules)
-    assert set(result["__infrastructure__"]) == {("repo-z", "u1"), ("repo-z", "u2")}
+    assert set(result["infrastructure"]) == {("repo-z", "u1"), ("repo-z", "u2")}
 
 
 @pytest.mark.asyncio
@@ -108,16 +116,16 @@ async def test_classify_unclassified_modules_go_to_infra():
     """Pairs absent from the LLM JSON are bucketed into infrastructure."""
     llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(
-        return_value='{"核心": [["repo-p", "seen"]]}'
+        return_value='{"domains": [{"domain_slug": "core", "domain_display_name": "核心", "modules": [["repo-p", "seen"]]}]}'
     )
     planner = CrossRepoBusinessDomainPlanner(llm, batch_threshold=50)
     all_modules = {
         "repo-p": [_make_module("seen"), _make_module("missing")],
     }
     result = await planner.classify("biz-6", all_modules)
-    assert "核心" in result
-    assert result["核心"] == [("repo-p", "seen")]
-    assert "missing" in {m for _, m in result["__infrastructure__"]}
+    assert "core" in result
+    assert result["core"] == [("repo-p", "seen")]
+    assert "missing" in {m for _, m in result["infrastructure"]}
 
 
 @pytest.mark.asyncio
@@ -126,11 +134,11 @@ async def test_classify_large_batch_forwards_sub_batch_size_and_concurrency():
     llm = AsyncMock(spec=["generate"])
     llm.generate = AsyncMock(
         side_effect=[
-            '{"域A": ["a1"], "__infrastructure__": ["a2"]}',
-            '{"域B": ["b1"], "__infrastructure__": ["b2"]}',
+            '{"domain-a": ["a1"], "infrastructure": ["a2"]}',
+            '{"domain-b": ["b1"], "infrastructure": ["b2"]}',
             (
-                '{"域A": {"r1": "域A", "r2": "域B"}, '
-                '"__infrastructure__": {"r1": "__infrastructure__", "r2": "__infrastructure__"}}'
+                '{"domain-a": {"r1": "domain-a", "r2": "domain-b"}, '
+                '"infrastructure": {"r1": "infrastructure", "r2": "infrastructure"}}'
             ),
         ]
     )
@@ -143,7 +151,7 @@ async def test_classify_large_batch_forwards_sub_batch_size_and_concurrency():
         "r2": [_make_module("b1"), _make_module("b2")],
     }
     result = await planner.classify("biz-7", all_modules)
-    assert "域A" in result or "__infrastructure__" in result
+    assert "domain-a" in result or "infrastructure" in result
 
 
 @pytest.mark.asyncio
@@ -205,9 +213,8 @@ async def test_merge_failure_preserves_per_repo_domains():
     }
     result = await planner.classify("biz", all_modules)
 
-    # Per-repo domains should be preserved (Auth and Pay from each repo)
-    assert "Auth" in result
-    assert "Pay" in result
+    assert "auth" in result
+    assert "pay" in result
     # All modules assigned
     all_assigned = []
     for pairs in result.values():

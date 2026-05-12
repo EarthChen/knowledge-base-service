@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from wiki.nodes.domain_compose import compose_domain_agents_node
+from wiki.nodes.domain_compose import _make_error_placeholder, compose_domain_agents_node
 
 
 class TestComposeDomainAgentsNode:
@@ -83,6 +83,13 @@ class TestComposeDomainAgentsNode:
         config = {"configurable": {"llm": MagicMock(), "graph_store": MagicMock()}}
         result = await compose_domain_agents_node(state, config)
         assert result["pages"] == []
+
+
+def test_error_placeholder_uses_domain_overview_path():
+    domain = {"name": "挚友关系管理", "modules": ["ModA"]}
+    page = _make_error_placeholder(domain, RuntimeError("timeout"))
+    assert page["path"] == "/__domains__/挚友关系管理/_overview"
+    assert page["page_type"] == "domain_overview"
 
 
 class TestIncrementalDomainFiltering:

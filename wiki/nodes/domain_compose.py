@@ -113,13 +113,14 @@ async def compose_domain_agents_node(
 
 def _make_error_placeholder(domain: dict[str, Any], error: BaseException) -> dict[str, Any]:
     """Failed domain produces a placeholder page (not skipped)."""
+    from wiki.path_conventions import domain_overview_path
+
     modules_list = "\n".join(f"- {m}" for m in domain.get("modules", []))
     name = domain["name"]
-    path = name.replace(" ", "_").replace("/", "_")
     return {
         "page_type": "domain_overview",
         "title": name,
-        "path": path,
+        "path": domain_overview_path(name),
         "_error": str(error)[:200],
         "content": (
             f"# {name}\n\n"

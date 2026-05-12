@@ -61,11 +61,12 @@ def _maybe_split(content: str, domain_name: str) -> list[dict[str, Any]]:
 
 
 def _make_page(content: str, key: str) -> dict[str, Any]:
-    path = key.replace(" ", "_").replace("/", "_")
+    from wiki.path_conventions import domain_overview_path
+
     return {
         "page_type": "domain_overview",
         "title": key,
-        "path": path,
+        "path": domain_overview_path(key),
         "content": content,
         "diagrams": [],
         "source_locations": [],

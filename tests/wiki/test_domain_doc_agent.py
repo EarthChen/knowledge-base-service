@@ -3,8 +3,22 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wiki.domain_doc_agent import DomainDocAgent, _build_baseline, _maybe_split
+from wiki.domain_doc_agent import DomainDocAgent, _build_baseline, _make_page, _maybe_split
 from wiki.quality_report import QualityReport
+
+
+def test_make_page_uses_domain_overview_path():
+    """_make_page must generate path in /__domains__/{name}/_overview format."""
+    page = _make_page("# Content", "挚友关系管理")
+    assert page["path"] == "/__domains__/挚友关系管理/_overview"
+    assert page["page_type"] == "domain_overview"
+    assert page["title"] == "挚友关系管理"
+
+
+def test_make_page_preserves_content():
+    page = _make_page("# Hello\n\nWorld", "TestDomain")
+    assert page["content"] == "# Hello\n\nWorld"
+    assert page["path"] == "/__domains__/TestDomain/_overview"
 
 
 class TestBuildBaseline:
@@ -46,7 +60,7 @@ class TestMaybeSplit:
         content = "# 概述\n\n短内容。"
         pages = _maybe_split(content, "test-domain")
         assert len(pages) == 1
-        assert pages[0]["type"] == "domain_overview"
+        assert pages[0]["page_type"] == "domain_overview"
         assert pages[0]["title"] == "test-domain"
 
     def test_long_content_splits_by_h2(self):
@@ -92,7 +106,7 @@ class TestDomainDocAgentIteration:
             baseline_context="ModA is a controller. ModB is a service.",
         )
         assert len(pages) >= 1
-        assert pages[0]["type"] == "domain_overview"
+        assert pages[0]["page_type"] == "domain_overview"
 
     @pytest.mark.asyncio
     async def test_iterates_on_low_quality(self):

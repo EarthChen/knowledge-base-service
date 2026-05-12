@@ -60,7 +60,7 @@ def test_pipeline_graph_has_expected_nodes():
         "generate_titles",
         "set_review_status",
         "compose_leaf_modules",
-        "compose_bottomup",
+        "compose_domain_agents",
         "quality_gate",
         "heal_pages",
         "create_links",
@@ -72,7 +72,7 @@ def test_pipeline_graph_has_expected_nodes():
 
 
 def test_pipeline_has_all_expected_nodes():
-    """Pipeline should include graph-decompose → bottom-up compose stages plus linking."""
+    """Pipeline should include graph-decompose → agent compose stages plus linking."""
     from wiki.pipeline_graph import build_wiki_pipeline
     pipeline = build_wiki_pipeline()
     graph_data = pipeline.get_graph()
@@ -85,7 +85,7 @@ def test_pipeline_has_all_expected_nodes():
         "generate_titles",
         "set_review_status",
         "compose_leaf_modules",
-        "compose_bottomup",
+        "compose_domain_agents",
         "quality_gate",
         "heal_pages",
         "create_links",

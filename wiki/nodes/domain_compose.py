@@ -70,12 +70,12 @@ def _overview_module_sources(
 
 
 def _attach_domain_sources(pages_out: list[dict[str, Any]], domain: dict[str, Any], state: dict[str, Any]) -> None:
-    """Link domain overview pages to constituent Module nodes (``source_locations`` + ``covered_entity_uids``)."""
+    """Link domain pages (overview + topic) to constituent Module nodes."""
     locations, covered = _overview_module_sources(state, list(domain.get("modules") or []))
     if not locations and not covered:
         return
     for page in pages_out:
-        if page.get("page_type") != "domain_overview":
+        if page.get("page_type") not in ("domain_overview", "topic"):
             continue
         page["source_locations"] = locations
         if covered:

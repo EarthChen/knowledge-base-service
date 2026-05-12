@@ -20,7 +20,6 @@ from wiki.pipeline_nodes import (
     assign_canonical_keys_node,
     classify_domains_node,
     classify_entities_node,
-    compose_bottomup_node,
     compose_domain_agents_node,
     compose_leaf_modules_node,
     create_links_node,
@@ -51,7 +50,6 @@ _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "generate_titles": ("generate_titles", 0.12),
     "set_review_status": ("set_review_status", 0.15),
     "compose_leaf_modules": ("compose_leaf_modules", 0.18),
-    "compose_bottomup": ("compose_bottomup", 0.25),
     "compose_domain_agents": ("compose_domain_agents", 0.30),
     "quality_gate": ("quality_gate", 0.70),
     "heal_pages": ("heal_pages", 0.80),
@@ -328,21 +326,12 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("set_review_status", _with_progress("set_review_status", set_review_status_node))
     graph.add_node("compose_leaf_modules", _with_progress("compose_leaf_modules", compose_leaf_modules_node))
 
-    use_agent_compose = _get_env("USE_AGENT_COMPOSE", "false").lower() == "true"
-    if use_agent_compose:
-        graph.add_node(
-            "compose_domain_agents",
-            _with_progress("compose_domain_agents", compose_domain_agents_node),
-        )
-        graph.add_edge("compose_leaf_modules", "compose_domain_agents")
-        graph.add_edge("compose_domain_agents", "quality_gate")
-    else:
-        graph.add_node(
-            "compose_bottomup",
-            _with_progress("compose_bottomup", compose_bottomup_node),
-        )
-        graph.add_edge("compose_leaf_modules", "compose_bottomup")
-        graph.add_edge("compose_bottomup", "quality_gate")
+    graph.add_node(
+        "compose_domain_agents",
+        _with_progress("compose_domain_agents", compose_domain_agents_node),
+    )
+    graph.add_edge("compose_leaf_modules", "compose_domain_agents")
+    graph.add_edge("compose_domain_agents", "quality_gate")
 
     graph.add_node("quality_gate", _with_progress("quality_gate", quality_gate_node))
     graph.add_node("heal_pages", _with_progress("heal_pages", heal_pages_node))

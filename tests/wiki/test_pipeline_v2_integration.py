@@ -1,4 +1,4 @@
-"""Integration tests for the v2 pipeline (graph-decompose → compose_bottomup)."""
+"""Integration tests for the v2 pipeline (graph-decompose → compose_domain_agents)."""
 
 from __future__ import annotations
 

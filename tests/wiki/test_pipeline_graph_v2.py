@@ -7,7 +7,7 @@ def test_pipeline_has_new_nodes():
     assert "graph_decompose" in node_names
     assert "assign_canonical_keys" in node_names
     assert "generate_titles" in node_names
-    assert "compose_bottomup" in node_names
+    assert "compose_domain_agents" in node_names
 
 
 def test_pipeline_removed_old_nodes():

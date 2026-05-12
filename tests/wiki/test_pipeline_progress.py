@@ -17,7 +17,6 @@ def test_node_phase_map_covers_all_pipeline_nodes() -> None:
         "generate_titles",
         "set_review_status",
         "compose_leaf_modules",
-        "compose_bottomup",
         "compose_domain_agents",
         "quality_gate",
         "heal_pages",

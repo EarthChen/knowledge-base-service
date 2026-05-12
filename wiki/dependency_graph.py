@@ -185,6 +185,7 @@ class ModuleReprBuilder:
 @dataclass
 class DomainNode:
     name: str
+    slug: str = ""
     description: str = ""
     modules: list[str] = field(default_factory=list)
     children: list[DomainNode] = field(default_factory=list)

@@ -450,7 +450,8 @@ async def wiki_get_page_entities(
     """Return code entities linked to the wiki page via SOURCE_ENTITY (for entity cards in the UI)."""
     raw_store: Any = await get_wiki_store_dep(request)
 
-    decoded_path = unquote(page_path).lstrip("/")
+    raw_path = unquote(page_path).lstrip("/")
+    decoded_path = "/" + raw_path if not raw_path.startswith("/") else raw_path
     store = WikiStore(raw_store)
 
     result = None

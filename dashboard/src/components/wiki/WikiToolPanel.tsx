@@ -229,6 +229,7 @@ export default function WikiToolPanel({
                     page_type: pageType,
                     domain: pageQuery.data.context?.business_domain,
                     review_status: pageQuery.data.context?.review_status,
+                    source_locations: pageQuery.data.source_locations,
                   }}
                   businessId={businessId}
                   repository={pageQuery.data.context?.repository?.trim() || businessId}

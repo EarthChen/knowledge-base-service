@@ -22,6 +22,13 @@ import { getMermaid } from "./mermaidLoader";
 
 const LazyCodeBlock = lazy(() => import("./CodeBlock"));
 
+function sanitizeMermaidSource(raw: string): string {
+  return raw.replace(
+    /-->\|([^|]*@[^|]*)\|/g,
+    (_match, label: string) => `-->|"${label}"|`,
+  );
+}
+
 export function MermaidBlock({ chart }: { chart: string }) {
   const { t } = useI18n();
   const id = useId().replace(/:/g, "");
@@ -32,11 +39,12 @@ export function MermaidBlock({ chart }: { chart: string }) {
     if (!el) return;
 
     let cancelled = false;
+    const sanitized = sanitizeMermaidSource(chart);
     void (async () => {
       const mermaid = await getMermaid();
       if (cancelled) return;
       el.removeAttribute("data-processed");
-      el.textContent = chart;
+      el.textContent = sanitized;
       try {
         await mermaid.run({ nodes: [el] });
         const svg = el.querySelector("svg");
@@ -47,11 +55,26 @@ export function MermaidBlock({ chart }: { chart: string }) {
           svg.style.minHeight = "40px";
         }
       } catch (err) {
-        console.warn("[MermaidBlock] render failed:", err);
-        const msg = t.common.mermaidRenderFailed;
-        el.innerHTML = `<pre class="rounded-lg bg-red-50 p-3 text-xs text-red-800"></pre>`;
-        const pre = el.querySelector("pre");
-        if (pre) pre.textContent = msg;
+        const errMsg = err instanceof Error ? err.message : typeof err === "object" && err ? JSON.stringify(err).slice(0, 300) : String(err);
+        console.warn("[MermaidBlock] render failed:", errMsg);
+        el.innerHTML = "";
+        const wrapper = document.createElement("div");
+        wrapper.className = "space-y-2";
+        const errPre = document.createElement("pre");
+        errPre.className = "rounded-lg bg-red-50 p-3 text-xs text-red-800 dark:bg-red-950/40 dark:text-red-300";
+        errPre.textContent = `${t.common.mermaidRenderFailed}\n${errMsg}`;
+        wrapper.appendChild(errPre);
+        const srcDetails = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.className = "cursor-pointer text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400";
+        summary.textContent = "Show source";
+        srcDetails.appendChild(summary);
+        const srcPre = document.createElement("pre");
+        srcPre.className = "mt-1 max-h-48 overflow-auto rounded bg-gray-100 p-2 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300";
+        srcPre.textContent = chart;
+        srcDetails.appendChild(srcPre);
+        wrapper.appendChild(srcDetails);
+        el.appendChild(wrapper);
       }
     })();
 

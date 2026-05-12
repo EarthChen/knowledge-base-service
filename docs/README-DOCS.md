@@ -37,14 +37,15 @@
 | 文档 | 说明 |
 |------|------|
 | ~~`superpowers/DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md`~~ | (已完成并移除) 2026-05-02 全仓库代码审计 + 竞品对标 — B-01~B-17/F-01~F-07 全部已修复，遗留功能缺口 B-19~B-22/F-04 已迁移至 `REMAINING-WORK.md`。 |
-| [`superpowers/specs/2026-05-02-architecture-refactor-design.md`](superpowers/specs/2026-05-02-architecture-refactor-design.md) | **架构重构设计**：DI 容器、`@mcp_tool` 注册策略、`lifespan` 分段与关停顺序等。 |
-| [`superpowers/plans/2026-05-02-architecture-refactor.md`](superpowers/plans/2026-05-02-architecture-refactor.md) | **架构重构实施计划**：分 Task/Phase 的落地顺序与验收线索。 |
+| ~~`superpowers/specs/2026-05-02-architecture-refactor-design.md`~~ | (已实现并移除) 架构重构设计 — DI 容器、`@mcp_tool` 注册策略等已固化至 `main.py`、`app_container.py`、`mcp_server.py`。 |
+| ~~`superpowers/plans/2026-05-02-architecture-refactor.md`~~ | (已实现并移除) 架构重构实施计划 — 全部 Task/Phase 已完成。 |
 | ~~`specs/2026-05-09-graph-driven-deterministic-decomposition.md`~~ | (已实现并移除) CodeWiki 图驱动确定性分解 — 设计要点已固化至 `wiki/graph_module_decomposer.py`、`wiki/pipeline_graph.py`。 |
 | ~~`specs/2026-05-09-codewiki-aligned-pipeline-design.md`~~ | (已实现并移除) CodeWiki 对齐管线重设计 — 设计要点已固化至 `wiki/harness.py`、`wiki/harness_evaluator.py`、`wiki/page_agent.py`。 |
 | ~~`specs/2026-05-11-graph-decomposition-and-imports-fix-design.md`~~ | (已实现并移除) 图分解优化与 IMPORTS 边修复 — 设计要点已固化至 `indexer/code_graph_builder.py`、`store/falkordb_reads.py`、`wiki/graph_module_decomposer.py`。 |
 | ~~`specs/2026-05-11-agent-driven-business-wiki-design.md`~~ | (已实现并移除) Agent 驱动的业务 Wiki 生成（Phase 0-4 ✅）— 架构设计已固化至 `wiki/domain_doc_agent.py`、`wiki/nodes/domain_compose.py`、`wiki/pipeline_graph.py`、`wiki/agent_prompts.py`；遗留项已迁移至下方统一提案。 |
 | ~~`specs/2026-05-11-incremental-wiki-update-design.md`~~ | (已实现并移除) 增量 Wiki 更新设计 — 设计要点已固化至 `wiki/incremental_diff.py`、`wiki/nodes/domain_compose.py`、`wiki/pipeline_orchestrator.py`。 |
-| [`specs/2026-05-12-agent-wiki-quality-and-tree-fix.md`](superpowers/specs/2026-05-12-agent-wiki-quality-and-tree-fix.md) | **唯一活跃统一提案**：Task A-D ✅（路径/质量门/内容/Robustness）；Task F Explore/Write 核心 ✅（优化项 P3）；**Task G 域分类准确度（P1）**；**Task H 域调整机制（P1）**；Task E L2 业务流（P3）。 |
+| [`specs/2026-05-12-agent-wiki-quality-and-tree-fix.md`](superpowers/specs/2026-05-12-agent-wiki-quality-and-tree-fix.md) | **唯一活跃统一提案**：Task A-F ✅；**域分类 v2 设计（锚定域+信号增强+slug体系+Dashboard调整）**；Task E L2 业务流（P3 推迟）。 |
+| [`specs/2026-05-12-multi-view-wiki-structure-idea.md`](superpowers/specs/2026-05-12-multi-view-wiki-structure-idea.md) | **构想记录**：多视图 Wiki 结构（域/仓库/技术文档）、域概览/主题内容定位、Agent 组件抽象化。P3 待后续提案。 |
 
 ---
 

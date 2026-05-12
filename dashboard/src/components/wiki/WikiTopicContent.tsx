@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import EntityCardsPanel from "./EntityCardsPanel";
+import WikiSourceLocRow from "./WikiSourceLocRow";
 import { useI18n } from "../../i18n/context";
+import type { WikiSourceLocation } from "../../hooks/wikiTypes";
 
 interface TopicPage {
   title: string;
@@ -10,6 +12,7 @@ interface TopicPage {
   page_type: string;
   domain?: string;
   review_status?: string;
+  source_locations?: WikiSourceLocation[];
 }
 
 interface Props {
@@ -170,6 +173,9 @@ export default function WikiTopicContent({
       </div>
       {businessId ? (
         <EntityCardsPanel pagePath={page.path} businessId={businessId} repository={repository} />
+      ) : null}
+      {repository && page.source_locations?.length ? (
+        <WikiSourceLocRow repository={repository} sourceLocations={page.source_locations} />
       ) : null}
     </article>
   );

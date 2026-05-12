@@ -108,12 +108,18 @@ if [ "$SKIP_RESTART" = false ]; then
   fi
 
   echo -e "  Starting backend..."
+  LOG_DIR="/tmp/kb-service-logs"
+  ssh "$DEV_HOST" "mkdir -p ${LOG_DIR}"
+  # Rotate: keep last 10 log files
+  ssh "$DEV_HOST" "bash -c 'shopt -s nullglob; files=(${LOG_DIR}/kb-service-*.log); if (( \${#files[@]} >= 10 )); then ls -t ${LOG_DIR}/kb-service-*.log | tail -n +10 | xargs rm -f; fi; [ -f /tmp/kb-service.log ] && cp /tmp/kb-service.log ${LOG_DIR}/kb-service-\$(date +%Y%m%d_%H%M%S).log || true'"
   ssh "$DEV_HOST" "cd ${REMOTE_DIR} && source .venv/bin/activate && nohup .venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8100 > /tmp/kb-service.log 2>&1 &"
   sleep 3
 
   NEW_PID=$(ssh "$DEV_HOST" "pgrep -f 'uvicorn main:app.*8100' || true")
   if [ -n "$NEW_PID" ]; then
     echo -e "  ${GREEN}✓${NC}  Backend started (PID: ${NEW_PID})"
+    echo -e "  ${CYAN}Log:${NC} /tmp/kb-service.log (current)"
+    echo -e "  ${CYAN}History:${NC} ${LOG_DIR}/ (last 10 runs)"
   else
     echo -e "  ${RED}✗${NC}  Backend may have failed to start. Check /tmp/kb-service.log"
     echo -e "  Run: ssh dev 'tail -50 /tmp/kb-service.log'"

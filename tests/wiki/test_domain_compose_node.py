@@ -87,7 +87,7 @@ class TestComposeDomainAgentsNode:
     @pytest.mark.asyncio
     async def test_passes_module_tree_into_build_baseline(self):
         """Graph decompose produces module_tree; compose should inject it into baseline."""
-        mt = {"nodes": {"M1": {}}, "edges": [{"source": "M1", "target": "Ext"}]}
+        mt = [{"canonical_key": "M1", "children": [{"canonical_key": "Ext", "children": []}]}]
         state = {
             "domain_tree": [{"name": "D1", "modules": ["M1"], "children": []}],
             "module_summaries": {},

@@ -8,9 +8,17 @@
 
 ## 当前活跃提案
 
-所有 Agent Wiki 相关的待办工作（质量修复、前端树适配、已知问题、L2/L3 业务流、Prompt 优化等）已统一至：
+所有待办工作已统一至唯一活跃提案：
 
-> [`specs/2026-05-12-agent-wiki-quality-and-tree-fix.md`](superpowers/specs/2026-05-12-agent-wiki-quality-and-tree-fix.md) — 9 个 Task，涵盖全部待办
+> [`specs/2026-05-12-agent-wiki-quality-and-tree-fix.md`](superpowers/specs/2026-05-12-agent-wiki-quality-and-tree-fix.md)
+
+| Task | 优先级 | 状态 |
+|------|--------|------|
+| A-D: 路径/质量门/内容/Robustness | P0-P2 | ✅ 已完成 |
+| F: Explore/Write 分离 | 核心 ✅ / 优化 P3 | 核心已完成，剩工具动态解锁+PageRank |
+| G: 域分类准确度提升 | P1 | Proposed（丰富模块描述+prompt、调用矩阵、共享服务） |
+| H: 域调整机制 (Dashboard) | P1 | Proposed（domain_pinned + 域管理 API + UI） |
+| E: L2 业务流文档 | P3 | 待 L1 稳定后启动 |
 
 ---
 
@@ -44,6 +52,9 @@ Larger feature work, each requires a standalone proposal.
 - [x] Wiki pipeline hardening (2026-05-11) ✅
 - [x] Issue #008 Agent 管线质量修复 ✅ (2026-05-12)
 - [x] Wiki LLM P0 fix (`_enrich_leaf_context`) — 已通过新 Agent 管线绕过
+- [x] Explore/Write 分离 ✅ (2026-05-12) — 固化至 `page_agent.py` + `domain_doc_agent.py`
+- [x] Domain Agent 弹性超时 + Wiki⟷Code 深度关联 ✅ (2026-05-12) — 固化至 `domain_doc_agent.py` + `page_agent.py`
+- [x] Code Linking 合并 Bug (`_attach_domain_sources`) ✅ (2026-05-12) — 固化至 `nodes/domain_compose.py`
 
 ---
 

@@ -243,6 +243,12 @@ class WikiPagePersistence:
                         pairs.append({"wiki_uid": wiki_uid, "entity_uid": eu})
                         seen_pairs.add(key)
         if pairs:
+            log.info(
+                "source_entity_pairs",
+                repository=repository,
+                total_pairs=len(pairs),
+                sample=pairs[:3],
+            )
             _EDGE_CHUNK = 200
             for edge_start in range(0, len(pairs), _EDGE_CHUNK):
                 edge_chunk = pairs[edge_start : edge_start + _EDGE_CHUNK]

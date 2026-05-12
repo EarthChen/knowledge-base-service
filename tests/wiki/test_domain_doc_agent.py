@@ -1,4 +1,5 @@
 """Tests for DomainDocAgent helper functions and iteration logic."""
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -359,3 +360,139 @@ class TestDomainDocAgentObservability:
         assert "coverage" in entry
         assert "citation_density" in entry
         assert "iteration" in entry
+
+
+class TestExploreMemorySignature:
+    def test_explore_accepts_memory_parameter(self):
+        """explore() method signature should accept optional memory kwarg."""
+        import inspect
+
+        from wiki.page_agent import WikiPageAgent
+
+        sig = inspect.signature(WikiPageAgent.explore)
+        params = sig.parameters
+        assert "memory" in params, "explore() must accept 'memory' keyword argument"
+        assert params["memory"].default is None, "memory default should be None"
+
+
+class TestElasticTimeout:
+    @pytest.mark.asyncio
+    async def test_explore_timeout_preserves_partial_memory(self, monkeypatch):
+        """When explore() times out, generate_with_iterations should use partial WorkingMemory."""
+        monkeypatch.setattr(
+            "wiki.domain_doc_agent.EXPLORE_TIMEOUT_SEC",
+            0.05,
+        )
+
+        agent = DomainDocAgent(
+            domain_name="test-domain",
+            llm=MagicMock(),
+            graph_store=MagicMock(),
+        )
+
+        from wiki.page_agent import WorkingMemory
+
+        async def slow_explore(*args, **kwargs):
+            memory = kwargs.get("memory") or WorkingMemory()
+            memory.code_snippets.append("[PartialData]\npartially collected")
+            await asyncio.sleep(999)
+            return memory
+
+        good_content = (
+            "# test-domain\n\n## 概述\n\nModA handles things. ModB does stuff.\n\n"
+            "```java\npublic void handle() {}\n```\n"
+            "```java\npublic void process() {}\n```\n"
+        )
+
+        agent._page_agent = AsyncMock()
+        agent._page_agent.explore = AsyncMock(side_effect=slow_explore)
+        agent._page_agent.write = AsyncMock(return_value=good_content)
+
+        pages = await agent.generate_with_iterations(
+            module_names=["ModA", "ModB"],
+            baseline_context="baseline",
+        )
+        assert len(pages) >= 1
+        agent._page_agent.write.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_write_timeout_retries_once(self, monkeypatch):
+        """When write() times out once, it should retry."""
+        monkeypatch.setattr(
+            "wiki.domain_doc_agent.EXPLORE_TIMEOUT_SEC",
+            0.05,
+        )
+        monkeypatch.setattr(
+            "wiki.domain_doc_agent.WRITE_TIMEOUT_SEC",
+            0.05,
+        )
+
+        agent = DomainDocAgent(
+            domain_name="test-domain",
+            llm=MagicMock(),
+            graph_store=MagicMock(),
+        )
+
+        from wiki.page_agent import WorkingMemory
+
+        mock_memory = WorkingMemory()
+        mock_memory.code_snippets.append("[Mod]\ncode")
+
+        call_count = 0
+
+        async def write_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                await asyncio.sleep(999)
+            return (
+                "# test-domain\n\nModA and ModB.\n"
+                "```java\ncode1\n```\n```java\ncode2\n```\n"
+            )
+
+        agent._page_agent = AsyncMock()
+        agent._page_agent.explore = AsyncMock(return_value=mock_memory)
+        agent._page_agent.write = AsyncMock(side_effect=write_side_effect)
+
+        pages = await agent.generate_with_iterations(
+            module_names=["ModA", "ModB"],
+            baseline_context="baseline",
+        )
+        assert len(pages) >= 1
+        assert agent._page_agent.write.call_count >= 2
+
+
+class TestCoveredEntityUids:
+    @pytest.mark.asyncio
+    async def test_pages_include_covered_entity_uids(self):
+        """Generated pages should include discovered_entity_uids from WorkingMemory."""
+        agent = DomainDocAgent(
+            domain_name="test-domain",
+            llm=MagicMock(),
+            graph_store=MagicMock(),
+        )
+
+        async def mock_explore(*args, **kwargs):
+            mem = kwargs.get("memory")
+            if mem is not None:
+                mem.discovered_entity_uids.update({"uid-1", "uid-2", "uid-3"})
+            return mem
+
+        good_content = (
+            "# test-domain\n\n## 概述\n\nModA handles things.\n\n"
+            "```java\npublic void handle() {}\n```\n"
+            "```java\npublic void process() {}\n```\n"
+        )
+
+        agent._page_agent = AsyncMock()
+        agent._page_agent.explore = AsyncMock(side_effect=mock_explore)
+        agent._page_agent.write = AsyncMock(return_value=good_content)
+
+        pages = await agent.generate_with_iterations(
+            module_names=["ModA", "ModB"],
+            baseline_context="baseline",
+        )
+
+        assert len(pages) >= 1
+        covered = pages[0].get("covered_entity_uids", [])
+        assert set(covered) == {"uid-1", "uid-2", "uid-3"}

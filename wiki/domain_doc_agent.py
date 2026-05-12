@@ -5,6 +5,8 @@ Explore/Write two-phase separation, and document splitting.
 """
 from __future__ import annotations
 
+import asyncio
+import os
 import re
 from typing import Any
 
@@ -15,6 +17,9 @@ from wiki.quality_report import evaluate_quality
 log = get_logger(__name__)
 
 MAX_PAGE_TOKENS = 5000
+
+EXPLORE_TIMEOUT_SEC = int(os.environ.get("EXPLORE_TIMEOUT_SEC", "240"))
+WRITE_TIMEOUT_SEC = int(os.environ.get("WRITE_TIMEOUT_SEC", "120"))
 
 
 def _extract_tree_edges(
@@ -163,12 +168,38 @@ class DomainDocAgent:
         module_names: list[str],
         baseline_context: str,
     ) -> list[dict[str, Any]]:
-        """Generate domain documentation with Explore → Write → Quality loop."""
-        memory = await self._page_agent.explore(
-            module_names=module_names,
-            domain_name=self.domain_name,
-            baseline_context=baseline_context,
-        )
+        """Generate domain documentation with Explore → Write → Quality loop.
+
+        Each phase (explore, write) has its own timeout. Write retries once
+        on first timeout. A total elapsed-time budget prevents runaway loops.
+        """
+        from wiki.page_agent import WorkingMemory
+
+        total_budget = int(os.environ.get("DOMAIN_AGENT_TIMEOUT_SEC", "600"))
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+
+        def _remaining() -> float:
+            return max(0, total_budget - (loop.time() - t0))
+
+        memory = WorkingMemory()
+        try:
+            timeout = min(EXPLORE_TIMEOUT_SEC, _remaining())
+            await asyncio.wait_for(
+                self._page_agent.explore(
+                    module_names=module_names,
+                    domain_name=self.domain_name,
+                    baseline_context=baseline_context,
+                    memory=memory,
+                ),
+                timeout=timeout,
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            log.warning(
+                "explore_timeout_partial",
+                domain=self.domain_name,
+                memory_chars=memory._total_chars(),
+            )
 
         if not module_names:
             content = await self._page_agent.write(
@@ -176,15 +207,42 @@ class DomainDocAgent:
                 baseline_context,
                 memory,
             )
-            return _maybe_split(content, self.domain_name)
+            pages = _maybe_split(content, self.domain_name)
+            if memory.discovered_entity_uids:
+                entity_uids = list(memory.discovered_entity_uids)
+                for page in pages:
+                    page["covered_entity_uids"] = entity_uids
+            return pages
 
         content = ""
+        write_timeout_count = 0
+
         for iteration in range(self._max_iterations):
-            content = await self._page_agent.write(
-                self.domain_name,
-                baseline_context,
-                memory,
-            )
+            if _remaining() <= 0:
+                log.warning("total_budget_exhausted", domain=self.domain_name)
+                break
+
+            try:
+                timeout = min(WRITE_TIMEOUT_SEC, _remaining())
+                content = await asyncio.wait_for(
+                    self._page_agent.write(
+                        self.domain_name,
+                        baseline_context,
+                        memory,
+                    ),
+                    timeout=timeout,
+                )
+                write_timeout_count = 0
+            except (asyncio.TimeoutError, TimeoutError):
+                write_timeout_count += 1
+                log.warning(
+                    "write_timeout",
+                    domain=self.domain_name,
+                    attempt=write_timeout_count,
+                )
+                if write_timeout_count >= 2:
+                    break
+                continue
 
             quality = evaluate_quality(content, module_names)
             self.iteration_history.append({
@@ -211,15 +269,44 @@ class DomainDocAgent:
             ):
                 break
 
-            supplemental = await self._page_agent.explore(
-                module_names,
-                self.domain_name,
-                baseline_context,
-                focus_modules=quality.uncovered_modules or None,
-            )
-            memory.merge(supplemental)
+            if _remaining() <= 0:
+                break
+
+            supplemental_memory = WorkingMemory()
+            try:
+                timeout = min(EXPLORE_TIMEOUT_SEC, _remaining())
+                await asyncio.wait_for(
+                    self._page_agent.explore(
+                        module_names,
+                        self.domain_name,
+                        baseline_context,
+                        focus_modules=quality.uncovered_modules or None,
+                        memory=supplemental_memory,
+                    ),
+                    timeout=timeout,
+                )
+            except (asyncio.TimeoutError, TimeoutError):
+                log.warning("reexplore_timeout", domain=self.domain_name)
+            finally:
+                if supplemental_memory._total_chars() > 0:
+                    memory.merge(supplemental_memory)
+            if _remaining() <= 0:
+                break
 
         if len(self.iteration_history) >= self._max_iterations:
             log.warning("max_safety_iterations", domain=self.domain_name)
 
-        return _maybe_split(content, self.domain_name)
+        if not content:
+            content = self._page_agent._generate_skeleton(module_names, self.domain_name)
+
+        pages = _maybe_split(content, self.domain_name)
+        if memory.discovered_entity_uids:
+            entity_uids = list(memory.discovered_entity_uids)
+            log.info(
+                "entity_uids_from_explore",
+                domain=self.domain_name,
+                uid_count=len(entity_uids),
+            )
+            for page in pages:
+                page["covered_entity_uids"] = entity_uids
+        return pages

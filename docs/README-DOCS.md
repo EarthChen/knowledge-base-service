@@ -44,7 +44,7 @@
 | ~~`specs/2026-05-11-graph-decomposition-and-imports-fix-design.md`~~ | (已实现并移除) 图分解优化与 IMPORTS 边修复 — 设计要点已固化至 `indexer/code_graph_builder.py`、`store/falkordb_reads.py`、`wiki/graph_module_decomposer.py`。 |
 | ~~`specs/2026-05-11-agent-driven-business-wiki-design.md`~~ | (已实现并移除) Agent 驱动的业务 Wiki 生成（Phase 0-4 ✅）— 架构设计已固化至 `wiki/domain_doc_agent.py`、`wiki/nodes/domain_compose.py`、`wiki/pipeline_graph.py`、`wiki/agent_prompts.py`；遗留项已迁移至下方统一提案。 |
 | ~~`specs/2026-05-11-incremental-wiki-update-design.md`~~ | (已实现并移除) 增量 Wiki 更新设计 — 设计要点已固化至 `wiki/incremental_diff.py`、`wiki/nodes/domain_compose.py`、`wiki/pipeline_orchestrator.py`。 |
-| [`specs/2026-05-12-agent-wiki-quality-and-tree-fix.md`](superpowers/specs/2026-05-12-agent-wiki-quality-and-tree-fix.md) | **Agent Wiki 质量修复 + 前端树适配 + 全量遗留工作统一提案（当前唯一活跃）**：9 个 Task（Wiki 树路径兼容 → 图分解注入 → Prompt 优化 → quality_gate 调整 → Topic 支持 → Anti-Hallucination L2-3 → Robustness → L2 业务流 → Prompt 代码层优化）。整合了所有已知问题和遗留工作。 |
+| [`specs/2026-05-12-agent-wiki-quality-and-tree-fix.md`](superpowers/specs/2026-05-12-agent-wiki-quality-and-tree-fix.md) | **唯一活跃统一提案**：Task A-D ✅（路径/质量门/内容/Robustness）；Task F Explore/Write 核心 ✅（优化项 P3）；**Task G 域分类准确度（P1）**；**Task H 域调整机制（P1）**；Task E L2 业务流（P3）。 |
 
 ---
 

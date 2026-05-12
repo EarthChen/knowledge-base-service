@@ -409,7 +409,7 @@ class WikiTreeLinker:
             tp_q = (
                 "MATCH (wp:WikiPage) "
                 "WHERE wp.repository = $biz AND wp.page_type = 'topic' "
-                "AND wp.path STARTS WITH 'wiki/' "
+                "AND (wp.path STARTS WITH 'wiki/' OR wp.path STARTS WITH '/__domains__/') "
                 "RETURN wp.uid AS uid, wp.path AS path, "
                 "coalesce(wp.canonical_key, '') AS canonical_key "
                 "ORDER BY wp.path"

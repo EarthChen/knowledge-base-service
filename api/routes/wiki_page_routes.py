@@ -83,6 +83,49 @@ async def _resolve_primary_source_entity_uid(
         return ""
 
 
+async def _fetch_source_locations(
+    raw_store: Any,
+    repository: str,
+    page_path: str,
+) -> list[dict[str, Any]]:
+    """Query SOURCE_ENTITY edges and return source_locations for the Dashboard."""
+    try:
+        ws = WikiStore(raw_store)
+        q = (
+            f"MATCH (wp:WikiPage {{repository: $repo, path: $path}})"
+            f"-[:{EdgeType.SOURCE_ENTITY.value}]->(e) "
+            "RETURN e.uid AS uid, e.name AS name, "
+            "coalesce(e.file, '') AS file, "
+            "coalesce(e.start_line, 0) AS start_line, "
+            "coalesce(e.end_line, 0) AS end_line, "
+            "coalesce(e.fqn, e.name) AS fqn, "
+            "coalesce(e.repository, $repo) AS repository, "
+            "labels(e)[0] AS entity_type"
+        )
+        r = await ws.execute_query(q, {"repo": repository, "path": page_path})
+        rows = getattr(r, "data", None) or []
+        locations: list[dict[str, Any]] = []
+        seen_fqns: set[str] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            fqn = str(row.get("fqn") or row.get("name") or "").strip()
+            if not fqn or fqn in seen_fqns:
+                continue
+            seen_fqns.add(fqn)
+            locations.append({
+                "file_path": str(row.get("file") or "").strip(),
+                "start_line": int(row.get("start_line") or 0),
+                "end_line": int(row.get("end_line") or 0),
+                "fqn": fqn,
+                "repository": str(row.get("repository") or repository).strip(),
+                "entity_uid": str(row.get("uid") or "").strip(),
+            })
+        return locations
+    except Exception:
+        return []
+
+
 def _entity_type_from_labels(labels: object) -> str:
     if not isinstance(labels, list):
         return ""
@@ -325,9 +368,7 @@ async def wiki_get_page_by_path(
     repo-scoped lookup is attempted first so pages that haven't been
     promoted to the WikiSpace tree can still be viewed.
     """
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Wiki store unavailable")
+    raw_store: Any = await get_wiki_store_dep(request)
 
     store = WikiStore(raw_store)
 
@@ -407,9 +448,7 @@ async def wiki_get_page_entities(
     repository: str | None = Query(default=None),
 ) -> WikiPageEntitiesResponse:
     """Return code entities linked to the wiki page via SOURCE_ENTITY (for entity cards in the UI)."""
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Wiki store unavailable")
+    raw_store: Any = await get_wiki_store_dep(request)
 
     decoded_path = unquote(page_path).lstrip("/")
     store = WikiStore(raw_store)
@@ -442,9 +481,7 @@ async def wiki_get_path_by_source_entity(
     entity_uid: str = Query(..., min_length=1),
 ) -> dict[str, Any]:
     """Return a wiki page path for a code entity linked via SOURCE_ENTITY, if any."""
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Wiki store unavailable")
+    raw_store: Any = await get_wiki_store_dep(request)
     cypher = (
         "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage) "
         "MATCH (wp)-[:SOURCE_ENTITY]->(e {uid: $entity_uid}) "
@@ -466,9 +503,7 @@ async def wiki_list_claim_history(
     """Return WikiClaimHistory rows for a page (see SP5 supersession)."""
     if not get_route_settings().wiki.supersession_tracking_enabled:
         return {"items": []}
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Wiki store unavailable")
+    raw_store: Any = await get_wiki_store_dep(request)
     store = WikiStore(raw_store)
     rows = await store.list_wiki_claims_for_page(page_uid)
     return {"items": rows}
@@ -480,9 +515,7 @@ async def wiki_business_flows(
     business_id: str = Query(..., min_length=1),
 ) -> dict[str, Any]:
     """Return BusinessFlow nodes (and optional edges) for business wiki visualization."""
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Graph store not configured")
+    raw_store: Any = await get_wiki_store_dep(request)
     cypher = (
         "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage) "
         "WITH collect(DISTINCT wp.repository) AS raw_repos "
@@ -522,8 +555,9 @@ async def wiki_get_tree(
     ),
 ) -> dict[str, Any]:
     """Return the wiki tree structure for the given business and view type."""
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
+    try:
+        raw_store: Any = await get_wiki_store_dep(request)
+    except KbServiceUnavailable:
         return {"tree": [], "view_type": view, "business_id": business_id}
 
     store = WikiStore(raw_store)
@@ -627,9 +661,7 @@ async def business_wiki_export(
     from wiki.mkdocs_exporter import MkDocsExporter
     from wiki.obsidian_exporter import ObsidianExporter
 
-    raw_store = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Graph store not configured")
+    raw_store = await get_wiki_store_dep(request)
 
     wiki_store = WikiStore(raw_store)
 
@@ -702,9 +734,7 @@ async def wiki_list_page_versions(
     business_id: str = Depends(get_effective_business_id),
 ) -> list[dict[str, Any]]:
     """Version history for a wiki page (``WikiVersion``-shaped rows for the dashboard)."""
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Wiki store unavailable")
+    raw_store: Any = await get_wiki_store_dep(request)
     store = WikiStore(raw_store)
     decoded = unquote(page_uid)
     if not await store.assert_wiki_page_in_business(business_id, decoded):
@@ -721,9 +751,7 @@ async def wiki_page_version_diff(
     business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
     """Unified-diff-style ``WikiDiff`` for two logical versions of a page."""
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Wiki store unavailable")
+    raw_store: Any = await get_wiki_store_dep(request)
     store = WikiStore(raw_store)
     decoded = unquote(page_uid)
     if not await store.assert_wiki_page_in_business(business_id, decoded):
@@ -761,9 +789,7 @@ async def wiki_coverage_report(
     if not settings.wiki.coverage_report_enabled:
         raise KbNotFound("Coverage report is disabled")
 
-    raw_store = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Graph store not configured")
+    raw_store = await get_wiki_store_dep(request)
 
     wiki_store = WikiStore(raw_store)
     analyzer = WikiCoverageAnalyzer(wiki_store)
@@ -780,9 +806,7 @@ async def wiki_quality_score(
     business_id: str = Query(default="default"),
 ) -> dict[str, Any]:
     """Aggregate quality score 0-100 (coverage, staleness, references, enrichment)."""
-    raw_store = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Graph store not configured")
+    raw_store = await get_wiki_store_dep(request)
     ws = WikiStore(raw_store)
     scorer = WikiQualityScorer(ws)
     result = await scorer.compute_score(business_id)
@@ -795,9 +819,7 @@ async def wiki_business_references(
     business_id: str = Query(..., min_length=1),
 ) -> dict[str, Any]:
     """Wiki reference network for a business: pages and WIKI_REFERENCES edges (both ends in space)."""
-    raw_store = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Graph store not configured")
+    raw_store = await get_wiki_store_dep(request)
     ws = WikiStore(raw_store)
     return await ws.get_business_wiki_references_graph(business_id)
 
@@ -810,9 +832,7 @@ async def wiki_list_qa(
     limit: int = Query(default=20, ge=1, le=200),
 ) -> dict[str, Any]:
     """Paginated :WikiQA entries for a business."""
-    raw_store = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Graph store not configured")
+    raw_store = await get_wiki_store_dep(request)
     ws = WikiStore(raw_store)
     r = await ws.list_wiki_qa(business_id, skip, limit)
     return {"items": r.data or [], "skip": skip, "limit": limit, "total": await ws.count_wiki_qa(business_id)}
@@ -1021,13 +1041,16 @@ async def wiki_get_page_detail(
     props = dict(wp.properties) if hasattr(wp, "properties") else (wp if isinstance(wp, dict) else {})
     ctx = {"repository": repository, "module": "", "page": decoded_path}
     entity_uid = await _resolve_primary_source_entity_uid(store, repository, decoded_path, props)
-    related_pages = await _build_related_pages(store, repository, entity_uid)
+    related_pages, source_locs = await asyncio.gather(
+        _build_related_pages(store, repository, entity_uid),
+        _fetch_source_locations(store, repository, decoded_path),
+    )
     return {
         "path": props.get("path", ""),
         "title": props.get("title", ""),
         "content": props.get("content", ""),
         "diagrams": [],
-        "source_locations": [],
+        "source_locations": source_locs,
         "method_locations": [],
         "context": ctx,
         "generated_at": props.get("generated_at"),
@@ -1101,9 +1124,7 @@ async def wiki_page_editing_heartbeat(
     editing_store: WikiEditingStore | None = Depends(get_wiki_editing_store_dep),
 ) -> dict[str, Any]:
     """Register or refresh editing presence (heartbeat) for a wiki page."""
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Wiki store unavailable")
+    raw_store: Any = await get_wiki_store_dep(request)
     store = WikiStore(raw_store)
     decoded = unquote(page_uid)
     if not await store.assert_wiki_page_in_business(business_id, decoded):
@@ -1126,9 +1147,7 @@ async def wiki_page_editing_stop(
     editing_store: WikiEditingStore | None = Depends(get_wiki_editing_store_dep),
 ) -> Response:
     """Remove editing presence for the current client."""
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Wiki store unavailable")
+    raw_store: Any = await get_wiki_store_dep(request)
     store = WikiStore(raw_store)
     decoded = unquote(page_uid)
     if not await store.assert_wiki_page_in_business(business_id, decoded):
@@ -1150,9 +1169,7 @@ async def wiki_page_list_editors(
     editing_store: WikiEditingStore | None = Depends(get_wiki_editing_store_dep),
 ) -> dict[str, Any]:
     """List active editors; ``other_active`` is true if another client is also editing."""
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Wiki store unavailable")
+    raw_store: Any = await get_wiki_store_dep(request)
     store = WikiStore(raw_store)
     decoded = unquote(page_uid)
     if not await store.assert_wiki_page_in_business(business_id, decoded):
@@ -1174,9 +1191,7 @@ async def wiki_edit_page_content(
     business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
     """Update wiki page body with optimistic concurrency (LWW) and a ``WikiPageVersion`` snapshot."""
-    raw_store: Any = getattr(request.app.state, "wiki_store", None)
-    if raw_store is None:
-        raise KbServiceUnavailable("Wiki store unavailable")
+    raw_store: Any = await get_wiki_store_dep(request)
     store = WikiStore(raw_store)
     decoded = unquote(page_uid)
     if not await store.assert_wiki_page_in_business(business_id, decoded):

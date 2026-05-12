@@ -1,8 +1,8 @@
 # Agent Wiki 质量修复 + 前端树适配统一提案
 
 **Created:** 2026-05-12  
-**Last Updated:** 2026-05-12 (brainstorming 深度设计后重写)  
-**Status:** 实施完成（P0-P2），P3 待启动  
+**Last Updated:** 2026-05-12 (合并域分类提案)  
+**Status:** P0-P2 ✅ / Task F 核心 ✅ / Task G-H Proposed  
 **Priority:** P0  
 **Type:** 统一提案（Spec）
 
@@ -151,12 +151,107 @@ Baseline 改造：
 - [ ] 创建 `compose_business_flow_node`（L2 业务流文档 + wikilink 引用 L1）
 - [ ] 前端 Wiki 树：L3 概览 → L2 业务流 → L1 域文档 三层导航
 
-### Task F: Explore/Write 代码分离 — P3
+### Task F: Explore/Write 代码分离 — 核心已完成，优化项 P3
 
-- [ ] Explore 阶段：独立 LLM 调用，仅执行工具调用，产出结构化 JSON `exploration_memo`
-- [ ] Write 阶段：干净上下文 + memo，专注生成高质量文档
+核心架构已实现：
+- [x] Explore 阶段：`WikiPageAgent.explore()` 独立 LLM 调用，仅执行工具调用，`WorkingMemory` 程序化组装 memo
+- [x] Write 阶段：`WikiPageAgent.write()` 干净上下文 + memo，纯 `llm.generate()` 无工具
+- [x] Quality loop：`DomainDocAgent.generate_with_iterations()` Explore→Write→Quality 循环
+- [x] `WorkingMemory.merge()` 去重合并 + `MAX_TOTAL_CHARS` 200k
+- [x] `generate()` 向后兼容（内部委托 explore+write）
+
+优化项（P3，非核心）：
 - [ ] 工具动态解锁：初始只注册核心工具（~6），复杂场景时动态注册进阶工具（~10）
 - [ ] baseline 相关性排序：按被调用次数排序模块（PageRank 思路）
+
+### Task G: 域分类准确度提升 — P1
+
+> 原 `specs/2026-05-12-domain-classification-accuracy-and-adjustment.md` §2.1，已合并至此。
+
+**问题**: 当前域分类仅靠类名+路径，语义不足；图信息利用不充分；缺乏业务先验知识；共享底层服务难分类。
+
+**当前域分类数据流:**
+
+```mermaid
+flowchart LR
+    A[Modules from Graph] --> B[entity_role_classifier]
+    B --> C[classify_domains_node]
+    C --> D[CrossRepoBusinessDomainPlanner.classify]
+    D --> E[DomainStabilizer]
+    E --> F[HierarchicalDecomposer]
+    F --> G[domain_tree]
+```
+
+#### G.1 丰富模块描述 + 优化 Prompt（P1）
+
+| 改进项 | 当前 | 目标 |
+|--------|------|------|
+| 模块描述 | name + path + summary(多为空) | name + path + summary + key_methods + fan_in + fan_out |
+| 关键方法 | 无 | 前 5 个 public method 名称 |
+| 依赖信息 | pre_groups (连通组) | pre_groups + callers(谁调用我) + callees(我调用谁) |
+| Prompt 引导 | 通用指令 | 注入业务上下文种子（如"该项目是 IM 社交应用"） |
+
+**实现要点:**
+1. `classify_domains_node` 中查询每个模块的 `CALLS` 入边/出边，构建 fan-in/fan-out
+2. 查询模块内前 N 个 Function 节点名称作为 key_methods
+3. `CrossRepoBusinessDomainPlanner._module_summary` 组装增强描述
+4. Prompt 中增加项目级业务上下文（从 `business_id` 或配置注入）
+
+**改动文件:**
+| 文件 | 改动 |
+|------|------|
+| `wiki/nodes/classify.py` | 查询 CALLS 边构建 fan-in/out；查询模块内 Function 名 |
+| `wiki/cross_repo_domain_planner.py` | `_module_summary` 增强；prompt 注入业务上下文种子 |
+
+#### G.2 模块调用矩阵 + 种子域注入（P2）
+
+1. **模块调用矩阵:** 将模块间 CALLS 关系压缩为邻接矩阵摘要，作为 LLM 上下文
+2. **种子域注入:** 允许用户预定义核心域名（如"IM消息", "礼物系统", "VIP管理"），LLM 在此基础上分配和扩展
+
+#### G.3 共享服务与多职责模块（P2）
+
+**共享底层服务（高扇入模块）:**
+1. 自动识别: fan-in 超过阈值的模块标记为"基础设施"
+2. 专属域: 归入"基础设施"或"底层支撑组件"域
+3. 依赖可视化: wiki 页面中自动生成"被依赖关系"章节
+
+**多职责类/文件:**
+1. 主域归属: 按 CALLS 图权重归入一个主域
+2. 跨域引用: 其他依赖该类的域通过 `source://` 协议引用具体方法
+3. "外部依赖"章节: 各域 wiki 页面末尾自动列出来自其他域的关键依赖
+
+> 拒绝方法级分类——复杂度过高，收益不足。文件级分类 + 跨域引用足以满足导航需求。
+
+### Task H: 域调整机制 (Dashboard) — P1
+
+> 原 `specs/2026-05-12-domain-classification-accuracy-and-adjustment.md` §2.2，已合并至此。
+
+用户通过 Dashboard UI 进行域调整，不需要 MCP 工具或 YAML 配置。
+
+#### H.1 `domain_pinned` 标志
+
+新增 FalkorDB Module 属性 `domain_pinned: boolean`：
+- 用户手动调整的模块设置 `domain_pinned = true`
+- 全量重新生成时，`classify_domains_node` 跳过 `domain_pinned = true` 的模块
+- 保留用户调整结果，不被 LLM 重新分类覆盖
+
+#### H.2 Dashboard 操作
+
+| 操作 | API | 说明 |
+|------|-----|------|
+| 查看域下模块 | `GET /api/v1/wiki/domains/{domain}/modules` | 列出该域所有模块 |
+| 移动模块到另一个域 | `PATCH /api/v1/wiki/modules/{uid}/domain` | 更新 `business_domain` + 设置 `domain_pinned=true` |
+| 重命名域 | `PATCH /api/v1/wiki/domains/{domain}/rename` | 批量更新模块的 `business_domain` |
+| 解锁模块 | `DELETE /api/v1/wiki/modules/{uid}/domain-pin` | 移除 `domain_pinned`，下次生成时 LLM 重新分类 |
+| 触发域局部重新生成 | `POST /api/v1/wiki/domains/{domain}/regenerate` | 仅重新生成受影响域的 wiki 页面 |
+
+**改动文件:**
+| 文件 | 改动 |
+|------|------|
+| `api/routes/wiki_page_routes.py` | 新增域调整 REST API |
+| `wiki/nodes/classify.py` | 分类时跳过 `domain_pinned` 模块 |
+| `store/falkordb_wiki.py` | Module 属性更新方法 |
+| `dashboard/src/` | 域管理 UI 组件 |
 
 ### 已推迟
 
@@ -221,3 +316,9 @@ Baseline 改造：
 | `specs/2026-05-11-agent-driven-business-wiki-design.md` | 已删除（遗留项迁移至本提案） |
 | `DEEP_ANALYSIS_20260502_101930_code_audit_and_competitor_gap.md` | 已删除（审计完成） |
 | `KNOWN-ISSUES.md` | 已删除（合并至本提案 §5） |
+| `specs/2026-05-12-domain-classification-accuracy-and-adjustment.md` | 已删除（域分类+域调整内容合并至本提案 Task G/H） |
+| `specs/2026-05-12-explore-write-separation-design.md` | 已删除（核心已实现，固化至代码） |
+| `specs/2026-05-12-domain-retry-and-code-linking-design.md` | 已删除（已实现，固化至代码） |
+| `plans/2026-05-12-explore-write-separation.md` | 已删除（已实现） |
+| `plans/2026-05-12-domain-retry-and-code-linking.md` | 已删除（已实现） |
+| `plans/2026-05-12-agent-wiki-quality-and-tree-fix.md` | 已删除（P0-P2 已完成） |

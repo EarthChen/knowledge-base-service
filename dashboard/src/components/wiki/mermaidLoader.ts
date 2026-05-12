@@ -12,7 +12,7 @@ export function getMermaid(): Promise<typeof import("mermaid").default> {
       m.initialize({
         startOnLoad: false,
         theme: "neutral",
-        securityLevel: "strict",
+        securityLevel: "loose",
       });
       return m;
     })();

@@ -204,6 +204,7 @@ class WorkingMemory:
     resolved_gaps: list[str] = field(default_factory=list)
     wiki_references: list[str] = field(default_factory=list)
     search_findings: list[str] = field(default_factory=list)
+    discovered_entity_uids: set[str] = field(default_factory=set)
 
     MAX_TOTAL_CHARS = 200_000
 
@@ -219,11 +220,13 @@ class WorkingMemory:
                         fpath = str(m.get("file", "") or "")
                         if code:
                             self.code_snippets.append(f"[{name} @ {fpath}]\n{code[:SINGLE_RESULT_LIMIT]}")
+                        self._extract_uid(m)
                 else:
                     code = str(data.get("code", "") or "")
                     name = str(data.get("name", "") or "")
                     if code:
                         self.code_snippets.append(f"[{name}]\n{code[:SINGLE_RESULT_LIMIT]}")
+                    self._extract_uid(data)
             elif tool == "read_file":
                 content = str(data.get("content", "") or "")
                 path = str(data.get("file_path", "") or "")
@@ -236,6 +239,7 @@ class WorkingMemory:
                         self.search_findings.append(
                             f"{item.get('type', '')} {item.get('name', '')} ({item.get('file', '')})"
                         )
+                        self._extract_uid(item)
             elif tool == "read_wiki_page":
                 content = str(data.get("content", "") or "")
                 title = str(data.get("title", "") or "")
@@ -310,6 +314,7 @@ class WorkingMemory:
                         method_names = [str(m.get("name", "")) for m in methods[:5]]
                         entry += f" [methods: {', '.join(method_names)}]"
                     self.discovered_call_chains.append(entry)
+                self._extract_uid(data)
             elif tool == "query_domain_dependencies":
                 deps = data.get("outgoing", [])
                 for d in deps[:5]:
@@ -324,6 +329,12 @@ class WorkingMemory:
                             f"{d.get('source_domain', '')} → {data.get('domain', '')}: {d.get('via', '')}"
                         )
         self._enforce_limit()
+
+    def _extract_uid(self, data: dict[str, Any], key: str = "uid") -> None:
+        """Extract and store a non-empty uid from tool result data."""
+        uid = str(data.get(key, "") or "").strip()
+        if uid:
+            self.discovered_entity_uids.add(uid)
 
     def _enforce_limit(self) -> None:
         total = self._total_chars()
@@ -351,20 +362,16 @@ class WorkingMemory:
 
     def merge(self, other: "WorkingMemory") -> None:
         """Merge supplemental exploration results, deduplicate, enforce limits."""
-        existing_prefixes: dict[str, int] = {}
-        for idx, snippet in enumerate(self.code_snippets):
-            m = _MODULE_PREFIX_RE.match(snippet)
-            if m:
-                existing_prefixes[m.group(1)] = idx
-
-        indices_to_remove: set[int] = set()
+        incoming_prefixes: set[str] = set()
         for snippet in other.code_snippets:
             m = _MODULE_PREFIX_RE.match(snippet)
-            if m and m.group(1) in existing_prefixes:
-                indices_to_remove.add(existing_prefixes[m.group(1)])
-        if indices_to_remove:
+            if m:
+                incoming_prefixes.add(m.group(1))
+
+        if incoming_prefixes:
             self.code_snippets = [
-                s for i, s in enumerate(self.code_snippets) if i not in indices_to_remove
+                s for s in self.code_snippets
+                if not ((_m := _MODULE_PREFIX_RE.match(s)) and _m.group(1) in incoming_prefixes)
             ]
         self.code_snippets.extend(other.code_snippets)
 
@@ -378,6 +385,8 @@ class WorkingMemory:
         self.resolved_gaps.extend(other.resolved_gaps)
         self.wiki_references.extend(other.wiki_references)
         self.search_findings.extend(other.search_findings)
+
+        self.discovered_entity_uids |= other.discovered_entity_uids
 
         self._enforce_limit()
 
@@ -857,6 +866,7 @@ class WikiPageAgent:
         baseline_context: str,
         *,
         focus_modules: list[str] | None = None,
+        memory: WorkingMemory | None = None,
     ) -> WorkingMemory:
         """Phase 1: Explore code via tools, accumulate structured findings.
 
@@ -869,7 +879,8 @@ class WikiPageAgent:
             module_names, domain_name, baseline_context, focus_modules,
         )
 
-        memory = WorkingMemory()
+        if memory is None:
+            memory = WorkingMemory()
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system},
             {"role": "user", "content": user_prompt},
@@ -921,7 +932,12 @@ class WikiPageAgent:
                 break
 
             if len(messages) > self._MAX_HISTORY_MESSAGES:
-                break
+                from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM as _ES
+                messages = [
+                    {"role": "system", "content": _ES.format(max_rounds=self.max_rounds)},
+                    {"role": "user", "content": user_prompt},
+                ]
+                log.info("explore_history_compressed", round=round_num)
 
         log.info(
             "explore_complete",
@@ -1318,6 +1334,8 @@ class WikiPageAgent:
                     "start_line": int(row.get("start_line", 0) or 0),
                     "end_line": int(row.get("end_line", 0) or 0),
                     "code": snippet[:max_chars],
+                    "uid": str(row.get("uid", "") or ""),
+                    "repository": str(row.get("repository", "") or ""),
                 })
         if not matches:
             return {"name": entity_name, "code": "", "file": "", "type": ""}
@@ -1388,6 +1406,7 @@ class WikiPageAgent:
                         "file": str(row.get("file", "") or ""),
                         "signature": str(row.get("signature", "") or ""),
                         "docstring": str(row.get("docstring", "") or ""),
+                        "uid": str(row.get("uid", "") or ""),
                     })
         truncated = len(results) >= limit
         return {"results": results[:limit], "total": len(results), "truncated": truncated}

@@ -41,10 +41,13 @@ export function MermaidBlock({ chart }: { chart: string }) {
         await mermaid.run({ nodes: [el] });
         const svg = el.querySelector("svg");
         if (svg) {
+          svg.removeAttribute("height");
           svg.style.maxWidth = "100%";
           svg.style.height = "auto";
+          svg.style.minHeight = "40px";
         }
-      } catch {
+      } catch (err) {
+        console.warn("[MermaidBlock] render failed:", err);
         const msg = t.common.mermaidRenderFailed;
         el.innerHTML = `<pre class="rounded-lg bg-red-50 p-3 text-xs text-red-800"></pre>`;
         const pre = el.querySelector("pre");

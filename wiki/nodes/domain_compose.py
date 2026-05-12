@@ -12,7 +12,75 @@ from wiki.nodes.utils import _collect_leaf_domains
 log = get_logger(__name__)
 
 DOMAIN_AGENT_CONCURRENCY = int(os.environ.get("DOMAIN_AGENT_CONCURRENCY", "3"))
-DOMAIN_AGENT_TIMEOUT_SEC = int(os.environ.get("DOMAIN_AGENT_TIMEOUT_SEC", "300"))
+DOMAIN_AGENT_TIMEOUT_SEC = int(os.environ.get("DOMAIN_AGENT_TIMEOUT_SEC", "600"))
+
+
+def _module_dict_by_name(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Maps module ``name`` (graph property) to module dict — same ambiguity rule as classify/decompose."""
+    lookup: dict[str, dict[str, Any]] = {}
+    modules = state.get("modules") or {}
+    if not isinstance(modules, dict):
+        return lookup
+    for repo, mod_list in modules.items():
+        if not isinstance(mod_list, list):
+            continue
+        for mod_dict in mod_list:
+            if not isinstance(mod_dict, dict):
+                continue
+            props = mod_dict.get("properties") or {}
+            name = props.get("name", "")
+            if name:
+                lookup[str(name)] = {**mod_dict, "_pipeline_repo_id": repo}
+    return lookup
+
+
+def _overview_module_sources(
+    state: dict[str, Any],
+    module_names: list[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Build pipeline ``source_locations`` dicts plus Module ``uid`` list for ``covered_entity_uids``."""
+    lookup = _module_dict_by_name(state)
+    locations: list[dict[str, Any]] = []
+    uids: list[str] = []
+    for raw_name in module_names:
+        name = str(raw_name or "").strip()
+        if not name:
+            continue
+        mod_dict = lookup.get(name)
+        if not mod_dict:
+            continue
+        uid = str(mod_dict.get("uid") or "").strip()
+        props = mod_dict.get("properties") or {}
+        repo_fallback = mod_dict.get("_pipeline_repo_id", "")
+        repository = (
+            str(props.get("repository") or "").strip() or str(repo_fallback or "").strip()
+        )
+        file_path = str(props.get("path") or props.get("file") or ".").strip() or "."
+        fqn = str(props.get("fqn") or name)
+        locations.append({
+            "file_path": file_path,
+            "start_line": int(props.get("start_line") or 0),
+            "end_line": int(props.get("end_line") or props.get("start_line") or 0),
+            "fqn": fqn,
+            "repository": repository,
+        })
+        if uid:
+            uids.append(uid)
+    return locations, uids
+
+
+def _attach_domain_sources(pages_out: list[dict[str, Any]], domain: dict[str, Any], state: dict[str, Any]) -> None:
+    """Link domain overview pages to constituent Module nodes (``source_locations`` + ``covered_entity_uids``)."""
+    locations, covered = _overview_module_sources(state, list(domain.get("modules") or []))
+    if not locations and not covered:
+        return
+    for page in pages_out:
+        if page.get("page_type") != "domain_overview":
+            continue
+        page["source_locations"] = locations
+        if covered:
+            existing = page.get("covered_entity_uids") or []
+            page["covered_entity_uids"] = list(set(existing) | set(covered))
 
 
 async def compose_domain_agents_node(
@@ -97,8 +165,11 @@ async def compose_domain_agents_node(
     for i, result in enumerate(results):
         if isinstance(result, BaseException):
             errors.append({"domain": leaf_domains[i]["name"], "error": str(result)})
-            pages.append(_make_error_placeholder(leaf_domains[i], result))
+            ph = _make_error_placeholder(leaf_domains[i], result)
+            _attach_domain_sources([ph], leaf_domains[i], state)
+            pages.append(ph)
         elif isinstance(result, list):
+            _attach_domain_sources(result, leaf_domains[i], state)
             for page in result:
                 err = page.pop("_error", None)
                 if err:

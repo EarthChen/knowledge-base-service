@@ -116,7 +116,9 @@ RETURN f.name AS name, coalesce(f.file, '') AS file,
        coalesce(f.start_line, 0) AS start_line,
        coalesce(f.end_line, 0) AS end_line,
        coalesce(f.code_snippet, '') AS snippet,
-       labels(f)[0] AS type
+       labels(f)[0] AS type,
+       coalesce(f.uid, '') AS uid,
+       coalesce(f.repository, '') AS repository
 LIMIT 3
 """.strip()
 
@@ -127,7 +129,8 @@ WHERE toLower(n.name) CONTAINS toLower($keyword)
 RETURN n.name AS name, '{label}' AS type,
        coalesce(n.file, '') AS file,
        coalesce(n.signature, '') AS signature,
-       left(coalesce(n.docstring, ''), 200) AS docstring
+       left(coalesce(n.docstring, ''), 200) AS docstring,
+       coalesce(n.uid, '') AS uid
 LIMIT $limit
 """.strip()
 

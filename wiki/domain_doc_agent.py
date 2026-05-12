@@ -49,12 +49,13 @@ def _build_baseline(
         domain_modules = set(modules)
         relevant_edges = [
             e for e in edges
-            if e.get("source") in domain_modules or e.get("target") in domain_modules
+            if (e.get("source") in domain_modules or e.get("target") in domain_modules)
+            and e.get("source") and e.get("target")
         ]
         if relevant_edges:
             parts.append("### 模块依赖拓扑")
             for edge in relevant_edges[:20]:
-                parts.append(f"- {edge['source']} → {edge['target']}")
+                parts.append(f"- {edge.get('source', '?')} → {edge.get('target', '?')}")
 
     return "\n\n".join(parts)
 

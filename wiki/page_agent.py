@@ -1371,13 +1371,13 @@ class WikiPageAgent:
         for file_path in repo_root.rglob(glob_pattern):
             if len(matches) >= max_results:
                 break
-            files_scanned += 1
-            if files_scanned > MAX_GREP_FILES:
-                break
             if not file_path.is_file():
                 continue
             if file_path.suffix.lower() in _GREP_BINARY_EXTENSIONS:
                 continue
+            files_scanned += 1
+            if files_scanned > MAX_GREP_FILES:
+                break
             if any(part.startswith(".") for part in file_path.parts):
                 continue
             try:

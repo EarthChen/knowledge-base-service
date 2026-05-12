@@ -82,6 +82,29 @@ def _mock_llm_generate(prompt: str, system: str = "", **kwargs) -> str:
             "callers": [],
         })
 
+    # WikiPageAgent.write — markdown must list modules, cite sources, and pass quality thresholds.
+    if "基于以下探索结果，为业务域" in prompt or "为业务域「" in prompt:
+        mods = re.findall(r"`([A-Za-z0-9_]+)`", prompt)
+        if not mods:
+            mods = re.findall(r"\*\*([A-Za-z0-9_]+)\*\*", prompt)
+        if not mods:
+            mods = ["PaymentService", "RefundService", "UserService"]
+        seen: list[str] = []
+        for m in mods:
+            if m not in seen:
+                seen.append(m)
+        mods = seen
+        lines = "\n".join(f"### {m}\nResponsibilities for **{m}**.\n" for m in mods)
+        citations = (
+            "```java\n// " + "\n// ".join(mods[: min(3, len(mods))]) + "\n```\n\n"
+            + "\n".join(f"source://test/repo/{m}.java#L1-L5" for m in mods[:2])
+            + "\n\n## 关联主题\n"
+            + "\n".join(f"- [[{mods[i]}]]" for i in range(min(2, len(mods))))
+        )
+        domain_m = re.search(r"为业务域「([^」]+)」", prompt)
+        title = domain_m.group(1) if domain_m else "Domain"
+        return f"# {title}\n\n## 域概览\n{lines}\n\n{citations}"
+
     if "create a domain overview page" in lower and "sub-domain summaries" in lower:
         return json.dumps({
             "title": "Parent Overview",
@@ -112,6 +135,20 @@ async def _mock_llm_complete_json(
             system = str(m.get("content", ""))
         elif m.get("role") == "user":
             prompt = str(m.get("content", ""))
+    combined = f"{prompt}\n{system}".lower()
+
+    # Incremental triage fallback: ``_classify_remaining`` maps unassigned modules; return a
+    # stable domain so ``affected_domains`` (e.g. payment) still matches compose filtering.
+    if "classify each module into one of the existing domains" in combined:
+        return {
+            "PaymentService": "payment",
+            "RefundService": "payment",
+            "UserService": "payment",
+            "PaymentDTO": "payment",
+            "StatusEnum": "payment",
+            "BaseController": "payment",
+        }
+
     raw = _mock_llm_generate(prompt, system, **kwargs)
     text = raw.strip()
     try:
@@ -119,6 +156,11 @@ async def _mock_llm_complete_json(
     except json.JSONDecodeError:
         return {}
     return out if isinstance(out, dict) else {}
+
+
+async def _mock_complete_with_tools(messages, tools, **kwargs):
+    """DomainDocAgent explore uses tool-calling; return no tools so explore exits cleanly."""
+    return {"content": "", "tool_calls": None}
 
 
 def _chat_generation_result(text: str):
@@ -281,6 +323,7 @@ async def test_full_pipeline_e2e_with_mock_llm():
     mock_llm.generate = AsyncMock(side_effect=_mock_llm_generate)
     mock_llm.complete_json = AsyncMock(side_effect=_mock_llm_complete_json)
     mock_llm.agenerate = AsyncMock(side_effect=_mock_llm_agenerate)
+    mock_llm.complete_with_tools = AsyncMock(side_effect=_mock_complete_with_tools)
 
     pipeline = build_wiki_pipeline()
 
@@ -464,6 +507,8 @@ async def test_pipeline_light_reorg():
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(side_effect=_mock_llm_generate)
     mock_llm.complete_json = AsyncMock(side_effect=_mock_llm_complete_json)
+    mock_llm.agenerate = AsyncMock(side_effect=_mock_llm_agenerate)
+    mock_llm.complete_with_tools = AsyncMock(side_effect=_mock_complete_with_tools)
 
     pipeline = build_wiki_pipeline()
 
@@ -520,6 +565,8 @@ async def test_pipeline_full_reorg():
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(side_effect=_mock_llm_generate)
     mock_llm.complete_json = AsyncMock(side_effect=_mock_llm_complete_json)
+    mock_llm.agenerate = AsyncMock(side_effect=_mock_llm_agenerate)
+    mock_llm.complete_with_tools = AsyncMock(side_effect=_mock_complete_with_tools)
 
     pipeline = build_wiki_pipeline()
 

@@ -21,9 +21,17 @@ NC='\033[0m'
 
 usage() {
   cat <<'USAGE'
-Usage: trigger_wiki_generate.sh [OPTIONS]
+Usage: trigger_wiki_generate.sh [OPTIONS] [COMMAND [ARGS...]]
 
 Trigger wiki generation and monitor progress in real time.
+
+Management commands (run API helpers; skip generation — put after common options):
+  list-domains      List all domain anchors for the business
+  move-module       Pin a module: move-module MODULE_NAME DOMAIN_SLUG
+  unpin-module      Unpin a module: unpin-module MODULE_NAME
+  reset-anchors     Delete all domain anchors (interactive confirm)
+  checkpoint-info   Show LangGraph checkpoint status for the business
+  checkpoint-delete Remove checkpoint SQLite data for the business
 
 Monitoring modes (pick one, default: --poll):
   --poll              Poll task status via REST API (default)
@@ -47,6 +55,7 @@ USAGE
 
 WATCH_MODE="poll"   # poll | stream | none
 ATTACH_TASK_ID=""
+MGMT_CMD=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -62,12 +71,81 @@ while [[ $# -gt 0 ]]; do
     --poll-interval) POLL_INTERVAL="$2"; shift 2 ;;
     --max-poll)      MAX_POLL="$2"; shift 2 ;;
     --task-id)       ATTACH_TASK_ID="$2"; shift 2 ;;
+    list-domains|move-module|unpin-module|reset-anchors|checkpoint-info|checkpoint-delete)
+      MGMT_CMD="$1"
+      shift
+      break
+      ;;
     -h|--help)       usage ;;
     *) echo "Unknown option: $1"; usage ;;
   esac
 done
 
 AUTH_HEADER="Authorization: Bearer ${AUTH_TOKEN}"
+
+if [ -n "$MGMT_CMD" ]; then
+  case "$MGMT_CMD" in
+    list-domains)
+      echo "Listing domains for business: ${BUSINESS_ID}"
+      curl -s -m "$TIMEOUT" -H "$AUTH_HEADER" \
+        "${API_BASE}/api/v1/wiki/${BUSINESS_ID}/domains" | python3 -m json.tool
+      ;;
+    move-module)
+      MODULE_NAME="${1:?Module name required}"
+      DOMAIN_SLUG="${2:?Domain slug required}"
+      shift 2
+      echo "Pinning module ${MODULE_NAME} to domain ${DOMAIN_SLUG}"
+      BODY=$(python3 -c "import json,sys; print(json.dumps({'module_name':sys.argv[1],'domain_slug':sys.argv[2]}))" "$MODULE_NAME" "$DOMAIN_SLUG")
+      curl -s -m "$TIMEOUT" -X POST \
+        -H "$AUTH_HEADER" \
+        -H "Content-Type: application/json" \
+        -d "$BODY" \
+        "${API_BASE}/api/v1/wiki/${BUSINESS_ID}/domains/pin-module" | python3 -m json.tool
+      ;;
+    unpin-module)
+      MODULE_NAME="${1:?Module name required}"
+      shift
+      echo "Unpinning module ${MODULE_NAME}"
+      BODY=$(python3 -c "import json,sys; print(json.dumps({'module_name':sys.argv[1]}))" "$MODULE_NAME")
+      curl -s -m "$TIMEOUT" -X POST \
+        -H "$AUTH_HEADER" \
+        -H "Content-Type: application/json" \
+        -d "$BODY" \
+        "${API_BASE}/api/v1/wiki/${BUSINESS_ID}/domains/unpin-module" | python3 -m json.tool
+      ;;
+    reset-anchors)
+      echo "WARNING: This will delete ALL domain anchors for ${BUSINESS_ID}"
+      read -r -p "Are you sure? (y/N) " -n 1 reply
+      echo
+      if [[ "${reply}" =~ ^[Yy]$ ]]; then
+        DOMAINS=$(curl -s -m "$TIMEOUT" -H "$AUTH_HEADER" \
+          "${API_BASE}/api/v1/wiki/${BUSINESS_ID}/domains" \
+          | python3 -c "import sys,json; d=json.load(sys.stdin); [print(x.get('slug','')) for x in d.get('domains',[]) if x.get('slug')]")
+        while IFS= read -r slug; do
+          [ -z "$slug" ] && continue
+          echo "  Deleting domain: ${slug}"
+          curl -s -m "$TIMEOUT" -H "$AUTH_HEADER" \
+            -X DELETE "${API_BASE}/api/v1/wiki/${BUSINESS_ID}/domains/${slug}"
+          echo
+        done <<< "${DOMAINS}"
+        echo "All anchors reset."
+      else
+        echo "Cancelled."
+      fi
+      ;;
+    checkpoint-info)
+      echo "Checkpoint info for business: ${BUSINESS_ID}"
+      curl -s -m "$TIMEOUT" -H "$AUTH_HEADER" \
+        "${API_BASE}/api/v1/wiki/${BUSINESS_ID}/checkpoint" | python3 -m json.tool
+      ;;
+    checkpoint-delete)
+      echo "Deleting checkpoint for business: ${BUSINESS_ID}"
+      curl -s -m "$TIMEOUT" -H "$AUTH_HEADER" \
+        -X DELETE "${API_BASE}/api/v1/wiki/${BUSINESS_ID}/checkpoint" | python3 -m json.tool
+      ;;
+  esac
+  exit 0
+fi
 
 ts() { date '+%H:%M:%S'; }
 

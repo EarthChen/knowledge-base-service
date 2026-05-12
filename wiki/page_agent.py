@@ -850,6 +850,130 @@ class WikiPageAgent:
             log.warning("agent_fallback_failed", exc_info=True)
             return content
 
+    async def explore(
+        self,
+        module_names: list[str],
+        domain_name: str,
+        baseline_context: str,
+        *,
+        focus_modules: list[str] | None = None,
+    ) -> WorkingMemory:
+        """Phase 1: Explore code via tools, accumulate structured findings.
+
+        LLM's text output is discarded — only tool results matter.
+        """
+        from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM
+
+        system = AGENT_EXPLORE_SYSTEM.format(max_rounds=self.max_rounds)
+        user_prompt = self._build_explore_user_prompt(
+            module_names, domain_name, baseline_context, focus_modules,
+        )
+
+        memory = WorkingMemory()
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        total_tool_calls = 0
+        for round_num in range(self.max_rounds):
+            try:
+                response = await self._llm.complete_with_tools(messages, AGENT_TOOLS)
+            except Exception:
+                log.warning("explore_llm_failed", round=round_num, exc_info=True)
+                break
+
+            tool_calls = response.get("tool_calls")
+
+            if not tool_calls:
+                if round_num < 2 and total_tool_calls == 0:
+                    messages.append(response)
+                    messages.append({
+                        "role": "user",
+                        "content": "你还没有使用任何工具。请立即调用工具收集代码信息。",
+                    })
+                    continue
+                break
+
+            messages.append(response)
+            tool_results: list[ToolResult] = []
+            for tc in tool_calls:
+                func = tc.get("function", {})
+                tool_name = func.get("name", "")
+                try:
+                    args = json.loads(func.get("arguments", "{}"))
+                except json.JSONDecodeError:
+                    args = {}
+                result_data = await self._execute_tool(tool_name, args)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.get("id", ""),
+                    "content": json.dumps(
+                        result_data, ensure_ascii=False, default=str,
+                    )[:SINGLE_RESULT_LIMIT],
+                })
+                tool_results.append(ToolResult(tool=tool_name, data=result_data))
+
+            memory.incorporate(tool_results)
+            total_tool_calls += len(tool_calls)
+
+            if total_tool_calls >= self.max_tool_calls:
+                break
+
+            if len(messages) > self._MAX_HISTORY_MESSAGES:
+                break
+
+        log.info(
+            "explore_complete",
+            domain=domain_name,
+            total_tool_calls=total_tool_calls,
+            memory_chars=memory._total_chars(),
+        )
+        return memory
+
+    def _build_explore_user_prompt(
+        self,
+        module_names: list[str],
+        domain_name: str,
+        baseline_context: str,
+        focus_modules: list[str] | None = None,
+    ) -> str:
+        """Build user prompt for explore() phase."""
+        entry_keywords = ("Controller", "Handler", "Consumer", "Listener", "Endpoint", "Resource")
+        core_modules: list[str] = []
+        other_modules: list[str] = []
+        for m in module_names:
+            if any(kw in m for kw in entry_keywords):
+                core_modules.append(m)
+            else:
+                other_modules.append(m)
+
+        parts = [
+            f"## 任务",
+            f"为业务域「{domain_name}」收集完整的代码上下文信息。",
+            "",
+            f"## 域内模块清单（共 {len(module_names)} 个，必须全部探索）",
+        ]
+        if core_modules:
+            parts.append("\n### 入口模块（优先查询调用链）")
+            for i, m in enumerate(core_modules, 1):
+                parts.append(f"{i}. `{m}`")
+        if other_modules:
+            parts.append("\n### 其他模块")
+            for i, m in enumerate(other_modules, 1):
+                parts.append(f"{i}. `{m}`")
+
+        if baseline_context:
+            parts.append(f"\n## 基线上下文\n{baseline_context[:8000]}")
+
+        if focus_modules:
+            parts.append(
+                f"\n## 重点探索模块\n"
+                f"你还需要重点探索以下模块：{', '.join(focus_modules)}"
+            )
+
+        return "\n".join(parts)
+
     async def generate(
         self,
         module_names: list[str],

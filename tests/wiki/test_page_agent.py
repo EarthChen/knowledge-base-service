@@ -4,7 +4,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wiki.page_agent import SINGLE_RESULT_LIMIT, WikiPageAgent, ToolResult, WorkingMemory
+from wiki.page_agent import (
+    SINGLE_RESULT_LIMIT,
+    ToolResult,
+    WikiPageAgent,
+    WorkingMemory,
+)
 
 
 class TestWorkingMemory:
@@ -659,6 +664,106 @@ class TestEnrichInterface:
             domain_name="用户管理",
         )
         assert isinstance(result, str)
+
+
+class TestExplore:
+    @pytest.mark.asyncio
+    async def test_explore_returns_working_memory(self):
+        mock_llm = MagicMock()
+        mock_graph = MagicMock()
+
+        mock_llm.complete_with_tools = AsyncMock(side_effect=[
+            {
+                "tool_calls": [
+                    {
+                        "id": "tc1",
+                        "function": {
+                            "name": "query_module_detail",
+                            "arguments": '{"name": "ModA"}',
+                        },
+                    }
+                ],
+                "content": None,
+            },
+            {"tool_calls": None, "content": "done exploring"},
+        ])
+
+        agent = WikiPageAgent(mock_llm, mock_graph, max_rounds=10, max_tool_calls=100)
+        agent._execute_tool = AsyncMock(return_value={
+            "name": "ModA",
+            "summary": "Module A handles user requests",
+            "methods": [{"name": "handle"}],
+        })
+
+        memory = await agent.explore(
+            module_names=["ModA"],
+            domain_name="test-domain",
+            baseline_context="ModA is a controller.",
+        )
+
+        assert isinstance(memory, WorkingMemory)
+        agent._execute_tool.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_explore_discards_llm_text(self):
+        mock_llm = MagicMock()
+        mock_graph = MagicMock()
+
+        mock_llm.complete_with_tools = AsyncMock(side_effect=[
+            {
+                "tool_calls": [
+                    {
+                        "id": "tc1",
+                        "function": {
+                            "name": "read_code",
+                            "arguments": '{"name": "ModA.handle"}',
+                        },
+                    }
+                ],
+                "content": "Let me analyze ModA...",
+            },
+            {"tool_calls": None, "content": "Here is a complete wiki page about ModA..."},
+        ])
+
+        agent = WikiPageAgent(mock_llm, mock_graph, max_rounds=10, max_tool_calls=100)
+        agent._execute_tool = AsyncMock(return_value={
+            "name": "ModA.handle",
+            "code": "public void handle() { service.process(); }",
+        })
+
+        memory = await agent.explore(
+            module_names=["ModA"],
+            domain_name="test-domain",
+            baseline_context="baseline",
+        )
+
+        assert isinstance(memory, WorkingMemory)
+        assert len(memory.code_snippets) >= 1
+
+    @pytest.mark.asyncio
+    async def test_explore_with_focus_modules(self):
+        mock_llm = MagicMock()
+        mock_graph = MagicMock()
+
+        mock_llm.complete_with_tools = AsyncMock(return_value={
+            "tool_calls": None,
+            "content": "done",
+        })
+
+        agent = WikiPageAgent(mock_llm, mock_graph, max_rounds=10, max_tool_calls=100)
+
+        memory = await agent.explore(
+            module_names=["ModA", "ModB"],
+            domain_name="test-domain",
+            baseline_context="baseline",
+            focus_modules=["ModB"],
+        )
+
+        all_content = " ".join(
+            str(m.get("content", "")) for m in mock_llm.complete_with_tools.call_args_list[0][0][0]
+            if isinstance(m, dict)
+        )
+        assert "ModB" in all_content
 
 
 class TestExplorePrompt:

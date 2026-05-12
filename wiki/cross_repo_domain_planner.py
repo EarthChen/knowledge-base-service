@@ -13,6 +13,7 @@ from store.schema import GraphNode
 from wiki.business_domain_planner import BusinessDomainPlanner
 from wiki.dependency_graph import HierarchicalDecomposer, ModuleGraph, ModuleInfo
 from wiki.json_robust import parse_json_robust_sync
+from wiki.path_conventions import normalize_slug
 from wiki.prompts import SYSTEM_JSON_ONLY
 
 if TYPE_CHECKING:
@@ -153,6 +154,7 @@ class CrossRepoBusinessDomainPlanner:
         pre_groups: list | None = None,
         *,
         anchor_context: str = "",
+        enriched_signals: dict | None = None,
     ) -> dict[str, list[tuple[str, str]]]:
         self._metadata_cache = self._build_metadata_cache(all_modules)
         pairs_in_order = self._all_pairs_in_order(all_modules)
@@ -169,6 +171,7 @@ class CrossRepoBusinessDomainPlanner:
                     pairs_in_order,
                     pre_groups=pre_groups,
                     anchor_context=anchor_context,
+                    enriched_signals=enriched_signals,
                 )
             return await self._classify_multi_batch(
                 business_id,
@@ -176,6 +179,7 @@ class CrossRepoBusinessDomainPlanner:
                 pairs_in_order,
                 pre_groups=pre_groups,
                 anchor_context=anchor_context,
+                enriched_signals=enriched_signals,
             )
         except Exception:
             log.warning(
@@ -191,6 +195,7 @@ class CrossRepoBusinessDomainPlanner:
         all_modules: dict[str, list[GraphNode]],
         *,
         anchor_context: str = "",
+        enriched_signals: dict | None = None,
         pinned_module_domains: dict[str, str] | None = None,
     ) -> tuple[dict[str, list[tuple[str, str]]], set[str]]:
         """Two-phase incremental domain classification.
@@ -256,6 +261,7 @@ class CrossRepoBusinessDomainPlanner:
                     new_pairs,
                     existing,
                     anchor_context=anchor_context,
+                    enriched_signals=enriched_signals,
                 )
                 break
             except Exception:
@@ -304,6 +310,7 @@ class CrossRepoBusinessDomainPlanner:
                     triage.reclassify_domains,
                     existing,
                     anchor_context=anchor_context,
+                    enriched_signals=enriched_signals,
                 )
                 break
             except Exception:
@@ -337,6 +344,7 @@ class CrossRepoBusinessDomainPlanner:
         existing: dict[str, list[tuple[str, str]]],
         *,
         anchor_context: str = "",
+        enriched_signals: dict | None = None,
     ) -> "_TriageResult":
         """Phase 1: lightweight LLM call to decide how to handle each new module."""
         assert self._llm is not None
@@ -352,10 +360,11 @@ class CrossRepoBusinessDomainPlanner:
 
         new_rows: list[dict[str, str]] = []
         for repo_id, name in new_pairs:
+            base = self._module_summary(repo_id, name)
             new_rows.append({
                 "repository": clean_repo_path(repo_id),
                 "name": name,
-                "summary": self._module_summary(repo_id, name),
+                "summary": base + self._enriched_signal_suffix(repo_id, name, enriched_signals),
             })
 
         anchor_section = f"{anchor_context}\n\n" if anchor_context else ""
@@ -512,6 +521,7 @@ class CrossRepoBusinessDomainPlanner:
         current_mapping: dict[str, list[tuple[str, str]]],
         *,
         anchor_context: str = "",
+        enriched_signals: dict | None = None,
     ) -> dict[str, list[tuple[str, str]]]:
         """Phase 2: reclassify only the affected domains' modules."""
         assert self._llm is not None
@@ -525,10 +535,11 @@ class CrossRepoBusinessDomainPlanner:
 
         rows: list[dict[str, str]] = []
         for repo_id, name in affected_pairs:
+            base = self._module_summary(repo_id, name)
             rows.append({
                 "repository": clean_repo_path(repo_id),
                 "name": name,
-                "summary": self._module_summary(repo_id, name),
+                "summary": base + self._enriched_signal_suffix(repo_id, name, enriched_signals),
             })
 
         unaffected = [
@@ -545,8 +556,11 @@ class CrossRepoBusinessDomainPlanner:
             f"Business ID: {business_id}\n\n"
             f"{anchor_section}"
             f"Modules:\n{json.dumps(rows, indent=2, ensure_ascii=False)}\n\n"
-            "Return ONLY valid JSON: an object whose keys are domain names and whose "
-            "values are arrays of [repository_id, module_name] pairs."
+            "Return ONLY valid JSON. Preferred: "
+            '{"domains": [{"domain_slug": "...", "domain_display_name": "...", '
+            '"modules": [["repository_id", "module_name"], ...]}]}. '
+            "Legacy: an object whose keys are domain names and whose values are arrays "
+            "of [repository_id, module_name] pairs."
         )
         if hasattr(self._llm, "complete_json"):
             messages = [
@@ -599,6 +613,37 @@ class CrossRepoBusinessDomainPlanner:
                 return val.strip()
         return ""
 
+    def _enriched_signal_suffix(
+        self,
+        repo_id: str,
+        module_name: str,
+        enriched_signals: dict[Any, Any] | None,
+    ) -> str:
+        if not enriched_signals:
+            return ""
+        signals: dict[str, Any] | None = None
+        for key in ((repo_id, module_name), (clean_repo_path(repo_id), module_name)):
+            raw = enriched_signals.get(key)
+            if isinstance(raw, dict):
+                signals = raw
+                break
+        if not signals:
+            return ""
+        parts: list[str] = []
+        km = signals.get("key_methods")
+        if isinstance(km, (list, tuple)) and km:
+            parts.append(f" [methods: {', '.join(str(x) for x in km[:3])}]")
+        cal = signals.get("callees")
+        if isinstance(cal, (list, tuple)) and cal:
+            parts.append(f" [calls: {', '.join(str(x) for x in cal[:3])}]")
+        try:
+            fan_in = int(signals.get("fan_in", 0) or 0)
+        except (TypeError, ValueError):
+            fan_in = 0
+        if fan_in > 2:
+            parts.append(f" [fan_in: {fan_in}]")
+        return "".join(parts)
+
     def _all_pairs_in_order(self, all_modules: dict[str, list[GraphNode]]) -> list[tuple[str, str]]:
         pairs: list[tuple[str, str]] = []
         for repo_id in sorted(all_modules.keys()):
@@ -618,6 +663,7 @@ class CrossRepoBusinessDomainPlanner:
         pre_groups: list | None = None,
         *,
         anchor_context: str = "",
+        enriched_signals: dict | None = None,
     ) -> dict[str, list[tuple[str, str]]]:
         assert self._llm is not None
         valid_pairs = set(pairs_in_order)
@@ -626,6 +672,7 @@ class CrossRepoBusinessDomainPlanner:
             pairs_in_order,
             pre_groups=pre_groups,
             anchor_context=anchor_context,
+            enriched_signals=enriched_signals,
         )
         if hasattr(self._llm, "complete_json"):
             messages = [
@@ -657,8 +704,10 @@ class CrossRepoBusinessDomainPlanner:
         pre_groups: list | None = None,
         *,
         anchor_context: str = "",
+        enriched_signals: dict | None = None,
     ) -> dict[str, list[tuple[str, str]]]:
         assert self._llm is not None
+        _ = enriched_signals
         valid_pairs = set(pairs_in_order)
         planner = BusinessDomainPlanner(self._llm, infrastructure_label=self._infrastructure_label)
         per_repo: dict[str, dict[str, list[str]]] = {}
@@ -717,17 +766,20 @@ class CrossRepoBusinessDomainPlanner:
         pre_groups: list | None = None,
         *,
         anchor_context: str = "",
+        enriched_signals: dict | None = None,
     ) -> str:
         rows: list[dict[str, str]] = []
         for repo_id, name in pairs_in_order:
             props = self._metadata_cache.get((repo_id, name), {})
             path = props.get("path")
             path_str = str(path) if path is not None else name
+            summary = self._module_summary(repo_id, name)
+            summary += self._enriched_signal_suffix(repo_id, name, enriched_signals)
             rows.append(
                 {
                     "repository": clean_repo_path(repo_id),
                     "name": name,
-                    "summary": self._module_summary(repo_id, name),
+                    "summary": summary,
                     "path": path_str,
                 }
             )
@@ -754,8 +806,19 @@ class CrossRepoBusinessDomainPlanner:
             f"{anchor_section}"
             f"Modules:\n{json.dumps(rows, indent=2, ensure_ascii=False)}\n\n"
             f"{pre_group_section}"
-            "Return ONLY valid JSON: an object whose keys are domain names and whose values are "
-            "arrays of [repository_id, module_name] pairs. Each module_name must match a "
+            "Return ONLY valid JSON. Preferred format: "
+            '{"domains": [\n'
+            "  {\n"
+            '    "domain_slug": "<kebab-case-ascii-slug>",\n'
+            '    "domain_display_name": "<human-readable name>",\n'
+            '    "modules": [["repository_id", "module_name"], ...]\n'
+            "  }\n"
+            "]}\n"
+            "Output format for each domain entry: "
+            "domain_slug (machine identifier), domain_display_name (label used for grouping), "
+            "and modules as [repository_id, module_name] pairs matching the input. "
+            "Legacy: an object whose keys are domain_display_name strings and whose values are "
+            "the same modules arrays; each module_name must match a "
             '"name" from the input for the given repository_id.'
         )
 
@@ -817,11 +880,44 @@ class CrossRepoBusinessDomainPlanner:
         )
 
     @staticmethod
+    def _map_from_domains_array(domains: list[Any]) -> dict[str, list[tuple[str, str]]]:
+        out: dict[str, list[tuple[str, str]]] = {}
+        for domain in domains:
+            if not isinstance(domain, dict):
+                continue
+            slug_norm = normalize_slug(
+                str(
+                    domain.get("slug")
+                    or domain.get("domain_slug")
+                    or domain.get("name")
+                    or ""
+                )
+            )
+            display = domain.get("domain_display_name") or domain.get("display_name") or ""
+            display_str = str(display).strip() if display else ""
+            if not display_str:
+                display_str = slug_norm if slug_norm != "unnamed" else "unnamed"
+            pairs: list[tuple[str, str]] = []
+            for item in domain.get("modules") or []:
+                if isinstance(item, (list, tuple)) and len(item) == 2:
+                    a, b = item
+                    if isinstance(a, str) and isinstance(b, str) and a and b:
+                        pairs.append((a, b))
+            if pairs:
+                out.setdefault(display_str, []).extend(pairs)
+        return out
+
+    @staticmethod
     def _cross_repo_map_from_dict(data: Any) -> dict[str, list[tuple[str, str]]]:
         if not isinstance(data, dict):
             return {}
+        domains = data.get("domains")
+        if isinstance(domains, list) and domains:
+            return CrossRepoBusinessDomainPlanner._map_from_domains_array(domains)
         out: dict[str, list[tuple[str, str]]] = {}
         for k, v in data.items():
+            if k == "domains":
+                continue
             if not isinstance(k, str):
                 continue
             if not isinstance(v, list):

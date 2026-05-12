@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import os
+import re
 import time as _time
 from datetime import UTC, datetime
 from typing import Any
@@ -578,10 +579,16 @@ class WikiPersistence:
             os.path.join(os.path.dirname(__file__), "..", "data", "checkpoints"),
         )
 
+    @staticmethod
+    def _sanitize_business_id(business_id: str) -> str:
+        """Sanitize business_id to prevent path traversal attacks."""
+        return re.sub(r"[^a-zA-Z0-9_\-]", "_", business_id)
+
     def _get_checkpoint_db_path(self, business_id: str) -> str:
         """SQLite DB path for LangGraph checkpoints for this business."""
         os.makedirs(self._checkpoint_dir, exist_ok=True)
-        return os.path.join(self._checkpoint_dir, f"{business_id}_wiki.db")
+        safe_id = self._sanitize_business_id(business_id)
+        return os.path.join(self._checkpoint_dir, f"{safe_id}_wiki.db")
 
     async def get_checkpoint_info(self, business_id: str) -> dict[str, Any] | None:
         """Return checkpoint file metadata or None when no SQLite DB exists yet."""
@@ -637,38 +644,73 @@ class WikiPersistence:
     async def pin_module_to_domain(
         self, business_id: str, module_name: str, domain_slug: str
     ) -> None:
-        """Pin a module to a specific domain (user override)."""
+        """Pin a module to a specific domain (user override).
+
+        Scoped via DomainAnchor.business_id to prevent cross-tenant mutations.
+        """
         cypher = (
+            "MATCH (d:DomainAnchor {business_id: $bid, slug: $slug}) "
             "MATCH (m:Module {name: $name}) "
+            "MERGE (m)-[:BELONGS_TO_DOMAIN]->(d) "
             "SET m.domain_slug = $slug, m.domain_pinned = true"
         )
         await self._store.execute_query(
-            cypher, {"name": module_name, "slug": domain_slug}
+            cypher, {"bid": business_id, "name": module_name, "slug": domain_slug}
         )
 
     async def unpin_module(self, business_id: str, module_name: str) -> None:
-        """Remove pinned status from a module."""
+        """Remove pinned status from a module.
+
+        Scoped via DomainAnchor.business_id to prevent cross-tenant mutations.
+        """
         cypher = (
-            "MATCH (m:Module {name: $name}) "
+            "MATCH (m:Module {name: $name, domain_pinned: true})"
+            "-[:BELONGS_TO_DOMAIN]->(d:DomainAnchor {business_id: $bid}) "
             "SET m.domain_pinned = false "
             "REMOVE m.domain_slug"
         )
-        await self._store.execute_query(cypher, {"name": module_name})
+        await self._store.execute_query(
+            cypher, {"bid": business_id, "name": module_name}
+        )
 
     async def list_pinned_modules(self, business_id: str) -> list[dict]:
-        """Return all pinned modules: [{module_name, domain_slug}]."""
+        """Return all pinned modules scoped to a business.
+
+        Joins through DomainAnchor to enforce business_id boundary.
+        """
         cypher = (
-            "MATCH (m:Module {domain_pinned: true}) "
+            "MATCH (m:Module {domain_pinned: true})"
+            "-[:BELONGS_TO_DOMAIN]->(d:DomainAnchor {business_id: $bid}) "
             "RETURN m.name AS module_name, m.domain_slug AS domain_slug "
             "ORDER BY domain_slug, module_name"
         )
-        result = await self._store.execute_query(cypher, {})
+        result = await self._store.execute_query(cypher, {"bid": business_id})
         return result.data if result.data else []
 
     async def save_domain_classification(
         self, business_id: str, mapping: dict
     ) -> None:
-        """Persist classification: upsert anchors + link modules to domains."""
+        """Persist classification: clear stale edges, upsert anchors, link modules.
+
+        Removes old BELONGS_TO_DOMAIN edges for affected modules before
+        creating new ones, preventing stale assignments from lingering.
+        """
+        all_module_keys: list[tuple[str, str]] = []
+        for info in mapping.values():
+            all_module_keys.extend(info.get("modules", []))
+
+        if all_module_keys:
+            clear_cypher = (
+                "UNWIND $keys AS k "
+                "MATCH (m:Module {name: k[1], repository: k[0]})"
+                "-[r:BELONGS_TO_DOMAIN]->(d:DomainAnchor {business_id: $bid}) "
+                "DELETE r"
+            )
+            await self._store.execute_query(
+                clear_cypher,
+                {"keys": [list(k) for k in all_module_keys], "bid": business_id},
+            )
+
         for slug, info in mapping.items():
             display_name = info.get("display_name", slug)
             await self.upsert_domain_anchor(business_id, slug, display_name)

@@ -52,7 +52,7 @@ class TestStorageDomainMethods:
 
     @pytest.mark.asyncio
     async def test_pin_module_to_domain(self, mock_graph_store):
-        """pin_module_to_domain should set domain_pinned=true on the Module node."""
+        """pin_module_to_domain should scope via DomainAnchor.business_id."""
         from wiki.persistence import WikiPersistence
         p = WikiPersistence(mock_graph_store)
         
@@ -61,19 +61,23 @@ class TestStorageDomainMethods:
         call_args = mock_graph_store.execute_query.call_args
         cypher = call_args[0][0] if call_args[0] else call_args[1].get("query", "")
         assert "domain_pinned" in cypher
+        assert "business_id" in cypher or "bid" in str(call_args)
 
     @pytest.mark.asyncio
     async def test_unpin_module(self, mock_graph_store):
-        """unpin_module should remove domain_pinned flag."""
+        """unpin_module should scope via DomainAnchor.business_id."""
         from wiki.persistence import WikiPersistence
         p = WikiPersistence(mock_graph_store)
         
         await p.unpin_module("biz1", "com.example.Svc")
         mock_graph_store.execute_query.assert_called_once()
+        call_args = mock_graph_store.execute_query.call_args
+        params = call_args[0][1] if len(call_args[0]) > 1 else call_args[1]
+        assert params.get("bid") == "biz1"
 
     @pytest.mark.asyncio
     async def test_list_pinned_modules(self, mock_graph_store):
-        """list_pinned_modules should return all pinned modules."""
+        """list_pinned_modules should scope via DomainAnchor.business_id."""
         from wiki.persistence import WikiPersistence
         p = WikiPersistence(mock_graph_store)
         
@@ -83,10 +87,13 @@ class TestStorageDomainMethods:
         result = await p.list_pinned_modules("biz1")
         assert len(result) == 1
         assert result[0]["module_name"] == "com.example.Svc"
+        call_args = mock_graph_store.execute_query.call_args
+        params = call_args[0][1] if len(call_args[0]) > 1 else call_args[1]
+        assert params.get("bid") == "biz1"
 
     @pytest.mark.asyncio
-    async def test_save_domain_classification(self, mock_graph_store):
-        """save_domain_classification should persist domain mapping for modules."""
+    async def test_save_domain_classification_clears_stale_edges(self, mock_graph_store):
+        """save_domain_classification should clear old BELONGS_TO_DOMAIN before linking."""
         from wiki.persistence import WikiPersistence
         p = WikiPersistence(mock_graph_store)
         
@@ -98,4 +105,25 @@ class TestStorageDomainMethods:
             }
         }
         await p.save_domain_classification("biz1", mapping)
-        assert mock_graph_store.execute_query.call_count >= 1
+        # First call: clear stale edges; then upsert + link
+        assert mock_graph_store.execute_query.call_count >= 2
+        first_cypher = mock_graph_store.execute_query.call_args_list[0][0][0]
+        assert "DELETE" in first_cypher
+
+    @pytest.mark.asyncio
+    async def test_save_domain_classification_empty_mapping(self, mock_graph_store):
+        """save_domain_classification with empty mapping should not crash."""
+        from wiki.persistence import WikiPersistence
+        p = WikiPersistence(mock_graph_store)
+        
+        await p.save_domain_classification("biz1", {})
+        # No modules → no clear call needed, no upsert calls
+        assert mock_graph_store.execute_query.call_count == 0
+
+    def test_sanitize_business_id_path_traversal(self):
+        """business_id with path traversal chars should be sanitized."""
+        from wiki.persistence import WikiPersistence
+        result = WikiPersistence._sanitize_business_id("../../../etc")
+        assert ".." not in result and "/" not in result
+        assert WikiPersistence._sanitize_business_id("normal-biz_1") == "normal-biz_1"
+        assert WikiPersistence._sanitize_business_id("biz/secret") == "biz_secret"

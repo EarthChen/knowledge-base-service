@@ -137,6 +137,7 @@ export function useRenameDomain(businessId: string) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["domains", businessId] });
+      void qc.invalidateQueries({ queryKey: ["pinned-modules", businessId] });
     },
   });
 }

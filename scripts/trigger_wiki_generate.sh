@@ -147,7 +147,7 @@ if [ -n "$MGMT_CMD" ]; then
       ;;
     resume)
       echo "Resuming wiki generation (incremental) for business: ${BUSINESS_ID}"
-      BODY=$(python3 -c "import json; print(json.dumps({'business_id':'${BUSINESS_ID}','language':'${LANGUAGE}','incremental':True,'mode':'full'}))")
+      BODY=$(python3 -c "import json,sys; print(json.dumps({'business_id':sys.argv[1],'language':sys.argv[2],'incremental':True,'mode':'full'}))" "$BUSINESS_ID" "$LANGUAGE")
       curl -s -m "$TIMEOUT" -X POST \
         -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \
@@ -158,7 +158,7 @@ if [ -n "$MGMT_CMD" ]; then
       DOMAIN_SLUG="${1:?Domain slug required}"
       shift
       echo "Regenerating domain: ${DOMAIN_SLUG} for business: ${BUSINESS_ID}"
-      BODY=$(python3 -c "import json,sys; print(json.dumps({'business_id':'${BUSINESS_ID}','language':'${LANGUAGE}','domain_slug':sys.argv[1],'mode':'full'}))" "$DOMAIN_SLUG")
+      BODY=$(python3 -c "import json,sys; print(json.dumps({'business_id':sys.argv[1],'language':sys.argv[2],'domain_slug':sys.argv[3],'mode':'full'}))" "$BUSINESS_ID" "$LANGUAGE" "$DOMAIN_SLUG")
       curl -s -m "$TIMEOUT" -X POST \
         -H "$AUTH_HEADER" \
         -H "Content-Type: application/json" \

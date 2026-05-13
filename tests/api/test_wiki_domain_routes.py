@@ -19,7 +19,7 @@ def _open_access_no_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.asyncio
 async def test_list_domain_modules_endpoint() -> None:
     """GET …/domains/{slug}/modules returns modules list via persistence."""
-    modules = [{"module_name": "Payments", "path": "app/payments"}]
+    modules = [{"name": "Payments", "repository": "my-repo", "path": "app/payments", "pinned": False}]
     mock_p = AsyncMock()
     mock_p.list_domain_modules = AsyncMock(return_value=modules)
 

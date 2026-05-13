@@ -811,7 +811,9 @@ class CrossRepoBusinessDomainPlanner:
         anchor_section = f"{anchor_context}\n\n" if anchor_context else ""
         return (
             "Classify the following modules from multiple repositories into business domains.\n"
-            "Use short, human-readable domain names (e.g. product areas).\n"
+            "Use short Chinese business domain names that describe capabilities "
+            "(e.g. '礼物订单', 'IM消息', '用户关系', '直播互动').\n"
+            "NEVER use code identifiers (class names, method names) as domain names.\n"
             "Place shared utilities, cross-cutting helpers, or generic support modules under "
             f'the domain key "{self._infrastructure_label}" when appropriate.\n\n'
             f"Business ID: {business_id}\n\n"
@@ -822,12 +824,13 @@ class CrossRepoBusinessDomainPlanner:
             '{"domains": [\n'
             "  {\n"
             '    "domain_slug": "<kebab-case-ascii-slug>",\n'
-            '    "domain_display_name": "<human-readable name>",\n'
+            '    "domain_display_name": "<short Chinese name>",\n'
             '    "modules": [["repository_id", "module_name"], ...]\n'
             "  }\n"
             "]}\n"
             "Output format for each domain entry: "
-            "domain_slug (machine identifier), domain_display_name (label used for grouping), "
+            "domain_slug (machine identifier, kebab-case ASCII), "
+            "domain_display_name (short Chinese business capability name for display), "
             "and modules as [repository_id, module_name] pairs matching the input. "
             "Legacy: an object whose keys are domain_display_name strings and whose values are "
             "the same modules arrays; each module_name must match a "

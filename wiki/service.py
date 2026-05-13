@@ -1141,12 +1141,14 @@ class WikiService:
             except Exception:
                 log.warning("persist_pipeline_domain_tree_failed", business_id=business_id, exc_info=True)
 
+        domain_display_names = pipeline_result.domain_display_names
         for domain_name, repo_module_pairs in domain_mapping.items():
             section_uid = tree_builder.generate_domain_section_uid(business_id, domain_name)
+            section_title = domain_display_names.get(domain_name, domain_name)
             await self._wiki_store.upsert_wiki_section(
                 uid=section_uid,
-                title=domain_name,
-                description=f"Business domain: {domain_name}",
+                title=section_title,
+                description=f"Business domain: {section_title}",
                 section_type="business_domain",
                 sort_order=sort_idx,
                 auto_generated=True,

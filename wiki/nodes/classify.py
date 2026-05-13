@@ -26,6 +26,39 @@ from wiki.reasoning import TaskType, select_reasoning_level
 log = get_logger(__name__)
 
 
+def _ensure_ascii_keys(
+    domain_mapping: dict[str, list],
+    domain_display_names: dict[str, str],
+) -> tuple[dict[str, list], dict[str, str]]:
+    """Normalize domain_mapping keys to ASCII slugs.
+
+    Non-ASCII keys (e.g. Chinese names) are replaced with normalize_slug output
+    or an indexed fallback. Original names are preserved in domain_display_names.
+    """
+    result: dict[str, list] = {}
+    updated_display = dict(domain_display_names)
+    unnamed_counter = 0
+
+    for key, pairs in domain_mapping.items():
+        if key.isascii() and key.strip():
+            result[key] = pairs
+            continue
+        ascii_slug = normalize_slug(key)
+        if not ascii_slug or ascii_slug == "unnamed" or ascii_slug in result:
+            unnamed_counter += 1
+            ascii_slug = f"domain-{unnamed_counter:02d}"
+        updated_display.setdefault(ascii_slug, key)
+        result[ascii_slug] = pairs
+
+    if result != domain_mapping:
+        log.info(
+            "domain_keys_normalized",
+            original_count=len(domain_mapping),
+            normalized_count=len(result),
+        )
+    return result, updated_display
+
+
 async def classify_entities_node(state: dict[str, Any]) -> dict[str, Any]:
     """Phase 1: classify all entities using EntityRoleClassifier."""
     classifier = EntityRoleClassifier()
@@ -283,6 +316,10 @@ async def classify_domains_node(
                 domain_display_names.update(updated_display)
         except Exception:
             log.warning("domain_stabilizer_failed", exc_info=True)
+
+    domain_mapping, domain_display_names = _ensure_ascii_keys(
+        domain_mapping, domain_display_names
+    )
 
     log.info(
         "classify_domains_done",

@@ -187,9 +187,16 @@ class TestComposeDomainAgentsNode:
 
 
 def test_error_placeholder_uses_domain_overview_path():
+    domain = {"name": "gift-system", "modules": ["ModA"]}
+    page = _make_error_placeholder(domain, RuntimeError("timeout"))
+    assert page["path"] == "/__domains__/gift-system/_overview"
+    assert page["page_type"] == "domain_overview"
+
+
+def test_error_placeholder_with_cjk_name_normalizes_to_unnamed():
     domain = {"name": "挚友关系管理", "modules": ["ModA"]}
     page = _make_error_placeholder(domain, RuntimeError("timeout"))
-    assert page["path"] == "/__domains__/挚友关系管理/_overview"
+    assert page["path"] == "/__domains__/unnamed/_overview"
     assert page["page_type"] == "domain_overview"
 
 

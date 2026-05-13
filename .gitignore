@@ -21,3 +21,6 @@ static/
 
 # Node.js
 dashboard/node_modules/
+
+# Playwright MCP artifacts
+.playwright-mcp/

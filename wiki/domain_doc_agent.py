@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from core.log import get_logger
+from wiki.agents.doc_orchestrator import DocOrchestrator, QualityResult
 from wiki.page_agent import WikiPageAgent, WorkingMemory
 from wiki.quality_report import evaluate_quality
 
@@ -144,7 +145,7 @@ def _make_page(content: str, slug: str, display_name: str = "") -> dict[str, Any
     }
 
 
-class DomainDocAgent:
+class DomainDocAgent(DocOrchestrator):
     """Per-domain agent: skeleton-first, then progressive enrichment."""
 
     def __init__(
@@ -159,10 +160,9 @@ class DomainDocAgent:
         repo_paths: dict[str, str] | None = None,
         search_service: Any | None = None,
     ) -> None:
-        self.domain_name = domain_name
-        self.domain_display_name = domain_display_name or domain_name
-        self._repo_paths = repo_paths or {}
-        self._page_agent = WikiPageAgent(
+        from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM, AGENT_WRITE_SYSTEM
+
+        page_agent = WikiPageAgent(
             llm,
             graph_store,
             max_rounds=20,
@@ -170,10 +170,22 @@ class DomainDocAgent:
             repo_path=repo_path,
             search_service=search_service,
         )
-        self._max_iterations = max_iterations
+        super().__init__(
+            agent=page_agent,
+            name=domain_name,
+            max_iterations=max_iterations,
+            explore_system_prompt=AGENT_EXPLORE_SYSTEM.format(max_rounds=20),
+            write_system_prompt=AGENT_WRITE_SYSTEM,
+        )
+        self.domain_name = domain_name
+        self.domain_display_name = domain_display_name or domain_name
+        self._repo_paths = repo_paths or {}
+        self._page_agent = page_agent
         self.iteration_history: list[dict[str, Any]] = []
 
-    async def _pre_fill_snippets(self, memory: WorkingMemory, module_names: list[str]) -> None:
+    # --- Hook 1: pre_fill ---
+    async def pre_fill(self, memory: Any, module_names: list[str]) -> None:
+        """Seed code snippets from graph before exploration."""
         graph = self._page_agent._graph
         if not graph or not module_names:
             return
@@ -185,9 +197,9 @@ class DomainDocAgent:
                 func_name = str(row.get("func_name", ""))
                 snippet = str(row.get("snippet", "")).strip()
                 file_path = str(row.get("file_path", ""))
-                if snippet:
+                if snippet and hasattr(memory, "code_snippets"):
                     memory.code_snippets.append(f"[{func_name} @ {file_path}]\n{snippet}")
-            if not memory.code_snippets:
+            if hasattr(memory, "code_snippets") and not memory.code_snippets:
                 result = await graph.execute_query(CHUNK_SNIPPETS_CY, {"names": module_names})
                 for row in (getattr(result, "data", None) or []):
                     entity_name = str(row.get("entity_name", ""))
@@ -198,6 +210,58 @@ class DomainDocAgent:
                             break
         except Exception:
             log.warning("pre_fill_snippets_failed", domain=self.domain_name, exc_info=True)
+
+    # --- Hook 2: evaluate ---
+    async def evaluate(self, content: str, module_names: list[str]) -> QualityResult:
+        """Evaluate generated content quality via coverage + citation metrics."""
+        qr = evaluate_quality(content, module_names)
+        return QualityResult(
+            coverage=qr.coverage,
+            citation_density=qr.citation_density,
+            context_gap_count=qr.context_gap_count,
+            uncovered_modules=qr.uncovered_modules,
+        )
+
+    # --- Hook 3: is_acceptable ---
+    def is_acceptable(self, quality: QualityResult, iteration: int) -> bool:
+        """Determine if quality is good enough to stop iterating."""
+        if (
+            quality.coverage >= 0.95
+            and quality.citation_density >= 0.5
+            and quality.context_gap_count == 0
+        ):
+            return True
+        if iteration >= 2 and quality.coverage >= 0.9 and quality.citation_density >= 0.3:
+            return True
+        if iteration >= 3:
+            return True
+        return False
+
+    # --- Hook 4: post_process ---
+    def post_process(
+        self, content: str, module_names: list[str], memory: Any
+    ) -> list[dict[str, Any]]:
+        """Structure output into page dicts with optional splitting."""
+        if not content:
+            content = self._page_agent._generate_skeleton(module_names, self.domain_name)
+
+        pages = _maybe_split(content, self.domain_name, self.domain_display_name)
+
+        if hasattr(memory, "discovered_entity_uids") and memory.discovered_entity_uids:
+            entity_uids = list(memory.discovered_entity_uids)
+            log.info(
+                "entity_uids_from_explore",
+                domain=self.domain_name,
+                uid_count=len(entity_uids),
+            )
+            for page in pages:
+                page["covered_entity_uids"] = entity_uids
+        return pages
+
+    # --- Backward-compatible internal helper (renamed from _pre_fill_snippets) ---
+    async def _pre_fill_snippets(self, memory: WorkingMemory, module_names: list[str]) -> None:
+        """Backward compat: delegates to pre_fill hook."""
+        await self.pre_fill(memory, module_names)
 
     async def generate_with_iterations(
         self,

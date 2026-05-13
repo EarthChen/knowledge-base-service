@@ -24,7 +24,7 @@ import { getErrorMessage } from "../../utils/errorUtils";
 import WikiCallChainSection from "./WikiCallChainSection";
 import { RelatedPages } from "./RelatedPages";
 import MobileTocBar from "./MobileTocBar";
-import WikiSourceLocRow from "./WikiSourceLocRow";
+
 import { WikiVersionPicker } from "./WikiVersionPicker";
 import { ConfidenceBadge } from "./ConfidenceBadge";
 import { useI18n } from "../../i18n/context";
@@ -340,7 +340,6 @@ export default function WikiContent({
               wikiLinkParams={wikiLinkParams}
             />
 
-            <WikiSourceLocRow repository={repository} sourceLocations={detail.source_locations ?? []} />
 
             {detail && (
               <WikiCallChainSection repository={repository} detail={detail} wikiLinkParams={wikiLinkParams} />

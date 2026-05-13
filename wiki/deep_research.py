@@ -18,9 +18,14 @@ class DeepResearchService:
         self,
         rag_engine: Any,
         llm: _LLMDecomposePort | Any | None = None,
+        *,
+        agent: Any | None = None,
+        agent_mode: bool = True,
     ) -> None:
         self._engine = rag_engine
         self._llm = llm
+        self._agent = agent
+        self._use_agent = agent is not None
 
     async def decompose_question(self, question: str) -> list[str]:
         """Break a complex question into sub-questions (LLM when configured, else heuristic)."""
@@ -73,6 +78,13 @@ class DeepResearchService:
         except Exception:
             return "\n\n".join(sub_answers)
 
+    async def _research_with_agent(self, question: str) -> dict[str, Any]:
+        """Agent-based research using ResearchOrchestrator."""
+        from wiki.agents.research_orchestrator import ResearchOrchestrator
+
+        orchestrator = ResearchOrchestrator(agent=self._agent)
+        return await orchestrator.research(question)
+
     async def research(
         self,
         question: str,
@@ -82,6 +94,8 @@ class DeepResearchService:
         max_depth: int = 3,
     ) -> dict[str, Any]:
         """Decompose, run iterative RAG per sub-question, then synthesize."""
+        if self._use_agent:
+            return await self._research_with_agent(question)
         _ = max_depth  # reserved for future depth-limited decomposition
         sub_questions = await self.decompose_question(question)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -348,10 +349,21 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
             conversation_store=conv_store,
         )
         from wiki.deep_research import DeepResearchService
+        from wiki.page_agent import WikiPageAgent as _ResearchPageAgent
+
+        _research_agent = _ResearchPageAgent(
+            wrapped_llm,
+            kb.store,
+            max_rounds=8,
+            max_tool_calls=40,
+            repo_path=os.environ.get("REPO_PATH"),
+            search_service=wiki_search,
+        )
 
         app.state.wiki_deep_research_service = DeepResearchService(
             rag_engine=rag_engine,
             llm=wrapped_llm,
+            agent=_research_agent,
         )
 
         async def wiki_ask_service_for_business(business_id: str) -> WikiAskService:
@@ -379,7 +391,19 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
                 retriever=WikiRetriever(biz_search),
                 llm=wrapped_llm,
             )
-            return DeepResearchService(rag_engine=biz_rag, llm=wrapped_llm)
+            biz_research_agent = _ResearchPageAgent(
+                wrapped_llm,
+                kb.store,
+                max_rounds=8,
+                max_tool_calls=40,
+                repo_path=os.environ.get("REPO_PATH"),
+                search_service=biz_search,
+            )
+            return DeepResearchService(
+                rag_engine=biz_rag,
+                llm=wrapped_llm,
+                agent=biz_research_agent,
+            )
 
         app.state.wiki_deep_research_for_business = wiki_deep_research_for_business
     else:

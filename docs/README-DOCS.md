@@ -25,8 +25,8 @@
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | **开发者指南**：仓库目录、`uv`/`pnpm`、测试命令、扩展语言与 MCP、本地调试惯例。 |
 | [`ONBOARDING.md`](ONBOARDING.md) | **产品与上手**：功能地图、首次索引、仪表盘与 MCP 客户端配置心智模型。 |
 | [`wiki-generation-architecture.md`](wiki-generation-architecture.md) | **Wiki 生成架构**：管道阶段、增量 Ingest、LLM Wiki v2（置信度、矛盾、主张、记忆层）、与异步任务/新鲜度 API 的关系。 |
-| ~~[`KNOWN-ISSUES.md`](KNOWN-ISSUES.md)~~ | 已合并至 `specs/2026-05-12-agent-wiki-quality-and-tree-fix.md` §3，文件已删除。 |
-| [`REMAINING-WORK.md`](REMAINING-WORK.md) | **统一剩余工作清单**：引用 `specs/2026-05-12-agent-wiki-quality-and-tree-fix.md` 作为唯一活跃提案。 |
+| ~~[`KNOWN-ISSUES.md`](KNOWN-ISSUES.md)~~ | 已合并至历史提案，文件已删除。 |
+| [`REMAINING-WORK.md`](REMAINING-WORK.md) | **统一剩余工作清单**：独立积压项（语言插件、文档注入、死代码清理等）。 |
 
 ---
 
@@ -44,8 +44,12 @@
 | ~~`specs/2026-05-11-graph-decomposition-and-imports-fix-design.md`~~ | (已实现并移除) 图分解优化与 IMPORTS 边修复 — 设计要点已固化至 `indexer/code_graph_builder.py`、`store/falkordb_reads.py`、`wiki/graph_module_decomposer.py`。 |
 | ~~`specs/2026-05-11-agent-driven-business-wiki-design.md`~~ | (已实现并移除) Agent 驱动的业务 Wiki 生成（Phase 0-4 ✅）— 架构设计已固化至 `wiki/domain_doc_agent.py`、`wiki/nodes/domain_compose.py`、`wiki/pipeline_graph.py`、`wiki/agent_prompts.py`；遗留项已迁移至下方统一提案。 |
 | ~~`specs/2026-05-11-incremental-wiki-update-design.md`~~ | (已实现并移除) 增量 Wiki 更新设计 — 设计要点已固化至 `wiki/incremental_diff.py`、`wiki/nodes/domain_compose.py`、`wiki/pipeline_orchestrator.py`。 |
-| [`specs/2026-05-12-agent-wiki-quality-and-tree-fix.md`](superpowers/specs/2026-05-12-agent-wiki-quality-and-tree-fix.md) | **唯一活跃统一提案**：Task A-F ✅；**域分类 v2 核心已实现**（T1 slug全链路 + T3-T9 信号/锚点/持久化/质量 ✅）；**待实现**：T2 存储层方法 + T10-T12 Dashboard API/UI/脚本。 |
+| ~~`specs/2026-05-12-agent-wiki-quality-and-tree-fix.md`~~ | (已归档并删除) Task A-G ✅；遗留项已完成。 |
+| ~~`specs/2026-05-13-wiki-agent-real-code-and-domain-mgmt.md`~~ | (已完成并删除) S1-S3 代码片段虚构修复 + T2/T10/T11/T12 域管理补全 ✅。 |
 | [`specs/2026-05-12-multi-view-wiki-structure-idea.md`](superpowers/specs/2026-05-12-multi-view-wiki-structure-idea.md) | **构想记录**：多视图 Wiki 结构（域/仓库/技术文档）、域概览/主题内容定位、Agent 组件抽象化。P3 待后续提案。 |
+| ~~`specs/2026-05-13-unified-agent-abstraction.md`~~ | (已完成并删除) **统一 Agent 抽象架构** Phase 1-5 全部完成 ✅；固化至 `wiki/agents/` 包。 |
+| ~~`plans/2026-05-13-unified-agent-abstraction-*.md`~~ | (已完成并删除) Phase 1-5 实施计划全部完成。 |
+| ~~`specs/20260513_142349_code-block-verifier.md`~~ | (已完成并删除) **代码块真实性保障**：混合验证模式 ✅；固化至 `wiki/code_block_verifier.py` + `DocOrchestrator._verify_code_blocks`。 |
 
 ---
 

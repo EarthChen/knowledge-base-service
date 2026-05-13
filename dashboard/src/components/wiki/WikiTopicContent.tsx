@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import EntityCardsPanel from "./EntityCardsPanel";
-import WikiSourceLocRow from "./WikiSourceLocRow";
+
 import { useI18n } from "../../i18n/context";
 import type { WikiSourceLocation } from "../../hooks/wikiTypes";
 
@@ -174,9 +174,7 @@ export default function WikiTopicContent({
       {businessId ? (
         <EntityCardsPanel pagePath={page.path} businessId={businessId} repository={repository} />
       ) : null}
-      {repository && page.source_locations?.length ? (
-        <WikiSourceLocRow repository={repository} sourceLocations={page.source_locations} />
-      ) : null}
+      {/* source_locations section removed – only related code snippets are shown */}
     </article>
   );
 }

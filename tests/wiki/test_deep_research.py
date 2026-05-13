@@ -53,3 +53,31 @@ async def test_research_calls_engine_for_sub_questions():
     assert calls[0][0] == "How does X work?"
     assert getattr(calls[0][1], "repository", None) == "test-repo"
     assert result["sub_answers"][0] == "sub-answer"
+
+
+@pytest.mark.asyncio
+async def test_research_uses_agent_when_provided():
+    """When agent is provided, always delegates to ResearchOrchestrator."""
+    from tests.wiki.agents.test_base_agent import ConcreteAgent
+
+    mock_llm = MagicMock()
+    mock_llm.generate = AsyncMock(side_effect=[
+        "sub q1\nsub q2",        # decompose
+        "answer 1",              # answer_sub_question 1
+        "answer 2",              # answer_sub_question 2
+        "synthesized answer",    # synthesize
+    ])
+    mock_llm.complete_with_tools = AsyncMock(return_value={"tool_calls": None, "content": "done"})
+
+    agent = ConcreteAgent(mock_llm, max_rounds=2)
+
+    service = DeepResearchService(
+        rag_engine=MagicMock(),
+        llm=None,
+        agent=agent,
+    )
+    result = await service.research(question="How does X work?")
+
+    assert result["question"] == "How does X work?"
+    assert len(result["sub_questions"]) == 2
+    assert result["synthesis"] == "synthesized answer"

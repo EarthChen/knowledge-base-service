@@ -156,10 +156,12 @@ class DomainDocAgent:
         domain_display_name: str = "",
         max_iterations: int = 20,
         repo_path: str | None = None,
+        repo_paths: dict[str, str] | None = None,
         search_service: Any | None = None,
     ) -> None:
         self.domain_name = domain_name
         self.domain_display_name = domain_display_name or domain_name
+        self._repo_paths = repo_paths or {}
         self._page_agent = WikiPageAgent(
             llm,
             graph_store,

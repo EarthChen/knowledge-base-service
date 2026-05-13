@@ -120,11 +120,15 @@ class TestComposeDomainAgentsNode:
             "module_summaries": {},
             "errors": [],
         }
+        repo_paths = {
+            "my-repo": "/tmp/repos/my-repo",
+            "other-repo": "/tmp/repos/other",
+        }
         config = {
             "configurable": {
                 "llm": MagicMock(),
                 "graph_store": MagicMock(),
-                "repo_paths": {"my-repo": "/tmp/repos/my-repo"},
+                "repo_paths": repo_paths,
             },
         }
 
@@ -140,6 +144,7 @@ class TestComposeDomainAgentsNode:
 
         MockAgent.assert_called_once()
         assert MockAgent.call_args.kwargs.get("repo_path") == "/tmp/repos/my-repo"
+        assert MockAgent.call_args.kwargs.get("repo_paths") == repo_paths
 
 
 def test_error_placeholder_uses_domain_overview_path():

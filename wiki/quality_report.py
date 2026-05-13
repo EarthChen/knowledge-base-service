@@ -13,6 +13,8 @@ _CONTEXT_GAP_RE = re.compile(r"<!--\s*CONTEXT_GAP\s*:")
 _MERMAID_BLOCK_RE = re.compile(r"```mermaid\n[\s\S]*?```")
 _WIKILINK_RE = re.compile(r"\[\[.+?\]\]")
 _INLINE_CODE_RE = re.compile(r"`[A-Z][a-zA-Z0-9]+(?:\.[a-zA-Z]\w*\(\))?`")
+_H3_HEADING_RE = re.compile(r"^### (.+)", re.MULTILINE)
+_CODE_REF_RE = re.compile(r"<!-- CODE_REF:\s*(\S+)")
 
 
 @dataclass(frozen=True)
@@ -23,6 +25,7 @@ class QualityReport:
     uncovered_modules: list[str] = field(default_factory=list)
     visual_aids_count: int = 0
     cross_ref_density: float = 0.0
+    implementation_depth: float = 0.0
 
     @property
     def is_acceptable(self) -> bool:
@@ -40,10 +43,25 @@ def _count_module_inline_refs(content: str, module_names: list[str]) -> int:
     return ref_count
 
 
+def _calc_implementation_depth(content: str, module_names: list[str]) -> float:
+    if not module_names:
+        return 1.0
+    h3_headings = set(_H3_HEADING_RE.findall(content))
+    code_refs = set(_CODE_REF_RE.findall(content))
+    all_markers = h3_headings | code_refs
+    detailed = 0
+    for m in module_names:
+        short = m.rsplit(".", 1)[-1] if "." in m else m
+        if any(short.lower() in marker.lower() for marker in all_markers):
+            detailed += 1
+    return detailed / len(module_names)
+
+
 def evaluate_quality(content: str, module_names: list[str]) -> QualityReport:
     if not module_names:
         return QualityReport(
             coverage=1.0, citation_density=0.0, context_gap_count=0,
+            implementation_depth=1.0,
         )
 
     content_lower = content.lower()
@@ -62,6 +80,8 @@ def evaluate_quality(content: str, module_names: list[str]) -> QualityReport:
     wikilink_count = len(_WIKILINK_RE.findall(content))
     cross_ref = wikilink_count / len(module_names) if module_names else 0.0
 
+    impl_depth = _calc_implementation_depth(content, module_names)
+
     return QualityReport(
         coverage=round(coverage, 4),
         citation_density=round(citation_density, 4),
@@ -69,4 +89,5 @@ def evaluate_quality(content: str, module_names: list[str]) -> QualityReport:
         uncovered_modules=uncovered,
         visual_aids_count=mermaid_count,
         cross_ref_density=round(cross_ref, 4),
+        implementation_depth=round(impl_depth, 4),
     )

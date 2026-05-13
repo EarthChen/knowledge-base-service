@@ -69,3 +69,46 @@ class TestEvaluateQuality:
         content = "只提到了 A。"
         report = evaluate_quality(content, ["A", "B", "C", "D", "E"])
         assert report.is_acceptable is False
+
+
+def test_implementation_depth_all_modules_have_headings():
+    content = """\
+## 概述
+模块表格...
+
+## 模块详解
+
+### SendGiftHandler
+业务职责...
+<!-- CODE_REF: SendGiftHandler.handle -->
+
+### OrderService
+核心订单逻辑...
+<!-- CODE_REF: OrderService.createOrder -->
+"""
+    qr = evaluate_quality(content, ["SendGiftHandler", "OrderService"])
+    assert qr.implementation_depth >= 0.9
+
+
+def test_implementation_depth_partial_coverage():
+    content = """\
+## 概述
+提到了 SendGiftHandler 和 OrderService
+
+### SendGiftHandler
+详细描述...
+"""
+    qr = evaluate_quality(content, ["SendGiftHandler", "OrderService"])
+    assert 0.4 <= qr.implementation_depth <= 0.6
+
+
+def test_implementation_depth_no_detail():
+    content = "## 概述\n只有概要内容，没有模块详解"
+    qr = evaluate_quality(content, ["ModA", "ModB", "ModC"])
+    assert qr.implementation_depth < 0.1
+
+
+def test_implementation_depth_empty_modules():
+    content = "any content"
+    qr = evaluate_quality(content, [])
+    assert qr.implementation_depth == 1.0

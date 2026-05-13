@@ -757,6 +757,35 @@ async def delete_domain(
     return {"status": "ok"}
 
 
+@router.get("/{business_id}/domains/{slug}/modules", response_model=None)
+async def list_domain_modules_route(
+    request: Request,
+    business_id: str,
+    slug: str,
+) -> dict[str, Any]:
+    """List modules belonging to a specific domain."""
+    persistence = await _wiki_persistence_for_business_id(request, business_id)
+    modules = await persistence.list_domain_modules(business_id, slug)
+    return {"modules": modules}
+
+
+@router.put("/{business_id}/domains/{slug}/rename", response_model=None)
+async def rename_domain_route(
+    request: Request,
+    business_id: str,
+    slug: str,
+    body: dict[str, Any] = Body(...),
+) -> dict[str, Any]:
+    """Rename a domain (change slug and display name)."""
+    new_slug = str(body.get("new_slug", "")).strip()
+    new_display_name = str(body.get("new_display_name", "")).strip()
+    if not new_slug:
+        raise HTTPException(status_code=422, detail="new_slug is required")
+    persistence = await _wiki_persistence_for_business_id(request, business_id)
+    await persistence.rename_domain(business_id, slug, new_slug, new_display_name or new_slug)
+    return {"status": "ok", "old_slug": slug, "new_slug": new_slug}
+
+
 @router.get("/{business_id}/checkpoint", response_model=None)
 async def get_checkpoint(
     request: Request,

@@ -113,6 +113,34 @@ class TestComposeDomainAgentsNode:
         mock_baseline.assert_called_once()
         assert mock_baseline.call_args.kwargs.get("module_tree") == mt
 
+    @pytest.mark.asyncio
+    async def test_repo_path_passed_to_agent(self):
+        state = {
+            "domain_tree": [{"name": "D1", "modules": ["M1"], "children": []}],
+            "module_summaries": {},
+            "errors": [],
+        }
+        config = {
+            "configurable": {
+                "llm": MagicMock(),
+                "graph_store": MagicMock(),
+                "repo_paths": {"my-repo": "/tmp/repos/my-repo"},
+            },
+        }
+
+        with patch("wiki.nodes.domain_compose.DomainDocAgent") as MockAgent:
+            instance = AsyncMock()
+            instance.generate_with_iterations = AsyncMock(
+                return_value=[{"type": "domain_overview", "title": "D1", "content": "c"}]
+            )
+            instance.iteration_history = []
+            MockAgent.return_value = instance
+
+            await compose_domain_agents_node(state, config)
+
+        MockAgent.assert_called_once()
+        assert MockAgent.call_args.kwargs.get("repo_path") == "/tmp/repos/my-repo"
+
 
 def test_error_placeholder_uses_domain_overview_path():
     domain = {"name": "挚友关系管理", "modules": ["ModA"]}

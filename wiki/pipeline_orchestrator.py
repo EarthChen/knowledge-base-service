@@ -224,6 +224,21 @@ async def run_langgraph_pipeline(
     if progress_callback is not None:
         configurable["progress_callback"] = progress_callback
 
+    try:
+        from services.git_manager import resolve_repo_clone_root
+        from core.config import get_settings
+
+        _settings = get_settings()
+        _repo_paths: dict[str, str] = {}
+        for repo in repositories:
+            resolved = resolve_repo_clone_root(repo, _settings.git)
+            if resolved is not None:
+                _repo_paths[repo] = str(resolved)
+        if _repo_paths:
+            configurable["repo_paths"] = _repo_paths
+    except Exception:
+        log.warning("repo_paths_resolution_failed", exc_info=True)
+
     log.info(
         "langgraph_pipeline_config_debug",
         has_llm=llm is not None,

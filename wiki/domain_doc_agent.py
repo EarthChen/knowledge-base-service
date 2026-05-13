@@ -11,7 +11,7 @@ import re
 from typing import Any
 
 from core.log import get_logger
-from wiki.page_agent import WikiPageAgent
+from wiki.page_agent import WikiPageAgent, WorkingMemory
 from wiki.quality_report import evaluate_quality
 
 log = get_logger(__name__)
@@ -171,6 +171,32 @@ class DomainDocAgent:
         self._max_iterations = max_iterations
         self.iteration_history: list[dict[str, Any]] = []
 
+    async def _pre_fill_snippets(self, memory: WorkingMemory, module_names: list[str]) -> None:
+        graph = self._page_agent._graph
+        if not graph or not module_names:
+            return
+        try:
+            from wiki.cypher_queries import CHUNK_SNIPPETS_CY, SNIPPETS_CY
+
+            result = await graph.execute_query(SNIPPETS_CY, {"names": module_names})
+            for row in (getattr(result, "data", None) or []):
+                func_name = str(row.get("func_name", ""))
+                snippet = str(row.get("snippet", "")).strip()
+                file_path = str(row.get("file_path", ""))
+                if snippet:
+                    memory.code_snippets.append(f"[{func_name} @ {file_path}]\n{snippet}")
+            if not memory.code_snippets:
+                result = await graph.execute_query(CHUNK_SNIPPETS_CY, {"names": module_names})
+                for row in (getattr(result, "data", None) or []):
+                    entity_name = str(row.get("entity_name", ""))
+                    snippet = str(row.get("snippet", "")).strip()
+                    if snippet:
+                        memory.code_snippets.append(f"[{entity_name}]\n{snippet}")
+                        if len(memory.code_snippets) >= 6:
+                            break
+        except Exception:
+            log.warning("pre_fill_snippets_failed", domain=self.domain_name, exc_info=True)
+
     async def generate_with_iterations(
         self,
         module_names: list[str],
@@ -181,8 +207,6 @@ class DomainDocAgent:
         Each phase (explore, write) has its own timeout. Write retries once
         on first timeout. A total elapsed-time budget prevents runaway loops.
         """
-        from wiki.page_agent import WorkingMemory
-
         total_budget = int(os.environ.get("DOMAIN_AGENT_TIMEOUT_SEC", "600"))
         loop = asyncio.get_running_loop()
         t0 = loop.time()
@@ -191,6 +215,7 @@ class DomainDocAgent:
             return max(0, total_budget - (loop.time() - t0))
 
         memory = WorkingMemory()
+        await self._pre_fill_snippets(memory, module_names)
         try:
             timeout = min(EXPLORE_TIMEOUT_SEC, _remaining())
             await asyncio.wait_for(

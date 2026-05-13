@@ -91,6 +91,8 @@ async def compose_domain_agents_node(
     configurable = (config or {}).get("configurable", {}) or {}
     llm = configurable.get("llm")
     graph_store = configurable.get("graph_store")
+    repo_paths = configurable.get("repo_paths", {})
+    first_repo_path = next(iter(repo_paths.values()), None) if repo_paths else None
 
     domain_tree = state.get("domain_tree") or []
     module_summaries = state.get("module_summaries", {})
@@ -133,6 +135,7 @@ async def compose_domain_agents_node(
                     domain_display_name=domain_display,
                     llm=llm,
                     graph_store=graph_store,
+                    repo_path=first_repo_path,
                 )
                 result = await asyncio.wait_for(
                     agent.generate_with_iterations(

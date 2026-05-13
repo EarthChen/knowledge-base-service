@@ -1,6 +1,7 @@
 """Agent-driven domain documentation composition node."""
 import asyncio
 import os
+from collections import Counter
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -92,6 +93,8 @@ async def compose_domain_agents_node(
     llm = configurable.get("llm")
     graph_store = configurable.get("graph_store")
     repo_paths: dict[str, str] = configurable.get("repo_paths", {})
+    module_lookup = _module_dict_by_name(state)
+    fallback_repo_path = next(iter(repo_paths.values()), None) if repo_paths else None
 
     domain_tree = state.get("domain_tree") or []
     module_summaries = state.get("module_summaries", {})
@@ -123,6 +126,19 @@ async def compose_domain_agents_node(
     pages: list[dict[str, Any]] = []
     errors = list(state.get("errors", []))
 
+    def _domain_repo_path(domain: dict[str, Any]) -> str | None:
+        if not repo_paths:
+            return None
+        repos: list[str] = []
+        for mod_name in domain.get("modules", []):
+            info = module_lookup.get(str(mod_name))
+            if info:
+                repos.append(info.get("_pipeline_repo_id", ""))
+        if repos:
+            primary = Counter(repos).most_common(1)[0][0]
+            return repo_paths.get(primary, fallback_repo_path)
+        return fallback_repo_path
+
     async def _run_domain(domain: dict[str, Any]) -> list[dict[str, Any]]:
         async with sem:
             domain_start = asyncio.get_running_loop().time()
@@ -134,7 +150,7 @@ async def compose_domain_agents_node(
                     domain_display_name=domain_display,
                     llm=llm,
                     graph_store=graph_store,
-                    repo_path=next(iter(repo_paths.values()), None) if repo_paths else None,
+                    repo_path=_domain_repo_path(domain),
                     repo_paths=repo_paths,
                 )
                 result = await asyncio.wait_for(

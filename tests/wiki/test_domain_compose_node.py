@@ -146,6 +146,45 @@ class TestComposeDomainAgentsNode:
         assert MockAgent.call_args.kwargs.get("repo_path") == "/tmp/repos/my-repo"
         assert MockAgent.call_args.kwargs.get("repo_paths") == repo_paths
 
+    @pytest.mark.asyncio
+    async def test_repo_path_selects_per_domain_repo(self):
+        """When domain modules belong to a specific repo, agent should get that repo's path."""
+        state = {
+            "domain_tree": [
+                {"name": "PayDomain", "modules": ["PaySvc"], "children": []},
+            ],
+            "module_summaries": {},
+            "errors": [],
+            "modules": {
+                "repo-b": [
+                    {"uid": "u1", "properties": {"name": "PaySvc", "repository": "repo-b"}},
+                ],
+            },
+        }
+        config = {
+            "configurable": {
+                "llm": MagicMock(),
+                "graph_store": MagicMock(),
+                "repo_paths": {
+                    "repo-a": "/tmp/repos/repo-a",
+                    "repo-b": "/tmp/repos/repo-b",
+                },
+            }
+        }
+
+        with patch("wiki.nodes.domain_compose.DomainDocAgent") as MockAgent:
+            instance = AsyncMock()
+            instance.generate_with_iterations = AsyncMock(
+                return_value=[{"type": "domain_overview", "title": "Pay", "content": "ok"}]
+            )
+            instance.iteration_history = []
+            MockAgent.return_value = instance
+
+            await compose_domain_agents_node(state, config)
+
+        call_kwargs = MockAgent.call_args
+        assert call_kwargs.kwargs.get("repo_path") == "/tmp/repos/repo-b"
+
 
 def test_error_placeholder_uses_domain_overview_path():
     domain = {"name": "挚友关系管理", "modules": ["ModA"]}

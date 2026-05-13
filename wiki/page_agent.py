@@ -861,6 +861,7 @@ class WikiPageAgent(GenericAgent):
             name = func_info["name"]
             handler = tool_handlers.get(name)
             if handler is None:
+                log.warning("tool_handler_missing", tool=name)
                 continue
             self._tool_registry.register(ToolDef(
                 name=name,

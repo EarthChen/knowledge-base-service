@@ -28,8 +28,15 @@ class TestWikiPageAgentToolRegistration:
                 f"Tool {tool_def.name}: expected tier {expected_tier}, got {tool_def.tier}"
             )
 
-    def test_registry_dispatch_routes_to_execute_tool(self):
-        """Registry dispatch should produce the same result as _execute_tool."""
+    def test_all_tools_have_explicit_tier(self):
+        from wiki.page_agent import AGENT_TOOLS, _TOOL_TIERS
+
+        tool_names = {t["function"]["name"] for t in AGENT_TOOLS}
+        missing = tool_names - _TOOL_TIERS.keys()
+        assert not missing, f"Tools missing from _TOOL_TIERS: {missing}"
+
+    def test_registered_tools_have_callable_handlers(self):
+        """Each registered tool should exist in the registry with a callable handler."""
         from wiki.page_agent import WikiPageAgent
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=None)

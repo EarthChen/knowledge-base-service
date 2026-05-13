@@ -926,3 +926,18 @@ class TestToolTiering:
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
         tools = agent._get_tools_for_round(1, has_empty_results=True)
         assert len(tools) == len(AGENT_TOOLS)
+
+    def test_get_tools_empty_results_with_prefilled_memory(self):
+        """Pre-filled memory should NOT prevent empty-results tool unlock."""
+        from wiki.page_agent import AGENT_TOOLS, WikiPageAgent, WorkingMemory
+
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+
+        memory = WorkingMemory()
+        memory.code_snippets.append("[func @ file.java]\npublic void foo() {}")
+        assert memory._total_chars() > 0
+        assert memory._tool_contributed_chars == 0
+
+        has_empty = True and memory._tool_contributed_chars == 0
+        tools = agent._get_tools_for_round(1, has_empty)
+        assert len(tools) == len(AGENT_TOOLS)

@@ -205,6 +205,7 @@ class WorkingMemory:
     wiki_references: list[str] = field(default_factory=list)
     search_findings: list[str] = field(default_factory=list)
     discovered_entity_uids: set[str] = field(default_factory=set)
+    _tool_contributed_chars: int = 0
 
     MAX_TOTAL_CHARS = 200_000
 
@@ -328,6 +329,7 @@ class WorkingMemory:
                         self.discovered_callers.append(
                             f"{d.get('source_domain', '')} → {data.get('domain', '')}: {d.get('via', '')}"
                         )
+        self._tool_contributed_chars += sum(len(str(r.data)) for r in results if r.data)
         self._enforce_limit()
 
     def _extract_uid(self, data: dict[str, Any], key: str = "uid") -> None:
@@ -918,7 +920,7 @@ class WikiPageAgent:
         total_tool_calls = 0
         for round_num in range(self.max_rounds):
             try:
-                has_empty = total_tool_calls > 0 and memory._total_chars() == 0
+                has_empty = total_tool_calls > 0 and memory._tool_contributed_chars == 0
                 round_tools = self._get_tools_for_round(round_num + 1, has_empty)
                 response = await self._llm.complete_with_tools(messages, round_tools)
             except Exception:

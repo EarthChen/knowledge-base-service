@@ -1,7 +1,7 @@
 import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from wiki.agents.base_agent import GenericAgent
 
@@ -260,6 +260,27 @@ class TestRunToolLoop:
 
         assert result is memory
         mock_llm.complete_with_tools.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_tool_loop_handles_llm_exception(self):
+        from wiki.agents.base_agent import ToolDef
+        from wiki.agents.memory import Memory
+
+        mock_llm = MagicMock()
+        mock_llm.complete_with_tools = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
+
+        agent = ConcreteAgent(mock_llm, max_rounds=5, max_tool_calls=10)
+        agent._tool_registry.register(
+            ToolDef("noop", "d", {}, AsyncMock(return_value={"ok": True}), tier=1)
+        )
+        memory = Memory()
+        with patch("wiki.agents.base_agent.log.warning") as mock_warning:
+            result = await agent.run_tool_loop("sys", "usr", memory)
+
+        assert result is memory
+        mock_warning.assert_called()
+        event_names = {c.args[0] for c in mock_warning.call_args_list if c.args}
+        assert "run_tool_loop_llm_failed" in event_names
 
 
 class TestRunGeneration:

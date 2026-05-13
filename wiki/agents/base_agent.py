@@ -40,6 +40,9 @@ class ToolRegistry:
     def register(self, tool: ToolDef) -> None:
         self._tools[tool.name] = tool
 
+    def has_tools(self) -> bool:
+        return bool(self._tools)
+
     def get_all_tool_schemas(self) -> list[dict[str, Any]]:
         return [t.to_openai_schema() for t in self._tools.values()]
 
@@ -117,7 +120,7 @@ class GenericAgent(ABC):
         Uses self._tool_registry for tool schemas and dispatch.
         Uses self.incorporate() to store results in memory.
         """
-        if not self._tool_registry._tools:
+        if not self._tool_registry.has_tools():
             return memory
 
         messages: list[dict[str, Any]] = [
@@ -157,6 +160,11 @@ class GenericAgent(ABC):
                 try:
                     args = json.loads(func.get("arguments", "{}"))
                 except json.JSONDecodeError:
+                    log.warning(
+                        "tool_arguments_json_invalid",
+                        tool=tool_name,
+                        arguments_preview=str(func.get("arguments", ""))[:200],
+                    )
                     args = {}
 
                 result = await self._tool_registry.dispatch(tool_name, args)

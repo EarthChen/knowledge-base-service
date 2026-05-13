@@ -20,7 +20,7 @@ log = get_logger(__name__)
 MAX_PAGE_TOKENS = 5000
 
 EXPLORE_TIMEOUT_SEC = int(os.environ.get("EXPLORE_TIMEOUT_SEC", "240"))
-WRITE_TIMEOUT_SEC = int(os.environ.get("WRITE_TIMEOUT_SEC", "120"))
+WRITE_TIMEOUT_SEC = int(os.environ.get("WRITE_TIMEOUT_SEC", "180"))
 
 
 def _extract_tree_edges(
@@ -220,6 +220,7 @@ class DomainDocAgent(DocOrchestrator):
             citation_density=qr.citation_density,
             context_gap_count=qr.context_gap_count,
             uncovered_modules=qr.uncovered_modules,
+            implementation_depth=qr.implementation_depth,
         )
 
     # --- Hook 3: is_acceptable ---
@@ -273,7 +274,7 @@ class DomainDocAgent(DocOrchestrator):
         Each phase (explore, write) has its own timeout. Write retries once
         on first timeout. A total elapsed-time budget prevents runaway loops.
         """
-        total_budget = int(os.environ.get("DOMAIN_AGENT_TIMEOUT_SEC", "600"))
+        total_budget = int(os.environ.get("DOMAIN_AGENT_TIMEOUT_SEC", "900"))
         loop = asyncio.get_running_loop()
         t0 = loop.time()
 
@@ -359,17 +360,24 @@ class DomainDocAgent(DocOrchestrator):
                 coverage=quality.coverage,
                 citation_density=quality.citation_density,
                 gaps=quality.context_gap_count,
+                depth=getattr(quality, "implementation_depth", 0),
             )
 
             if (
                 quality.coverage >= 0.95
                 and quality.citation_density >= 0.5
+                and getattr(quality, "implementation_depth", 1.0) >= 0.6
                 and quality.context_gap_count == 0
             ):
                 log.info("quality_perfect_exit", domain=self.domain_name, iteration=iteration)
                 break
 
-            if iteration >= 2 and quality.coverage >= 0.9 and quality.citation_density >= 0.3:
+            if (
+                iteration >= 2
+                and quality.coverage >= 0.9
+                and quality.citation_density >= 0.3
+                and getattr(quality, "implementation_depth", 1.0) >= 0.4
+            ):
                 log.info(
                     "quality_acceptable_exit",
                     domain=self.domain_name,
@@ -379,7 +387,7 @@ class DomainDocAgent(DocOrchestrator):
                 )
                 break
 
-            if iteration >= 3:
+            if iteration >= 4:
                 log.info("quality_max_iteration_exit", domain=self.domain_name, iteration=iteration)
                 break
 

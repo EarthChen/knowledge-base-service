@@ -17,6 +17,7 @@ class QualityResult:
     citation_density: float
     context_gap_count: int
     uncovered_modules: list[str]
+    implementation_depth: float = 0.0
 
 
 class DocOrchestrator(ABC):

@@ -390,6 +390,8 @@ class WorkingMemory:
 
         self.discovered_entity_uids |= other.discovered_entity_uids
 
+        self._tool_contributed_chars += other._tool_contributed_chars
+
         self._enforce_limit()
 
     def _total_chars(self) -> int:

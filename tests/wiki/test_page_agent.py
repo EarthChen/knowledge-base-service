@@ -237,6 +237,21 @@ class TestWorkingMemory:
         assert "OrderService" in text
 
 
+class TestWorkingMemoryMerge:
+    def test_merge_propagates_tool_contributed_chars(self):
+        m1 = WorkingMemory()
+        m1._tool_contributed_chars = 100
+
+        m2 = WorkingMemory()
+        m2._tool_contributed_chars = 50
+        m2.code_snippets.append("snippet from tools")
+
+        m1.merge(m2)
+
+        assert m1._tool_contributed_chars == 150
+        assert "snippet from tools" in m1.code_snippets
+
+
 class TestWikiPageAgent:
     @pytest.mark.asyncio
     async def test_no_gaps_returns_original(self):

@@ -872,3 +872,57 @@ class TestWritePrompt:
 
         assert "100% 代码溯源" in AGENT_WRITE_SYSTEM
         assert "CONTEXT_GAP" in AGENT_WRITE_SYSTEM
+
+
+class TestToolTiering:
+    def test_tool_tiers_cover_all_tools(self):
+        """T1 + T2 + T3 should contain all AGENT_TOOLS."""
+        from wiki.page_agent import AGENT_TOOLS, AGENT_TOOLS_T1, AGENT_TOOLS_T2, AGENT_TOOLS_T3
+
+        all_tiered_names = {t["function"]["name"] for t in AGENT_TOOLS_T1 + AGENT_TOOLS_T2 + AGENT_TOOLS_T3}
+        all_names = {t["function"]["name"] for t in AGENT_TOOLS}
+        assert all_tiered_names == all_names
+
+    def test_t1_contains_core_tools(self):
+        from wiki.page_agent import AGENT_TOOLS_T1
+
+        t1_names = {t["function"]["name"] for t in AGENT_TOOLS_T1}
+        assert "query_module_detail" in t1_names
+        assert "read_code" in t1_names
+        assert "query_call_chain" in t1_names
+
+    def test_t3_contains_supplementary_tools(self):
+        from wiki.page_agent import AGENT_TOOLS_T3
+
+        t3_names = {t["function"]["name"] for t in AGENT_TOOLS_T3}
+        assert "grep_code" in t3_names
+        assert "list_files" in t3_names
+        assert "delegate_submodule" in t3_names
+
+    def test_get_tools_round_1_returns_t1_only(self):
+        from wiki.page_agent import AGENT_TOOLS_T1, WikiPageAgent
+
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+        tools = agent._get_tools_for_round(1, has_empty_results=False)
+        assert len(tools) == len(AGENT_TOOLS_T1)
+
+    def test_get_tools_round_3_returns_t1_t2(self):
+        from wiki.page_agent import AGENT_TOOLS_T1, AGENT_TOOLS_T2, WikiPageAgent
+
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+        tools = agent._get_tools_for_round(3, has_empty_results=False)
+        assert len(tools) == len(AGENT_TOOLS_T1) + len(AGENT_TOOLS_T2)
+
+    def test_get_tools_round_5_returns_all(self):
+        from wiki.page_agent import AGENT_TOOLS, WikiPageAgent
+
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+        tools = agent._get_tools_for_round(5, has_empty_results=False)
+        assert len(tools) == len(AGENT_TOOLS)
+
+    def test_get_tools_empty_results_unlocks_all(self):
+        from wiki.page_agent import AGENT_TOOLS, WikiPageAgent
+
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+        tools = agent._get_tools_for_round(1, has_empty_results=True)
+        assert len(tools) == len(AGENT_TOOLS)

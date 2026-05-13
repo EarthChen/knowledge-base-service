@@ -701,6 +701,27 @@ AGENT_TOOLS = [
     },
 ]
 
+_TOOL_TIERS: dict[str, int] = {
+    "query_module_detail": 1,
+    "read_code": 1,
+    "query_call_chain": 1,
+    "query_callers": 1,
+    "query_callees": 1,
+    "query_implementations": 2,
+    "query_domain_dependencies": 2,
+    "read_file": 2,
+    "search_entities": 2,
+    "grep_code": 3,
+    "list_files": 3,
+    "semantic_search": 3,
+    "read_wiki_page": 3,
+    "delegate_submodule": 3,
+}
+
+AGENT_TOOLS_T1 = [t for t in AGENT_TOOLS if _TOOL_TIERS.get(t["function"]["name"]) == 1]
+AGENT_TOOLS_T2 = [t for t in AGENT_TOOLS if _TOOL_TIERS.get(t["function"]["name"]) == 2]
+AGENT_TOOLS_T3 = [t for t in AGENT_TOOLS if _TOOL_TIERS.get(t["function"]["name"]) == 3]
+
 _AGENT_SYSTEM = """你是一个代码知识库 Agent。你的任务是通过调用 tools 来补充 Wiki 页面中标记为 CONTEXT_GAP 的缺失信息。
 
 ## 执行步骤
@@ -745,6 +766,14 @@ class WikiPageAgent:
         self._existing_pages: list[dict] | None = None
         self.max_rounds = max_rounds
         self.max_tool_calls = max_tool_calls
+
+    def _get_tools_for_round(self, round_num: int, has_empty_results: bool) -> list[dict]:
+        tools = list(AGENT_TOOLS_T1)
+        if round_num >= 3 or has_empty_results:
+            tools.extend(AGENT_TOOLS_T2)
+        if round_num >= 5 or has_empty_results:
+            tools.extend(AGENT_TOOLS_T3)
+        return tools
 
     async def enrich(
         self,
@@ -889,7 +918,9 @@ class WikiPageAgent:
         total_tool_calls = 0
         for round_num in range(self.max_rounds):
             try:
-                response = await self._llm.complete_with_tools(messages, AGENT_TOOLS)
+                has_empty = total_tool_calls > 0 and memory._total_chars() == 0
+                round_tools = self._get_tools_for_round(round_num + 1, has_empty)
+                response = await self._llm.complete_with_tools(messages, round_tools)
             except Exception:
                 log.warning("explore_llm_failed", round=round_num, exc_info=True)
                 break

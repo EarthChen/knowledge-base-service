@@ -241,7 +241,7 @@ class WorkingMemory:
                     self.code_snippets.append(f"[{path}]\n{content[:SINGLE_RESULT_LIMIT]}")
             elif tool == "search_entities":
                 items = data.get("results", [])
-                for item in items[:5]:
+                for item in items[:8]:
                     if isinstance(item, dict):
                         self.search_findings.append(
                             f"{item.get('type', '')} {item.get('name', '')} ({item.get('file', '')})"
@@ -318,7 +318,7 @@ class WorkingMemory:
                 if summary:
                     entry = f"{name}: {summary}"
                     if methods:
-                        method_names = [str(m.get("name", "")) for m in methods[:5]]
+                        method_names = [str(m.get("name", "")) for m in methods[:8]]
                         entry += f" [methods: {', '.join(method_names)}]"
                     self.discovered_call_chains.append(entry)
                 self._extract_uid(data)

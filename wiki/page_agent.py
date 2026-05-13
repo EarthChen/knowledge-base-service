@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.log import get_logger
+from wiki.agents.base_agent import GenericAgent
 from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP_RE
 
 log = get_logger(__name__)
@@ -810,7 +811,7 @@ _AGENT_SYSTEM = """你是一个代码知识库 Agent。你的任务是通过调�
 """
 
 
-class WikiPageAgent:
+class WikiPageAgent(GenericAgent):
     _MAX_HISTORY_MESSAGES = 30
     _MAX_DELEGATION_DEPTH = 2
     _MAX_DELEGATIONS_PER_AGENT = 3
@@ -825,13 +826,61 @@ class WikiPageAgent:
         max_rounds: int = 6,
         max_tool_calls: int = 30,
     ) -> None:
-        self._llm = llm
+        super().__init__(llm, max_rounds=max_rounds, max_tool_calls=max_tool_calls)
         self._graph = graph_store
         self._repo_path = repo_path
         self._search_service = search_service
         self._existing_pages: list[dict] | None = None
         self.max_rounds = max_rounds
         self.max_tool_calls = max_tool_calls
+        self._register_tools()
+
+    def _register_tools(self) -> None:
+        """Register all 14 agent tools into ToolRegistry with tier info."""
+        from wiki.agents.base_agent import ToolDef
+
+        tool_handlers = {
+            "query_module_detail": self._tool_query_module_detail,
+            "query_callers": self._tool_query_callers,
+            "query_callees": self._tool_query_callees,
+            "query_implementations": self._tool_query_implementations,
+            "query_call_chain": self._tool_query_call_chain,
+            "query_domain_dependencies": self._tool_query_domain_dependencies,
+            "read_code": self._tool_read_code,
+            "read_file": self._tool_read_file,
+            "search_entities": self._tool_search_entities,
+            "read_wiki_page": self._tool_read_wiki_page,
+            "semantic_search": self._tool_semantic_search,
+            "list_files": self._tool_list_files,
+            "grep_code": self._tool_grep_code,
+            "delegate_submodule": self._tool_delegate_submodule,
+        }
+
+        for tool_schema in AGENT_TOOLS:
+            func_info = tool_schema["function"]
+            name = func_info["name"]
+            handler = tool_handlers.get(name)
+            if handler is None:
+                continue
+            self._tool_registry.register(ToolDef(
+                name=name,
+                description=func_info["description"],
+                parameters=func_info.get("parameters", {}),
+                handler=handler,
+                tier=_TOOL_TIERS.get(name, 1),
+            ))
+
+    def create_memory(self) -> WorkingMemory:
+        return WorkingMemory()
+
+    def incorporate(self, tool_name: str, result: dict[str, Any], memory: Any) -> None:
+        if isinstance(memory, WorkingMemory):
+            memory.incorporate([ToolResult(tool=tool_name, data=result)])
+
+    def memory_to_prompt(self, memory: Any) -> str:
+        if isinstance(memory, WorkingMemory):
+            return memory.to_prompt_section()
+        return str(memory)
 
     def _get_tools_for_round(self, round_num: int, has_empty_results: bool) -> list[dict]:
         tools = list(AGENT_TOOLS_T1)

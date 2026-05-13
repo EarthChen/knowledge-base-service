@@ -1,12 +1,14 @@
-import { useState, type FormEvent } from "react";
-import { Loader2, Pencil, Pin, Trash2, X } from "lucide-react";
+import { Fragment, useState, type FormEvent } from "react";
+import { ChevronDown, ChevronRight, Loader2, Pencil, Pin, Tag, Trash2, X } from "lucide-react";
 import { useI18n } from "../../i18n/context";
 import { getErrorMessage } from "../../utils/errorUtils";
 import {
   useDeleteDomain,
   useDomainList,
+  useDomainModules,
   usePinModule,
   usePinnedModules,
+  useRenameDomain,
   useUnpinModule,
   useUpsertDomain,
 } from "../../hooks/useDomainManagement";
@@ -23,9 +25,17 @@ export default function DomainManagement({ businessId }: Props) {
   const deleteDomain = useDeleteDomain(businessId);
   const pinModule = usePinModule(businessId);
   const unpinModule = useUnpinModule(businessId);
+  const renameDomain = useRenameDomain(businessId);
 
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const [editDisplayName, setEditDisplayName] = useState("");
+
+  const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
+  const modulesQuery = useDomainModules(businessId, expandedSlug);
+
+  const [renamingSlug, setRenamingSlug] = useState<string | null>(null);
+  const [renameNewSlug, setRenameNewSlug] = useState("");
+  const [renameNewDisplayName, setRenameNewDisplayName] = useState("");
 
   const [pinModuleName, setPinModuleName] = useState("");
   const [pinDomainSlug, setPinDomainSlug] = useState("");
@@ -50,6 +60,38 @@ export default function DomainManagement({ businessId }: Props) {
       { slug, displayName: editDisplayName.trim() || slug },
       { onSuccess: () => cancelEdit() },
     );
+  };
+
+  const startRename = (slug: string, displayName: string) => {
+    setRenamingSlug(slug);
+    setRenameNewSlug(slug);
+    setRenameNewDisplayName(displayName);
+  };
+
+  const cancelRename = () => {
+    setRenamingSlug(null);
+    setRenameNewSlug("");
+    setRenameNewDisplayName("");
+  };
+
+  const saveRename = () => {
+    const oldSlug = renamingSlug;
+    const newSlug = renameNewSlug.trim();
+    const newDisplayName = renameNewDisplayName.trim();
+    if (!oldSlug || !newSlug || !newDisplayName) return;
+    renameDomain.mutate(
+      { oldSlug, newSlug, newDisplayName },
+      {
+        onSuccess: () => {
+          setExpandedSlug((current) => (current === oldSlug ? newSlug : current));
+          cancelRename();
+        },
+      },
+    );
+  };
+
+  const toggleExpanded = (slug: string) => {
+    setExpandedSlug((current) => (current === slug ? null : slug));
   };
 
   const handleDelete = (slug: string, displayName: string) => {
@@ -82,7 +124,8 @@ export default function DomainManagement({ businessId }: Props) {
     upsertDomain.isPending ||
     deleteDomain.isPending ||
     pinModule.isPending ||
-    unpinModule.isPending;
+    unpinModule.isPending ||
+    renameDomain.isPending;
 
   return (
     <div className="space-y-6">
@@ -114,80 +157,212 @@ export default function DomainManagement({ businessId }: Props) {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {domains.map((row) => (
-                  <tr key={row.slug} className="bg-white/90 dark:bg-gray-900/90">
-                    <td className="px-3 py-2 font-mono text-xs text-gray-800 dark:text-gray-200">{row.slug}</td>
-                    <td className="px-3 py-2">
-                      {editingSlug === row.slug ? (
-                        <input
-                          type="text"
-                          value={editDisplayName}
-                          onChange={(e) => setEditDisplayName(e.target.value)}
-                          className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                          aria-label="Display name"
-                        />
-                      ) : (
-                        <span className="text-gray-900 dark:text-gray-100">{row.display_name}</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
-                      {row.module_count}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-wrap justify-end gap-1">
+                  <Fragment key={row.slug}>
+                    <tr className="bg-white/90 dark:bg-gray-900/90">
+                      <td className="px-3 py-2 font-mono text-xs text-gray-800 dark:text-gray-200">{row.slug}</td>
+                      <td className="px-3 py-2">
                         {editingSlug === row.slug ? (
-                          <>
+                          <input
+                            type="text"
+                            value={editDisplayName}
+                            onChange={(e) => setEditDisplayName(e.target.value)}
+                            className="w-full rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                            aria-label="Display name"
+                          />
+                        ) : (
+                          <span className="text-gray-900 dark:text-gray-100">{row.display_name}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpanded(row.slug)}
+                          className="inline-flex items-center justify-end gap-1 tabular-nums text-sky-700 hover:underline dark:text-sky-400"
+                          aria-expanded={expandedSlug === row.slug}
+                          aria-label={`${expandedSlug === row.slug ? "Collapse" : "Expand"} modules (${row.module_count})`}
+                        >
+                          {expandedSlug === row.slug ? (
+                            <ChevronDown size={14} className="shrink-0 text-gray-500 dark:text-gray-400" aria-hidden />
+                          ) : (
+                            <ChevronRight size={14} className="shrink-0 text-gray-500 dark:text-gray-400" aria-hidden />
+                          )}
+                          <span className="text-gray-600 dark:text-gray-400">{row.module_count}</span>
+                        </button>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap justify-end gap-1">
+                          {editingSlug === row.slug ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={saveEdit}
+                                disabled={upsertDomain.isPending}
+                                className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-2 py-1 text-xs font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {upsertDomain.isPending ? (
+                                  <Loader2 size={12} className="animate-spin" aria-hidden />
+                                ) : null}
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEdit}
+                                className="rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : renamingSlug === row.slug ? (
                             <button
                               type="button"
-                              onClick={saveEdit}
-                              disabled={upsertDomain.isPending}
-                              className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-2 py-1 text-xs font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {upsertDomain.isPending ? (
-                                <Loader2 size={12} className="animate-spin" aria-hidden />
-                              ) : null}
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={cancelEdit}
+                              onClick={cancelRename}
+                              disabled={renameDomain.isPending}
                               className="rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
                             >
-                              Cancel
+                              Cancel rename
                             </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => startEdit(row.slug, row.display_name)}
-                              disabled={!!pending && editingSlug !== row.slug}
-                              className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50"
-                            >
-                              <Pencil size={12} aria-hidden />
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDelete(row.slug, row.display_name)}
-                              disabled={deleteDomain.isPending}
-                              className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-950/30"
-                            >
-                              <Trash2 size={12} aria-hidden />
-                              Delete
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(row.slug, row.display_name)}
+                                disabled={!!pending && editingSlug !== row.slug}
+                                className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50"
+                              >
+                                <Pencil size={12} aria-hidden />
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => startRename(row.slug, row.display_name)}
+                                disabled={!!pending && renamingSlug !== row.slug}
+                                className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800 disabled:opacity-50"
+                              >
+                                <Tag size={12} aria-hidden />
+                                Rename
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(row.slug, row.display_name)}
+                                disabled={deleteDomain.isPending}
+                                className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-950/30"
+                              >
+                                <Trash2 size={12} aria-hidden />
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedSlug === row.slug && (
+                      <tr className="bg-gray-50/90 dark:bg-gray-950/50">
+                        <td colSpan={4} className="px-3 py-3 text-sm">
+                          {modulesQuery.isLoading && (
+                            <p className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400" role="status">
+                              <Loader2 size={14} className="animate-spin" aria-hidden />
+                              {t.common.loading}
+                            </p>
+                          )}
+                          {modulesQuery.isError && (
+                            <p className="text-xs text-red-600 dark:text-red-400" role="alert">
+                              {getErrorMessage(modulesQuery.error, t.common.unexpectedError)}
+                            </p>
+                          )}
+                          {!modulesQuery.isLoading &&
+                            !modulesQuery.isError &&
+                            (modulesQuery.data?.length ?? 0) === 0 && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400">No modules in this domain.</p>
+                            )}
+                          {!modulesQuery.isLoading && !modulesQuery.isError && (modulesQuery.data?.length ?? 0) > 0 && (
+                            <ul className="space-y-2">
+                              {(modulesQuery.data ?? []).map((m) => (
+                                <li
+                                  key={`${m.repository}:${m.path}:${m.name}`}
+                                  className="rounded-lg border border-gray-200 bg-white/80 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900/60"
+                                >
+                                  <div className="font-mono text-gray-900 dark:text-gray-100">{m.name}</div>
+                                  <div className="mt-1 text-gray-600 dark:text-gray-400">
+                                    <span className="text-gray-500 dark:text-gray-500">repo:</span> {m.repository}
+                                  </div>
+                                  <div className="text-gray-600 dark:text-gray-400">
+                                    <span className="text-gray-500 dark:text-gray-500">path:</span> {m.path}
+                                  </div>
+                                  <div className="mt-1 text-gray-600 dark:text-gray-400">
+                                    Pinned: {m.pinned ? "yes" : "no"}
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    {renamingSlug === row.slug && (
+                      <tr className="bg-amber-50/50 dark:bg-amber-950/20">
+                        <td colSpan={4} className="px-3 py-3">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                            <label className="block min-w-[10rem] flex-1 text-xs">
+                              <span className="mb-1 block text-gray-600 dark:text-gray-400">New slug</span>
+                              <input
+                                type="text"
+                                value={renameNewSlug}
+                                onChange={(e) => setRenameNewSlug(e.target.value)}
+                                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 font-mono text-sm text-gray-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                                aria-label="New domain slug"
+                              />
+                            </label>
+                            <label className="block min-w-[12rem] flex-1 text-xs">
+                              <span className="mb-1 block text-gray-600 dark:text-gray-400">Display name</span>
+                              <input
+                                type="text"
+                                value={renameNewDisplayName}
+                                onChange={(e) => setRenameNewDisplayName(e.target.value)}
+                                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                                aria-label="New display name"
+                              />
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={saveRename}
+                                disabled={
+                                  renameDomain.isPending ||
+                                  !renameNewSlug.trim() ||
+                                  !renameNewDisplayName.trim()
+                                }
+                                className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {renameDomain.isPending ? (
+                                  <Loader2 size={12} className="animate-spin" aria-hidden />
+                                ) : null}
+                                Save rename
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelRename}
+                                disabled={renameDomain.isPending}
+                                className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-        {(upsertDomain.isError || deleteDomain.isError) && (
+        {(upsertDomain.isError || deleteDomain.isError || renameDomain.isError) && (
           <p className="mt-2 text-xs text-red-600 dark:text-red-400" role="alert">
-            {getErrorMessage(upsertDomain.error ?? deleteDomain.error, t.common.unexpectedError)}
+            {getErrorMessage(
+              upsertDomain.error ?? deleteDomain.error ?? renameDomain.error,
+              t.common.unexpectedError,
+            )}
           </p>
         )}
       </div>

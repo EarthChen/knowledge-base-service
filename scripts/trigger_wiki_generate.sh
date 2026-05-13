@@ -32,6 +32,8 @@ Management commands (run API helpers; skip generation — put after common optio
   reset-anchors     Delete all domain anchors (interactive confirm)
   checkpoint-info   Show LangGraph checkpoint status for the business
   checkpoint-delete Remove checkpoint SQLite data for the business
+  resume            Resume wiki generation in incremental mode
+  regenerate-domain Regenerate a specific domain: regenerate-domain DOMAIN_SLUG
 
 Monitoring modes (pick one, default: --poll):
   --poll              Poll task status via REST API (default)
@@ -71,7 +73,7 @@ while [[ $# -gt 0 ]]; do
     --poll-interval) POLL_INTERVAL="$2"; shift 2 ;;
     --max-poll)      MAX_POLL="$2"; shift 2 ;;
     --task-id)       ATTACH_TASK_ID="$2"; shift 2 ;;
-    list-domains|move-module|unpin-module|reset-anchors|checkpoint-info|checkpoint-delete)
+    list-domains|move-module|unpin-module|reset-anchors|checkpoint-info|checkpoint-delete|resume|regenerate-domain)
       MGMT_CMD="$1"
       shift
       break
@@ -142,6 +144,26 @@ if [ -n "$MGMT_CMD" ]; then
       echo "Deleting checkpoint for business: ${BUSINESS_ID}"
       curl -s -m "$TIMEOUT" -H "$AUTH_HEADER" \
         -X DELETE "${API_BASE}/api/v1/wiki/${BUSINESS_ID}/checkpoint" | python3 -m json.tool
+      ;;
+    resume)
+      echo "Resuming wiki generation (incremental) for business: ${BUSINESS_ID}"
+      BODY=$(python3 -c "import json; print(json.dumps({'business_id':'${BUSINESS_ID}','language':'${LANGUAGE}','incremental':True,'mode':'full'}))")
+      curl -s -m "$TIMEOUT" -X POST \
+        -H "$AUTH_HEADER" \
+        -H "Content-Type: application/json" \
+        -d "$BODY" \
+        "${API_BASE}/api/v1/wiki/business/generate" | python3 -m json.tool
+      ;;
+    regenerate-domain)
+      DOMAIN_SLUG="${1:?Domain slug required}"
+      shift
+      echo "Regenerating domain: ${DOMAIN_SLUG} for business: ${BUSINESS_ID}"
+      BODY=$(python3 -c "import json,sys; print(json.dumps({'business_id':'${BUSINESS_ID}','language':'${LANGUAGE}','domain_slug':sys.argv[1],'mode':'full'}))" "$DOMAIN_SLUG")
+      curl -s -m "$TIMEOUT" -X POST \
+        -H "$AUTH_HEADER" \
+        -H "Content-Type: application/json" \
+        -d "$BODY" \
+        "${API_BASE}/api/v1/wiki/business/generate" | python3 -m json.tool
       ;;
   esac
   exit 0

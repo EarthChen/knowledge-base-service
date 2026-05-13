@@ -99,3 +99,44 @@ export function useUnpinModule(businessId: string) {
     },
   });
 }
+
+export interface DomainModule {
+  name: string;
+  repository: string;
+  path: string;
+  pinned: boolean;
+}
+
+export function useDomainModules(businessId: string, slug: string | null) {
+  return useQuery({
+    queryKey: ["domain-modules", businessId, slug],
+    queryFn: async (): Promise<DomainModule[]> => {
+      const data = await api<{ modules?: DomainModule[] }>(
+        `/wiki/${encodeURIComponent(businessId)}/domains/${encodeURIComponent(slug!)}/modules`,
+      );
+      return data.modules ?? [];
+    },
+    enabled: !!slug,
+  });
+}
+
+export function useRenameDomain(businessId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { oldSlug: string; newSlug: string; newDisplayName: string }) => {
+      await api(
+        `/wiki/${encodeURIComponent(businessId)}/domains/${encodeURIComponent(vars.oldSlug)}/rename`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            new_slug: vars.newSlug,
+            new_display_name: vars.newDisplayName,
+          }),
+        },
+      );
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["domains", businessId] });
+    },
+  });
+}

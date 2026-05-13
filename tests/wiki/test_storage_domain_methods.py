@@ -118,17 +118,52 @@ class TestStorageDomainMethods:
         from wiki.persistence import WikiPersistence
         p = WikiPersistence(mock_graph_store)
 
-        await p.rename_domain("biz1", "old-slug", "new-slug", "New Display")
+        mock_graph_store.execute_query = AsyncMock(
+            side_effect=[
+                MagicMock(data=[{"cnt": 1}]),
+                MagicMock(data=[{"cnt": 0}]),
+                MagicMock(),
+                MagicMock(),
+            ]
+        )
+
+        ok = await p.rename_domain("biz1", "old-slug", "new-slug", "New Display")
+        assert ok is True
+        assert mock_graph_store.execute_query.call_count == 4
+
+        update_anchor = mock_graph_store.execute_query.call_args_list[2]
+        assert "SET d.slug = $new" in update_anchor[0][0]
+
+        update_modules = mock_graph_store.execute_query.call_args_list[3]
+        assert update_modules[0][1]["old"] == "old-slug"
+        assert update_modules[0][1]["new"] == "new-slug"
+
+    @pytest.mark.asyncio
+    async def test_rename_domain_not_found(self, mock_graph_store):
+        """rename_domain returns False when old_slug does not exist."""
+        from wiki.persistence import WikiPersistence
+        p = WikiPersistence(mock_graph_store)
+        mock_graph_store.execute_query = AsyncMock(
+            return_value=MagicMock(data=[{"cnt": 0}]),
+        )
+        ok = await p.rename_domain("biz1", "missing", "new-slug", "X")
+        assert ok is False
+        mock_graph_store.execute_query.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_rename_domain_collision(self, mock_graph_store):
+        """rename_domain raises when new_slug is already taken."""
+        from wiki.persistence import WikiPersistence
+        p = WikiPersistence(mock_graph_store)
+        mock_graph_store.execute_query = AsyncMock(
+            side_effect=[
+                MagicMock(data=[{"cnt": 1}]),
+                MagicMock(data=[{"cnt": 1}]),
+            ]
+        )
+        with pytest.raises(ValueError, match="already exists"):
+            await p.rename_domain("biz1", "old-slug", "taken-slug", "Display")
         assert mock_graph_store.execute_query.call_count == 2
-
-        first_call = mock_graph_store.execute_query.call_args_list[0]
-        first_cypher = first_call[0][0]
-        assert "SET d.slug = $new" in first_cypher
-
-        second_call = mock_graph_store.execute_query.call_args_list[1]
-        second_params = second_call[0][1]
-        assert second_params["old"] == "old-slug"
-        assert second_params["new"] == "new-slug"
 
     @pytest.mark.asyncio
     async def test_save_domain_classification_clears_stale_edges(self, mock_graph_store):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io as _io
+import re as _re
 import zipfile as _zipfile
 from dataclasses import asdict
 from typing import Any, Literal
@@ -50,6 +51,8 @@ from api.routes.wiki_shared import (
 )
 from wiki.editing_store import WikiEditingStore
 from wiki.models import navigation_context_api_from_stored_json
+
+_SLUG_RE = _re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-]{0,99}$")
 
 router = APIRouter(tags=["wiki", "pages"])
 
@@ -781,8 +784,18 @@ async def rename_domain_route(
     new_display_name = str(body.get("new_display_name", "")).strip()
     if not new_slug:
         raise HTTPException(status_code=422, detail="new_slug is required")
+    if not _SLUG_RE.match(new_slug):
+        raise HTTPException(
+            status_code=422,
+            detail="new_slug must be 1-100 alphanumeric/hyphen/underscore chars",
+        )
     persistence = await _wiki_persistence_for_business_id(request, business_id)
-    await persistence.rename_domain(business_id, slug, new_slug, new_display_name or new_slug)
+    try:
+        ok = await persistence.rename_domain(business_id, slug, new_slug, new_display_name or new_slug)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Domain '{slug}' not found")
     return {"status": "ok", "old_slug": slug, "new_slug": new_slug}
 
 

@@ -43,7 +43,7 @@ async def test_list_domain_modules_endpoint() -> None:
 async def test_rename_domain_endpoint() -> None:
     """PUT …/domains/{slug}/rename calls persistence.rename_domain with body fields."""
     mock_p = AsyncMock()
-    mock_p.rename_domain = AsyncMock()
+    mock_p.rename_domain = AsyncMock(return_value=True)
 
     with patch(
         "api.routes.wiki_page_routes._wiki_persistence_for_business_id",
@@ -69,3 +69,70 @@ async def test_rename_domain_endpoint() -> None:
         "new-slug",
         "New Title",
     )
+
+
+@pytest.mark.asyncio
+async def test_rename_domain_invalid_slug() -> None:
+    """Invalid new_slug (spaces) returns 422."""
+    mock_p = AsyncMock()
+
+    with patch(
+        "api.routes.wiki_page_routes._wiki_persistence_for_business_id",
+        new=AsyncMock(return_value=mock_p),
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.put(
+                "/api/v1/wiki/acme/domains/old-slug/rename",
+                json={"new_slug": "bad slug"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+    assert resp.status_code == 422
+    mock_p.rename_domain.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_rename_domain_not_found() -> None:
+    """Persistence returns False → 404."""
+    mock_p = AsyncMock()
+    mock_p.rename_domain = AsyncMock(return_value=False)
+
+    with patch(
+        "api.routes.wiki_page_routes._wiki_persistence_for_business_id",
+        new=AsyncMock(return_value=mock_p),
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.put(
+                "/api/v1/wiki/acme/domains/old-slug/rename",
+                json={"new_slug": "new-slug"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_rename_domain_collision() -> None:
+    """Persistence raises ValueError → 409."""
+    mock_p = AsyncMock()
+    mock_p.rename_domain = AsyncMock(
+        side_effect=ValueError("Domain slug 'new-slug' already exists"),
+    )
+
+    with patch(
+        "api.routes.wiki_page_routes._wiki_persistence_for_business_id",
+        new=AsyncMock(return_value=mock_p),
+    ):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.put(
+                "/api/v1/wiki/acme/domains/old-slug/rename",
+                json={"new_slug": "new-slug"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+    assert resp.status_code == 409
+    assert "already exists" in resp.json()["detail"]

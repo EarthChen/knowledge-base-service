@@ -701,8 +701,27 @@ class WikiPersistence:
 
     async def rename_domain(
         self, business_id: str, old_slug: str, new_slug: str, new_display_name: str
-    ) -> None:
-        """Rename a domain: update DomainAnchor slug/display and cascade to Module.domain_slug."""
+    ) -> bool:
+        """Rename a domain: update DomainAnchor slug/display and cascade to Module.domain_slug.
+
+        Returns True if renamed, False if old_slug not found.
+        Raises ValueError if new_slug already exists.
+        """
+        check = await self._store.execute_query(
+            "MATCH (d:DomainAnchor {business_id: $bid, slug: $slug}) RETURN count(d) AS cnt",
+            {"bid": business_id, "slug": old_slug},
+        )
+        if not check.data or check.data[0].get("cnt", 0) == 0:
+            return False
+
+        if old_slug != new_slug:
+            collision = await self._store.execute_query(
+                "MATCH (d:DomainAnchor {business_id: $bid, slug: $slug}) RETURN count(d) AS cnt",
+                {"bid": business_id, "slug": new_slug},
+            )
+            if collision.data and collision.data[0].get("cnt", 0) > 0:
+                raise ValueError(f"Domain slug '{new_slug}' already exists")
+
         await self._store.execute_query(
             "MATCH (d:DomainAnchor {business_id: $bid, slug: $old}) "
             "SET d.slug = $new, d.display_name = $display",
@@ -714,6 +733,7 @@ class WikiPersistence:
             "SET m.domain_slug = $new",
             {"bid": business_id, "old": old_slug, "new": new_slug},
         )
+        return True
 
     async def save_domain_classification(
         self, business_id: str, mapping: dict

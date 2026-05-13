@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from core.log import get_logger
 from wiki.domain_doc_agent import DomainDocAgent, _build_baseline
 from wiki.nodes.utils import _collect_leaf_domains
+from wiki.source_ref_validator import repair_broken_mermaid_blocks, sanitize_wiki_content
 
 log = get_logger(__name__)
 
@@ -197,6 +198,16 @@ async def compose_domain_agents_node(
                 if err:
                     errors.append({"domain": page.get("title", ""), "error": err})
                 pages.append(page)
+
+    # Sanitize domain pages (Mermaid validation + repair)
+    known_entities = state.get("entities", [])
+    if not isinstance(known_entities, list):
+        known_entities = []
+    for page in pages:
+        raw = page.get("content", "")
+        page["content"] = sanitize_wiki_content(raw, known_entities)
+        if llm is not None:
+            page["content"] = await repair_broken_mermaid_blocks(page["content"], llm)
 
     log.info(
         "domain_agents_complete",

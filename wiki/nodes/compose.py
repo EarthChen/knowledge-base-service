@@ -151,20 +151,27 @@ async def _enrich_pages_with_agent(
                 _pn.log.warning("agent_enrichment_failed", domain=domain_name, exc_info=True)
 
 
-def _sanitize_pages(
+async def _sanitize_pages(
     pages: list[dict[str, Any]],
     known_entities: list[dict],
     covered_entity_uids: list[str],
+    llm: Any = None,
 ) -> None:
-    """Sanitize wiki content and set covered_entity_uids (in-place)."""
+    """Sanitize wiki content, repair broken Mermaid via LLM, and set covered_entity_uids (in-place)."""
     from wiki.page_agent import strip_agent_artifacts
-    from wiki.source_ref_validator import sanitize_wiki_content
+    from wiki.source_ref_validator import (
+        repair_broken_mermaid_blocks,
+        sanitize_wiki_content,
+    )
 
     for page_dict in pages:
         raw_content = page_dict.get("content", "")
-        # Strip LLM artifacts (```markdown fence, thinking prefixes, JSON preambles)
         raw_content = strip_agent_artifacts(raw_content)
         page_dict["content"] = sanitize_wiki_content(raw_content, known_entities)
+        if llm is not None:
+            page_dict["content"] = await repair_broken_mermaid_blocks(
+                page_dict["content"], llm,
+            )
         page_dict["content"] = cleanup_context_gaps(page_dict.get("content", ""))
         page_dict["covered_entity_uids"] = covered_entity_uids
 
@@ -358,7 +365,7 @@ async def _compose_single_leaf_domain(
                         }
                         for e in context.biz_entities
                     ] if context else []
-                    _sanitize_pages(pages, known_entities, covered_entity_uids)
+                    await _sanitize_pages(pages, known_entities, covered_entity_uids, llm=llm)
                     _attach_business_domain_to_pages(pages, biz_domain)
                     _pn.log.info("agent_driven_generation_complete", domain=domain_name)
                     return pages, [page["path"]]
@@ -390,7 +397,7 @@ async def _compose_single_leaf_domain(
                 }
                 for e in context.biz_entities
             ]
-            _sanitize_pages(pages, known_entities, covered_entity_uids)
+            await _sanitize_pages(pages, known_entities, covered_entity_uids, llm=llm)
             _attach_business_domain_to_pages(pages, biz_domain)
             return pages, [p.get("path", "") for p in pages]
         except Exception:
@@ -477,7 +484,7 @@ async def _compose_single_leaf_domain(
             }
             for e in biz_entities
         ]
-        _sanitize_pages(pages, known_ents, covered_entity_uids)
+        await _sanitize_pages(pages, known_ents, covered_entity_uids, llm=llm)
         _attach_business_domain_to_pages(pages, biz_domain)
         return pages, [p.get("path", "") for p in pages]
     except Exception:

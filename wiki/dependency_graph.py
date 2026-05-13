@@ -186,6 +186,7 @@ class ModuleReprBuilder:
 class DomainNode:
     name: str
     slug: str = ""
+    display_name: str = ""
     description: str = ""
     modules: list[str] = field(default_factory=list)
     children: list[DomainNode] = field(default_factory=list)
@@ -288,9 +289,12 @@ class HierarchicalDecomposer:
             f"- Prefer flatter trees when modules are loosely related\n\n"
             f"## Output Format\n"
             f"Return a JSON object:\n"
-            f'{{"domains": [{{"name": "礼物订单处理", "description": "...", '
+            f'{{"domains": [{{"name": "礼物订单处理", "slug": "gift-order-processing", '
+            f'"description": "...", '
             f'"modules": ["module_name", ...], '
-            f'"children": [... nested domains ...]}}]}}'
+            f'"children": [... nested domains ...]}}]}}\n'
+            f"- 'name': short Chinese business name (2-6 chars)\n"
+            f"- 'slug': kebab-case ASCII identifier derived from the business meaning (NOT code names)"
         )
 
     def _parse_domain_tree(self, response: str, modules: list[ModuleInfo]) -> list[DomainNode]:
@@ -320,8 +324,19 @@ class HierarchicalDecomposer:
         return nodes
 
     def _parse_node(self, raw: dict[str, Any]) -> DomainNode:
+        from wiki.path_conventions import normalize_slug
+
+        display = str(raw.get("name", "Unknown"))
+        raw_slug = str(raw.get("slug", "") or "")
+        slug = normalize_slug(raw_slug) if raw_slug else normalize_slug(display)
+        if not slug or slug == "unnamed":
+            slug = normalize_slug(
+                "-".join(str(m) for m in (raw.get("modules") or [])[:3])
+            ) or "unnamed"
         return DomainNode(
-            name=raw.get("name", "Unknown"),
+            name=slug,
+            slug=slug,
+            display_name=display,
             description=raw.get("description", ""),
             modules=raw.get("modules", []),
             children=[self._parse_node(c) for c in raw.get("children", [])],

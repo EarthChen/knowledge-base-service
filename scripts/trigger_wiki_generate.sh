@@ -34,6 +34,8 @@ Management commands (run API helpers; skip generation — put after common optio
   checkpoint-delete Remove checkpoint SQLite data for the business
   resume            Resume wiki generation in incremental mode
   regenerate-domain Regenerate a specific domain: regenerate-domain DOMAIN_SLUG
+  clean-wiki        Delete all wiki data + checkpoint (preserves code index)
+  clean-regenerate  Clean all wiki data + checkpoint, then trigger full rebuild
 
 Monitoring modes (pick one, default: --poll):
   --poll              Poll task status via REST API (default)
@@ -73,7 +75,7 @@ while [[ $# -gt 0 ]]; do
     --poll-interval) POLL_INTERVAL="$2"; shift 2 ;;
     --max-poll)      MAX_POLL="$2"; shift 2 ;;
     --task-id)       ATTACH_TASK_ID="$2"; shift 2 ;;
-    list-domains|move-module|unpin-module|reset-anchors|checkpoint-info|checkpoint-delete|resume|regenerate-domain)
+    list-domains|move-module|unpin-module|reset-anchors|checkpoint-info|checkpoint-delete|resume|regenerate-domain|clean-wiki|clean-regenerate)
       MGMT_CMD="$1"
       shift
       break
@@ -165,8 +167,55 @@ if [ -n "$MGMT_CMD" ]; then
         -d "$BODY" \
         "${API_BASE}/api/v1/wiki/business/generate" | python3 -m json.tool
       ;;
+    clean-wiki)
+      echo -e "${YELLOW}WARNING: This will delete ALL wiki data + checkpoint for ${BUSINESS_ID}${NC}"
+      echo "  (Code index will be preserved)"
+      read -r -p "Are you sure? (y/N) " -n 1 reply
+      echo
+      if [[ "${reply}" =~ ^[Yy]$ ]]; then
+        echo "Deleting wiki data..."
+        curl -s -m "$TIMEOUT" -X DELETE \
+          -H "$AUTH_HEADER" -H "X-Business-Id: ${BUSINESS_ID}" \
+          "${API_BASE}/api/v1/wiki/${BUSINESS_ID}" | python3 -m json.tool
+        echo "Deleting checkpoint..."
+        curl -s -m "$TIMEOUT" -X DELETE \
+          -H "$AUTH_HEADER" -H "X-Business-Id: ${BUSINESS_ID}" \
+          "${API_BASE}/api/v1/wiki/${BUSINESS_ID}/checkpoint" | python3 -m json.tool
+        echo -e "${GREEN}Wiki data cleaned.${NC}"
+      else
+        echo "Cancelled."
+      fi
+      ;;
+    clean-regenerate)
+      echo -e "${YELLOW}WARNING: This will delete ALL wiki data + checkpoint for ${BUSINESS_ID}, then trigger full rebuild${NC}"
+      read -r -p "Are you sure? (y/N) " -n 1 reply
+      echo
+      if [[ "${reply}" =~ ^[Yy]$ ]]; then
+        echo "Deleting wiki data..."
+        DEL_RESULT=$(curl -s -m "$TIMEOUT" -X DELETE \
+          -H "$AUTH_HEADER" -H "X-Business-Id: ${BUSINESS_ID}" \
+          "${API_BASE}/api/v1/wiki/${BUSINESS_ID}")
+        DELETED=$(echo "$DEL_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('deleted_nodes',0))" 2>/dev/null || echo "?")
+        echo "  Deleted ${DELETED} wiki nodes"
+        echo "Deleting checkpoint..."
+        curl -s -m "$TIMEOUT" -X DELETE \
+          -H "$AUTH_HEADER" -H "X-Business-Id: ${BUSINESS_ID}" \
+          "${API_BASE}/api/v1/wiki/${BUSINESS_ID}/checkpoint" > /dev/null 2>&1
+        echo "  Checkpoint deleted"
+        echo ""
+        echo "Triggering full wiki rebuild..."
+        INCREMENTAL=false
+        MGMT_CMD=""
+      else
+        echo "Cancelled."
+        exit 0
+      fi
+      ;;
   esac
-  exit 0
+  # clean-regenerate falls through to trigger generation
+  if [ -n "$MGMT_CMD" ] && [ "$MGMT_CMD" != "clean-regenerate" ]; then
+    exit 0
+  fi
 fi
 
 ts() { date '+%H:%M:%S'; }

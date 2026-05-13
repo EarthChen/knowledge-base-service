@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
 _SOURCE_REF_BACKTICK = re.compile(r"`source://([^/`]+)/([^`]+)`")
 
@@ -99,18 +100,169 @@ def build_verified_source_section(
     return "\n".join(lines)
 
 
+_CJK_RANGE = r"\u4e00-\u9fff\u3400-\u4dbf"
+
+_MERMAID_NODE_RE = re.compile(
+    r"(\w+)"
+    r"(\[|\{|\(|\(\()"
+    r"([^\]})\"]+?)"
+    r"(\]|\}|\)|\)\))",
+)
+
+_MERMAID_EDGE_LABEL_RE = re.compile(
+    r"(\|)([^|\"]+?)(\|)",
+)
+
+
+def fix_mermaid_cjk_quoting(mermaid_code: str) -> str:
+    """Add quotes around CJK text in Mermaid node labels and edge labels."""
+    cjk_pat = re.compile(f"[{_CJK_RANGE}]")
+
+    def _quote_node(m: re.Match) -> str:
+        node_id, open_br, text, close_br = m.group(1), m.group(2), m.group(3), m.group(4)
+        if cjk_pat.search(text) and not text.startswith('"'):
+            text = f'"{text.strip()}"'
+        return f"{node_id}{open_br}{text}{close_br}"
+
+    def _quote_edge(m: re.Match) -> str:
+        pipe1, text, pipe2 = m.group(1), m.group(2), m.group(3)
+        if cjk_pat.search(text) and not text.startswith('"'):
+            text = f'"{text.strip()}"'
+        return f"{pipe1}{text}{pipe2}"
+
+    result = _MERMAID_NODE_RE.sub(_quote_node, mermaid_code)
+    result = _MERMAID_EDGE_LABEL_RE.sub(_quote_edge, result)
+    return result
+
+
+_MERMAID_BLOCK_RE = re.compile(r"(```mermaid\n)(.*?)(```)", re.DOTALL)
+
+_MERMAID_SUBGRAPH_CJK_RE = re.compile(
+    r"(subgraph\s+)([^\n\"]+)", re.MULTILINE
+)
+
+_CJK_CHECK = re.compile(f"[{_CJK_RANGE}]")
+
+
+def _fix_subgraph_labels(code: str) -> str:
+    """Quote subgraph labels containing CJK."""
+    def _quote_sub(m: re.Match) -> str:
+        prefix, label = m.group(1), m.group(2)
+        if _CJK_CHECK.search(label) and not label.strip().startswith('"'):
+            return f'{prefix}"{label.strip()}"'
+        return m.group(0)
+    return _MERMAID_SUBGRAPH_CJK_RE.sub(_quote_sub, code)
+
+
+def _fix_mermaid_blocks(content: str) -> str:
+    """Fix CJK quoting in mermaid blocks; remove blocks that remain broken."""
+    def _replace(m: re.Match) -> str:
+        prefix, code, suffix = m.group(1), m.group(2), m.group(3)
+        fixed = fix_mermaid_cjk_quoting(code)
+        fixed = _fix_subgraph_labels(fixed)
+        try:
+            from wiki.mermaid_validator import validate_mermaid_block
+
+            result = validate_mermaid_block(fixed)
+            if not result.is_valid:
+                return (
+                    "<details><summary>图表源码（渲染失败）</summary>\n\n"
+                    f"```\n{code}```\n\n</details>"
+                )
+        except Exception:
+            pass
+        return prefix + fixed + suffix
+
+    return _MERMAID_BLOCK_RE.sub(_replace, content)
+
+
+_COLLAPSED_MERMAID_RE = re.compile(
+    r"<details><summary>图表源码（渲染失败）</summary>\n\n"
+    r"```\n(.*?)```\n\n</details>",
+    re.DOTALL,
+)
+
+_MERMAID_REPAIR_SYSTEM = (
+    "You are a Mermaid diagram syntax expert. "
+    "The user will give you a broken Mermaid diagram. "
+    "Fix the syntax errors and return ONLY the corrected Mermaid code. "
+    "No markdown fences, no explanations. Return ONLY valid Mermaid code.\n\n"
+    "Common issues to fix:\n"
+    "- Unquoted CJK labels in nodes/edges/subgraphs\n"
+    "- Invalid arrow syntax\n"
+    "- Missing or extra brackets\n"
+    "- Invalid participant/node identifiers (use alphanumeric only)\n"
+    "- Malformed subgraph blocks\n"
+    "If the diagram is completely unsalvageable, return exactly: UNFIXABLE"
+)
+
+_MERMAID_REPAIR_MAX_RETRIES = 1
+
+
+async def repair_broken_mermaid_blocks(
+    content: str,
+    llm: "Any",
+) -> str:
+    """Use LLM to repair collapsed (broken) Mermaid blocks in wiki content.
+
+    Finds ``<details>`` blocks produced by ``_fix_mermaid_blocks`` for diagrams
+    that failed validation, sends the original code to the LLM for correction,
+    validates the result, and restores the block if fixed successfully.
+    """
+    from wiki.mermaid_validator import validate_mermaid_block
+
+    matches = list(_COLLAPSED_MERMAID_RE.finditer(content))
+    if not matches or llm is None:
+        return content
+
+    result = content
+    for m in reversed(matches):
+        original_code = m.group(1)
+        if not original_code.strip():
+            continue
+
+        prompt = (
+            f"Fix this broken Mermaid diagram:\n\n{original_code.strip()}\n\n"
+            "Return ONLY the corrected Mermaid code."
+        )
+
+        try:
+            fixed_raw = await llm.generate(
+                prompt, system=_MERMAID_REPAIR_SYSTEM, max_tokens=2000,
+            )
+        except Exception:
+            continue
+
+        if not fixed_raw or "UNFIXABLE" in fixed_raw.strip():
+            continue
+
+        fixed = fixed_raw.strip()
+        if fixed.startswith("```"):
+            first_nl = fixed.find("\n")
+            if first_nl != -1:
+                fixed = fixed[first_nl + 1:]
+            if fixed.endswith("```"):
+                fixed = fixed[:-3]
+            fixed = fixed.strip()
+
+        if not fixed:
+            continue
+
+        validation = validate_mermaid_block(fixed)
+        if validation.is_valid:
+            replacement = f"```mermaid\n{fixed}\n```"
+            result = result[:m.start()] + replacement + result[m.end():]
+
+    return result
+
+
 def sanitize_wiki_content(
     content: str,
     known_entities: list[dict[str, str | int]] | None = None,
 ) -> str:
-    """Full sanitization pass: strip hallucinated refs.
+    """Full sanitization pass: strip hallucinated refs, fix Mermaid CJK quoting.
 
-    The verified ``## 源码定位`` section is no longer appended here because
-    the dashboard UI already renders ``WikiSourceLocRow`` (interactive IDE
-    links) and ``Related Code Entities`` from graph ``SOURCE_ENTITY`` edges,
-    which provide the same information with better UX.
-
-    ``known_entities`` is still used to build the ``known_paths`` set for
+    ``known_entities`` is used to build the ``known_paths`` set for
     hallucination detection.
     """
     known_paths: set[str] | None = None
@@ -125,5 +277,8 @@ def sanitize_wiki_content(
     cleaned = strip_hallucinated_refs(content, known_paths)
 
     cleaned = re.sub(r"\n## 源码定位\n.*", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"\n## 源码位置\n.*", "", cleaned, flags=re.DOTALL)
+
+    cleaned = _fix_mermaid_blocks(cleaned)
 
     return cleaned

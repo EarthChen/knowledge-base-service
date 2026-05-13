@@ -28,6 +28,7 @@ class PipelineResult:
     resolved_links: dict[str, list[dict[str, str]]]
     entity_roles: dict[str, str]
     errors: list[str] = field(default_factory=list)
+    domain_display_names: dict[str, str] = field(default_factory=dict)
 
 
 def _graph_nodes_to_dicts(
@@ -53,8 +54,11 @@ def _dicts_to_domain_tree(raw_tree: list[dict[str, Any]] | None) -> list[DomainN
         return None
     result: list[DomainNode] = []
     for d in raw_tree:
+        slug_val = d.get("name", "")
         result.append(DomainNode(
-            name=d.get("name", ""),
+            name=slug_val,
+            slug=slug_val,
+            display_name=d.get("display_name", ""),
             description=d.get("description", ""),
             modules=list(d.get("modules", [])),
             children=_dicts_to_domain_tree(d.get("children", [])) or [],
@@ -262,6 +266,7 @@ async def run_langgraph_pipeline(
     resolved_links = result.get("resolved_links", {})
     entity_roles = result.get("entity_roles", {})
     errors = result.get("errors", [])
+    domain_display_names = result.get("domain_display_names", {})
 
     log.info(
         "langgraph_pipeline_done",
@@ -280,4 +285,5 @@ async def run_langgraph_pipeline(
         resolved_links=resolved_links,
         entity_roles=entity_roles,
         errors=errors,
+        domain_display_names=domain_display_names,
     )

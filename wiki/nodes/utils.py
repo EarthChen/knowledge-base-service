@@ -28,9 +28,10 @@ def _normalize_domain_tree(raw_tree: list | None) -> list[dict[str, Any]]:
         if hasattr(node, "name"):
             raw_name = getattr(node, "name", "")
             slug_val = getattr(node, "slug", "") or ""
+            display_val = getattr(node, "display_name", "") or ""
             d: dict[str, Any] = {
                 "name": slug_val if slug_val else raw_name,
-                "display_name": raw_name,
+                "display_name": display_val or raw_name,
                 "description": getattr(node, "description", ""),
                 "modules": [m.name if hasattr(m, "name") else str(m) for m in getattr(node, "modules", [])],
                 "children": _normalize_domain_tree(getattr(node, "children", [])),

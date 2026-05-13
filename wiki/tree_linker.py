@@ -655,10 +655,11 @@ class WikiTreeLinker:
 
         async def _create_sections(parent_uid: str, domain: DomainNode, sort_idx: int) -> None:
             section_uid = tree_builder.generate_domain_section_uid(business_id, domain.name)
+            section_title = domain.display_name or domain.name
             try:
                 await self._wiki_store.upsert_wiki_section(
                     uid=section_uid,
-                    title=domain.name,
+                    title=section_title,
                     description=domain.description or "",
                     section_type="business_domain",
                     sort_order=sort_idx,
@@ -677,15 +678,17 @@ class WikiTreeLinker:
                 return
 
             if domain.modules or domain.children:
-                overview_path = f"/__domains__/{domain.name}/_overview"
+                from wiki.path_conventions import domain_overview_path as _dop
+
+                domain_slug = domain.slug or domain.name
+                overview_path = _dop(domain_slug)
                 if overview_path not in agent_overview_paths:
-                    # No agent page — generate synthetic overview
                     overview_content = _build_domain_overview_content(domain)
                     from wiki.models import EnrichmentLevel, PageType, WikiPageMetadata
 
                     overview_page = WikiPage(
                         path=overview_path,
-                        title=f"{domain.name}" if language.startswith("zh") else f"{domain.name} Overview",
+                        title=section_title if language.startswith("zh") else f"{section_title} Overview",
                         page_type=PageType.DOMAIN_OVERVIEW,
                         content=overview_content,
                         diagrams=[],
@@ -701,7 +704,6 @@ class WikiTreeLinker:
                 else:
                     log.info("nested_tree_using_agent_overview", domain=domain.name)
 
-                # Always create the link — whether agent or synthetic
                 overview_uid = f"WikiPage:{business_id}:{overview_path}"
                 pending_overview_links.append((section_uid, overview_uid))
 
@@ -729,8 +731,10 @@ class WikiTreeLinker:
             section_uid = tree_builder.generate_domain_section_uid(business_id, domain.name)
             child_sort = 0
 
-            # Link overview page (now exists in graph)
-            overview_uid = f"WikiPage:{business_id}:/__domains__/{domain.name}/_overview"
+            from wiki.path_conventions import domain_overview_path as _dop
+
+            domain_slug = domain.slug or domain.name
+            overview_uid = f"WikiPage:{business_id}:{_dop(domain_slug)}"
             if (section_uid, overview_uid) in overview_link_set:
                 try:
                     await self._wiki_store.add_has_child_edge(

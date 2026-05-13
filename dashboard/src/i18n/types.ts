@@ -652,6 +652,7 @@ export interface Translations {
     tabKnowledgeGraph: string;
     tabResearch: string;
     tabFlows: string;
+    tabDomains: string;
     businessView: string;
     codeView: string;
     coverageTitle: string;
@@ -986,6 +987,9 @@ export interface Translations {
       related_entities_collapse: string;
       related_entities_empty: string;
       related_entities_loading: string;
+      view_rendered: string;
+      view_markdown: string;
+      copy_markdown: string;
     };
     knowledge_graph: {
       loading: string;

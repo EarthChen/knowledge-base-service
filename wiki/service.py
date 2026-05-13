@@ -1376,11 +1376,23 @@ class WikiService:
                 reason="no repos need generation (skip_repo_pages=True, no new repos)",
             )
 
+        all_section_names = list(domain_names)
+        if domain_tree:
+            def _flatten_tree_paths(nodes: list[DomainNode], prefix: str = "") -> list[str]:
+                paths: list[str] = []
+                for n in nodes:
+                    p = f"{prefix}/{n.name}" if prefix else n.name
+                    paths.append(p)
+                    paths.extend(_flatten_tree_paths(n.children, p))
+                return paths
+            all_section_names.extend(_flatten_tree_paths(domain_tree))
+            all_section_names.append("__root__")
+
         await self._persistence.cleanup_stale_domain_edges(
-            business_id, domain_names,
+            business_id, all_section_names,
         )
         await self._persistence.cleanup_stale_domain_sections(
-            business_id, domain_names,
+            business_id, all_section_names,
         )
 
         await self._link_pages_to_tree(

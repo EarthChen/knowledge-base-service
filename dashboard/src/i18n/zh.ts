@@ -626,6 +626,7 @@ const zh: Translations = {
     tabKnowledgeGraph: "知识图谱",
     tabResearch: "深度研究",
     tabFlows: "业务流",
+    tabDomains: "域管理",
     businessView: "业务视角",
     codeView: "代码视角",
     coverageTitle: "Wiki 覆盖率",
@@ -949,6 +950,9 @@ const zh: Translations = {
       related_entities_collapse: "隐藏关联代码实体",
       related_entities_empty: "此页面暂无关联代码实体。",
       related_entities_loading: "正在加载代码实体…",
+      view_rendered: "渲染视图",
+      view_markdown: "Markdown",
+      copy_markdown: "复制 Markdown",
     },
     knowledge_graph: {
       loading: "加载中...",

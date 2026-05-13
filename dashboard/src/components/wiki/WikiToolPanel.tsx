@@ -23,7 +23,6 @@ const WikiBusinessExportPanel = lazy(() => import("./WikiBusinessExportPanel"));
 const WikiLintPanel = lazy(() => import("./WikiLintPanel"));
 const DeepResearchPanel = lazy(() => import("./DeepResearchPanel"));
 const WikiBusinessFlowGraph = lazy(() => import("./WikiBusinessFlowGraph"));
-
 export type WikiToolTab =
   | "page"
   | "coverage"
@@ -373,6 +372,7 @@ export default function WikiToolPanel({
           )}
         </div>
       )}
+
     </>
   );
 }

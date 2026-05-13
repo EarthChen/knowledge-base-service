@@ -652,9 +652,13 @@ class WikiTreeLinker:
 
         # Phase 1: Create sections and collect overview pages
         pending_overview_links: list[tuple[str, str]] = []  # (section_uid, overview_uid)
+        # Track domain path → section_uid to handle parent-child name collisions
+        domain_path_to_section_uid: dict[str, str] = {}
 
-        async def _create_sections(parent_uid: str, domain: DomainNode, sort_idx: int) -> None:
-            section_uid = tree_builder.generate_domain_section_uid(business_id, domain.name)
+        async def _create_sections(parent_uid: str, domain: DomainNode, sort_idx: int, path_prefix: str = "") -> None:
+            domain_path = f"{path_prefix}/{domain.name}" if path_prefix else domain.name
+            section_uid = tree_builder.generate_domain_section_uid(business_id, domain_path)
+            domain_path_to_section_uid[domain_path] = section_uid
             section_title = domain.display_name or domain.name
             try:
                 await self._wiki_store.upsert_wiki_section(
@@ -708,7 +712,7 @@ class WikiTreeLinker:
                 pending_overview_links.append((section_uid, overview_uid))
 
             for i, child in enumerate(domain.children):
-                await _create_sections(section_uid, child, i)
+                await _create_sections(section_uid, child, i, path_prefix=domain_path)
 
         for i, domain in enumerate(domain_tree):
             await _create_sections(root_uid, domain, i)
@@ -727,8 +731,11 @@ class WikiTreeLinker:
         # Phase 3: Link overview pages, module pages, and topic pages to sections
         overview_link_set = set(pending_overview_links)
 
-        async def _link_domain_pages(parent_uid: str, domain: DomainNode) -> None:
-            section_uid = tree_builder.generate_domain_section_uid(business_id, domain.name)
+        async def _link_domain_pages(parent_uid: str, domain: DomainNode, path_prefix: str = "") -> None:
+            domain_path = f"{path_prefix}/{domain.name}" if path_prefix else domain.name
+            section_uid = domain_path_to_section_uid.get(domain_path)
+            if not section_uid:
+                section_uid = tree_builder.generate_domain_section_uid(business_id, domain_path)
             child_sort = 0
 
             from wiki.path_conventions import domain_overview_path as _dop
@@ -791,7 +798,7 @@ class WikiTreeLinker:
                         log.warning("nested_tree_topic_link_failed", page_uid=t_uid, exc_info=True)
 
             for child in domain.children:
-                await _link_domain_pages(section_uid, child)
+                await _link_domain_pages(section_uid, child, path_prefix=domain_path)
 
         for domain in domain_tree:
             await _link_domain_pages(root_uid, domain)

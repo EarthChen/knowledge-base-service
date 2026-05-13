@@ -23,6 +23,7 @@ import WikiUpdateNotification from "./WikiUpdateNotification";
 import WikiTreeNav from "./WikiTreeNav";
 import WikiTopicTreeNav from "./WikiTopicTreeNav";
 import { useWikiTopicTree } from "../../hooks/useWikiDomainTree";
+import { useUpsertDomain, useDeleteDomain } from "../../hooks/useDomainManagement";
 
 export { WikiToolSuspenseFallback };
 
@@ -102,6 +103,22 @@ export default function WikiShell() {
   const [treeViewMode, setTreeViewMode] = useState<"topic" | "code">("topic");
   const effectiveTreeMode: "topic" | "code" = showCodeStructureTab ? treeViewMode : "topic";
   const topicTreeQuery = useWikiTopicTree(businessId);
+  const upsertDomain = useUpsertDomain(businessId);
+  const deleteDomainMutation = useDeleteDomain(businessId);
+
+  const handleRenameDomain = useCallback(
+    (slug: string, newDisplayName: string) => {
+      upsertDomain.mutate({ slug, displayName: newDisplayName });
+    },
+    [upsertDomain],
+  );
+
+  const handleDeleteDomain = useCallback(
+    (slug: string) => {
+      deleteDomainMutation.mutate(slug);
+    },
+    [deleteDomainMutation],
+  );
 
   const onTopicTreeSelect = useCallback(
     (path: string) => {
@@ -223,9 +240,9 @@ export default function WikiShell() {
 
   return (
     <ErrorBoundary fallbackLabel={t.wiki.error_boundary.wiki_failed}>
-      <div className="flex min-h-[min(70vh,860px)] flex-col gap-4 lg:flex-row lg:items-stretch">
+      <div className="flex flex-col gap-4 lg:flex-row">
         <div
-          className={`transition-all duration-300 ${sidebarCollapsed ? "w-0 overflow-hidden lg:w-0" : "w-full lg:w-64 xl:w-72"}`}
+          className={`transition-all duration-300 ${sidebarCollapsed ? "w-0 overflow-hidden lg:w-0" : "w-full shrink-0 lg:sticky lg:top-0 lg:w-64 xl:w-72"}`}
         >
           {!sidebarCollapsed && (
             <div className="flex w-full flex-col gap-0">
@@ -257,7 +274,7 @@ export default function WikiShell() {
               </div>
               {effectiveTreeMode === "topic" ? (
                 <aside className="flex w-full shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
-                  <div className="max-h-[min(70vh,560px)] overflow-y-auto p-2">
+                  <div className="overflow-y-auto p-2 lg:max-h-[calc(100vh-10rem)]">
                     {topicTreeQuery.isLoading && (
                       <p className="flex items-center gap-2 px-2 py-4 text-sm text-gray-500 dark:text-gray-400">
                         <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -274,6 +291,8 @@ export default function WikiShell() {
                         tree={topicTreeQuery.data?.tree ?? []}
                         selectedPath={pagePath || null}
                         onSelect={onTopicTreeSelect}
+                        onRenameDomain={handleRenameDomain}
+                        onDeleteDomain={handleDeleteDomain}
                       />
                     )}
                   </div>

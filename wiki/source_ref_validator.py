@@ -154,12 +154,39 @@ def _fix_subgraph_labels(code: str) -> str:
     return _MERMAID_SUBGRAPH_CJK_RE.sub(_quote_sub, code)
 
 
+_PARTICIPANT_ID_RE = re.compile(
+    r"^(\s*participant\s+)(\S+/\S+)(\s+as\s+.*)$",
+    re.MULTILINE,
+)
+
+
+def _fix_sequence_participant_ids(code: str) -> str:
+    """Replace ``/`` in sequence-diagram participant identifiers with ``_``.
+
+    Mermaid.js treats ``/`` as a path separator, causing rendering failures.
+    After renaming the participant, all arrow lines referencing it are updated.
+    """
+    renames: dict[str, str] = {}
+    for m in _PARTICIPANT_ID_RE.finditer(code):
+        old_id = m.group(2)
+        new_id = old_id.replace("/", "_")
+        if old_id != new_id:
+            renames[old_id] = new_id
+    if not renames:
+        return code
+    result = code
+    for old_id, new_id in renames.items():
+        result = result.replace(old_id, new_id)
+    return result
+
+
 def _fix_mermaid_blocks(content: str) -> str:
     """Fix CJK quoting in mermaid blocks; remove blocks that remain broken."""
     def _replace(m: re.Match) -> str:
         prefix, code, suffix = m.group(1), m.group(2), m.group(3)
         fixed = fix_mermaid_cjk_quoting(code)
         fixed = _fix_subgraph_labels(fixed)
+        fixed = _fix_sequence_participant_ids(fixed)
         try:
             from wiki.mermaid_validator import validate_mermaid_block
 
@@ -196,7 +223,19 @@ _MERMAID_REPAIR_SYSTEM = (
     "If the diagram is completely unsalvageable, return exactly: UNFIXABLE"
 )
 
-_MERMAID_REPAIR_MAX_RETRIES = 1
+_MERMAID_REPAIR_MAX_RETRIES = 3
+
+
+def _strip_markdown_fences(raw: str) -> str:
+    """Remove ```mermaid / ``` fences from LLM output."""
+    text = raw.strip()
+    if text.startswith("```"):
+        first_nl = text.find("\n")
+        if first_nl != -1:
+            text = text[first_nl + 1:]
+        if text.endswith("```"):
+            text = text[:-3]
+    return text.strip()
 
 
 async def repair_broken_mermaid_blocks(
@@ -207,7 +246,8 @@ async def repair_broken_mermaid_blocks(
 
     Finds ``<details>`` blocks produced by ``_fix_mermaid_blocks`` for diagrams
     that failed validation, sends the original code to the LLM for correction,
-    validates the result, and restores the block if fixed successfully.
+    validates the result with up to ``_MERMAID_REPAIR_MAX_RETRIES`` iterations,
+    feeding validation errors back for each retry.
     """
     from wiki.mermaid_validator import validate_mermaid_block
 
@@ -221,37 +261,46 @@ async def repair_broken_mermaid_blocks(
         if not original_code.strip():
             continue
 
-        prompt = (
-            f"Fix this broken Mermaid diagram:\n\n{original_code.strip()}\n\n"
-            "Return ONLY the corrected Mermaid code."
-        )
+        candidate = original_code.strip()
+        repaired = False
+        last_error = ""
 
-        try:
-            fixed_raw = await llm.generate(
-                prompt, system=_MERMAID_REPAIR_SYSTEM, max_tokens=2000,
-            )
-        except Exception:
-            continue
+        for attempt in range(_MERMAID_REPAIR_MAX_RETRIES):
+            if attempt == 0:
+                prompt = (
+                    f"Fix this broken Mermaid diagram:\n\n{candidate}\n\n"
+                    "Return ONLY the corrected Mermaid code."
+                )
+            else:
+                prompt = (
+                    f"Your previous fix still has errors:\n{last_error}\n\n"
+                    f"Broken code:\n{candidate}\n\n"
+                    "Fix the syntax errors and return ONLY the corrected Mermaid code."
+                )
 
-        if not fixed_raw or "UNFIXABLE" in fixed_raw.strip():
-            continue
+            try:
+                fixed_raw = await llm.generate(
+                    prompt, system=_MERMAID_REPAIR_SYSTEM, max_tokens=2000,
+                )
+            except Exception:
+                break
 
-        fixed = fixed_raw.strip()
-        if fixed.startswith("```"):
-            first_nl = fixed.find("\n")
-            if first_nl != -1:
-                fixed = fixed[first_nl + 1:]
-            if fixed.endswith("```"):
-                fixed = fixed[:-3]
-            fixed = fixed.strip()
+            if not fixed_raw or "UNFIXABLE" in fixed_raw.strip():
+                break
 
-        if not fixed:
-            continue
+            fixed = _strip_markdown_fences(fixed_raw)
+            if not fixed:
+                break
 
-        validation = validate_mermaid_block(fixed)
-        if validation.is_valid:
-            replacement = f"```mermaid\n{fixed}\n```"
-            result = result[:m.start()] + replacement + result[m.end():]
+            validation = validate_mermaid_block(fixed)
+            if validation.is_valid:
+                replacement = f"```mermaid\n{fixed}\n```"
+                result = result[:m.start()] + replacement + result[m.end():]
+                repaired = True
+                break
+
+            last_error = validation.error_message or "Mermaid syntax validation failed"
+            candidate = fixed
 
     return result
 

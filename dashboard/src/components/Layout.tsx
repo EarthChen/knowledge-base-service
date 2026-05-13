@@ -144,7 +144,7 @@ export default function Layout() {
   ];
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex min-h-screen">
       {sidebarOpen && (
         <div
           ref={mobileNavOverlayRef}
@@ -161,7 +161,7 @@ export default function Layout() {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-gray-200 bg-white transition-transform duration-200 dark:border-gray-700 dark:bg-gray-900 lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-gray-200 bg-white transition-transform duration-200 dark:border-gray-700 dark:bg-gray-900 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -287,7 +287,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center gap-3 border-b border-gray-200 bg-white px-4 dark:border-gray-700 dark:bg-gray-900 lg:px-6">
           <button
             type="button"
@@ -312,7 +312,7 @@ export default function Layout() {
           <CommandPalette />
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-slate-925 p-4 dark:bg-slate-950 lg:p-6">
+        <main className="flex-1 bg-gray-50 p-4 dark:bg-slate-950 lg:p-6">
           <Suspense
             fallback={
               <div className="flex items-center justify-center py-20">

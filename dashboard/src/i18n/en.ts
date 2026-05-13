@@ -634,6 +634,7 @@ const en: Translations = {
     tabKnowledgeGraph: "Knowledge graph",
     tabResearch: "Research",
     tabFlows: "Flows",
+    tabDomains: "Domains",
     businessView: "Business",
     codeView: "Code",
     coverageTitle: "Wiki Coverage",
@@ -967,6 +968,9 @@ const en: Translations = {
       related_entities_collapse: "Hide linked code entities",
       related_entities_empty: "No linked code entities for this page.",
       related_entities_loading: "Loading code entities…",
+      view_rendered: "Rendered",
+      view_markdown: "Markdown",
+      copy_markdown: "Copy Markdown",
     },
     knowledge_graph: {
       loading: "Loading...",

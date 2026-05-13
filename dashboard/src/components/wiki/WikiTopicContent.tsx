@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { Code, Eye, Copy, Check } from "lucide-react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import EntityCardsPanel from "./EntityCardsPanel";
 
@@ -64,6 +65,16 @@ export default function WikiTopicContent({
   const tc = t.wiki.topic_content;
   const [showNotesInput, setShowNotesInput] = useState(false);
   const [notes, setNotes] = useState("");
+  const [viewMode, setViewMode] = useState<"rendered" | "markdown">("rendered");
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyMarkdown = useCallback(() => {
+    if (!page?.content) return;
+    navigator.clipboard.writeText(page.content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [page?.content]);
 
   const reviewBadge = useMemo(() => {
     if (!page) return null;
@@ -88,9 +99,45 @@ export default function WikiTopicContent({
 
   return (
     <article className="space-y-6">
-      <header className="flex items-center justify-between border-b border-gray-200 pb-4 dark:border-gray-700">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 pb-4 dark:border-gray-700">
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">{page.title}</h1>
         <div className="flex items-center gap-3">
+          <div className="flex items-center rounded-md border border-gray-200 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={() => setViewMode("rendered")}
+              className={`inline-flex items-center gap-1 rounded-l-md px-2 py-1 text-xs font-medium transition-colors ${
+                viewMode === "rendered"
+                  ? "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200"
+                  : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+              }`}
+              title={tc.view_rendered ?? "Rendered"}
+            >
+              <Eye size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("markdown")}
+              className={`inline-flex items-center gap-1 rounded-r-md px-2 py-1 text-xs font-medium transition-colors ${
+                viewMode === "markdown"
+                  ? "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200"
+                  : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+              }`}
+              title={tc.view_markdown ?? "Markdown"}
+            >
+              <Code size={12} />
+            </button>
+          </div>
+          {viewMode === "markdown" && (
+            <button
+              type="button"
+              onClick={handleCopyMarkdown}
+              className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800"
+              title={tc.copy_markdown ?? "Copy"}
+            >
+              {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+            </button>
+          )}
           {reviewBadge}
           <div className="flex gap-1.5">
             <button
@@ -164,13 +211,19 @@ export default function WikiTopicContent({
           </div>
         </div>
       </header>
-      <div className="prose prose-sm max-w-none dark:prose-invert">
-        <MarkdownRenderer
-          content={page.content}
-          businessId={businessId}
-          wikiLinkParams={wikiLinkParams}
-        />
-      </div>
+      {viewMode === "rendered" ? (
+        <div className="prose prose-sm max-w-none dark:prose-invert">
+          <MarkdownRenderer
+            content={page.content}
+            businessId={businessId}
+            wikiLinkParams={wikiLinkParams}
+          />
+        </div>
+      ) : (
+        <pre className="max-h-[80vh] overflow-auto rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs leading-relaxed text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+          <code>{page.content}</code>
+        </pre>
+      )}
       {businessId ? (
         <EntityCardsPanel pagePath={page.path} businessId={businessId} repository={repository} />
       ) : null}

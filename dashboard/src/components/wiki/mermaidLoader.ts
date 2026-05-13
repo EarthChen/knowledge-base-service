@@ -13,6 +13,8 @@ export function getMermaid(): Promise<typeof import("mermaid").default> {
         startOnLoad: false,
         theme: "neutral",
         securityLevel: "loose",
+        sequence: { useMaxWidth: false },
+        flowchart: { useMaxWidth: false },
       });
       return m;
     })();

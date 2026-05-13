@@ -23,11 +23,40 @@ import { getMermaid } from "./mermaidLoader";
 const LazyCodeBlock = lazy(() => import("./CodeBlock"));
 
 function sanitizeMermaidSource(raw: string): string {
-  return raw.replace(
+  let result = raw.replace(
     /-->\|([^|]*@[^|]*)\|/g,
     (_match, label: string) => `-->|"${label}"|`,
   );
+  const slashIds = new Map<string, string>();
+  result = result.replace(
+    /^(\s*participant\s+)(\S+\/\S+)(\s+as\s+.*)$/gm,
+    (_m, prefix: string, id: string, rest: string) => {
+      const safe = id.replace(/\//g, "_");
+      slashIds.set(id, safe);
+      return `${prefix}${safe}${rest}`;
+    },
+  );
+  for (const [old, safe] of slashIds) {
+    result = result.replaceAll(old, safe);
+  }
+
+  if (!/^%%\{init:/.test(result.trimStart())) {
+    const lines = result.trimStart().split("\n");
+    const diagramType = lines[0]?.trim().split(/\s/)[0] ?? "";
+    const cfgKey =
+      diagramType === "sequenceDiagram"
+        ? "sequence"
+        : diagramType.startsWith("flowchart") || diagramType.startsWith("graph")
+          ? "flowchart"
+          : "";
+    if (cfgKey) {
+      result = `%%{init: {'${cfgKey}': {'useMaxWidth': false}}}%%\n${result}`;
+    }
+  }
+  return result;
 }
+
+let renderQueue: Promise<void> = Promise.resolve();
 
 export function MermaidBlock({ chart }: { chart: string }) {
   const { t } = useI18n();
@@ -40,54 +69,67 @@ export function MermaidBlock({ chart }: { chart: string }) {
 
     let cancelled = false;
     const sanitized = sanitizeMermaidSource(chart);
-    void (async () => {
+    const renderId = `mermaid-render-${id}-${Date.now()}`;
+
+    renderQueue = renderQueue.then(async () => {
+      if (cancelled) return;
       const mermaid = await getMermaid();
       if (cancelled) return;
-      el.removeAttribute("data-processed");
-      el.textContent = sanitized;
       try {
-        await mermaid.run({ nodes: [el] });
-        const svg = el.querySelector("svg");
-        if (svg) {
-          svg.removeAttribute("height");
-          svg.style.maxWidth = "100%";
-          svg.style.height = "auto";
-          svg.style.minHeight = "40px";
+        const { svg } = await mermaid.render(renderId, sanitized);
+        if (cancelled) return;
+        el.innerHTML = svg;
+        const svgEl = el.querySelector("svg");
+        if (svgEl) {
+          svgEl.removeAttribute("height");
+          svgEl.style.maxWidth = "none";
+          svgEl.style.height = "auto";
+          svgEl.style.minHeight = "40px";
         }
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : typeof err === "object" && err ? JSON.stringify(err).slice(0, 300) : String(err);
+        if (cancelled) return;
+        const errMsg =
+          err instanceof Error
+            ? err.message
+            : typeof err === "object" && err
+              ? JSON.stringify(err).slice(0, 300)
+              : String(err);
         console.warn("[MermaidBlock] render failed:", errMsg);
         el.innerHTML = "";
         const wrapper = document.createElement("div");
         wrapper.className = "space-y-2";
         const errPre = document.createElement("pre");
-        errPre.className = "rounded-lg bg-red-50 p-3 text-xs text-red-800 dark:bg-red-950/40 dark:text-red-300";
+        errPre.className =
+          "rounded-lg bg-red-50 p-3 text-xs text-red-800 dark:bg-red-950/40 dark:text-red-300";
         errPre.textContent = `${t.common.mermaidRenderFailed}\n${errMsg}`;
         wrapper.appendChild(errPre);
         const srcDetails = document.createElement("details");
         const summary = document.createElement("summary");
-        summary.className = "cursor-pointer text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400";
+        summary.className =
+          "cursor-pointer text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400";
         summary.textContent = "Show source";
         srcDetails.appendChild(summary);
         const srcPre = document.createElement("pre");
-        srcPre.className = "mt-1 max-h-48 overflow-auto rounded bg-gray-100 p-2 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300";
+        srcPre.className =
+          "mt-1 max-h-48 overflow-auto rounded bg-gray-100 p-2 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300";
         srcPre.textContent = chart;
         srcDetails.appendChild(srcPre);
         wrapper.appendChild(srcDetails);
         el.appendChild(wrapper);
+        document.getElementById(renderId)?.remove();
       }
-    })();
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [chart, t.common.mermaidRenderFailed]);
+  }, [chart, id, t.common.mermaidRenderFailed]);
 
   return (
     <div
       ref={ref}
       id={`mermaid-${id}`}
-      className="mermaid my-4 overflow-x-auto rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900"
+      className="my-4 overflow-x-auto rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900"
     />
   );
 }

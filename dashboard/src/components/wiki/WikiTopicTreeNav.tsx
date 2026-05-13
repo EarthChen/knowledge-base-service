@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { ChevronRight, ChevronDown, FileText, FolderOpen } from "lucide-react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { ChevronRight, ChevronDown, Check, FileText, FolderOpen, Pencil, Trash2, X } from "lucide-react";
 import { useI18n } from "../../i18n/context";
 import type { TopicTreeNode } from "../../hooks/useWikiDomainTree";
 
@@ -7,9 +7,16 @@ interface Props {
   tree: TopicTreeNode[];
   selectedPath: string | null;
   onSelect: (path: string) => void;
+  onRenameDomain?: (slug: string, newDisplayName: string) => void;
+  onDeleteDomain?: (slug: string) => void;
 }
 
-export default function WikiTopicTreeNav({ tree, selectedPath, onSelect }: Props) {
+function extractSlugFromPath(path: string): string | null {
+  const m = path.match(/^\/__domains__\/([^/]+)\/_overview$/);
+  return m ? m[1] : null;
+}
+
+export default function WikiTopicTreeNav({ tree, selectedPath, onSelect, onRenameDomain, onDeleteDomain }: Props) {
   const { t } = useI18n();
   const tt = t.wiki.topic_tree;
   if (tree.length === 0) {
@@ -29,6 +36,8 @@ export default function WikiTopicTreeNav({ tree, selectedPath, onSelect }: Props
           depth={0}
           selectedPath={selectedPath}
           onSelect={onSelect}
+          onRenameDomain={onRenameDomain}
+          onDeleteDomain={onDeleteDomain}
           topicLabels={tt}
         />
       ))}
@@ -41,12 +50,16 @@ function TreeNode({
   depth,
   selectedPath,
   onSelect,
+  onRenameDomain,
+  onDeleteDomain,
   topicLabels,
 }: {
   node: TopicTreeNode;
   depth: number;
   selectedPath: string | null;
   onSelect: (path: string) => void;
+  onRenameDomain?: (slug: string, newDisplayName: string) => void;
+  onDeleteDomain?: (slug: string) => void;
   topicLabels: {
     expanded: string;
     collapsed: string;
@@ -54,48 +67,139 @@ function TreeNode({
   };
 }) {
   const [expanded, setExpanded] = useState(depth === 0);
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const [hovered, setHovered] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const hasChildren = node.children.length > 0;
   const isSelected = selectedPath === node.path;
   const isDomain = node.page_type === "domain_overview";
+  const slug = isDomain ? extractSlugFromPath(node.path) : null;
+  const canEdit = isDomain && !!slug && !!onRenameDomain;
+
+  useEffect(() => {
+    if (editing && inputRef.current) inputRef.current.focus();
+  }, [editing]);
 
   const handleClick = useCallback(() => {
     if (hasChildren) setExpanded((e) => !e);
     onSelect(node.path);
   }, [hasChildren, node.path, onSelect]);
 
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={handleClick}
-        aria-expanded={hasChildren ? expanded : undefined}
-        aria-label={
-          hasChildren ? `${node.name}，${expanded ? topicLabels.expanded : topicLabels.collapsed}` : node.name
-        }
-        className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors ${
-          isSelected
-            ? "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400"
-            : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-        }`}
+  const startEdit = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditValue(node.name);
+    setEditing(true);
+  }, [node.name]);
+
+  const cancelEdit = useCallback(() => {
+    setEditing(false);
+    setEditValue("");
+  }, []);
+
+  const saveEdit = useCallback(() => {
+    const v = editValue.trim();
+    if (v && v !== node.name && slug && onRenameDomain) {
+      onRenameDomain(slug, v);
+    }
+    setEditing(false);
+  }, [editValue, node.name, slug, onRenameDomain]);
+
+  const handleDelete = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (slug && onDeleteDomain && window.confirm(`Delete domain "${node.name}" (${slug})?`)) {
+      onDeleteDomain(slug);
+    }
+  }, [slug, node.name, onDeleteDomain]);
+
+  if (editing) {
+    return (
+      <div
+        className="flex items-center gap-1 rounded-md bg-sky-50 px-1 py-1 dark:bg-sky-950/40"
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
       >
-        {hasChildren ? (
-          expanded ? (
-            <ChevronDown size={14} />
+        <input
+          ref={inputRef}
+          type="text"
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") saveEdit();
+            if (e.key === "Escape") cancelEdit();
+          }}
+          className="min-w-0 flex-1 rounded border border-sky-300 bg-white px-1.5 py-0.5 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-sky-500 dark:border-sky-700 dark:bg-gray-900 dark:text-gray-100"
+        />
+        <button type="button" onClick={saveEdit} className="rounded p-0.5 text-green-600 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-900/40">
+          <Check size={12} />
+        </button>
+        <button type="button" onClick={cancelEdit} className="rounded p-0.5 text-gray-500 hover:bg-gray-200 dark:text-gray-400 dark:hover:bg-gray-700">
+          <X size={12} />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div
+        className="group relative"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <button
+          type="button"
+          onClick={handleClick}
+          aria-expanded={hasChildren ? expanded : undefined}
+          aria-label={
+            hasChildren ? `${node.name}，${expanded ? topicLabels.expanded : topicLabels.collapsed}` : node.name
+          }
+          className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors ${
+            isSelected
+              ? "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400"
+              : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+          }`}
+          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        >
+          {hasChildren ? (
+            expanded ? (
+              <ChevronDown size={14} />
+            ) : (
+              <ChevronRight size={14} />
+            )
           ) : (
-            <ChevronRight size={14} />
-          )
-        ) : (
-          <span className="w-3.5" />
+            <span className="w-3.5" />
+          )}
+          {isDomain ? <FolderOpen size={14} /> : <FileText size={14} />}
+          <span className="truncate">{node.name}</span>
+          {node.review_status === "pending_review" && (
+            <span className="ml-auto rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+              {topicLabels.pending_review}
+            </span>
+          )}
+        </button>
+        {hovered && canEdit && (
+          <div className="absolute right-1 top-1/2 flex -translate-y-1/2 gap-0.5">
+            <button
+              type="button"
+              onClick={startEdit}
+              className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-500 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+              title="Edit display name"
+            >
+              <Pencil size={11} />
+            </button>
+            {onDeleteDomain && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                className="rounded p-1 text-gray-400 hover:bg-red-100 hover:text-red-600 dark:text-gray-500 dark:hover:bg-red-900/40 dark:hover:text-red-400"
+                title="Delete domain"
+              >
+                <Trash2 size={11} />
+              </button>
+            )}
+          </div>
         )}
-        {isDomain ? <FolderOpen size={14} /> : <FileText size={14} />}
-        <span className="truncate">{node.name}</span>
-        {node.review_status === "pending_review" && (
-          <span className="ml-auto rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-            {topicLabels.pending_review}
-          </span>
-        )}
-      </button>
+      </div>
       {expanded && hasChildren && (
         <div>
           {node.children.map((child) => (
@@ -105,6 +209,8 @@ function TreeNode({
               depth={depth + 1}
               selectedPath={selectedPath}
               onSelect={onSelect}
+              onRenameDomain={onRenameDomain}
+              onDeleteDomain={onDeleteDomain}
               topicLabels={topicLabels}
             />
           ))}

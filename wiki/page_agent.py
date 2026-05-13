@@ -206,11 +206,16 @@ class WorkingMemory:
     search_findings: list[str] = field(default_factory=list)
     discovered_entity_uids: set[str] = field(default_factory=set)
     _tool_contributed_chars: int = 0
+    relevant_modules: set[str] = field(default_factory=set)
 
     MAX_TOTAL_CHARS = 200_000
 
     def incorporate(self, results: list[ToolResult]) -> None:
-        for r in results:
+        valid_results = [
+            r for r in results
+            if not (isinstance(r.data, dict) and "error" in r.data)
+        ]
+        for r in valid_results:
             tool = r.tool
             data = r.data
             if tool == "read_code":
@@ -329,7 +334,8 @@ class WorkingMemory:
                         self.discovered_callers.append(
                             f"{d.get('source_domain', '')} → {data.get('domain', '')}: {d.get('via', '')}"
                         )
-        self._tool_contributed_chars += sum(len(str(r.data)) for r in results if r.data)
+        self._tool_contributed_chars += sum(len(str(r.data)) for r in valid_results if r.data)
+        self._dedup_snippets()
         self._enforce_limit()
 
     def _extract_uid(self, data: dict[str, Any], key: str = "uid") -> None:
@@ -338,10 +344,51 @@ class WorkingMemory:
         if uid:
             self.discovered_entity_uids.add(uid)
 
+    def _dedup_snippets(self) -> None:
+        """Deduplicate code_snippets by entity name, keeping the longest version."""
+        if len(self.code_snippets) <= 1:
+            return
+        seen: dict[str, int] = {}
+        drop: set[int] = set()
+        for i, snippet in enumerate(self.code_snippets):
+            m = _MODULE_PREFIX_RE.match(snippet)
+            if not m:
+                continue
+            name = m.group(1).strip()
+            if not name:
+                continue
+            if name in seen:
+                existing_idx = seen[name]
+                if len(snippet) > len(self.code_snippets[existing_idx]):
+                    drop.add(existing_idx)
+                    seen[name] = i
+                else:
+                    drop.add(i)
+            else:
+                seen[name] = i
+        if drop:
+            self.code_snippets = [
+                s for i, s in enumerate(self.code_snippets) if i not in drop
+            ]
+
     def _enforce_limit(self) -> None:
         total = self._total_chars()
         if total <= self.MAX_TOTAL_CHARS:
             return
+
+        def _relevance(entry: str) -> int:
+            if not self.relevant_modules:
+                return 1
+            entry_lower = entry.lower()
+            for mod in self.relevant_modules:
+                mod_lower = mod.lower()
+                if mod_lower in entry_lower:
+                    return 2
+                parts = mod_lower.replace(".", " ").replace("_", " ").split()
+                if any(p in entry_lower for p in parts if len(p) > 3):
+                    return 1
+            return 0
+
         all_lists = [
             self.code_snippets,
             self.discovered_callers,
@@ -351,6 +398,21 @@ class WorkingMemory:
             self.wiki_references,
             self.search_findings,
         ]
+
+        while total > self.MAX_TOTAL_CHARS:
+            removed = False
+            for lst in all_lists:
+                for i, entry in enumerate(lst):
+                    if _relevance(entry) == 0:
+                        total -= len(entry)
+                        del lst[i]
+                        removed = True
+                        break
+                if removed:
+                    break
+            if not removed:
+                break
+
         while total > self.MAX_TOTAL_CHARS:
             removed = False
             for lst in all_lists:
@@ -914,6 +976,8 @@ class WikiPageAgent:
 
         if memory is None:
             memory = WorkingMemory()
+        if not memory.relevant_modules and module_names:
+            memory.relevant_modules = set(module_names)
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system},
             {"role": "user", "content": user_prompt},

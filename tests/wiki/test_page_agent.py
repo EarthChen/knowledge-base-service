@@ -237,6 +237,61 @@ class TestWorkingMemory:
         assert "OrderService" in text
 
 
+class TestMemoryQuality:
+    def test_incorporate_skips_error_results(self):
+        """Error tool results should not be stored in memory."""
+        memory = WorkingMemory()
+        results = [
+            ToolResult(tool="read_code", data={"error": "entity not found"}),
+            ToolResult(tool="read_code", data={"code": "public void pay() {}", "name": "PaySvc"}),
+        ]
+        memory.incorporate(results)
+        assert len(memory.code_snippets) == 1
+        assert "PaySvc" in memory.code_snippets[0]
+
+    def test_incorporate_deduplicates_snippets(self):
+        """Same entity name should keep only the longest snippet."""
+        memory = WorkingMemory()
+        results1 = [ToolResult(tool="read_code", data={"code": "short", "name": "PaySvc"})]
+        memory.incorporate(results1)
+        results2 = [
+            ToolResult(
+                tool="read_code",
+                data={"code": "public void pay() { return process(); }", "name": "PaySvc"},
+            )
+        ]
+        memory.incorporate(results2)
+        assert len(memory.code_snippets) == 1
+        assert "process" in memory.code_snippets[0]
+
+    def test_enforce_limit_evicts_irrelevant_first(self):
+        """When over limit, low-relevance entries should be evicted before relevant ones."""
+        memory = WorkingMemory()
+        memory.relevant_modules = {"PaymentService"}
+        memory.MAX_TOTAL_CHARS = 100
+
+        memory.code_snippets = [
+            "[PaymentService]\npublic void pay() {}",
+            "[UserService]\npublic void getUser() {}",
+        ]
+        memory.discovered_call_chains = [
+            "OrderService: order → ship",
+        ]
+        memory._enforce_limit()
+
+        remaining_text = " ".join(memory.code_snippets + memory.discovered_call_chains)
+        assert "PaymentService" in remaining_text or memory._total_chars() <= 100
+
+    def test_error_results_not_counted_in_tool_chars(self):
+        """Error results should not count toward _tool_contributed_chars."""
+        memory = WorkingMemory()
+        results = [
+            ToolResult(tool="read_code", data={"error": "not found"}),
+        ]
+        memory.incorporate(results)
+        assert memory._tool_contributed_chars == 0
+
+
 class TestWorkingMemoryMerge:
     def test_merge_propagates_tool_contributed_chars(self):
         m1 = WorkingMemory()

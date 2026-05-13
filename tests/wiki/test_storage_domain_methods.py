@@ -92,6 +92,45 @@ class TestStorageDomainMethods:
         assert params.get("bid") == "biz1"
 
     @pytest.mark.asyncio
+    async def test_list_domain_modules(self, mock_graph_store):
+        """list_domain_modules should return modules for a specific domain."""
+        from wiki.persistence import WikiPersistence
+        p = WikiPersistence(mock_graph_store)
+
+        mock_graph_store.execute_query.return_value = MagicMock(data=[
+            {"name": "PaymentService", "repository": "my-repo", "path": "src/pay", "pinned": True},
+            {"name": "OrderService", "repository": "my-repo", "path": "src/order", "pinned": False},
+        ])
+
+        result = await p.list_domain_modules("biz1", "payment")
+        assert len(result) == 2
+        assert result[0]["name"] == "PaymentService"
+        assert result[0]["pinned"] is True
+        mock_graph_store.execute_query.assert_called_once()
+        call_args = mock_graph_store.execute_query.call_args
+        params = call_args[0][1]
+        assert params["bid"] == "biz1"
+        assert params["slug"] == "payment"
+
+    @pytest.mark.asyncio
+    async def test_rename_domain(self, mock_graph_store):
+        """rename_domain should update DomainAnchor slug and Module.domain_slug."""
+        from wiki.persistence import WikiPersistence
+        p = WikiPersistence(mock_graph_store)
+
+        await p.rename_domain("biz1", "old-slug", "new-slug", "New Display")
+        assert mock_graph_store.execute_query.call_count == 2
+
+        first_call = mock_graph_store.execute_query.call_args_list[0]
+        first_cypher = first_call[0][0]
+        assert "SET d.slug = $new" in first_cypher
+
+        second_call = mock_graph_store.execute_query.call_args_list[1]
+        second_params = second_call[0][1]
+        assert second_params["old"] == "old-slug"
+        assert second_params["new"] == "new-slug"
+
+    @pytest.mark.asyncio
     async def test_save_domain_classification_clears_stale_edges(self, mock_graph_store):
         """save_domain_classification should clear old BELONGS_TO_DOMAIN before linking."""
         from wiki.persistence import WikiPersistence

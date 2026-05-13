@@ -687,6 +687,34 @@ class WikiPersistence:
         result = await self._store.execute_query(cypher, {"bid": business_id})
         return result.data if result.data else []
 
+    async def list_domain_modules(self, business_id: str, slug: str) -> list[dict]:
+        """Return modules belonging to a specific domain."""
+        cypher = (
+            "MATCH (m:Module)-[:BELONGS_TO_DOMAIN]->(d:DomainAnchor {business_id: $bid, slug: $slug}) "
+            "RETURN m.name AS name, m.repository AS repository, "
+            "coalesce(m.path, '') AS path, "
+            "coalesce(m.domain_pinned, false) AS pinned "
+            "ORDER BY m.name"
+        )
+        result = await self._store.execute_query(cypher, {"bid": business_id, "slug": slug})
+        return result.data if result.data else []
+
+    async def rename_domain(
+        self, business_id: str, old_slug: str, new_slug: str, new_display_name: str
+    ) -> None:
+        """Rename a domain: update DomainAnchor slug/display and cascade to Module.domain_slug."""
+        await self._store.execute_query(
+            "MATCH (d:DomainAnchor {business_id: $bid, slug: $old}) "
+            "SET d.slug = $new, d.display_name = $display",
+            {"bid": business_id, "old": old_slug, "new": new_slug, "display": new_display_name},
+        )
+        await self._store.execute_query(
+            "MATCH (m:Module {domain_slug: $old})-[:BELONGS_TO_DOMAIN]->"
+            "(d:DomainAnchor {business_id: $bid, slug: $new}) "
+            "SET m.domain_slug = $new",
+            {"bid": business_id, "old": old_slug, "new": new_slug},
+        )
+
     async def save_domain_classification(
         self, business_id: str, mapping: dict
     ) -> None:

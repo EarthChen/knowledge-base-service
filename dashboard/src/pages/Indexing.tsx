@@ -428,8 +428,6 @@ export default function Indexing() {
   const inputClass =
     "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-sky-500 dark:focus:ring-sky-600";
 
-  const isRunning = activeTask.data?.status === "running" || activeTask.data?.status === "pending";
-
   return (
     <div className="space-y-6">
       <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -542,12 +540,12 @@ export default function Indexing() {
 
         <button
           type="submit"
-          disabled={mutation.isPending || isRunning || noBusinessAvailable}
+          disabled={mutation.isPending || noBusinessAvailable}
           title={noBusinessAvailable ? t.indexing.createBusinessFirst : undefined}
           className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
         >
-          {(mutation.isPending || isRunning) && <Loader2 size={16} className="animate-spin" />}
-          {isRunning ? t.indexing.indexingInProgress : t.indexing.startIndexing}
+          {mutation.isPending && <Loader2 size={16} className="animate-spin" />}
+          {t.indexing.startIndexing}
         </button>
 
         <div className="flex flex-col gap-3 border-t border-gray-100 pt-4 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between">
@@ -555,11 +553,11 @@ export default function Indexing() {
           <button
             type="button"
             onClick={openEnrichModal}
-            disabled={enrichMutation.isPending || isRunning || noBusinessAvailable}
+            disabled={enrichMutation.isPending || noBusinessAvailable}
             title={noBusinessAvailable ? t.indexing.createBusinessFirst : undefined}
             className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-sky-600 bg-white px-5 py-2.5 text-sm font-medium text-sky-700 transition-colors hover:bg-sky-50 disabled:opacity-50 dark:border-sky-500 dark:bg-gray-900 dark:text-sky-400 dark:hover:bg-sky-950"
           >
-            {(enrichMutation.isPending || isRunning) && <Loader2 size={16} className="animate-spin" />}
+            {enrichMutation.isPending && <Loader2 size={16} className="animate-spin" />}
             {t.indexing.enrichTitle}
           </button>
         </div>

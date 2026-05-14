@@ -100,7 +100,39 @@ python scripts/kb_query.py search_architecture --arg mode=layers --arg layer=bus
 python scripts/kb_query.py get_insights --arg repository=my-service
 ```
 
-### 5. Graph Stats & File Tree
+### 5. Wiki → Code Exploration (drill down)
+
+MCP `get_wiki_page` returns `source_locations` with `fqn` (no entity_uid). Use `fqn` to trace into code graph:
+
+```bash
+# Step 1: Get wiki page with source_locations
+python scripts/kb_query.py get_wiki_page --arg scope=__domains__/auth/_overview --arg repository=$KB_BUSINESS_ID
+
+# Step 2: Use fqn from source_locations to find entity in graph
+python scripts/kb_query.py rag_graph --arg query_type=find_entity --arg name=AuthService
+
+# Step 3: Trace call chain from entity
+python scripts/kb_query.py rag_graph --arg query_type=call_chain --arg name=AuthService --arg direction=downstream --arg depth=3
+
+# Step 4: Read source code
+python scripts/kb_query.py get_code_snippet --arg node_uid="Class:my-service:AuthService"
+```
+
+For richer entity data (with graph UIDs), use REST API instead:
+
+```bash
+# Get page with source_entity_uids
+curl "$KB_BASE_URL/api/v1/wiki/pages/by-path?business_id=$KB_BUSINESS_ID&path=__domains__/auth/_overview" \
+  -H "Authorization: Bearer $KB_TOKEN"
+# Response includes: source_entity_uids, source_locations[].entity_uid
+
+# Get full entity cards for a page
+curl "$KB_BASE_URL/api/v1/wiki/pages/WikiPage:$KB_BUSINESS_ID:__domains__/auth/_overview/entities?business_id=$KB_BUSINESS_ID" \
+  -H "Authorization: Bearer $KB_TOKEN"
+# Response: entities[].{uid, name, entity_type, file_path, signature, business_summary}
+```
+
+### 6. Graph Stats & File Tree
 
 ```bash
 # Graph stats
@@ -113,7 +145,7 @@ python scripts/kb_query.py index_freshness --arg repository=my-service
 python scripts/kb_query.py get_complete_context --arg name=UserService --arg repository=my-service
 ```
 
-### 6. REST API (when MCP tool is insufficient)
+### 7. REST API (when MCP tool is insufficient)
 
 ```bash
 # Wiki page by path

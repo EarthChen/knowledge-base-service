@@ -412,6 +412,16 @@ async def sync_repo_and_regenerate_wiki(
                 await queries.tag_unowned_nodes(repo_name, directory=repo_dir, git_url=req.git_url)
             if kb_state.repo_registry:
                 kb_state.repo_registry.register(req.git_url, repo_name)
+            # Auto-bind to business
+            if kb_state.registry is not None:
+                try:
+                    bm = kb_state.registry.business_manager
+                    current_repos = bm.get_repos(business_id)
+                    if repo_name not in current_repos:
+                        bm.set_repos(business_id, current_repos + [repo_name])
+                        log.info("auto_bind_repo_to_business", repository=repo_name, business_id=business_id)
+                except Exception:
+                    log.warning("auto_bind_failed", repository=repo_name, business_id=business_id, exc_info=True)
             sync_result = {
                 "repository": repo_name,
                 "directory": repo_dir,

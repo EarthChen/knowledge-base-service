@@ -251,6 +251,17 @@ async def run_index_task(task_id: str, req: IndexRequest, business_id: str) -> N
             elif directory:
                 kb_state.repo_registry.register(str(Path(directory).resolve()), repository)
 
+        # Auto-bind repository to business
+        if repository and kb_state.registry is not None:
+            try:
+                bm = kb_state.registry.business_manager
+                current_repos = bm.get_repos(business_id)
+                if repository not in current_repos:
+                    bm.set_repos(business_id, current_repos + [repository])
+                    log.info("auto_bind_repo_to_business", repository=repository, business_id=business_id)
+            except Exception:
+                log.warning("auto_bind_failed", repository=repository, business_id=business_id, exc_info=True)
+
         kb_state.task_manager.mark_completed(task_id, merged_result)
     except Exception as exc:
         log.error("index_task_failed", task_id=task_id, error=str(exc))

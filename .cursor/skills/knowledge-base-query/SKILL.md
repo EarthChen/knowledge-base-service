@@ -89,8 +89,8 @@ python scripts/kb_query.py graph raw business_flow handlePayment --repo my-servi
 ### 4. Browse Wiki
 
 ```bash
-# Wiki page by path
-python scripts/kb_query.py wiki page --path __domains__/auth/_overview
+# Wiki page by path (use leading /)
+python scripts/kb_query.py wiki page --path "/__domains__/auth/_overview"
 # Response: title, content, source_entity_uids[], source_locations[].{file_path, fqn, entity_uid}
 
 # Domain tree (hierarchy)
@@ -121,10 +121,10 @@ Use wiki page data to explore associated code entities:
 
 ```bash
 # Step 1: Get wiki page → note source_entity_uids in response
-python scripts/kb_query.py wiki page --path __domains__/auth/_overview
+python scripts/kb_query.py wiki page --path "/__domains__/auth/_overview"
 
 # Step 2: Get entity cards for a page (uid, name, type, file, signature, summary)
-python scripts/kb_query.py wiki entities "WikiPage:my-biz:__domains__/auth/_overview"
+python scripts/kb_query.py wiki entities --path "/__domains__/auth/_overview"
 
 # Step 3: Trace call chain from entity name
 python scripts/kb_query.py graph call-chain AuthService --dir downstream --depth 3
@@ -133,7 +133,7 @@ python scripts/kb_query.py graph call-chain AuthService --dir downstream --depth
 python scripts/kb_query.py code Class:my-service:AuthService
 
 # Step 5: Page references (incoming/outgoing wiki links)
-python scripts/kb_query.py wiki refs "WikiPage:my-biz:__domains__/auth/_overview"
+python scripts/kb_query.py wiki refs "WikiPage:my-biz:/__domains__/auth/_overview"
 ```
 
 ### 6. Architecture & Stats

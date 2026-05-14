@@ -111,8 +111,7 @@ def cmd_file(args) -> None:
 
 def cmd_code(args) -> None:
     """Get code snippet by entity UID."""
-    uid = quote(args.uid, safe="")
-    _output(_get(f"/api/v1/code/{uid}"), args.compact)
+    _output(_get(f"/api/v1/code/{args.uid}"), args.compact)
 
 
 def cmd_graph(args) -> None:
@@ -171,8 +170,10 @@ def cmd_graph(args) -> None:
         _output(_post("/api/v1/graph", body), args.compact)
 
     elif action == "blast-radius":
-        entities = [e.strip() for e in args.entities.split(",")]
-        body = {"entities": entities, "depth": args.depth}
+        names = [e.strip() for e in args.entities.split(",")]
+        body: dict = {"entity_names": names, "max_depth": args.depth}
+        if args.repo:
+            body["repository"] = args.repo
         _output(_post("/api/v1/graph/blast-radius", body), args.compact)
 
     elif action == "explore":
@@ -220,12 +221,11 @@ def cmd_wiki(args) -> None:
         _output(_post("/api/v1/wiki/search/global", body), args.compact)
 
     elif action == "entities":
-        uid = quote(args.uid, safe="")
-        _output(_get(f"/api/v1/wiki/pages/{uid}/entities", {"business_id": bid}), args.compact)
+        path = args.path.lstrip("/")
+        _output(_get(f"/api/v1/wiki/pages/{path}/entities", {"business_id": bid}), args.compact)
 
     elif action == "refs":
-        uid = quote(args.uid, safe="")
-        _output(_get(f"/api/v1/wiki/pages/{uid}/references"), args.compact)
+        _output(_get(f"/api/v1/wiki/pages/{args.uid}/references"), args.compact)
 
     elif action == "domain-edges":
         _output(_get("/api/v1/wiki/domain-edges", {"business_id": bid}), args.compact)
@@ -279,92 +279,96 @@ def build_parser() -> argparse.ArgumentParser:
         prog="kb_query",
         description="Query the Knowledge Base Service via REST API",
     )
-    p.add_argument("--compact", action="store_true", help="Compact JSON output")
     sub = p.add_subparsers(dest="command", required=True)
 
+    # shared flags inherited by every subcommand
+    _common = argparse.ArgumentParser(add_help=False)
+    _common.add_argument("--compact", action="store_true", help="Compact JSON output")
+
     # search
-    sp = sub.add_parser("search", help="Hybrid semantic + keyword search")
+    sp = sub.add_parser("search", parents=[_common], help="Hybrid semantic + keyword search")
     sp.add_argument("query", help="Search query text")
     sp.add_argument("--repo", "-r", default=None, help="Repository filter")
     sp.add_argument("-k", type=int, default=5, help="Number of results (default: 5)")
     sp.set_defaults(func=cmd_search)
 
     # file
-    sp = sub.add_parser("file", help="Read file content or tree")
+    sp = sub.add_parser("file", parents=[_common], help="Read file content or tree")
     file_sub = sp.add_subparsers(dest="action", required=True)
 
-    fc = file_sub.add_parser("content", help="Read file content")
+    fc = file_sub.add_parser("content", parents=[_common], help="Read file content")
     fc.add_argument("--repo", "-r", required=True, help="Repository")
     fc.add_argument("--path", "-p", required=True, help="File path")
     fc.add_argument("--start", type=int, default=None, help="Start line")
     fc.add_argument("--end", type=int, default=None, help="End line")
     fc.set_defaults(func=cmd_file)
 
-    ft = file_sub.add_parser("tree", help="File tree")
+    ft = file_sub.add_parser("tree", parents=[_common], help="File tree")
     ft.add_argument("--repo", "-r", required=True, help="Repository")
     ft.set_defaults(func=cmd_file)
 
-    fe = file_sub.add_parser("entities", help="Entities in a file")
+    fe = file_sub.add_parser("entities", parents=[_common], help="Entities in a file")
     fe.add_argument("--path", "-p", required=True, help="File path")
     fe.set_defaults(func=cmd_file)
 
     # code
-    sp = sub.add_parser("code", help="Get code snippet by entity UID")
+    sp = sub.add_parser("code", parents=[_common], help="Get code snippet by entity UID")
     sp.add_argument("uid", help="Entity UID (e.g. Class:my-repo:AuthService)")
     sp.set_defaults(func=cmd_code)
 
     # graph
-    sp = sub.add_parser("graph", help="Graph queries")
+    sp = sub.add_parser("graph", parents=[_common], help="Graph queries")
     graph_sub = sp.add_subparsers(dest="action", required=True)
 
-    gc = graph_sub.add_parser("call-chain", help="Trace call chain")
+    gc = graph_sub.add_parser("call-chain", parents=[_common], help="Trace call chain")
     gc.add_argument("name", help="Function/method name")
     gc.add_argument("--dir", "-d", default="downstream", choices=["downstream", "upstream"])
     gc.add_argument("--depth", type=int, default=3)
     gc.add_argument("--repo", "-r", default=None)
     gc.set_defaults(func=cmd_graph)
 
-    gf = graph_sub.add_parser("find", help="Find entity by name")
+    gf = graph_sub.add_parser("find", parents=[_common], help="Find entity by name")
     gf.add_argument("name", help="Entity name")
     gf.add_argument("--repo", "-r", default=None)
     gf.set_defaults(func=cmd_graph)
 
-    gd = graph_sub.add_parser("deps", help="Module dependencies")
+    gd = graph_sub.add_parser("deps", parents=[_common], help="Module dependencies")
     gd.add_argument("name", help="Module name")
     gd.add_argument("--repo", "-r", default=None)
     gd.set_defaults(func=cmd_graph)
 
-    grd = graph_sub.add_parser("reverse-deps", help="Reverse dependencies")
+    grd = graph_sub.add_parser("reverse-deps", parents=[_common], help="Reverse dependencies")
     grd.add_argument("name", help="Module name")
     grd.add_argument("--repo", "-r", default=None)
     grd.set_defaults(func=cmd_graph)
 
-    gm = graph_sub.add_parser("methods", help="List class methods")
+    gm = graph_sub.add_parser("methods", parents=[_common], help="List class methods")
     gm.add_argument("name", help="Class name")
     gm.add_argument("--repo", "-r", default=None)
     gm.set_defaults(func=cmd_graph)
 
-    gi = graph_sub.add_parser("inheritance", help="Class inheritance tree")
+    gi = graph_sub.add_parser("inheritance", parents=[_common], help="Class inheritance tree")
     gi.add_argument("name", help="Class name")
     gi.add_argument("--repo", "-r", default=None)
     gi.set_defaults(func=cmd_graph)
 
-    gcy = graph_sub.add_parser("cypher", help="Raw Cypher query")
+    gcy = graph_sub.add_parser("cypher", parents=[_common], help="Raw Cypher query")
     gcy.add_argument("cypher", help="Cypher query string")
     gcy.add_argument("--params", default=None, help="JSON params dict")
     gcy.set_defaults(func=cmd_graph)
 
-    gb = graph_sub.add_parser("blast-radius", help="Impact analysis")
+    gb = graph_sub.add_parser("blast-radius", parents=[_common], help="Impact analysis")
     gb.add_argument("entities", help="Comma-separated entity names")
     gb.add_argument("--depth", type=int, default=3)
+    gb.add_argument("--repo", "-r", default=None)
     gb.set_defaults(func=cmd_graph)
 
-    ge = graph_sub.add_parser("explore", help="Neighborhood for visualization")
+    ge = graph_sub.add_parser("explore", parents=[_common], help="Neighborhood for visualization")
     ge.add_argument("uid", help="Node UID")
     ge.add_argument("--depth", type=int, default=1)
     ge.set_defaults(func=cmd_graph)
 
-    gr = graph_sub.add_parser("raw", help="Raw graph query_type")
+    gr = graph_sub.add_parser("raw", parents=[_common], help="Raw graph query_type")
     gr.add_argument("query_type", help="query_type value")
     gr.add_argument("name", help="name param")
     gr.add_argument("--repo", "-r", default=None)
@@ -373,84 +377,84 @@ def build_parser() -> argparse.ArgumentParser:
     gr.set_defaults(func=cmd_graph)
 
     # wiki
-    sp = sub.add_parser("wiki", help="Wiki page queries")
+    sp = sub.add_parser("wiki", parents=[_common], help="Wiki page queries")
     wiki_sub = sp.add_subparsers(dest="action", required=True)
 
-    wp = wiki_sub.add_parser("page", help="Get wiki page by path")
+    wp = wiki_sub.add_parser("page", parents=[_common], help="Get wiki page by path")
     wp.add_argument("--path", "-p", required=True, help="Wiki path (e.g. __domains__/auth/_overview)")
     wp.add_argument("--repo", "-r", default=None)
     wp.set_defaults(func=cmd_wiki)
 
-    wt = wiki_sub.add_parser("tree", help="Full wiki tree")
+    wt = wiki_sub.add_parser("tree", parents=[_common], help="Full wiki tree")
     wt.add_argument("--view", default="business_domain", help="View type")
     wt.set_defaults(func=cmd_wiki)
 
-    wdt = wiki_sub.add_parser("domain-tree", help="Domain hierarchy")
+    wdt = wiki_sub.add_parser("domain-tree", parents=[_common], help="Domain hierarchy")
     wdt.set_defaults(func=cmd_wiki)
 
-    wtt = wiki_sub.add_parser("topic-tree", help="Topic navigation tree")
+    wtt = wiki_sub.add_parser("topic-tree", parents=[_common], help="Topic navigation tree")
     wtt.set_defaults(func=cmd_wiki)
 
-    ws = wiki_sub.add_parser("search", help="Wiki search")
+    ws = wiki_sub.add_parser("search", parents=[_common], help="Wiki search")
     ws.add_argument("query", help="Search query")
     ws.add_argument("--limit", "-l", type=int, default=10)
     ws.set_defaults(func=cmd_wiki)
 
-    wgs = wiki_sub.add_parser("global-search", help="Cross-repo wiki search")
+    wgs = wiki_sub.add_parser("global-search", parents=[_common], help="Cross-repo wiki search")
     wgs.add_argument("query", help="Search query")
     wgs.add_argument("--limit", "-l", type=int, default=10)
     wgs.set_defaults(func=cmd_wiki)
 
-    we = wiki_sub.add_parser("entities", help="Source entities for wiki page")
-    we.add_argument("uid", help="Wiki page UID")
+    we = wiki_sub.add_parser("entities", parents=[_common], help="Source entities for wiki page")
+    we.add_argument("--path", "-p", required=True, help="Wiki page path (e.g. __domains__/auth/_overview)")
     we.set_defaults(func=cmd_wiki)
 
-    wr = wiki_sub.add_parser("refs", help="Page references (incoming/outgoing)")
+    wr = wiki_sub.add_parser("refs", parents=[_common], help="Page references (incoming/outgoing)")
     wr.add_argument("uid", help="Wiki page UID")
     wr.set_defaults(func=cmd_wiki)
 
-    wde = wiki_sub.add_parser("domain-edges", help="Cross-domain CALLS edges")
+    wde = wiki_sub.add_parser("domain-edges", parents=[_common], help="Cross-domain CALLS edges")
     wde.set_defaults(func=cmd_wiki)
 
-    wfl = wiki_sub.add_parser("flows", help="Business flow nodes")
+    wfl = wiki_sub.add_parser("flows", parents=[_common], help="Business flow nodes")
     wfl.set_defaults(func=cmd_wiki)
 
-    wcv = wiki_sub.add_parser("coverage", help="Wiki coverage report")
+    wcv = wiki_sub.add_parser("coverage", parents=[_common], help="Wiki coverage report")
     wcv.set_defaults(func=cmd_wiki)
 
-    wq = wiki_sub.add_parser("quality", help="Wiki quality score")
+    wq = wiki_sub.add_parser("quality", parents=[_common], help="Wiki quality score")
     wq.set_defaults(func=cmd_wiki)
 
     # stats
-    sp = sub.add_parser("stats", help="Graph stats and architecture insights")
+    sp = sub.add_parser("stats", parents=[_common], help="Graph stats and architecture insights")
     stats_sub = sp.add_subparsers(dest="action")
 
-    so = stats_sub.add_parser("overview", help="Graph stats overview")
+    so = stats_sub.add_parser("overview", parents=[_common], help="Graph stats overview")
     so.add_argument("--repo", "-r", default=None)
     so.set_defaults(func=cmd_stats)
 
-    si = stats_sub.add_parser("insights", help="Architecture insights")
+    si = stats_sub.add_parser("insights", parents=[_common], help="Architecture insights")
     si.add_argument("repo", help="Repository name")
     si.add_argument("--business", "-b", action="store_true", help="Pass business_id")
     si.set_defaults(func=cmd_stats)
 
-    sh = stats_sub.add_parser("health", help="Knowledge graph health")
+    sh = stats_sub.add_parser("health", parents=[_common], help="Knowledge graph health")
     sh.set_defaults(func=cmd_stats)
 
-    sa = stats_sub.add_parser("arch", help="Architecture search (API endpoints, etc.)")
+    sa = stats_sub.add_parser("arch", parents=[_common], help="Architecture search (API endpoints, etc.)")
     sa.add_argument("--repo", "-r", required=True)
     sa.add_argument("--layer", default=None, help="Layer filter (api, service, etc.)")
     sa.set_defaults(func=cmd_stats)
 
-    sc = stats_sub.add_parser("communities", help="Community detection")
+    sc = stats_sub.add_parser("communities", parents=[_common], help="Community detection")
     sc.add_argument("--repo", "-r", required=True)
     sc.add_argument("--min-size", type=int, default=3)
     sc.set_defaults(func=cmd_stats)
 
-    sp.set_defaults(func=cmd_stats, action="overview", repo=None)
+    sp.set_defaults(func=cmd_stats, action="overview", repo=None, compact=False)
 
     # repos
-    sp = sub.add_parser("repos", help="List indexed repositories")
+    sp = sub.add_parser("repos", parents=[_common], help="List indexed repositories")
     sp.add_argument("--offset", type=int, default=0)
     sp.add_argument("--limit", type=int, default=50)
     sp.set_defaults(func=cmd_repos)

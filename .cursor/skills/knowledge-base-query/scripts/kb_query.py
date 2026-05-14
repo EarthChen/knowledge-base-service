@@ -40,11 +40,13 @@ AVAILABLE_TOOLS = [
     "get_wiki_page",
     "list_wiki_pages",
     "wiki_search",
+    "unified_knowledge_query",
     "wiki_export",
     "wiki_get_tree",
     "wiki_get_related",
     "wiki_get_domain_overview",
     "wiki_get_snapshot",
+    "wiki_find_implementing_modules",
 ]
 
 

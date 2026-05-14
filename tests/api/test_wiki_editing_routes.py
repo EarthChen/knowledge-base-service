@@ -92,7 +92,9 @@ async def test_get_editors_other_active_with_two_editors() -> None:
 @pytest.mark.asyncio
 async def test_editing_degraded_without_redis() -> None:
     app = FastAPI()
-    app.state.wiki_store = MagicMock()
+    store = MagicMock()
+    store.get_redis_client = MagicMock(return_value=None)
+    app.state.wiki_store = store
     app.state.wiki_task_store = None
     app.include_router(editor_router)
     with patch.object(WikiStore, "assert_wiki_page_in_business", new_callable=AsyncMock) as m:

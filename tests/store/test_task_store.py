@@ -90,3 +90,28 @@ async def test_cleanup_expired(tmp_path):
     count = await store.cleanup_expired()
     assert count >= 1
     await store.close()
+
+
+@pytest.mark.asyncio
+async def test_force_release_lock_removes_lock(store):
+    token = await store.try_lock("res1", 60)
+    assert token is not None
+    await store.force_release_lock("res1")
+    new_token = await store.try_lock("res1", 60)
+    assert new_token is not None
+
+
+@pytest.mark.asyncio
+async def test_list_all_includes_terminal(store):
+    await store.put(TaskRecord(task_id="done", task_type="wiki_generate", status="completed"))
+    await store.put(TaskRecord(task_id="live", task_type="wiki_generate", status="running"))
+    await store.put(TaskRecord(task_id="idx", task_type="index", status="failed"))
+
+    all_rows = await store.list_all(limit=50)
+    ids = {r.task_id for r in all_rows}
+    assert {"done", "live", "idx"}.issubset(ids)
+
+    wiki_only = await store.list_all(task_type="wiki_generate", limit=50)
+    wiki_ids = {r.task_id for r in wiki_only}
+    assert "idx" not in wiki_ids
+    assert {"done", "live"}.issubset(wiki_ids)

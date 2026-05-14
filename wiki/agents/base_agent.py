@@ -107,6 +107,9 @@ class GenericAgent(ABC):
     def memory_to_prompt(self, memory: Any) -> str:
         """Format memory contents as a prompt section for the LLM."""
 
+    def _summarize_tool_result(self, result: dict[str, Any]) -> str:
+        return json.dumps(result, ensure_ascii=False, default=str)[:200]
+
     def create_memory(self) -> Any:
         """Factory method. Override in subclasses for specialized memory."""
         from wiki.agents.memory import Memory
@@ -140,7 +143,15 @@ class GenericAgent(ABC):
 
         for round_num in range(self._max_rounds):
             if event_callback:
-                await event_callback(ThinkingEvent(round_num=round_num + 1))
+                await event_callback(
+                    ThinkingEvent(
+                        round_num=round_num + 1,
+                        text=(
+                            "Analyzing and planning "
+                            f"(round {round_num + 1})..."
+                        ),
+                    )
+                )
             round_tools = self._tool_registry.get_tools_for_round(
                 round_num + 1, has_empty=not has_nonempty_result and total_tool_calls > 0,
             )
@@ -183,7 +194,7 @@ class GenericAgent(ABC):
                 result = await self._tool_registry.dispatch(tool_name, args)
 
                 if event_callback:
-                    summary = json.dumps(result, ensure_ascii=False, default=str)[:200]
+                    summary = self._summarize_tool_result(result)
                     await event_callback(ToolResultEvent(tool=tool_name, summary=summary))
                 messages.append({
                     "role": "tool",

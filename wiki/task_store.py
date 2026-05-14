@@ -1,4 +1,9 @@
-"""Redis Hash–backed wiki task storage with TTL and concurrency locks."""
+"""Redis Hash–backed wiki task storage with TTL and concurrency locks.
+
+Deprecated: production wiring uses ``store.task_store.SqliteTaskStore`` via
+``AppContainer.sqlite_task_store`` and ``bootstrap_wiki``; keep this module for tests
+and gradual migration only.
+"""
 from __future__ import annotations
 
 import json

@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from store.task_store import SqliteTaskStore
     from wiki.task_store import WikiTaskStore
 
 WIKI_TASK_TTL_SEC = 120 * 60
 
 
 class WikiTaskRegistry:
-    """Wiki generation tasks with optional Redis persistence."""
+    """Wiki generation tasks with optional SQLite persistence (or legacy Redis WikiTaskStore)."""
 
-    def __init__(self, task_store: WikiTaskStore | None = None) -> None:
+    def __init__(self, task_store: SqliteTaskStore | WikiTaskStore | Any | None = None) -> None:
         self._store = task_store
         self.tasks: dict[str, dict[str, Any]] = {}
         self._created: dict[str, float] = {}
@@ -30,7 +32,23 @@ class WikiTaskRegistry:
     def put_task(self, task_id: str, record: dict[str, Any]) -> None:
         if self._store is not None:
             try:
-                asyncio.ensure_future(self._store.put_task(task_id, record))
+                from store.task_store import SqliteTaskStore, TaskRecord
+
+                if isinstance(self._store, SqliteTaskStore):
+                    exclude = frozenset({"task_id", "task_type", "business_id", "status"})
+                    task_record = TaskRecord(
+                        task_id=task_id,
+                        task_type=str(record.get("task_type") or "wiki_generate"),
+                        business_id=record.get("business_id"),
+                        status=str(record.get("status", "pending")),
+                        progress_json=json.dumps(
+                            {k: v for k, v in record.items() if k not in exclude},
+                            default=str,
+                        ),
+                    )
+                    asyncio.ensure_future(self._store.put(task_record))
+                else:
+                    asyncio.ensure_future(self._store.put_task(task_id, record))
             except RuntimeError:
                 pass
         self._prune()

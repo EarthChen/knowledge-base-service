@@ -25,6 +25,10 @@ async def shutdown_all(container: AppContainer, app: FastAPI) -> None:
     if container.registry:
         await container.registry.stop()
 
+    if container.sqlite_task_store is not None:
+        await container.sqlite_task_store.close()
+        container.sqlite_task_store = None
+
     event_bus = getattr(app.state, "wiki_event_bus", None)
     if event_bus is not None:
         await event_bus.shutdown()

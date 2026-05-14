@@ -651,6 +651,7 @@ class WikiTreeLinker:
             return "\n".join(lines)
 
         # Phase 1: Create sections and collect overview pages
+        seen_overview_slugs: set[str] = set()
         pending_overview_links: list[tuple[str, str]] = []  # (section_uid, overview_uid)
         # Track domain path → section_uid to handle parent-child name collisions
         domain_path_to_section_uid: dict[str, str] = {}
@@ -683,10 +684,21 @@ class WikiTreeLinker:
 
             if domain.modules or domain.children:
                 from wiki.path_conventions import domain_overview_path as _dop
+                from wiki.path_conventions import normalize_slug
 
                 domain_slug = domain.slug or domain.name
+                normalized_slug = normalize_slug(domain_slug)
                 overview_path = _dop(domain_slug)
-                if overview_path not in agent_overview_paths:
+
+                if normalized_slug in seen_overview_slugs:
+                    log.warning(
+                        "duplicate_overview_slug_skipped",
+                        slug=normalized_slug,
+                        domain=domain.name,
+                        path_prefix=path_prefix,
+                    )
+                elif overview_path not in agent_overview_paths:
+                    seen_overview_slugs.add(normalized_slug)
                     overview_content = _build_domain_overview_content(domain)
                     from wiki.models import EnrichmentLevel, PageType, WikiPageMetadata
 

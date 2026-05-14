@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -164,22 +165,33 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
         raise RuntimeError("bootstrap_wiki requires app.state.registry to be set first")
 
     from llm.base_provider import GatewayLLMProviderAdapter, LLMPortBridge
-    from store.conversation_store import SqliteConversationStore
+    from store.session_store import SqliteSessionStore
     from store.wiki_store import WikiStore as _WikiStoreForMemory
-    from wiki.ask import WikiAskService
+    from wiki.ask import AskSessionAdapter, WikiAskService
     from wiki.memory_loop import MemoryLoop
     from wiki.search import WikiSearchService
     from wiki.service import WikiService
 
     conv_dir = Path(settings.git.clone_base_path).resolve().parent
     conv_dir.mkdir(parents=True, exist_ok=True)
-    conv_store_path = str(conv_dir / "conversations.db")
-    conv_store = SqliteConversationStore(db_path=conv_store_path)
-    await conv_store.initialize()
-    app.state.conversation_store = conv_store
+    ask_session_store = SqliteSessionStore(
+        db_path=str(conv_dir / "ask_sessions.db"),
+        max_sessions=200,
+        max_turns=10,
+        ttl_seconds=1800,
+    )
+    await ask_session_store.initialize()
+    ask_conversation_adapter = AskSessionAdapter(ask_session_store)
+    app.state.conversation_store = ask_session_store
 
     kb = await registry.get_service("default")
     app.state.wiki_store = kb.store
+
+    from api.routes.wiki_domain_routes import set_domain_service
+    from store.wiki_store import WikiStore as _WikiStoreForDomains
+    from wiki.domain_management_service import DomainManagementService
+
+    set_domain_service(DomainManagementService(wiki_store=_WikiStoreForDomains(kb.store)))
 
     from store.wiki_feedback_store import WikiFeedbackStore
 
@@ -189,47 +201,41 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
 
     app.state.wiki_event_bus = WikiEventBus()
 
-    from wiki.task_store import WikiTaskStore
+    from store.task_store import SqliteTaskStore
 
-    wiki_task_store: WikiTaskStore | None = None
+    container_obj = getattr(app.state, "container", None)
+    wiki_task_store = None
+    if container_obj is not None:
+        wiki_task_store = getattr(container_obj, "sqlite_task_store", None)
+    if wiki_task_store is None:
+        conv_dir = Path(settings.git.clone_base_path).resolve().parent
+        conv_dir.mkdir(parents=True, exist_ok=True)
+        wiki_task_store = SqliteTaskStore(db_path=str(conv_dir / "wiki_tasks.db"))
+        await wiki_task_store.initialize()
+        if container_obj is not None:
+            container_obj.sqlite_task_store = wiki_task_store
+    log.info("wiki_task_store_initialized", backend="sqlite")
     try:
-        redis_conn = kb.store.get_redis_client()
-        if redis_conn is None and hasattr(kb.store, "_db"):
-            sync_conn = getattr(kb.store._db, "connection", None)
-            if sync_conn is not None:
-                import redis.asyncio as aioredis
-
-                conn_kwargs = sync_conn.connection_pool.connection_kwargs.copy()
-                host = conn_kwargs.get("host", "localhost")
-                port = conn_kwargs.get("port", 6379)
-                password = conn_kwargs.get("password")
-                db_num = conn_kwargs.get("db", 0)
-                redis_conn = aioredis.Redis(
-                    host=host, port=port, password=password, db=db_num,
-                    decode_responses=False,
-                )
-                log.info("wiki_task_store_redis_from_sync", host=host, port=port)
-        if redis_conn is not None:
-            wiki_task_store = WikiTaskStore(redis_conn)
-            log.info("wiki_task_store_initialized", backend="redis")
+        orphans = await wiki_task_store.list_active(task_type="wiki_generate")
+        for rec in orphans:
+            tid = rec.task_id
+            prog_d: dict[str, Any] = {}
             try:
-                orphans = await wiki_task_store.list_active()
-                for task in orphans:
-                    tid = task.get("task_id", "")
-                    if tid:
-                        await wiki_task_store.update_status(
-                            tid, "failed", error="server_restart",
-                        )
-                        bid = task.get("business_id")
-                        if bid:
-                            await wiki_task_store.force_release_lock(bid)
-                        log.info("orphan_task_cleaned", task_id=tid)
-            except Exception:
-                log.warning("orphan_task_cleanup_failed", exc_info=True)
-        else:
-            log.warning("wiki_task_store_no_redis", fallback="in-memory")
+                parsed = json.loads(rec.progress_json or "{}")
+                if isinstance(parsed, dict):
+                    prog_d = parsed
+            except json.JSONDecodeError:
+                pass
+            prog_d.setdefault("error", "server_restart")
+            await wiki_task_store.update_status(
+                tid, "failed", progress_json=json.dumps(prog_d, default=str),
+            )
+            bid = rec.business_id
+            if bid:
+                await wiki_task_store.force_release_lock(f"wiki_gen:{bid}")
+            log.info("orphan_task_cleaned", task_id=tid)
     except Exception:
-        log.warning("wiki_task_store_init_failed", exc_info=True)
+        log.warning("orphan_task_cleanup_failed", exc_info=True)
     app.state.wiki_task_store = wiki_task_store
 
     async def repository_exists(repo: str) -> bool:
@@ -244,8 +250,8 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
             return raw_llm
         return LLMPortBridge(GatewayLLMProviderAdapter(raw_llm))  # type: ignore[arg-type]
 
-    from store.session_store import SqliteSessionStore
     from wiki.edit_service import WikiEditService
+    from wiki.editing_store import WikiEditingStore
 
     edit_llm = _wrap_llm(kb.llm_provider)
     if edit_llm is not None:
@@ -254,13 +260,22 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
             ttl_seconds=1800,
         )
         await edit_session_store.initialize()
+        app.state.edit_session_store = edit_session_store
+        edit_editing_store: WikiEditingStore | None = None
+        rc = kb.store.get_redis_client() if callable(
+            getattr(kb.store, "get_redis_client", None),
+        ) else None
+        if rc is not None:
+            edit_editing_store = WikiEditingStore(rc)
         app.state.wiki_edit_service = WikiEditService(
             session_store=edit_session_store,
             llm=edit_llm,
             graph=kb.store,
+            editing_store=edit_editing_store,
         )
     else:
         app.state.wiki_edit_service = None
+        app.state.edit_session_store = None
 
     wiki_mem: MemoryLoop | None = None
     if getattr(kb, "_embedding", None) is not None:
@@ -364,7 +379,7 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
             rag_engine=rag_engine,
             graph=kb.store,
             memory_loop=wiki_mem,
-            conversation_store=conv_store,
+            conversation_store=ask_conversation_adapter,
         )
         from wiki.deep_research import DeepResearchService
         from wiki.page_agent import WikiPageAgent as _ResearchPageAgent
@@ -397,7 +412,7 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
                 llm=wrapped_llm,
                 rag_engine=biz_rag,
                 graph=biz_svc.store,
-                conversation_store=conv_store,
+                conversation_store=ask_conversation_adapter,
             )
 
         app.state.wiki_ask_service_for_business = wiki_ask_service_for_business
@@ -467,3 +482,7 @@ async def teardown_wiki(app: FastAPI) -> None:
     if conv_store is not None:
         await conv_store.close()
         app.state.conversation_store = None
+    edit_session_store = getattr(app.state, "edit_session_store", None)
+    if edit_session_store is not None:
+        await edit_session_store.close()
+        app.state.edit_session_store = None

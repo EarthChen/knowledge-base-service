@@ -160,6 +160,29 @@ class SqliteTaskStore:
             for r in rows
         ]
 
+    async def list_all(self, task_type: str | None = None, limit: int = 50) -> list[TaskRecord]:
+        """List tasks including terminal statuses, newest first."""
+        db = self._require_db()
+        sql = "SELECT task_id, task_type, business_id, status, progress_json FROM tasks"
+        params: list = []
+        if task_type is not None:
+            sql += " WHERE task_type = ?"
+            params.append(task_type)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        cur = await db.execute(sql, params)
+        rows = await cur.fetchall()
+        return [
+            TaskRecord(
+                task_id=r[0],
+                task_type=r[1],
+                business_id=r[2],
+                status=r[3],
+                progress_json=r[4],
+            )
+            for r in rows
+        ]
+
     async def _purge_expired_locks(self, db: aiosqlite.Connection) -> None:
         await db.execute(
             "DELETE FROM task_locks WHERE expires_at < ?", (time.time(),)
@@ -189,6 +212,12 @@ class SqliteTaskStore:
         )
         await db.commit()
         return cur.rowcount > 0
+
+    async def force_release_lock(self, resource_id: str) -> None:
+        """Remove a lock row without token check (cancel, orphan recovery, admin)."""
+        db = self._require_db()
+        await db.execute("DELETE FROM task_locks WHERE resource_id = ?", (resource_id,))
+        await db.commit()
 
     async def cleanup_expired(self) -> int:
         """Delete terminal tasks older than ttl_seconds based on updated_at."""

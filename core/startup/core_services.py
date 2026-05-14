@@ -12,6 +12,7 @@ from services.scheduler import SyncScheduler
 from services.service_registry import ServiceRegistry
 from store.falkordb_store import FalkorDBStore, QueryResultWrapper
 from store.settings_store import SettingsStore
+from store.task_store import SqliteTaskStore
 
 
 class _AppGraphQuery:
@@ -28,7 +29,12 @@ class _AppGraphQuery:
 
 async def init_core_services(container: AppContainer, app: FastAPI) -> None:
     """Create and start registry, scheduler, task manager."""
-    container.task_manager = IndexTaskManager()
+    data_dir = Path(container.settings.git.clone_base_path).resolve().parent
+    data_dir.mkdir(parents=True, exist_ok=True)
+    sqlite_task_store = SqliteTaskStore(db_path=str(data_dir / "wiki_tasks.db"))
+    await sqlite_task_store.initialize()
+    container.sqlite_task_store = sqlite_task_store
+    container.task_manager = IndexTaskManager(task_store=sqlite_task_store)
 
     def _index_task_status_for_mcp(task_id: str) -> dict[str, Any] | None:
         if container.task_manager is None:
@@ -36,7 +42,6 @@ async def init_core_services(container: AppContainer, app: FastAPI) -> None:
         task = container.task_manager.get_task(task_id)
         return task.to_dict() if task else None
 
-    data_dir = Path(container.settings.git.clone_base_path).resolve().parent
     container.repo_registry = RepoRegistry(str(data_dir))
     container.settings_store = SettingsStore()
     app.state.settings_store = container.settings_store

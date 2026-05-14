@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 
 from core.config import get_settings
-from wiki.bootstrap import bootstrap_wiki
+from wiki.bootstrap import bootstrap_wiki, teardown_wiki
 from wiki.service import WikiService
 
 
@@ -45,6 +45,10 @@ async def test_wire_wiki_app_state_sets_factory_and_services() -> None:
 
     wiki_svc = await app.state.wiki_service_factory()
     assert isinstance(wiki_svc, WikiService)
+    edit_store = getattr(app.state, "edit_session_store", None)
+    assert edit_store is not None
+    assert app.state.wiki_edit_service._session_store is edit_store
+    assert app.state.wiki_edit_service._graph is mock_store
 
 
 @pytest.mark.asyncio
@@ -69,3 +73,26 @@ async def test_wire_wiki_app_state_no_llm_skips_ask_service() -> None:
 
     assert app.state.wiki_ask_service is None
     assert app.state.wiki_search_service is not None
+    assert getattr(app.state, "edit_session_store", None) is None
+    assert app.state.wiki_edit_service is None
+
+@pytest.mark.asyncio
+async def test_teardown_wiki_closes_edit_session_store_when_present() -> None:
+    app = FastAPI()
+
+    sess = MagicMock()
+    sess.close = AsyncMock()
+
+    app.state.edit_session_store = sess
+    await teardown_wiki(app)
+
+    sess.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_teardown_wiki_no_edit_session_store_noop() -> None:
+    app = FastAPI()
+
+    setattr(app.state, "edit_session_store", None)
+
+    await teardown_wiki(app)

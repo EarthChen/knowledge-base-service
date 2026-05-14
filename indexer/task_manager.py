@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from store.task_store import SqliteTaskStore
 
 from core.log import get_logger
 
@@ -70,9 +75,27 @@ ProgressCallback = Callable[..., None]
 class IndexTaskManager:
     """Manages background indexing tasks with progress tracking."""
 
-    def __init__(self) -> None:
+    def __init__(self, task_store: SqliteTaskStore | None = None) -> None:
         self._tasks: dict[str, IndexTask] = {}
         self._max_history = 50
+        self._task_store = task_store
+
+    def _persist(self, task: IndexTask) -> None:
+        if self._task_store is None:
+            return
+        try:
+            from store.task_store import TaskRecord
+
+            rec = TaskRecord(
+                task_id=task.task_id,
+                task_type="index",
+                business_id=task.business_id,
+                status=task.status,
+                progress_json=json.dumps(task.to_dict(), default=str),
+            )
+            asyncio.ensure_future(self._task_store.put(rec))
+        except RuntimeError:
+            pass
 
     def create_task(
         self, mode: str, directory: str, repository: str | None, business_id: str,
@@ -88,6 +111,7 @@ class IndexTaskManager:
         )
         self._tasks[task_id] = task
         self._cleanup_old_tasks()
+        self._persist(task)
         return task
 
     def get_task(self, task_id: str) -> IndexTask | None:
@@ -130,6 +154,7 @@ class IndexTaskManager:
         if task:
             task.status = "running"
             task.started_at = datetime.now(timezone.utc).isoformat()
+            self._persist(task)
 
     def mark_completed(self, task_id: str, result: dict[str, Any]) -> None:
         task = self._tasks.get(task_id)
@@ -138,6 +163,7 @@ class IndexTaskManager:
             task.completed_at = datetime.now(timezone.utc).isoformat()
             task.result = result
             task.progress.phase = "completed"
+            self._persist(task)
 
     def mark_failed(self, task_id: str, error: str) -> None:
         task = self._tasks.get(task_id)
@@ -145,6 +171,7 @@ class IndexTaskManager:
             task.status = "failed"
             task.completed_at = datetime.now(timezone.utc).isoformat()
             task.error = error
+            self._persist(task)
 
     def _cleanup_old_tasks(self) -> None:
         if len(self._tasks) <= self._max_history:

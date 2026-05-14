@@ -56,3 +56,39 @@ async def test_kb_service_wires_auto_updater_to_indexer() -> None:
 
         assert svc._incremental_indexer._wiki_auto_updater is not None
         assert svc._incremental_indexer._settings_store is settings_store
+
+
+@pytest.mark.asyncio
+async def test_auto_update_wiki_calls_business_wiki_generation() -> None:
+    """_auto_update_wiki triggers generate_business_wiki instead of generate_incremental."""
+    from services.kb_service import KnowledgeBaseService
+
+    svc = MagicMock()
+    svc._wiki_service = AsyncMock()
+    svc._wiki_service.generate_business_wiki = AsyncMock(return_value={"status": "ok"})
+
+    await KnowledgeBaseService._auto_update_wiki(svc, "my-repo")
+
+    svc._wiki_service.generate_business_wiki.assert_awaited_once_with(
+        business_id="default",
+        incremental=True,
+    )
+    svc._wiki_service.generate_incremental.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_auto_update_wiki_calls_business_wiki_generation() -> None:
+    """_auto_update_wiki triggers generate_business_wiki instead of generate_incremental."""
+    from services.kb_service import KnowledgeBaseService
+
+    svc = MagicMock()
+    svc._wiki_service = AsyncMock()
+    svc._wiki_service.generate_business_wiki = AsyncMock(return_value={"status": "ok"})
+
+    await KnowledgeBaseService._auto_update_wiki(svc, "my-repo")
+
+    svc._wiki_service.generate_business_wiki.assert_awaited_once_with(
+        business_id="default",
+        incremental=True,
+    )
+    svc._wiki_service.generate_incremental.assert_not_awaited()

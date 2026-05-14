@@ -139,11 +139,16 @@ async def get_wiki_store_dep(request: Request) -> Any:
 
 
 def get_wiki_editing_store_dep(request: Request) -> WikiEditingStore | None:
-    """Redis-backed editing presence; same connection as ``WikiTaskStore`` when available."""
+    """Redis-backed editing presence; uses graph store Redis client when available."""
+    redis_conn = None
     wts = getattr(request.app.state, "wiki_task_store", None)
-    if wts is None:
-        return None
-    redis_conn = getattr(wts, "_redis", None)
+    if wts is not None:
+        redis_conn = getattr(wts, "_redis", None)
+    store = getattr(request.app.state, "wiki_store", None)
+    if redis_conn is None and store is not None:
+        fn = getattr(store, "get_redis_client", None)
+        if callable(fn):
+            redis_conn = fn()
     if redis_conn is None:
         return None
     return WikiEditingStore(redis_conn)

@@ -35,22 +35,59 @@ from wiki.exporter import WikiExporter
 from wiki.service import WikiRepoNotFoundError, WikiService
 from wiki.structure_planner import WikiScopeError
 from wiki.task_registry import WikiTaskRegistry
-from wiki.task_store import WikiTaskStore
+from store.task_store import SqliteTaskStore, TaskRecord
 
 router = APIRouter(tags=["wiki", "tasks"])
 
 
+def _wiki_lock_resource_id(business_id: str) -> str:
+    return f"wiki_gen:{business_id}"
+
+
+async def _wiki_merge_task_status(
+    store: SqliteTaskStore, task_id: str, status: str, **extra: Any,
+) -> None:
+    cur = await store.get(task_id)
+    prog: dict[str, Any] = {}
+    if cur and cur.progress_json:
+        try:
+            parsed = json.loads(cur.progress_json)
+            if isinstance(parsed, dict):
+                prog = parsed
+        except json.JSONDecodeError:
+            pass
+    prog.update(extra)
+    await store.update_status(task_id, status, progress_json=json.dumps(prog, default=str))
+
+
+def _wiki_task_record_to_client_dict(rec: TaskRecord) -> dict[str, Any]:
+    prog: dict[str, Any] = {}
+    try:
+        parsed = json.loads(rec.progress_json or "{}")
+        if isinstance(parsed, dict):
+            prog.update(parsed)
+    except json.JSONDecodeError:
+        pass
+    out = dict(prog)
+    out["task_id"] = rec.task_id
+    out["status"] = rec.status
+    out["business_id"] = rec.business_id or ""
+    if rec.task_type:
+        out["task_type"] = rec.task_type
+    return out
+
+
 async def _check_business_lock(
-    task_store: WikiTaskStore | None, business_id: str,
+    task_store: SqliteTaskStore | None, business_id: str,
 ) -> str | None:
     """Acquire per-business wiki generation lock.
 
-    Returns a non-empty token when Redis accepted the lock, an empty string when there is no
-    Redis-backed task store, or None when the lock is already held.
+    Returns a non-empty token when acquired, an empty string when there is no persisted
+    task store, or None when the lock is already held.
     """
     if task_store is None:
         return ""
-    return await task_store.try_lock(business_id)
+    return await task_store.try_lock(_wiki_lock_resource_id(business_id), 3600)
 
 
 async def _run_business_wiki_background(
@@ -62,7 +99,7 @@ async def _run_business_wiki_background(
     incremental: bool,
     mode: str = "structure",
     svc: WikiService,
-    task_store: WikiTaskStore | None,
+    task_store: SqliteTaskStore | None,
     event_bus: WikiEventBus | None,
     registry: WikiTaskRegistry | None = None,
     lock_token: str = "",
@@ -92,7 +129,7 @@ async def _run_business_wiki_background(
             detail = info.get("detail")
             if detail:
                 extra["detail"] = str(detail)
-            await task_store.update_status(task_id, "running", **extra)
+            await _wiki_merge_task_status(task_store, task_id, "running", **extra)
         if event_bus:
             await event_bus.publish(
                 WikiEvent(
@@ -105,7 +142,7 @@ async def _run_business_wiki_background(
 
     try:
         if task_store:
-            await task_store.update_status(task_id, "running")
+            await _wiki_merge_task_status(task_store, task_id, "running")
         if event_bus:
             await event_bus.publish(
                 WikiEvent(
@@ -124,7 +161,8 @@ async def _run_business_wiki_background(
             progress_callback=_progress,
         )
         if task_store:
-            await task_store.update_status(
+            await _wiki_merge_task_status(
+                task_store,
                 task_id,
                 "completed",
                 result=result,
@@ -149,7 +187,7 @@ async def _run_business_wiki_background(
     except asyncio.CancelledError:
         log.info("business_wiki_background_cancelled", task_id=task_id)
         if task_store:
-            await task_store.update_status(task_id, "cancelled")
+            await _wiki_merge_task_status(task_store, task_id, "cancelled")
         if registry:
             prev = registry.get_task(task_id) or {}
             registry.put_task(task_id, {**prev, "status": "cancelled"})
@@ -167,8 +205,8 @@ async def _run_business_wiki_background(
         log.exception("business_wiki_background_failed", task_id=task_id)
         detail = str(e)[:500]
         if task_store:
-            await task_store.update_status(
-                task_id, "failed", error="internal_error", detail=detail
+            await _wiki_merge_task_status(
+                task_store, task_id, "failed", error="internal_error", detail=detail,
             )
         if registry:
             prev = registry.get_task(task_id) or {}
@@ -196,7 +234,7 @@ async def _run_business_wiki_background(
             )
     finally:
         if task_store and lock_token:
-            await task_store.unlock(business_id, lock_token)
+            await task_store.unlock(_wiki_lock_resource_id(business_id), lock_token)
 
 
 def _wiki_event_to_sse_data(ev: WikiEvent) -> str:
@@ -340,8 +378,8 @@ async def list_active_wiki_tasks(
     request: Request,
     registry: WikiTaskRegistry = Depends(get_task_registry_dep),
 ) -> dict[str, Any]:
-    """List all active (pending/running) wiki tasks from both Redis and in-memory registry."""
-    task_store: WikiTaskStore | None = getattr(
+    """List all active (pending/running) wiki tasks from persisted store and in-memory registry."""
+    task_store: SqliteTaskStore | None = getattr(
         request.app.state, "wiki_task_store", None
     )
     tasks: list[dict[str, Any]] = []
@@ -349,14 +387,15 @@ async def list_active_wiki_tasks(
 
     if task_store:
         try:
-            redis_tasks = await task_store.list_active()
-            for t in redis_tasks:
-                tid = t.get("task_id", "")
+            stored = await task_store.list_active(task_type="wiki_generate")
+            for row in stored:
+                t = _wiki_task_record_to_client_dict(row)
+                tid = str(t.get("task_id", ""))
                 if tid and tid not in seen_ids:
                     seen_ids.add(tid)
                     tasks.append(t)
         except Exception:
-            log.warning("list_active_tasks_redis_error", exc_info=True)
+            log.warning("list_active_tasks_sqlite_error", exc_info=True)
 
     for tid, rec in registry.tasks.items():
         if tid not in seen_ids and rec.get("status") in ("pending", "running"):
@@ -376,7 +415,7 @@ async def cancel_wiki_task(
     registry: WikiTaskRegistry = Depends(get_task_registry_dep),
 ) -> dict[str, Any]:
     """Cancel a running wiki generation task."""
-    task_store: WikiTaskStore | None = getattr(
+    task_store: SqliteTaskStore | None = getattr(
         request.app.state, "wiki_task_store", None
     )
     event_bus: WikiEventBus | None = getattr(
@@ -385,7 +424,9 @@ async def cancel_wiki_task(
 
     rec = registry.get_task(task_id)
     if rec is None and task_store:
-        rec = await task_store.get_task(task_id)
+        row = await task_store.get(task_id)
+        if row is not None:
+            rec = _wiki_task_record_to_client_dict(row)
     if rec is None:
         raise KbNotFound("task_not_found")
 
@@ -396,10 +437,10 @@ async def cancel_wiki_task(
     cancelled_task = registry.cancel_async_task(task_id)
 
     if task_store:
-        await task_store.update_status(task_id, "cancelled")
+        await _wiki_merge_task_status(task_store, task_id, "cancelled")
         business_id = rec.get("business_id", "")
         if business_id:
-            await task_store.force_release_lock(business_id)
+            await task_store.force_release_lock(_wiki_lock_resource_id(str(business_id)))
 
     if event_bus:
         business_id = rec.get("business_id", "")
@@ -479,7 +520,7 @@ async def generate_business_wiki(
     registry: WikiTaskRegistry = Depends(get_task_registry_dep),
 ) -> JSONResponse:
     """Trigger cross-repo business-level wiki generation as a background task."""
-    task_store: WikiTaskStore | None = getattr(
+    task_store: SqliteTaskStore | None = getattr(
         request.app.state, "wiki_task_store", None
     )
     event_bus: WikiEventBus | None = getattr(
@@ -511,7 +552,19 @@ async def generate_business_wiki(
             "incremental": str(body.incremental),
         }
         if task_store:
-            await task_store.put_task(task_id, initial)
+            prog_only = {
+                k: v for k, v in initial.items()
+                if k not in ("task_id", "status", "business_id")
+            }
+            await task_store.put(
+                TaskRecord(
+                    task_id=task_id,
+                    task_type="wiki_generate",
+                    business_id=body.business_id,
+                    status="pending",
+                    progress_json=json.dumps(prog_only, default=str),
+                ),
+            )
         registry.put_task(task_id, initial)
         supervisor = getattr(
             getattr(request.app.state, "container", None),
@@ -565,7 +618,7 @@ async def generate_business_wiki(
             registry.set_async_task(task_id, bg_task)
     except Exception:
         if task_store and lock_token:
-            await task_store.unlock(body.business_id, lock_token)
+            await task_store.unlock(_wiki_lock_resource_id(body.business_id), lock_token)
         raise
 
     return JSONResponse(
@@ -581,14 +634,14 @@ async def business_wiki_task_status(
     task_id: str,
     request: Request,
 ) -> dict[str, Any]:
-    """Get background business wiki task progress from Redis store."""
-    task_store: WikiTaskStore | None = getattr(
+    """Get background business wiki task progress from persisted task store."""
+    task_store: SqliteTaskStore | None = getattr(
         request.app.state, "wiki_task_store", None
     )
     if task_store:
-        rec = await task_store.get_task(task_id)
-        if rec is not None:
-            return rec
+        row = await task_store.get(task_id)
+        if row is not None:
+            return _wiki_task_record_to_client_dict(row)
     registry = getattr(request.app.state, "wiki_tasks", None)
     if registry:
         rec = registry.get_task(task_id)

@@ -269,6 +269,9 @@ export default function WikiToolPanel({
                     ? `[Current page: ${pageQuery.data?.title}]\n${pageQuery.data?.content?.slice(0, 2000)}`
                     : undefined
                 }
+                onContentApplied={() => {
+                  void pageQuery.refetch();
+                }}
               />
             </>,
           )}

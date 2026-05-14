@@ -50,6 +50,8 @@ async def test_event_callback_receives_thinking_event(mock_llm):
     thinking_events = [e for e in events if isinstance(e, ThinkingEvent)]
     assert len(thinking_events) >= 1
     assert thinking_events[0].round_num == 1
+    assert thinking_events[0].text
+    assert "round 1" in thinking_events[0].text.lower()
 
 
 @pytest.mark.asyncio

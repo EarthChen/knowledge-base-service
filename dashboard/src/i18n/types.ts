@@ -1045,6 +1045,29 @@ export interface Translations {
       tool_panel_failed: string;
       content_error: string;
     };
+    domain_management: {
+      rename: string;
+      delete: string;
+      createSubdomain: string;
+      moveTo: string;
+      mergeTo: string;
+      moveModule: string;
+      renameTitle: string;
+      renameLabel: string;
+      descriptionLabel: string;
+      createTitle: string;
+      moveTitle: string;
+      selectTarget: string;
+      mergeTitle: string;
+      mergeConfirm: string;
+      deleteTitle: string;
+      deleteConfirm: string;
+      promoteChildren: string;
+      cascadeDelete: string;
+      cancel: string;
+      confirm: string;
+      operation_failed: string;
+    };
   };
   sync: {
     title: string;

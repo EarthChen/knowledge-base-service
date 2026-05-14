@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from core.log import get_logger
 from store.conversation_store import SqliteConversationStore
+from store.session_store import Session, SessionTurn, SqliteSessionStore
 from store.wiki_store import WikiStore
 from wiki.crystallizer import crystallize as crystallize_wiki_page
 from wiki.llm_port import LLMPort
@@ -63,6 +64,7 @@ class ConversationHistory:
     last_active: float = field(default_factory=time.time)
     repository: str = ""
     scope: str | None = None
+    business_id: str = "default"
 
 
 @runtime_checkable
@@ -411,7 +413,11 @@ class GraphEnhancedContextCollector:
 
 
 class ConversationStore:
-    """In-memory LRU conversation store with TTL eviction."""
+    """In-memory LRU conversation store with TTL eviction.
+
+    Prefer :class:`AskSessionAdapter` with :class:`~store.session_store.SqliteSessionStore` for
+    persisted multi-process deployments; this class remains for tests and simple local use.
+    """
 
     def __init__(self, max_conversations: int = 200, max_turns: int = 10, ttl_seconds: int = 1800) -> None:
         self._max_conversations = max_conversations
@@ -451,6 +457,73 @@ class ConversationStore:
         h = ConversationHistory(conversation_id=cid, repository=repository, scope=scope)
         self.save(h)
         return h
+
+
+class AskSessionAdapter:
+    """Adapts :class:`~store.session_store.SqliteSessionStore` to the ConversationStore-style API for WikiAskService."""
+
+    def __init__(self, session_store: SqliteSessionStore) -> None:
+        self._store = session_store
+
+    async def get(self, conversation_id: str) -> ConversationHistory | None:
+        session = await self._store.get(conversation_id)
+        if session is None:
+            return None
+        session.last_active = time.time()
+        await self._store.save(session)
+        return self._session_to_history(session)
+
+    async def save(self, history: ConversationHistory) -> None:
+        session = self._history_to_session(history)
+        await self._store.save(session)
+
+    async def create(
+        self,
+        repository: str,
+        scope: str | None = None,
+        business_id: str = "default",
+    ) -> ConversationHistory:
+        session = Session(
+            session_id=str(uuid.uuid4()),
+            session_type="ask",
+            turns=[],
+            metadata={"repository": repository, "scope": scope, "business_id": business_id},
+        )
+        await self._store.save(session)
+        return self._session_to_history(session)
+
+    @staticmethod
+    def _session_to_history(session: Session) -> ConversationHistory:
+        turns = [
+            ConversationTurn(role=t.role, content=t.content, timestamp=t.timestamp)
+            for t in session.turns
+        ]
+        return ConversationHistory(
+            conversation_id=session.session_id,
+            turns=turns,
+            last_active=session.last_active,
+            repository=str(session.metadata.get("repository", "")),
+            scope=session.metadata.get("scope"),
+            business_id=str(session.metadata.get("business_id", "default")),
+        )
+
+    @staticmethod
+    def _history_to_session(history: ConversationHistory) -> Session:
+        turns = [
+            SessionTurn(role=t.role, content=t.content, timestamp=t.timestamp)
+            for t in history.turns
+        ]
+        return Session(
+            session_id=history.conversation_id,
+            session_type="ask",
+            turns=turns,
+            metadata={
+                "repository": history.repository,
+                "scope": history.scope,
+                "business_id": history.business_id,
+            },
+            last_active=history.last_active,
+        )
 
 
 def _format_search_results(resp: SearchResponse) -> str:
@@ -668,12 +741,14 @@ class WikiAskService:
         search: SearchPort | None = None,
         llm: LLMPort | None = None,
         rag_engine: Any = None,
-        conversation_store: ConversationStore | SqliteConversationStore | None = None,
+        conversation_store: ConversationStore | SqliteConversationStore | AskSessionAdapter | None = None,
         graph: GraphPort | None = None,
         wiki_store: WikiStore | None = None,
         memory_loop: MemoryLoopPort | None = None,
     ) -> None:
-        self._store: ConversationStore | SqliteConversationStore = conversation_store or ConversationStore()
+        self._store: ConversationStore | SqliteConversationStore | AskSessionAdapter = (
+            conversation_store or ConversationStore()
+        )
         self._wiki_store = wiki_store or (WikiStore(graph) if graph is not None else None)
         self._memory_loop = memory_loop
         self._rag_engine = rag_engine

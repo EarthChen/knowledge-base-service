@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import { queryKeys } from "../api/queryKeys";
 
 export interface TopicTreeNode {
+  uid?: string;
   name: string;
   page_type: string;
   path: string;

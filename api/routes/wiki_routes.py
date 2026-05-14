@@ -15,6 +15,7 @@ from api.models.wiki_models import (
 from api.routes import wiki_shared
 from api.routes.wiki_ask_routes import router as wiki_ask_router
 from api.routes.wiki_contradiction_routes import router as wiki_contradiction_router
+from api.routes.wiki_domain_routes import router as wiki_domain_router
 from api.routes.wiki_edit_routes import router as wiki_edit_router
 from api.routes.wiki_feedback_routes import router as wiki_feedback_router
 from api.routes.wiki_mcp_routes import router as wiki_mcp_tools_router
@@ -73,6 +74,7 @@ wiki_router.include_router(wiki_page_router)
 wiki_router.include_router(wiki_ask_router)
 wiki_router.include_router(wiki_feedback_router)
 wiki_router.include_router(wiki_edit_router)
+wiki_router.include_router(wiki_domain_router)
 
 mcp_wiki_http_router = APIRouter(
     prefix="/api/v1/mcp",

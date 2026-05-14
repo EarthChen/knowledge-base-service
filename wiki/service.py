@@ -1693,15 +1693,15 @@ class WikiService:
             "OPTIONAL MATCH (p)-[:BELONGS_TO]->(d:Domain) "
             "RETURN d.name AS domain, p.repository AS repository, p.title AS title, p.uid AS uid"
         )
-        result = await self._execute_wiki_cypher(cypher, {"page_uid": page_uid})
-        rows = _graph_query_positional_rows(result)
-        if not rows:
+        graph = self._store if self._store is not None else self._graph
+        result = await graph.execute_query(cypher, {"page_uid": page_uid})
+        rows = getattr(result, "data", []) or []
+        if not rows or not isinstance(rows[0], dict):
             raise ValueError(f"WikiPage uid={page_uid} not found")
-
         row = rows[0]
-        domain = row[0] if len(row) > 0 else None
-        repository = row[1] if len(row) > 1 else None
-        title = row[2] if len(row) > 2 else None
+        domain = row.get("domain")
+        repository = row.get("repository")
+        title = row.get("title")
 
         task_id = f"regen-{page_uid}-{int(time.time())}"
 

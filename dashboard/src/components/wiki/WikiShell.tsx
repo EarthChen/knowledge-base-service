@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Loader2, PanelLeftClose, PanelLeftOpen, RefreshCw } from "lucide-react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import ErrorBoundary from "../ErrorBoundary";
@@ -13,7 +13,6 @@ import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
 import { invalidateWikiQueriesForBusiness } from "../../hooks/invalidateWikiQueries";
 import { getErrorMessage } from "../../utils/errorUtils";
 import { useWikiRegenerate } from "../../hooks/useWikiRegenerate";
-import WikiIncrementalTrigger from "./WikiIncrementalTrigger";
 import WikiToolTabStrip from "./WikiToolTabStrip";
 import WikiToolPanel, { type WikiToolTab, WikiToolSuspenseFallback } from "./WikiToolPanel";
 import WikiSearchBar from "./WikiSearchBar";
@@ -22,10 +21,60 @@ import WikiGenerationProgress from "./WikiGenerationProgress";
 import WikiUpdateNotification from "./WikiUpdateNotification";
 import WikiTreeNav from "./WikiTreeNav";
 import WikiTopicTreeNav from "./WikiTopicTreeNav";
-import { useWikiTopicTree } from "../../hooks/useWikiDomainTree";
-import { useUpsertDomain, useDeleteDomain } from "../../hooks/useDomainManagement";
+import type { DomainContextMenuPayload } from "./WikiTopicTreeNav";
+import DomainContextMenu from "./DomainContextMenu";
+import RenameDialog from "./dialogs/RenameDialog";
+import CreateSubdomainDialog from "./dialogs/CreateSubdomainDialog";
+import DeleteDialog from "./dialogs/DeleteDialog";
+import MoveDialog from "./dialogs/MoveDialog";
+import MergeDialog from "./dialogs/MergeDialog";
+import { useWikiTopicTree, type TopicTreeNode } from "../../hooks/useWikiDomainTree";
+import { useDomainHierarchy } from "../../hooks/useDomainHierarchy";
 
 export { WikiToolSuspenseFallback };
+
+interface DomainHierarchyPickerNode {
+  uid: string;
+  title: string;
+  children?: DomainHierarchyPickerNode[];
+}
+
+function mapTopicTreeNodesForHierarchyUi(nodes: TopicTreeNode[]): DomainHierarchyPickerNode[] {
+  const out: DomainHierarchyPickerNode[] = [];
+  for (const n of nodes) {
+    const children = mapTopicTreeNodesForHierarchyUi(n.children);
+    const uid = n.uid?.trim();
+    if (uid) {
+      out.push({
+        uid,
+        title: n.name,
+        ...(children.length ? { children } : {}),
+      });
+    } else {
+      out.push(...children);
+    }
+  }
+  return out;
+}
+
+type WikiDomainDialogState =
+  | null
+  | { kind: "rename"; uid: string; title: string; description: string }
+  | { kind: "create"; parentUid: string }
+  | { kind: "delete"; uid: string; title: string }
+  | { kind: "move"; uid: string }
+  | { kind: "merge"; uid: string; title: string };
+
+type DomainContextMenuState =
+  | {
+      x: number;
+      y: number;
+      uid: string;
+      title: string;
+      description?: string;
+      isRoot: boolean;
+    }
+  | null;
 
 export default function WikiShell() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -103,23 +152,41 @@ export default function WikiShell() {
   const [treeViewMode, setTreeViewMode] = useState<"topic" | "code">("topic");
   const effectiveTreeMode: "topic" | "code" = showCodeStructureTab ? treeViewMode : "topic";
   const topicTreeQuery = useWikiTopicTree(businessId);
-  const upsertDomain = useUpsertDomain(businessId);
-  const deleteDomainMutation = useDeleteDomain(businessId);
+  const { rename: renameMutation, remove: removeMutation, create: createMutation, move: moveMutation, merge: mergeMutation } =
+    useDomainHierarchy(businessId);
+
+  const [domainContextMenu, setDomainContextMenu] = useState<DomainContextMenuState>(null);
+  const [wikiDomainDialog, setWikiDomainDialog] = useState<WikiDomainDialogState>(null);
+
+  const domainHierarchyTreeData = useMemo(
+    () => mapTopicTreeNodesForHierarchyUi(topicTreeQuery.data?.tree ?? []),
+    [topicTreeQuery.data?.tree],
+  );
 
   const handleRenameDomain = useCallback(
-    (slug: string, newDisplayName: string) => {
-      upsertDomain.mutate({ slug, displayName: newDisplayName });
+    (uid: string, newDisplayName: string) => {
+      renameMutation.mutate({ uid, title: newDisplayName });
     },
-    [upsertDomain],
+    [renameMutation],
   );
 
   const handleDeleteDomain = useCallback(
-    (slug: string) => {
-      deleteDomainMutation.mutate(slug);
+    (uid: string) => {
+      removeMutation.mutate({ uid, promoteChildren: true });
     },
-    [deleteDomainMutation],
+    [removeMutation],
   );
 
+  const handleDomainContextMenu = useCallback((e: MouseEvent, payload: DomainContextMenuPayload) => {
+    setDomainContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      uid: payload.uid,
+      title: payload.title,
+      description: payload.description,
+      isRoot: payload.depth === 0,
+    });
+  }, []);
   const onTopicTreeSelect = useCallback(
     (path: string) => {
       setSearchParams(
@@ -293,6 +360,7 @@ export default function WikiShell() {
                         onSelect={onTopicTreeSelect}
                         onRenameDomain={handleRenameDomain}
                         onDeleteDomain={handleDeleteDomain}
+                        onDomainContextMenu={handleDomainContextMenu}
                       />
                     )}
                   </div>
@@ -380,7 +448,6 @@ export default function WikiShell() {
                 {regeneratePending ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <RefreshCw size={14} aria-hidden />}
                 {t.wiki.regenerate}
               </button>
-              <WikiIncrementalTrigger repository={repoForIncremental} />
             </div>
           </div>
 
@@ -462,6 +529,112 @@ export default function WikiShell() {
             onToggle={toggleRefsPanel}
           />
         )}
+
+        {domainContextMenu ? (
+          <DomainContextMenu
+            x={domainContextMenu.x}
+            y={domainContextMenu.y}
+            nodeUid={domainContextMenu.uid}
+            nodeTitle={domainContextMenu.title}
+            isRoot={domainContextMenu.isRoot}
+            onClose={() => setDomainContextMenu(null)}
+            onRename={() => {
+              const cm = domainContextMenu;
+              renameMutation.reset();
+              setWikiDomainDialog({
+                kind: "rename",
+                uid: cm.uid,
+                title: cm.title,
+                description: cm.description ?? "",
+              });
+            }}
+            onCreateSubdomain={() => {
+              const cm = domainContextMenu;
+              setWikiDomainDialog({ kind: "create", parentUid: cm.uid });
+            }}
+            onMove={() => {
+              const cm = domainContextMenu;
+              setWikiDomainDialog({ kind: "move", uid: cm.uid });
+            }}
+            onMerge={() => {
+              const cm = domainContextMenu;
+              setWikiDomainDialog({ kind: "merge", uid: cm.uid, title: cm.title });
+            }}
+            onDelete={() => {
+              const cm = domainContextMenu;
+              setWikiDomainDialog({ kind: "delete", uid: cm.uid, title: cm.title });
+            }}
+          />
+        ) : null}
+
+        {wikiDomainDialog?.kind === "rename" ? (
+          <RenameDialog
+            currentTitle={wikiDomainDialog.title}
+            currentDescription={wikiDomainDialog.description}
+            isError={renameMutation.isError}
+            isPending={renameMutation.isPending}
+            onConfirm={(title, description) => {
+              renameMutation.mutate(
+                {
+                  uid: wikiDomainDialog.uid,
+                  title: title.trim() || wikiDomainDialog.title,
+                  description: description.trim(),
+                },
+                { onSuccess: () => setWikiDomainDialog(null) },
+              );
+            }}
+            onCancel={() => {
+              renameMutation.reset();
+              setWikiDomainDialog(null);
+            }}
+          />
+        ) : null}
+        {wikiDomainDialog?.kind === "create" ? (
+          <CreateSubdomainDialog
+            onConfirm={(title, description) => {
+              createMutation.mutate({
+                parentUid: wikiDomainDialog.parentUid,
+                title,
+                description: description.trim(),
+              });
+              setWikiDomainDialog(null);
+            }}
+            onCancel={() => setWikiDomainDialog(null)}
+          />
+        ) : null}
+        {wikiDomainDialog?.kind === "delete" ? (
+          <DeleteDialog
+            domainTitle={wikiDomainDialog.title}
+            onConfirm={(promoteChildren) => {
+              removeMutation.mutate({ uid: wikiDomainDialog.uid, promoteChildren });
+              setWikiDomainDialog(null);
+            }}
+            onCancel={() => setWikiDomainDialog(null)}
+          />
+        ) : null}
+        {wikiDomainDialog?.kind === "move" ? (
+          <MoveDialog
+            currentUid={wikiDomainDialog.uid}
+            treeData={domainHierarchyTreeData}
+            onConfirm={(targetParentUid) => {
+              moveMutation.mutate({ uid: wikiDomainDialog.uid, targetParentUid });
+              setWikiDomainDialog(null);
+            }}
+            onCancel={() => setWikiDomainDialog(null)}
+          />
+        ) : null}
+        {wikiDomainDialog?.kind === "merge" ? (
+          <MergeDialog
+            sourceUid={wikiDomainDialog.uid}
+            sourceTitle={wikiDomainDialog.title}
+            treeData={domainHierarchyTreeData}
+            onConfirm={(targetUid) => {
+              mergeMutation.mutate({ sourceUid: wikiDomainDialog.uid, targetUid });
+              setWikiDomainDialog(null);
+            }}
+            onCancel={() => setWikiDomainDialog(null)}
+          />
+        ) : null}
       </div>
     </ErrorBoundary>
   );

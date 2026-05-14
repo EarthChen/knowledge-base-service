@@ -13,6 +13,7 @@ from services.repo_registry import RepoRegistry
 from services.scheduler import SyncScheduler
 from services.service_registry import ServiceRegistry
 from store.settings_store import SettingsStore
+from store.task_store import SqliteTaskStore
 
 
 @dataclass
@@ -22,6 +23,7 @@ class AppContainer:
     # Core (populated by _init_core_services)
     settings: Settings
     registry: ServiceRegistry | None = None
+    sqlite_task_store: SqliteTaskStore | None = None
     task_manager: IndexTaskManager | None = None
     repo_registry: RepoRegistry | None = None
     scheduler: SyncScheduler | None = None
@@ -58,6 +60,7 @@ class AppContainer:
         defaults: dict[str, Any] = {
             "settings": MagicMock(spec=Settings),
             "registry": MagicMock(spec=ServiceRegistry),
+            "sqlite_task_store": None,
             "task_manager": MagicMock(spec=IndexTaskManager),
             "repo_registry": MagicMock(spec=RepoRegistry),
             "scheduler": MagicMock(spec=SyncScheduler),

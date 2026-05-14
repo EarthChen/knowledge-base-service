@@ -1,0 +1,136 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "../api/client";
+
+const BASE = "/wiki/domains/hierarchy";
+
+function bq(businessId: string) {
+  return `business_id=${encodeURIComponent(businessId)}`;
+}
+
+function logDomainOperationError(err: unknown) {
+  console.error("domain operation failed:", err);
+}
+
+export function useDomainHierarchy(businessId: string) {
+  const qc = useQueryClient();
+
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: ["domains", businessId] });
+    void qc.invalidateQueries({ queryKey: ["topicTree", businessId] });
+    void qc.invalidateQueries({ queryKey: ["domainTree", businessId] });
+  };
+
+  const rename = useMutation({
+    mutationFn: async ({
+      uid,
+      title,
+      description,
+    }: {
+      uid: string;
+      title?: string;
+      description?: string;
+    }) =>
+      api(`${BASE}/${encodeURIComponent(uid)}?${bq(businessId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title, description }),
+      }),
+    onSuccess: invalidate,
+    onError: logDomainOperationError,
+  });
+
+  const remove = useMutation({
+    mutationFn: async ({
+      uid,
+      promoteChildren = true,
+    }: {
+      uid: string;
+      promoteChildren?: boolean;
+    }) =>
+      api(
+        `${BASE}/${encodeURIComponent(uid)}?${bq(businessId)}&promote_children=${promoteChildren}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: invalidate,
+    onError: logDomainOperationError,
+  });
+
+  const create = useMutation({
+    mutationFn: async ({
+      parentUid,
+      title,
+      description,
+    }: {
+      parentUid: string;
+      title: string;
+      description?: string;
+    }) =>
+      api(
+        `${BASE}/${encodeURIComponent(parentUid)}/children?${bq(businessId)}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ title, description: description ?? "" }),
+        },
+      ),
+    onSuccess: invalidate,
+    onError: logDomainOperationError,
+  });
+
+  const move = useMutation({
+    mutationFn: async ({
+      uid,
+      targetParentUid,
+    }: {
+      uid: string;
+      targetParentUid: string;
+    }) =>
+      api(
+        `${BASE}/${encodeURIComponent(uid)}/move?${bq(businessId)}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ target_parent_uid: targetParentUid }),
+        },
+      ),
+    onSuccess: invalidate,
+    onError: logDomainOperationError,
+  });
+
+  const merge = useMutation({
+    mutationFn: async ({
+      sourceUid,
+      targetUid,
+    }: {
+      sourceUid: string;
+      targetUid: string;
+    }) =>
+      api(`${BASE}/merge?${bq(businessId)}`, {
+        method: "POST",
+        body: JSON.stringify({
+          source_uid: sourceUid,
+          target_uid: targetUid,
+        }),
+      }),
+    onSuccess: invalidate,
+    onError: logDomainOperationError,
+  });
+
+  const moveModule = useMutation({
+    mutationFn: async ({
+      moduleUid,
+      targetDomain,
+    }: {
+      moduleUid: string;
+      targetDomain: string;
+    }) =>
+      api(`${BASE}/move-module?${bq(businessId)}`, {
+        method: "POST",
+        body: JSON.stringify({
+          module_uid: moduleUid,
+          target_domain: targetDomain,
+        }),
+      }),
+    onSuccess: invalidate,
+    onError: logDomainOperationError,
+  });
+
+  return { rename, remove, create, move, merge, moveModule };
+}

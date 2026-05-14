@@ -1,4 +1,9 @@
-"""SQLite-backed conversation store with TTL and LRU eviction."""
+"""SQLite-backed conversation store with TTL and LRU eviction.
+
+Deprecated: prefer :class:`~store.session_store.SqliteSessionStore` with
+:class:`~wiki.ask.AskSessionAdapter` for new code. Retained for existing tests and
+call sites that still depend on this module.
+"""
 from __future__ import annotations
 
 import json
@@ -27,6 +32,8 @@ class ConversationHistory:
 
 
 class SqliteConversationStore:
+    """Deprecated: use :class:`~store.session_store.SqliteSessionStore` for unified session storage."""
+
     def __init__(
         self,
         db_path: str = "data/conversations.db",

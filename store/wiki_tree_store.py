@@ -105,6 +105,126 @@ class WikiTreeStoreMixin:
                 "view_type": view_type, "sort_order": sort_order},
         )
 
+    async def remove_has_child_edge(
+        self, parent_uid: str, child_uid: str, view_type: str,
+    ) -> bool:
+        q = (
+            "MATCH (p)-[r:HAS_CHILD {view_type: $vt}]->(c) "
+            "WHERE p.uid = $parent AND c.uid = $child "
+            "DELETE r "
+            "RETURN count(r) AS deleted"
+        )
+        result = await self._store.execute_query(q, {
+            "parent": parent_uid, "child": child_uid, "vt": view_type,
+        })
+        rows = getattr(result, "data", None) or []
+        return bool(rows and rows[0].get("deleted", 0) > 0)
+
+    async def reparent_children(
+        self, old_parent_uid: str, new_parent_uid: str, view_type: str,
+    ) -> int:
+        q = (
+            "MATCH (old {uid: $old_parent})-[r:HAS_CHILD {view_type: $vt}]->(child) "
+            "WITH old, r, child, r.sort_order AS so "
+            "DELETE r "
+            "WITH child, so "
+            "MATCH (new_p {uid: $new_parent}) "
+            "CREATE (new_p)-[:HAS_CHILD {view_type: $vt, sort_order: so}]->(child) "
+            "RETURN count(child) AS moved"
+        )
+        result = await self._store.execute_query(q, {
+            "old_parent": old_parent_uid,
+            "new_parent": new_parent_uid,
+            "vt": view_type,
+        })
+        rows = getattr(result, "data", None) or []
+        return int(rows[0].get("moved", 0)) if rows else 0
+
+    async def delete_wiki_section_cascade(
+        self, uid: str, view_type: str = "business_domain",
+    ) -> int:
+        q = (
+            "MATCH (s {uid: $uid})-[:HAS_CHILD*0.. {view_type: $vt}]->(d) "
+            "DETACH DELETE d "
+            "RETURN count(d) AS deleted"
+        )
+        result = await self._store.execute_query(
+            q, {"uid": uid, "vt": view_type},
+        )
+        rows = getattr(result, "data", None) or []
+        return int(rows[0].get("deleted", 0)) if rows else 0
+
+    async def get_section_parent(
+        self, section_uid: str, view_type: str,
+    ) -> str | None:
+        q = (
+            "MATCH (p)-[:HAS_CHILD {view_type: $vt}]->(s {uid: $uid}) "
+            "RETURN p.uid AS uid LIMIT 1"
+        )
+        result = await self._store.execute_query(q, {"uid": section_uid, "vt": view_type})
+        rows = getattr(result, "data", None) or []
+        return str(rows[0]["uid"]) if rows else None
+
+    async def get_section_children(
+        self, section_uid: str, view_type: str,
+    ) -> list[dict[str, Any]]:
+        q = (
+            "MATCH (s {uid: $uid})-[r:HAS_CHILD {view_type: $vt}]->(child) "
+            "RETURN child.uid AS uid, child.title AS title, labels(child) AS labels "
+            "ORDER BY r.sort_order"
+        )
+        result = await self._store.execute_query(q, {"uid": section_uid, "vt": view_type})
+        rows = getattr(result, "data", None) or []
+        return [
+            {"uid": str(r.get("uid", "")), "title": str(r.get("title", "")), "labels": r.get("labels", [])}
+            for r in rows if r.get("uid")
+        ]
+
+    async def get_section_descendants(
+        self, section_uid: str, view_type: str,
+    ) -> list[str]:
+        q = (
+            "MATCH (s {uid: $uid})-[:HAS_CHILD*1.. {view_type: $vt}]->(d) "
+            "RETURN DISTINCT d.uid AS uid"
+        )
+        result = await self._store.execute_query(q, {"uid": section_uid, "vt": view_type})
+        rows = getattr(result, "data", None) or []
+        return [str(r["uid"]) for r in rows if r.get("uid")]
+
+    _SECTION_WRITABLE_PROPS = frozenset({
+        "title", "description", "user_modified", "sort_order", "icon",
+    })
+
+    async def update_section_properties(
+        self, uid: str, properties: dict[str, Any],
+    ) -> bool:
+        set_clauses = []
+        params: dict[str, Any] = {"uid": uid}
+        for key, value in properties.items():
+            if key not in self._SECTION_WRITABLE_PROPS:
+                raise ValueError(f"Property '{key}' is not writable on WikiSection")
+            param_name = f"p_{key}"
+            set_clauses.append(f"s.{key} = ${param_name}")
+            params[param_name] = value
+        if not set_clauses:
+            return False
+        q = f"MATCH (s:WikiSection {{uid: $uid}}) SET {', '.join(set_clauses)} RETURN 1 AS updated"
+        result = await self._store.execute_query(q, params)
+        rows = getattr(result, "data", None) or []
+        return bool(rows)
+
+    async def update_module_business_domain(
+        self, module_uid: str, domain: str,
+    ) -> bool:
+        q = (
+            "MATCH (m:Module {uid: $uid}) "
+            "SET m.business_domain = $domain "
+            "RETURN 1 AS updated"
+        )
+        result = await self._store.execute_query(q, {"uid": module_uid, "domain": domain})
+        rows = getattr(result, "data", None) or []
+        return bool(rows)
+
     async def add_wiki_reference_edge(
         self,
         source_uid: str,

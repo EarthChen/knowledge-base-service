@@ -192,6 +192,48 @@ class DomainNode:
     children: list[DomainNode] = field(default_factory=list)
 
 
+def deduplicate_domain_tree(tree: list[DomainNode]) -> list[DomainNode]:
+    """Remove top-level domains that also appear as children elsewhere.
+
+    Keeps the child position (more precise hierarchy) and removes
+    the top-level duplicate. Also removes self-nesting.
+    """
+    child_slugs: set[str] = set()
+
+    def _collect_child_slugs(nodes: list[DomainNode]) -> None:
+        for node in nodes:
+            own_slug = node.slug or node.name
+            for child in node.children:
+                slug = child.slug or child.name
+                if slug != own_slug:
+                    child_slugs.add(slug)
+                _collect_child_slugs([child])
+
+    _collect_child_slugs(tree)
+
+    deduped = [
+        node for node in tree
+        if (node.slug or node.name) not in child_slugs
+    ]
+
+    def _remove_self_nesting(node: DomainNode) -> DomainNode:
+        own_slug = node.slug or node.name
+        filtered_children = [
+            _remove_self_nesting(c) for c in node.children
+            if (c.slug or c.name) != own_slug
+        ]
+        return DomainNode(
+            name=node.name,
+            slug=node.slug,
+            display_name=node.display_name,
+            description=node.description,
+            modules=node.modules,
+            children=filtered_children,
+        )
+
+    return [_remove_self_nesting(n) for n in deduped]
+
+
 class HierarchicalDecomposer:
     def __init__(
         self,

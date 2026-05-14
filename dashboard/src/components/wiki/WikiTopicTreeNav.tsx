@@ -1,22 +1,33 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, type MouseEvent } from "react";
 import { ChevronRight, ChevronDown, Check, FileText, FolderOpen, Pencil, Trash2, X } from "lucide-react";
 import { useI18n } from "../../i18n/context";
 import type { TopicTreeNode } from "../../hooks/useWikiDomainTree";
+
+export interface DomainContextMenuPayload {
+  uid: string;
+  title: string;
+  path: string;
+  description?: string;
+  depth: number;
+}
 
 interface Props {
   tree: TopicTreeNode[];
   selectedPath: string | null;
   onSelect: (path: string) => void;
-  onRenameDomain?: (slug: string, newDisplayName: string) => void;
-  onDeleteDomain?: (slug: string) => void;
+  onRenameDomain?: (uid: string, newDisplayName: string) => void;
+  onDeleteDomain?: (uid: string) => void;
+  onDomainContextMenu?: (event: MouseEvent, payload: DomainContextMenuPayload) => void;
 }
 
-function extractSlugFromPath(path: string): string | null {
-  const m = path.match(/^\/__domains__\/([^/]+)\/_overview$/);
-  return m ? m[1] : null;
-}
-
-export default function WikiTopicTreeNav({ tree, selectedPath, onSelect, onRenameDomain, onDeleteDomain }: Props) {
+export default function WikiTopicTreeNav({
+  tree,
+  selectedPath,
+  onSelect,
+  onRenameDomain,
+  onDeleteDomain,
+  onDomainContextMenu,
+}: Props) {
   const { t } = useI18n();
   const tt = t.wiki.topic_tree;
   if (tree.length === 0) {
@@ -38,6 +49,7 @@ export default function WikiTopicTreeNav({ tree, selectedPath, onSelect, onRenam
           onSelect={onSelect}
           onRenameDomain={onRenameDomain}
           onDeleteDomain={onDeleteDomain}
+          onDomainContextMenu={onDomainContextMenu}
           topicLabels={tt}
         />
       ))}
@@ -52,14 +64,16 @@ function TreeNode({
   onSelect,
   onRenameDomain,
   onDeleteDomain,
+  onDomainContextMenu,
   topicLabels,
 }: {
   node: TopicTreeNode;
   depth: number;
   selectedPath: string | null;
   onSelect: (path: string) => void;
-  onRenameDomain?: (slug: string, newDisplayName: string) => void;
-  onDeleteDomain?: (slug: string) => void;
+  onRenameDomain?: (uid: string, newDisplayName: string) => void;
+  onDeleteDomain?: (uid: string) => void;
+  onDomainContextMenu?: (event: MouseEvent, payload: DomainContextMenuPayload) => void;
   topicLabels: {
     expanded: string;
     collapsed: string;
@@ -74,8 +88,8 @@ function TreeNode({
   const hasChildren = node.children.length > 0;
   const isSelected = selectedPath === node.path;
   const isDomain = node.page_type === "domain_overview";
-  const slug = isDomain ? extractSlugFromPath(node.path) : null;
-  const canEdit = isDomain && !!slug && !!onRenameDomain;
+  const domainUid = node.uid?.trim() ?? "";
+  const canEdit = isDomain && !!domainUid && !!onRenameDomain;
 
   useEffect(() => {
     if (editing && inputRef.current) inputRef.current.focus();
@@ -86,7 +100,7 @@ function TreeNode({
     onSelect(node.path);
   }, [hasChildren, node.path, onSelect]);
 
-  const startEdit = useCallback((e: React.MouseEvent) => {
+  const startEdit = useCallback((e: MouseEvent) => {
     e.stopPropagation();
     setEditValue(node.name);
     setEditing(true);
@@ -99,18 +113,37 @@ function TreeNode({
 
   const saveEdit = useCallback(() => {
     const v = editValue.trim();
-    if (v && v !== node.name && slug && onRenameDomain) {
-      onRenameDomain(slug, v);
+    if (v && v !== node.name && domainUid && onRenameDomain) {
+      onRenameDomain(domainUid, v);
     }
     setEditing(false);
-  }, [editValue, node.name, slug, onRenameDomain]);
+  }, [editValue, node.name, domainUid, onRenameDomain]);
 
-  const handleDelete = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (slug && onDeleteDomain && window.confirm(`Delete domain "${node.name}" (${slug})?`)) {
-      onDeleteDomain(slug);
-    }
-  }, [slug, node.name, onDeleteDomain]);
+  const handleDelete = useCallback(
+    (e: MouseEvent) => {
+      e.stopPropagation();
+      if (domainUid && onDeleteDomain && window.confirm(`Delete domain "${node.name}"?`)) {
+        onDeleteDomain(domainUid);
+      }
+    },
+    [domainUid, node.name, onDeleteDomain],
+  );
+
+  const handleContextMenu = useCallback(
+    (e: MouseEvent) => {
+      if (!isDomain || !domainUid || !onDomainContextMenu) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onDomainContextMenu(e, {
+        uid: domainUid,
+        title: node.name,
+        path: node.path,
+        description: node.description,
+        depth,
+      });
+    },
+    [isDomain, domainUid, onDomainContextMenu, node.name, node.path, node.description, depth],
+  );
 
   if (editing) {
     return (
@@ -145,6 +178,7 @@ function TreeNode({
         className="group relative"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        onContextMenu={handleContextMenu}
       >
         <button
           type="button"
@@ -211,6 +245,7 @@ function TreeNode({
               onSelect={onSelect}
               onRenameDomain={onRenameDomain}
               onDeleteDomain={onDeleteDomain}
+              onDomainContextMenu={onDomainContextMenu}
               topicLabels={topicLabels}
             />
           ))}

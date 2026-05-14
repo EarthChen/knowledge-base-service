@@ -8,7 +8,7 @@ from langchain_core.runnables import RunnableConfig
 from core.log import get_logger
 from store.schema import GraphNode, NodeLabel
 from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
-from wiki.dependency_graph import ModuleGraph, ModuleInfo
+from wiki.dependency_graph import ModuleGraph, ModuleInfo, deduplicate_domain_tree
 from wiki.domain_complexity import DomainComplexity
 from wiki.entity_role_classifier import (
     DOMAIN_CLASSIFICATION_ENTITY_ROLES,
@@ -496,6 +496,7 @@ async def decompose_hierarchy_node(
 
     try:
         raw_tree = await decomposer.decompose(all_module_infos, module_graph)
+        raw_tree = deduplicate_domain_tree(raw_tree)
         domain_tree = _normalize_domain_tree(raw_tree)
     except Exception:
         log.warning("decompose_hierarchy_failed", exc_info=True)

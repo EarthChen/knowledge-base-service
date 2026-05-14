@@ -321,8 +321,11 @@ class KnowledgeBaseService:
         )
 
     async def _auto_update_wiki(self, repository: str) -> Any:
-        """Callback for IncrementalIndexer: triggers WikiService.generate_incremental."""
-        return await self._wiki_service.generate_incremental(repository)
+        """Callback for IncrementalIndexer: triggers business-level wiki regeneration."""
+        return await self._wiki_service.generate_business_wiki(
+            business_id="default",
+            incremental=True,
+        )
 
     async def ensure_fulltext_indexes(self) -> None:
         await self._search_store.ensure_fulltext_indexes()

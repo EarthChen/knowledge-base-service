@@ -8,7 +8,8 @@ from store.falkordb_store import FalkorDBStore, QueryResultWrapper
 from store.traversal_store import make_name_query_params
 
 # Graph insights — distinct markers (tests / debugging).
-_REPO_PARAM = "repo"
+_GRAPH_REPOS_PARAM = "repos"
+_Q_RESOLVE_REPOS = "__GRAPH_INSIGHTS_RESOLVE_REPOS_FROM_WIKI__"
 _Q_STATS = "__GRAPH_INSIGHTS_Q_STATS__"
 _Q_ISOLATED = "__GRAPH_INSIGHTS_Q_ISOLATED__"
 _Q_CYCLES = "__GRAPH_INSIGHTS_Q_CYCLES__"
@@ -85,60 +86,71 @@ class AnalysisStore:
 
     # ─── graph_insights ───────────────────────────────────────────────────────
 
-    async def collect_graph_stats(self, repository: str) -> QueryResultWrapper:
+    async def resolve_code_repositories_from_business_wiki(self, business_id: str) -> QueryResultWrapper:
+        cypher = f"""
+// {_Q_RESOLVE_REPOS}
+MATCH (ws:WikiSpace {{business_id: $business_id}})-[:HAS_CHILD*1..10]->(wp:WikiPage)
+WITH collect(DISTINCT wp.repository) AS raw_repos
+WITH [r IN raw_repos WHERE r IS NOT NULL AND r <> '' AND r <> $business_id] AS repos
+RETURN repos
+""".strip()
+        return await self._store.execute_query(cypher, {"business_id": business_id})
+
+    async def collect_graph_stats(self, repositories: list[str]) -> QueryResultWrapper:
         cypher = f"""
 // {_Q_STATS}
-MATCH (c:Class) WHERE c.repository = ${_REPO_PARAM}
+MATCH (c:Class) WHERE c.repository IN ${_GRAPH_REPOS_PARAM}
 WITH count(c) AS class_count
-MATCH (m:Module) WHERE m.repository = ${_REPO_PARAM}
+MATCH (m:Module) WHERE m.repository IN ${_GRAPH_REPOS_PARAM}
 WITH class_count, count(m) AS module_count
 OPTIONAL MATCH (a)-[r:CALLS]->(b)
 WHERE (a:Class OR a:Function) AND (b:Class OR b:Function)
-  AND a.repository = ${_REPO_PARAM} AND b.repository = ${_REPO_PARAM}
+  AND a.repository IN ${_GRAPH_REPOS_PARAM} AND b.repository IN ${_GRAPH_REPOS_PARAM}
 WITH class_count, module_count, count(r) AS calls_same_repo
 OPTIONAL MATCH (x:Module)-[i:IMPORTS]->(y:Module)
-WHERE x.repository = ${_REPO_PARAM} AND y.repository = ${_REPO_PARAM}
+WHERE x.repository IN ${_GRAPH_REPOS_PARAM} AND y.repository IN ${_GRAPH_REPOS_PARAM}
 RETURN class_count, module_count, calls_same_repo, count(i) AS imports_same_repo
 """.strip()
-        return await self._store.execute_query(cypher, {_REPO_PARAM: repository})
+        return await self._store.execute_query(cypher, {_GRAPH_REPOS_PARAM: repositories})
 
-    async def find_isolated_entities(self, repository: str) -> QueryResultWrapper:
+    async def find_isolated_entities(self, repositories: list[str]) -> QueryResultWrapper:
         cypher = f"""
 // {_Q_ISOLATED}
 MATCH (n:Class)
-WHERE n.repository = ${_REPO_PARAM}
+WHERE n.repository IN ${_GRAPH_REPOS_PARAM}
   AND NOT (n)-[:CALLS|INHERITS|IMPORTS|CONTAINS]-()
 RETURN n.name AS name, coalesce(n.fqn, '') AS fqn
 """.strip()
-        return await self._store.execute_query(cypher, {_REPO_PARAM: repository})
+        return await self._store.execute_query(cypher, {_GRAPH_REPOS_PARAM: repositories})
 
-    async def find_circular_dependencies(self, repository: str) -> QueryResultWrapper:
+    async def find_circular_dependencies(self, repositories: list[str]) -> QueryResultWrapper:
         cypher = f"""
 // {_Q_CYCLES}
 MATCH p = (a:Module)-[:IMPORTS*2..5]->(a)
-WHERE a.repository = ${_REPO_PARAM}
+WHERE a.repository IN ${_GRAPH_REPOS_PARAM}
 WITH nodes(p) AS ns
 RETURN [x IN ns | coalesce(x.name, x.path, '')] AS module_path
 LIMIT 50
 """.strip()
-        return await self._store.execute_query(cypher, {_REPO_PARAM: repository})
+        return await self._store.execute_query(cypher, {_GRAPH_REPOS_PARAM: repositories})
 
-    async def find_cross_layer_violations(self, repository: str) -> QueryResultWrapper:
+    async def find_cross_layer_violations(self, repositories: list[str]) -> QueryResultWrapper:
         cypher = f"""
 // {_Q_CROSS_LAYER}
 MATCH (ctrl:Class)-[:CALLS]->(repo:Class)
-WHERE ctrl.repository = ${_REPO_PARAM}
+WHERE ctrl.repository IN ${_GRAPH_REPOS_PARAM}
+  AND repo.repository IN ${_GRAPH_REPOS_PARAM}
   AND 'http_controller' IN coalesce(ctrl.semantic_roles, [])
   AND 'repository' IN coalesce(repo.semantic_roles, [])
 RETURN ctrl.name AS ctrl_name, repo.name AS repo_name,
        coalesce(ctrl.fqn, '') AS ctrl_fqn, coalesce(repo.fqn, '') AS repo_fqn
 """.strip()
-        return await self._store.execute_query(cypher, {_REPO_PARAM: repository})
+        return await self._store.execute_query(cypher, {_GRAPH_REPOS_PARAM: repositories})
 
-    async def compute_module_cohesion_insights(self, repository: str) -> QueryResultWrapper:
+    async def compute_module_cohesion_insights(self, repositories: list[str]) -> QueryResultWrapper:
         cypher = f"""
 // {_Q_COHESION}
-MATCH (m:Module) WHERE m.repository = ${_REPO_PARAM}
+MATCH (m:Module) WHERE m.repository IN ${_GRAPH_REPOS_PARAM}
 MATCH (m)-[:CONTAINS]->(c1:Class)
 MATCH (m)-[:CONTAINS]->(c2:Class)
 WHERE id(c1) <> id(c2) AND (c1)-[:CALLS]->(c2)
@@ -152,20 +164,20 @@ WHERE cohesion < 0.15
 RETURN coalesce(m.name, '') AS module_name, coalesce(m.path, '') AS module_path,
        internal_calls, class_count, cohesion
 """.strip()
-        return await self._store.execute_query(cypher, {_REPO_PARAM: repository})
+        return await self._store.execute_query(cypher, {_GRAPH_REPOS_PARAM: repositories})
 
-    async def find_bridge_nodes(self, repository: str) -> QueryResultWrapper:
+    async def find_bridge_nodes(self, repositories: list[str]) -> QueryResultWrapper:
         cypher = f"""
 // {_Q_BRIDGE}
 MATCH (c:Class)
-WHERE c.repository = ${_REPO_PARAM}
+WHERE c.repository IN ${_GRAPH_REPOS_PARAM}
 MATCH (c)-[:CALLS|INHERITS]-(other:Class)
-WHERE other.repository = ${_REPO_PARAM} AND other.architecture_layer IS NOT NULL
+WHERE other.repository IN ${_GRAPH_REPOS_PARAM} AND other.architecture_layer IS NOT NULL
 WITH c, collect(DISTINCT other.architecture_layer) AS layers
 WHERE size(layers) >= 3
 RETURN c.name AS name, coalesce(c.fqn, '') AS fqn, layers
 """.strip()
-        return await self._store.execute_query(cypher, {_REPO_PARAM: repository})
+        return await self._store.execute_query(cypher, {_GRAPH_REPOS_PARAM: repositories})
 
     # ─── analysis_service ─────────────────────────────────────────────────────
 

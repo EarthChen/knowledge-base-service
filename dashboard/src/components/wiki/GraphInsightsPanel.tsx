@@ -8,6 +8,7 @@ import { useI18n } from "../../i18n/context";
 
 type Props = {
   repository: string;
+  businessId?: string;
 };
 
 const GRAPH_INSIGHT_CATEGORY_ORDER: GraphInsightCategory[] = [
@@ -54,11 +55,11 @@ function groupByCategory(items: GraphInsightItem[]): Map<GraphInsightCategory, G
   return m;
 }
 
-export default function GraphInsightsPanel({ repository }: Props) {
+export default function GraphInsightsPanel({ repository, businessId }: Props) {
   const { locale, t } = useI18n();
   const query = useQuery({
-    queryKey: ["graph-insights", repository],
-    queryFn: () => getGraphInsights(repository),
+    queryKey: ["graph-insights", repository, businessId],
+    queryFn: () => getGraphInsights(repository, businessId),
     enabled: Boolean(repository?.trim()),
     staleTime: 60_000,
   });

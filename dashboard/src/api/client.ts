@@ -111,8 +111,15 @@ export async function wikiLint(repository: string, scope = "all"): Promise<WikiL
   });
 }
 
-export async function getGraphInsights(repository: string): Promise<GraphInsightsReport> {
-  return api<GraphInsightsReport>(`/graph/insights/${encodeURIComponent(repository)}`);
+export async function getGraphInsights(
+  repository: string,
+  businessId?: string,
+): Promise<GraphInsightsReport> {
+  let path = `/graph/insights/${encodeURIComponent(repository)}`;
+  if (businessId) {
+    path += `?business_id=${encodeURIComponent(businessId)}`;
+  }
+  return api<GraphInsightsReport>(path);
 }
 
 export async function wikiExportPreview(

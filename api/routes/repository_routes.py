@@ -69,6 +69,7 @@ async def get_knowledge_health_stats(
 @viewer_router.get("/graph/insights/{repository:path}")
 async def get_graph_insights(
     repository: str,
+    business_id: str | None = Query(default=None),
     svc: KnowledgeBaseService = Depends(get_service),
 ) -> dict[str, Any]:
     """Return automated graph insights (isolation, cycles, layering, cohesion, bridges)."""
@@ -77,7 +78,7 @@ async def get_graph_insights(
     from query.graph_insights import GraphInsightsService
 
     insights_svc = GraphInsightsService(svc.store)
-    report = await insights_svc.analyze(repository)
+    report = await insights_svc.analyze(repository, business_id=business_id)
     return report.to_dict()
 
 

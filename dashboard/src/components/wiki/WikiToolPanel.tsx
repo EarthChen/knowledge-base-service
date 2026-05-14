@@ -322,7 +322,10 @@ export default function WikiToolPanel({
         <div role="tabpanel" id="wiki-panel-insights" aria-labelledby="wiki-tab-insights">
           {panelBoundary(
             <Suspense fallback={<WikiToolSuspenseFallback />}>
-              <GraphInsightsPanel repository={pageQuery.data?.context?.repository ?? businessId} />
+              <GraphInsightsPanel
+                repository={pageQuery.data?.context?.repository ?? businessId}
+                businessId={businessId}
+              />
             </Suspense>,
           )}
         </div>

@@ -36,10 +36,10 @@ class TestAnalysisStoreCypher:
 
     async def test_graph_stats_query_tag(self, mock_base: MagicMock) -> None:
         a = AnalysisStore(mock_base)
-        await a.collect_graph_stats("repo_a")
+        await a.collect_graph_stats(["repo_a"])
         q = mock_base.execute_query.call_args[0][0]
         assert _Q_STATS in q
-        assert mock_base.execute_query.call_args[0][1] == {"repo": "repo_a"}
+        assert mock_base.execute_query.call_args[0][1] == {"repos": ["repo_a"]}
 
     async def test_analyze_impact_interpolates_depth(self, mock_base: MagicMock) -> None:
         a = AnalysisStore(mock_base)

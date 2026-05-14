@@ -15,6 +15,13 @@ log = get_logger(__name__)
 
 _CYCLE_QUERY_TIMEOUT_SEC = 8.0
 
+_EMPTY_STATS: dict[str, int] = {
+    "class_count": 0,
+    "module_count": 0,
+    "calls_same_repo": 0,
+    "imports_same_repo": 0,
+}
+
 
 @dataclass
 class InsightItem:
@@ -53,15 +60,44 @@ class GraphInsightsService:
     ) -> None:
         self._analysis = analysis_store or AnalysisStore(store)
 
-    async def analyze(self, repository: str) -> InsightsReport:
-        analyzed_at = datetime.now(timezone.utc).isoformat()
-        graph_stats = await self._collect_graph_stats(repository)
+    async def _resolve_repositories(self, repository: str, business_id: str | None) -> list[str]:
+        """Resolve the actual code repositories to query.
 
-        isolated_task = self._find_isolated_entities(repository)
-        cycles_task = self._find_circular_dependencies(repository)
-        cross_task = self._find_cross_layer_violations(repository)
-        cohesion_task = self._compute_module_cohesion(repository)
-        bridge_task = self._find_bridge_nodes(repository)
+        If ``business_id`` is set, WikiSpace → WikiPage yields distinct code ``repository``
+        values. Otherwise ``repository`` path is used as a single-repo filter.
+        """
+        if business_id:
+            wrapped = await self._analysis.resolve_code_repositories_from_business_wiki(
+                business_id,
+            )
+            if not wrapped.data:
+                return []
+            r0 = wrapped.data[0]
+            raw = r0.get("repos")
+            if raw is None or not isinstance(raw, list):
+                return []
+            return [str(x) for x in raw if x is not None and str(x).strip() != ""]
+        if repository.strip():
+            return [repository]
+        return []
+
+    async def analyze(self, repository: str, business_id: str | None = None) -> InsightsReport:
+        analyzed_at = datetime.now(timezone.utc).isoformat()
+        repos = await self._resolve_repositories(repository, business_id)
+        if not repos:
+            return InsightsReport(
+                insights=[],
+                graph_stats=dict(_EMPTY_STATS),
+                analyzed_at=analyzed_at,
+            )
+
+        graph_stats = await self._collect_graph_stats(repos)
+
+        isolated_task = self._find_isolated_entities(repos)
+        cycles_task = self._find_circular_dependencies(repos)
+        cross_task = self._find_cross_layer_violations(repos)
+        cohesion_task = self._compute_module_cohesion(repos)
+        bridge_task = self._find_bridge_nodes(repos)
 
         isolated, cycles, cross, cohesion, bridges = await asyncio.gather(
             isolated_task,
@@ -84,15 +120,10 @@ class GraphInsightsService:
             analyzed_at=analyzed_at,
         )
 
-    async def _collect_graph_stats(self, repository: str) -> dict[str, int]:
-        rows = await self._analysis.collect_graph_stats(repository)
+    async def _collect_graph_stats(self, repositories: list[str]) -> dict[str, int]:
+        rows = await self._analysis.collect_graph_stats(repositories)
         if not rows.data:
-            return {
-                "class_count": 0,
-                "module_count": 0,
-                "calls_same_repo": 0,
-                "imports_same_repo": 0,
-            }
+            return dict(_EMPTY_STATS)
         r0 = rows.data[0]
         return {
             "class_count": int(r0.get("class_count") or 0),
@@ -101,8 +132,8 @@ class GraphInsightsService:
             "imports_same_repo": int(r0.get("imports_same_repo") or 0),
         }
 
-    async def _find_isolated_entities(self, repository: str) -> list[InsightItem]:
-        rows = await self._analysis.find_isolated_entities(repository)
+    async def _find_isolated_entities(self, repositories: list[str]) -> list[InsightItem]:
+        rows = await self._analysis.find_isolated_entities(repositories)
         out: list[InsightItem] = []
         for row in rows.data:
             name = str(row.get("name") or "")
@@ -126,14 +157,15 @@ class GraphInsightsService:
             )
         return out
 
-    async def _find_circular_dependencies(self, repository: str) -> list[InsightItem]:
+    async def _find_circular_dependencies(self, repositories: list[str]) -> list[InsightItem]:
+        scope_label = ",".join(repositories)
         try:
             rows: QueryResultWrapper = await asyncio.wait_for(
-                self._analysis.find_circular_dependencies(repository),
+                self._analysis.find_circular_dependencies(repositories),
                 timeout=_CYCLE_QUERY_TIMEOUT_SEC,
             )
         except TimeoutError:
-            log.warning("graph_insights_cycle_query_timeout", repository=repository)
+            log.warning("graph_insights_cycle_query_timeout", repositories=scope_label)
             return [
                 InsightItem(
                     category="circular_dep",
@@ -148,7 +180,7 @@ class GraphInsightsService:
                 ),
             ]
         except Exception as exc:
-            log.warning("graph_insights_cycle_query_error", repository=repository, error=str(exc))
+            log.warning("graph_insights_cycle_query_error", repositories=scope_label, error=str(exc))
             return [
                 InsightItem(
                     category="circular_dep",
@@ -189,8 +221,8 @@ class GraphInsightsService:
             )
         return out
 
-    async def _find_cross_layer_violations(self, repository: str) -> list[InsightItem]:
-        rows = await self._analysis.find_cross_layer_violations(repository)
+    async def _find_cross_layer_violations(self, repositories: list[str]) -> list[InsightItem]:
+        rows = await self._analysis.find_cross_layer_violations(repositories)
         out: list[InsightItem] = []
         for row in rows.data:
             cn = str(row.get("ctrl_name") or "")
@@ -215,8 +247,8 @@ class GraphInsightsService:
             )
         return out
 
-    async def _compute_module_cohesion(self, repository: str) -> list[InsightItem]:
-        rows = await self._analysis.compute_module_cohesion_insights(repository)
+    async def _compute_module_cohesion(self, repositories: list[str]) -> list[InsightItem]:
+        rows = await self._analysis.compute_module_cohesion_insights(repositories)
         out: list[InsightItem] = []
         for row in rows.data:
             mn = str(row.get("module_name") or "")
@@ -243,8 +275,8 @@ class GraphInsightsService:
             )
         return out
 
-    async def _find_bridge_nodes(self, repository: str) -> list[InsightItem]:
-        rows = await self._analysis.find_bridge_nodes(repository)
+    async def _find_bridge_nodes(self, repositories: list[str]) -> list[InsightItem]:
+        rows = await self._analysis.find_bridge_nodes(repositories)
         out: list[InsightItem] = []
         for row in rows.data:
             name = str(row.get("name") or "")

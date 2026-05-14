@@ -1,6 +1,6 @@
 ---
 name: knowledge-base-query
-description: Query the Knowledge Base Service for code context, graph traversal, file content, wiki pages, domain structure, and architecture insights. Use when the user asks to search code, explore call chains, read source files, browse wiki, check architecture, analyze PR impact, or get context from the knowledge graph. Triggers on keywords like "knowledge base", "search code", "call chain", "graph query", "wiki", "code context", "file content", "domain tree", "architecture".
+description: Query the Knowledge Base Service for code context, graph traversal, file content, wiki pages, domain structure, and architecture insights. Use when the user asks to search code, explore call chains, read source files, browse wiki, check architecture, or get context from the knowledge graph. Triggers on keywords like "knowledge base", "search code", "call chain", "graph query", "wiki", "code context", "file content", "domain tree", "architecture".
 ---
 
 # Knowledge Base Query
@@ -100,17 +100,7 @@ python scripts/kb_query.py search_architecture --arg mode=layers --arg layer=bus
 python scripts/kb_query.py get_insights --arg repository=my-service
 ```
 
-### 5. PR Impact
-
-```bash
-python scripts/kb_query.py analyze_changes --arg mode=wiki_pr_impact \
-  --arg repository=my-service --arg changed_files='["src/auth.py","src/db.py"]'
-
-python scripts/kb_query.py analyze_changes --arg mode=impact \
-  --arg repository=my-service --arg changed_files='["src/handler.py"]'
-```
-
-### 6. Graph Stats & File Tree
+### 5. Graph Stats & File Tree
 
 ```bash
 # Graph stats
@@ -123,7 +113,7 @@ python scripts/kb_query.py index_freshness --arg repository=my-service
 python scripts/kb_query.py get_complete_context --arg name=UserService --arg repository=my-service
 ```
 
-### 7. REST API (when MCP tool is insufficient)
+### 6. REST API (when MCP tool is insufficient)
 
 ```bash
 # Wiki page by path

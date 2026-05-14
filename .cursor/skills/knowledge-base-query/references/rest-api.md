@@ -66,15 +66,6 @@ Auth headers: `Authorization: Bearer <token>`, `X-Business-Id: <business_id>`
 | GET | `/{business_id}/domains/{slug}/modules` | Modules in domain | — |
 | GET | `/{business_id}/checkpoint` | Pipeline checkpoint | — |
 
-## PR Impact & Architecture (`/api/v1/wiki`)
-
-| Method | Path | Description | Key Params |
-|--------|------|-------------|------------|
-| POST | `/{repository}/analyze-impact` | PR/file impact on wiki | Body: `changed_files` |
-| GET | `/{repository}/enrichment-status` | Enrichment counts | — |
-| GET | `/{repository}/documentation-quality/summary` | Quality summary | — |
-| GET | `/{repository}/offline-pack` | Offline JSON pack | `business_id?` |
-
 ## MCP Tool Dispatch
 
 | Endpoint | Description |

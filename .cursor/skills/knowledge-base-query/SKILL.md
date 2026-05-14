@@ -5,7 +5,7 @@ description: Query the Knowledge Base Service for code context, graph traversal,
 
 # Knowledge Base Query
 
-Query the project's Knowledge Base Service (FalkorDB graph + vector hybrid) via MCP tools or REST API. Read-only operations only.
+Query the project's Knowledge Base Service (FalkorDB graph + vector hybrid) via REST API. All operations are read-only HTTP calls.
 
 ## Setup
 
@@ -15,166 +15,167 @@ export KB_TOKEN="your-token"                 # if REQUIRE_AUTH=true
 export KB_BUSINESS_ID="default"
 ```
 
-Verify: `bash .cursor/skills/knowledge-base-query/scripts/kb_setup.sh check`
+Verify: `curl -s "$KB_BASE_URL/api/v1/health" | python -m json.tool`
 
-## MCP Tool CLI
+Common headers for all requests:
 
 ```bash
-python .cursor/skills/knowledge-base-query/scripts/kb_query.py <tool_name> --arg key=value
+-H "Authorization: Bearer $KB_TOKEN" -H "X-Business-Id: $KB_BUSINESS_ID"
 ```
 
 ## Workflows
 
-### 1. Search Code → Read Source
+### 1. Search Code
 
 ```bash
-# Hybrid search
-python scripts/kb_query.py rag_query --arg query="login handler" --arg k=5 --arg repository=my-service
+# Hybrid semantic + keyword search
+curl -X POST "$KB_BASE_URL/api/v1/hybrid" \
+  -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
+  -d '{"query":"login authentication","repository":"my-service","k":5}'
 
-# Read file content
-python scripts/kb_query.py get_file_content --arg repository=my-service --arg file_path=src/auth.py
-
-# Read specific lines (512KB cap)
-python scripts/kb_query.py get_file_content --arg repository=my-service --arg file_path=src/auth.py --arg start_line=10 --arg end_line=50
-
-# Entity source by graph UID
-python scripts/kb_query.py get_code_snippet --arg node_uid="Function:my-service:handleLogin"
+# Response: semantic_matches[].{name, file_path, fqn, score, snippet}
 ```
 
-### 2. Trace Call Chains & Dependencies
+### 2. Read File Content
 
 ```bash
-# Downstream calls
-python scripts/kb_query.py rag_graph --arg query_type=call_chain --arg name=handleRequest --arg direction=downstream --arg depth=3
-
-# Upstream callers
-python scripts/kb_query.py rag_graph --arg query_type=call_chain --arg name=handleRequest --arg direction=upstream
-
-# Module dependencies
-python scripts/kb_query.py rag_graph --arg query_type=module_dependencies --arg name=auth_service
-
-# Reverse dependencies
-python scripts/kb_query.py rag_graph --arg query_type=reverse_dependencies --arg name=UserRepository
-
-# Inheritance tree
-python scripts/kb_query.py rag_graph --arg query_type=inheritance_tree --arg name=BaseHandler
-
-# Blast radius
-python scripts/kb_query.py rag_graph --arg query_type=blast_radius --arg name=processPayment --arg depth=3 --arg repository=my-service
-```
-
-**All `rag_graph` query_types:** `call_chain`, `inheritance_tree`, `class_methods`, `module_dependencies`, `reverse_dependencies`, `find_entity`, `file_entities`, `graph_stats`, `raw_cypher`, `business_flow`, `flows_for_function`, `related_concepts`, `explore_domain`, `flow_dependencies`, `blast_radius`
-
-### 3. Browse Wiki
-
-```bash
-# Wiki tree
-python scripts/kb_query.py wiki_get_tree --arg business_id=$KB_BUSINESS_ID
-
-# Page content
-python scripts/kb_query.py get_wiki_page --arg scope=__domains__/auth/_overview --arg repository=$KB_BUSINESS_ID
-
-# Wiki search
-python scripts/kb_query.py wiki_search --arg query="authentication" --arg repository=$KB_BUSINESS_ID
-
-# Domain overview
-python scripts/kb_query.py wiki_get_domain_overview --arg domain=auth --arg business_id=$KB_BUSINESS_ID
-
-# Related pages
-python scripts/kb_query.py wiki_get_related --arg page_uid="WikiPage:biz:__domains__/auth/_overview"
-
-# Full snapshot
-python scripts/kb_query.py wiki_get_snapshot --arg business_id=$KB_BUSINESS_ID
-```
-
-### 4. Architecture
-
-```bash
-# HTTP/RPC endpoints
-python scripts/kb_query.py search_architecture --arg mode=endpoints --arg repository=my-service
-
-# Architecture layers
-python scripts/kb_query.py search_architecture --arg mode=layers --arg layer=business --arg repository=my-service
-
-# Graph insights
-python scripts/kb_query.py get_insights --arg repository=my-service
-```
-
-### 5. Wiki → Code Exploration (drill down)
-
-MCP `get_wiki_page` returns `source_locations` with `fqn` (no entity_uid). Use `fqn` to trace into code graph:
-
-```bash
-# Step 1: Get wiki page with source_locations
-python scripts/kb_query.py get_wiki_page --arg scope=__domains__/auth/_overview --arg repository=$KB_BUSINESS_ID
-
-# Step 2: Use fqn from source_locations to find entity in graph
-python scripts/kb_query.py rag_graph --arg query_type=find_entity --arg name=AuthService
-
-# Step 3: Trace call chain from entity
-python scripts/kb_query.py rag_graph --arg query_type=call_chain --arg name=AuthService --arg direction=downstream --arg depth=3
-
-# Step 4: Read source code
-python scripts/kb_query.py get_code_snippet --arg node_uid="Class:my-service:AuthService"
-```
-
-For richer entity data (with graph UIDs), use REST API instead:
-
-```bash
-# Get page with source_entity_uids
-curl "$KB_BASE_URL/api/v1/wiki/pages/by-path?business_id=$KB_BUSINESS_ID&path=__domains__/auth/_overview" \
-  -H "Authorization: Bearer $KB_TOKEN"
-# Response includes: source_entity_uids, source_locations[].entity_uid
-
-# Get full entity cards for a page
-curl "$KB_BASE_URL/api/v1/wiki/pages/WikiPage:$KB_BUSINESS_ID:__domains__/auth/_overview/entities?business_id=$KB_BUSINESS_ID" \
-  -H "Authorization: Bearer $KB_TOKEN"
-# Response: entities[].{uid, name, entity_type, file_path, signature, business_summary}
-```
-
-### 6. Graph Stats & File Tree
-
-```bash
-# Graph stats
-python scripts/kb_query.py rag_graph --arg query_type=graph_stats --arg repository=my-service
-
-# Index freshness
-python scripts/kb_query.py index_freshness --arg repository=my-service
-
-# Complete entity context bundle
-python scripts/kb_query.py get_complete_context --arg name=UserService --arg repository=my-service
-```
-
-### 7. REST API (when MCP tool is insufficient)
-
-```bash
-# Wiki page by path
-curl "$KB_BASE_URL/api/v1/wiki/pages/by-path?business_id=$KB_BUSINESS_ID&path=__domains__/auth/_overview" \
+# Full file
+curl "$KB_BASE_URL/api/v1/files/content?repository=my-service&file_path=src/auth/handler.py" \
   -H "Authorization: Bearer $KB_TOKEN"
 
-# Domain tree
-curl "$KB_BASE_URL/api/v1/wiki/domain-tree?business_id=$KB_BUSINESS_ID" \
+# Specific lines (512KB cap)
+curl "$KB_BASE_URL/api/v1/files/content?repository=my-service&file_path=src/auth/handler.py&start_line=10&end_line=50" \
   -H "Authorization: Bearer $KB_TOKEN"
 
 # File tree
 curl "$KB_BASE_URL/api/v1/files/tree?repository=my-service" \
   -H "Authorization: Bearer $KB_TOKEN"
 
-# Graph insights (with business_id resolution)
+# Code snippet by graph entity UID
+curl "$KB_BASE_URL/api/v1/code/Class:my-service:AuthService" \
+  -H "Authorization: Bearer $KB_TOKEN"
+```
+
+### 3. Graph Queries (call chains, dependencies, etc.)
+
+```bash
+# Downstream call chain
+curl -X POST "$KB_BASE_URL/api/v1/graph" \
+  -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
+  -d '{"query_type":"call_chain","name":"handleRequest","direction":"downstream","depth":3}'
+
+# Upstream callers
+curl -X POST "$KB_BASE_URL/api/v1/graph" \
+  -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
+  -d '{"query_type":"call_chain","name":"handleRequest","direction":"upstream"}'
+
+# Module dependencies
+curl -X POST "$KB_BASE_URL/api/v1/graph" \
+  -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
+  -d '{"query_type":"module_dependencies","name":"auth_service"}'
+
+# Find entity by name
+curl -X POST "$KB_BASE_URL/api/v1/graph" \
+  -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
+  -d '{"query_type":"find_entity","name":"UserService","repository":"my-service"}'
+
+# Blast radius
+curl -X POST "$KB_BASE_URL/api/v1/graph/blast-radius" \
+  -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
+  -d '{"entities":["processPayment"],"depth":3}'
+
+# Raw Cypher (power-user)
+curl -X POST "$KB_BASE_URL/api/v1/graph" \
+  -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
+  -d '{"query_type":"raw_cypher","cypher":"MATCH (f:Function {name:$name})-[:CALLS]->(c) RETURN c.name LIMIT 10","params":{"name":"login"}}'
+```
+
+**Available `query_type` values:** `call_chain`, `inheritance_tree`, `class_methods`, `module_dependencies`, `reverse_dependencies`, `find_entity`, `file_entities`, `graph_stats`, `raw_cypher`, `business_flow`, `flows_for_function`, `related_concepts`, `explore_domain`, `flow_dependencies`, `blast_radius`
+
+### 4. Browse Wiki
+
+```bash
+# Wiki page by path
+curl "$KB_BASE_URL/api/v1/wiki/pages/by-path?business_id=$KB_BUSINESS_ID&path=__domains__/auth/_overview" \
+  -H "Authorization: Bearer $KB_TOKEN"
+# Response: title, content, source_locations[].{file_path, fqn, entity_uid}, source_entity_uids[]
+
+# Domain tree (hierarchy)
+curl "$KB_BASE_URL/api/v1/wiki/domain-tree?business_id=$KB_BUSINESS_ID" \
+  -H "Authorization: Bearer $KB_TOKEN"
+
+# Full wiki tree
+curl "$KB_BASE_URL/api/v1/wiki/tree?business_id=$KB_BUSINESS_ID&view=business_domain" \
+  -H "Authorization: Bearer $KB_TOKEN"
+
+# Wiki search
+curl -X POST "$KB_BASE_URL/api/v1/wiki/search" \
+  -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
+  -d '{"query":"authentication flow","repository":"'"$KB_BUSINESS_ID"'","limit":10}'
+
+# Cross-domain CALLS edges
+curl "$KB_BASE_URL/api/v1/wiki/domain-edges?business_id=$KB_BUSINESS_ID" \
+  -H "Authorization: Bearer $KB_TOKEN"
+```
+
+### 5. Wiki → Code Drill-Down
+
+Use wiki page data to explore associated code entities:
+
+```bash
+# Step 1: Get wiki page → extract source_entity_uids
+curl "$KB_BASE_URL/api/v1/wiki/pages/by-path?business_id=$KB_BUSINESS_ID&path=__domains__/auth/_overview" \
+  -H "Authorization: Bearer $KB_TOKEN"
+# Response includes: source_entity_uids, source_locations[].entity_uid
+
+# Step 2: Get full entity cards for a page (uid, name, type, file, signature, summary)
+curl "$KB_BASE_URL/api/v1/wiki/pages/WikiPage:$KB_BUSINESS_ID:__domains__/auth/_overview/entities?business_id=$KB_BUSINESS_ID" \
+  -H "Authorization: Bearer $KB_TOKEN"
+
+# Step 3: Trace call chain from entity name
+curl -X POST "$KB_BASE_URL/api/v1/graph" \
+  -H "Authorization: Bearer $KB_TOKEN" -H "Content-Type: application/json" \
+  -d '{"query_type":"call_chain","name":"AuthService","direction":"downstream","depth":3}'
+
+# Step 4: Read entity source code
+curl "$KB_BASE_URL/api/v1/code/Class:my-service:AuthService" \
+  -H "Authorization: Bearer $KB_TOKEN"
+
+# Step 5: Page references (incoming/outgoing wiki links)
+curl "$KB_BASE_URL/api/v1/wiki/pages/WikiPage:$KB_BUSINESS_ID:__domains__/auth/_overview/references" \
+  -H "Authorization: Bearer $KB_TOKEN"
+```
+
+### 6. Architecture & Stats
+
+```bash
+# HTTP/RPC endpoints
+curl "$KB_BASE_URL/api/v1/search/architecture?layer=api&repository=my-service" \
+  -H "Authorization: Bearer $KB_TOKEN"
+
+# Graph insights (architecture anomalies)
 curl "$KB_BASE_URL/api/v1/graph/insights/my-service?business_id=$KB_BUSINESS_ID" \
   -H "Authorization: Bearer $KB_TOKEN"
 
-# Structured graph query
-curl -X POST "$KB_BASE_URL/api/v1/graph" \
-  -H "Authorization: Bearer $KB_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"query_type":"call_chain","name":"handleLogin","direction":"downstream","depth":3}'
+# Graph stats
+curl "$KB_BASE_URL/api/v1/stats?repository=my-service" \
+  -H "Authorization: Bearer $KB_TOKEN"
+
+# Knowledge graph health
+curl "$KB_BASE_URL/api/v1/stats/health" \
+  -H "Authorization: Bearer $KB_TOKEN"
+
+# List indexed repositories
+curl "$KB_BASE_URL/api/v1/repositories" \
+  -H "Authorization: Bearer $KB_TOKEN"
 ```
 
-For full REST API reference, see [references/rest-api.md](references/rest-api.md).
+For full REST API endpoint reference, see [references/rest-api.md](references/rest-api.md).
 
 ## Notes
 
-- `raw_cypher` via `rag_graph` is available for ad-hoc graph queries
+- All endpoints return JSON
 - Wiki page UIDs follow pattern `WikiPage:{business_id}:{path}`
-- Scripts use Python stdlib only; see `scripts/kb_query.py`
+- `files/content` has a 512KB cap; use `start_line`/`end_line` for large files
+- `raw_cypher` via `POST /graph` is available for ad-hoc graph queries
+- Graph explore/expand endpoints support interactive visualization

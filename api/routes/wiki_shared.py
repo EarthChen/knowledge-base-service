@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import Depends, Header, Request
+from fastapi import Depends, Header, HTTPException, Request
 
 from api.exceptions import KbServiceUnavailable
 from core.auth import resolve_business_id, resolve_token, TokenInfo
@@ -17,6 +17,7 @@ from store.wiki_feedback_store import WikiFeedbackStore
 from wiki.ask import WikiAskService
 from wiki.cache import WikiCache
 from wiki.deep_research import DeepResearchService
+from wiki.edit_service import WikiEditService
 from wiki.editing_store import WikiEditingStore
 from wiki.lint import WikiLintService
 from wiki.memory_loop import MemoryLoop
@@ -41,6 +42,7 @@ __all__ = [
     "WIKI_TASK_TTL_SEC",
     "WikiTaskRegistry",
     "get_wiki_service_dep",
+    "get_wiki_edit_service_dep",
     "get_wiki_store_dep",
     "get_wiki_search_dep",
     "get_wiki_ask_dep",
@@ -105,6 +107,13 @@ async def get_wiki_service_dep(request: Request) -> WikiService:
             return await out
         return out  # type: ignore[no-any-return]
     raise KbServiceUnavailable("Wiki generation is not configured")
+
+
+def get_wiki_edit_service_dep(request: Request) -> WikiEditService:
+    svc = getattr(request.app.state, "wiki_edit_service", None)
+    if svc is None:
+        raise HTTPException(503, "Wiki edit service not available")
+    return svc
 
 
 async def get_wiki_store_dep(request: Request) -> Any:

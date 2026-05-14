@@ -244,6 +244,24 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
             return raw_llm
         return LLMPortBridge(GatewayLLMProviderAdapter(raw_llm))  # type: ignore[arg-type]
 
+    from store.session_store import SqliteSessionStore
+    from wiki.edit_service import WikiEditService
+
+    edit_llm = _wrap_llm(kb.llm_provider)
+    if edit_llm is not None:
+        edit_session_store = SqliteSessionStore(
+            db_path=str(conv_dir / "edit_sessions.db"),
+            ttl_seconds=1800,
+        )
+        await edit_session_store.initialize()
+        app.state.wiki_edit_service = WikiEditService(
+            session_store=edit_session_store,
+            llm=edit_llm,
+            graph=kb.store,
+        )
+    else:
+        app.state.wiki_edit_service = None
+
     wiki_mem: MemoryLoop | None = None
     if getattr(kb, "_embedding", None) is not None:
 

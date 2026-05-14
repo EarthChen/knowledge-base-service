@@ -187,10 +187,34 @@ export async function cancelWikiTask(taskId: string): Promise<{ task_id: string;
 export async function businessWikiExport(
   body: BusinessWikiExportBody,
 ): Promise<BusinessWikiExportResponse> {
-  return api<BusinessWikiExportResponse>("/wiki/export", {
+  if (body.format === "git") {
+    return api<BusinessWikiExportResponse>("/wiki/export", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  const url = `${API_BASE}/wiki/export`;
+  const res = await fetch(url, {
     method: "POST",
+    headers: authHeaders(),
     body: JSON.stringify(body),
   });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new ApiError(text || res.statusText || "Request failed", res.status, text);
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = `${body.business_id}-wiki-${body.format}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(objectUrl);
+
+  return { format: body.format, business_id: body.business_id };
 }
 
 export type SyncRepoAndWikiRequest = {

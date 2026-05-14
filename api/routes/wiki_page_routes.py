@@ -830,7 +830,7 @@ async def business_wiki_export(
     body: BusinessWikiExportBody,
     request: Request,
 ) -> Any:
-    """Export business wiki in various formats (markdown, zip, git, obsidian, mkdocs)."""
+    """Export business wiki (non-git formats as ZIP download; git pushes to remote)."""
     from api.exceptions import KbClientError
     from wiki.business_wiki_exporter import BusinessWikiExporter
     from wiki.git_publisher import GitPublisher
@@ -853,8 +853,8 @@ async def business_wiki_export(
 
     plan = await exporter.build_export_plan(
         business_id=body.business_id,
-        view=body.view_type,
-        min_tier=body.min_tier,
+        view="both",
+        min_tier="standard",
     )
 
     if body.format == "git":
@@ -883,24 +883,19 @@ async def business_wiki_export(
             "error": result.error,
         }
 
-    if body.format == "zip":
-        buf = _io.BytesIO()
-        with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as zf:
-            for f in plan.files:
-                zf.writestr(f.relative_path, f.content)
-        buf.seek(0)
-        return StreamingResponse(
-            buf,
-            media_type="application/zip",
-            headers={"Content-Disposition": f"attachment; filename={body.business_id}-wiki.zip"},
-        )
-
-    return {
-        "format": body.format,
-        "business_id": body.business_id,
-        "total_files": len(plan.files),
-        "files": [{"path": f.relative_path, "is_index": f.is_index} for f in plan.files],
-    }
+    # All non-git formats: return ZIP download
+    buf = _io.BytesIO()
+    with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as zf:
+        for f in plan.files:
+            zf.writestr(f.relative_path, f.content)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename={body.business_id}-wiki-{body.format}.zip",
+        },
+    )
 
 
 @router.get("/pages/{page_uid:path}/versions", response_model=None)

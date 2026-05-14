@@ -172,9 +172,7 @@ class WikiPageContentBody(BaseModel):
 
 class BusinessWikiExportBody(BaseModel):
     business_id: str = Field(default="default", min_length=1)
-    format: str = Field(..., pattern="^(markdown|zip|git|obsidian|mkdocs)$")
-    view_type: str = Field(default="business_domain", pattern="^(business_domain|code_structure|both)$")
-    min_tier: str = Field(default="standard", pattern="^(core|standard|skeleton)$")
+    format: str = Field(..., pattern="^(markdown|git|obsidian|mkdocs)$")
     git_config: GitPushConfig | None = None
 
 

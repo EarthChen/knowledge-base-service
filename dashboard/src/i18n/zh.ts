@@ -854,7 +854,7 @@ const zh: Translations = {
     exportExporting: "正在导出…",
     exportFailed: "导出失败",
     exportComplete: "导出完成",
-    exportSummaryLine: "已导出 {count} 个文件（{format}）",
+    exportSummaryLine: "导出完成（{format}）",
     exportDownload: "下载",
     gitPushTitle: "Git 推送配置",
     gitPushRemoteUrl: "远程地址",

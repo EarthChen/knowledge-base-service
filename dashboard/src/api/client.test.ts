@@ -20,6 +20,7 @@ import {
 import type { BusinessWikiExportBody } from "../hooks/wikiTypes";
 
 const originalFetch = globalThis.fetch;
+const originalDocumentCreateElement = document.createElement.bind(document);
 
 function mockResponse(body: string, init: { status: number; statusText?: string }) {
   return new Response(body, {
@@ -239,7 +240,7 @@ describe("API helper functions", () => {
     await expect(businessWikiGenerate("bid", "en")).resolves.toEqual({ task_id: "t" });
   });
 
-  it("export preview, execute with files, and business export", async () => {
+  it("export preview, execute with files", async () => {
     vi.mocked(globalThis.fetch).mockImplementation(() => Promise.resolve(mockOkJson(exportRes)));
     await expect(wikiExportPreview("r1", "/tmp/t")).resolves.toEqual(exportRes);
     await expect(
@@ -248,12 +249,60 @@ describe("API helper functions", () => {
     const lastCall = vi.mocked(globalThis.fetch).mock.calls.at(-1);
     const lastBody = (lastCall?.[1] as { body: string } | undefined)?.body;
     expect(lastBody).toContain("selected_files");
-    const body: BusinessWikiExportBody = {
+  });
+
+  it("businessWikiExport markdown triggers blob download", async () => {
+    vi.mocked(globalThis.fetch).mockImplementation((input) => {
+      if (String(input).includes("/wiki/export")) {
+        return Promise.resolve(new Response(new Blob(["fake"]), { status: 200 }));
+      }
+      return Promise.resolve(mockOkJson(exportRes));
+    });
+    const clickSpy = vi.fn();
+    const anchor = originalDocumentCreateElement("a") as HTMLAnchorElement;
+    anchor.click = clickSpy as unknown as typeof anchor.click;
+    const createSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      if (tag === "a") {
+        return anchor;
+      }
+      return originalDocumentCreateElement(tag);
+    });
+    try {
+      const body: BusinessWikiExportBody = {
+        business_id: "b",
+        format: "markdown",
+      };
+      await expect(businessWikiExport(body)).resolves.toEqual({
+        format: "markdown",
+        business_id: "b",
+      });
+      expect(clickSpy).toHaveBeenCalled();
+    } finally {
+      createSpy.mockRestore();
+    }
+  });
+
+  it("businessWikiExport git returns JSON from api()", async () => {
+    const gitRes = {
+      format: "git",
       business_id: "b",
-      format: "markdown",
-      view_type: "both",
-      min_tier: "core",
+      success: true,
+      files_added: 1,
+      files_modified: 0,
+      files_deleted: 0,
+      commit_sha: "abc",
     };
-    await expect(businessWikiExport(body)).resolves.toEqual(exportRes);
+    vi.mocked(globalThis.fetch).mockImplementation(() => Promise.resolve(mockOkJson(gitRes)));
+    await expect(
+      businessWikiExport({
+        business_id: "b",
+        format: "git",
+        git_config: {
+          remote_url: "https://example.git",
+          branch: "main",
+          commit_message_prefix: "docs:",
+        },
+      }),
+    ).resolves.toEqual(gitRes);
   });
 });

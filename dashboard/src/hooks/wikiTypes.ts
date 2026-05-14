@@ -248,9 +248,7 @@ export type WikiDocumentationQualitySummary = {
 
 export type BusinessWikiExportBody = {
   business_id: string;
-  format: "markdown" | "zip" | "git" | "obsidian" | "mkdocs";
-  view_type: "business_domain" | "code_structure" | "both";
-  min_tier: "core" | "standard" | "skeleton";
+  format: "markdown" | "git" | "obsidian" | "mkdocs";
   git_config?: {
     remote_url: string;
     branch: string;
@@ -259,11 +257,14 @@ export type BusinessWikiExportBody = {
 };
 
 export type BusinessWikiExportResponse = {
-  status: string;
   format: string;
-  file_count: number;
-  output_path?: string;
-  download_url?: string;
+  business_id: string;
+  success?: boolean;
+  files_added?: number;
+  files_modified?: number;
+  files_deleted?: number;
+  commit_sha?: string;
+  error?: string;
 };
 
 export type WikiAnnotation = {

@@ -868,7 +868,7 @@ const en: Translations = {
     exportExporting: "Exporting…",
     exportFailed: "Export failed",
     exportComplete: "Export complete",
-    exportSummaryLine: "{count} files exported ({format})",
+    exportSummaryLine: "Export finished ({format})",
     exportDownload: "Download",
     gitPushTitle: "Git push configuration",
     gitPushRemoteUrl: "Remote URL",

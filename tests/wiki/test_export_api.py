@@ -99,29 +99,19 @@ class TestExportEndpointValidation:
         )
         assert r.status_code == 422
 
-    def test_invalid_view_type_returns_422(self) -> None:
+    def test_zip_format_returns_422(self) -> None:
         app = _make_app()
         _mock_app_state(app)
         client = TestClient(app, raise_server_exceptions=False)
         r = client.post(
             "/api/v1/wiki/export",
-            json={"business_id": "test", "format": "markdown", "view_type": "bad"},
-        )
-        assert r.status_code == 422
-
-    def test_invalid_min_tier_returns_422(self) -> None:
-        app = _make_app()
-        _mock_app_state(app)
-        client = TestClient(app, raise_server_exceptions=False)
-        r = client.post(
-            "/api/v1/wiki/export",
-            json={"business_id": "test", "format": "markdown", "min_tier": "ultra"},
+            json={"business_id": "test", "format": "zip"},
         )
         assert r.status_code == 422
 
 
 class TestExportEndpointMarkdown:
-    def test_markdown_returns_file_list(self, mock_store_with_data: AsyncMock) -> None:
+    def test_markdown_returns_zip_archive(self, mock_store_with_data: AsyncMock) -> None:
         app = _make_app()
         _mock_app_state(app, wiki_store=mock_store_with_data)
         client = TestClient(app, raise_server_exceptions=False)
@@ -130,13 +120,17 @@ class TestExportEndpointMarkdown:
             json={"business_id": "test", "format": "markdown"},
         )
         assert r.status_code == 200
-        data = r.json()
-        assert data["format"] == "markdown"
-        assert data["business_id"] == "test"
-        assert "files" in data
-        assert data["total_files"] > 0
+        assert "application/zip" in r.headers.get("content-type", "")
+        disp = r.headers.get("content-disposition", "")
+        assert "attachment" in disp
+        assert "test-wiki-markdown.zip" in disp
+        buf = io.BytesIO(r.content)
+        with zipfile.ZipFile(buf) as zf:
+            names = zf.namelist()
+            assert len(names) > 0
+            assert any("README.md" in n for n in names)
 
-    def test_empty_tree_returns_empty(self, mock_store: AsyncMock) -> None:
+    def test_empty_tree_returns_empty_zip(self, mock_store: AsyncMock) -> None:
         app = _make_app()
         _mock_app_state(app, wiki_store=mock_store)
         client = TestClient(app, raise_server_exceptions=False)
@@ -145,26 +139,10 @@ class TestExportEndpointMarkdown:
             json={"business_id": "empty", "format": "markdown"},
         )
         assert r.status_code == 200
-        data = r.json()
-        assert data["total_files"] == 0
-
-
-class TestExportEndpointZip:
-    def test_zip_returns_binary(self, mock_store_with_data: AsyncMock) -> None:
-        app = _make_app()
-        _mock_app_state(app, wiki_store=mock_store_with_data)
-        client = TestClient(app, raise_server_exceptions=False)
-        r = client.post(
-            "/api/v1/wiki/export",
-            json={"business_id": "test", "format": "zip"},
-        )
-        assert r.status_code == 200
         assert "application/zip" in r.headers.get("content-type", "")
         buf = io.BytesIO(r.content)
         with zipfile.ZipFile(buf) as zf:
-            names = zf.namelist()
-            assert len(names) > 0
-            assert any("README.md" in n for n in names)
+            assert zf.namelist() == []
 
 
 class TestExportEndpointGit:
@@ -182,7 +160,7 @@ class TestExportEndpointGit:
 
 
 class TestExportEndpointObsidian:
-    def test_obsidian_returns_with_config(self, mock_store_with_data: AsyncMock) -> None:
+    def test_obsidian_returns_zip_with_config_paths(self, mock_store_with_data: AsyncMock) -> None:
         app = _make_app()
         _mock_app_state(app, wiki_store=mock_store_with_data)
         client = TestClient(app, raise_server_exceptions=False)
@@ -191,14 +169,15 @@ class TestExportEndpointObsidian:
             json={"business_id": "test", "format": "obsidian"},
         )
         assert r.status_code == 200
-        data = r.json()
-        assert data["format"] == "obsidian"
-        paths = [f["path"] for f in data.get("files", [])]
-        assert any(".obsidian" in p for p in paths)
+        assert "application/zip" in r.headers.get("content-type", "")
+        buf = io.BytesIO(r.content)
+        with zipfile.ZipFile(buf) as zf:
+            names = zf.namelist()
+            assert any(".obsidian" in n for n in names)
 
 
 class TestExportEndpointMkDocs:
-    def test_mkdocs_returns_with_yml(self, mock_store_with_data: AsyncMock) -> None:
+    def test_mkdocs_returns_zip_with_yml(self, mock_store_with_data: AsyncMock) -> None:
         app = _make_app()
         _mock_app_state(app, wiki_store=mock_store_with_data)
         client = TestClient(app, raise_server_exceptions=False)
@@ -207,7 +186,8 @@ class TestExportEndpointMkDocs:
             json={"business_id": "test", "format": "mkdocs"},
         )
         assert r.status_code == 200
-        data = r.json()
-        assert data["format"] == "mkdocs"
-        paths = [f["path"] for f in data.get("files", [])]
-        assert "mkdocs.yml" in paths
+        assert "application/zip" in r.headers.get("content-type", "")
+        buf = io.BytesIO(r.content)
+        with zipfile.ZipFile(buf) as zf:
+            names = zf.namelist()
+            assert "mkdocs.yml" in names

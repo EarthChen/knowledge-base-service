@@ -7,8 +7,6 @@ import type { BusinessWikiExportBody } from "../../hooks/wikiTypes";
 import { useI18n } from "../../i18n/context";
 
 type ExportFormat = BusinessWikiExportBody["format"];
-type ViewType = BusinessWikiExportBody["view_type"];
-type MinTier = BusinessWikiExportBody["min_tier"];
 
 type Props = {
   repository: string;
@@ -24,11 +22,6 @@ export default function WikiBusinessExportPanel({ repository, businessId }: Prop
           value: "markdown" as const,
           label: t.wiki.exportFormatMarkdownLabel,
           desc: t.wiki.exportFormatMarkdownDesc,
-        },
-        {
-          value: "zip" as const,
-          label: t.wiki.exportFormatZipLabel,
-          desc: t.wiki.exportFormatZipDesc,
         },
         {
           value: "obsidian" as const,
@@ -50,8 +43,6 @@ export default function WikiBusinessExportPanel({ repository, businessId }: Prop
   );
   const exportMutation = useBusinessWikiExport();
   const [format, setFormat] = useState<ExportFormat>("markdown");
-  const [viewType, setViewType] = useState<ViewType>("both");
-  const [minTier, setMinTier] = useState<MinTier>("standard");
   const [gitDialogOpen, setGitDialogOpen] = useState(false);
   const [gitConfig, setGitConfig] = useState<BusinessWikiExportBody["git_config"]>();
 
@@ -63,8 +54,6 @@ export default function WikiBusinessExportPanel({ repository, businessId }: Prop
     const body: BusinessWikiExportBody = {
       business_id: businessId,
       format,
-      view_type: viewType,
-      min_tier: minTier,
     };
     if (format === "git" && gitConfig) body.git_config = gitConfig;
     exportMutation.mutate(body);
@@ -84,7 +73,7 @@ export default function WikiBusinessExportPanel({ repository, businessId }: Prop
           <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
             {t.wiki.exportFormatLabel}
           </label>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {formatOptions.map((opt) => (
               <button
                 key={opt.value}
@@ -101,37 +90,6 @@ export default function WikiBusinessExportPanel({ repository, businessId }: Prop
               </button>
             ))}
           </div>
-        </div>
-
-        <div className="flex flex-wrap gap-4">
-          <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              {t.wiki.exportViewLabel}
-            </span>
-            <select
-              value={viewType}
-              onChange={(e) => setViewType(e.target.value as ViewType)}
-              className="mt-1 block rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-sky-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-            >
-              <option value="both">{t.wiki.exportViewBoth}</option>
-              <option value="business_domain">{t.wiki.exportViewBusinessDomain}</option>
-              <option value="code_structure">{t.wiki.exportViewCodeStructure}</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              {t.wiki.exportMinTierLabel}
-            </span>
-            <select
-              value={minTier}
-              onChange={(e) => setMinTier(e.target.value as MinTier)}
-              className="mt-1 block rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-sky-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-            >
-              <option value="core">{t.wiki.exportMinTierCore}</option>
-              <option value="standard">{t.wiki.exportMinTierStandard}</option>
-              <option value="skeleton">{t.wiki.exportMinTierSkeleton}</option>
-            </select>
-          </label>
         </div>
 
         <OfflinePackDownloadButton repository={repository} businessId={businessId} />
@@ -176,14 +134,7 @@ export default function WikiBusinessExportPanel({ repository, businessId }: Prop
           <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100">
             <p className="font-semibold">{t.wiki.exportComplete}</p>
             <p className="mt-1 text-xs">
-              {t.wiki.exportSummaryLine
-                .replace("{count}", String(exportMutation.data.file_count))
-                .replace("{format}", exportMutation.data.format)}
-              {exportMutation.data.download_url && /^https?:\/\//i.test(exportMutation.data.download_url) && (
-                <a href={exportMutation.data.download_url} className="ml-2 text-sky-600 underline" rel="noopener noreferrer">
-                  {t.wiki.exportDownload}
-                </a>
-              )}
+              {t.wiki.exportSummaryLine.replace("{format}", exportMutation.data.format)}
             </p>
           </div>
         )}

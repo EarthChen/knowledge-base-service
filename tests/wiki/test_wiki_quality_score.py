@@ -14,11 +14,8 @@ async def test_compute_score_weighted_100_scale() -> None:
     store = MagicMock()
     store.get_entity_coverage_stats = AsyncMock(
         return_value={
-            "total_entities": 10,
-            "covered_entities": 8,
-            "core_total": 3,
-            "standard_total": 5,
-            "skeleton_total": 2,
+            "total_modules": 10,
+            "covered_modules": 8,
         },
     )
     store.get_knowledge_gaps = AsyncMock(return_value=[])
@@ -40,15 +37,12 @@ async def test_compute_score_weighted_100_scale() -> None:
 
 @pytest.mark.asyncio
 async def test_page_level_factors_use_total_pages_denominator() -> None:
-    """Staleness, reference density, and enrichment use total_pages; coverage uses total_entities."""
+    """Staleness, reference density, and enrichment use total_pages; coverage uses indexed modules."""
     store = MagicMock()
     store.get_entity_coverage_stats = AsyncMock(
         return_value={
-            "total_entities": 20,
-            "covered_entities": 10,
-            "core_total": 2,
-            "standard_total": 5,
-            "skeleton_total": 13,
+            "total_modules": 20,
+            "covered_modules": 10,
         },
     )
     store.get_knowledge_gaps = AsyncMock(return_value=[])
@@ -60,7 +54,7 @@ async def test_page_level_factors_use_total_pages_denominator() -> None:
     r = await WikiQualityScorer(store).compute_score("biz")
 
     cov = next(f for f in r.factors if f.name == "coverage")
-    assert abs(cov.score - 0.5) < 0.01  # 10/20 entities
+    assert abs(cov.score - 0.5) < 0.01  # 10/20 modules
     ref = next(f for f in r.factors if f.name == "reference_density")
     assert abs(ref.score - 0.5) < 0.01  # 5 ref edges / 10 pages, not / 20 entities
     ann = next(f for f in r.factors if f.name == "annotation_density")
@@ -73,11 +67,8 @@ async def test_empty_business_zeroes_gracefully() -> None:
     store = MagicMock()
     store.get_entity_coverage_stats = AsyncMock(
         return_value={
-            "total_entities": 0,
-            "covered_entities": 0,
-            "core_total": 0,
-            "standard_total": 0,
-            "skeleton_total": 0,
+            "total_modules": 0,
+            "covered_modules": 0,
         },
     )
     store.get_knowledge_gaps = AsyncMock(return_value=[])

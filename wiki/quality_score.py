@@ -48,18 +48,18 @@ class WikiQualityScorer:
         report = await self._analyzer.analyze(business_id, include_stale=True)
         stats = await self._store.get_entity_coverage_stats(business_id)
         ref_stats = await self._store.get_wiki_reference_and_enrichment_stats(business_id)
-        total = int(stats.get("total_entities", 0) or 0)
+        total = int(stats.get("total_modules", 0) or 0)
         total_pages = int(ref_stats.get("total_pages", total) or 0)
         details: dict[str, Any] = {
-            "total_entities": stats.get("total_entities", 0),
+            "total_modules": stats.get("total_modules", 0),
             "total_pages": total_pages,
-            "covered_entities": stats.get("covered_entities", 0),
+            "covered_modules": stats.get("covered_modules", 0),
             "stale_page_count": len(report.stale_pages),
             "ref_edge_count": ref_stats.get("ref_edge_count", 0),
             "enriched_pages": ref_stats.get("enriched_pages", 0),
         }
 
-        covered = int(stats.get("covered_entities", 0) or 0)
+        covered = int(stats.get("covered_modules", 0) or 0)
 
         if total == 0:
             zero_factors: list[QualityFactor] = [
@@ -72,9 +72,9 @@ class WikiQualityScorer:
                 score=0,
                 factors=zero_factors,
                 details={
-                    "total_entities": 0,
+                    "total_modules": 0,
                     "total_pages": int(ref_stats.get("total_pages", 0) or 0),
-                    "covered_entities": 0,
+                    "covered_modules": 0,
                     "stale_page_count": 0,
                     "ref_edge_count": 0,
                     "enriched_pages": 0,

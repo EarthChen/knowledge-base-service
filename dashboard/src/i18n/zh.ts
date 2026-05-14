@@ -641,6 +641,8 @@ const zh: Translations = {
     uncovered: "未覆盖",
     coreLabel: "核心",
     standardLabel: "标准",
+    modulesDocumentedLabel: "已记录模块",
+    coveragePercentLabel: "覆盖率",
     staleLabel: "过时",
     gapsLabel: "缺口",
     domainsHeading: "业务领域",

@@ -667,6 +667,8 @@ export interface Translations {
     uncovered: string;
     coreLabel: string;
     standardLabel: string;
+    modulesDocumentedLabel: string;
+    coveragePercentLabel: string;
     staleLabel: string;
     gapsLabel: string;
     domainsHeading: string;

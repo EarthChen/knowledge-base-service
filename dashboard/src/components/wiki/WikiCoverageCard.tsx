@@ -26,8 +26,8 @@ export default function WikiCoverageCard({ businessId }: Props) {
   const chartData = useMemo(() => {
     const d = q.data;
     if (!d) return null;
-    const covered = d.covered_entities ?? 0;
-    const total = d.total_entities ?? 0;
+    const covered = d.covered_modules ?? 0;
+    const total = d.total_modules ?? 0;
     const uncovered = Math.max(0, total - covered);
     return {
       labels: [t.wiki.covered, t.wiki.uncovered],
@@ -76,10 +76,8 @@ export default function WikiCoverageCard({ businessId }: Props) {
   const data = q.data;
   if (!data || !chartData) return null;
 
-  const covered = data.covered_entities ?? 0;
-  const total = data.total_entities ?? 0;
-  const corePct = Math.round((data.core_coverage ?? 0) * 100);
-  const stdPct = Math.round((data.standard_coverage ?? 0) * 100);
+  const covered = data.covered_modules ?? 0;
+  const total = data.total_modules ?? 0;
   const stale = data.stale_page_count ?? 0;
   const gaps = data.knowledge_gap_count ?? 0;
 
@@ -113,12 +111,16 @@ export default function WikiCoverageCard({ businessId }: Props) {
         </div>
         <dl className="grid grid-cols-2 gap-3 text-sm">
           <div>
-            <dt className="text-gray-500 dark:text-gray-400">{t.wiki.coreLabel}</dt>
-            <dd className="font-semibold tabular-nums text-gray-900 dark:text-gray-100">{corePct}%</dd>
+            <dt className="text-gray-500 dark:text-gray-400">{t.wiki.modulesDocumentedLabel}</dt>
+            <dd className="font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+              {covered}/{total}
+            </dd>
           </div>
           <div>
-            <dt className="text-gray-500 dark:text-gray-400">{t.wiki.standardLabel}</dt>
-            <dd className="font-semibold tabular-nums text-gray-900 dark:text-gray-100">{stdPct}%</dd>
+            <dt className="text-gray-500 dark:text-gray-400">{t.wiki.coveragePercentLabel}</dt>
+            <dd className="font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+              {data.coverage_percentage ?? overallPct}%
+            </dd>
           </div>
           <div>
             <dt className="text-gray-500 dark:text-gray-400">{t.wiki.staleLabel}</dt>

@@ -8,40 +8,32 @@ from typing import Any
 
 @dataclass
 class CoverageReport:
-    """Wiki page tier distribution report."""
+    """Module-based wiki coverage report."""
 
-    total_entities: int
-    """Total wiki pages (all importance tiers), same count source as ``WikiStore.get_entity_coverage_stats``."""
+    total_modules: int
+    """Total indexed code modules in business-bound repos."""
 
-    covered_entities: int
-    """Wiki pages at core or standard tier (non-skeleton); matches store ``covered_entities``."""
-
-    core_coverage: float
-    """Ratio of core-tier wiki pages to total wiki pages (0.0–1.0)."""
-
-    standard_coverage: float
-    """Ratio of wiki pages at core or standard tier to total wiki pages (0.0–1.0)."""
+    covered_modules: int
+    """Modules with business_domain assigned (documented by wiki)."""
 
     stale_pages: list[dict[str, Any]] = field(default_factory=list)
     """Pages whose source entities changed after wiki generation."""
 
     knowledge_gaps: list[dict[str, Any]] = field(default_factory=list)
-    """Entities with weak documentation relative to graph importance (skeleton tier, high coupling)."""
+    """Entities with weak documentation relative to graph importance."""
 
     @property
     def coverage_percentage(self) -> float:
-        """Percentage of non-skeleton pages vs. total wiki pages (0–100 scale)."""
-        if self.total_entities == 0:
+        """Percentage of documented modules (0-100 scale)."""
+        if self.total_modules == 0:
             return 0.0
-        return round(self.covered_entities / self.total_entities * 100, 1)
+        return round(self.covered_modules / self.total_modules * 100, 1)
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "total_entities": self.total_entities,
-            "covered_entities": self.covered_entities,
+            "total_modules": self.total_modules,
+            "covered_modules": self.covered_modules,
             "coverage_percentage": self.coverage_percentage,
-            "core_coverage": self.core_coverage,
-            "standard_coverage": self.standard_coverage,
             "stale_pages": self.stale_pages,
             "stale_page_count": len(self.stale_pages),
             "knowledge_gaps": self.knowledge_gaps,
@@ -66,18 +58,9 @@ class WikiCoverageAnalyzer:
             else []
         )
 
-        total = stats.get("total_entities", 0)
-        core = stats.get("core_total", 0)
-        standard = stats.get("standard_total", 0)
-
-        core_coverage = core / total if total > 0 else 0.0
-        standard_coverage = (core + standard) / total if total > 0 else 0.0
-
         return CoverageReport(
-            total_entities=total,
-            covered_entities=stats.get("covered_entities", 0),
-            core_coverage=round(core_coverage, 2),
-            standard_coverage=round(standard_coverage, 2),
+            total_modules=stats.get("total_modules", 0),
+            covered_modules=stats.get("covered_modules", 0),
             stale_pages=stale_raw,
             knowledge_gaps=[
                 {"entity": g["entity_name"], "in_degree": g["in_degree"], "wiki_tier": g.get("wiki_tier")}

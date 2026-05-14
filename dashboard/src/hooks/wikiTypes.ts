@@ -199,11 +199,9 @@ export type WikiKnowledgeGap = {
 };
 
 export type WikiCoverageResponse = {
-  total_entities: number;
-  covered_entities: number;
+  total_modules: number;
+  covered_modules: number;
   coverage_percentage: number;
-  core_coverage: number;
-  standard_coverage: number;
   stale_pages: WikiStalePage[];
   stale_page_count: number;
   knowledge_gaps: WikiKnowledgeGap[];

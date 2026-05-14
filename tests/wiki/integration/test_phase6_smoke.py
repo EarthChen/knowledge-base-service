@@ -34,10 +34,8 @@ class TestPhase6BasicWiring:
         from wiki import CoverageReport
 
         report = CoverageReport(
-            total_entities=10,
-            covered_entities=8,
-            core_coverage=0.3,
-            standard_coverage=0.8,
+            total_modules=10,
+            covered_modules=8,
             stale_pages=[],
             knowledge_gaps=[],
         )

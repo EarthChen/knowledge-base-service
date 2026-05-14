@@ -649,6 +649,8 @@ const en: Translations = {
     uncovered: "Uncovered",
     coreLabel: "Core",
     standardLabel: "Standard",
+    modulesDocumentedLabel: "Modules documented",
+    coveragePercentLabel: "Coverage %",
     staleLabel: "Stale",
     gapsLabel: "Gaps",
     domainsHeading: "Business Domains",

@@ -40,7 +40,7 @@ def _create_test_app(
 
 
 def _raw_store_three_queries(
-    tier_rows: list[dict],
+    coverage_rows: list[dict],
     gap_rows: list[dict],
     stale_rows: list[dict],
 ) -> AsyncMock:
@@ -54,7 +54,7 @@ def _raw_store_three_queries(
         execute_query._i += 1  # type: ignore[attr-defined]
         i = execute_query._i  # type: ignore[attr-defined]
         if i == 1:
-            return QueryResultWrapper(tier_rows)
+            return QueryResultWrapper(coverage_rows)
         if i == 2:
             return QueryResultWrapper(gap_rows)
         if i == 3:
@@ -69,10 +69,8 @@ class TestCoverageReportEndpoint:
     def test_returns_coverage_report(self):
         """Successful coverage report with all features enabled."""
         mock_store = _raw_store_three_queries(
-            tier_rows=[
-                {"tier": "core", "cnt": 15},
-                {"tier": "standard", "cnt": 25},
-                {"tier": "skeleton", "cnt": 10},
+            coverage_rows=[
+                {"total_modules": 50, "covered_modules": 40},
             ],
             gap_rows=[
                 {"entity_name": "PayService", "in_degree": 10, "wiki_tier": "skeleton"},
@@ -95,8 +93,8 @@ class TestCoverageReportEndpoint:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total_entities"] == 50
-        assert data["covered_entities"] == 40
+        assert data["total_modules"] == 50
+        assert data["covered_modules"] == 40
         assert data["coverage_percentage"] == 80.0
         assert len(data["knowledge_gaps"]) == 1
         assert len(data["stale_pages"]) == 1
@@ -118,10 +116,8 @@ class TestCoverageReportEndpoint:
     def test_stale_detection_disabled(self):
         """When stale_detection_enabled=False, stale_pages should be empty."""
         mock_store = _raw_store_three_queries(
-            tier_rows=[
-                {"tier": "core", "cnt": 3},
-                {"tier": "standard", "cnt": 5},
-                {"tier": "skeleton", "cnt": 2},
+            coverage_rows=[
+                {"total_modules": 10, "covered_modules": 8},
             ],
             gap_rows=[],
             stale_rows=[
@@ -151,7 +147,7 @@ class TestCoverageReportEndpoint:
     def test_empty_business_returns_zeros(self):
         """Empty business returns zero coverage."""
         mock_store = _raw_store_three_queries(
-            tier_rows=[],
+            coverage_rows=[],
             gap_rows=[],
             stale_rows=[],
         )
@@ -164,7 +160,7 @@ class TestCoverageReportEndpoint:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total_entities"] == 0
+        assert data["total_modules"] == 0
         assert data["coverage_percentage"] == 0.0
 
     def test_store_unavailable_returns_503(self):

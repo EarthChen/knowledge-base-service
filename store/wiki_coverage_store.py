@@ -5,42 +5,32 @@ from __future__ import annotations
 from typing import Any
 
 from store.schema import EdgeType
+
+
 class WikiCoverageStoreMixin:
     """Coverage-related Cypher."""
 
     async def get_entity_coverage_stats(self, business_id: str) -> dict[str, int]:
-        """Count wiki pages by importance tier for :class:`wiki.coverage_analyzer.WikiCoverageAnalyzer`.
+        """Count indexed modules and how many have wiki documentation (business_domain assigned).
 
-        Keys align with :class:`wiki.coverage_analyzer.CoverageReport` / the analyzer's ``stats.get(...)`` usage:
-        - ``total_entities`` — all :WikiPage nodes (denominator for tier ratios in the analyzer)
-        - ``covered_entities`` — pages at core or standard tier (non-skeleton)
-        - ``core_total`` / ``standard_total`` / ``skeleton_total`` — per-tier counts
+        - ``total_modules`` — all :Module nodes in business-bound repos
+        - ``covered_modules`` — Module nodes with non-empty ``business_domain``
         """
         q = (
-            "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage) "
-            "RETURN wp.importance_tier AS tier, count(wp) AS cnt"
+            "MATCH (ws:WikiSpace {business_id: $business_id})"
+            "-[e:HAS_CHILD]->(sec:WikiSection) "
+            "WHERE e.view_type = 'code_structure' "
+            "WITH collect(sec.title) AS repos "
+            "MATCH (m:Module) WHERE m.repository IN repos "
+            "RETURN count(m) AS total_modules, "
+            "sum(CASE WHEN m.business_domain IS NOT NULL "
+            "AND m.business_domain <> '' THEN 1 ELSE 0 END) AS covered_modules"
         )
         result = await self._store.execute_query(q, {"business_id": business_id})
-        core = 0
-        standard = 0
-        skeleton = 0
-        for row in result.data:
-            tier = str(row.get("tier") or "")
-            cnt = int(row.get("cnt", 0))
-            if tier == "core":
-                core += cnt
-            elif tier == "standard":
-                standard += cnt
-            else:
-                skeleton += cnt
-        total = core + standard + skeleton
-        return {
-            "total_entities": total,
-            "covered_entities": core + standard,
-            "core_total": core,
-            "standard_total": standard,
-            "skeleton_total": skeleton,
-        }
+        row = result.data[0] if result.data else {}
+        total = int(row.get("total_modules", 0) or 0)
+        covered = int(row.get("covered_modules", 0) or 0)
+        return {"total_modules": total, "covered_modules": covered}
 
     async def get_knowledge_gaps(
         self, business_id: str, min_in_degree: int = 5

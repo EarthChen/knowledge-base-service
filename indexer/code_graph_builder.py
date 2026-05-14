@@ -6,6 +6,7 @@ into graph nodes and edges for storage in FalkorDB.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterator
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
@@ -163,6 +164,21 @@ class CodeGraphBuilder:
         return out
 
     @staticmethod
+    def _apply_code_hash_to_module(
+        nodes: list[GraphNode],
+        store_path: str,
+        content: str,
+    ) -> None:
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        for node in nodes:
+            if node.label != NodeLabel.MODULE:
+                continue
+            if node.properties.get("file") != store_path:
+                continue
+            node.properties["code_hash"] = digest
+            break
+
+    @staticmethod
     def _module_uid_for_store_path(store_path: str) -> str:
         """UID of the Module node for a file, matching :class:`GraphNode` with ``file``."""
         stem = Path(store_path).stem
@@ -188,13 +204,19 @@ class CodeGraphBuilder:
         if not language:
             return [], []
 
+        effective_store = store_path or file_path
+        if content is None:
+            content = Path(file_path).read_text(encoding="utf-8")
+
         parse_result = self._parser.parse_file(file_path, language, content)
-        return self.build_from_parse_result(
+        nodes, edges = self.build_from_parse_result(
             parse_result,
-            store_path or file_path,
+            effective_store,
             language,
             import_resolver=import_resolver,
         )
+        self._apply_code_hash_to_module(nodes, effective_store, content)
+        return nodes, edges
 
     def build_from_parse_result(
         self,
@@ -299,6 +321,8 @@ class CodeGraphBuilder:
                     language,
                     import_resolver=resolver,
                 )
+                file_text = fpath.read_text(encoding="utf-8", errors="replace")
+                self._apply_code_hash_to_module(nodes, rel, file_text)
                 all_nodes.extend(nodes)
                 per_file_data.append(
                     self._cross_file_data_from_parse(rel, language, nodes, parse_result),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -59,6 +60,21 @@ if TYPE_CHECKING:
     from wiki.enrichment_coordinator import WikiEnrichmentCoordinator
 
 log = get_logger(__name__)
+
+_VALID_WIKI_REVIEW_STATUSES = frozenset({
+    "approved",
+    "needs_revision",
+    "pending_review",
+    "revised",
+})
+
+
+def _graph_query_positional_rows(result: Any) -> list[list[Any]]:
+    rs = getattr(result, "result_set", None)
+    if isinstance(rs, list):
+        return rs
+    raw = getattr(result, "raw", None)
+    return raw if isinstance(raw, list) else []
 
 
 def _compilation_snapshot_to_page_dicts(
@@ -1641,6 +1657,87 @@ class WikiService:
             repository,
             verify_repository=False,
         )
+
+    async def _execute_wiki_cypher(self, cypher: str, params: dict[str, Any] | None = None) -> Any:
+        """Run Cypher against the wiki graph store (``.query`` or ``.execute_query``)."""
+        p = params or {}
+        graph = self._graph
+        q = getattr(graph, "query", None)
+        if callable(q):
+            return await q(cypher, params=p)
+        return await graph.execute_query(cypher, p)
+
+    async def set_page_review_status(self, page_uid: str, status: str, notes: str) -> dict[str, Any]:
+        """Set ``review_status`` / ``review_notes`` on a :WikiPage node."""
+        if status not in _VALID_WIKI_REVIEW_STATUSES:
+            raise ValueError("Invalid review status")
+        cypher = (
+            "MATCH (p:WikiPage {uid: $page_uid}) "
+            "SET p.review_status = $status, p.review_notes = $notes, "
+            "p.review_updated_at = timestamp() "
+            "RETURN p.uid AS uid"
+        )
+        result = await self._execute_wiki_cypher(
+            cypher,
+            {"page_uid": page_uid, "status": status, "notes": notes},
+        )
+        rows = _graph_query_positional_rows(result)
+        if not rows:
+            raise ValueError(f"WikiPage uid={page_uid} not found")
+        return {"status": status, "page_uid": page_uid, "notes": notes}
+
+    async def trigger_page_regeneration(self, page_uid: str, heal_hints: str = "") -> dict[str, Any]:
+        """Queue async regeneration of one wiki page via :class:`WikiPageAgent`."""
+        cypher = (
+            "MATCH (p:WikiPage {uid: $page_uid}) "
+            "OPTIONAL MATCH (p)-[:BELONGS_TO]->(d:Domain) "
+            "RETURN d.name AS domain, p.repository AS repository, p.title AS title, p.uid AS uid"
+        )
+        result = await self._execute_wiki_cypher(cypher, {"page_uid": page_uid})
+        rows = _graph_query_positional_rows(result)
+        if not rows:
+            raise ValueError(f"WikiPage uid={page_uid} not found")
+
+        row = rows[0]
+        domain = row[0] if len(row) > 0 else None
+        repository = row[1] if len(row) > 1 else None
+        title = row[2] if len(row) > 2 else None
+
+        task_id = f"regen-{page_uid}-{int(time.time())}"
+
+        async def _run_regeneration() -> None:
+            try:
+                graph_store = self._store if self._store is not None else self._graph
+                from wiki.page_agent import WikiPageAgent
+
+                agent = WikiPageAgent(self._llm, graph_store)
+                hints = heal_hints.strip() if heal_hints else None
+                module_names = [title] if (title or "").strip() else [page_uid]
+                domain_name = (domain or "default") if domain else "default"
+                new_content = await agent.generate(
+                    module_names,
+                    domain_name,
+                    baseline_context=hints,
+                )
+                if new_content and self._wiki_store is not None:
+                    await self._wiki_store.update_wiki_page_content(
+                        page_uid,
+                        new_content,
+                        source="system-regeneration",
+                        edit_reason=heal_hints or "",
+                    )
+            except Exception:
+                log.exception("page_regeneration_failed", page_uid=page_uid)
+
+        if self._task_supervisor is not None:
+            self._task_supervisor.spawn(
+                lambda: _run_regeneration(),
+                name=f"regen-{page_uid}",
+            )
+        else:
+            asyncio.create_task(_run_regeneration())
+
+        return {"task_id": task_id, "page_uid": page_uid, "status": "accepted"}
 
     async def _run_enrichment_background(self, *args: Any, **kwargs: Any) -> None:
         return await self._get_enrichment().run_enrichment_background(*args, **kwargs)

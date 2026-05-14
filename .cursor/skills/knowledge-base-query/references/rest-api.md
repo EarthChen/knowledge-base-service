@@ -66,13 +66,6 @@ Auth headers: `Authorization: Bearer <token>`, `X-Business-Id: <business_id>`
 | GET | `/{business_id}/domains/{slug}/modules` | Modules in domain | — |
 | GET | `/{business_id}/checkpoint` | Pipeline checkpoint | — |
 
-## MCP Tool Dispatch
-
-| Endpoint | Description |
-|----------|-------------|
-| POST `/api/v1/mcp/tool` | Main MCP tool invocation (22 tools) |
-| GET `/api/v1/mcp/tools` | Main MCP tool manifest |
-
 ## Public
 
 | Method | Path | Description |

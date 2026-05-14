@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Quick setup helper for Knowledge Base Service connection.
-# Source this file or run it to verify connectivity:
-#   source scripts/kb_setup.sh
-#   ./scripts/kb_setup.sh check
+# Setup helper for Knowledge Base Service connection.
+#
+# Source to export env vars:   source scripts/kb_setup.sh
+# Check connectivity:          ./scripts/kb_setup.sh check
+# Show current config:         ./scripts/kb_setup.sh config
 
 set -euo pipefail
 
@@ -12,12 +13,17 @@ set -euo pipefail
 
 export KB_BASE_URL KB_TOKEN KB_BUSINESS_ID
 
+_show_config() {
+    echo "KB_BASE_URL    = ${KB_BASE_URL}"
+    echo "KB_TOKEN       = ${KB_TOKEN:+(set)}"
+    echo "KB_BUSINESS_ID = ${KB_BUSINESS_ID}"
+}
+
 _check_connectivity() {
-    local url="${KB_BASE_URL}/api/v1/mcp/tools"
+    local url="${KB_BASE_URL}/api/v1/health"
     local http_code
     http_code=$(curl -s -o /dev/null -w "%{http_code}" \
         -H "Authorization: Bearer ${KB_TOKEN}" \
-        -H "X-Business-Id: ${KB_BUSINESS_ID}" \
         "${url}" 2>/dev/null || echo "000")
 
     if [ "$http_code" = "200" ]; then
@@ -32,6 +38,7 @@ _check_connectivity() {
     fi
 }
 
-if [ "${1:-}" = "check" ]; then
-    _check_connectivity
-fi
+case "${1:-}" in
+    check)  _show_config; echo "---"; _check_connectivity ;;
+    config) _show_config ;;
+esac

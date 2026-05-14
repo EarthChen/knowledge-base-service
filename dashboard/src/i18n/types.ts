@@ -684,10 +684,6 @@ export interface Translations {
     regenerateIncremental: string;
     regenerateFull: string;
     regenerateConflict: string;
-    /** Repo-scoped POST /wiki/generate-incremental (graph diff), distinct from business regenerate modes. */
-    repoIncrementalUpdate: string;
-    repoIncrementalTooltip: string;
-    repoIncrementalStarted: string;
     pagesHeading: string;
     expandAllFolders: string;
     treeNavExpand: string;
@@ -992,6 +988,20 @@ export interface Translations {
       view_rendered: string;
       view_markdown: string;
       copy_markdown: string;
+    };
+    edit_panel: {
+      title: string;
+      tab_ask: string;
+      tab_edit: string;
+      placeholder: string;
+      send: string;
+      apply: string;
+      discard: string;
+      thinking: string;
+      tool_call: string;
+      diff_title: string;
+      error: string;
+      session_expired: string;
     };
     knowledge_graph: {
       loading: string;

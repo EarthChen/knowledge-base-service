@@ -5,6 +5,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
+from wiki.agents.events import (
+    EventCallback,
+    ThinkingEvent,
+    ToolCallEvent,
+    ToolResultEvent,
+)
+
 from core.log import get_logger
 
 log = get_logger(__name__)
@@ -114,6 +121,7 @@ class GenericAgent(ABC):
         *,
         nudge_message: str = "Please use the available tools to gather information.",
         max_history_messages: int = 30,
+        event_callback: EventCallback = None,
     ) -> Any:
         """Multi-round ReAct loop: LLM picks tools → execute → incorporate → repeat.
 
@@ -131,6 +139,8 @@ class GenericAgent(ABC):
         has_nonempty_result = False
 
         for round_num in range(self._max_rounds):
+            if event_callback:
+                await event_callback(ThinkingEvent(round_num=round_num + 1))
             round_tools = self._tool_registry.get_tools_for_round(
                 round_num + 1, has_empty=not has_nonempty_result and total_tool_calls > 0,
             )
@@ -167,7 +177,14 @@ class GenericAgent(ABC):
                     )
                     args = {}
 
+                if event_callback:
+                    await event_callback(ToolCallEvent(tool=tool_name, args=args))
+
                 result = await self._tool_registry.dispatch(tool_name, args)
+
+                if event_callback:
+                    summary = json.dumps(result, ensure_ascii=False, default=str)[:200]
+                    await event_callback(ToolResultEvent(tool=tool_name, summary=summary))
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id", ""),

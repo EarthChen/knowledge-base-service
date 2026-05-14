@@ -7,7 +7,7 @@ import { useWikiDocumentationQualitySummary } from "../../hooks/useWikiQualitySc
 import { useWikiDomainTree, useWikiDomainEdges, type TopicTreeNode } from "../../hooks/useWikiDomainTree";
 import { useBatchReview, useSetPageReview, useRegeneratePage } from "../../hooks/useWikiReview";
 import ErrorBoundary from "../ErrorBoundary";
-import AskPanel from "./AskPanel";
+import WikiAssistantPanel from "./WikiAssistantPanel";
 import WikiContent from "./WikiContent";
 import WikiTopicContent from "./WikiTopicContent";
 import WikiCoverageCard from "./WikiCoverageCard";
@@ -259,7 +259,10 @@ export default function WikiToolPanel({
                   onAskQuestion={onAskQuestion}
                 />
               )}
-              <AskPanel
+              <WikiAssistantPanel
+                pageUid={(pageQuery.data?.context?.uid ?? pageQuery.data?.path ?? pagePath)?.trim() || ""}
+                currentContent={pageQuery.data?.content ?? ""}
+                businessId={businessId}
                 repository={pageQuery.data?.context?.repository?.trim() || businessId.trim()}
                 pageContext={
                   pageQuery.data?.content

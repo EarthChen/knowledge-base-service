@@ -27,7 +27,7 @@ vi.mock("../WikiLandingPage", () => ({
   },
 }));
 
-vi.mock("../AskPanel", () => ({
+vi.mock("../WikiAssistantPanel", () => ({
   default: (props: { repository?: string; pageContext?: string }) => AskPanelSpy(props),
 }));
 
@@ -148,7 +148,7 @@ describe("WikiToolPanel", () => {
     expect(screen.getByTestId("wiki-quality-summary-mock")).toBeInTheDocument();
   });
 
-  it("passes trimmed repository from page context to AskPanel (BUG-F1)", () => {
+  it("passes trimmed repository from page context to WikiAssistantPanel / Ask branch (BUG-F1)", () => {
     renderPanel("page", {
       pagePath: "wiki/docs",
       pageQuery: makePageQuery({
@@ -169,7 +169,7 @@ describe("WikiToolPanel", () => {
     });
   });
 
-  it("falls AskPanel repository back to trimmed businessId when context repo is whitespace-only", () => {
+  it("falls WikiAssistantPanel repository back to trimmed businessId when context repo is whitespace-only", () => {
     renderPanel("page", {
       pagePath: "wiki/docs",
       businessId: "  fallback-biz  ",

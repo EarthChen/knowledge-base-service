@@ -10,6 +10,7 @@ class TestGenerateBusinessWikiIncremental:
     @pytest.mark.asyncio
     async def test_incremental_passes_affected_domains_to_pipeline(self):
         """When incremental=True and domains are affected, pipeline receives affected_domains."""
+        from wiki.dependency_graph import DomainNode
         from wiki.service import WikiService
 
         mock_store = AsyncMock()
@@ -69,7 +70,7 @@ class TestGenerateBusinessWikiIncremental:
         mock_diff.total_changed = 2
         mock_diff.affected_domains = ["DomainA"]
 
-        pipeline_tree = [{"name": "DomainA"}]
+        pipeline_tree = [DomainNode(name="DomainA")]
 
         with patch(
             "wiki.service.compute_domain_diff",

@@ -1262,6 +1262,16 @@ class WikiService:
                     incremental=incremental,
                 )
 
+            for repo_name in all_modules:
+                try:
+                    await self._bulk_set_wiki_code_hashes(repo_name)
+                except Exception:
+                    log.warning(
+                        "business_wiki_hash_sync_failed",
+                        repository=repo_name,
+                        exc_info=True,
+                    )
+
         await self._persist_resolved_pipeline_wikilinks(
             business_id, all_pages, pipeline_result.resolved_links,
         )

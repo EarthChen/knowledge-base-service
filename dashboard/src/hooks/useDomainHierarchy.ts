@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { invalidateWikiQueriesForBusiness } from "./invalidateWikiQueries";
 
 const BASE = "/wiki/domains/hierarchy";
 
@@ -16,8 +17,7 @@ export function useDomainHierarchy(businessId: string) {
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["domains", businessId] });
-    void qc.invalidateQueries({ queryKey: ["topicTree", businessId] });
-    void qc.invalidateQueries({ queryKey: ["domainTree", businessId] });
+    void invalidateWikiQueriesForBusiness(qc, businessId);
   };
 
   const rename = useMutation({

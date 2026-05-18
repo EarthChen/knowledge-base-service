@@ -79,6 +79,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
 
         self._redis: Any = None
         self._lua_sha: str | None = None
+        self._redis_noscript_exc: type[BaseException] | None = None
         if redis_host:
             self._init_redis(redis_host, redis_port, redis_password)
 
@@ -98,6 +99,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
             conn.ping()
             self._lua_sha = conn.script_load(_LUA_RATE_LIMIT)
             self._redis = conn
+            self._redis_noscript_exc = _redis_pkg.exceptions.NoScriptError
             log.info(
                 "rate_limiter_redis_connected",
                 host=host,
@@ -130,10 +132,22 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         key = f"rl:{ip}:{minute_bucket}"
         try:
             result = self._redis.evalsha(self._lua_sha, 1, key, self._rpm, 60)
-            return int(result) == 1
-        except Exception:
-            log.warning("rate_limiter_redis_error", exc_info=True)
-            return None
+        except Exception as exc:
+            if self._redis_noscript_exc is None or not isinstance(
+                exc, self._redis_noscript_exc
+            ):
+                log.warning("rate_limiter_redis_error", exc_info=True)
+                return None
+            try:
+                result = self._redis.eval(_LUA_RATE_LIMIT, 1, key, self._rpm, 60)
+            except Exception:
+                log.warning("rate_limiter_redis_error", exc_info=True)
+                return None
+            try:
+                self._lua_sha = self._redis.script_load(_LUA_RATE_LIMIT)
+            except Exception:
+                pass
+        return int(result) == 1
 
     def _check_local(self, ip: str) -> tuple[bool, int]:
         """Check rate limit via in-process bucket.  Returns (allowed, retry_after)."""

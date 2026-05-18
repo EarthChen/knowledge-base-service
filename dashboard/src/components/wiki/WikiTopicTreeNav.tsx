@@ -87,7 +87,7 @@ function TreeNode({
   const inputRef = useRef<HTMLInputElement>(null);
   const hasChildren = node.children.length > 0;
   const isSelected = selectedPath === node.path;
-  const isDomain = node.page_type === "domain_overview";
+  const isDomain = node.page_type === "domain_overview" || node.label === "WikiSection";
   const domainUid = node.uid?.trim() ?? "";
   const canEdit = isDomain && !!domainUid && !!onRenameDomain;
 

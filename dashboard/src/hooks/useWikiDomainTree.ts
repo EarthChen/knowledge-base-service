@@ -5,6 +5,7 @@ import { queryKeys } from "../api/queryKeys";
 export interface TopicTreeNode {
   uid?: string;
   name: string;
+  label?: string;
   page_type: string;
   path: string;
   children: TopicTreeNode[];

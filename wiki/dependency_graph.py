@@ -328,7 +328,10 @@ class HierarchicalDecomposer:
             f"## Constraints\n"
             f"- Maximum tree depth: {self._max_depth} levels\n"
             f"- Only create a sub-domain if it contains >= {self._min_modules} modules\n"
-            f"- Prefer flatter trees when modules are loosely related\n\n"
+            f"- When multiple domains share a common business theme "
+            f"(e.g. '家族核心管理', '家族任务系统'), group them under a parent domain "
+            f"named by the shared theme (e.g. '家族')\n"
+            f"- Only keep domains flat when they are genuinely unrelated\n\n"
             f"## Output Format\n"
             f"Return a JSON object:\n"
             f'{{"domains": [{{"name": "礼物订单处理", "slug": "gift-order-processing", '

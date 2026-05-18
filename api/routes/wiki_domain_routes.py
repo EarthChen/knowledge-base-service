@@ -106,3 +106,13 @@ async def move_module_domain(
 ) -> dict[str, Any]:
     svc = _get_domain_service()
     return await svc.move_module_domain(business_id, body.module_uid, body.target_domain)
+
+
+@router.post("/reorganize")
+async def reorganize_domains(
+    business_id: str = Query(...),
+    reset_user_edits: bool = Query(False),
+) -> dict[str, Any]:
+    """Manually trigger domain theme aggregation."""
+    svc = _get_domain_service()
+    return await svc.reorganize_domains(business_id, reset_user_edits=reset_user_edits)

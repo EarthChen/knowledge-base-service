@@ -10,6 +10,7 @@ from store.schema import GraphNode, NodeLabel
 from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
 from wiki.dependency_graph import ModuleGraph, ModuleInfo, deduplicate_domain_tree
 from wiki.domain_complexity import DomainComplexity
+from wiki.domain_merger import aggregate_domains_recursive
 from wiki.entity_role_classifier import (
     DOMAIN_CLASSIFICATION_ENTITY_ROLES,
     EntityRoleClassifier,
@@ -471,7 +472,7 @@ async def decompose_hierarchy_node(
     if not all_module_infos:
         return {"domain_tree": []}
 
-    decomposer = pn.HierarchicalDecomposer(llm, max_depth=3, min_modules_for_nesting=3)
+    decomposer = pn.HierarchicalDecomposer(llm, max_depth=5, min_modules_for_nesting=3)
 
     graph_store = (config or {}).get("configurable", {}).get("graph_store")
     filtered_edges = []
@@ -512,7 +513,13 @@ async def decompose_hierarchy_node(
 
     _assign_slugs_to_tree(domain_tree, domain_mapping, domain_display_names)
 
-    # P0.2 Sub-B+C: detect oversized leaves and rebalance (one pass only)
+    if llm and domain_tree and len(domain_tree) >= 3:
+        try:
+            domain_tree = await aggregate_domains_recursive(domain_tree, llm, max_tree_depth=5)
+            log.info("aggregate_recursive_done", domains=len(domain_tree))
+        except Exception:
+            log.warning("aggregate_recursive_failed", exc_info=True)
+
     oversized = _detect_oversized_leaves(domain_tree)
     if oversized and llm:
         rebalance_decomposer = pn.HierarchicalDecomposer(llm, max_depth=1, min_modules_for_nesting=3)

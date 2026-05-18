@@ -13,6 +13,12 @@ log = get_logger(__name__)
 _ROOT_SENTINEL = "__root__"
 
 
+def _clear_user_modified_recursive(nodes: list[dict]) -> None:
+    for node in nodes:
+        node.pop("user_modified", None)
+        _clear_user_modified_recursive(node.get("children", []))
+
+
 class DomainManagementService:
     """Domain hierarchy management with graph-primary + JSON sync."""
 
@@ -178,6 +184,41 @@ class DomainManagementService:
         await self._try_sync_json(business_id)
         log.info("domains_merged", source=source_uid, target=target_uid)
         return {"success": True, "target_uid": target_uid}
+
+    async def reorganize_domains(
+        self,
+        business_id: str,
+        *,
+        reset_user_edits: bool = False,
+        llm: Any = None,
+    ) -> dict[str, Any]:
+        """Manually trigger domain theme aggregation on existing tree."""
+        from wiki.domain_merger import aggregate_domains_recursive
+
+        tree_json = await self._wiki_store.execute_query(
+            "MATCH (ws:WikiSpace {business_id: $biz}) "
+            "RETURN ws.pipeline_domain_tree AS tree",
+            {"biz": business_id},
+        )
+        rows = tree_json.data if hasattr(tree_json, "data") else []
+        raw = rows[0].get("tree", "[]") if rows else "[]"
+        tree_data = json.loads(raw) if isinstance(raw, str) else raw
+        if not tree_data:
+            return {"success": False, "message": "No domain tree found"}
+
+        if reset_user_edits:
+            _clear_user_modified_recursive(tree_data)
+
+        before_count = len(tree_data)
+        result_tree = await aggregate_domains_recursive(tree_data, llm, max_tree_depth=5)
+
+        await self._wiki_store.execute_query(
+            "MATCH (ws:WikiSpace {business_id: $biz}) "
+            "SET ws.pipeline_domain_tree = $tree",
+            {"biz": business_id, "tree": json.dumps(result_tree, ensure_ascii=False)},
+        )
+        log.info("reorganize_domains_done", business_id=business_id, before=before_count, after=len(result_tree))
+        return {"success": True, "domains_before": before_count, "domains_after": len(result_tree)}
 
     async def move_module_domain(
         self,

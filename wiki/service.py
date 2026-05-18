@@ -1091,7 +1091,9 @@ class WikiService:
             llm=llm_port,
             existing_domain_tree=existing_domain_tree,
             is_incremental=incremental and (
-                bool(skipped_repos) or bool(affected_domain_names)
+                bool(skipped_repos)
+                or bool(affected_domain_names)
+                or (existing_domain_tree is not None and len(existing_domain_tree) > 0)
             ),
             affected_domains=affected_domain_names,
             graph_store=self._store,

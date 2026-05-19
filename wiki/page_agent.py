@@ -9,6 +9,7 @@ from typing import Any
 
 from core.log import get_logger
 from wiki.agents.base_agent import GenericAgent
+from wiki.early_stop import EarlyStopDetector
 from wiki.tool_guardrail import DefaultToolGuardrail
 from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP_RE
 
@@ -1036,6 +1037,7 @@ class WikiPageAgent(GenericAgent):
         ]
 
         total_tool_calls = 0
+        early_stop = EarlyStopDetector(max_empty_rounds=2)
         for round_num in range(self.max_rounds):
             try:
                 has_empty = total_tool_calls > 0 and memory._tool_contributed_chars == 0
@@ -1059,6 +1061,7 @@ class WikiPageAgent(GenericAgent):
 
             messages.append(response)
             tool_results: list[ToolResult] = []
+            round_result_strs: list[str] = []
             for tc in tool_calls:
                 func = tc.get("function", {})
                 tool_name = func.get("name", "")
@@ -1069,6 +1072,7 @@ class WikiPageAgent(GenericAgent):
                 result_data = await self._execute_tool(tool_name, args)
                 result_str = json.dumps(result_data, ensure_ascii=False, default=str)
                 result_str = await self._tool_guardrail.post_call(tool_name, args, result_str)
+                round_result_strs.append(result_str)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id", ""),
@@ -1080,6 +1084,10 @@ class WikiPageAgent(GenericAgent):
             total_tool_calls += len(tool_calls)
 
             if total_tool_calls >= self.max_tool_calls:
+                break
+
+            if early_stop.should_stop(round_result_strs):
+                log.info("explore_early_stop", domain=domain_name, round=round_num)
                 break
 
             if len(messages) > self._MAX_HISTORY_MESSAGES:

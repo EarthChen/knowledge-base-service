@@ -52,7 +52,7 @@ class TestHierarchicalDecomposer:
         result = await decomposer.decompose(modules, graph)
         # Single-module "Data Access" merges into the most similar large sibling
         assert len(result) == 1
-        assert result[0].name == "User Management"
+        assert result[0].name == "user-management"
         assert "UserController" in result[0].modules
         assert "UserRepository" in result[0].modules
 
@@ -92,7 +92,7 @@ class TestHierarchicalDecomposer:
         decomposer = HierarchicalDecomposer(llm=mock_llm)
         result = await decomposer.decompose(modules, graph)
         assert len(result) == 1
-        assert result[0].name == "Platform"
+        assert result[0].name == "platform"
         assert len(result[0].children) == 2
 
     @pytest.mark.asyncio

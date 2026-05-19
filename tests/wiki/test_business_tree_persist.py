@@ -333,8 +333,12 @@ class TestRecursiveTreeLinking:
         edges = mock_wiki_store.add_has_child_edge.await_args_list
 
         um_uid = tb.generate_domain_section_uid(business_id, "User Management")
-        auth_uid = tb.generate_domain_section_uid(business_id, "Authentication")
-        profile_uid = tb.generate_domain_section_uid(business_id, "Profile")
+        auth_uid = tb.generate_domain_section_uid(
+            business_id, "User Management/Authentication"
+        )
+        profile_uid = tb.generate_domain_section_uid(
+            business_id, "User Management/Profile"
+        )
 
         assert any(
             e.kwargs.get("parent_uid") == tb.generate_space_uid(business_id)

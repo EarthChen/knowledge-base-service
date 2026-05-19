@@ -1,6 +1,6 @@
 """Tests for DomainDocAgent helper functions and iteration logic."""
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -10,6 +10,19 @@ from wiki.domain_doc_agent import (
     _make_page,
     _maybe_split,
 )
+from wiki.quality_report import QualityReport
+
+
+def _quality_report(**overrides: float | int | list[str]) -> QualityReport:
+    defaults: dict = {
+        "coverage": 0.96,
+        "citation_density": 0.6,
+        "context_gap_count": 0,
+        "uncovered_modules": [],
+        "implementation_depth": 0.8,
+    }
+    defaults.update(overrides)
+    return QualityReport(**defaults)
 
 
 def test_maybe_split_generates_topic_pages_for_large_content():
@@ -222,10 +235,17 @@ class TestDomainDocAgentIteration:
         agent._page_agent.explore = AsyncMock(side_effect=[mock_memory, supplemental])
         agent._page_agent.write = AsyncMock(side_effect=[low_content, good_content])
 
-        pages = await agent.generate_with_iterations(
-            module_names=["ModA", "ModB"],
-            baseline_context="baseline",
-        )
+        with patch(
+            "wiki.domain_doc_agent.evaluate_quality",
+            side_effect=[
+                _quality_report(coverage=0.5, citation_density=0.0, implementation_depth=0.0),
+                _quality_report(),
+            ],
+        ):
+            pages = await agent.generate_with_iterations(
+                module_names=["ModA", "ModB"],
+                baseline_context="baseline",
+            )
         assert agent._page_agent.explore.call_count >= 2
 
     @pytest.mark.asyncio
@@ -285,10 +305,14 @@ class TestDomainDocAgentExploreWrite:
         agent._page_agent.explore = AsyncMock(return_value=mock_memory)
         agent._page_agent.write = AsyncMock(return_value=good_content)
 
-        pages = await agent.generate_with_iterations(
-            module_names=["ModA", "ModB"],
-            baseline_context="ModA is a controller. ModB is a service.",
-        )
+        with patch(
+            "wiki.domain_doc_agent.evaluate_quality",
+            return_value=_quality_report(),
+        ):
+            pages = await agent.generate_with_iterations(
+                module_names=["ModA", "ModB"],
+                baseline_context="ModA is a controller. ModB is a service.",
+            )
 
         agent._page_agent.explore.assert_called_once()
         agent._page_agent.write.assert_called_once()
@@ -324,10 +348,17 @@ class TestDomainDocAgentExploreWrite:
         agent._page_agent.explore = AsyncMock(side_effect=[mock_memory, supplemental_memory])
         agent._page_agent.write = AsyncMock(side_effect=[low_content, good_content])
 
-        pages = await agent.generate_with_iterations(
-            module_names=["ModA", "ModB"],
-            baseline_context="baseline",
-        )
+        with patch(
+            "wiki.domain_doc_agent.evaluate_quality",
+            side_effect=[
+                _quality_report(coverage=0.5, citation_density=0.0, implementation_depth=0.0),
+                _quality_report(),
+            ],
+        ):
+            pages = await agent.generate_with_iterations(
+                module_names=["ModA", "ModB"],
+                baseline_context="baseline",
+            )
 
         assert agent._page_agent.explore.call_count == 2
         second_call_kwargs = agent._page_agent.explore.call_args_list[1]

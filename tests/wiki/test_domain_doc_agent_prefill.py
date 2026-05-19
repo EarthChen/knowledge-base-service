@@ -42,6 +42,7 @@ async def test_prefills_code_snippets_before_explore():
             citation_density=0.6,
             context_gap_count=0,
             uncovered_modules=[],
+            implementation_depth=0.8,
         )
         await agent.generate_with_iterations(
             module_names=["ModA"],

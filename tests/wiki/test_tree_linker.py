@@ -231,13 +231,13 @@ async def test_nested_tree_skips_overview_when_agent_page_exists() -> None:
     wiki_store.upsert_wiki_section = AsyncMock()
     wiki_store.add_has_child_edge = AsyncMock()
 
-    # First query: agent overview check — finds agent page
+    # First query: agent overview check — finds agent page (slugified path)
     agent_page_result = MagicMock(data=[{
-        "path": "/__domains__/TestDomain/_overview",
+        "path": "/__domains__/testdomain/_overview",
     }])
     # Second query: topic pages — empty
     empty_result = MagicMock(data=[])
-    wiki_store.execute_query = AsyncMock(side_effect=[agent_page_result, empty_result])
+    wiki_store.execute_query = AsyncMock(side_effect=[agent_page_result, empty_result, empty_result, empty_result])
 
     persistence = MagicMock()
     persistence.persist_pages_to_graph = AsyncMock()

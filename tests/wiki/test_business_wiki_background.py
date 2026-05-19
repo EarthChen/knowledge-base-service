@@ -1,9 +1,12 @@
 """Tests for background business wiki generation with task_id return."""
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock
 
 import pytest
+
+from store.task_store import TaskRecord
 
 
 @pytest.fixture
@@ -29,6 +32,15 @@ def mock_task_store():
     store.unlock = AsyncMock(return_value=True)
     store.put_task = AsyncMock()
     store.update_status = AsyncMock()
+    store.get = AsyncMock(
+        return_value=TaskRecord(
+            task_id="biz-wiki-test",
+            task_type="wiki",
+            business_id="default",
+            status="pending",
+            progress_json="{}",
+        )
+    )
     store.get_task = AsyncMock(
         return_value={
             "task_id": "biz-wiki-test",
@@ -117,8 +129,9 @@ async def test_background_task_unlocks_on_failure(mock_task_store):
         event_bus=None,
         lock_token="test-lock-token",
     )
-    mock_task_store.unlock.assert_called_once_with("default", "test-lock-token")
+    mock_task_store.unlock.assert_called_once_with("wiki_gen:default", "test-lock-token")
     last_status_call = mock_task_store.update_status.call_args_list[-1]
     assert last_status_call[0][1] == "failed"
-    assert last_status_call[1].get("detail") == "boom"
-    assert last_status_call[1].get("error") == "internal_error"
+    progress = json.loads(last_status_call[1]["progress_json"])
+    assert progress.get("detail") == "boom"
+    assert progress.get("error") == "internal_error"

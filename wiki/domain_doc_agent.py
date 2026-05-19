@@ -13,6 +13,12 @@ from typing import Any
 from core.log import get_logger
 from wiki.agents.doc_orchestrator import DocOrchestrator, QualityResult
 from wiki.page_agent import WikiPageAgent, WorkingMemory
+from wiki.output_guardrail import (
+    CoverageCheck,
+    FormatCheck,
+    LengthCheck,
+    OutputGuardrailChain,
+)
 from wiki.quality_report import evaluate_quality
 
 log = get_logger(__name__)
@@ -182,6 +188,11 @@ class DomainDocAgent(DocOrchestrator):
         self._repo_paths = repo_paths or {}
         self._page_agent = page_agent
         self.iteration_history: list[dict[str, Any]] = []
+        self._output_guardrail = OutputGuardrailChain([
+            FormatCheck(),
+            CoverageCheck(),
+            LengthCheck(),
+        ])
 
     # --- Hook 1: pre_fill ---
     async def pre_fill(self, memory: Any, module_names: list[str]) -> None:
@@ -345,6 +356,16 @@ class DomainDocAgent(DocOrchestrator):
                 continue
 
             quality = evaluate_quality(content, module_names)
+            guardrail_result = await self._output_guardrail.evaluate(
+                content, {"module_names": module_names}
+            )
+            log.info(
+                "output_guardrail_result",
+                domain=self.domain_name,
+                iteration=iteration,
+                passed=guardrail_result.passed,
+                score=guardrail_result.total_score,
+            )
             self.iteration_history.append({
                 "iteration": iteration,
                 "coverage": quality.coverage,

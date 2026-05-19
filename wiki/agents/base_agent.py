@@ -102,7 +102,10 @@ class ToolRegistry:
 
         try:
             if ctx is not None:
-                result = await tool.handler(validated_args, ctx)
+                try:
+                    result = await tool.handler(validated_args, ctx)
+                except TypeError:
+                    result = await tool.handler(validated_args)
             else:
                 result = await tool.handler(validated_args)
         except Exception as exc:

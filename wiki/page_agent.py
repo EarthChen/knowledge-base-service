@@ -9,8 +9,6 @@ from typing import Any
 
 from core.log import get_logger
 from wiki.agents.base_agent import GenericAgent
-from wiki.context_manager import ContextManager
-from wiki.early_stop import EarlyStopDetector
 from wiki.tool_guardrail import DefaultToolGuardrail
 from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP_RE
 from wiki.structured_output import WikiPageOutput, render_wiki_page
@@ -838,6 +836,15 @@ class WikiPageAgent(GenericAgent):
         self._existing_pages: list[dict] | None = None
         self.max_rounds = max_rounds
         self.max_tool_calls = max_tool_calls
+
+        from wiki.agents.context import WikiDeps
+
+        self._deps = WikiDeps(
+            graph_store=graph_store,
+            search_service=search_service,
+            repo_path=repo_path,
+        )
+
         self._register_tools()
 
     def _register_tools(self) -> None:
@@ -1020,9 +1027,12 @@ class WikiPageAgent(GenericAgent):
     ) -> WorkingMemory:
         """Phase 1: Explore code via tools, accumulate structured findings.
 
+        Delegates to the unified run_tool_loop with explore-specific config.
         LLM's text output is discarded — only tool results matter.
         """
         from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM
+        from wiki.agents.base_agent import RunConfig
+        from wiki.agents.context import RunContext
 
         system = AGENT_EXPLORE_SYSTEM.format(max_rounds=self.max_rounds)
         user_prompt = self._build_explore_user_prompt(
@@ -1033,72 +1043,28 @@ class WikiPageAgent(GenericAgent):
             memory = WorkingMemory()
         if not memory.relevant_modules and module_names:
             memory.relevant_modules = set(module_names)
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_prompt},
-        ]
 
-        total_tool_calls = 0
-        early_stop = EarlyStopDetector(max_empty_rounds=2)
-        ctx_mgr = ContextManager(max_context_chars=60000, keep_recent_rounds=3)
-        for round_num in range(self.max_rounds):
-            try:
-                has_empty = total_tool_calls > 0 and memory._tool_contributed_chars == 0
-                round_tools = self._get_tools_for_round(round_num + 1, has_empty)
-                response = await self._llm.complete_with_tools(messages, round_tools)
-            except Exception:
-                log.warning("explore_llm_failed", round=round_num, exc_info=True)
-                break
+        config = RunConfig(
+            max_rounds=self.max_rounds,
+            max_tool_calls=self.max_tool_calls,
+            nudge_message="你还没有使用任何工具。请立即调用工具收集代码信息。",
+            enable_early_stop=True,
+            early_stop_max_empty=2,
+            enable_context_trim=True,
+            context_trim_max_chars=60000,
+            context_trim_keep_recent=3,
+            enable_post_call_guardrail=True,
+            result_truncate_chars=0,
+        )
 
-            tool_calls = response.get("tool_calls")
-
-            if not tool_calls:
-                if round_num < 2 and total_tool_calls == 0:
-                    messages.append(response)
-                    messages.append({
-                        "role": "user",
-                        "content": "你还没有使用任何工具。请立即调用工具收集代码信息。",
-                    })
-                    continue
-                break
-
-            messages.append(response)
-            tool_results: list[ToolResult] = []
-            round_result_strs: list[str] = []
-            for tc in tool_calls:
-                func = tc.get("function", {})
-                tool_name = func.get("name", "")
-                try:
-                    args = json.loads(func.get("arguments", "{}"))
-                except json.JSONDecodeError:
-                    args = {}
-                result_data = await self._execute_tool(tool_name, args)
-                result_str = json.dumps(result_data, ensure_ascii=False, default=str)
-                result_str = await self._tool_guardrail.post_call(tool_name, args, result_str)
-                round_result_strs.append(result_str)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.get("id", ""),
-                    "content": result_str,
-                })
-                tool_results.append(ToolResult(tool=tool_name, data=result_data))
-
-            memory.incorporate(tool_results)
-            total_tool_calls += len(tool_calls)
-
-            if total_tool_calls >= self.max_tool_calls:
-                break
-
-            if early_stop.should_stop(round_result_strs):
-                log.info("explore_early_stop", domain=domain_name, round=round_num)
-                break
-
-            messages = ctx_mgr.trim(messages)
+        ctx = RunContext(deps=self._deps)
+        memory = await self.run_tool_loop(
+            system, user_prompt, memory, config=config, ctx=ctx
+        )
 
         log.info(
             "explore_complete",
             domain=domain_name,
-            total_tool_calls=total_tool_calls,
             memory_chars=memory._total_chars(),
         )
         return memory

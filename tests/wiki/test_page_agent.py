@@ -758,12 +758,15 @@ class TestExplore:
             {"tool_calls": None, "content": "done exploring"},
         ])
 
-        agent = WikiPageAgent(mock_llm, mock_graph, max_rounds=10, max_tool_calls=100)
-        agent._execute_tool = AsyncMock(return_value={
+        tool_result = {
             "name": "ModA",
             "summary": "Module A handles user requests",
             "methods": [{"name": "handle"}],
-        })
+        }
+        agent = WikiPageAgent(mock_llm, mock_graph, max_rounds=10, max_tool_calls=100)
+        agent._tool_registry.dispatch = AsyncMock(
+            return_value=(tool_result, '{"name": "ModA"}')
+        )
 
         memory = await agent.explore(
             module_names=["ModA"],
@@ -772,7 +775,7 @@ class TestExplore:
         )
 
         assert isinstance(memory, WorkingMemory)
-        agent._execute_tool.assert_called()
+        agent._tool_registry.dispatch.assert_called()
 
     @pytest.mark.asyncio
     async def test_explore_discards_llm_text(self):
@@ -795,11 +798,15 @@ class TestExplore:
             {"tool_calls": None, "content": "Here is a complete wiki page about ModA..."},
         ])
 
-        agent = WikiPageAgent(mock_llm, mock_graph, max_rounds=10, max_tool_calls=100)
-        agent._execute_tool = AsyncMock(return_value={
+        tool_result = {
             "name": "ModA.handle",
             "code": "public void handle() { service.process(); }",
-        })
+        }
+        import json
+        agent = WikiPageAgent(mock_llm, mock_graph, max_rounds=10, max_tool_calls=100)
+        agent._tool_registry.dispatch = AsyncMock(
+            return_value=(tool_result, json.dumps(tool_result))
+        )
 
         memory = await agent.explore(
             module_names=["ModA"],
@@ -809,6 +816,46 @@ class TestExplore:
 
         assert isinstance(memory, WorkingMemory)
         assert len(memory.code_snippets) >= 1
+
+    @pytest.mark.asyncio
+    async def test_explore_passes_ctx_with_graph_store(self):
+        """Verify that explore() constructs RunContext and passes it through dispatch."""
+        mock_llm = MagicMock()
+        mock_graph = MagicMock()
+
+        mock_llm.complete_with_tools = AsyncMock(side_effect=[
+            {
+                "tool_calls": [
+                    {
+                        "id": "tc1",
+                        "function": {
+                            "name": "query_module_detail",
+                            "arguments": '{"name": "Mod"}',
+                        },
+                    }
+                ],
+                "content": None,
+            },
+            {"tool_calls": None, "content": "done"},
+        ])
+
+        agent = WikiPageAgent(mock_llm, mock_graph, max_rounds=10, max_tool_calls=100)
+
+        captured: dict = {}
+
+        async def mock_dispatch(name, args, *, post_call=False, ctx=None):
+            captured["ctx"] = ctx
+            return ({"name": "Mod", "methods": [], "summary": ""}, '{"name": "Mod"}')
+
+        agent._tool_registry.dispatch = mock_dispatch
+
+        await agent.explore(
+            module_names=["Mod"],
+            domain_name="d",
+            baseline_context="b",
+        )
+        assert captured.get("ctx") is not None
+        assert captured["ctx"].deps.graph_store is mock_graph
 
     @pytest.mark.asyncio
     async def test_explore_with_focus_modules(self):

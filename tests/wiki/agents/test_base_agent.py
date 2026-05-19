@@ -153,6 +153,28 @@ class TestToolRegistry:
         assert received_ctx["ctx"] is ctx
         assert received_ctx["ctx"].trace_id == "t1"
 
+    @pytest.mark.asyncio
+    async def test_dispatch_falls_back_when_handler_rejects_ctx(self):
+        from wiki.agents.base_agent import ToolDef, ToolRegistry
+        from wiki.agents.context import RunContext, WikiDeps
+        from unittest.mock import MagicMock
+
+        calls: list[tuple] = []
+
+        async def legacy_handler(args: dict) -> dict:
+            calls.append((args,))
+            return {"ok": True}
+
+        reg = ToolRegistry()
+        reg.register(ToolDef("legacy_tool", "d", {}, legacy_handler, tier=1))
+
+        deps = WikiDeps(graph_store=MagicMock())
+        ctx = RunContext(deps=deps)
+        result, _ = await reg.dispatch("legacy_tool", {"x": 1}, ctx=ctx)
+
+        assert result == {"ok": True}
+        assert calls == [({"x": 1},)]
+
 
 class TestWikiPageAgentCreateMemory:
     def test_create_memory_returns_working_memory(self):

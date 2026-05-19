@@ -106,7 +106,7 @@ class TestToolRegistry:
         reg = ToolRegistry()
         reg.register(ToolDef("calc", "d", {}, handler, tier=1))
 
-        result = await reg.dispatch("calc", {"x": 1})
+        result, result_str = await reg.dispatch("calc", {"x": 1})
         assert result == {"result": 42}
         handler.assert_called_once_with({"x": 1})
 
@@ -115,7 +115,7 @@ class TestToolRegistry:
         from wiki.agents.base_agent import ToolRegistry
 
         reg = ToolRegistry()
-        result = await reg.dispatch("unknown", {})
+        result, _ = await reg.dispatch("unknown", {})
         assert "error" in result
 
     @pytest.mark.asyncio
@@ -126,9 +126,32 @@ class TestToolRegistry:
         reg = ToolRegistry()
         reg.register(ToolDef("fail_tool", "d", {}, handler, tier=1))
 
-        result = await reg.dispatch("fail_tool", {})
+        result, _ = await reg.dispatch("fail_tool", {})
         assert "error" in result
         assert "boom" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_dispatch_passes_ctx_to_handler(self):
+        from wiki.agents.base_agent import ToolDef, ToolRegistry
+        from wiki.agents.context import RunContext, WikiDeps
+        from unittest.mock import MagicMock
+
+        received_ctx = {}
+
+        async def handler(args, ctx):
+            received_ctx["ctx"] = ctx
+            return {"ok": True}
+
+        reg = ToolRegistry()
+        reg.register(ToolDef("test_tool", "d", {}, handler, tier=1))
+
+        deps = WikiDeps(graph_store=MagicMock())
+        ctx = RunContext(deps=deps, trace_id="t1")
+        result, _ = await reg.dispatch("test_tool", {"x": 1}, ctx=ctx)
+
+        assert result == {"ok": True}
+        assert received_ctx["ctx"] is ctx
+        assert received_ctx["ctx"].trace_id == "t1"
 
 
 class TestWikiPageAgentCreateMemory:

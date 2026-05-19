@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from wiki.agents.events import (
@@ -39,6 +39,24 @@ class ToolDef:
         }
 
 
+@dataclass
+class RunConfig:
+    """Configuration for the unified agent tool loop."""
+
+    max_rounds: int = 6
+    max_tool_calls: int = 30
+    max_history_messages: int = 30
+    nudge_message: str = "Please use the available tools to gather information."
+    enable_early_stop: bool = False
+    early_stop_max_empty: int = 2
+    enable_context_trim: bool = False
+    context_trim_max_chars: int = 60000
+    context_trim_keep_recent: int = 3
+    enable_post_call_guardrail: bool = False
+    result_truncate_chars: int = 6000
+    event_callback: EventCallback = None
+
+
 class ToolRegistry:
     """Manages tool definitions with tiered progressive activation."""
 
@@ -68,20 +86,34 @@ class ToolRegistry:
                 result.append(t.to_openai_schema())
         return result
 
-    async def dispatch(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+    async def dispatch(
+        self, name: str, args: dict[str, Any], *, post_call: bool = False, ctx: Any = None
+    ) -> tuple[dict[str, Any], str]:
+        """Dispatch a tool call. Returns (result_data, result_str)."""
         tool = self._tools.get(name)
         if tool is None:
-            return {"error": f"Unknown tool: {name}"}
+            err = {"error": f"Unknown tool: {name}"}
+            return err, json.dumps(err, ensure_ascii=False)
 
         validated_args = await self._guardrail.pre_call(name, args)
         if validated_args is None:
-            return {"error": f"rejected by guardrail: {name} missing required params"}
+            err = {"error": f"rejected by guardrail: {name} missing required params"}
+            return err, json.dumps(err, ensure_ascii=False)
 
         try:
-            return await tool.handler(validated_args)
+            if ctx is not None:
+                result = await tool.handler(validated_args, ctx)
+            else:
+                result = await tool.handler(validated_args)
         except Exception as exc:
             log.warning("tool_dispatch_error", tool=name, exc_info=True)
-            return {"error": str(exc)}
+            err = {"error": str(exc)}
+            return err, json.dumps(err, ensure_ascii=False)
+
+        result_str = json.dumps(result, ensure_ascii=False, default=str)
+        if post_call:
+            result_str = await self._guardrail.post_call(name, validated_args, result_str)
+        return result, result_str
 
 
 class GenericAgent(ABC):
@@ -129,17 +161,44 @@ class GenericAgent(ABC):
         user_prompt: str,
         memory: Any,
         *,
-        nudge_message: str = "Please use the available tools to gather information.",
-        max_history_messages: int = 30,
+        config: RunConfig | None = None,
+        ctx: Any = None,
+        nudge_message: str | None = None,
+        max_history_messages: int | None = None,
         event_callback: EventCallback = None,
     ) -> Any:
-        """Multi-round ReAct loop: LLM picks tools → execute → incorporate → repeat.
+        """Unified multi-round ReAct loop with optional early stop, context trim, and post-call guardrails.
 
         Uses self._tool_registry for tool schemas and dispatch.
         Uses self.incorporate() to store results in memory.
         """
+        if config is None:
+            config = RunConfig(
+                max_rounds=self._max_rounds,
+                max_tool_calls=self._max_tool_calls,
+                nudge_message=nudge_message or "Please use the available tools to gather information.",
+                max_history_messages=max_history_messages or 30,
+                event_callback=event_callback,
+            )
+        else:
+            if event_callback is not None:
+                config.event_callback = event_callback
+            if nudge_message is not None:
+                config.nudge_message = nudge_message
+            if max_history_messages is not None:
+                config.max_history_messages = max_history_messages
+
         if not self._tool_registry.has_tools():
             return memory
+
+        from wiki.early_stop import EarlyStopDetector
+        from wiki.context_manager import ContextManager
+
+        early_stop = EarlyStopDetector(max_empty_rounds=config.early_stop_max_empty) if config.enable_early_stop else None
+        ctx_mgr = ContextManager(
+            max_context_chars=config.context_trim_max_chars,
+            keep_recent_rounds=config.context_trim_keep_recent,
+        ) if config.enable_context_trim else None
 
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
@@ -148,15 +207,12 @@ class GenericAgent(ABC):
         total_tool_calls = 0
         has_nonempty_result = False
 
-        for round_num in range(self._max_rounds):
-            if event_callback:
-                await event_callback(
+        for round_num in range(config.max_rounds):
+            if config.event_callback:
+                await config.event_callback(
                     ThinkingEvent(
                         round_num=round_num + 1,
-                        text=(
-                            "Analyzing and planning "
-                            f"(round {round_num + 1})..."
-                        ),
+                        text=f"Analyzing and planning (round {round_num + 1})...",
                     )
                 )
             round_tools = self._tool_registry.get_tools_for_round(
@@ -174,13 +230,14 @@ class GenericAgent(ABC):
             tool_calls = response.get("tool_calls")
 
             if not tool_calls:
-                if round_num < 2 and total_tool_calls == 0 and nudge_message:
+                if round_num < 2 and total_tool_calls == 0 and config.nudge_message:
                     messages.append(response)
-                    messages.append({"role": "user", "content": nudge_message})
+                    messages.append({"role": "user", "content": config.nudge_message})
                     continue
                 break
 
             messages.append(response)
+            round_result_strs: list[str] = []
 
             for tc in tool_calls:
                 func = tc.get("function", {})
@@ -195,29 +252,42 @@ class GenericAgent(ABC):
                     )
                     args = {}
 
-                if event_callback:
-                    await event_callback(ToolCallEvent(tool=tool_name, args=args))
+                if config.event_callback:
+                    await config.event_callback(ToolCallEvent(tool=tool_name, args=args))
 
-                result = await self._tool_registry.dispatch(tool_name, args)
+                result, result_str = await self._tool_registry.dispatch(
+                    tool_name, args, post_call=config.enable_post_call_guardrail, ctx=ctx
+                )
 
-                if event_callback:
+                if config.event_callback:
                     summary = self._summarize_tool_result(result)
-                    await event_callback(ToolResultEvent(tool=tool_name, summary=summary))
+                    await config.event_callback(ToolResultEvent(tool=tool_name, summary=summary))
+
+                if config.result_truncate_chars and len(result_str) > config.result_truncate_chars:
+                    result_str = result_str[:config.result_truncate_chars]
+
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id", ""),
-                    "content": json.dumps(result, ensure_ascii=False, default=str)[:6000],
+                    "content": result_str,
                 })
+                round_result_strs.append(result_str)
                 self.incorporate(tool_name, result, memory)
 
                 if result and "error" not in result:
                     has_nonempty_result = True
 
             total_tool_calls += len(tool_calls)
-            if total_tool_calls >= self._max_tool_calls:
+            if total_tool_calls >= config.max_tool_calls:
                 break
 
-            if len(messages) > max_history_messages:
+            if early_stop and early_stop.should_stop(round_result_strs):
+                log.info("run_tool_loop_early_stop", round=round_num)
+                break
+
+            if ctx_mgr:
+                messages = ctx_mgr.trim(messages)
+            elif len(messages) > config.max_history_messages:
                 messages = [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},

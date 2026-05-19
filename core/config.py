@@ -29,6 +29,12 @@ class EmbeddingConfig(BaseModel):
     query_prefix: str = ""
     trust_remote_code: bool = True
 
+    http_base_url: str = ""
+    http_model: str = ""
+    http_api_key: str = ""
+    http_timeout: int = 30
+    http_max_retries: int = 3
+
     def resolve_device(self) -> str:
         """Resolve ``"auto"`` to the best available accelerator.
 
@@ -51,6 +57,7 @@ class EmbeddingConfig(BaseModel):
     def resolve_backend(self) -> str:
         """Resolve the best backend given current device and platform.
 
+        When ``backend`` is explicitly set (not "auto"), use it directly.
         On Mac with MPS available, prefer torch backend for GPU acceleration
         (ONNX Runtime does not support MPS; CoreML may be unavailable).
         """

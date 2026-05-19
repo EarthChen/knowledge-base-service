@@ -17,7 +17,7 @@ import threading
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Iterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -256,6 +256,93 @@ class _OnnxBackend(_EmbeddingBackend):
         log.info("onnx_backend_unloaded")
 
 
+class _HttpBackend(_EmbeddingBackend):
+    """HTTP backend calling an OpenAI-compatible /v1/embeddings endpoint."""
+
+    def __init__(self, config: EmbeddingConfig) -> None:
+        self._config = config
+        self._client: Any | None = None
+
+    def load(self) -> None:
+        if self._client is not None:
+            return
+
+        import httpx
+
+        self._client = httpx.Client(
+            base_url=self._config.http_base_url,
+            headers=self._build_headers(),
+            timeout=self._config.http_timeout,
+        )
+        log.info(
+            "http_backend_loaded",
+            base_url=self._config.http_base_url,
+            model=self._config.http_model,
+        )
+
+    def _build_headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self._config.http_api_key:
+            headers["Authorization"] = f"Bearer {self._config.http_api_key}"
+        return headers
+
+    def is_loaded(self) -> bool:
+        return self._client is not None
+
+    def encode(self, texts: list[str], batch_size: int) -> np.ndarray:
+        self.load()
+        assert self._client is not None
+
+        all_embeddings: list[np.ndarray] = []
+
+        for chunk in _iter_chunks(texts, batch_size):
+            embeddings = self._request_with_retry(chunk)
+            all_embeddings.append(embeddings)
+
+        return np.vstack(all_embeddings) if all_embeddings else np.empty((0, self._config.dimension))
+
+    def _request_with_retry(self, texts: list[str]) -> np.ndarray:
+        import httpx
+
+        max_retries = self._config.http_max_retries
+        last_exc: Exception | None = None
+
+        for attempt in range(max_retries):
+            try:
+                resp = self._client.post(
+                    "/embeddings",
+                    json={
+                        "model": self._config.http_model,
+                        "input": texts,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                sorted_data = sorted(data["data"], key=lambda x: x["index"])
+                embeddings = np.array(
+                    [item["embedding"] for item in sorted_data], dtype=np.float32
+                )
+                return embeddings
+            except (httpx.HTTPStatusError, httpx.RequestError, KeyError) as exc:
+                last_exc = exc
+                log.warning(
+                    "http_backend_request_failed",
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    error=str(exc),
+                )
+
+        raise RuntimeError(
+            f"HTTP embedding request failed after {max_retries} retries: {last_exc}"
+        ) from last_exc
+
+    def unload(self) -> None:
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+            log.info("http_backend_unloaded")
+
+
 class _TorchBackend(_EmbeddingBackend):
     """sentence-transformers + PyTorch backend."""
 
@@ -342,14 +429,16 @@ class EmbeddingGenerator:
     def _get_backend(self) -> _EmbeddingBackend:
         if self._backend is None:
             effective_backend = self._config.resolve_backend()
-            if effective_backend == "onnx":
+            if effective_backend == "http":
+                self._backend = _HttpBackend(self._config)
+            elif effective_backend == "onnx":
                 self._backend = _OnnxBackend(self._config)
             else:
                 self._backend = _TorchBackend(self._config)
             log.info(
                 "embedding_backend_selected",
                 backend=effective_backend,
-                device=self._config.resolve_device(),
+                device=self._config.resolve_device() if effective_backend != "http" else "remote",
             )
         return self._backend
 

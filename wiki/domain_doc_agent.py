@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import time
+from datetime import datetime, timezone
 from typing import Any
 
 from core.log import get_logger
@@ -20,6 +22,7 @@ from wiki.output_guardrail import (
     OutputGuardrailChain,
 )
 from wiki.quality_report import evaluate_quality
+from wiki.quality_trace import AgentTrace, TraceCollector
 
 log = get_logger(__name__)
 
@@ -285,6 +288,7 @@ class DomainDocAgent(DocOrchestrator):
         Each phase (explore, write) has its own timeout. Write retries once
         on first timeout. A total elapsed-time budget prevents runaway loops.
         """
+        start_time = time.monotonic()
         total_budget = int(os.environ.get("DOMAIN_AGENT_TIMEOUT_SEC", "900"))
         loop = asyncio.get_running_loop()
         t0 = loop.time()
@@ -327,6 +331,7 @@ class DomainDocAgent(DocOrchestrator):
 
         content = ""
         write_timeout_count = 0
+        quality = None
 
         for iteration in range(self._max_iterations):
             if _remaining() <= 0:
@@ -452,4 +457,23 @@ class DomainDocAgent(DocOrchestrator):
             )
             for page in pages:
                 page["covered_entity_uids"] = entity_uids
+
+        try:
+            covered = [m for m in module_names if m.lower() in (content or "").lower()]
+            trace = AgentTrace(
+                domain=self.domain_name,
+                page_title=self.domain_display_name or self.domain_name,
+                timestamp=datetime.now(timezone.utc),
+                explore_rounds=len(self.iteration_history),
+                tools_called=[],
+                quality_score=quality.coverage if quality else 0.0,
+                modules_expected=module_names,
+                modules_covered=covered,
+                generation_time_ms=int((time.monotonic() - start_time) * 1000),
+            )
+            collector = TraceCollector()
+            await collector.record(trace)
+        except Exception:
+            log.warning("trace_collection_failed", domain=self.domain_name, exc_info=True)
+
         return pages

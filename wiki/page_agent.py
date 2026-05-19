@@ -13,6 +13,7 @@ from wiki.context_manager import ContextManager
 from wiki.early_stop import EarlyStopDetector
 from wiki.tool_guardrail import DefaultToolGuardrail
 from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP_RE
+from wiki.structured_output import WikiPageOutput, render_wiki_page
 
 log = get_logger(__name__)
 
@@ -1167,6 +1168,23 @@ class WikiPageAgent(GenericAgent):
             f"## 探索结果（工作记忆）\n{memo_section}\n"
         )
 
+        # Try structured output via complete_json
+        try:
+            messages = [
+                {"role": "system", "content": AGENT_WRITE_SYSTEM},
+                {"role": "user", "content": user_prompt},
+            ]
+            data = await self._llm.complete_json(
+                messages, WikiPageOutput.model_json_schema()
+            )
+            page_data = WikiPageOutput.model_validate(data)
+            rendered = render_wiki_page(page_data)
+            if rendered and len(rendered) > 200:
+                return rendered
+        except Exception:
+            log.info("structured_output_fallback", domain=domain_name)
+
+        # Fallback to plain text generation
         try:
             response = await self._llm.generate(
                 prompt=user_prompt,

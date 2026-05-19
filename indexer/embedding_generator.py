@@ -302,6 +302,8 @@ class _HttpBackend(_EmbeddingBackend):
         return np.vstack(all_embeddings) if all_embeddings else np.empty((0, self._config.dimension))
 
     def _request_with_retry(self, texts: list[str]) -> np.ndarray:
+        import time
+
         import httpx
 
         max_retries = self._config.http_max_retries
@@ -331,6 +333,8 @@ class _HttpBackend(_EmbeddingBackend):
                     max_retries=max_retries,
                     error=str(exc),
                 )
+                if attempt < max_retries - 1:
+                    time.sleep(min(2 ** attempt, 8))
 
         raise RuntimeError(
             f"HTTP embedding request failed after {max_retries} retries: {last_exc}"

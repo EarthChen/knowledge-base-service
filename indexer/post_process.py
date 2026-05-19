@@ -61,8 +61,8 @@ async def supplement_contains_relationships(graph_store, graph_name: str) -> int
     functions_query = "MATCH (f:Function) RETURN f.name AS name, coalesce(f.fqn, '') AS fqn, coalesce(f.file, f.file_path, '') AS file_path, f.uid AS uid"
     modules_query = "MATCH (m:Module) RETURN m.name AS name, coalesce(m.fqn, '') AS fqn, coalesce(m.file, m.file_path, m.path, '') AS file_path, m.uid AS uid"
 
-    fn_result = await graph_store.execute_query(functions_query, {}, graph_name=graph_name)
-    mod_result = await graph_store.execute_query(modules_query, {}, graph_name=graph_name)
+    fn_result = await graph_store.execute_query(functions_query, {})
+    mod_result = await graph_store.execute_query(modules_query, {})
 
     functions = [dict(r) for r in fn_result]
     modules = [dict(r) for r in mod_result]
@@ -87,7 +87,7 @@ async def supplement_contains_relationships(graph_store, graph_name: str) -> int
             CREATE (m)-[:CONTAINS]->(f)
             """
             await graph_store.execute_query(
-                cypher, {"mod_uid": mod_uid, "fn_uid": fn_uid}, graph_name=graph_name
+                cypher, {"mod_uid": mod_uid, "fn_uid": fn_uid}
             )
             attempted += 1
 

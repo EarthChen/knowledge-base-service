@@ -55,6 +55,7 @@ class RunConfig:
     enable_post_call_guardrail: bool = False
     result_truncate_chars: int = 6000
     event_callback: EventCallback = None
+    ctx: Any = None  # RunContext instance, passed to tool dispatch
 
 
 class ToolRegistry:
@@ -191,6 +192,8 @@ class GenericAgent(ABC):
             if max_history_messages is not None:
                 config.max_history_messages = max_history_messages
 
+        effective_ctx = ctx if ctx is not None else (config.ctx if config else None)
+
         if not self._tool_registry.has_tools():
             return memory
 
@@ -259,7 +262,7 @@ class GenericAgent(ABC):
                     await config.event_callback(ToolCallEvent(tool=tool_name, args=args))
 
                 result, result_str = await self._tool_registry.dispatch(
-                    tool_name, args, post_call=config.enable_post_call_guardrail, ctx=ctx
+                    tool_name, args, post_call=config.enable_post_call_guardrail, ctx=effective_ctx
                 )
 
                 if config.event_callback:

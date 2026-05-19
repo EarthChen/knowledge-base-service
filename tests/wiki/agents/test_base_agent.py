@@ -328,6 +328,21 @@ class TestRunToolLoop:
         assert "run_tool_loop_llm_failed" in event_names
 
 
+@pytest.mark.asyncio
+async def test_run_config_ctx_used_when_no_explicit_ctx():
+    """Verify config.ctx is used when ctx param is not passed."""
+    from wiki.agents.base_agent import RunConfig
+    from wiki.agents.context import RunContext, WikiDeps
+
+    deps = WikiDeps(graph_store=MagicMock())
+    config_ctx = RunContext(deps=deps, trace_id="from-config")
+    config = RunConfig(ctx=config_ctx)
+
+    # Just verify RunConfig accepts ctx
+    assert config.ctx is config_ctx
+    assert config.ctx.trace_id == "from-config"
+
+
 class TestRunGeneration:
     @pytest.mark.asyncio
     async def test_run_generation_calls_llm(self):

@@ -34,6 +34,7 @@ class EmbeddingConfig(BaseModel):
     http_api_key: str = ""
     http_timeout: int = 30
     http_max_retries: int = 3
+    http_max_concurrency: int = 1
 
     def resolve_device(self) -> str:
         """Resolve ``"auto"`` to the best available accelerator.

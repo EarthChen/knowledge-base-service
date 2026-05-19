@@ -414,14 +414,16 @@ class EmbeddingGenerator:
     def __init__(self, config: EmbeddingConfig) -> None:
         self._config = config
         self._backend: _EmbeddingBackend | None = None
+        self._backend_lock = threading.Lock()
         self._query_embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
         self._query_embedding_lock = threading.Lock()
-        self._encode_lock: asyncio.Lock | None = None
+        self._semaphore: asyncio.Semaphore | None = None
 
-    def _get_encode_lock(self) -> asyncio.Lock:
-        if self._encode_lock is None:
-            self._encode_lock = asyncio.Lock()
-        return self._encode_lock
+    def _get_semaphore(self) -> asyncio.Semaphore:
+        if self._semaphore is None:
+            concurrency = self._config.http_max_concurrency if self._config.resolve_backend() == "http" else 1
+            self._semaphore = asyncio.Semaphore(max(concurrency, 1))
+        return self._semaphore
 
     @classmethod
     def shared(cls, config: EmbeddingConfig) -> EmbeddingGenerator:
@@ -432,18 +434,20 @@ class EmbeddingGenerator:
 
     def _get_backend(self) -> _EmbeddingBackend:
         if self._backend is None:
-            effective_backend = self._config.resolve_backend()
-            if effective_backend == "http":
-                self._backend = _HttpBackend(self._config)
-            elif effective_backend == "onnx":
-                self._backend = _OnnxBackend(self._config)
-            else:
-                self._backend = _TorchBackend(self._config)
-            log.info(
-                "embedding_backend_selected",
-                backend=effective_backend,
-                device=self._config.resolve_device() if effective_backend != "http" else "remote",
-            )
+            with self._backend_lock:
+                if self._backend is None:
+                    effective_backend = self._config.resolve_backend()
+                    if effective_backend == "http":
+                        self._backend = _HttpBackend(self._config)
+                    elif effective_backend == "onnx":
+                        self._backend = _OnnxBackend(self._config)
+                    else:
+                        self._backend = _TorchBackend(self._config)
+                    log.info(
+                        "embedding_backend_selected",
+                        backend=effective_backend,
+                        device=self._config.resolve_device() if effective_backend != "http" else "remote",
+                    )
         return self._backend
 
     def ensure_model_loaded(self) -> None:
@@ -463,26 +467,33 @@ class EmbeddingGenerator:
             self._backend = None
 
     async def generate(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
-        """Generate embeddings for a batch of texts."""
+        """Generate embeddings for a batch of texts, with configurable concurrency for HTTP backend."""
         if not texts:
             return []
-        async with self._get_encode_lock():
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, self._encode_batch, texts, is_query)
 
-    def _encode_batch(self, texts: list[str], is_query: bool = False) -> list[list[float]]:
-        backend = self._get_backend()
         if is_query and self._config.query_prefix:
             texts = [f"{self._config.query_prefix}{t}" for t in texts]
 
         chunk_size = self._config.chunk_size
-        all_results: list[list[float]] = []
+        chunks = list(_iter_chunks(texts, chunk_size))
 
-        for chunk in _iter_chunks(texts, chunk_size):
-            embeddings = backend.encode(chunk, batch_size=self._config.batch_size)
-            all_results.extend(row.tolist() for row in embeddings)
+        semaphore = self._get_semaphore()
+        loop = asyncio.get_running_loop()
 
-        return all_results
+        async def _encode_chunk(chunk: list[str]) -> list[list[float]]:
+            async with semaphore:
+                embeddings = await loop.run_in_executor(
+                    None, self._encode_single_chunk, chunk
+                )
+                return embeddings
+
+        results = await asyncio.gather(*[_encode_chunk(c) for c in chunks])
+        return [emb for batch in results for emb in batch]
+
+    def _encode_single_chunk(self, texts: list[str]) -> list[list[float]]:
+        backend = self._get_backend()
+        embeddings = backend.encode(texts, batch_size=self._config.batch_size)
+        return [row.tolist() for row in embeddings]
 
     async def generate_for_query(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for search queries (with instruction prefix)."""

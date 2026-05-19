@@ -9,6 +9,7 @@ from typing import Any
 
 from core.log import get_logger
 from wiki.agents.base_agent import GenericAgent
+from wiki.context_manager import ContextManager
 from wiki.early_stop import EarlyStopDetector
 from wiki.tool_guardrail import DefaultToolGuardrail
 from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP_RE
@@ -1038,6 +1039,7 @@ class WikiPageAgent(GenericAgent):
 
         total_tool_calls = 0
         early_stop = EarlyStopDetector(max_empty_rounds=2)
+        ctx_mgr = ContextManager(max_context_chars=60000, keep_recent_rounds=3)
         for round_num in range(self.max_rounds):
             try:
                 has_empty = total_tool_calls > 0 and memory._tool_contributed_chars == 0
@@ -1090,13 +1092,7 @@ class WikiPageAgent(GenericAgent):
                 log.info("explore_early_stop", domain=domain_name, round=round_num)
                 break
 
-            if len(messages) > self._MAX_HISTORY_MESSAGES:
-                from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM as _ES
-                messages = [
-                    {"role": "system", "content": _ES.format(max_rounds=self.max_rounds)},
-                    {"role": "user", "content": user_prompt},
-                ]
-                log.info("explore_history_compressed", round=round_num)
+            messages = ctx_mgr.trim(messages)
 
         log.info(
             "explore_complete",

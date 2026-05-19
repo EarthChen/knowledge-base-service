@@ -13,6 +13,7 @@ from wiki.agents.events import (
 )
 
 from core.log import get_logger
+from wiki.tool_guardrail import DefaultToolGuardrail
 
 log = get_logger(__name__)
 
@@ -43,6 +44,7 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolDef] = {}
+        self._guardrail = DefaultToolGuardrail()
 
     def register(self, tool: ToolDef) -> None:
         self._tools[tool.name] = tool
@@ -70,8 +72,13 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if tool is None:
             return {"error": f"Unknown tool: {name}"}
+
+        validated_args = await self._guardrail.pre_call(name, args)
+        if validated_args is None:
+            return {"error": f"rejected by guardrail: {name} missing required params"}
+
         try:
-            return await tool.handler(args)
+            return await tool.handler(validated_args)
         except Exception as exc:
             log.warning("tool_dispatch_error", tool=name, exc_info=True)
             return {"error": str(exc)}

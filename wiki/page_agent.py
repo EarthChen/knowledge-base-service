@@ -9,6 +9,7 @@ from typing import Any
 
 from core.log import get_logger
 from wiki.agents.base_agent import GenericAgent
+from wiki.tool_guardrail import DefaultToolGuardrail
 from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP_RE
 
 log = get_logger(__name__)
@@ -827,6 +828,7 @@ class WikiPageAgent(GenericAgent):
         max_tool_calls: int = 30,
     ) -> None:
         super().__init__(llm, max_rounds=max_rounds, max_tool_calls=max_tool_calls)
+        self._tool_guardrail = DefaultToolGuardrail()
         self._graph = graph_store
         self._repo_path = repo_path
         self._search_service = search_service
@@ -1065,12 +1067,12 @@ class WikiPageAgent(GenericAgent):
                 except json.JSONDecodeError:
                     args = {}
                 result_data = await self._execute_tool(tool_name, args)
+                result_str = json.dumps(result_data, ensure_ascii=False, default=str)
+                result_str = await self._tool_guardrail.post_call(tool_name, args, result_str)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id", ""),
-                    "content": json.dumps(
-                        result_data, ensure_ascii=False, default=str,
-                    )[:SINGLE_RESULT_LIMIT],
+                    "content": result_str,
                 })
                 tool_results.append(ToolResult(tool=tool_name, data=result_data))
 
@@ -1371,37 +1373,42 @@ class WikiPageAgent(GenericAgent):
 
     async def _execute_tool(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         log.info("agent_tool_call", tool=tool_name, args_keys=list(args.keys()))
+
+        validated_args = await self._tool_guardrail.pre_call(tool_name, args)
+        if validated_args is None:
+            return {"error": f"rejected by guardrail: {tool_name} missing required params"}
+
         try:
             if tool_name == "read_code":
-                return await self._tool_read_code(args)
+                return await self._tool_read_code(validated_args)
             elif tool_name == "read_file":
-                return await self._tool_read_file(args)
+                return await self._tool_read_file(validated_args)
             elif tool_name == "search_entities":
-                return await self._tool_search_entities(args)
+                return await self._tool_search_entities(validated_args)
             elif tool_name == "read_wiki_page":
-                return await self._tool_read_wiki_page(args)
+                return await self._tool_read_wiki_page(validated_args)
             elif tool_name == "semantic_search":
-                return await self._tool_semantic_search(args)
+                return await self._tool_semantic_search(validated_args)
             elif tool_name == "list_files":
-                return await self._tool_list_files(args)
+                return await self._tool_list_files(validated_args)
             elif tool_name == "grep_code":
-                return await self._tool_grep_code(args)
+                return await self._tool_grep_code(validated_args)
             elif tool_name == "query_module_detail":
-                return await self._tool_query_module_detail(args)
+                return await self._tool_query_module_detail(validated_args)
             elif tool_name == "query_callers":
-                return await self._tool_query_callers(args)
+                return await self._tool_query_callers(validated_args)
             elif tool_name == "query_callees":
-                return await self._tool_query_callees(args)
+                return await self._tool_query_callees(validated_args)
             elif tool_name == "query_implementations":
-                return await self._tool_query_implementations(args)
+                return await self._tool_query_implementations(validated_args)
             elif tool_name == "query_call_chain":
-                return await self._tool_query_call_chain(args)
+                return await self._tool_query_call_chain(validated_args)
             elif tool_name == "query_domain_dependencies":
-                return await self._tool_query_domain_dependencies(args)
+                return await self._tool_query_domain_dependencies(validated_args)
             elif tool_name == "read_source_snippet":
-                return await self._tool_read_source_snippet(args)
+                return await self._tool_read_source_snippet(validated_args)
             elif tool_name == "delegate_submodule":
-                return await self._tool_delegate_submodule(args)
+                return await self._tool_delegate_submodule(validated_args)
             else:
                 return {"error": f"unknown tool: {tool_name}"}
         except Exception as e:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from wiki.tool_guardrail import DefaultToolGuardrail, ToolGuardrail
+from wiki.tool_guardrail import DefaultToolGuardrail
 
 
 class TestDefaultToolGuardrail:

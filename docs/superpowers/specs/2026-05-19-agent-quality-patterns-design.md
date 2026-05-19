@@ -10,9 +10,9 @@
 
 ## 2. 设计原则
 
-- 每个 Pattern 独立实现、独立开关、独立测试
-- 最小改动现有接口，向后兼容
-- 通过配置（`AppWikiFlags`）控制启用状态
+- 每个 Pattern 独立实现、独立测试
+- 直接替换原有实现（无 feature flag）
+- 确保代码质量、测试覆盖
 - 不引入新的外部依赖
 
 ## 3. Pattern 设计
@@ -57,7 +57,7 @@ class DefaultToolGuardrail:
 
 **集成点**: `ToolRegistry.dispatch()` 内部调用 guardrail chain
 
-**开关**: `WIKI__TOOL_GUARDRAILS_ENABLED` (default: True)
+**集成方式**: 直接替换 `ToolRegistry.dispatch()` 和 `WikiPageAgent._execute_tool()` 中的 dispatch 逻辑
 
 ---
 
@@ -96,7 +96,7 @@ markdown = render_wiki_page(page_data)
 
 **降级策略**: 如果 LLM 不支持 `response_format`（某些模型），fallback 到当前纯文本生成
 
-**开关**: `WIKI__STRUCTURED_OUTPUT_ENABLED` (default: False，先 opt-in 验证)
+**集成方式**: 直接替换 write 阶段的 LLM 调用方式
 
 **质量改进**:
 - `modules_covered` 可自动与 expected_modules 对比检测缺失
@@ -151,7 +151,7 @@ class LengthCheck(OutputCheck):
 
 **集成点**: `DomainDocAgent.generate_with_iterations()` 的 evaluate 步骤
 
-**开关**: `WIKI__OUTPUT_GUARDRAIL_ENABLED` (default: True)
+**集成方式**: 直接替换 `DomainDocAgent.generate_with_iterations()` 中分散的质量检查
 
 ---
 
@@ -203,7 +203,7 @@ class ContextManager:
 
 **集成点**: `WikiPageAgent.explore()` 每轮开始前调用
 
-**开关**: `WIKI__CONTEXT_TRIMMING_ENABLED` (default: True)
+**集成方式**: 替换 `explore()` 中 `len(messages) > 30` 的粗暴截断为渐进式压缩
 
 ---
 
@@ -234,7 +234,7 @@ class EarlyStopDetector:
 
 **集成点**: `WikiPageAgent.explore()` 的 round loop 末尾
 
-**开关**: `WIKI__SMART_EARLY_STOP_ENABLED` (default: True)
+**集成方式**: 直接嵌入 `explore()` round loop 末尾，替代仅靠 `max_rounds` 硬性截止
 
 ---
 
@@ -326,7 +326,7 @@ class StrategyOptimizer:
 - Phase 2: Feedback Collection（自动质量分 + 用户编辑检测）
 - Phase 3: Eval + Optimization（需要足够 trace 数据后才有意义）
 
-**开关**: `WIKI__IMPROVEMENT_LOOP_ENABLED` (default: False，Phase 1 完成后再启用)
+**集成方式**: Phase 1 (Trace) 直接写入生成流程，无条件记录
 
 ---
 
@@ -355,17 +355,9 @@ gantt
 3. Output Guardrail Chain（1 天）
 4. Improvement Loop Phase 1（3 天）
 
-## 5. 配置汇总
+## 5. 集成方式
 
-```python
-# AppWikiFlags additions:
-tool_guardrails_enabled: bool = True
-structured_output_enabled: bool = False  # opt-in until validated
-output_guardrail_enabled: bool = True
-context_trimming_enabled: bool = True
-smart_early_stop_enabled: bool = True
-improvement_loop_enabled: bool = False  # requires Phase 1 trace data
-```
+所有 Pattern 直接替换原有实现，无 feature flag。通过充分的单元测试确保行为正确。
 
 ## 6. 测试策略
 

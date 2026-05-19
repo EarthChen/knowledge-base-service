@@ -83,13 +83,10 @@ export function useDomainHierarchy(businessId: string) {
       uid: string;
       targetParentUid: string;
     }) =>
-      api(
-        `${BASE}/${encodeURIComponent(uid)}/move?${bq(businessId)}`,
-        {
-          method: "POST",
-          body: JSON.stringify({ target_parent_uid: targetParentUid }),
-        },
-      ),
+      api(`${BASE}/move?${bq(businessId)}`, {
+        method: "POST",
+        body: JSON.stringify({ uid, target_parent_uid: targetParentUid }),
+      }),
     onSuccess: invalidate,
     onError: logDomainOperationError,
   });

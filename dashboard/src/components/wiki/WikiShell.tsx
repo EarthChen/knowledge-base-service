@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
-import { Loader2, PanelLeftClose, PanelLeftOpen, RefreshCw } from "lucide-react";
+import { Loader2, PanelLeftClose, PanelLeftOpen, RefreshCw, Trash2 } from "lucide-react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import ErrorBoundary from "../ErrorBoundary";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import WikiReferencesPanel from "./WikiReferencesPanel";
 import { parseWikiSearchParams, wikiSearchHref } from "./wikiRouteHelpers";
 import { useBusiness } from "../../contexts/BusinessContext";
+import { useAuth } from "../../contexts/AuthContext";
 import { useI18n } from "../../i18n/context";
+import { api } from "../../api/client";
 import type { WikiEvent, WikiEventType } from "../../hooks/wikiTypes";
 import { useWikiEvents } from "../../hooks/useWikiEvents";
 import { useWikiPageByPath } from "../../hooks/useWikiPageByPath";
@@ -157,6 +159,22 @@ export default function WikiShell() {
 
   const [domainContextMenu, setDomainContextMenu] = useState<DomainContextMenuState>(null);
   const [wikiDomainDialog, setWikiDomainDialog] = useState<WikiDomainDialogState>(null);
+  const { isAdmin } = useAuth();
+  const [clearWikiConfirmOpen, setClearWikiConfirmOpen] = useState(false);
+  const [clearWikiConfirmInput, setClearWikiConfirmInput] = useState("");
+  const clearWikiMutation = useMutation({
+    mutationFn: () =>
+      api<{ business_id: string; deleted_nodes: number }>(
+        `/wiki/${encodeURIComponent(businessId)}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: (data) => {
+      setClearWikiConfirmOpen(false);
+      setClearWikiConfirmInput("");
+      void invalidateWikiQueriesForBusiness(queryClient, businessId);
+      alert(t.wiki.clearAllWikiSuccess.replace("{count}", String(data.deleted_nodes)));
+    },
+  });
 
   const domainHierarchyTreeData = useMemo(
     () => mapTopicTreeNodesForHierarchyUi(topicTreeQuery.data?.tree ?? []),
@@ -184,7 +202,7 @@ export default function WikiShell() {
       uid: payload.uid,
       title: payload.title,
       description: payload.description,
-      isRoot: payload.depth === 0,
+      isRoot: payload.uid?.includes('__root__') || payload.uid?.includes('__unassigned__') || false,
     });
   }, []);
   const onTopicTreeSelect = useCallback(
@@ -448,6 +466,21 @@ export default function WikiShell() {
                 {regeneratePending ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <RefreshCw size={14} aria-hidden />}
                 {t.wiki.regenerate}
               </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClearWikiConfirmInput("");
+                    clearWikiMutation.reset();
+                    setClearWikiConfirmOpen(true);
+                  }}
+                  disabled={clearWikiMutation.isPending}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300 dark:hover:bg-red-950"
+                >
+                  <Trash2 size={14} aria-hidden />
+                  {t.wiki.clearAllWiki}
+                </button>
+              )}
             </div>
           </div>
 
@@ -635,6 +668,55 @@ export default function WikiShell() {
             onCancel={() => setWikiDomainDialog(null)}
           />
         ) : null}
+
+        {clearWikiConfirmOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setClearWikiConfirmOpen(false)}>
+            <div
+              className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="mb-2 text-lg font-semibold text-red-700 dark:text-red-400">
+                {t.wiki.clearAllWikiConfirmTitle}
+              </h3>
+              <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+                {t.wiki.clearAllWikiConfirmBody.replace("{businessId}", businessId)}
+              </p>
+              <input
+                type="text"
+                value={clearWikiConfirmInput}
+                onChange={(e) => setClearWikiConfirmInput(e.target.value)}
+                placeholder={t.wiki.clearAllWikiConfirmPlaceholder}
+                className="mb-4 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                autoFocus
+              />
+              {clearWikiMutation.isError && (
+                <p className="mb-3 text-sm text-red-600 dark:text-red-400">
+                  {t.wiki.clearAllWikiFailed.replace(
+                    "{detail}",
+                    clearWikiMutation.error instanceof Error ? clearWikiMutation.error.message : String(clearWikiMutation.error),
+                  )}
+                </p>
+              )}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setClearWikiConfirmOpen(false)}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                >
+                  {t.wiki.domain_management.cancel}
+                </button>
+                <button
+                  type="button"
+                  disabled={clearWikiConfirmInput !== businessId || clearWikiMutation.isPending}
+                  onClick={() => clearWikiMutation.mutate()}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {clearWikiMutation.isPending ? t.wiki.clearAllWikiPending : t.wiki.clearAllWiki}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </ErrorBoundary>
   );

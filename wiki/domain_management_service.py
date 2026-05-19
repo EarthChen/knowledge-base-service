@@ -22,8 +22,22 @@ def _clear_user_modified_recursive(nodes: list[dict]) -> None:
 class DomainManagementService:
     """Domain hierarchy management with graph-primary + JSON sync."""
 
-    def __init__(self, wiki_store: Any) -> None:
+    def __init__(
+        self,
+        wiki_store: Any = None,
+        *,
+        store_resolver: Any = None,
+    ) -> None:
         self._wiki_store = wiki_store
+        self._store_resolver = store_resolver
+
+    async def _resolve_store(self, business_id: str) -> Any:
+        """Return the WikiStore for the given business graph."""
+        if self._store_resolver is not None:
+            from store.wiki_store import WikiStore as _WS
+            raw = await self._store_resolver(business_id)
+            return _WS(raw)
+        return self._wiki_store
 
     def _validate_ownership(self, business_id: str, *uids: str) -> None:
         """Verify all UIDs belong to the given business."""
@@ -46,10 +60,11 @@ class DomainManagementService:
         self._validate_ownership(business_id, section_uid)
         if self._is_root(section_uid):
             raise ValueError("Cannot modify root section")
+        store = await self._resolve_store(business_id)
         props: dict[str, Any] = {"title": new_title, "user_modified": True}
         if new_description is not None:
             props["description"] = new_description
-        await self._wiki_store.update_section_properties(section_uid, props)
+        await store.update_section_properties(section_uid, props)
         await self._try_sync_json(business_id)
         log.info("domain_renamed", section_uid=section_uid, new_title=new_title)
         return {"success": True, "section_uid": section_uid}
@@ -63,15 +78,16 @@ class DomainManagementService:
         self._validate_ownership(business_id, section_uid)
         if self._is_root(section_uid):
             raise ValueError("Cannot modify root section")
+        store = await self._resolve_store(business_id)
         if promote_children:
-            parent_uid = await self._wiki_store.get_section_parent(
+            parent_uid = await store.get_section_parent(
                 section_uid, "business_domain"
             )
             if parent_uid:
-                await self._wiki_store.reparent_children(
+                await store.reparent_children(
                     section_uid, parent_uid, "business_domain"
                 )
-        await self._wiki_store.delete_wiki_section_cascade(
+        await store.delete_wiki_section_cascade(
             section_uid, "business_domain",
         )
         await self._try_sync_json(business_id)
@@ -86,10 +102,11 @@ class DomainManagementService:
         description: str = "",
     ) -> dict[str, Any]:
         self._validate_ownership(business_id, parent_uid)
+        store = await self._resolve_store(business_id)
         section_uid = (
             f"WikiSection:{business_id}:domain:user_{uuid.uuid4().hex[:8]}"
         )
-        await self._wiki_store.upsert_wiki_section(
+        await store.upsert_wiki_section(
             uid=section_uid,
             title=title,
             description=description,
@@ -97,7 +114,7 @@ class DomainManagementService:
             sort_order=-1,
             auto_generated=False,
         )
-        await self._wiki_store.add_has_child_edge(
+        await store.add_has_child_edge(
             parent_uid=parent_uid,
             parent_label="WikiSection",
             child_uid=section_uid,
@@ -105,7 +122,7 @@ class DomainManagementService:
             view_type="business_domain",
             sort_order=-1,
         )
-        await self._wiki_store.update_section_properties(
+        await store.update_section_properties(
             section_uid, {"user_modified": True}
         )
         await self._try_sync_json(business_id)
@@ -125,31 +142,39 @@ class DomainManagementService:
             raise ValueError("Cannot move domain to itself")
         if self._is_root(section_uid):
             raise ValueError("Cannot modify root section")
-        descendants = await self._wiki_store.get_section_descendants(
-            section_uid, "business_domain"
-        )
-        if target_parent_uid in descendants:
-            raise ValueError("Cannot move domain into its own subtree")
-        current_parent = await self._wiki_store.get_section_parent(
-            section_uid, "business_domain"
+
+        store = await self._resolve_store(business_id)
+        is_page = section_uid.startswith("WikiPage:")
+        child_label = "WikiPage" if is_page else "WikiSection"
+
+        if not is_page:
+            descendants = await store.get_section_descendants(
+                section_uid, "business_domain"
+            )
+            if target_parent_uid in descendants:
+                raise ValueError("Cannot move domain into its own subtree")
+
+        current_parent = await store.get_section_parent(
+            section_uid, "business_domain",
         )
         if current_parent:
-            await self._wiki_store.remove_has_child_edge(
+            await store.remove_has_child_edge(
                 current_parent, section_uid, "business_domain"
             )
-        await self._wiki_store.add_has_child_edge(
+        await store.add_has_child_edge(
             parent_uid=target_parent_uid,
             parent_label="WikiSection",
             child_uid=section_uid,
-            child_label="WikiSection",
+            child_label=child_label,
             view_type="business_domain",
             sort_order=-1,
         )
-        await self._wiki_store.update_section_properties(
-            section_uid, {"user_modified": True}
-        )
+        if not is_page:
+            await store.update_section_properties(
+                section_uid, {"user_modified": True}
+            )
         await self._try_sync_json(business_id)
-        log.info("domain_moved", section_uid=section_uid, target=target_parent_uid)
+        log.info("domain_moved", section_uid=section_uid, target=target_parent_uid, is_page=is_page)
         return {
             "success": True,
             "section_uid": section_uid,
@@ -167,18 +192,19 @@ class DomainManagementService:
             raise ValueError("Source and target must differ")
         if self._is_root(source_uid) or self._is_root(target_uid):
             raise ValueError("Cannot modify root section")
-        source_descendants = await self._wiki_store.get_section_descendants(
+        store = await self._resolve_store(business_id)
+        source_descendants = await store.get_section_descendants(
             source_uid, "business_domain",
         )
         if target_uid in source_descendants:
             raise ValueError("Cannot merge domain into its own subtree")
-        await self._wiki_store.reparent_children(
+        await store.reparent_children(
             source_uid, target_uid, "business_domain"
         )
-        await self._wiki_store.delete_wiki_section_cascade(
+        await store.delete_wiki_section_cascade(
             source_uid, "business_domain",
         )
-        await self._wiki_store.update_section_properties(
+        await store.update_section_properties(
             target_uid, {"user_modified": True}
         )
         await self._try_sync_json(business_id)
@@ -195,7 +221,8 @@ class DomainManagementService:
         """Manually trigger domain theme aggregation on existing tree."""
         from wiki.domain_merger import aggregate_domains_recursive
 
-        tree_json = await self._wiki_store.execute_query(
+        store = await self._resolve_store(business_id)
+        tree_json = await store.execute_query(
             "MATCH (ws:WikiSpace {business_id: $biz}) "
             "RETURN ws.pipeline_domain_tree AS tree",
             {"biz": business_id},
@@ -212,7 +239,7 @@ class DomainManagementService:
         before_count = len(tree_data)
         result_tree = await aggregate_domains_recursive(tree_data, llm, max_tree_depth=5)
 
-        await self._wiki_store.execute_query(
+        await store.execute_query(
             "MATCH (ws:WikiSpace {business_id: $biz}) "
             "SET ws.pipeline_domain_tree = $tree",
             {"biz": business_id, "tree": json.dumps(result_tree, ensure_ascii=False)},
@@ -226,7 +253,8 @@ class DomainManagementService:
         module_uid: str,
         target_domain: str,
     ) -> dict[str, Any]:
-        await self._wiki_store.update_module_business_domain(
+        store = await self._resolve_store(business_id)
+        await store.update_module_business_domain(
             module_uid, target_domain
         )
         log.info(
@@ -236,8 +264,9 @@ class DomainManagementService:
 
     async def _try_sync_json(self, business_id: str) -> None:
         try:
+            store = await self._resolve_store(business_id)
             tree = await self._rebuild_tree_from_graph(business_id)
-            await self._wiki_store.execute_query(
+            await store.execute_query(
                 "MATCH (ws:WikiSpace {business_id: $biz}) "
                 "SET ws.pipeline_domain_tree = $tree",
                 {"biz": business_id, "tree": json.dumps(tree, ensure_ascii=False)},
@@ -249,16 +278,18 @@ class DomainManagementService:
 
     async def _rebuild_tree_from_graph(self, business_id: str) -> list[dict[str, Any]]:
         root_uid = f"WikiSection:{business_id}:domain:__root__"
-        return await self._build_subtree(root_uid)
+        store = await self._resolve_store(business_id)
+        return await self._build_subtree(root_uid, store)
 
-    async def _build_subtree(self, parent_uid: str) -> list[dict[str, Any]]:
-        children = await self._wiki_store.get_section_children(
+    async def _build_subtree(self, parent_uid: str, store: Any = None) -> list[dict[str, Any]]:
+        ws = store or self._wiki_store
+        children = await ws.get_section_children(
             parent_uid, "business_domain"
         )
         result = []
         for child in children:
             if "WikiSection" in str(child.get("labels", [])):
-                sub = await self._build_subtree(child["uid"])
+                sub = await self._build_subtree(child["uid"], ws)
                 result.append(
                     {
                         "name": child.get("title", ""),

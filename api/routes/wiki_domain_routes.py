@@ -38,6 +38,7 @@ class CreateSubdomainBody(BaseModel):
 
 class MoveDomainBody(BaseModel):
     target_parent_uid: str
+    uid: str | None = None
 
 
 class MergeDomainBody(BaseModel):
@@ -80,6 +81,18 @@ async def create_subdomain(
     return await svc.create_subdomain(business_id, uid, body.title, body.description)
 
 
+@router.post("/move")
+async def move_domain_v2(
+    body: MoveDomainBody,
+    business_id: str = Query(...),
+) -> dict[str, Any]:
+    """Move a WikiSection or WikiPage to a new parent. UID in body to handle slashes."""
+    if not body.uid:
+        raise ValueError("uid is required in body")
+    svc = _get_domain_service()
+    return await svc.move_domain(business_id, body.uid, body.target_parent_uid)
+
+
 @router.post("/{uid}/move")
 async def move_domain(
     uid: str,
@@ -87,7 +100,7 @@ async def move_domain(
     business_id: str = Query(...),
 ) -> dict[str, Any]:
     svc = _get_domain_service()
-    return await svc.move_domain(business_id, uid, body.target_parent_uid)
+    return await svc.move_domain(business_id, body.uid or uid, body.target_parent_uid)
 
 
 @router.post("/merge")

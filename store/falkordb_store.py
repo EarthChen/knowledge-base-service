@@ -13,7 +13,7 @@ from falkordb import FalkorDB, Graph
 
 from core.config import FalkorDBConfig
 from core.log import get_logger
-from services.redis_startup import await_with_busy_loading_retry, run_sync_with_busy_loading_retry
+from services.redis_startup import await_with_busy_loading_retry, run_sync_with_busy_loading_retry, run_with_connection_retry
 from store.falkordb_common import (  # noqa: F401
     _PARSING_EDGE_TYPES,
     REFERENCES_CROSS_FILE_CYPHER,
@@ -403,10 +403,9 @@ class FalkorDBStore(FalkorDBSearchMixin, FalkorDBWikiMixin, FalkorDBReadsMixin):
         return total
 
     async def execute_query(self, cypher: str, params: dict[str, Any] | None = None) -> QueryResultWrapper:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
+        result = await run_with_connection_retry(
             _graph_executor,
-            lambda: self._graph.query(cypher, params=params or {})  # type: ignore[union-attr]
+            lambda: self._graph.query(cypher, params=params or {}),  # type: ignore[union-attr]
         )
         header = [col[1] if isinstance(col, (list, tuple)) else str(col) for col in (result.header or [])]
         data = [dict(zip(header, row)) for row in (result.result_set or [])]

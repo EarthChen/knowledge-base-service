@@ -1299,27 +1299,9 @@ class WikiService:
         completed_repos = 0
 
         # Determine which repos need per-repo wiki generation.
-        # When skip_repo_pages=True but incremental=True, still generate for
-        # repos that have never had per-repo wiki (new repos).
         repos_needing_generation: set[str] = set()
         if not app_cfg.business_wiki_skip_repo_pages:
             repos_needing_generation = set(all_modules.keys())
-        elif incremental:
-            wiki_meta = self._wiki_store
-            if wiki_meta is not None:
-                for repo_name in changed_repos:
-                    try:
-                        ver = await wiki_meta.get_wiki_generation_version(repo_name)
-                        if ver is None:
-                            repos_needing_generation.add(repo_name)
-                    except Exception:
-                        repos_needing_generation.add(repo_name)
-            if repos_needing_generation:
-                log.info(
-                    "incremental_new_repos_detected",
-                    business_id=business_id,
-                    new_repos=sorted(repos_needing_generation),
-                )
 
         if repos_needing_generation:
             gen_total = len(repos_needing_generation)

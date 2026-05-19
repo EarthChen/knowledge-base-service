@@ -684,6 +684,13 @@ export interface Translations {
     regenerateIncremental: string;
     regenerateFull: string;
     regenerateConflict: string;
+    clearAllWiki: string;
+    clearAllWikiConfirmTitle: string;
+    clearAllWikiConfirmBody: string;
+    clearAllWikiConfirmPlaceholder: string;
+    clearAllWikiSuccess: string;
+    clearAllWikiFailed: string;
+    clearAllWikiPending: string;
     pagesHeading: string;
     expandAllFolders: string;
     treeNavExpand: string;

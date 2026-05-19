@@ -697,31 +697,33 @@ class WikiTreeLinker:
                         domain=domain.name,
                         path_prefix=path_prefix,
                     )
-                elif overview_path not in agent_overview_paths:
-                    seen_overview_slugs.add(normalized_slug)
-                    overview_content = _build_domain_overview_content(domain)
-                    from wiki.models import EnrichmentLevel, PageType, WikiPageMetadata
-
-                    overview_page = WikiPage(
-                        path=overview_path,
-                        title=section_title if language.startswith("zh") else f"{section_title} Overview",
-                        page_type=PageType.DOMAIN_OVERVIEW,
-                        content=overview_content,
-                        diagrams=[],
-                        source_locations=[],
-                        metadata=WikiPageMetadata(
-                            node_count=WikiTreeLinker.count_domain_modules(domain),
-                            edge_count=0,
-                            generation_mode="business",
-                            enrichment_level=EnrichmentLevel.BASE,
-                        ),
-                    )
-                    overview_pages.append(overview_page)
                 else:
-                    log.info("nested_tree_using_agent_overview", domain=domain.name)
+                    if overview_path not in agent_overview_paths:
+                        seen_overview_slugs.add(normalized_slug)
+                        overview_content = _build_domain_overview_content(domain)
+                        from wiki.models import EnrichmentLevel, PageType, WikiPageMetadata
 
-                overview_uid = f"WikiPage:{business_id}:{overview_path}"
-                pending_overview_links.append((section_uid, overview_uid))
+                        overview_page = WikiPage(
+                            path=overview_path,
+                            title=section_title if language.startswith("zh") else f"{section_title} Overview",
+                            page_type=PageType.DOMAIN_OVERVIEW,
+                            content=overview_content,
+                            diagrams=[],
+                            source_locations=[],
+                            metadata=WikiPageMetadata(
+                                node_count=WikiTreeLinker.count_domain_modules(domain),
+                                edge_count=0,
+                                generation_mode="business",
+                                enrichment_level=EnrichmentLevel.BASE,
+                            ),
+                        )
+                        overview_pages.append(overview_page)
+                    else:
+                        seen_overview_slugs.add(normalized_slug)
+                        log.info("nested_tree_using_agent_overview", domain=domain.name)
+
+                    overview_uid = f"WikiPage:{business_id}:{overview_path}"
+                    pending_overview_links.append((section_uid, overview_uid))
 
             for i, child in enumerate(domain.children):
                 await _create_sections(section_uid, child, i, path_prefix=domain_path)
@@ -814,6 +816,191 @@ class WikiTreeLinker:
 
         for domain in domain_tree:
             await _link_domain_pages(root_uid, domain)
+
+        # Phase 4: Adopt orphan domain overview pages
+        await self._adopt_orphan_domain_pages(
+            business_id,
+            domain_tree,
+            domain_path_to_section_uid,
+            tree_builder,
+        )
+
+    async def _adopt_orphan_domain_pages(
+        self,
+        business_id: str,
+        domain_tree: list[DomainNode],
+        domain_path_to_section_uid: dict[str, str],
+        tree_builder: WikiTreeBuilder,
+        threshold: float = 0.3,
+    ) -> None:
+        """Phase 4: discover unlinked domain overview pages and match to nearest domain node."""
+        if not self._wiki_store or not domain_tree:
+            return
+
+        all_q = (
+            "MATCH (wp:WikiPage) "
+            "WHERE wp.repository = $biz "
+            "AND wp.path STARTS WITH '/__domains__/' "
+            "AND wp.path ENDS WITH '/_overview' "
+            "OPTIONAL MATCH (wp)-[:SOURCE_ENTITY]->(m:Module) "
+            "RETURN wp.uid AS uid, wp.title AS title, collect(DISTINCT m.name) AS module_names"
+        )
+        all_result = await self._wiki_store.execute_query(all_q, {"biz": business_id})
+        all_rows = getattr(all_result, "data", None) or []
+        if not all_rows:
+            return
+
+        linked_q = (
+            "MATCH ()-[:HAS_CHILD]->(wp:WikiPage) "
+            "WHERE wp.repository = $biz "
+            "AND wp.path STARTS WITH '/__domains__/' "
+            "AND wp.path ENDS WITH '/_overview' "
+            "RETURN wp.uid AS uid"
+        )
+        linked_result = await self._wiki_store.execute_query(linked_q, {"biz": business_id})
+        linked_rows = getattr(linked_result, "data", None) or []
+        linked_uids = {str(r.get("uid", "")) for r in linked_rows if r.get("uid")}
+
+        orphans = [
+            r for r in all_rows
+            if str(r.get("uid", "")) and str(r.get("uid", "")) not in linked_uids
+        ]
+        if not orphans:
+            log.info("orphan_adoption_none_found", business_id=business_id)
+            return
+
+        flat_domains: list[tuple[str, DomainNode]] = []
+
+        def _flatten(node: DomainNode, path_prefix: str = "") -> None:
+            path = f"{path_prefix}/{node.name}" if path_prefix else node.name
+            flat_domains.append((path, node))
+            for child in node.children:
+                _flatten(child, path)
+
+        for d in domain_tree:
+            _flatten(d)
+
+        if not flat_domains:
+            return
+
+        def _cjk_chars(text: str) -> set[str]:
+            return {c for c in text if "\u4e00" <= c <= "\u9fff"}
+
+        def _cjk_similarity(a: str, b: str) -> float:
+            ca, cb = _cjk_chars(a), _cjk_chars(b)
+            if not ca and not cb:
+                return 0.0
+            fwd = len(ca & cb) / len(ca) if ca else 0.0
+            bwd = len(ca & cb) / len(cb) if cb else 0.0
+            return (fwd + bwd) / 2.0
+
+        adopted = 0
+        sort_order = 10000
+        unmatched_orphans: list[dict] = []
+
+        for orphan in orphans:
+            orphan_uid = str(orphan.get("uid", ""))
+            orphan_title = str(orphan.get("title", ""))
+            orphan_modules = set(orphan.get("module_names") or [])
+
+            best_path: str | None = None
+            best_score = 0.0
+
+            for domain_path, domain in flat_domains:
+                domain_modules = set(domain.modules)
+
+                entity_score = 0.0
+                if orphan_modules and domain_modules:
+                    overlap = len(orphan_modules & domain_modules)
+                    entity_score = overlap / max(len(orphan_modules), 1)
+
+                display = domain.display_name or domain.name
+                title_score = _cjk_similarity(orphan_title, display)
+
+                score = max(entity_score, title_score)
+                if score > best_score:
+                    best_score = score
+                    best_path = domain_path
+
+            if best_score >= threshold and best_path:
+                section_uid = domain_path_to_section_uid.get(best_path)
+                if section_uid:
+                    try:
+                        await self._wiki_store.add_has_child_edge(
+                            parent_uid=section_uid,
+                            parent_label="WikiSection",
+                            child_uid=orphan_uid,
+                            child_label="WikiPage",
+                            view_type="business_domain",
+                            sort_order=sort_order,
+                        )
+                        adopted += 1
+                        sort_order += 1
+                        log.info(
+                            "orphan_adopted",
+                            orphan_uid=orphan_uid,
+                            orphan_title=orphan_title,
+                            target_domain=best_path,
+                            score=round(best_score, 3),
+                        )
+                    except Exception:
+                        log.warning("orphan_adoption_failed", orphan_uid=orphan_uid, exc_info=True)
+            else:
+                unmatched_orphans.append(orphan)
+                log.info(
+                    "orphan_unmatched",
+                    orphan_uid=orphan_uid,
+                    orphan_title=orphan_title,
+                    best_score=round(best_score, 3),
+                    best_domain=best_path or "none",
+                    module_count=len(orphan_modules),
+                )
+
+        if unmatched_orphans:
+            unassigned_uid = tree_builder.generate_domain_section_uid(business_id, "__unassigned__")
+            root_uid = tree_builder.generate_domain_section_uid(business_id, "__root__")
+            try:
+                await self._wiki_store.upsert_wiki_section(
+                    uid=unassigned_uid,
+                    title="待分配页面",
+                    description="未能自动匹配到任何域的孤儿页面，请手动移动到合适的域下",
+                    section_type="business_domain",
+                    sort_order=9999,
+                    auto_generated=True,
+                )
+                await self._wiki_store.add_has_child_edge(
+                    parent_uid=root_uid,
+                    parent_label="WikiSection",
+                    child_uid=unassigned_uid,
+                    child_label="WikiSection",
+                    view_type="business_domain",
+                    sort_order=9999,
+                )
+                for idx, orphan in enumerate(unmatched_orphans):
+                    orphan_uid = str(orphan.get("uid", ""))
+                    await self._wiki_store.add_has_child_edge(
+                        parent_uid=unassigned_uid,
+                        parent_label="WikiSection",
+                        child_uid=orphan_uid,
+                        child_label="WikiPage",
+                        view_type="business_domain",
+                        sort_order=sort_order + idx,
+                    )
+                log.info(
+                    "orphan_unassigned_section_created",
+                    business_id=business_id,
+                    count=len(unmatched_orphans),
+                )
+            except Exception:
+                log.warning("orphan_unassigned_section_failed", business_id=business_id, exc_info=True)
+
+        log.info(
+            "orphan_adoption_complete",
+            business_id=business_id,
+            total_orphans=len(orphans),
+            adopted=adopted,
+            unmatched=len(unmatched_orphans),
+        )
 
     def _find_domain_by_canonical_key(
         self, canonical_key: str, domain_pages: list,

@@ -188,10 +188,13 @@ async def bootstrap_wiki(app: FastAPI, settings: Settings) -> None:
     app.state.wiki_store = kb.store
 
     from api.routes.wiki_domain_routes import set_domain_service
-    from store.wiki_store import WikiStore as _WikiStoreForDomains
     from wiki.domain_management_service import DomainManagementService
 
-    set_domain_service(DomainManagementService(wiki_store=_WikiStoreForDomains(kb.store)))
+    async def _domain_store_resolver(business_id: str) -> Any:
+        svc = await registry.get_service(business_id)
+        return svc.store
+
+    set_domain_service(DomainManagementService(store_resolver=_domain_store_resolver))
 
     from store.wiki_feedback_store import WikiFeedbackStore
 

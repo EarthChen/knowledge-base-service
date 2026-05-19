@@ -110,6 +110,8 @@ async def test_nested_tree_topic_canonical_key_overrides_path_fuzzy_domain() -> 
                     },
                 ],
             ),
+            MagicMock(data=[]),
+            MagicMock(data=[]),
         ],
     )
 
@@ -162,6 +164,8 @@ async def test_nested_tree_topic_falls_back_to_fuzzy_when_no_canonical_match() -
                     },
                 ],
             ),
+            MagicMock(data=[]),
+            MagicMock(data=[]),
         ],
     )
     persistence = MagicMock()
@@ -225,6 +229,8 @@ async def test_nested_tree_topic_unknown_canonical_key_skips_fuzzy_match() -> No
                     },
                 ],
             ),
+            MagicMock(data=[]),
+            MagicMock(data=[]),
         ],
     )
 

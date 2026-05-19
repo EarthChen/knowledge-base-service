@@ -679,6 +679,19 @@ class TestWikiPageAgentConstruction:
         assert agent.max_tool_calls == 100
 
 
+@pytest.mark.asyncio
+async def test_legacy_constructor_still_works():
+    """Verify existing callers (graph_store positional) still function."""
+    llm = MagicMock()
+    gs = MagicMock()
+    agent = WikiPageAgent(llm, gs, repo_path="/tmp/repo", search_service=None)
+
+    # Internal deps should be auto-constructed
+    assert agent._deps.graph_store is gs
+    assert agent._deps.repo_path == "/tmp/repo"
+    assert agent._graph is gs
+
+
 class TestEnrichInterface:
     @pytest.mark.asyncio
     async def test_enrich_accepts_focus_modules(self):

@@ -1071,3 +1071,38 @@ class TestToolTiering:
         has_empty = True and memory._tool_contributed_chars == 0
         tools = agent._get_tools_for_round(1, has_empty)
         assert len(tools) == len(AGENT_TOOLS)
+
+
+class TestExploreGuardrails:
+    @pytest.mark.asyncio
+    async def test_explore_config_has_input_guardrail(self):
+        """Explore should configure PromptLengthGuardrail by default."""
+        from wiki.agents.guardrails import PromptLengthGuardrail
+
+        mock_llm = MagicMock()
+        mock_graph = MagicMock()
+
+        mock_llm.complete_with_tools = AsyncMock(return_value={
+            "tool_calls": None, "content": "done"
+        })
+
+        agent = WikiPageAgent(mock_llm, mock_graph)
+
+        # Patch run_tool_loop to capture the config
+        captured_config = {}
+        original_rtl = agent.run_tool_loop
+
+        async def capture_rtl(system, user, memory, *, config=None, **kwargs):
+            captured_config["config"] = config
+            return memory
+
+        agent.run_tool_loop = capture_rtl
+
+        await agent.explore(module_names=["Mod"], domain_name="d", baseline_context="b")
+
+        config = captured_config.get("config")
+        assert config is not None
+        assert len(config.input_guardrails) >= 1
+        assert any(
+            isinstance(g, PromptLengthGuardrail) for g in config.input_guardrails
+        )

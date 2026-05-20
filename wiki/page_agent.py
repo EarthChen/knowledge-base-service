@@ -1033,6 +1033,7 @@ class WikiPageAgent(GenericAgent):
         from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM
         from wiki.agents.base_agent import RunConfig
         from wiki.agents.context import RunContext
+        from wiki.agents.guardrails import PromptLengthGuardrail
 
         system = AGENT_EXPLORE_SYSTEM.format(max_rounds=self.max_rounds)
         user_prompt = self._build_explore_user_prompt(
@@ -1055,6 +1056,7 @@ class WikiPageAgent(GenericAgent):
             context_trim_keep_recent=3,
             enable_post_call_guardrail=True,
             result_truncate_chars=0,
+            input_guardrails=[PromptLengthGuardrail(max_chars=150_000)],
         )
 
         ctx = RunContext(deps=self._deps)

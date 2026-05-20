@@ -109,6 +109,46 @@ async def test_compose_parent_pages_nested(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_compose_parent_pages_uses_domain_path_convention():
+    """Parent overview pages must use /__domains__/{slug}/_overview path."""
+    llm = AsyncMock()
+    llm.complete_json = AsyncMock(
+        return_value={
+            "title": "家族核心运营",
+            "content": "## 业务概述\n家族系统...\n## 子域架构\n...",
+            "executive_summary": "家族核心运营总览",
+            "page_type": "domain_overview",
+        }
+    )
+    state = {
+        "domain_tree": [
+            {
+                "name": "family-core-operations",
+                "display_name": "家族核心运营",
+                "modules": [],
+                "children": [
+                    {"name": "family-interaction", "modules": ["FamilyService"], "children": []},
+                    {"name": "family-task", "modules": ["TaskService"], "children": []},
+                ],
+            },
+        ],
+        "leaf_summaries": {
+            "family-interaction": {"summary_text": "家族互动", "module_count": 1},
+            "family-task": {"summary_text": "家族任务", "module_count": 1},
+        },
+        "modules": {},
+        "entity_roles": {},
+    }
+    config = {"configurable": {"llm": llm}}
+    result = await compose_parent_pages_node(state, config)
+    pages = result.get("pages", [])
+    assert len(pages) == 1
+    assert pages[0]["path"] == "/__domains__/family-core-operations/_overview"
+    assert pages[0].get("business_domain") == "family-core-operations"
+    assert pages[0]["title"] == "家族核心运营"
+
+
+@pytest.mark.asyncio
 async def test_compose_parent_pages_no_llm():
     state = {
         "domain_tree": [{"name": "p", "modules": [], "children": [{"name": "c", "modules": ["A"], "children": []}]}],

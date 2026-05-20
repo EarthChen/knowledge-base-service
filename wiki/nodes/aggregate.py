@@ -207,18 +207,20 @@ async def compose_parent_pages_node(
                 if not isinstance(parsed, dict):
                     log.warning("compose_parent_pages_bad_json", domain=parent_name)
                     continue
-                title = parsed.get("title", parent_name)
+                title = parsed.get("title") or parent_domain.get("display_name") or parent_name
                 content = cleanup_context_gaps(parsed.get("content", ""))
                 exec_summary = parsed.get("executive_summary", "")
                 page_type_val = parsed.get("page_type") or "domain_overview"
                 page_type = str(page_type_val)
-                slug = parent_name.strip().lower().replace(" ", "_")
+                from wiki.path_conventions import domain_overview_path
+
                 page_dict: dict[str, Any] = {
-                    "path": f"wiki/{slug}",
+                    "path": domain_overview_path(parent_name),
                     "title": title,
                     "content": content,
                     "page_type": page_type,
                     "domain": parent_name,
+                    "business_domain": parent_name,
                     "metadata": {"executive_summary": exec_summary},
                 }
                 all_parent_pages.append(page_dict)

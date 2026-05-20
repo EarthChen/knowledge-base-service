@@ -417,13 +417,26 @@ class EmbeddingGenerator:
         self._backend_lock = threading.Lock()
         self._query_embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
         self._query_embedding_lock = threading.Lock()
-        self._semaphore: asyncio.Semaphore | None = None
+        self._query_sem: asyncio.Semaphore | None = None
+        self._index_sem: asyncio.Semaphore | None = None
 
-    def _get_semaphore(self) -> asyncio.Semaphore:
-        if self._semaphore is None:
-            concurrency = self._config.http_max_concurrency if self._config.resolve_backend() == "http" else 1
-            self._semaphore = asyncio.Semaphore(max(concurrency, 1))
-        return self._semaphore
+    def _get_query_semaphore(self) -> asyncio.Semaphore:
+        if self._query_sem is None:
+            if self._config.resolve_backend() == "http":
+                concurrency = self._config.http_max_concurrency
+            else:
+                concurrency = self._config.query_concurrency
+            self._query_sem = asyncio.Semaphore(max(concurrency, 1))
+        return self._query_sem
+
+    def _get_index_semaphore(self) -> asyncio.Semaphore:
+        if self._index_sem is None:
+            if self._config.resolve_backend() == "http":
+                concurrency = self._config.http_max_concurrency
+            else:
+                concurrency = self._config.index_concurrency
+            self._index_sem = asyncio.Semaphore(max(concurrency, 1))
+        return self._index_sem
 
     @classmethod
     def shared(cls, config: EmbeddingConfig) -> EmbeddingGenerator:
@@ -477,7 +490,7 @@ class EmbeddingGenerator:
         chunk_size = self._config.chunk_size
         chunks = list(_iter_chunks(texts, chunk_size))
 
-        semaphore = self._get_semaphore()
+        semaphore = self._get_query_semaphore() if is_query else self._get_index_semaphore()
         loop = asyncio.get_running_loop()
 
         async def _encode_chunk(chunk: list[str]) -> list[list[float]]:

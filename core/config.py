@@ -35,6 +35,8 @@ class EmbeddingConfig(BaseModel):
     http_timeout: int = 30
     http_max_retries: int = 3
     http_max_concurrency: int = 1
+    query_concurrency: int = 2  # concurrent query embedding calls
+    index_concurrency: int = 1  # concurrent index embedding calls
 
     def resolve_device(self) -> str:
         """Resolve ``"auto"`` to the best available accelerator.

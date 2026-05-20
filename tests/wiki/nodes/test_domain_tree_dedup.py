@@ -72,3 +72,66 @@ class TestSlugUniqueness:
         assert parent_slug == "im"
         assert child_slug != "im"
         assert child_slug.startswith("im-")
+
+
+class TestPruneEmptyNodes:
+    def test_prune_removes_empty_leaf(self):
+        from wiki.nodes.classify import _prune_empty_nodes
+
+        tree = [
+            {
+                "name": "parent",
+                "modules": ["A"],
+                "children": [
+                    {"name": "empty_child", "modules": [], "children": []},
+                    {"name": "full_child", "modules": ["B"], "children": []},
+                ],
+            }
+        ]
+        _prune_empty_nodes(tree)
+        assert len(tree[0]["children"]) == 1
+        assert tree[0]["children"][0]["name"] == "full_child"
+
+    def test_prune_keeps_node_with_children(self):
+        from wiki.nodes.classify import _prune_empty_nodes
+
+        tree = [
+            {
+                "name": "parent",
+                "modules": [],
+                "children": [
+                    {
+                        "name": "mid",
+                        "modules": [],
+                        "children": [
+                            {"name": "leaf", "modules": ["X"], "children": []},
+                        ],
+                    },
+                ],
+            }
+        ]
+        _prune_empty_nodes(tree)
+        assert len(tree[0]["children"]) == 1
+        assert tree[0]["children"][0]["name"] == "mid"
+
+    def test_prune_deep_empty_cascade(self):
+        from wiki.nodes.classify import _prune_empty_nodes
+
+        tree = [
+            {
+                "name": "root",
+                "modules": ["A"],
+                "children": [
+                    {
+                        "name": "mid",
+                        "modules": [],
+                        "children": [
+                            {"name": "leaf", "modules": [], "children": []},
+                        ],
+                    },
+                ],
+            }
+        ]
+        _prune_empty_nodes(tree)
+        # mid has no modules and after pruning its children is empty → gets pruned
+        assert tree[0]["children"] == []

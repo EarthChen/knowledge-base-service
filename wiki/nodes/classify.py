@@ -385,6 +385,23 @@ def _dedup_tree_modules(tree: list[dict[str, Any]]) -> None:
                 node["modules"] = [m for m in node.get("modules", []) if m not in descendant_modules]
 
 
+def _prune_empty_nodes(tree: list[dict[str, Any]]) -> None:
+    """Remove leaf nodes that have no modules and no children (in-place).
+
+    After reconciliation and dedup, some nodes may be left empty because
+    their modules were moved elsewhere. These empty shells should be pruned
+    to keep the tree clean.
+    """
+    for node in tree:
+        children = node.get("children", [])
+        if children:
+            _prune_empty_nodes(children)
+            node["children"] = [
+                ch for ch in children
+                if ch.get("modules") or ch.get("children")
+            ]
+
+
 def _assign_slugs_to_tree(
     tree: list[dict[str, Any]],
     domain_mapping: dict[str, list[tuple[str, str]]],
@@ -617,6 +634,7 @@ async def decompose_hierarchy_node(
     _assign_slugs_to_tree(domain_tree, domain_mapping, domain_display_names)
     _reconcile_tree_with_mapping(domain_tree, domain_mapping)
     _dedup_tree_modules(domain_tree)
+    _prune_empty_nodes(domain_tree)
 
     if llm and domain_tree and len(domain_tree) >= 3:
         try:

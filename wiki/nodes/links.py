@@ -61,7 +61,8 @@ def _populate_navigation_from_domain_tree(
     def _walk(
         nodes: list[dict[str, Any]],
         parent_path: str,
-        breadcrumbs: list[str],
+        parent_title: str,
+        breadcrumbs: list[list[str]],
     ) -> None:
         sibling_paths = [
             domain_overview_path(n.get("name", ""))
@@ -73,6 +74,7 @@ def _populate_navigation_from_domain_tree(
             name = node.get("name", "")
             if not name:
                 continue
+            display_name = node.get("display_name", name)
             overview_path = domain_overview_path(name)
             page = pages_by_path.get(overview_path)
             children = node.get("children", [])
@@ -83,45 +85,47 @@ def _populate_navigation_from_domain_tree(
                 if domain_overview_path(c.get("name", "")) in pages_by_path
             ]
 
-            # Find topic pages for this domain
-            topic_paths = [
+            topic_paths = sorted(
                 p_path for p_path, p_data in pages_by_path.items()
                 if (
                     p_data.get("page_type") == "topic"
                     and p_path.startswith(f"/__domains__/{name}/")
                 )
-            ]
+            )
+
+            current_crumbs = breadcrumbs + [[display_name, overview_path]]
 
             if page is not None:
                 current_siblings = [s for s in sibling_paths if s != overview_path]
                 page["navigation"] = {
                     "parent_path": parent_path,
-                    "parent_title": "",
+                    "parent_title": parent_title,
                     "sibling_paths": current_siblings,
                     "child_paths": child_overview_paths + topic_paths,
                     "related_flow_paths": [],
-                    "breadcrumbs": breadcrumbs + [overview_path],
+                    "breadcrumbs": current_crumbs,
                 }
 
-            # Set navigation for topic pages of this domain
             for tp in topic_paths:
                 topic_page = pages_by_path.get(tp)
                 if topic_page:
+                    topic_title = topic_page.get("title", "")
                     other_topics = [t for t in topic_paths if t != tp]
                     topic_page["navigation"] = {
                         "parent_path": overview_path,
-                        "parent_title": node.get("display_name", name),
+                        "parent_title": display_name,
                         "sibling_paths": other_topics,
                         "child_paths": [],
                         "related_flow_paths": [],
-                        "breadcrumbs": breadcrumbs + [overview_path, tp],
+                        "breadcrumbs": current_crumbs + [[topic_title, tp]],
                     }
 
             if children:
                 _walk(
                     children,
                     parent_path=overview_path,
-                    breadcrumbs=breadcrumbs + [overview_path],
+                    parent_title=display_name,
+                    breadcrumbs=current_crumbs,
                 )
 
-    _walk(domain_tree, parent_path="", breadcrumbs=[])
+    _walk(domain_tree, parent_path="", parent_title="", breadcrumbs=[])

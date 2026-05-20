@@ -6,6 +6,7 @@ Explore/Write two-phase separation, and document splitting.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import time
@@ -67,6 +68,8 @@ def _parse_topic_outline(raw: str) -> DomainTopicOutline | None:
         ))
     if not topics:
         return None
+    if len(topics) > 6:
+        topics = topics[:6]
     return DomainTopicOutline(should_split=bool(should_split), topics=topics)
 
 
@@ -375,7 +378,6 @@ class DomainDocAgent(DocOrchestrator):
             if hasattr(llm, "complete_json"):
                 result = await llm.complete_json(messages, {}, max_tokens=2000)
                 if isinstance(result, dict):
-                    import json
                     raw = json.dumps(result, ensure_ascii=False)
                 else:
                     raw = str(result)
@@ -500,18 +502,24 @@ class DomainDocAgent(DocOrchestrator):
         outline = await self._plan_topics(module_names, memory)
         memory.topic_outline = outline
 
+        # Early branch: if topic planning says split, skip monolithic write loop
+        if outline.should_split and len(outline.topics) > 1:
+            pages = await self._write_with_outline(
+                outline, baseline_context, memory, module_names,
+            )
+            if memory.discovered_entity_uids:
+                entity_uids = list(memory.discovered_entity_uids)
+                for page in pages:
+                    page["covered_entity_uids"] = entity_uids
+            return pages
+
         if not module_names:
-            if memory.topic_outline and memory.topic_outline.should_split and len(memory.topic_outline.topics) > 1:
-                pages = await self._write_with_outline(
-                    memory.topic_outline, baseline_context, memory, module_names,
-                )
-            else:
-                content = await self._page_agent.write(
-                    self.domain_name,
-                    baseline_context,
-                    memory,
-                )
-                pages = _maybe_split(content, self.domain_name, self.domain_display_name)
+            content = await self._page_agent.write(
+                self.domain_name,
+                baseline_context,
+                memory,
+            )
+            pages = _maybe_split(content, self.domain_name, self.domain_display_name)
             if memory.discovered_entity_uids:
                 entity_uids = list(memory.discovered_entity_uids)
                 for page in pages:
@@ -636,12 +644,7 @@ class DomainDocAgent(DocOrchestrator):
         if not content:
             content = self._page_agent._generate_skeleton(module_names, self.domain_name)
 
-        if memory.topic_outline and memory.topic_outline.should_split and len(memory.topic_outline.topics) > 1:
-            pages = await self._write_with_outline(
-                memory.topic_outline, baseline_context, memory, module_names,
-            )
-        else:
-            pages = _maybe_split(content, self.domain_name, self.domain_display_name)
+        pages = _maybe_split(content, self.domain_name, self.domain_display_name)
         if memory.discovered_entity_uids:
             entity_uids = list(memory.discovered_entity_uids)
             log.info(

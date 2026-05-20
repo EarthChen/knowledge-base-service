@@ -401,6 +401,11 @@ class WikiPage:
                 )
                 for s in data.get("method_locations", [])
             ],
+            navigation=(
+                NavigationContext.from_api_dict(data["navigation"])
+                if isinstance(data.get("navigation"), dict)
+                else None
+            ),
         )
 
     def to_markdown(self) -> str:

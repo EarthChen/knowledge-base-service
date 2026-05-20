@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.log import get_logger
+
+if TYPE_CHECKING:
+    from wiki.domain_doc_agent import DomainTopicOutline
 from wiki.agents.base_agent import GenericAgent
 from wiki.agents.tool_decorator import function_tool
 from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP_RE
@@ -210,7 +213,7 @@ class WorkingMemory:
     discovered_entity_uids: set[str] = field(default_factory=set)
     _tool_contributed_chars: int = 0
     relevant_modules: set[str] = field(default_factory=set)
-    topic_outline: Any | None = None
+    topic_outline: DomainTopicOutline | None = None
 
     MAX_TOTAL_CHARS = 200_000
 

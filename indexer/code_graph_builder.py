@@ -7,6 +7,7 @@ into graph nodes and edges for storage in FalkorDB.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
@@ -31,6 +32,8 @@ if TYPE_CHECKING:
     from indexer.languages import PluginRegistry
 
 log = get_logger(__name__)
+
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB — skip oversized files to avoid OOM during indexing
 
 # Sentinel ``file_path`` yielded last by :meth:`CodeGraphBuilder.iter_directory_with_cross_file`;
 # ``nodes`` is empty and ``edges`` holds cross-file CALLS / INHERITS / IMPLEMENTS.
@@ -179,6 +182,24 @@ class CodeGraphBuilder:
             break
 
     @staticmethod
+    def _file_exceeds_size_limit(file_path: str | Path) -> bool:
+        """Return True if *file_path* is larger than :data:`MAX_FILE_SIZE`."""
+        try:
+            size = os.path.getsize(file_path)
+        except OSError as exc:
+            log.warning("file_size_check_failed", file=str(file_path), error=str(exc))
+            return True
+        if size > MAX_FILE_SIZE:
+            log.warning(
+                "file_too_large_skipped",
+                file=str(file_path),
+                size=size,
+                max_size=MAX_FILE_SIZE,
+            )
+            return True
+        return False
+
+    @staticmethod
     def _module_uid_for_store_path(store_path: str) -> str:
         """UID of the Module node for a file, matching :class:`GraphNode` with ``file``."""
         stem = Path(store_path).stem
@@ -206,7 +227,9 @@ class CodeGraphBuilder:
 
         effective_store = store_path or file_path
         if content is None:
-            content = Path(file_path).read_text(encoding="utf-8")
+            if self._file_exceeds_size_limit(file_path):
+                return [], []
+            content = Path(file_path).read_text(encoding="utf-8", errors="replace")
 
         parse_result = self._parser.parse_file(file_path, language, content)
         nodes, edges = self.build_from_parse_result(
@@ -314,14 +337,16 @@ class CodeGraphBuilder:
                 language = self.detect_language(str(fpath))
                 if not language:
                     continue
-                parse_result = self._parser.parse_file(str(fpath), language, None)
+                if self._file_exceeds_size_limit(fpath):
+                    continue
+                file_text = fpath.read_text(encoding="utf-8", errors="replace")
+                parse_result = self._parser.parse_file(str(fpath), language, file_text)
                 nodes, edges = self.build_from_parse_result(
                     parse_result,
                     rel,
                     language,
                     import_resolver=resolver,
                 )
-                file_text = fpath.read_text(encoding="utf-8", errors="replace")
                 self._apply_code_hash_to_module(nodes, rel, file_text)
                 all_nodes.extend(nodes)
                 per_file_data.append(

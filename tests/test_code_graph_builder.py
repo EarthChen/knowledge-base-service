@@ -2,7 +2,7 @@
 
 import pytest
 
-from indexer.code_graph_builder import CodeGraphBuilder
+from indexer.code_graph_builder import MAX_FILE_SIZE, CodeGraphBuilder
 from indexer.tree_sitter_parser import TreeSitterParser
 from store.schema import EdgeType, NodeLabel
 
@@ -100,6 +100,13 @@ class TestBuildFromFile:
 
     def test_unsupported_file_returns_empty(self, builder: CodeGraphBuilder):
         nodes, edges = builder.build_from_file("data.csv", content="a,b,c")
+        assert nodes == []
+        assert edges == []
+
+    def test_oversized_file_on_disk_skipped(self, builder: CodeGraphBuilder, tmp_path):
+        big = tmp_path / "huge.py"
+        big.write_bytes(b"x" * (MAX_FILE_SIZE + 1))
+        nodes, edges = builder.build_from_file(str(big))
         assert nodes == []
         assert edges == []
 

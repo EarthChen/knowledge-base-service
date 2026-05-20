@@ -9,6 +9,14 @@ const chunkGroups: Record<string, string[]> = {
   "vendor-chart": ["chart.js", "react-chartjs-2"],
   "vendor-codemirror": ["@codemirror/lang-markdown", "@uiw/react-codemirror"],
   "vendor-syntax": ["prism-react-renderer"],
+  "vendor-mermaid": ["mermaid"],
+  "vendor-markdown": [
+    "react-markdown",
+    "rehype-raw",
+    "rehype-sanitize",
+    "remark-gfm",
+  ],
+  "vendor-diff": ["react-diff-viewer-continued"],
 };
 
 export default defineConfig({

@@ -224,7 +224,7 @@ DocOrchestrator (ABC, Template Method)
 
 ## Phase 0–3 与关键横向能力（对照实现）
 
-下列表格将「规划阶段」与**代表性代码锚点**对齐；完整勾选状态与 API 路径陷阱见 [`IMPLEMENTATION-STATUS.md`](../IMPLEMENTATION-STATUS.md)。
+下列表格将「规划阶段」与**代表性代码锚点**对齐。
 
 | 轨道 | 代表性代码 | 说明 |
 |------|------------|------|
@@ -242,7 +242,6 @@ DocOrchestrator (ABC, Template Method)
 | 文档 | 用途 |
 |------|------|
 | [`ARCHITECTURE.md`](../ARCHITECTURE.md) | 端到端架构、索引与检索、Wiki 与 MCP 概览 |
-| [`IMPLEMENTATION-STATUS.md`](../IMPLEMENTATION-STATUS.md) | 计划 vs 代码、路径与配置注意事项 |
 | [`MCP-INTEGRATION.md`](../MCP-INTEGRATION.md) | 22+6 工具清单、认证与字段差异 |
 | [`wiki-generation-architecture.md`](../wiki-generation-architecture.md) | Wiki 管道与 LLM Wiki v2 |
 | [`REMAINING-WORK.md`](../REMAINING-WORK.md) | 剩余工作积压项 |

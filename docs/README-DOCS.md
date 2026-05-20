@@ -18,14 +18,12 @@
 |------|------|
 | [`README-DOCS.md`](README-DOCS.md) | **本文**：文档总索引、技术栈一页表、审计类文档入口；指向根 [`README.md`](../README.md)。 |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **系统架构**：端到端数据流、索引与检索栈、Wiki 子系统（质量、记忆、矛盾、MCP 边界）、与前端的协作关系。 |
-| [`IMPLEMENTATION-STATUS.md`](IMPLEMENTATION-STATUS.md) | **实现 vs 规划**：阶段勾选、API 路径差异说明（例如矛盾检测路由）、AutoHealer 等能力与文档交叉引用；排查「文档写了但开关未开」的首选。 |
 | [`CODEMAPS/INDEX.md`](CODEMAPS/INDEX.md) | **代码地图**：`main.py`、路由聚合、`mcp_server`/`mcp_wiki_server`、仪表盘入口、`store/`/`wiki/`/`indexer/`/`query/`/`llm/` 树状导读与 Wiki 聚焦表。 |
 | [`MCP-INTEGRATION.md`](MCP-INTEGRATION.md) | **MCP 集成手册**：主 MCP 与 Wiki HTTP MCP 的 URL、请求体字段差异（`tool_name` vs `name`）、22+6 工具参数级说明、角色与错误码。 |
 | [`DEPLOYMENT.md`](DEPLOYMENT.md) | **部署与运维**：前置条件、`WIKI__*` 等功能开关、认证与限流、Docker、安全与生产注意事项。 |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | **开发者指南**：仓库目录、`uv`/`pnpm`、测试命令、扩展语言与 MCP、本地调试惯例。 |
 | [`ONBOARDING.md`](ONBOARDING.md) | **产品与上手**：功能地图、首次索引、仪表盘与 MCP 客户端配置心智模型。 |
-| [`wiki-generation-architecture.md`](wiki-generation-architecture.md) | **Wiki 生成架构**：管道阶段、增量 Ingest、LLM Wiki v2（置信度、矛盾、主张、记忆层）、与异步任务/新鲜度 API 的关系。 |
-| ~~[`KNOWN-ISSUES.md`](KNOWN-ISSUES.md)~~ | 已合并至历史提案，文件已删除。 |
+| [`wiki-generation-architecture.md`](wiki-generation-architecture.md) | **Wiki 生成架构**：管道阶段、增量 Ingest、LLM Wiki v2（置信度、矛盾、主张、记忆层）、Agent 框架、与异步任务/新鲜度 API 的关系。 |
 | [`REMAINING-WORK.md`](REMAINING-WORK.md) | **统一剩余工作清单**：独立积压项（语言插件、文档注入、死代码清理等）。 |
 | [`../AGENTS.md`](../AGENTS.md) | **AI Agent 上下文**：项目概述、目录结构、Agent 框架、开发命令、约定、常见任务指南。 |
 

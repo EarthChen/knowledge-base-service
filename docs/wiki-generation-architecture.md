@@ -2,7 +2,7 @@
 
 本文档是 **Knowledge Base Service** 中**生成式 Wiki** 流水线的**权威设计参考**：说明如何将**已索引的属性图**（Tree-sitter 解析 → **FalkorDB** 图 + **向量嵌入**）转化为面向人类与 Agent 的 **Markdown Wiki**；如何与 **HTTP REST/SSE**、**主 MCP（22 工具）**、**可选 Wiki HTTP MCP（6 工具）**、**仪表盘**及 **LLM Wiki v2**（质量、矛盾、主张、记忆）协同。
 
-**与实现对照**：功能开关集中在 `WikiConfig` / `LLMConfig` 等（环境变量前缀多为 `WIKI__*`、`LLM__*`）。落地状态快照见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)；主架构见 [ARCHITECTURE.md](ARCHITECTURE.md)；MCP 契约见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)。
+**与实现对照**：功能开关集中在 `WikiConfig` / `LLMConfig` 等（环境变量前缀多为 `WIKI__*`、`LLM__*`）。主架构见 [ARCHITECTURE.md](ARCHITECTURE.md)；MCP 契约见 [MCP-INTEGRATION.md](MCP-INTEGRATION.md)；剩余工作见 [REMAINING-WORK.md](REMAINING-WORK.md)。
 
 ---
 
@@ -367,7 +367,66 @@ sequenceDiagram
 
 ---
 
-## 12. 模型策略（Model Strategy）
+## 12. Agent 框架（`wiki/agents/`）
+
+Wiki 管线中 **compose_leaf_modules** 节点驱动 **WikiPageAgent** 生成页面内容，底层依赖统一 Agent 框架。
+
+### 12.1 核心组件
+
+| 组件 | 模块 | 职责 |
+|------|------|------|
+| **GenericAgent** | `wiki/agents/base_agent.py` | 基类：LLM + ToolRegistry + Memory；子类覆写 `system_prompt` / `tools` |
+| **run_agent_loop()** | `wiki/agents/runner.py` | 统一执行引擎；接受 `LoopConfig`（max_turns, timeout, detect_repeated_calls）、`LoopHooks`（回调）；返回 `AgentLoopResult` |
+| **@function_tool** | `wiki/agents/tool_decorator.py` | 从函数签名自动生成 `ToolDef` JSON Schema |
+| **agent_tool()** | `wiki/agents/agent_tool.py` | Agent-as-Tool 工厂；将子 Agent 包装为 `ToolDef` |
+| **RunContext** | `wiki/agents/context.py` | 类型化依赖注入容器 per-run |
+| **Guardrails** | `wiki/agents/guardrails.py` | Input / Output 护栏 |
+| **AgentTracer** | `wiki/agents/tracing.py` | Span 跟踪 + JsonlTraceProcessor |
+| **Handoff** | `wiki/agents/handoff.py` | 子 Agent 委托（深度 / 数量限制） |
+
+### 12.2 执行流（Mermaid）
+
+```mermaid
+sequenceDiagram
+  participant Caller as 调用方（Pipeline Node）
+  participant Loop as run_agent_loop
+  participant LLM as LLM Provider
+  participant Tool as Tool Function
+
+  Caller->>Loop: agent, input, LoopConfig
+  loop turn ≤ max_turns
+    Loop->>LLM: complete_with_tools(messages, tools)
+    alt LLM 返回 text
+      Loop-->>Caller: AgentLoopResult(output)
+    else LLM 返回 tool_calls
+      Loop->>Loop: repeated call detection
+      Loop->>Tool: execute(args)
+      Tool-->>Loop: result → append messages
+    end
+  end
+```
+
+### 12.3 Tool Tier 渐进激活
+
+| Tier | 激活条件 | 典型工具 |
+|------|----------|----------|
+| T1 | 始终可用 | get_entity_info, query_graph, search_code |
+| T2 | ≥ round 3 | get_call_chain, find_implementations |
+| T3 | ≥ round 5 | read_source_file, analyze_dependencies |
+
+由 `GenericAgent._get_active_tools(round_num)` 控制；避免 LLM 在早期被过多工具干扰。
+
+### 12.4 重复调用检测
+
+`LoopConfig.detect_repeated_calls`（默认 `True`）：若 LLM 连续请求相同 `(tool_name, arguments)` 组合，自动中断循环并返回当前积累结果，防止 token 浪费。
+
+### 12.5 WikiPageAgent 工具集（14 Tools）
+
+通过 `@function_tool` 注册在 `wiki/page_agent.py`：`get_entity_info`, `get_module_entities`, `search_code`, `query_graph`, `get_call_chain`, `find_implementations`, `get_dependencies`, `read_source_file`, `check_wiki_links`, `get_related_pages`, `analyze_dependencies`, `get_entity_context`, `search_similar_code`, `get_file_structure`。
+
+---
+
+## 13. 模型策略（Model Strategy）
 
 ### 12.1 动态路由
 
@@ -391,7 +450,7 @@ sequenceDiagram
 
 ---
 
-## 13. 迭代式 RAG
+## 14. 迭代式 RAG
 
 ### 13.1 IterativeRAGEngine
 
@@ -415,7 +474,7 @@ sequenceDiagram
 
 ---
 
-## 14. 相关模块索引（扩展表）
+## 15. 相关模块索引（扩展表）
 
 | 关注点 | 路径 |
 |--------|------|

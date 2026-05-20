@@ -261,3 +261,4 @@
 | [MCP-INTEGRATION.md](MCP-INTEGRATION.md) | 22 + 6 工具详解、请求体示例、角色矩阵 |
 | [wiki-generation-architecture.md](wiki-generation-architecture.md) | 跨仓业务 Wiki、`task_id`、增量语义 |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 本地开发、测试命令、目录结构 |
+| [`../AGENTS.md`](../AGENTS.md) | AI Agent 上下文：结构、Agent 框架、开发命令 |

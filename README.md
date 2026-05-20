@@ -267,5 +267,4 @@ knowledge-base-service/
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 目录说明、测试与扩展指南 |
 | [docs/ONBOARDING.md](docs/ONBOARDING.md) | 用户上手与常见路径 |
 | [docs/wiki-generation-architecture.md](docs/wiki-generation-architecture.md) | Wiki 流水线、RAG、质量与自动化 |
-| [docs/IMPLEMENTATION-STATUS.md](docs/IMPLEMENTATION-STATUS.md) | 代码与规划对照状态 |
-| [docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md) | 已知问题与规避方式 |
+| [docs/REMAINING-WORK.md](docs/REMAINING-WORK.md) | 剩余工作积压项 |

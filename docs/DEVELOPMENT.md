@@ -419,7 +419,6 @@ uv run ruff format .
 
 - **[README.md](../README.md)**：面向使用的快速开始与环境变量索引。
 - **[ARCHITECTURE.md](ARCHITECTURE.md)**：系统架构与数据流。
-- **[IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)**：能力与接线状态（含 Wiki AutoHealer 等开关对照）。
 - **[REMAINING-WORK.md](REMAINING-WORK.md)**：剩余工作积压项。
 
 若在文档与代码之间发现不一致，**以代码与测试为准**，并欢迎提交文档修正。

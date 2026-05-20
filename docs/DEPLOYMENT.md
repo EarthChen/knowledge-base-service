@@ -166,7 +166,7 @@ Knowledge Base Service 为基于 **FastAPI** 的独立 HTTP 服务：依赖 **Fa
 
 | 变量 | 默认值 / 类型 | 说明 |
 |------|----------------|------|
-| `SUPPORTED_LANGUAGES` | `["python","java","go","javascript","typescript"]` | 一般为 **JSON 数组**字符串 |
+| `SUPPORTED_LANGUAGES` | `["python","java","go","javascript","typescript","kotlin","swift","objc","dart"]` | 一般为 **JSON 数组**字符串（默认含 9 语言） |
 | `FILE_EXTENSIONS` | 见 [`config.py`](../config.py) 内嵌 `dict` | 语言 → 扩展名列表；环境覆盖多为 **JSON 对象** |
 | `EXCLUDE_DIRS` | 见 [`config.py`](../config.py) | 跳过的目录名列表；环境覆盖多为 **JSON 数组** |
 

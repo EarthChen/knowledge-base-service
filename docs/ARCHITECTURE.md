@@ -1,6 +1,6 @@
 # Knowledge Base Service — 系统架构
 
-本文档描述 **Knowledge Base Service** 的全栈架构：FastAPI 生命周期、依赖容器、HTTP 路由与中间件、FalkorDB 分层存储、索引与检索管道、Wiki 生成与质量子系统、MCP、仪表盘 SPA，以及横切模块（分页、FQN、协议边界）。实现细节与规划差异另见 [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)；Wiki 生成流水线延展说明见 [wiki-generation-architecture.md](wiki-generation-architecture.md)。
+本文档描述 **Knowledge Base Service** 的全栈架构：FastAPI 生命周期、依赖容器、HTTP 路由与中间件、FalkorDB 分层存储、索引与检索管道、Wiki 生成与质量子系统、MCP、仪表盘 SPA，以及横切模块（分页、FQN、协议边界）。Wiki 生成流水线延展说明见 [wiki-generation-architecture.md](wiki-generation-architecture.md)；剩余工作见 [REMAINING-WORK.md](REMAINING-WORK.md)。
 
 ---
 
@@ -424,6 +424,5 @@ NL→Cypher 仅供 Dashboard，不当 MCP 工具暴露。
 | 文档 | 内容 |
 |------|------|
 | [wiki-generation-architecture.md](wiki-generation-architecture.md) | Wiki 分层管道、延迟 Enrichment、混合搜索、Webhook/Lint、LLM Wiki v2 |
-| [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md) | 实现与规划对照 |
 | [MCP-INTEGRATION.md](MCP-INTEGRATION.md) | 工具清单与 HTTP MCP |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 环境变量与部署 |

@@ -134,10 +134,10 @@ async def test_vector_search_cypher_includes_where_filters():
     store = FalkorDBStore.__new__(FalkorDBStore)
     store._graph = MagicMock()
 
-    captured_queries: list[str] = []
+    captured: list[tuple[str, dict[str, Any]]] = []
 
     def capture_query(q, **kwargs):
-        captured_queries.append(q)
+        captured.append((q, kwargs.get("params") or {}))
         mock_result = MagicMock()
         mock_result.result_set = []
         return mock_result
@@ -152,10 +152,12 @@ async def test_vector_search_cypher_includes_where_filters():
         language="python",
     )
 
-    assert len(captured_queries) == 1
-    cypher = captured_queries[0]
-    assert "node.repository = 'my-repo'" in cypher
-    assert "node.language = 'python'" in cypher
+    assert len(captured) == 1
+    cypher, params = captured[0]
+    assert "node.repository = $repo" in cypher
+    assert "node.language = $lang" in cypher
+    assert params["repo"] == "my-repo"
+    assert params["lang"] == "python"
     assert "WHERE" in cypher
 
 

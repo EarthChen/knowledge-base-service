@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 
 from core.log import get_logger
-from store.falkordb_common import _cypher_escape, _graph_executor
+from store.falkordb_common import _graph_executor
 
 from .schema import NodeLabel
 
@@ -26,10 +26,13 @@ class FalkorDBSearchMixin:
         vec_str = ", ".join(str(v) for v in embedding)
 
         where_parts: list[str] = []
+        params: dict[str, Any] = {}
         if repository:
-            where_parts.append(f"node.repository = '{_cypher_escape(repository)}'")
+            where_parts.append("node.repository = $repo")
+            params["repo"] = repository
         if language:
-            where_parts.append(f"node.language = '{_cypher_escape(language)}'")
+            where_parts.append("node.language = $lang")
+            params["lang"] = language
 
         fetch_k = k * 3 if where_parts else k
         where_clause = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
@@ -41,7 +44,8 @@ class FalkorDBSearchMixin:
             f"RETURN node, score ORDER BY score DESC LIMIT {k}"
         )
         result = await loop.run_in_executor(
-            _graph_executor, lambda: self._graph.query(query)  # type: ignore[union-attr]
+            _graph_executor,
+            lambda: self._graph.query(query, params=params),  # type: ignore[union-attr]
         )
         return [(row[0], row[1]) for row in result.result_set]
 
@@ -68,10 +72,13 @@ class FalkorDBSearchMixin:
         seen_uids: set[str] = set()
 
         extra_filters: list[str] = []
+        filter_params: dict[str, Any] = {}
         if repository:
-            extra_filters.append(f"n.repository = '{_cypher_escape(repository)}'")
+            extra_filters.append("n.repository = $repo")
+            filter_params["repo"] = repository
         if language:
-            extra_filters.append(f"n.language = '{_cypher_escape(language)}'")
+            extra_filters.append("n.language = $lang")
+            filter_params["lang"] = language
         _kw_filter = (" AND " + " AND ".join(extra_filters)) if extra_filters else ""
 
         return_clause = (
@@ -89,9 +96,10 @@ class FalkorDBSearchMixin:
                 f"{return_clause} LIMIT $k"
             )
             try:
+                fqn_params = {"fqn": keyword, "k": k, **filter_params}
                 rows = await loop.run_in_executor(
                     _graph_executor,
-                    lambda: self._graph.query(fqn_q, params={"fqn": keyword, "k": k}),  # type: ignore[union-attr]
+                    lambda: self._graph.query(fqn_q, params=fqn_params),  # type: ignore[union-attr]
                 )
                 for row in rows.result_set or []:
                     uid = row[0]
@@ -122,10 +130,16 @@ class FalkorDBSearchMixin:
                         f"WITH f AS n {return_clause} LIMIT $k"
                     )
                     try:
+                        combo_params = {
+                            "method": method_name,
+                            "class_name": class_simple,
+                            "k": k,
+                            **filter_params,
+                        }
                         rows = await loop.run_in_executor(
                             _graph_executor,
                             lambda: self._graph.query(  # type: ignore[union-attr]
-                                combo_q, params={"method": method_name, "class_name": class_simple, "k": k},
+                                combo_q, params=combo_params,
                             ),
                         )
                         for row in rows.result_set or []:
@@ -149,9 +163,10 @@ class FalkorDBSearchMixin:
             f"{return_clause} LIMIT $k"
         )
         try:
+            exact_params = {"name": keyword, "k": k, **filter_params}
             rows = await loop.run_in_executor(
                 _graph_executor,
-                lambda: self._graph.query(exact_q, params={"name": keyword, "k": k}),  # type: ignore[union-attr]
+                lambda: self._graph.query(exact_q, params=exact_params),  # type: ignore[union-attr]
             )
             for row in rows.result_set or []:
                 uid = row[0]
@@ -178,10 +193,11 @@ class FalkorDBSearchMixin:
             "LIMIT $k"
         )
         try:
+            fuzzy_params = {"keyword": keyword, "k": k, **filter_params}
             rows = await loop.run_in_executor(
                 _graph_executor,
                 lambda: self._graph.query(  # type: ignore[union-attr]
-                    fuzzy_q, params={"keyword": keyword, "k": k},
+                    fuzzy_q, params=fuzzy_params,
                 ),
             )
             for row in rows.result_set or []:

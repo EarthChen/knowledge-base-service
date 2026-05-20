@@ -134,6 +134,8 @@ class GenericAgent(ABC):
     presented to the LLM.
     """
 
+    output_type: type | None = None
+
     def __init__(
         self,
         llm: Any,
@@ -158,6 +160,9 @@ class GenericAgent(ABC):
 
     def _summarize_tool_result(self, result: dict[str, Any]) -> str:
         return json.dumps(result, ensure_ascii=False, default=str)[:200]
+
+    def _render_output(self, structured: dict) -> str:
+        return json.dumps(structured, ensure_ascii=False)
 
     def create_memory(self) -> Any:
         """Factory method. Override in subclasses for specialized memory."""
@@ -338,7 +343,19 @@ class GenericAgent(ABC):
         system_prompt: str,
         user_prompt: str,
     ) -> str:
-        """Single-pass text generation without tools."""
+        """Single-pass text generation without tools. Uses output_type if set."""
+        if self.output_type is not None:
+            try:
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
+                result = await self._llm.complete_json(
+                    messages, schema=self.output_type.model_json_schema()
+                )
+                return self._render_output(result)
+            except Exception:
+                log.warning("structured_output_failed_fallback_to_text", exc_info=True)
         try:
             return await self._llm.generate(prompt=user_prompt, system=system_prompt)
         except Exception:

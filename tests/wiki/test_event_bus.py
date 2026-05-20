@@ -1,8 +1,67 @@
 import asyncio
+import builtins
+import threading
 
 import pytest
 
 from wiki.event_bus import WikiEvent, WikiEventBus
+
+
+@pytest.mark.asyncio
+async def test_publish_snapshots_subscribers_before_iteration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """publish must copy _subscribers before iterating (copy-on-iterate)."""
+    bus = WikiEventBus()
+    bus.subscribe()
+    snapshots: list[list[object]] = []
+    real_list = list
+
+    def tracking_list(obj: object) -> list[object]:
+        if obj is bus._subscribers:
+            snapshots.append(real_list(obj))
+        return real_list(obj)
+
+    monkeypatch.setattr(builtins, "list", tracking_list)
+    await bus.publish(WikiEvent(event_type="test", repository="r"))
+    assert len(snapshots) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_subscribe_unsubscribe_during_publish() -> None:
+    """Subscribe/unsubscribe from other threads during publish must not raise RuntimeError."""
+    bus = WikiEventBus()
+    held = [bus.subscribe() for _ in range(5)]
+    stop = threading.Event()
+    errors: list[BaseException] = []
+    lock = threading.Lock()
+
+    def subscribe_loop() -> None:
+        while not stop.is_set():
+            try:
+                q = bus.subscribe()
+                bus.unsubscribe(q)
+            except RuntimeError as exc:
+                with lock:
+                    errors.append(exc)
+                return
+
+    sub_threads = [threading.Thread(target=subscribe_loop) for _ in range(2)]
+    for t in sub_threads:
+        t.start()
+
+    event = WikiEvent(event_type="test", repository="r")
+    for _ in range(50):
+        await bus.publish(event)
+
+    stop.set()
+    for t in sub_threads:
+        t.join(timeout=2)
+
+    for q in held:
+        bus.unsubscribe(q)
+
+    assert not errors, f"RuntimeError during concurrent publish: {errors}"
 
 
 @pytest.mark.asyncio

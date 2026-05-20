@@ -192,6 +192,11 @@ class SemanticQueryService:
     ) -> SemanticResult:
         """Search across all entity types and merge results by score."""
         fkw = {"repository": repository, "language": language}
+        embeddings = await self._embedding.generate_for_query([query_text])
+        if not embeddings:
+            return SemanticResult(query_text=query_text)
+        query_vector = embeddings[0]
+
         (
             func_results,
             class_results,
@@ -200,12 +205,12 @@ class SemanticQueryService:
             concept_results,
             module_results,
         ) = await asyncio.gather(
-            self._search_by_label(query_text, NodeLabel.FUNCTION, k, **fkw),
-            self._search_by_label(query_text, NodeLabel.CLASS, k, **fkw),
-            self._search_by_label(query_text, NodeLabel.DOCUMENT, k, **fkw),
-            self._search_by_label(query_text, NodeLabel.BUSINESS_FLOW, k, **fkw),
-            self._search_by_label(query_text, NodeLabel.BUSINESS_CONCEPT, k, **fkw),
-            self._search_by_label(query_text, NodeLabel.MODULE, k, **fkw),
+            self._search_by_label(query_text, NodeLabel.FUNCTION, k, query_vector=query_vector, **fkw),
+            self._search_by_label(query_text, NodeLabel.CLASS, k, query_vector=query_vector, **fkw),
+            self._search_by_label(query_text, NodeLabel.DOCUMENT, k, query_vector=query_vector, **fkw),
+            self._search_by_label(query_text, NodeLabel.BUSINESS_FLOW, k, query_vector=query_vector, **fkw),
+            self._search_by_label(query_text, NodeLabel.BUSINESS_CONCEPT, k, query_vector=query_vector, **fkw),
+            self._search_by_label(query_text, NodeLabel.MODULE, k, query_vector=query_vector, **fkw),
         )
 
         doc_hits = doc_results.matches if self._include_raw_docs_in_results else []
@@ -234,12 +239,15 @@ class SemanticQueryService:
         *,
         repository: str | None = None,
         language: str | None = None,
+        query_vector: list[float] | None = None,
     ) -> SemanticResult:
-        embeddings = await self._embedding.generate_for_query([query_text])
-        if not embeddings:
-            return SemanticResult(query_text=query_text)
-
-        query_vec = embeddings[0]
+        if query_vector is None:
+            embeddings = await self._embedding.generate_for_query([query_text])
+            if not embeddings:
+                return SemanticResult(query_text=query_text)
+            query_vec = embeddings[0]
+        else:
+            query_vec = query_vector
 
         try:
             results = await self._store.vector_search(

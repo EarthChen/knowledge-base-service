@@ -283,11 +283,6 @@ export default function WikiShell() {
     [setSearchParams],
   );
 
-  const pendingQuery = searchParams.get("q") ?? "";
-  if (pendingQuery.trim()) {
-    return <Navigate to={wikiSearchHref(pendingQuery.trim())} replace />;
-  }
-
   const setToolTab = useCallback(
     (tab: WikiToolTab) => {
       setSearchParams(
@@ -317,6 +312,11 @@ export default function WikiShell() {
     },
     [setSearchParams],
   );
+
+  const pendingQuery = searchParams.get("q") ?? "";
+  if (pendingQuery.trim()) {
+    return <Navigate to={wikiSearchHref(pendingQuery.trim())} replace />;
+  }
 
   const contentError =
     pagePath && pageQuery.isError

@@ -41,6 +41,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0",
+    "pytest-xdist>=3.5",
     "ruff>=0.8.0",
 ]
 
@@ -66,7 +67,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 # Full-suite runs gate at 75% to catch large coverage drops (~82% currently). Narrow `pytest path::test`
 # runs still apply coverage defaults; override locally with `--no-cov` if needed.
-addopts = "--cov=. --cov-report=term-missing --cov-fail-under=75"
+addopts = "--cov=. --cov-report=term-missing --cov-fail-under=75 -n auto"
 filterwarnings = [
     "ignore:The 'config' parameter should be typed as:UserWarning",
 ]

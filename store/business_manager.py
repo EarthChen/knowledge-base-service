@@ -89,6 +89,7 @@ class BusinessManager:
             return None
         return self._deserialize(raw)
 
+    @with_redis_retry()
     def update_business(self, business_id: str, name: str | None = None, description: str | None = None) -> dict[str, Any] | None:
         key = _meta_key(business_id)
         if not self._conn.exists(key):

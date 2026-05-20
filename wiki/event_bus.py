@@ -44,7 +44,7 @@ class WikiEventBus:
     async def publish(self, event: WikiEvent) -> None:
         log.debug("wiki_event_published", event_type=event.event_type, repository=event.repository)
         dead: list[asyncio.Queue] = []
-        for q in self._subscribers:
+        for q in list(self._subscribers):
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:

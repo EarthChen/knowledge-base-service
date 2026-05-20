@@ -75,13 +75,16 @@ async def test_search_all_respects_include_raw_docs_in_results_false() -> None:
             )
         return SemanticResult(matches=[], query_text=query_text, total=0)
 
-    svc = SemanticQueryService(MagicMock(), MagicMock(), include_raw_docs_in_results=False)
+    emb = MagicMock()
+    emb.generate_for_query = AsyncMock(return_value=[[0.1] * 4])
+    svc = SemanticQueryService(MagicMock(), emb, include_raw_docs_in_results=False)
     svc._search_by_label = AsyncMock(side_effect=fake_search)  # type: ignore[method-assign]
 
     res = await svc.search_all("hello", k=5)
     types = {m.get("type") for m in res.matches}
     assert "Document" not in types
     assert "Function" in types
+    emb.generate_for_query.assert_awaited_once_with(["hello"])
 
 
 @pytest.mark.asyncio
@@ -101,13 +104,16 @@ async def test_search_all_includes_document_hits_when_include_raw_docs_true() ->
             )
         return SemanticResult(matches=[], query_text=query_text, total=0)
 
-    svc = SemanticQueryService(MagicMock(), MagicMock(), include_raw_docs_in_results=True)
+    emb = MagicMock()
+    emb.generate_for_query = AsyncMock(return_value=[[0.1] * 4])
+    svc = SemanticQueryService(MagicMock(), emb, include_raw_docs_in_results=True)
     svc._search_by_label = AsyncMock(side_effect=fake_search)  # type: ignore[method-assign]
 
     res = await svc.search_all("hello", k=5)
     types = {m.get("type") for m in res.matches}
     assert "Document" in types
     assert "Function" in types
+    emb.generate_for_query.assert_awaited_once_with(["hello"])
 
 
 @pytest.mark.asyncio

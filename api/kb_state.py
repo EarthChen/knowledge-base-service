@@ -3,12 +3,9 @@
 During migration, background tasks and route handlers access services via this module.
 After migration is complete, all call sites should use AppContainer directly.
 
-Semaphore note: this module defines module-level ``reindex_sem`` and ``index_sem``,
-while :class:`core.container.AppContainer` also owns its own instances of the same
-limits. They are not the same objects, so concurrency can diverge from the container
-config until call sites are migrated. New code should acquire semaphores from
-``AppContainer`` (or a service that receives the container) rather than importing
-these module-level semaphores.
+Module-level ``reindex_sem`` and ``index_sem`` are placeholders until
+:func:`_bind` runs; after lifespan startup they reference the same instances as
+:class:`core.container.AppContainer`.
 """
 
 from __future__ import annotations
@@ -40,8 +37,11 @@ scheduler: SyncScheduler | None = None
 def _bind(container: AppContainer) -> None:
     """Called by main.lifespan to sync module globals with the container."""
     global _container, registry, task_manager, repo_registry, scheduler
+    global reindex_sem, index_sem
     _container = container
     registry = container.registry
     task_manager = container.task_manager
     repo_registry = container.repo_registry
     scheduler = container.scheduler
+    reindex_sem = container.reindex_sem
+    index_sem = container.index_sem

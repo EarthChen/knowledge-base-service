@@ -48,6 +48,5 @@ export function useWikiEntities(
       }
     },
     enabled: Boolean(trimmedPath && trimmedBiz),
-    staleTime: 30_000,
   });
 }

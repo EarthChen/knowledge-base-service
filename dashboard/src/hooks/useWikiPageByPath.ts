@@ -37,6 +37,5 @@ export function useWikiPageByPath(
     queryKey: queryKeys.wiki.pageByPath(businessId, trimmed, repository),
     queryFn: () => fetchWikiPageByPath(businessId, trimmed, repository),
     enabled: pathEnabled && userEnabled,
-    staleTime: 30_000,
   });
 }

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { STALE_TIME } from "./cacheConfig";
 import { api, ApiError, getCurrentBusiness, triggerEnrich } from "./client";
 import { queryKeys, type ArchitectureSearchQueryOptions } from "./queryKeys";
 import type {
@@ -49,6 +50,7 @@ export function useStats(repository?: string) {
   return useQuery<GraphStats>({
     queryKey: queryKeys.stats(repository),
     queryFn: () => api(`/stats${params}`, { method: "GET" }),
+    staleTime: STALE_TIME.NORMAL,
   });
 }
 
@@ -56,6 +58,7 @@ export function useP2Stats() {
   return useQuery<P2Stats>({
     queryKey: queryKeys.p2Stats,
     queryFn: () => api("/stats/p2", { method: "GET" }),
+    staleTime: STALE_TIME.NORMAL,
   });
 }
 
@@ -120,7 +123,6 @@ export function useHybridQuickSearch(query: string, enabled: boolean) {
         }),
       }),
     enabled: enabled && trimmed.length >= 2,
-    staleTime: 30_000,
   });
 }
 

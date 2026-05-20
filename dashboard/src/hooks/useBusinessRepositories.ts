@@ -14,7 +14,6 @@ export function useBusinessRepositories(businessId: string) {
     queryKey: queryKeys.businessRepositories(businessId),
     queryFn: () => api(`/businesses/${encodeURIComponent(businessId)}/repositories`),
     enabled: !!businessId,
-    staleTime: 30_000,
   });
 }
 

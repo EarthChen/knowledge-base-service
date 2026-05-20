@@ -19,6 +19,5 @@ export function useWikiTree(
         `/wiki/tree?business_id=${encodeURIComponent(businessId)}&view=${encodeURIComponent(viewType)}${tierParam}`,
       ),
     enabled: !!businessId,
-    staleTime: 30_000,
   });
 }

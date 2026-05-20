@@ -38,7 +38,6 @@ export function useWikiReferenceGraph(
     queryFn: () =>
       api<WikiRefGraphResponse>(`/wiki/references?business_id=${encodeURIComponent(businessId)}`),
     enabled: !!businessId,
-    staleTime: 30_000,
   });
 
   const { nodes, edges } = useMemo(() => {

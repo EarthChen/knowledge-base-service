@@ -7,7 +7,6 @@ export function useAllSettings() {
   return useQuery<SettingsResponse>({
     queryKey: queryKeys.settings,
     queryFn: () => api<SettingsResponse>("/settings"),
-    staleTime: 30_000,
   });
 }
 
@@ -16,6 +15,5 @@ export function useCategorySettings(category: string) {
     queryKey: queryKeys.settingsCategory(category),
     queryFn: () => api<CategoryResponse>(`/settings/${encodeURIComponent(category)}`),
     enabled: Boolean(category),
-    staleTime: 30_000,
   });
 }

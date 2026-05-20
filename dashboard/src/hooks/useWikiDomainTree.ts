@@ -38,7 +38,6 @@ export function useWikiDomainTree(businessId: string) {
     queryKey: queryKeys.wiki.domainTree(businessId),
     queryFn: () => api(`/wiki/domain-tree?business_id=${encodeURIComponent(businessId)}`),
     enabled: !!businessId,
-    staleTime: 30_000,
   });
 }
 

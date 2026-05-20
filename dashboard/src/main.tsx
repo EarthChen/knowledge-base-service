@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { STALE_TIME } from "./api/cacheConfig";
 import { I18nProvider } from "./i18n/context";
 import { BusinessProvider } from "./contexts/BusinessContext";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -13,7 +14,7 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       refetchOnWindowFocus: false,
-      staleTime: 30_000,
+      staleTime: STALE_TIME.FAST,
     },
   },
 });

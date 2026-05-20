@@ -114,3 +114,55 @@ class TestRunConfigTracer:
 
         config = RunConfig()
         assert config.tracer is None
+
+
+class TestJsonlTraceProcessor:
+    def test_writes_span_to_file(self, tmp_path):
+        from wiki.agents.tracing import Span, JsonlTraceProcessor
+        import json
+
+        output_file = tmp_path / "traces.jsonl"
+        proc = JsonlTraceProcessor(output_path=str(output_file))
+
+        span = Span(name="test_op", kind="tool_call")
+        span.end_time = span.start_time + 0.1
+        span.status = "completed"
+        span.metadata = {"group_id": "g1"}
+        proc.on_span_end(span)
+
+        lines = output_file.read_text().strip().split("\n")
+        assert len(lines) == 1
+        data = json.loads(lines[0])
+        assert data["name"] == "test_op"
+        assert data["kind"] == "tool_call"
+        assert data["status"] == "completed"
+        assert "span_id" in data
+        assert "duration_ms" in data
+
+    def test_appends_multiple_spans(self, tmp_path):
+        from wiki.agents.tracing import Span, JsonlTraceProcessor
+        import json
+
+        output_file = tmp_path / "traces.jsonl"
+        proc = JsonlTraceProcessor(output_path=str(output_file))
+
+        for i in range(3):
+            span = Span(name=f"op_{i}", kind="tool_call")
+            span.end_time = span.start_time + 0.01
+            span.status = "completed"
+            proc.on_span_end(span)
+
+        lines = output_file.read_text().strip().split("\n")
+        assert len(lines) == 3
+
+    def test_creates_parent_directory(self, tmp_path):
+        from wiki.agents.tracing import Span, JsonlTraceProcessor
+
+        nested_path = tmp_path / "deep" / "nested" / "traces.jsonl"
+        proc = JsonlTraceProcessor(output_path=str(nested_path))
+
+        span = Span(name="op")
+        span.end_time = span.start_time + 0.01
+        proc.on_span_end(span)
+
+        assert nested_path.exists()

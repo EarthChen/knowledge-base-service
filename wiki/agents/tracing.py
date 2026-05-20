@@ -78,3 +78,32 @@ class AgentTracer:
         if span in self._span_stack:
             idx = self._span_stack.index(span)
             self._span_stack = self._span_stack[:idx]
+
+
+class JsonlTraceProcessor:
+    """Writes completed spans as JSONL to a file for offline analysis."""
+
+    def __init__(self, output_path: str = "data/traces/agent_traces.jsonl") -> None:
+        self._output_path = output_path
+
+    def on_span_end(self, span: Span) -> None:
+        import json
+        from pathlib import Path
+
+        path = Path(self._output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        record = {
+            "span_id": span.span_id,
+            "parent_id": span.parent_id,
+            "name": span.name,
+            "kind": span.kind,
+            "status": span.status,
+            "start_time": span.start_time,
+            "end_time": span.end_time,
+            "duration_ms": span.duration_ms,
+            "metadata": span.metadata,
+        }
+
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")

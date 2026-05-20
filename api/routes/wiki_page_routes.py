@@ -108,6 +108,12 @@ async def _resolve_primary_source_entity_uid(
         uid = str((row0 or {}).get("uid") or "").strip()
         return uid
     except Exception:  # noqa: BLE001
+        log.warning(
+            "resolve_primary_source_entity_uid_failed",
+            repository=repository,
+            path=path,
+            exc_info=True,
+        )
         return ""
 
 
@@ -151,6 +157,12 @@ async def _fetch_source_locations(
             })
         return locations
     except Exception:
+        log.warning(
+            "fetch_source_locations_failed",
+            repository=repository,
+            page_path=page_path,
+            exc_info=True,
+        )
         return []
 
 
@@ -211,6 +223,12 @@ async def _build_related_pages(
             max_hops=1,
         )
     except Exception:  # noqa: BLE001
+        log.warning(
+            "build_related_pages_failed",
+            repository=repository,
+            entity_uid=entity_uid,
+            exc_info=True,
+        )
         return related_pages
     pairs = related[:10]
     for rel_uid, _ in pairs:
@@ -227,7 +245,12 @@ async def _build_related_pages(
                     page_type_str = lab.value if hasattr(lab, "value") else str(lab)
                     biz = rn_props.get("business_domain")
             except Exception:  # noqa: BLE001
-                pass
+                log.warning(
+                    "related_page_node_lookup_failed",
+                    repository=repository,
+                    rel_uid=rel_uid,
+                    exc_info=True,
+                )
         related_pages.append(
             {
                 "uid": rel_uid,

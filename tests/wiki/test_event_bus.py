@@ -36,6 +36,19 @@ async def test_shutdown() -> None:
 
 
 @pytest.mark.asyncio
+async def test_shutdown_sends_close_event() -> None:
+    bus = WikiEventBus()
+    q = bus.subscribe()
+    await bus.shutdown()
+    events = []
+    while not q.empty():
+        events.append(q.get_nowait())
+    close_events = [e for e in events if e is not None and e.event_type == "close"]
+    assert len(close_events) == 1
+    assert close_events[0].data.get("reason") == "server_shutdown"
+
+
+@pytest.mark.asyncio
 async def test_stream_emits_heartbeat_on_queue_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("wiki.event_bus._STREAM_QUEUE_GET_TIMEOUT_SEC", 0.05)
     bus = WikiEventBus()

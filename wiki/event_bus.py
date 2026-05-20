@@ -69,6 +69,9 @@ class WikiEventBus:
                     continue
                 if event is None:
                     break
+                if event.event_type == "close":
+                    yield event
+                    break
                 if business_id is not None and event.business_id != business_id:
                     continue
                 yield event
@@ -76,7 +79,16 @@ class WikiEventBus:
             self.unsubscribe(q)
 
     async def shutdown(self) -> None:
-        for q in self._subscribers:
+        close_event = WikiEvent(
+            event_type="close",
+            repository="",
+            data={"reason": "server_shutdown"},
+        )
+        for q in list(self._subscribers):
+            try:
+                q.put_nowait(close_event)
+            except asyncio.QueueFull:
+                pass
             try:
                 q.put_nowait(None)
             except asyncio.QueueFull:

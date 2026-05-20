@@ -238,6 +238,8 @@ async def _run_business_wiki_background(
 
 
 def _wiki_event_to_sse_data(ev: WikiEvent) -> str:
+    if ev.event_type == "close":
+        return json.dumps({"event": "close", "data": "server_shutdown"})
     d: dict[str, Any] = {
         "type": ev.event_type,
         "business_id": ev.business_id,

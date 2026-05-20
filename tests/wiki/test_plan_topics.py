@@ -8,6 +8,7 @@ from wiki.domain_doc_agent import (
     DomainDocAgent,
     DomainTopicOutline,
     TopicPlan,
+    _maybe_split,
     _parse_topic_outline,
 )
 
@@ -78,3 +79,64 @@ async def test_plan_topics_small_domain_skips_llm():
     # LLM should NOT have been called
     if hasattr(llm, "complete_json"):
         llm.complete_json.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_write_with_outline_produces_topic_pages():
+    """When topic_outline has multiple topics, produce overview + topic pages."""
+    llm = AsyncMock()
+    llm.generate = AsyncMock(return_value="## 业务概述\n家族任务系统概述...")
+    agent = DomainDocAgent(
+        domain_name="family-tasks",
+        domain_display_name="家族任务",
+        llm=llm,
+        graph_store=MagicMock(),
+    )
+    outline = DomainTopicOutline(
+        should_split=True,
+        topics=[
+            TopicPlan(title="任务创建", modules=["TaskCreate"], description="创建任务"),
+            TopicPlan(title="任务奖励", modules=["RewardService"], description="奖励发放"),
+        ],
+    )
+    memory = WorkingMemory()
+    pages = await agent._write_with_outline(outline, "baseline context", memory, ["TaskCreate", "RewardService"])
+    assert len(pages) >= 3  # 1 overview + 2 topics
+    page_types = [p.get("page_type") for p in pages]
+    assert "domain_overview" in page_types
+    assert page_types.count("topic") == 2
+
+
+@pytest.mark.asyncio
+async def test_write_with_outline_single_topic_no_split():
+    """When outline says should_split=False, produce single page."""
+    llm = AsyncMock()
+    llm.generate = AsyncMock(return_value="# Small Domain\n内容...")
+    agent = DomainDocAgent(
+        domain_name="small-domain",
+        domain_display_name="小域",
+        llm=llm,
+        graph_store=MagicMock(),
+    )
+    outline = DomainTopicOutline(
+        should_split=False,
+        topics=[TopicPlan(title="小域", modules=["A", "B"], description="all")],
+    )
+    memory = WorkingMemory()
+    pages = await agent._write_with_outline(outline, "context", memory, ["A", "B"])
+    assert len(pages) == 1
+    assert pages[0]["page_type"] == "domain_overview"
+
+
+def test_maybe_split_parent_has_overview_content():
+    """Parent page must contain at least some overview content, not just links."""
+    content = (
+        "## Section A\nContent A paragraph.\n\n"
+        "## Section B\nContent B paragraph.\n\n"
+    )
+    # Artificially exceed MAX_PAGE_TOKENS (5000 tokens = ~20000 chars)
+    content = content * 200
+    pages = _maybe_split(content, "test", "Test")
+    parent = pages[0]
+    assert parent["page_type"] == "domain_overview"
+    assert len(parent["content"]) > 50

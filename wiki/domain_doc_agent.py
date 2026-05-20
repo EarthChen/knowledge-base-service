@@ -151,11 +151,26 @@ def _maybe_split(
 
     from wiki.path_conventions import domain_topic_path
 
-    overview = sections[0]
+    overview = sections[0] if not sections[0].startswith("## ") else ""
+    body_sections = sections[1:] if overview else sections
+
+    # Merge adjacent small sections (combined < 1000 tokens)
+    merged: list[str] = []
+    buf = ""
+    for section in body_sections:
+        if buf and (len(buf) + len(section)) // 4 < 1000:
+            buf += "\n" + section
+        else:
+            if buf:
+                merged.append(buf)
+            buf = section
+    if buf:
+        merged.append(buf)
+
     child_pages: list[dict[str, Any]] = []
     child_links: list[str] = []
 
-    for section in sections[1:]:
+    for section in merged:
         title_match = re.match(r"^## (.+)", section)
         section_title = title_match.group(1).strip() if title_match else "Untitled"
         topic_path = domain_topic_path(domain_slug, section_title)
@@ -174,6 +189,8 @@ def _maybe_split(
         })
         child_links.append(f"- [[{section_title}]]")
 
+    if not overview.strip():
+        overview = f"# {display}\n\n"
     parent_content = overview + "\n## 章节导航\n\n" + "\n".join(child_links)
     parent_page = _make_page(parent_content, domain_slug, display)
 
@@ -381,6 +398,66 @@ class DomainDocAgent(DocOrchestrator):
             )],
         )
 
+    async def _write_with_outline(
+        self,
+        outline: DomainTopicOutline,
+        baseline_context: str,
+        memory: WorkingMemory,
+        module_names: list[str],
+    ) -> list[dict[str, Any]]:
+        """Write pages according to topic outline."""
+        if not outline.should_split or len(outline.topics) <= 1:
+            content = await self._page_agent.write(
+                self.domain_name, baseline_context, memory,
+            )
+            return _maybe_split(content, self.domain_name, self.domain_display_name)
+
+        from wiki.path_conventions import domain_topic_path
+
+        topic_pages: list[dict[str, Any]] = []
+        topic_links: list[str] = []
+
+        for topic in outline.topics:
+            topic_module_list = ", ".join(topic.modules)
+            topic_context = (
+                f"{baseline_context}\n\n"
+                f"--- TOPIC SCOPE ---\n"
+                f"You are writing the \"{topic.title}\" section.\n"
+                f"Focus ONLY on these modules: {topic_module_list}\n"
+                f"Description: {topic.description}\n"
+            )
+            topic_content = await self._page_agent.write(
+                self.domain_name, topic_context, memory,
+            )
+            topic_path = domain_topic_path(self.domain_name, topic.title)
+            topic_pages.append({
+                "page_type": "topic",
+                "title": topic.title,
+                "path": topic_path,
+                "content": topic_content,
+                "diagrams": [],
+                "source_locations": [],
+                "metadata": {
+                    "node_count": len(topic.modules),
+                    "edge_count": 0,
+                    "generation_mode": "agent",
+                },
+                "business_domain": self.domain_name,
+            })
+            topic_links.append(f"- [[{topic.title}]]")
+
+        overview_content = (
+            f"# {self.domain_display_name}\n\n"
+            + "\n".join(
+                f"## {t.title}\n{t.description}\n"
+                for t in outline.topics
+            )
+            + "\n## 章节导航\n\n" + "\n".join(topic_links)
+        )
+        overview_page = _make_page(overview_content, self.domain_name, self.domain_display_name)
+
+        return [overview_page, *topic_pages]
+
     async def generate_with_iterations(
         self,
         module_names: list[str],
@@ -419,13 +496,22 @@ class DomainDocAgent(DocOrchestrator):
                 memory_chars=memory._total_chars(),
             )
 
+        # Topic planning after explore
+        outline = await self._plan_topics(module_names, memory)
+        memory.topic_outline = outline
+
         if not module_names:
-            content = await self._page_agent.write(
-                self.domain_name,
-                baseline_context,
-                memory,
-            )
-            pages = _maybe_split(content, self.domain_name, self.domain_display_name)
+            if memory.topic_outline and memory.topic_outline.should_split and len(memory.topic_outline.topics) > 1:
+                pages = await self._write_with_outline(
+                    memory.topic_outline, baseline_context, memory, module_names,
+                )
+            else:
+                content = await self._page_agent.write(
+                    self.domain_name,
+                    baseline_context,
+                    memory,
+                )
+                pages = _maybe_split(content, self.domain_name, self.domain_display_name)
             if memory.discovered_entity_uids:
                 entity_uids = list(memory.discovered_entity_uids)
                 for page in pages:
@@ -550,7 +636,12 @@ class DomainDocAgent(DocOrchestrator):
         if not content:
             content = self._page_agent._generate_skeleton(module_names, self.domain_name)
 
-        pages = _maybe_split(content, self.domain_name, self.domain_display_name)
+        if memory.topic_outline and memory.topic_outline.should_split and len(memory.topic_outline.topics) > 1:
+            pages = await self._write_with_outline(
+                memory.topic_outline, baseline_context, memory, module_names,
+            )
+        else:
+            pages = _maybe_split(content, self.domain_name, self.domain_display_name)
         if memory.discovered_entity_uids:
             entity_uids = list(memory.discovered_entity_uids)
             log.info(

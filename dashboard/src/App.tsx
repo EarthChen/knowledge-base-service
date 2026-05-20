@@ -16,6 +16,7 @@ const WikiPage = lazy(() => import("./pages/WikiPage"));
 const PrImpactPage = lazy(() => import("./pages/PrImpactPage"));
 const Businesses = lazy(() => import("./pages/Businesses"));
 const FileExplorer = lazy(() => import("./pages/FileExplorer"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 export default function App() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="graph" element={<Navigate to="/explorer" replace />} />
             <Route path="businesses" element={<Businesses />} />
           </Route>
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </ErrorBoundary>
     </ToastProvider>

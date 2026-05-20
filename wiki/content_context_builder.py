@@ -91,6 +91,7 @@ class EntityDetail:
 class EnrichedDomainContext:
     domain_name: str
     parent_domain: str
+    display_name: str = ""
 
     biz_entities: list[EntityDetail] = field(default_factory=list)
     data_models: list[dict] = field(default_factory=list)
@@ -210,6 +211,7 @@ class ContentContextBuilder:
         depth: int = 2,
         parent_domain: str | None = None,
         sub_topics: list[dict] | None = None,
+        display_name: str = "",
     ) -> EnrichedDomainContext:
         """Build complete context for a domain by querying the graph in parallel."""
         capped_depth = min(max(1, int(depth)), _MAX_CALL_CHAIN_DEPTH)
@@ -344,6 +346,7 @@ class ContentContextBuilder:
         return EnrichedDomainContext(
             domain_name=domain_name,
             parent_domain=parent_domain or "root",
+            display_name=display_name,
             biz_entities=biz_entities,
             data_models=data_models,
             intra_domain_calls=intra_calls,

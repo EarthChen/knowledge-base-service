@@ -276,6 +276,7 @@ async def _compose_single_leaf_domain(
     import wiki.pipeline_nodes as _pn
 
     domain_name = leaf.get("name", "unknown")
+    domain_display_name = str(leaf.get("display_name") or "").strip() or domain_name
     module_names = leaf.get("modules", [])
     biz_domain = _effective_business_domain(leaf)
 
@@ -295,6 +296,7 @@ async def _compose_single_leaf_domain(
                 domain_mapping=domain_mapping or {},
                 depth=2,
                 parent_domain=str(leaf.get("parent") or "root"),
+                display_name=domain_display_name,
             )
             if module_summaries:
                 names_set = set(module_names)
@@ -348,7 +350,7 @@ async def _compose_single_leaf_domain(
                     )
                 if content and len(content) > 100:
                     page = {
-                        "title": domain_name,
+                        "title": domain_display_name,
                         "content": content,
                         "path": f"wiki/{domain_name}",
                         "page_type": "topic",

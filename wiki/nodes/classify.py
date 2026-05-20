@@ -365,6 +365,26 @@ async def detect_reorg_node(state: dict[str, Any]) -> dict[str, Any]:
     return {"reorg_type": reorg_type}
 
 
+def _dedup_tree_modules(tree: list[dict[str, Any]]) -> None:
+    """Remove modules from parent nodes that appear in any descendant (bottom-up)."""
+
+    def _subtree_modules(node: dict[str, Any]) -> set[str]:
+        mods = set(node.get("modules", []))
+        for child in node.get("children", []):
+            mods.update(_subtree_modules(child))
+        return mods
+
+    for node in tree:
+        children = node.get("children", [])
+        if children:
+            _dedup_tree_modules(children)
+            descendant_modules: set[str] = set()
+            for child in children:
+                descendant_modules.update(_subtree_modules(child))
+            if descendant_modules:
+                node["modules"] = [m for m in node.get("modules", []) if m not in descendant_modules]
+
+
 def _assign_slugs_to_tree(
     tree: list[dict[str, Any]],
     domain_mapping: dict[str, list[tuple[str, str]]],
@@ -383,7 +403,13 @@ def _assign_slugs_to_tree(
 
     display_to_slug: dict[str, str] = {v: k for k, v in domain_display_names.items()}
 
-    def _assign(nodes: list[dict[str, Any]], parent_slug: str = "") -> None:
+    def _assign(
+        nodes: list[dict[str, Any]],
+        parent_slug: str = "",
+        ancestor_slugs: set[str] | None = None,
+    ) -> None:
+        if ancestor_slugs is None:
+            ancestor_slugs = set()
         used_slugs: set[str] = set()
         for idx, node in enumerate(nodes):
             raw_name = node.get("name", "")
@@ -410,8 +436,17 @@ def _assign_slugs_to_tree(
             if not slug:
                 slug = f"{parent_slug}-sub-{idx}" if parent_slug else f"domain-{idx}"
 
-            while slug in used_slugs:
-                slug = f"{slug}-{idx}"
+            if slug in ancestor_slugs:
+                suffix = normalize_slug(modules[0]) if modules else ""
+                if not suffix or suffix == slug:
+                    suffix = f"sub-{idx}"
+                slug = f"{slug}-{suffix}"
+
+            base_slug = slug
+            counter = 0
+            while slug in used_slugs or slug in ancestor_slugs:
+                counter += 1
+                slug = f"{base_slug}-{counter}"
             used_slugs.add(slug)
 
             node["display_name"] = node.get("display_name", "") or raw_name
@@ -420,9 +455,77 @@ def _assign_slugs_to_tree(
             if slug in domain_display_names and not node.get("display_name"):
                 node["display_name"] = domain_display_names[slug]
 
-            _assign(node.get("children", []), parent_slug=slug)
+            child_ancestors = ancestor_slugs | {slug}
+            _assign(node.get("children", []), parent_slug=slug, ancestor_slugs=child_ancestors)
 
     _assign(tree)
+
+
+def _reconcile_tree_with_mapping(
+    tree: list[dict[str, Any]],
+    domain_mapping: dict[str, list[tuple[str, str]]],
+) -> None:
+    """Ensure every module in the tree is placed under the correct domain per domain_mapping.
+
+    For each module in domain_mapping, find which tree node it's currently in,
+    and if that node's slug doesn't match the mapping slug, move it to the correct node.
+    Modules not found in any tree node are added to their mapping domain.
+    """
+    module_to_mapping_slug: dict[str, str] = {}
+    for slug, pairs in domain_mapping.items():
+        for _, mod_name in pairs:
+            module_to_mapping_slug[mod_name] = slug
+
+    slug_to_node: dict[str, dict[str, Any]] = {}
+
+    def _index_nodes(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            slug = node.get("name", "")
+            if slug:
+                slug_to_node[slug] = node
+            _index_nodes(node.get("children", []))
+
+    _index_nodes(tree)
+
+    modules_in_tree: set[str] = set()
+
+    def _collect_and_filter(nodes: list[dict[str, Any]]) -> None:
+        for node in nodes:
+            slug = node.get("name", "")
+            kept: list[str] = []
+            for mod in node.get("modules", []):
+                mapping_slug = module_to_mapping_slug.get(mod)
+                if mapping_slug is None or mapping_slug == slug:
+                    kept.append(mod)
+                    modules_in_tree.add(mod)
+                elif mapping_slug in slug_to_node:
+                    target = slug_to_node[mapping_slug]
+                    target_modules = target.setdefault("modules", [])
+                    if mod not in target_modules:
+                        target_modules.append(mod)
+                    modules_in_tree.add(mod)
+            node["modules"] = kept
+            _collect_and_filter(node.get("children", []))
+
+    _collect_and_filter(tree)
+
+    for slug, pairs in domain_mapping.items():
+        if slug not in slug_to_node:
+            node: dict[str, Any] = {
+                "name": slug,
+                "display_name": slug,
+                "modules": [],
+                "children": [],
+            }
+            tree.append(node)
+            slug_to_node[slug] = node
+
+        target = slug_to_node[slug]
+        target_modules = target.setdefault("modules", [])
+        for _, mod_name in pairs:
+            if mod_name not in modules_in_tree:
+                target_modules.append(mod_name)
+                modules_in_tree.add(mod_name)
 
 
 async def decompose_hierarchy_node(
@@ -512,6 +615,8 @@ async def decompose_hierarchy_node(
         ]
 
     _assign_slugs_to_tree(domain_tree, domain_mapping, domain_display_names)
+    _reconcile_tree_with_mapping(domain_tree, domain_mapping)
+    _dedup_tree_modules(domain_tree)
 
     if llm and domain_tree and len(domain_tree) >= 3:
         try:

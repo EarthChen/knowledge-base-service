@@ -85,17 +85,22 @@ def _ensure_repo_names_in_content(content: str, repositories: list[str]) -> str:
     return content + "\n".join(block_lines)
 
 
+def _domain_heading_name(domain_name: str, display_name: str = "") -> str:
+    return display_name or domain_name
+
+
 def _structural_markdown_from_enriched_context(context: EnrichedDomainContext, language: str) -> str:
     lang = language if language in ("en", "zh") else "zh"
+    heading_name = _domain_heading_name(context.domain_name, context.display_name)
     if lang == "zh":
-        title = f"# 业务域：{context.domain_name}"
+        title = f"# 业务域：{heading_name}"
         empty = "_此业务域上下文暂无已索引实体。_"
         entities_h = "## 关键入口与模块"
         topics_h = "## 子主题"
         deps_h = "## 跨域依赖"
         sib_h = "## 兄弟域"
     else:
-        title = f"# Domain: {context.domain_name}"
+        title = f"# Domain: {heading_name}"
         empty = "_No entities in context yet._"
         entities_h = "## Key modules"
         topics_h = "## Sub-topics"
@@ -142,14 +147,21 @@ def _structural_markdown_from_enriched_context(context: EnrichedDomainContext, l
     return "\n".join(lines).rstrip() + "\n"
 
 
-def _structural_markdown(domain_name: str, grouped: dict[str, list[tuple[str, GraphNode]]], language: str) -> str:
+def _structural_markdown(
+    domain_name: str,
+    grouped: dict[str, list[tuple[str, GraphNode]]],
+    language: str,
+    *,
+    display_name: str = "",
+) -> str:
     lang = _effective_language(language)
+    heading_name = _domain_heading_name(domain_name, display_name)
     if lang == "zh":
-        title = f"# 业务域：{domain_name}"
+        title = f"# 业务域：{heading_name}"
         intro_empty = "_此业务域尚无已索引模块。_"
         repo_heading = "## 仓库与模块"
     else:
-        title = f"# Domain: {domain_name}"
+        title = f"# Domain: {heading_name}"
         intro_empty = "_No modules indexed for this domain yet._"
         repo_heading = "## Repositories and modules"
 

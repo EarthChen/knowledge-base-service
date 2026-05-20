@@ -1406,53 +1406,48 @@ class WikiPageAgent(GenericAgent):
             return {"error": str(e)}
 
     async def _tool_delegate_submodule(self, args: dict[str, Any]) -> dict[str, Any]:
+        from wiki.agents.handoff import HandoffConfig, execute_handoff
+
         entity_names = args.get("entity_names", [])
         focus = args.get("focus", "")
-        depth = getattr(self, "_delegation_depth", 0)
-        count = getattr(self, "_delegation_count", 0)
 
-        if depth >= self._MAX_DELEGATION_DEPTH:
-            return {"error": f"max delegation depth reached: {depth}"}
-        if count >= self._MAX_DELEGATIONS_PER_AGENT:
-            return {"error": f"max delegations per agent reached: {count}"}
+        self._deps.delegation_count = getattr(self, "_delegation_count", 0)
+        self._deps.delegation_depth = getattr(self, "_delegation_depth", 0)
 
-        self._delegation_count = count + 1
-
-        try:
-            sub_agent = WikiPageAgent(
+        def _factory(child_deps):
+            agent = WikiPageAgent(
                 llm=self._llm,
-                graph_store=self._graph,
-                repo_path=self._repo_path,
-                search_service=self._search_service,
+                graph_store=child_deps.graph_store,
+                repo_path=child_deps.repo_path,
+                search_service=child_deps.search_service,
                 max_rounds=self.max_rounds,
                 max_tool_calls=self.max_tool_calls,
             )
-            sub_agent._delegation_depth = depth + 1
-            sub_agent._delegation_count = 0
-            sub_agent._existing_pages = self._existing_pages
+            agent._existing_pages = self._existing_pages
+            return agent
 
-            domain_name = focus or ", ".join(entity_names[:3])
-            content = await sub_agent.generate(
-                module_names=entity_names,
-                domain_name=domain_name,
-                baseline_context={},
-                max_rounds=3,
-            )
-            return {
-                "delegated": True,
-                "entity_names": entity_names,
-                "focus": focus,
-                "content": content,
-            }
-        except Exception as e:
-            log.warning("delegate_submodule_failed", entities=entity_names, error=str(e))
-            return {
-                "delegated": True,
-                "entity_names": entity_names,
-                "focus": focus,
-                "content": "",
-                "error": str(e),
-            }
+        config = HandoffConfig(
+            target_factory=_factory,
+            tool_name="delegate_submodule",
+            description="Delegate submodule documentation to child agent",
+            max_depth=self._MAX_DELEGATION_DEPTH,
+            max_count=self._MAX_DELEGATIONS_PER_AGENT,
+        )
+
+        result = await execute_handoff(
+            config, self._deps, entity_names=entity_names, focus=focus
+        )
+
+        self._delegation_count = self._deps.delegation_count + 1
+
+        if "error" in result.metadata:
+            return {"error": result.metadata["error"]}
+        return {
+            "delegated": True,
+            "entity_names": entity_names,
+            "focus": focus,
+            "content": result.output,
+        }
 
     async def _tool_read_code(self, args: dict[str, Any]) -> dict[str, Any]:
         entity_name = str(args.get("entity_name", ""))

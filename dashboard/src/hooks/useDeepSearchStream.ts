@@ -32,13 +32,22 @@ export function useDeepSearchStream() {
     error: null,
   });
   const abortRef = useRef<AbortController | null>(null);
+  const generationRef = useRef(0);
 
   const start = useCallback(async (params: { query: string; max_iterations?: number }) => {
     abortRef.current?.abort();
+    const generation = ++generationRef.current;
     const controller = new AbortController();
     abortRef.current = controller;
 
-    setState({ stages: [], conclusion: null, isStreaming: true, error: null });
+    const isCurrent = () => generationRef.current === generation;
+
+    const patchState = (updater: (prev: StreamState) => StreamState) => {
+      if (!isCurrent()) return;
+      setState(updater);
+    };
+
+    patchState(() => ({ stages: [], conclusion: null, isStreaming: true, error: null }));
 
     try {
       const res = await fetch(`${API_BASE}/deep-search/stream`, {
@@ -47,6 +56,8 @@ export function useDeepSearchStream() {
         body: JSON.stringify(params),
         signal: controller.signal,
       });
+
+      if (!isCurrent()) return;
 
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -63,6 +74,7 @@ export function useDeepSearchStream() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (!isCurrent()) return;
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
@@ -104,7 +116,7 @@ export function useDeepSearchStream() {
                 status,
               };
 
-              setState((prev) => {
+              patchState((prev) => {
                 const updated = prev.stages.map((s) =>
                   s.status === "active" ? { ...s, status: "done" as const } : s,
                 );
@@ -132,10 +144,10 @@ export function useDeepSearchStream() {
         }
       }
 
-      setState((prev) => ({ ...prev, isStreaming: false }));
+      patchState((prev) => ({ ...prev, isStreaming: false }));
     } catch (err) {
       if (!(err instanceof Error) || err.name !== "AbortError") {
-        setState((prev) => ({
+        patchState((prev) => ({
           ...prev,
           isStreaming: false,
           error: getErrorMessage(err, t.common.unexpectedError),
@@ -146,6 +158,7 @@ export function useDeepSearchStream() {
 
   const cancel = useCallback(() => {
     abortRef.current?.abort();
+    generationRef.current += 1;
     setState((prev) => ({ ...prev, isStreaming: false }));
   }, []);
 

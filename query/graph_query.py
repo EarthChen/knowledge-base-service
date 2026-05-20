@@ -186,10 +186,28 @@ class GraphQueryService:
         return QueryResult(data=data, query=query, params=params)
 
     async def execute_raw(self, cypher: str, params: dict[str, Any] | None = None) -> QueryResult:
-        """Execute a raw Cypher query."""
-        rows = await self._store.execute_query(cypher, params)
+        """Execute a read-only raw Cypher query with mandatory LIMIT and timeout."""
+        import asyncio
+
+        from query.raw_cypher import (
+            RAW_CYPHER_TIMEOUT_SEC,
+            ensure_raw_cypher_limit,
+            validate_raw_cypher_read_only,
+        )
+
+        validate_raw_cypher_read_only(cypher)
+        safe_cypher = ensure_raw_cypher_limit(cypher)
+        try:
+            rows = await asyncio.wait_for(
+                self._store.execute_query(safe_cypher, params),
+                timeout=RAW_CYPHER_TIMEOUT_SEC,
+            )
+        except TimeoutError as exc:
+            raise TimeoutError(
+                f"raw_cypher query exceeded {RAW_CYPHER_TIMEOUT_SEC:.0f}s timeout"
+            ) from exc
         data = [{"row": list(r)} for r in rows]
-        return QueryResult(data=data, query=cypher, params=params or {})
+        return QueryResult(data=data, query=safe_cypher, params=params or {})
 
     async def get_graph_stats(self) -> dict[str, int]:
         """Get statistics about the knowledge graph."""

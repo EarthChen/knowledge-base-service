@@ -9,6 +9,8 @@ from typing import Any
 
 import httpx
 from fastapi import Depends, Header, HTTPException, Query
+
+from core.auth import Role, TokenInfo, require_role
 from fastapi.responses import JSONResponse, StreamingResponse
 
 import api.kb_state as kb_state
@@ -73,9 +75,9 @@ async def search_architecture(
             "classes": classes,
             "total_count": total_count,
         }
-    except Exception as exc:
-        log.error("search_architecture_failed", layer=layer, error=str(exc))
-        raise KbError(str(exc)) from exc
+    except Exception:
+        log.error("search_architecture_failed", layer=layer, exc_info=True)
+        raise KbError("Search operation failed")
 
 
 @viewer_router.get("/quality/{entity_uid:path}")
@@ -100,16 +102,26 @@ async def get_code_quality(
         return await workflow.compute_quality_score(entity_uid, et)
     except HTTPException:
         raise
-    except Exception as exc:
-        log.error("code_quality_failed", entity_uid=entity_uid, error=str(exc))
-        raise KbError(str(exc)) from exc
+    except Exception:
+        log.error("code_quality_failed", entity_uid=entity_uid, exc_info=True)
+        raise KbError("Quality score operation failed")
 
 
 @viewer_router.post("/graph")
 async def graph_query(
     req: GraphQueryRequest,
     svc: KnowledgeBaseService = Depends(get_service),
+    token_info: TokenInfo | None = Depends(require_role(Role.VIEWER)),
 ) -> dict[str, Any]:
+    if req.query_type == "raw_cypher":
+        if token_info is not None and token_info.role < Role.ADMIN:
+            raise HTTPException(status_code=403, detail="raw_cypher requires admin role")
+        from core.config import get_settings
+
+        if get_settings().require_auth and (
+            token_info is None or token_info.role < Role.ADMIN
+        ):
+            raise HTTPException(status_code=403, detail="raw_cypher requires admin role")
     return await svc.mcp_handler.handle_rag_graph(req.model_dump())
 
 

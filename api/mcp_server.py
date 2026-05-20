@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from core.auth import Role, TokenInfo
+from query.raw_cypher import RawCypherValidationError, validate_raw_cypher_read_only
 from api.mcp_doc_indexer import DocumentIndexerMixin
 from api.mcp_helpers import (
     _MAX_FILE_READ_BYTES,
@@ -604,10 +605,18 @@ class KnowledgeBaseMCPHandler(DocumentIndexerMixin):
                     f"Authentication required for tool '{tool_name}'.",
                 )
 
+        if tool_name == "rag_graph" and str(arguments.get("query_type", "")).strip() == "raw_cypher":
+            if token_info is not None and token_info.role < Role.ADMIN:
+                return _mcp_error("forbidden", "raw_cypher requires admin role")
+            if get_settings().require_auth and (
+                token_info is None or token_info.role < Role.ADMIN
+            ):
+                return _mcp_error("forbidden", "raw_cypher requires admin role")
+
         try:
             return await handler(arguments)
         except Exception as exc:
-            log.error("mcp_tool_error", tool=tool_name, error=str(exc))
+            log.error("mcp_tool_error", tool=tool_name, error=str(exc), exc_info=True)
             return _mcp_error("internal_error", "Tool execution failed unexpectedly")
 
     @mcp_tool("rag_query")
@@ -780,11 +789,13 @@ class KnowledgeBaseMCPHandler(DocumentIndexerMixin):
             cypher = args.get("cypher", "")
             if not cypher:
                 return _mcp_error("invalid_params", "cypher parameter is required for raw_cypher queries")
-            from query.nl_cypher import _MUTATING_KEYWORDS
-
-            if _MUTATING_KEYWORDS.search(cypher):
+            try:
+                validate_raw_cypher_read_only(cypher)
+                result = await self._graph.execute_raw(cypher)
+            except RawCypherValidationError:
                 return _mcp_error("forbidden", "raw_cypher only supports read-only queries")
-            result = await self._graph.execute_raw(cypher)
+            except TimeoutError as exc:
+                return _mcp_error("query_timeout", str(exc))
             return {"type": "raw_cypher", "results": result.data}
 
         elif query_type == "business_flow":

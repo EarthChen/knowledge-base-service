@@ -119,6 +119,29 @@ async def test_handle_tool_call_require_auth_allows_viewer_tools_without_token()
 
 
 @pytest.mark.asyncio
+async def test_handle_tool_call_raw_cypher_admin_allowed() -> None:
+    graph = AsyncMock()
+    graph.execute_raw = AsyncMock(return_value=MagicMock(data=[]))
+    h = KnowledgeBaseMCPHandler(
+        AsyncMock(),
+        graph,
+        AsyncMock(),
+        doc_indexer=None,
+        store=MagicMock(),
+        embedding_gen=None,
+        wiki_handler=None,
+    )
+    admin = TokenInfo(role=Role.ADMIN)
+    out = await h.handle_tool_call(
+        "rag_graph",
+        {"query_type": "raw_cypher", "cypher": "MATCH (n) RETURN n LIMIT 1"},
+        token_info=admin,
+    )
+    assert "error" not in out
+    graph.execute_raw.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_rag_graph_raw_cypher_rejects_mutating() -> None:
     graph = AsyncMock()
     graph.execute_raw = AsyncMock()

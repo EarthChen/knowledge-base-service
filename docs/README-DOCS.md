@@ -27,6 +27,7 @@
 | [`wiki-generation-architecture.md`](wiki-generation-architecture.md) | **Wiki 生成架构**：管道阶段、增量 Ingest、LLM Wiki v2（置信度、矛盾、主张、记忆层）、与异步任务/新鲜度 API 的关系。 |
 | ~~[`KNOWN-ISSUES.md`](KNOWN-ISSUES.md)~~ | 已合并至历史提案，文件已删除。 |
 | [`REMAINING-WORK.md`](REMAINING-WORK.md) | **统一剩余工作清单**：独立积压项（语言插件、文档注入、死代码清理等）。 |
+| [`../AGENTS.md`](../AGENTS.md) | **AI Agent 上下文**：项目概述、目录结构、Agent 框架、开发命令、约定、常见任务指南。 |
 
 ---
 

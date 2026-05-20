@@ -138,6 +138,20 @@ knowledge-base-service/
 │   └── fusion.py               # RRF 融合实现细节
 ├── wiki/
 │   ├── service.py              # WikiService：主生成管线；generate_business_wiki
+│   ├── agents/                 # Agent 框架包（见 CODEMAPS/INDEX.md Agent 框架节）
+│   │   ├── base_agent.py      # GenericAgent, ToolRegistry, ToolDef, RunConfig
+│   │   ├── runner.py          # run_agent_loop(), LoopConfig, LoopHooks, AgentLoopResult
+│   │   ├── agent_tool.py      # agent_tool() — 子 Agent 包装为 ToolDef
+│   │   ├── tool_decorator.py  # @function_tool 装饰器
+│   │   ├── context.py         # RunContext, WikiDeps（类型化 DI）
+│   │   ├── guardrails.py      # Input/OutputGuardrail
+│   │   ├── tracing.py         # AgentTracer, Span
+│   │   ├── handoff.py         # execute_handoff()
+│   │   ├── edit_agent.py      # WikiEditAgent
+│   │   ├── doc_orchestrator.py # DocOrchestrator (Template Method)
+│   │   ├── ask_orchestrator.py # AskOrchestrator
+│   │   └── research_orchestrator.py # ResearchOrchestrator
+│   ├── page_agent.py          # WikiPageAgent：14 个 @function_tool 方法
 │   ├── composer.py             # WikiComposer
 │   ├── search.py               # WikiSearchService：混合 Wiki 检索（图 2.0、向量 1.0、FTS 1.5 权重示例）
 │   ├── ask.py                  # WikiAskService：ask_stream、crystallize；GraphEnhancedContextCollector
@@ -312,20 +326,22 @@ pnpm lint         # ESLint（建议在提交前运行）
 
 ### 5.1 后端（pytest）
 
-当前仓库收集规模约为 **2603** 条用例（以 `pytest --collect-only` 为准）。
+当前仓库收集规模约为 **3775** 条用例（以 `pytest --collect-only` 为准）。
 
 ```bash
-uv run pytest                              # 全量（pyproject 默认带 coverage 终端报告）
+uv run pytest                              # 全量并行执行（默认 -n auto，约 60s）
 uv run pytest tests/ -x --timeout=30 -q    # 快速失败 + 超时（需已安装 pytest-timeout）
 uv run pytest --cov=. --cov-report=html    # HTML 覆盖率报告
+uv run pytest tests/wiki/agents/ -x        # 仅 agent 框架测试
 ```
 
 要点：
 
 - **`asyncio_mode = auto`**（`pyproject.toml` → `[tool.pytest.ini_options]`）
 - **`pythonpath = ["."]`**：保证顶层包（如 `search/`、`wiki/`）在收集 `tests/query/` 等路径时被解析
+- **`pytest-xdist`**：默认 **`-n auto`** 并行执行，充分利用多核 CPU（约 4-6x 加速）
 - **`pytest-timeout`**：声明在 **`[dependency-groups] dev`**，建议使用 **`uv sync --group dev`** 安装
-- 目录大致包含：`tests/` 根、`tests/api/`、`tests/store/`、`tests/wiki/`（多层子目录）、`tests/query/`、`tests/llm/`、`tests/embedding/` 等
+- 目录大致包含：`tests/` 根、`tests/api/`、`tests/store/`、`tests/wiki/`（多层子目录，含 `agents/`、`rag/`、`integration/`、`mcp/`）、`tests/query/`、`tests/llm/`、`tests/embedding/` 等
 
 ### 5.2 前端（Vitest + Playwright）
 
@@ -393,7 +409,7 @@ uv run ruff format .
 
 **可选 `torch` extra：** `torch`、`sentence-transformers`。
 
-**开发 `dev` extra：** `pytest`、`pytest-asyncio`、`pytest-cov`、`ruff`。
+**开发 `dev` extra：** `pytest`、`pytest-asyncio`、`pytest-cov`、`pytest-xdist`、`ruff`。
 
 **dependency-groups `dev`：** `pytest-timeout`。
 
@@ -404,6 +420,6 @@ uv run ruff format .
 - **[README.md](../README.md)**：面向使用的快速开始与环境变量索引。
 - **[ARCHITECTURE.md](ARCHITECTURE.md)**：系统架构与数据流。
 - **[IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)**：能力与接线状态（含 Wiki AutoHealer 等开关对照）。
-- **[KNOWN-ISSUES.md](KNOWN-ISSUES.md)**：已知限制与规避方式。
+- **[REMAINING-WORK.md](REMAINING-WORK.md)**：剩余工作积压项。
 
 若在文档与代码之间发现不一致，**以代码与测试为准**，并欢迎提交文档修正。

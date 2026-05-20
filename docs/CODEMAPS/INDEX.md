@@ -1,6 +1,6 @@
 # 代码地图索引（Code Map）
 
-**最后更新：** 2026-05-02  
+**最后更新：** 2026-05-20  
 **仓库：** `knowledge-base-service`（FastAPI + React/Vite + FalkorDB）
 
 本页是后端与仪表盘的**结构性入口索引**：按分层列出启动点、目录树要点、Wiki 子系统、前端区域、阶段性能力模块与相关文档链接。实现细节仍以源码与专题文档为准。
@@ -123,6 +123,69 @@ utils/                        # 通用工具（含 git 等）
 
 ---
 
+## Agent 框架（`wiki/agents/` 包）
+
+Agent 框架采用 **OpenAI Agents SDK 启发** 的分层设计：Agent 身份（工具、提示词）与执行控制（LoopConfig、Hooks）分离。
+
+### 核心组件
+
+| 文件 | 类/函数 | 职责 |
+|------|---------|------|
+| **`base_agent.py`** | `GenericAgent`、`ToolRegistry`、`ToolDef`、`RunConfig` | Agent 基类：LLM + 工具注册表 + 内存管理 |
+| **`runner.py`** | `run_agent_loop()`、`LoopConfig`、`LoopHooks`、`AgentLoopResult` | **统一执行引擎**：所有 tool loop 最终委托至此函数 |
+| **`tool_decorator.py`** | `@function_tool` | 从函数签名自动生成 ToolDef 并注册 |
+| **`agent_tool.py`** | `agent_tool()` | 将子 Agent 包装为 ToolDef（Agent-as-Tool 组合模式） |
+| **`context.py`** | `RunContext`、`WikiDeps` | 每次运行的类型化 DI 上下文 |
+| **`guardrails.py`** | `InputGuardrail`、`OutputGuardrail`、`PromptLengthGuardrail` | LLM 调用前后的护栏检查 |
+| **`tracing.py`** | `AgentTracer`、`Span`、`JsonlTraceProcessor` | 可观测性 Span 记录 |
+| **`handoff.py`** | `HandoffConfig`、`execute_handoff()` | 子 Agent 委托（深度/数量限制） |
+| **`memory.py`** | `Memory` | Agent 工作内存基类 |
+| **`events.py`** | `ToolCallEvent`、`ContentEvent`、`DoneEvent` 等 | SSE/流式事件类型 |
+
+### Agent 类继承关系
+
+```
+GenericAgent (ABC)
+├── WikiPageAgent      — 14 个 @function_tool 方法, explore/enrich 核心逻辑
+└── WikiEditAgent      — 分段编辑 + 流式事件
+
+DocOrchestrator (ABC, Template Method)
+├── DomainDocAgent     — 业务域文档
+├── TopicDocAgent      — 深度主题页
+└── FlowDocAgent       — 业务流程文档
+
+组合式编排器（持有 agent 引用）:
+├── AskOrchestrator        — 工具探索 → 生成回答
+└── ResearchOrchestrator   — 分解 → N×探索 → 综合
+```
+
+### 执行流程
+
+```
+任何 Agent.run_tool_loop()
+  └─ 转换 RunConfig → LoopConfig
+     └─ run_agent_loop(agent, system, user, memory, config)
+        ├─ Input guardrails
+        ├─ Multi-round loop:
+        │   ├─ LLM.complete_with_tools()
+        │   ├─ Repeated call detection (hash-based)
+        │   ├─ Tool dispatch + incorporate
+        │   ├─ Early stop check
+        │   └─ Context trim (if enabled)
+        ├─ LoopHooks.on_loop_complete()
+        └─ Output guardrails
+```
+
+### 工具层级激活
+
+| Tier | 可用轮次 | 典型工具 |
+|------|----------|---------|
+| 1 | 始终 | query_module_detail, query_call_chain, read_code |
+| 2 | ≥ Round 3 | search_entities, read_file, query_implementations |
+| 3 | ≥ Round 5 | delegate_submodule, semantic_search, grep_code |
+
+---
+
 ## Wiki 子系统（聚焦表）
 
 | 关注点 | 模块（代表性路径） |
@@ -182,6 +245,6 @@ utils/                        # 通用工具（含 git 等）
 | [`IMPLEMENTATION-STATUS.md`](../IMPLEMENTATION-STATUS.md) | 计划 vs 代码、路径与配置注意事项 |
 | [`MCP-INTEGRATION.md`](../MCP-INTEGRATION.md) | 22+6 工具清单、认证与字段差异 |
 | [`wiki-generation-architecture.md`](../wiki-generation-architecture.md) | Wiki 管道与 LLM Wiki v2 |
-| [`KNOWN-ISSUES.md`](../KNOWN-ISSUES.md) | 已知问题、修复状态与验证说明 |
+| [`REMAINING-WORK.md`](../REMAINING-WORK.md) | 剩余工作积压项 |
 | [`README-DOCS.md`](../README-DOCS.md) | 文档总索引 |
 | [`DEVELOPMENT.md`](../DEVELOPMENT.md)、[`DEPLOYMENT.md`](../DEPLOYMENT.md)、[`ONBOARDING.md`](../ONBOARDING.md) | 本地开发、部署与上手 |

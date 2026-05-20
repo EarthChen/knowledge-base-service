@@ -176,7 +176,7 @@ async def test_nested_domain_tree_compose_parent_pages_and_executive_summary():
     new_pages = comp_out.get("pages") or []
     assert len(new_pages) == 1
     parent = new_pages[0]
-    assert parent.get("path") == "wiki/commerce"
+    assert parent.get("path") == "/__domains__/commerce/_overview"
     meta = parent.get("metadata") or {}
     assert meta.get("executive_summary"), "parent metadata should carry executive_summary"
     assert "Unified commerce" in str(meta.get("executive_summary"))

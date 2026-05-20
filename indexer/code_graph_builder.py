@@ -41,6 +41,18 @@ CROSS_FILE_RESOLUTION_PATH = "__cross_file_resolution__"
 
 
 @dataclass
+class _SymbolEntry:
+    """Lightweight symbol record for cross-file resolution (avoids retaining full GraphNodes)."""
+
+    uid: str
+    name: str
+    fqn: str
+    label: NodeLabel
+    file_path: str
+    language: str
+
+
+@dataclass
 class _CrossFileData:
     file_path: str
     language: str
@@ -329,7 +341,7 @@ class CodeGraphBuilder:
         if tasks:
             resolver = ImportResolver(ImportResolver.build_file_index([t[0] for t in tasks]))
 
-        all_nodes: list[GraphNode] = []
+        symbol_entries: list[_SymbolEntry] = []
         per_file_data: list[_CrossFileData] = []
 
         for rel, fpath in tasks:
@@ -348,7 +360,10 @@ class CodeGraphBuilder:
                     import_resolver=resolver,
                 )
                 self._apply_code_hash_to_module(nodes, rel, file_text)
-                all_nodes.extend(nodes)
+                for node in nodes:
+                    entry = self._symbol_entry_from_node(node)
+                    if entry is not None:
+                        symbol_entries.append(entry)
                 per_file_data.append(
                     self._cross_file_data_from_parse(rel, language, nodes, parse_result),
                 )
@@ -356,8 +371,8 @@ class CodeGraphBuilder:
             except Exception as exc:
                 log.warning("file_parse_error", file=str(fpath), error=str(exc))
 
-        symbol_tables = self._build_global_symbol_table(all_nodes)
-        cross_edges = self._resolve_cross_file_edges(per_file_data, symbol_tables, all_nodes)
+        symbol_tables = self._build_global_symbol_table(symbol_entries)
+        cross_edges = self._resolve_cross_file_edges(per_file_data, symbol_tables, symbol_entries)
         if cross_edges:
             yield CROSS_FILE_RESOLUTION_PATH, [], cross_edges
 
@@ -384,8 +399,26 @@ class CodeGraphBuilder:
         )
         return all_nodes, all_edges
 
+    @staticmethod
+    def _symbol_entry_from_node(node: GraphNode) -> _SymbolEntry | None:
+        """Extract a cross-file symbol entry from a Class or Function node."""
+        lang = node.properties.get("language", "")
+        if not lang:
+            return None
+        if node.label not in (NodeLabel.CLASS, NodeLabel.FUNCTION):
+            return None
+        file_path = str(node.properties.get("file", ""))
+        return _SymbolEntry(
+            uid=node.uid,
+            name=str(node.properties.get("name", "")),
+            fqn=str(node.properties.get("fqn", "")),
+            label=node.label,
+            file_path=file_path,
+            language=str(lang),
+        )
+
     def _build_global_symbol_table(
-        self, all_nodes: list[GraphNode],
+        self, symbol_entries: list[_SymbolEntry],
     ) -> dict[str, dict[str, str]]:
         """Build per-language {fqn_or_name: node_uid} for all Class and Function nodes.
 
@@ -397,24 +430,22 @@ class CodeGraphBuilder:
         query it during enrichment (alongside RPC/DI/Kafka edges in cross_repo_enricher).
         """
         tables: dict[str, dict[str, str]] = {}
-        for node in all_nodes:
-            lang = node.properties.get("language", "")
-            if not lang:
+        for entry in symbol_entries:
+            lang = entry.language
+            if entry.label not in (NodeLabel.CLASS, NodeLabel.FUNCTION):
                 continue
-            if node.label not in (NodeLabel.CLASS, NodeLabel.FUNCTION):
-                continue
-            fqn = node.properties.get("fqn", "")
+            fqn = entry.fqn
             if fqn:
-                tables.setdefault(lang, {})[fqn] = node.uid
-            name = node.properties.get("name", "")
+                tables.setdefault(lang, {})[fqn] = entry.uid
+            name = entry.name
             if name:
                 # Use setdefault so FQN entry isn't overwritten by simple name
-                tables.setdefault(lang, {}).setdefault(name, node.uid)
-            if fqn and node.label == NodeLabel.FUNCTION and "#" in fqn:
+                tables.setdefault(lang, {}).setdefault(name, entry.uid)
+            if fqn and entry.label == NodeLabel.FUNCTION and "#" in fqn:
                 cls_fqn, meth = fqn.split("#", 1)
                 simple_cls = cls_fqn.rsplit(".", 1)[-1]
                 if simple_cls and meth:
-                    tables.setdefault(lang, {}).setdefault(f"{simple_cls}.{meth}", node.uid)
+                    tables.setdefault(lang, {}).setdefault(f"{simple_cls}.{meth}", entry.uid)
         return tables
 
     def _build_import_map(
@@ -496,15 +527,14 @@ class CodeGraphBuilder:
         self,
         per_file_data: list[_CrossFileData],
         symbol_tables: dict[str, dict[str, str]],
-        all_nodes: list[GraphNode],
+        symbol_entries: list[_SymbolEntry],
     ) -> list[GraphEdge]:
         uid_to_class_fqn: dict[str, str] = {}
-        for n in all_nodes:
-            if n.label != NodeLabel.CLASS:
+        for entry in symbol_entries:
+            if entry.label != NodeLabel.CLASS:
                 continue
-            fqn = n.properties.get("fqn", "")
-            if isinstance(fqn, str) and fqn:
-                uid_to_class_fqn[n.uid] = fqn
+            if entry.fqn:
+                uid_to_class_fqn[entry.uid] = entry.fqn
 
         edges: list[GraphEdge] = []
         for data in per_file_data:
@@ -633,6 +663,7 @@ class CodeGraphBuilder:
         """
         all_nodes: list[GraphNode] = []
         all_edges: list[GraphEdge] = []
+        symbol_entries: list[_SymbolEntry] = []
         per_file_data: list[_CrossFileData] = []
 
         for file_path, content in files.items():
@@ -646,12 +677,16 @@ class CodeGraphBuilder:
             )
             all_nodes.extend(nodes)
             all_edges.extend(edges)
+            for node in nodes:
+                entry = self._symbol_entry_from_node(node)
+                if entry is not None:
+                    symbol_entries.append(entry)
             per_file_data.append(
                 self._cross_file_data_from_parse(file_path, lang, nodes, parse_result),
             )
 
-        symbol_tables = self._build_global_symbol_table(all_nodes)
-        cross_edges = self._resolve_cross_file_edges(per_file_data, symbol_tables, all_nodes)
+        symbol_tables = self._build_global_symbol_table(symbol_entries)
+        cross_edges = self._resolve_cross_file_edges(per_file_data, symbol_tables, symbol_entries)
         all_edges.extend(cross_edges)
 
         return all_nodes, all_edges

@@ -3,6 +3,10 @@
 import pytest
 
 from indexer.code_graph_builder import MAX_FILE_SIZE, CodeGraphBuilder
+
+
+def _entries(nodes):
+    return [e for n in nodes if (e := CodeGraphBuilder._symbol_entry_from_node(n)) is not None]
 from indexer.tree_sitter_parser import TreeSitterParser
 from store.schema import EdgeType, NodeLabel
 
@@ -160,7 +164,7 @@ class TestGlobalSymbolTable:
             content="public class UserController {\n    public void create() {}\n}\n",
         )
         all_nodes = nodes_file1 + nodes_file2
-        table = java_builder._build_global_symbol_table(all_nodes)
+        table = java_builder._build_global_symbol_table(_entries(all_nodes))
 
         assert "java" in table
         java_table = table["java"]
@@ -175,7 +179,7 @@ class TestGlobalSymbolTable:
             "com/example/UserService.java",
             content="public class UserService {}\n",
         )
-        table = java_builder._build_global_symbol_table(nodes)
+        table = java_builder._build_global_symbol_table(_entries(nodes))
         java_table = table.get("java", {})
         class_nodes = [n for n in nodes if n.label == NodeLabel.CLASS]
         assert len(class_nodes) == 1
@@ -188,7 +192,7 @@ class TestGlobalSymbolTable:
             "utils.py",
             content="def helper():\n    pass\n\ndef process():\n    pass\n",
         )
-        table = builder._build_global_symbol_table(nodes)
+        table = builder._build_global_symbol_table(_entries(nodes))
         py_table = table.get("python", {})
         assert "helper" in py_table
         assert "process" in py_table
@@ -200,7 +204,7 @@ class TestGlobalSymbolTable:
     def test_module_nodes_excluded(self, builder: CodeGraphBuilder):
         """Module nodes should NOT be in the symbol table (only Class and Function)."""
         nodes, _ = builder.build_from_file("test.py", content="x = 1\n")
-        table = builder._build_global_symbol_table(nodes)
+        table = builder._build_global_symbol_table(_entries(nodes))
         # Module node should not produce an entry
         py_table = table.get("python", {})
         # The module name "test" should not be in the table (it's a MODULE, not CLASS/FUNCTION)

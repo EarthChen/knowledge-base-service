@@ -443,6 +443,13 @@ class EmbeddingGenerator:
         """Return a singleton instance to avoid loading the model multiple times."""
         if cls._shared_instance is None:
             cls._shared_instance = cls(config)
+        elif cls._shared_instance._config.model_dump() != config.model_dump():
+            log.warning(
+                "embedding_generator_config_changed",
+                old_backend=cls._shared_instance._config.resolve_backend(),
+                new_backend=config.resolve_backend(),
+            )
+            cls._shared_instance = cls(config)
         return cls._shared_instance
 
     def _get_backend(self) -> _EmbeddingBackend:

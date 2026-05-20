@@ -78,7 +78,8 @@ export function MermaidBlock({ chart }: { chart: string }) {
       try {
         const { svg } = await mermaid.render(renderId, sanitized);
         if (cancelled) return;
-        el.innerHTML = svg;
+        el.innerHTML = "";
+        el.appendChild(document.createRange().createContextualFragment(svg));
         const svgEl = el.querySelector("svg");
         if (svgEl) {
           svgEl.removeAttribute("height");

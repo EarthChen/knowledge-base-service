@@ -111,7 +111,20 @@ class DocOrchestrator(ABC):
             return result
         except Exception:
             log.warning("code_block_verification_failed", name=self._name, exc_info=True)
+            return self._mark_unverified_code_blocks(content)
+
+    @staticmethod
+    def _mark_unverified_code_blocks(content: str) -> str:
+        """Prefix each fenced code block when verification could not run."""
+        from wiki.code_block_verifier import extract_code_blocks
+
+        marker = "<!-- UNVERIFIED: code block verification failed -->\n"
+        blocks = extract_code_blocks(content)
+        if not blocks:
             return content
+        for block in sorted(blocks, key=lambda b: b.start, reverse=True):
+            content = content[: block.start] + marker + content[block.start :]
+        return content
 
     def _build_explore_prompt(
         self, module_names: list[str], baseline_context: str

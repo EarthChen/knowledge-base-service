@@ -63,6 +63,7 @@ export default function GeneralSettingsPanel() {
             <button
               type="button"
               onClick={() => setShowToken(!showToken)}
+              aria-label={showToken ? t.settings.hideToken : t.settings.showToken}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             >
               {showToken ? <EyeOff size={16} /> : <Eye size={16} />}

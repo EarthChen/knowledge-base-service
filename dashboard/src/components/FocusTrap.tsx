@@ -12,6 +12,8 @@ export default function FocusTrap({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
 
   useEffect(() => {
     previousFocus.current = document.activeElement as HTMLElement | null;
@@ -23,9 +25,9 @@ export default function FocusTrap({
   }, []);
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape" && onEscape) {
+    if (e.key === "Escape" && onEscapeRef.current) {
       e.stopPropagation();
-      onEscape();
+      onEscapeRef.current();
       return;
     }
     if (e.key !== "Tab") return;

@@ -98,6 +98,7 @@ class TestGetRepoStats:
         assert stats["module_count"] == 3
         assert stats["class_count"] == 0
         assert stats["function_count"] == 10
+        assert stats["query_failed"] is True
 
 
 class TestSystemOverviewComposer:

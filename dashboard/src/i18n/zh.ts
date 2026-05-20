@@ -458,6 +458,8 @@ const zh: Translations = {
     apiToken: "API 令牌",
     apiTokenDesc: "配置用于 API 请求认证的 Bearer 令牌。",
     tokenPlaceholder: "输入 API 令牌...",
+    showToken: "显示 API 令牌",
+    hideToken: "隐藏 API 令牌",
     save: "保存",
     tokenSaved: "API 令牌已保存。",
     serviceInfo: "服务信息",

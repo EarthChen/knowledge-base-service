@@ -32,6 +32,8 @@ export default function WikiSearchBar({ linkParams, repository }: Props) {
 
   const repoTrimmed = repository.trim() || (linkParams?.business_id ?? "").trim() || "default";
 
+  // Ctrl/Cmd+K: capture-phase listener runs before CommandPalette's bubble handler
+  // and stopImmediatePropagation() prevents the global command palette from opening.
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if ((isMac ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === "k") {

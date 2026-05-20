@@ -462,6 +462,8 @@ const en: Translations = {
     apiToken: "API Token",
     apiTokenDesc: "Configure the Bearer token for authenticating API requests.",
     tokenPlaceholder: "Enter API token...",
+    showToken: "Show API token",
+    hideToken: "Hide API token",
     save: "Save",
     tokenSaved: "API token saved.",
     serviceInfo: "Service Info",

@@ -176,6 +176,9 @@ async def run_agent_loop(
                 result.exit_reason = "llm_timeout"
                 break
             except Exception:
+                # LLM failures break the loop immediately; partial tool results remain in
+                # ``memory`` and ``result``. ``on_loop_complete`` still runs after the loop
+                # (see below) so callers can recover or synthesize fallback output.
                 log.warning("run_agent_loop_llm_failed", round=round_num, exc_info=True)
                 result.exit_reason = "llm_error"
                 break

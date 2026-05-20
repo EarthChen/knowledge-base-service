@@ -125,7 +125,12 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         return request.client.host if request.client else "unknown"
 
     def _check_redis(self, ip: str) -> bool | None:
-        """Check rate limit via Redis.  Returns True=allowed, False=denied, None=fallback."""
+        """Check rate limit via Redis.  Returns True=allowed, False=denied, None=fallback.
+
+        When Redis is unavailable, callers fall back to per-process in-memory buckets
+        (fail-open for availability). In multi-worker deployments each worker tracks
+        its own bucket, so effective limits are multiplied by worker count.
+        """
         if self._redis is None or self._lua_sha is None:
             return None
         minute_bucket = int(time.time()) // 60
@@ -185,6 +190,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
                 )
             return await call_next(request)
 
+        log.warning("rate_limiter_using_in_memory_fallback", client_ip=ip)
         allowed, retry_after = self._check_local(ip)
         if not allowed:
             return JSONResponse(

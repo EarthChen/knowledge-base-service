@@ -66,6 +66,9 @@ export default function CommandPalette() {
     return () => window.clearTimeout(id);
   }, [open]);
 
+  // Ctrl/Cmd+K: bubble-phase listener. On wiki routes, WikiSearchBar registers the
+  // same shortcut in capture phase and calls stopImmediatePropagation(), so wiki
+  // search wins when both handlers are mounted.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {

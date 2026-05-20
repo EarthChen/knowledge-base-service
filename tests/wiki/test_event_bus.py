@@ -77,13 +77,16 @@ async def test_publish_subscribe() -> None:
 
 
 @pytest.mark.asyncio
-async def test_full_queue_removes_subscriber() -> None:
+async def test_full_queue_drops_oldest_event() -> None:
     bus = WikiEventBus()
     q = bus.subscribe()
     for i in range(100):
         await bus.publish(WikiEvent(event_type="test", repository="r", data={"i": i}))
-    await bus.publish(WikiEvent(event_type="overflow", repository="r"))
-    assert q not in bus._subscribers
+    await bus.publish(WikiEvent(event_type="overflow", repository="r", data={"i": 100}))
+    assert q in bus._subscribers
+    assert q.qsize() == 100
+    first = q.get_nowait()
+    assert first.data.get("i") == 1
 
 
 @pytest.mark.asyncio

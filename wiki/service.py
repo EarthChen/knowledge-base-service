@@ -829,10 +829,10 @@ class WikiService:
         token_budget_multiplier: float = 1.0,
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield ``{"page": page_dict}`` per page, then ``{"complete": export_bundle}``."""
-        # NOTE: generate_stream_events uses legacy recursive walk for streaming.
-        # Phase 2 features (parent aggregation, business flows, backlinks, navigation)
-        # are only available through the non-streaming _compose_all_pages path.
-        # Aligning streaming with the two-pass architecture is planned for a future phase.
+        # TODO(streaming-phase2): Align generate_stream_events with the non-streaming
+        # _compose_all_pages two-pass architecture. Scope: parent page aggregation,
+        # business-flow pages, backlink injection, and navigation graph assembly.
+        # Currently uses legacy recursive walk; Phase 2 features are batch-only.
         scope = parse_scope(scope_raw)
         config = self._config_for(mode, format, repository, language)
         await self._ensure_repo(repository)

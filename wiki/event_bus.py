@@ -43,14 +43,16 @@ class WikiEventBus:
 
     async def publish(self, event: WikiEvent) -> None:
         log.debug("wiki_event_published", event_type=event.event_type, repository=event.repository)
-        dead: list[asyncio.Queue] = []
         for q in list(self._subscribers):
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
-                dead.append(q)
-        for q in dead:
-            self.unsubscribe(q)
+                try:
+                    q.get_nowait()
+                    q.put_nowait(event)
+                except asyncio.QueueFull:
+                    log.warning("wiki_event_subscriber_dropped", event_type=event.event_type)
+                    self.unsubscribe(q)
 
     async def stream(self, business_id: str | None = None) -> AsyncIterator[WikiEvent]:
         q = self.subscribe()

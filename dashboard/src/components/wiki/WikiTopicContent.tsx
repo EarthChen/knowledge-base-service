@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code, Eye, Copy, Check } from "lucide-react";
 import MarkdownRenderer from "./MarkdownRenderer";
 import EntityCardsPanel from "./EntityCardsPanel";
@@ -69,13 +69,21 @@ export default function WikiTopicContent({
   const [notes, setNotes] = useState("");
   const [viewMode, setViewMode] = useState<"rendered" | "markdown">("rendered");
   const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    };
+  }, []);
 
   const handleCopyMarkdown = useCallback(() => {
     if (!page?.content) return;
     navigator.clipboard.writeText(page.content).then(
       () => {
         setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+        copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
       },
       () => toast("error", t.common.copyFailed),
     );

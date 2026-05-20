@@ -34,10 +34,11 @@ class TestFindRelatedEntities:
                     max_hops=1,
                 )
 
-        assert isinstance(result, list)
-        assert len(result) >= 1
-        uids = [uid for uid, _ in result]
+        assert isinstance(result, dict)
+        assert len(result["entities"]) >= 1
+        uids = [uid for uid, _ in result["entities"]]
         assert "target_uid" in uids
+        assert result["query_failed"] is False
 
     @pytest.mark.asyncio
     async def test_find_related_bidirectional(self):
@@ -68,9 +69,10 @@ class TestFindRelatedEntities:
                     max_hops=1,
                 )
 
-        uids = [uid for uid, _ in result]
+        uids = [uid for uid, _ in result["entities"]]
         assert "out_uid" in uids
         assert "in_uid" in uids
+        assert result["query_failed"] is False
 
     @pytest.mark.asyncio
     async def test_find_related_excludes_self(self):
@@ -100,9 +102,10 @@ class TestFindRelatedEntities:
                     edge_types=["CALLS"],
                 )
 
-        uids = [uid for uid, _ in result]
+        uids = [uid for uid, _ in result["entities"]]
         assert "self_uid" not in uids
         assert "other_uid" in uids
+        assert result["query_failed"] is False
 
 
 class TestFindEntitiesByDomain:
@@ -219,10 +222,13 @@ class TestRelatedPagesBuilder:
         from wiki.related_pages_builder import RelatedPagesBuilder
 
         mock_store = MagicMock()
-        mock_store.find_related_entities = AsyncMock(return_value=[
-            ("controller_uid", "CALLS"),
-            ("service_uid", "IMPORTS"),
-        ])
+        mock_store.find_related_entities = AsyncMock(return_value={
+            "entities": [
+                ("controller_uid", "CALLS"),
+                ("service_uid", "IMPORTS"),
+            ],
+            "query_failed": False,
+        })
         mock_store.find_entities_by_domain = AsyncMock(return_value=["domain_uid"])
         mock_store.find_siblings = AsyncMock(return_value=["sibling_uid"])
 
@@ -241,9 +247,10 @@ class TestRelatedPagesBuilder:
         from wiki.related_pages_builder import RelatedPagesBuilder
 
         mock_store = MagicMock()
-        mock_store.find_related_entities = AsyncMock(return_value=[
-            (f"uid_{i}", "CALLS") for i in range(15)
-        ])
+        mock_store.find_related_entities = AsyncMock(return_value={
+            "entities": [(f"uid_{i}", "CALLS") for i in range(15)],
+            "query_failed": False,
+        })
         mock_store.find_entities_by_domain = AsyncMock(return_value=[
             f"domain_uid_{i}" for i in range(10)
         ])
@@ -264,7 +271,7 @@ class TestRelatedPagesBuilder:
         from wiki.related_pages_builder import RelatedPagesBuilder
 
         mock_store = MagicMock()
-        mock_store.find_related_entities = AsyncMock(return_value=[])
+        mock_store.find_related_entities = AsyncMock(return_value={"entities": [], "query_failed": False})
         mock_store.find_entities_by_domain = AsyncMock(return_value=["same_domain_uid"])
         mock_store.find_siblings = AsyncMock(return_value=[])
 
@@ -283,9 +290,10 @@ class TestRelatedPagesBuilder:
 
         mock_store = MagicMock()
         # Same uid appears in graph AND domain
-        mock_store.find_related_entities = AsyncMock(return_value=[
-            ("shared_uid", "CALLS"),
-        ])
+        mock_store.find_related_entities = AsyncMock(return_value={
+            "entities": [("shared_uid", "CALLS")],
+            "query_failed": False,
+        })
         mock_store.find_entities_by_domain = AsyncMock(return_value=["shared_uid"])
         mock_store.find_siblings = AsyncMock(return_value=["shared_uid"])
 
@@ -304,7 +312,7 @@ class TestRelatedPagesBuilder:
         from wiki.related_pages_builder import RelatedPagesBuilder
 
         mock_store = MagicMock()
-        mock_store.find_related_entities = AsyncMock(return_value=[])
+        mock_store.find_related_entities = AsyncMock(return_value={"entities": [], "query_failed": False})
         mock_store.find_entities_by_domain = AsyncMock(return_value=[])
         mock_store.find_siblings = AsyncMock(return_value=[])
 
@@ -318,7 +326,7 @@ class TestRelatedPagesBuilder:
         from wiki.related_pages_builder import RelatedPagesBuilder
 
         mock_store = MagicMock()
-        mock_store.find_related_entities = AsyncMock(return_value=[])
+        mock_store.find_related_entities = AsyncMock(return_value={"entities": [], "query_failed": False})
         mock_store.find_entities_by_domain = AsyncMock(return_value=[])
         mock_store.find_siblings = AsyncMock(return_value=[])
 
@@ -334,10 +342,13 @@ class TestRelatedToEdgePersistence:
         from wiki.related_pages_builder import RelatedPagesBuilder
 
         mock_store = MagicMock()
-        mock_store.find_related_entities = AsyncMock(return_value=[
-            ("related_uid_1", "CALLS"),
-            ("related_uid_2", "IMPORTS"),
-        ])
+        mock_store.find_related_entities = AsyncMock(return_value={
+            "entities": [
+                ("related_uid_1", "CALLS"),
+                ("related_uid_2", "IMPORTS"),
+            ],
+            "query_failed": False,
+        })
         mock_store.find_entities_by_domain = AsyncMock(return_value=[])
         mock_store.find_siblings = AsyncMock(return_value=[])
         mock_store.upsert_edge = AsyncMock()
@@ -361,10 +372,10 @@ class TestRelatedToEdgePersistence:
         from wiki.related_pages_builder import RelatedPagesBuilder
 
         mock_store = MagicMock()
-        mock_store.find_related_entities = AsyncMock(return_value=[
-            ("uid_1", "CALLS"),
-            ("uid_2", "CALLS"),
-        ])
+        mock_store.find_related_entities = AsyncMock(return_value={
+            "entities": [("uid_1", "CALLS"), ("uid_2", "CALLS")],
+            "query_failed": False,
+        })
         mock_store.find_entities_by_domain = AsyncMock(return_value=[])
         mock_store.find_siblings = AsyncMock(return_value=[])
         mock_store.upsert_edge = AsyncMock(side_effect=[Exception("DB error"), None])

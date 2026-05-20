@@ -43,7 +43,7 @@ class RelatedPagesBuilder:
             graph_neighbors = await self._store.find_related_entities(
                 entity_uid, edge_types=["CALLS", "IMPORTS", "INHERITS"], max_hops=1,
             )
-            for uid, etype in graph_neighbors:
+            for uid, etype in graph_neighbors.get("entities", []):
                 candidates[uid] = candidates.get(uid, 0) + self._GRAPH_WEIGHT
                 strategies.setdefault(uid, f"graph:{etype}")
         except Exception:

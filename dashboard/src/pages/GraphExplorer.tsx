@@ -875,6 +875,7 @@ export default function GraphExplorer() {
                     <button
                       key={key}
                       type="button"
+                      aria-pressed={on}
                       onClick={() => toggleType(key)}
                       className={`${chipBase} ${
                         on

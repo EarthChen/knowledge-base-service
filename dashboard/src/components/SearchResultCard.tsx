@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { BookOpen, Code, Copy, Check } from "lucide-react";
 import type { SearchMatch } from "../api/types";
@@ -36,12 +36,22 @@ export default function SearchResultCard({
 
   const wikiQuery = encodeURIComponent(match.name || "");
   const wikiHref = wikiQuery ? `/search?mode=wiki&q=${wikiQuery}` : "/search?mode=wiki";
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const filePathCopiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      if (filePathCopiedTimerRef.current) clearTimeout(filePathCopiedTimerRef.current);
+    };
+  }, []);
 
   const handleCopy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
     } catch { /* clipboard denied in non-secure context */ }
   };
 
@@ -49,7 +59,8 @@ export default function SearchResultCard({
     try {
       await navigator.clipboard.writeText(path);
       setFilePathCopied(true);
-      setTimeout(() => setFilePathCopied(false), 2000);
+      if (filePathCopiedTimerRef.current) clearTimeout(filePathCopiedTimerRef.current);
+      filePathCopiedTimerRef.current = setTimeout(() => setFilePathCopied(false), 2000);
     } catch { /* clipboard denied in non-secure context */ }
   };
 

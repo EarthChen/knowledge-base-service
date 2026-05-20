@@ -212,7 +212,12 @@ class FalkorDBReadsMixin:
     async def get_repo_stats(self, repository: str) -> dict[str, int]:
         """Return entity counts per label for a repository."""
         loop = asyncio.get_running_loop()
-        counts: dict[str, int] = {"module_count": 0, "class_count": 0, "function_count": 0}
+        counts: dict[str, int | bool] = {
+            "module_count": 0,
+            "class_count": 0,
+            "function_count": 0,
+            "query_failed": False,
+        }
         for label_name, key in [
             ("Module", "module_count"),
             ("Class", "class_count"),
@@ -227,7 +232,8 @@ class FalkorDBReadsMixin:
                 if result.result_set:
                     counts[key] = result.result_set[0][0]
             except Exception:
-                log.debug(
+                counts["query_failed"] = True
+                log.warning(
                     "get_repo_stats_query_failed",
                     label=label_name,
                     repository=repository,
@@ -241,9 +247,10 @@ class FalkorDBReadsMixin:
         *,
         edge_types: list[str] | None = None,
         max_hops: int = 1,
-    ) -> list[tuple[str, str]]:
-        """Find entities related via specified edge types (bidirectional). Returns (uid, edge_type) pairs.
+    ) -> dict[str, Any]:
+        """Find entities related via specified edge types (bidirectional).
 
+        Returns ``{"entities": [(uid, edge_type), ...], "query_failed": bool}``.
         When ``edge_types`` is omitted or empty, defaults to RELATED_TO only (avoids matching every edge).
         Results are deduplicated by neighbor uid (first edge type retained).
         """
@@ -265,6 +272,7 @@ class FalkorDBReadsMixin:
             f"RETURN b.uid AS uid, type(r) AS etype"
         )
         results: list[tuple[str, str]] = []
+        query_failed = False
         for q in (query_out, query_in):
             try:
                 res = await loop.run_in_executor(
@@ -275,14 +283,15 @@ class FalkorDBReadsMixin:
                     if row[0] and row[0] != uid:
                         results.append((row[0], row[1]))
             except Exception:
-                log.debug("find_related_entities_query_failed", uid=uid, exc_info=True)
+                query_failed = True
+                log.warning("find_related_entities_query_failed", uid=uid, exc_info=True)
         seen: set[str] = set()
         deduped: list[tuple[str, str]] = []
         for uid_val, etype in results:
             if uid_val not in seen:
                 seen.add(uid_val)
                 deduped.append((uid_val, etype))
-        return deduped
+        return {"entities": deduped, "query_failed": query_failed}
 
     async def find_entities_by_domain(
         self,

@@ -230,7 +230,7 @@ async def _build_related_pages(
             exc_info=True,
         )
         return related_pages
-    pairs = related[:10]
+    pairs = related.get("entities", [])[:10]
     for rel_uid, _ in pairs:
         title = rel_uid
         page_type_str = ""

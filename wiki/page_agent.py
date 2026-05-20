@@ -589,103 +589,71 @@ class WikiPageAgent(GenericAgent):
 
         self._existing_pages = existing_pages
         memory = WorkingMemory()
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": _AGENT_SYSTEM},
-            {
-                "role": "user",
-                "content": self._build_user_prompt(
-                    content, gaps, memory, domain_label,
-                    focus_modules=focus_modules,
-                    quality_report=quality_report,
-                ),
-            },
-        ]
 
-        total_tool_calls = 0
-        for round_num in range(self.max_rounds):
-            has_empty = memory._tool_contributed_chars == 0
-            tools = self._get_tools_for_round(round_num, has_empty_results=has_empty)
-            try:
-                response = await self._llm.complete_with_tools(messages, tools)
-            except Exception:
-                log.warning("agent_llm_call_failed", round=round_num, exc_info=True)
-                break
+        user_prompt = self._build_user_prompt(
+            content, gaps, memory, domain_label,
+            focus_modules=focus_modules,
+            quality_report=quality_report,
+        )
 
-            tool_calls = response.get("tool_calls")
-            text_content = response.get("content")
+        _NUDGE_MSG = (
+            "你还没有使用工具查询信息。请先使用 read_code 获取关键方法实现，再输出完整页面。"
+        )
 
-            if not tool_calls:
-                if text_content:
-                    cleaned = strip_agent_artifacts(str(text_content))
-                    if cleaned:
-                        if total_tool_calls >= 1 or round_num >= 2:
-                            return cleaned
-                        # Agent skipped tools on early round - nudge it
-                        messages.append(response)
-                        messages.append({
-                            "role": "user",
-                            "content": "你还没有使用工具查询信息。请先使用 read_code 获取关键方法实现，再输出完整页面。",
-                        })
-                        continue
+        async def _nudge_hook(round_num: int, text: str | None, total_calls: int) -> str | None:
+            if text:
+                cleaned = strip_agent_artifacts(str(text))
+                if cleaned and (total_calls >= 1 or round_num >= 2):
+                    return None
+                if cleaned and total_calls == 0 and round_num < 2:
+                    return _NUDGE_MSG
+                if not cleaned:
                     log.warning("agent_output_was_pure_thinking", domain=domain_label)
-                    break
-                break
+            return None
 
-            tool_results: list[ToolResult] = []
-            messages.append(response)
+        async def _fallback_hook(mem: Any) -> str | None:
+            try:
+                fallback = await self._llm.generate(
+                    prompt=self._build_user_prompt(
+                        content, gaps, mem if isinstance(mem, WorkingMemory) else memory,
+                        domain_label,
+                        focus_modules=focus_modules,
+                        quality_report=quality_report,
+                    ),
+                    system=_AGENT_SYSTEM,
+                )
+                cleaned = strip_agent_artifacts(fallback)
+                if cleaned:
+                    return cleaned
+                log.warning("agent_fallback_was_pure_thinking", domain=domain_label)
+            except Exception:
+                log.warning("agent_fallback_failed", exc_info=True)
+            return None
 
-            for tc in tool_calls:
-                func = tc.get("function", {})
-                tool_name = func.get("name", "")
-                try:
-                    args = json.loads(func.get("arguments", "{}"))
-                except json.JSONDecodeError:
-                    args = {}
-                result_data = await self._execute_tool(tool_name, args)
-                tool_results.append(ToolResult(tool=tool_name, data=result_data))
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.get("id", ""),
-                    "content": json.dumps(result_data, ensure_ascii=False, default=str)[:2000],
-                })
+        from wiki.agents.runner import LoopConfig, LoopHooks, run_agent_loop
 
-            total_tool_calls += len(tool_calls)
-            if total_tool_calls >= self.max_tool_calls:
-                log.info("agent_max_tool_calls_reached", total=total_tool_calls)
-                break
-
-            memory.incorporate(tool_results)
-            if len(messages) > self._MAX_HISTORY_MESSAGES:
-                messages = [
-                    {"role": "system", "content": _AGENT_SYSTEM},
-                    {
-                        "role": "user",
-                        "content": self._build_user_prompt(
-                            content, gaps, memory, domain_label,
-                            focus_modules=focus_modules,
-                            quality_report=quality_report,
-                        ),
-                    },
-                ]
-                log.info("agent_history_compressed", round=round_num)
-
-        try:
-            fallback = await self._llm.generate(
-                prompt=self._build_user_prompt(
-                    content, gaps, memory, domain_label,
-                    focus_modules=focus_modules,
-                    quality_report=quality_report,
+        loop_result = await run_agent_loop(
+            self,
+            system_prompt=_AGENT_SYSTEM,
+            user_prompt=user_prompt,
+            memory=memory,
+            config=LoopConfig(
+                max_rounds=self.max_rounds,
+                max_tool_calls=self.max_tool_calls,
+                max_history_messages=self._MAX_HISTORY_MESSAGES,
+                detect_repeated_calls=True,
+                hooks=LoopHooks(
+                    on_no_tool_calls=_nudge_hook,
+                    on_loop_complete=_fallback_hook,
                 ),
-                system=_AGENT_SYSTEM,
-            )
-            cleaned = strip_agent_artifacts(fallback)
+            ),
+        )
+
+        if loop_result.final_output:
+            cleaned = strip_agent_artifacts(loop_result.final_output)
             if cleaned:
                 return cleaned
-            log.warning("agent_fallback_was_pure_thinking", domain=domain_label)
-            return content
-        except Exception:
-            log.warning("agent_fallback_failed", exc_info=True)
-            return content
+        return content
 
     async def explore(
         self,
@@ -1197,26 +1165,42 @@ class WikiPageAgent(GenericAgent):
         limit = min(int(limit or 10), 20)
         if not keyword or not self._graph or not hasattr(self._graph, "execute_query"):
             return {"results": [], "total": 0}
+        import asyncio
         from wiki.cypher_queries import SEARCH_ENTITY_LABELS, search_entity_cypher
 
+        async def _search_label(label: str) -> list[dict[str, str]]:
+            try:
+                cy = search_entity_cypher(label)
+                result = await self._graph.execute_query(
+                    cy, {"keyword": keyword, "limit": limit}
+                )
+                rows = getattr(result, "data", None) or []
+                label_results: list[dict[str, str]] = []
+                for row in rows:
+                    if isinstance(row, dict):
+                        label_results.append({
+                            "name": str(row.get("name", "") or ""),
+                            "type": str(row.get("type", "") or ""),
+                            "file": str(row.get("file", "") or ""),
+                            "signature": str(row.get("signature", "") or ""),
+                            "docstring": str(row.get("docstring", "") or ""),
+                            "uid": str(row.get("uid", "") or ""),
+                        })
+                return label_results
+            except Exception:
+                return []
+
+        per_label_results = await asyncio.gather(
+            *[_search_label(label) for label in SEARCH_ENTITY_LABELS]
+        )
         results: list[dict[str, str]] = []
-        for label in SEARCH_ENTITY_LABELS:
+        for label_results in per_label_results:
             if len(results) >= limit:
                 break
-            per_label_limit = limit - len(results)
-            cy = search_entity_cypher(label)
-            result = await self._graph.execute_query(cy, {"keyword": keyword, "limit": per_label_limit})
-            rows = getattr(result, "data", None) or []
-            for row in rows:
-                if isinstance(row, dict):
-                    results.append({
-                        "name": str(row.get("name", "") or ""),
-                        "type": str(row.get("type", "") or ""),
-                        "file": str(row.get("file", "") or ""),
-                        "signature": str(row.get("signature", "") or ""),
-                        "docstring": str(row.get("docstring", "") or ""),
-                        "uid": str(row.get("uid", "") or ""),
-                    })
+            for item in label_results:
+                results.append(item)
+                if len(results) >= limit:
+                    break
         truncated = len(results) >= limit
         return {"results": results[:limit], "total": len(results), "truncated": truncated}
 

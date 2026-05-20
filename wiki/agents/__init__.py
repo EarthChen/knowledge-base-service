@@ -1,3 +1,4 @@
+from wiki.agents.agent_tool import agent_tool
 from wiki.agents.ask_orchestrator import AskOrchestrator
 from wiki.agents.base_agent import GenericAgent, RunConfig, ToolDef, ToolRegistry
 from wiki.agents.context import RunContext, WikiDeps
@@ -28,6 +29,7 @@ from wiki.agents.research_orchestrator import ResearchOrchestrator
 from wiki.agents.topic_doc_agent import TopicDocAgent
 
 __all__ = [
+    "agent_tool",
     "GenericAgent", "RunConfig", "ToolDef", "ToolRegistry",
     "RunContext", "WikiDeps",
     "GuardrailResult", "GuardrailTrippedError",

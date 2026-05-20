@@ -5,12 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
-from wiki.agents.events import (
-    EventCallback,
-    ThinkingEvent,
-    ToolCallEvent,
-    ToolResultEvent,
-)
+from wiki.agents.events import EventCallback
 
 from core.log import get_logger
 from wiki.tool_guardrail import DefaultToolGuardrail
@@ -188,6 +183,8 @@ class GenericAgent(ABC):
         Uses self._tool_registry for tool schemas and dispatch.
         Uses self.incorporate() to store results in memory.
         """
+        from wiki.agents.runner import LoopConfig, run_agent_loop
+
         if config is None:
             config = RunConfig(
                 max_rounds=self._max_rounds,
@@ -204,168 +201,32 @@ class GenericAgent(ABC):
             if max_history_messages is not None:
                 config.max_history_messages = max_history_messages
 
-        effective_ctx = ctx if ctx is not None else (config.ctx if config else None)
+        effective_ctx = ctx if ctx is not None else config.ctx
 
-        # --- Input guardrails: run before any LLM call ---
-        if config.input_guardrails:
-            from wiki.agents.guardrails import GuardrailTrippedError
+        loop_config = LoopConfig(
+            max_rounds=config.max_rounds,
+            max_tool_calls=config.max_tool_calls,
+            max_history_messages=config.max_history_messages,
+            nudge_message=config.nudge_message,
+            enable_early_stop=config.enable_early_stop,
+            early_stop_max_empty=config.early_stop_max_empty,
+            enable_context_trim=config.enable_context_trim,
+            context_trim_max_chars=config.context_trim_max_chars,
+            context_trim_keep_recent=config.context_trim_keep_recent,
+            enable_post_call_guardrail=config.enable_post_call_guardrail,
+            result_truncate_chars=config.result_truncate_chars,
+            input_guardrails=config.input_guardrails,
+            output_guardrails=config.output_guardrails,
+            event_callback=config.event_callback,
+            tracer=config.tracer,
+            ctx=effective_ctx,
+            detect_repeated_calls=False,
+        )
 
-            for guard in config.input_guardrails:
-                result = await guard.check(user_prompt, effective_ctx)
-                if result.tripwire:
-                    raise GuardrailTrippedError(
-                        result.output_info,
-                        guardrail_name=type(guard).__name__,
-                    )
-                if not result.passed:
-                    log.warning(
-                        "input_guardrail_soft_fail",
-                        guardrail=type(guard).__name__,
-                        info=result.output_info,
-                    )
-
-        if not self._tool_registry.has_tools():
-            return memory
-
-        from wiki.early_stop import EarlyStopDetector
-        from wiki.context_manager import ContextManager
-
-        tracer = config.tracer
-        root_span = None
-        if tracer:
-            root_span = tracer.start_span("run_tool_loop", kind="agent_run")
-
-        early_stop = EarlyStopDetector(max_empty_rounds=config.early_stop_max_empty) if config.enable_early_stop else None
-        ctx_mgr = ContextManager(
-            max_context_chars=config.context_trim_max_chars,
-            keep_recent_rounds=config.context_trim_keep_recent,
-        ) if config.enable_context_trim else None
-
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-        total_tool_calls = 0
-        has_nonempty_result = False
-        final_output: str | None = None
-
-        for round_num in range(config.max_rounds):
-            if config.event_callback:
-                await config.event_callback(
-                    ThinkingEvent(
-                        round_num=round_num + 1,
-                        text=f"Analyzing and planning (round {round_num + 1})...",
-                    )
-                )
-            round_tools = self._tool_registry.get_tools_for_round(
-                round_num + 1, has_empty=not has_nonempty_result and total_tool_calls > 0,
-            )
-            if not round_tools:
-                break
-
-            try:
-                response = await self._llm.complete_with_tools(messages, round_tools)
-            except Exception:
-                log.warning("run_tool_loop_llm_failed", round=round_num, exc_info=True)
-                break
-
-            tool_calls = response.get("tool_calls")
-
-            if not tool_calls:
-                final_output = response.get("content") or None
-                if round_num < 2 and total_tool_calls == 0 and config.nudge_message:
-                    messages.append(response)
-                    messages.append({"role": "user", "content": config.nudge_message})
-                    continue
-                break
-
-            messages.append(response)
-            round_result_strs: list[str] = []
-
-            for tc in tool_calls:
-                func = tc.get("function", {})
-                tool_name = func.get("name", "")
-                try:
-                    args = json.loads(func.get("arguments", "{}"))
-                except json.JSONDecodeError:
-                    log.warning(
-                        "tool_arguments_json_invalid",
-                        tool=tool_name,
-                        arguments_preview=str(func.get("arguments", ""))[:200],
-                    )
-                    args = {}
-
-                if config.event_callback:
-                    await config.event_callback(ToolCallEvent(tool=tool_name, args=args))
-
-                tool_span = None
-                if tracer:
-                    tool_span = tracer.start_span(tool_name, kind="tool_call")
-
-                result, result_str = await self._tool_registry.dispatch(
-                    tool_name, args, post_call=config.enable_post_call_guardrail, ctx=effective_ctx
-                )
-
-                if tool_span and tracer:
-                    status = "error" if "error" in result else "completed"
-                    tracer.end_span(tool_span, status=status)
-
-                if config.event_callback:
-                    summary = self._summarize_tool_result(result)
-                    await config.event_callback(ToolResultEvent(tool=tool_name, summary=summary))
-
-                if config.result_truncate_chars and len(result_str) > config.result_truncate_chars:
-                    result_str = result_str[:config.result_truncate_chars]
-
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.get("id", ""),
-                    "content": result_str,
-                })
-                round_result_strs.append(result_str)
-                self.incorporate(tool_name, result, memory)
-
-                if result and "error" not in result:
-                    has_nonempty_result = True
-
-            total_tool_calls += len(tool_calls)
-            if total_tool_calls >= config.max_tool_calls:
-                break
-
-            if early_stop and early_stop.should_stop(round_result_strs):
-                log.info("run_tool_loop_early_stop", round=round_num)
-                break
-
-            if ctx_mgr:
-                messages = ctx_mgr.trim(messages)
-            elif len(messages) > config.max_history_messages:
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ]
-
-        if root_span and tracer:
-            tracer.end_span(root_span)
-
-        # --- Output guardrails: run after the loop completes ---
-        if config.output_guardrails and final_output:
-            from wiki.agents.guardrails import GuardrailTrippedError
-
-            for guard in config.output_guardrails:
-                result = await guard.check(final_output, effective_ctx)
-                if result.tripwire:
-                    raise GuardrailTrippedError(
-                        result.output_info,
-                        guardrail_name=type(guard).__name__,
-                    )
-                if not result.passed:
-                    log.warning(
-                        "output_guardrail_soft_fail",
-                        guardrail=type(guard).__name__,
-                        info=result.output_info,
-                    )
-
-        return memory
+        result = await run_agent_loop(
+            self, system_prompt, user_prompt, memory, config=loop_config
+        )
+        return result.memory
 
     async def run_generation(
         self,

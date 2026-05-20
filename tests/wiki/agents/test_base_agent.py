@@ -319,13 +319,13 @@ class TestRunToolLoop:
             ToolDef("noop", "d", {}, AsyncMock(return_value={"ok": True}), tier=1)
         )
         memory = Memory()
-        with patch("wiki.agents.base_agent.log.warning") as mock_warning:
+        with patch("wiki.agents.runner.log.warning") as mock_warning:
             result = await agent.run_tool_loop("sys", "usr", memory)
 
         assert result is memory
         mock_warning.assert_called()
         event_names = {c.args[0] for c in mock_warning.call_args_list if c.args}
-        assert "run_tool_loop_llm_failed" in event_names
+        assert "run_agent_loop_llm_failed" in event_names
 
 
 @pytest.mark.asyncio

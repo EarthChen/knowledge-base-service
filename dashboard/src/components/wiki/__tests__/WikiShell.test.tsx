@@ -17,6 +17,20 @@ vi.mock("../../../contexts/BusinessContext", () => ({
   }),
 }));
 
+vi.mock("../../../contexts/AuthContext", () => ({
+  useAuth: () => ({
+    role: "editor",
+    authEnabled: true,
+    authResolved: true,
+    authError: false,
+    isLoading: false,
+    isAdmin: false,
+    isEditor: true,
+    isViewer: true,
+    boundBusiness: null,
+  }),
+}));
+
 vi.mock("../../../hooks/useWikiEvents", () => ({
   useWikiEvents: vi.fn(() => ({ connectionStatus: "connected" as const })),
 }));

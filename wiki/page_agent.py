@@ -1584,6 +1584,15 @@ class WikiPageAgent(GenericAgent):
                     }
         return {"title": "", "path": "", "content": ""}
 
+    def _repository_filter(self) -> str | None:
+        """Derive graph/search repository id from the agent's repo path."""
+        if not self._repo_path:
+            return None
+        from wiki.cross_repo_domain_planner import clean_repo_path
+
+        repo = clean_repo_path(self._repo_path.strip())
+        return repo or None
+
     async def _tool_semantic_search(self, args: dict[str, Any]) -> dict[str, Any]:
         query = str(args.get("query", ""))
         limit = min(int(args.get("limit", 5) or 5), 10)
@@ -1599,6 +1608,7 @@ class WikiPageAgent(GenericAgent):
                 include_callers=False,
                 include_callees=False,
                 use_query_expansion=False,
+                repository=self._repository_filter(),
             )
             hits = raw.get("results", [])
             results = []

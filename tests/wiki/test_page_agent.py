@@ -611,9 +611,11 @@ class TestWikiPageAgent:
             ],
             "confidence": 0.9,
         })
-        agent = WikiPageAgent(llm, gs, search_service=mock_search)
+        agent = WikiPageAgent(llm, gs, repo_path="org/order-service", search_service=mock_search)
         result = await agent._execute_tool("semantic_search", {"query": "order processing"})
         assert len(result["results"]) >= 1
+        mock_search.search_with_context.assert_awaited_once()
+        assert mock_search.search_with_context.await_args.kwargs.get("repository") == "order-service"
 
     @pytest.mark.asyncio
     async def test_semantic_search_unavailable(self):

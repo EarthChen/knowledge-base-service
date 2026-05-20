@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRight, FileText, Folder, FolderOpen, Loader2, Search, X } from "lucide-react";
 import { useDocuments, useDocument, useRepositories } from "../api/hooks";
 import type { DocumentItem } from "../api/types";
@@ -295,7 +295,7 @@ export default function Documents() {
     [listData?.documents],
   );
 
-  useMemo(() => {
+  useEffect(() => {
     if (!expandedInit && listData?.documents && listData.documents.length > 0) {
       setExpanded(new Set());
       setExpandedInit(true);

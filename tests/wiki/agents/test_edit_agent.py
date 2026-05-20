@@ -48,7 +48,7 @@ async def test_tool_search_entities_graph_unavailable_returns_error(mock_llm):
     from wiki.agents.edit_agent import WikiEditAgent
 
     agent = WikiEditAgent(mock_llm, graph=MagicMock())
-    res = await agent._tool_registry.dispatch("search_entities", {"query": "x"})
+    res, _ = await agent._tool_registry.dispatch("search_entities", {"query": "x"})
     assert "error" in res
 
 
@@ -68,7 +68,7 @@ async def test_tool_search_entities_dispatch(mock_llm):
         ]),
     )
     agent = WikiEditAgent(mock_llm, graph=graph)
-    res = await agent._tool_registry.dispatch(
+    res, _ = await agent._tool_registry.dispatch(
         "search_entities", {"query": "svc", "limit": 5}
     )
     assert res.get("error") is None
@@ -87,7 +87,7 @@ async def test_tool_query_module_detail_dispatch(mock_llm):
         MagicMock(data=[{"name": "CallerMod"}]),
     ])
     agent = WikiEditAgent(mock_llm, graph=graph)
-    res = await agent._tool_registry.dispatch(
+    res, _ = await agent._tool_registry.dispatch(
         "query_module_detail", {"module_name": "MyMod"}
     )
     assert res.get("error") is None
@@ -107,7 +107,7 @@ async def test_tool_search_wiki_pages_dispatch(mock_llm):
         return_value=MagicMock(data=[{"title": "T", "path": "/p", "snippet": "body"}]),
     )
     agent = WikiEditAgent(mock_llm, graph=graph)
-    res = await agent._tool_registry.dispatch(
+    res, _ = await agent._tool_registry.dispatch(
         "search_wiki_pages", {"query": "body", "limit": 5}
     )
     assert res.get("error") is None
@@ -318,7 +318,7 @@ class TestReadSourceFileTool:
             ),
         )
         agent = WikiEditAgent(mock_llm, graph=graph)
-        res = await agent._tool_registry.dispatch(
+        res, _ = await agent._tool_registry.dispatch(
             "read_source_file", {"path": "src/foo.py"}
         )
         assert res.get("error") is None
@@ -331,7 +331,7 @@ class TestReadSourceFileTool:
         from wiki.agents.edit_agent import WikiEditAgent
 
         agent = WikiEditAgent(mock_llm, graph=MagicMock())
-        res = await agent._tool_registry.dispatch("read_source_file", {"path": ""})
+        res, _ = await agent._tool_registry.dispatch("read_source_file", {"path": ""})
         assert res.get("error") == "missing path"
 
 
@@ -350,7 +350,7 @@ class TestGetCallChainTool:
             ),
         )
         agent = WikiEditAgent(mock_llm, graph=graph)
-        res = await agent._tool_registry.dispatch(
+        res, _ = await agent._tool_registry.dispatch(
             "get_call_chain", {"func_name": "main"}
         )
         assert res.get("error") is None
@@ -364,7 +364,7 @@ class TestGetCallChainTool:
         from wiki.agents.edit_agent import WikiEditAgent
 
         agent = WikiEditAgent(mock_llm, graph=MagicMock())
-        res = await agent._tool_registry.dispatch(
+        res, _ = await agent._tool_registry.dispatch(
             "get_call_chain", {"func_name": ""}
         )
         assert res.get("error") == "missing func_name"

@@ -88,11 +88,15 @@ interface WikiActiveTasksProps {
   businessId: string;
 }
 
+const POLL_FAIL_THRESHOLD = 3;
+
 export default function WikiActiveTasks({ businessId }: WikiActiveTasksProps) {
   const [tasks, setTasks] = useState<WikiAsyncTask[]>([]);
+  const [pollFailed, setPollFailed] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const pollFailCountRef = useRef(0);
   const { t } = useI18n();
   const { toast } = useToast();
 
@@ -107,9 +111,15 @@ export default function WikiActiveTasks({ businessId }: WikiActiveTasksProps) {
     try {
       const res = await listActiveWikiTasks();
       if (!mountedRef.current) return;
+      pollFailCountRef.current = 0;
+      setPollFailed(false);
       setTasks(res.tasks.filter((tk) => ["pending", "queued", "running"].includes(tk.status)));
     } catch {
-      // silently ignore polling errors
+      if (!mountedRef.current) return;
+      pollFailCountRef.current += 1;
+      if (pollFailCountRef.current >= POLL_FAIL_THRESHOLD) {
+        setPollFailed(true);
+      }
     }
   }, []);
 
@@ -149,10 +159,19 @@ export default function WikiActiveTasks({ businessId }: WikiActiveTasksProps) {
     (tk) => !tk.business_id || tk.business_id === businessId || tk.business_id === "default",
   );
 
-  if (relevantTasks.length === 0) return null;
+  if (relevantTasks.length === 0 && !pollFailed) return null;
 
   return (
     <div className="space-y-2">
+      {pollFailed && (
+        <p
+          className="flex items-center gap-1.5 rounded-lg border border-amber-200/80 bg-amber-50/60 px-2.5 py-1.5 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
+          role="status"
+        >
+          <AlertTriangle size={12} className="shrink-0" aria-hidden />
+          {t.wiki.activeTasksPollFailed}
+        </p>
+      )}
       {relevantTasks.map((task) => {
         const pct = Number(task.progress_pct) || 0;
         const currentRepo = task.current_repo ?? "";

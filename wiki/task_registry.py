@@ -5,11 +5,15 @@ import json
 import time
 from typing import Any, TYPE_CHECKING
 
+from core.log import get_logger
+
 if TYPE_CHECKING:
     from store.task_store import SqliteTaskStore
     from wiki.task_store import WikiTaskStore
 
 WIKI_TASK_TTL_SEC = 120 * 60
+
+log = get_logger(__name__)
 
 
 class WikiTaskRegistry:
@@ -50,7 +54,7 @@ class WikiTaskRegistry:
                 else:
                     asyncio.ensure_future(self._store.put_task(task_id, record))
             except RuntimeError:
-                pass
+                log.warning("task_persistence_failed", task_id=task_id, exc_info=True)
         self._prune()
         self.tasks[task_id] = record
         self._created[task_id] = time.monotonic()

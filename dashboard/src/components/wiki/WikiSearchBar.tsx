@@ -90,9 +90,38 @@ export default function WikiSearchBar({ linkParams, repository }: Props) {
     [navigate, linkParams],
   );
 
-  const wikiHitCount = data?.wiki_hits?.length ?? 0;
-
   const canNavigateResults = hasResultOptions && totalHits > 0;
+
+  const activateHit = useCallback(
+    (index: number) => {
+      if (!data || index < 0 || index >= totalHits) return;
+      const wikiCount = data.wiki_hits?.length ?? 0;
+      const entityCount = data.entity_hits?.length ?? 0;
+      if (index < wikiCount) {
+        const hit = data.wiki_hits[index];
+        if (hit) onSelect(hit.page_path, repoTrimmed);
+        return;
+      }
+      const entityIdx = index - wikiCount;
+      if (entityIdx < entityCount) {
+        const hit = data.entity_hits[entityIdx];
+        if (hit) {
+          navigate(`/explorer?q=${encodeURIComponent(hit.name)}`);
+          close();
+          setQuery("");
+        }
+        return;
+      }
+      const chainIdx = index - wikiCount - entityCount;
+      const hit = data.call_chain_hits?.[chainIdx];
+      if (hit) {
+        navigate(`/explorer?q=${encodeURIComponent(hit.caller)}`);
+        close();
+        setQuery("");
+      }
+    },
+    [data, totalHits, onSelect, repoTrimmed, navigate, close],
+  );
 
   const onSearchKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -113,13 +142,12 @@ export default function WikiSearchBar({ linkParams, repository }: Props) {
         });
         return;
       }
-      if (e.key === "Enter" && activeIndex >= 0 && activeIndex < wikiHitCount) {
+      if (e.key === "Enter" && activeIndex >= 0 && activeIndex < totalHits) {
         e.preventDefault();
-        const hit = data.wiki_hits[activeIndex];
-        if (hit) onSelect(hit.page_path, repoTrimmed);
+        activateHit(activeIndex);
       }
     },
-    [canNavigateResults, totalHits, activeIndex, data, wikiHitCount, onSelect, repoTrimmed],
+    [canNavigateResults, totalHits, activeIndex, data, activateHit],
   );
 
   if (!open) {

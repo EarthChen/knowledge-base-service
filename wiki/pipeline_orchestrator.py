@@ -121,7 +121,12 @@ def _normalize_pipeline_page_dict(p: dict[str, Any]) -> dict[str, Any]:
 
 def _pages_from_state(state: dict[str, Any]) -> list[WikiPage]:
     pages: list[WikiPage] = []
+    errors = state.setdefault("errors", [])
+    if not isinstance(errors, list):
+        errors = []
+        state["errors"] = errors
     for p in state.get("pages", []):
+        page_path = p.get("path", "?")
         try:
             wp = WikiPage.from_dict(_normalize_pipeline_page_dict(p))
             covered = p.get("covered_entity_uids")
@@ -134,8 +139,9 @@ def _pages_from_state(state: dict[str, Any]) -> list[WikiPage]:
             if ck:
                 setattr(wp, "canonical_key", str(ck))
             pages.append(wp)
-        except Exception:
-            log.warning("pipeline_page_conversion_failed", page_path=p.get("path", "?"))
+        except Exception as exc:
+            log.warning("pipeline_page_conversion_failed", page_path=page_path, exc_info=True)
+            errors.append(f"page_conversion_failed:{page_path}:{type(exc).__name__}")
     return pages
 
 

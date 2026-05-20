@@ -663,6 +663,7 @@ class WikiPageAgent(GenericAgent):
         *,
         focus_modules: list[str] | None = None,
         memory: WorkingMemory | None = None,
+        max_rounds: int | None = None,
     ) -> WorkingMemory:
         """Phase 1: Explore code via tools, accumulate structured findings.
 
@@ -674,7 +675,8 @@ class WikiPageAgent(GenericAgent):
         from wiki.agents.context import RunContext
         from wiki.agents.guardrails import PromptLengthGuardrail
 
-        system = AGENT_EXPLORE_SYSTEM.format(max_rounds=self.max_rounds)
+        rounds = max_rounds if max_rounds is not None else self.max_rounds
+        system = AGENT_EXPLORE_SYSTEM.format(max_rounds=rounds)
         user_prompt = self._build_explore_user_prompt(
             module_names, domain_name, baseline_context, focus_modules,
         )
@@ -685,7 +687,7 @@ class WikiPageAgent(GenericAgent):
             memory.relevant_modules = set(module_names)
 
         config = RunConfig(
-            max_rounds=self.max_rounds,
+            max_rounds=rounds,
             max_tool_calls=self.max_tool_calls,
             nudge_message="你还没有使用任何工具。请立即调用工具收集代码信息。",
             enable_early_stop=True,
@@ -832,13 +834,12 @@ class WikiPageAgent(GenericAgent):
         else:
             baseline_str = ""
 
-        old_max_rounds = self.max_rounds
-        self.max_rounds = max_rounds
         try:
             memory = await self.explore(
                 module_names=module_names,
                 domain_name=domain_name,
                 baseline_context=baseline_str,
+                max_rounds=max_rounds,
             )
             content = await self.write(
                 domain_name=domain_name,
@@ -850,8 +851,6 @@ class WikiPageAgent(GenericAgent):
         except Exception:
             log.warning("agent_generate_failed", domain=domain_name, exc_info=True)
             return self._generate_skeleton(module_names, domain_name)
-        finally:
-            self.max_rounds = old_max_rounds
 
     async def repair(self, content: str, eval_result) -> str:
         """Repair content based on Evaluator feedback. No tool calls — pure LLM rewrite."""

@@ -33,6 +33,7 @@ import {
 import { getCurrentBusiness } from "../api/client";
 import { useWikiPathForSourceEntity } from "../hooks/useWikiPathForSourceEntity";
 import { wikiHref } from "../components/wiki/wikiRouteHelpers";
+import ErrorBoundary from "../components/ErrorBoundary";
 import { useI18n } from "../i18n/context";
 import type {
   GraphExploreResponse,
@@ -446,18 +447,17 @@ export default function GraphExplorer() {
   }, []);
 
   const handleExpandNeighbors = useCallback(
-    (nodeLabel: string, expandLimit: number) => {
-      const label = nodeLabel.trim();
-      if (!label) return;
+    (nodeUid: string, expandLimit: number) => {
+      const uid = nodeUid.trim();
+      if (!uid) return;
       if (apiNodesRef.current.size >= MAX_GRAPH_NODES) return;
+      const selectedNode = apiNodesRef.current.get(uid);
+      if (!selectedNode) return;
       const existingUids = [...apiNodesRef.current.keys()];
-      const selectedNode = apiNodesRef.current.get(
-        [...apiNodesRef.current.entries()].find(([, n]) => n.name === label)?.[0] ?? "",
-      );
       expandMutation.mutate(
         {
-          node_name: label,
-          center_uid: selectedNode?.id,
+          node_name: selectedNode.name,
+          center_uid: uid,
           limit: expandLimit,
           depth: 1,
           exclude_uids: existingUids,
@@ -508,9 +508,8 @@ export default function GraphExplorer() {
 
   const onNodeDoubleClick: NodeMouseHandler = useCallback(
     (_event, node) => {
-      const name = node.data?.label as string;
-      if (name && !expandMutation.isPending) {
-        handleExpandNeighbors(name, 20);
+      if (node.id && !expandMutation.isPending) {
+        handleExpandNeighbors(node.id, 20);
       }
     },
     [handleExpandNeighbors, expandMutation.isPending],
@@ -899,6 +898,7 @@ export default function GraphExplorer() {
               </div>
 
               <div className="min-h-[480px] flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-slate-900">
+                <ErrorBoundary fallbackLabel={t.explorer.graphRenderFailed}>
                 <ReactFlow
                   nodes={nodes}
                   edges={edges}
@@ -976,6 +976,7 @@ export default function GraphExplorer() {
                     </div>
                   </Panel>
                 </ReactFlow>
+                </ErrorBoundary>
               </div>
             </>
           ) : (
@@ -1043,7 +1044,7 @@ export default function GraphExplorer() {
               <button
                 type="button"
                 disabled={expandMutation.isPending}
-                onClick={() => handleExpandNeighbors(selectedApiNode.name, 100)}
+                onClick={() => handleExpandNeighbors(selectedApiNode.id, 100)}
                 className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 transition-colors hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-100 dark:hover:bg-emerald-900"
               >
                 {t.explorer.expandAllNeighbors}

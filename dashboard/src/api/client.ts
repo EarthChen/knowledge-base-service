@@ -80,8 +80,9 @@ export async function api<T = unknown>(
   const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const timer = setTimeout(() => controller.abort(), timeout);
   const existingSignal = fetchOpts.signal;
+  const onParentAbort = () => controller.abort();
   if (existingSignal) {
-    existingSignal.addEventListener("abort", () => controller.abort());
+    existingSignal.addEventListener("abort", onParentAbort);
   }
   let res: Response;
   try {
@@ -91,13 +92,16 @@ export async function api<T = unknown>(
       headers: { ...authHeaders(), ...(fetchOpts.headers as Record<string, string>) },
     });
   } catch (e) {
-    clearTimeout(timer);
     if (e instanceof DOMException && e.name === "AbortError") {
       throw new ApiError(`Request timed out after ${timeout}ms`, 0, null);
     }
     throw e;
+  } finally {
+    clearTimeout(timer);
+    if (existingSignal) {
+      existingSignal.removeEventListener("abort", onParentAbort);
+    }
   }
-  clearTimeout(timer);
   const text = await res.text();
   let data: unknown;
   try {
@@ -223,11 +227,25 @@ export async function businessWikiExport(
   }
 
   const url = `${API_BASE}/wiki/export`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: authHeaders(),
-    body: JSON.stringify(body),
-  });
+  const EXPORT_TIMEOUT_MS = 120_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), EXPORT_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new ApiError(`Request timed out after ${EXPORT_TIMEOUT_MS}ms`, 0, null);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new ApiError(text || res.statusText || "Request failed", res.status, text);

@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { ChevronDown, Link2 } from "lucide-react";
 import JsonView from "./JsonView";
 import { useI18n } from "../i18n/context";
+import { useToast } from "./Toast";
 
 type Rel = "called_by" | "calls" | "method_of" | "subclass_of" | "business_flow" | string;
 
@@ -83,13 +84,16 @@ function TypeBadge({ rel }: { rel: string }) {
 
 function FileLineButton({ file, line }: { file: string; line: number }) {
   const { t } = useI18n();
+  const { toast } = useToast();
   const ref = file && line != null ? `${file}:${line}` : file || "—";
   return (
     <button
       type="button"
       title={t.search.graphContextCopyHint}
       onClick={() => {
-        if (ref && ref !== "—") void navigator.clipboard.writeText(ref);
+        if (ref && ref !== "—") {
+          void navigator.clipboard.writeText(ref).catch(() => toast("error", t.common.copyFailed));
+        }
       }}
       className="max-w-[min(100%,18rem)] truncate text-left text-xs text-sky-600 underline decoration-sky-300/60 underline-offset-2 hover:text-sky-800 dark:text-sky-400 dark:decoration-sky-600/60 dark:hover:text-sky-300"
     >

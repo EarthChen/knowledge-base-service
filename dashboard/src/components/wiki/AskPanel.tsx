@@ -472,7 +472,7 @@ export default function AskPanel({ repository, pageContext, prefillQuestion }: P
                                 setAnswer(assistantTextFromMessages(c.messages));
                                 setSources(c.sources ?? []);
                                 setInput("");
-                                localThreadStorageIdRef.current = null;
+                                localThreadStorageIdRef.current = c.id;
                                 threadTitleRef.current = "";
                                 questionForSaveRef.current = "";
                                 const uq = c.messages.find((m) => m.role === "user");
@@ -509,13 +509,13 @@ export default function AskPanel({ repository, pageContext, prefillQuestion }: P
               )}
 
               {(answer || isStreaming) && (
-                <div className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner dark:border-gray-700 dark:bg-gray-900">
+                <div
+                  className="rounded-lg border border-gray-100 bg-white px-4 py-3 shadow-inner dark:border-gray-700 dark:bg-gray-900"
+                  role="status"
+                  aria-live="polite"
+                >
                   {isStreaming && !answer.trim() ? (
-                    <div
-                      className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"
-                      role="status"
-                      aria-live="polite"
-                    >
+                    <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                       <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
                       <span>{t.wiki.askPreparing}</span>
                     </div>

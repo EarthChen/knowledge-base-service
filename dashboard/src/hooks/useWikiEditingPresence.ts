@@ -32,7 +32,7 @@ export function useWikiEditingPresence(pageUid: string) {
     const editorsPath = `/wiki/pages/${encodeURIComponent(pageUid)}/editors`;
 
     const pulse = () => {
-      void api<unknown>(base, { method: "POST", body: "{}" });
+      void api<unknown>(base, { method: "POST", body: "{}" }).catch(() => undefined);
     };
     const release = () => {
       void api<unknown>(base, { method: "DELETE" }).catch(() => undefined);

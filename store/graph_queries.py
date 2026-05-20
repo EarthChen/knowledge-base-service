@@ -526,11 +526,12 @@ class GraphQueryRepository:
                 return {"ok": True, "rows": rows, "used": "shortestPath"}
         except Exception:
             log.debug("shortest_path_primary_query_failed", exc_info=True)
+        fb_depth = min(d, 5)
         fb = (
             f"MATCH (a), (b) "
             f"WHERE a.repository = $repo AND b.repository = $repo "
             f"AND (a.name = $from OR a.fqn = $from) AND (b.name = $to OR b.fqn = $to) "
-            f"MATCH path = (a)-[*1..{d}]-(b) "
+            f"MATCH path = (a)-[:{rel}*1..{fb_depth}]-(b) "
             f"RETURN path, length(path) AS depth, "
             f"[n IN nodes(path) | coalesce(n.name, n.fqn, '')] AS nodes, "
             f"[r IN relationships(path) | type(r)] AS rels "
@@ -538,7 +539,9 @@ class GraphQueryRepository:
         )
         res2 = await self._store.execute_query(fb, params)
         rows2 = getattr(res2, "data", None) or []
-        return {"ok": bool(rows2), "rows": rows2, "used": "variable_length_fallback"}
+        if not rows2:
+            return {"ok": False}
+        return {"ok": True, "rows": rows2, "used": "variable_length_fallback"}
 
     # ── Admin operations ────────────────────────────────────────
 

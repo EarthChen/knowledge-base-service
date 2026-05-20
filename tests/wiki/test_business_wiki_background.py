@@ -133,5 +133,5 @@ async def test_background_task_unlocks_on_failure(mock_task_store):
     last_status_call = mock_task_store.update_status.call_args_list[-1]
     assert last_status_call[0][1] == "failed"
     progress = json.loads(last_status_call[1]["progress_json"])
-    assert progress.get("detail") == "boom"
+    assert progress.get("detail") == "RuntimeError: Wiki generation failed due to an internal error."
     assert progress.get("error") == "internal_error"

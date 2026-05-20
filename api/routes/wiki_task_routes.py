@@ -203,7 +203,7 @@ async def _run_business_wiki_background(
         return
     except Exception as e:
         log.exception("business_wiki_background_failed", task_id=task_id)
-        detail = str(e)[:500]
+        detail = f"{type(e).__name__}: Wiki generation failed due to an internal error."
         if task_store:
             await _wiki_merge_task_status(
                 task_store, task_id, "failed", error="internal_error", detail=detail,

@@ -4,6 +4,7 @@ import MarkdownRenderer from "./MarkdownRenderer";
 import EntityCardsPanel from "./EntityCardsPanel";
 
 import { useI18n } from "../../i18n/context";
+import { useToast } from "../Toast";
 import type { WikiSourceLocation } from "../../hooks/wikiTypes";
 
 interface TopicPage {
@@ -62,6 +63,7 @@ export default function WikiTopicContent({
   onReviewAction,
 }: Props) {
   const { t } = useI18n();
+  const { toast } = useToast();
   const tc = t.wiki.topic_content;
   const [showNotesInput, setShowNotesInput] = useState(false);
   const [notes, setNotes] = useState("");
@@ -70,11 +72,14 @@ export default function WikiTopicContent({
 
   const handleCopyMarkdown = useCallback(() => {
     if (!page?.content) return;
-    navigator.clipboard.writeText(page.content).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [page?.content]);
+    navigator.clipboard.writeText(page.content).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      },
+      () => toast("error", t.common.copyFailed),
+    );
+  }, [page?.content, toast, t.common.copyFailed]);
 
   const reviewBadge = useMemo(() => {
     if (!page) return null;

@@ -33,6 +33,7 @@ import { getErrorMessage } from "../utils/errorUtils";
 import StatCard from "../components/StatCard";
 import { SkeletonCard } from "../components/Skeleton";
 import QuickStartBanner from "../components/QuickStartBanner";
+import ErrorBoundary from "../components/ErrorBoundary";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
@@ -316,59 +317,61 @@ export default function Overview() {
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {nodeData && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
-            <h3 className="mb-4 text-sm font-medium text-gray-500 dark:text-gray-400">
-              {t.overview.nodeDistribution}
-            </h3>
-            <div className="relative mx-auto h-64 max-w-xs">
-              <Doughnut
-                data={nodeData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      position: "bottom",
-                      labels: { color: chartTick, padding: 12, font: { size: 11 } },
+      <ErrorBoundary fallbackLabel={t.overview.chartsRenderFailed}>
+        <div className="grid gap-6 lg:grid-cols-2">
+          {nodeData && (
+            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+              <h3 className="mb-4 text-sm font-medium text-gray-500 dark:text-gray-400">
+                {t.overview.nodeDistribution}
+              </h3>
+              <div className="relative mx-auto h-64 max-w-xs">
+                <Doughnut
+                  data={nodeData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        position: "bottom",
+                        labels: { color: chartTick, padding: 12, font: { size: 11 } },
+                      },
                     },
-                  },
-                }}
-              />
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {edgeData && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
-            <h3 className="mb-4 text-sm font-medium text-gray-500 dark:text-gray-400">
-              {t.overview.edgeDistribution}
-            </h3>
-            <div className="relative h-64">
-              <Bar
-                data={edgeData}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  scales: {
-                    x: {
-                      ticks: { color: chartTick, font: { size: 10 } },
-                      grid: { color: chartGrid },
+          {edgeData && (
+            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+              <h3 className="mb-4 text-sm font-medium text-gray-500 dark:text-gray-400">
+                {t.overview.edgeDistribution}
+              </h3>
+              <div className="relative h-64">
+                <Bar
+                  data={edgeData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                      x: {
+                        ticks: { color: chartTick, font: { size: 10 } },
+                        grid: { color: chartGrid },
+                      },
+                      y: {
+                        beginAtZero: true,
+                        ticks: { color: chartTick },
+                        grid: { color: chartGrid },
+                      },
                     },
-                    y: {
-                      beginAtZero: true,
-                      ticks: { color: chartTick },
-                      grid: { color: chartGrid },
-                    },
-                  },
-                  plugins: { legend: { display: false } },
-                }}
-              />
+                    plugins: { legend: { display: false } },
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </ErrorBoundary>
 
       <div className="space-y-4 border-t border-orange-100 pt-6 dark:border-orange-900/40">
         <h3 className="text-base font-semibold text-orange-950 dark:text-orange-100">{t.overview.p2Title}</h3>
@@ -380,48 +383,50 @@ export default function Overview() {
         )}
 
         {!p2Error && archBarData && (
-          <div className="rounded-xl border border-orange-200/80 bg-gradient-to-br from-orange-50/80 to-rose-50/40 p-5 dark:border-orange-900/40 dark:from-orange-950/40 dark:to-rose-950/30">
-            <h4 className="mb-4 flex items-center gap-2 text-sm font-medium text-orange-900/80 dark:text-orange-200/90">
-              <Layers size={16} className="text-orange-600 dark:text-orange-400" />
-              {t.overview.architectureLayers}
-            </h4>
-            <div className="relative h-72 min-h-[12rem]">
-              <Bar
-                data={archBarData}
-                options={{
-                  indexAxis: "y",
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  onClick: (_event, elements) => {
-                    if (!elements.length) return;
-                    const idx = elements[0].index;
-                    const label = archSorted[idx]?.[0];
-                    if (label) {
-                      navigate(`/architecture?layer=${encodeURIComponent(label)}`);
-                    }
-                  },
-                  onHover: (event, elements) => {
-                    const canvas = event.native?.target as HTMLCanvasElement | undefined;
-                    if (canvas) {
-                      canvas.style.cursor = elements.length ? "pointer" : "default";
-                    }
-                  },
-                  scales: {
-                    x: {
-                      beginAtZero: true,
-                      ticks: { color: chartTick },
-                      grid: { color: chartGrid },
+          <ErrorBoundary fallbackLabel={t.overview.chartsRenderFailed}>
+            <div className="rounded-xl border border-orange-200/80 bg-gradient-to-br from-orange-50/80 to-rose-50/40 p-5 dark:border-orange-900/40 dark:from-orange-950/40 dark:to-rose-950/30">
+              <h4 className="mb-4 flex items-center gap-2 text-sm font-medium text-orange-900/80 dark:text-orange-200/90">
+                <Layers size={16} className="text-orange-600 dark:text-orange-400" />
+                {t.overview.architectureLayers}
+              </h4>
+              <div className="relative h-72 min-h-[12rem]">
+                <Bar
+                  data={archBarData}
+                  options={{
+                    indexAxis: "y",
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    onClick: (_event, elements) => {
+                      if (!elements.length) return;
+                      const idx = elements[0].index;
+                      const label = archSorted[idx]?.[0];
+                      if (label) {
+                        navigate(`/architecture?layer=${encodeURIComponent(label)}`);
+                      }
                     },
-                    y: {
-                      ticks: { color: chartTick, font: { size: 10 } },
-                      grid: { color: chartGrid },
+                    onHover: (event, elements) => {
+                      const canvas = event.native?.target as HTMLCanvasElement | undefined;
+                      if (canvas) {
+                        canvas.style.cursor = elements.length ? "pointer" : "default";
+                      }
                     },
-                  },
-                  plugins: { legend: { display: false } },
-                }}
-              />
+                    scales: {
+                      x: {
+                        beginAtZero: true,
+                        ticks: { color: chartTick },
+                        grid: { color: chartGrid },
+                      },
+                      y: {
+                        ticks: { color: chartTick, font: { size: 10 } },
+                        grid: { color: chartGrid },
+                      },
+                    },
+                    plugins: { legend: { display: false } },
+                  }}
+                />
+              </div>
             </div>
-          </div>
+          </ErrorBoundary>
         )}
 
         {!p2Error && p2Loading && !p2 && (

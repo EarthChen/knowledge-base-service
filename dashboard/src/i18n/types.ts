@@ -40,6 +40,7 @@ export interface Translations {
     breadcrumb: string;
     copy: string;
     copied: string;
+    copyFailed: string;
     loadingCode: string;
     unknownType: string;
     noCodeStored: string;
@@ -85,6 +86,7 @@ export interface Translations {
     nodeDistribution: string;
     edgeDistribution: string;
     failedToLoadStats: string;
+    chartsRenderFailed: string;
     p2Title: string;
     architectureLayers: string;
     eventTracking: string;
@@ -404,6 +406,7 @@ export interface Translations {
     expandedCount: string;
     expandAllNeighbors: string;
     maxNodesReached: string;
+    graphRenderFailed: string;
     blastTitle: string;
     blastNamesLabel: string;
     blastNamesPlaceholder: string;
@@ -856,6 +859,7 @@ export interface Translations {
     activeTaskLabel: string;
     activeTaskProgress: string;
     activeTaskPending: string;
+    activeTasksPollFailed: string;
     taskCancel: string;
     taskCancelConfirm: string;
     taskCancelYes: string;

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 import threading
@@ -467,18 +468,42 @@ class AskSessionAdapter:
 
     def __init__(self, session_store: SqliteSessionStore) -> None:
         self._store = session_store
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._locks_guard = threading.Lock()
+
+    def _lock_for(self, conversation_id: str) -> asyncio.Lock:
+        with self._locks_guard:
+            lock = self._locks.get(conversation_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[conversation_id] = lock
+            return lock
+
+    def _release_lock_entry(self, conversation_id: str, lock: asyncio.Lock) -> None:
+        if lock.locked():
+            return
+        with self._locks_guard:
+            if self._locks.get(conversation_id) is lock:
+                self._locks.pop(conversation_id, None)
 
     async def get(self, conversation_id: str) -> ConversationHistory | None:
-        session = await self._store.get(conversation_id)
-        if session is None:
-            return None
-        session.last_active = time.time()
-        await self._store.save(session)
-        return self._session_to_history(session)
+        lock = self._lock_for(conversation_id)
+        async with lock:
+            session = await self._store.get(conversation_id)
+            if session is None:
+                return None
+            session.last_active = time.time()
+            await self._store.save(session)
+            return self._session_to_history(session)
+        self._release_lock_entry(conversation_id, lock)
 
     async def save(self, history: ConversationHistory) -> None:
-        session = self._history_to_session(history)
-        await self._store.save(session)
+        cid = history.conversation_id
+        lock = self._lock_for(cid)
+        async with lock:
+            session = self._history_to_session(history)
+            await self._store.save(session)
+        self._release_lock_entry(cid, lock)
 
     async def create(
         self,

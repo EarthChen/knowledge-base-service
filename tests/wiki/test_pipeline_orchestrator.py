@@ -125,8 +125,11 @@ class TestPagesFromState:
         assert pages[0].page_type == PageType.TOPIC
 
     def test_skips_invalid_pages(self):
-        pages = _pages_from_state({"pages": [{"bad": "data"}]})
+        state: dict = {"pages": [{"bad": "data"}], "errors": []}
+        pages = _pages_from_state(state)
         assert len(pages) == 0
+        assert len(state["errors"]) == 1
+        assert state["errors"][0].startswith("page_conversion_failed:")
 
 
 # ── Integration: run_langgraph_pipeline ──────────────────────────────────────

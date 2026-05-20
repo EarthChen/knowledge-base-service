@@ -44,7 +44,11 @@ async def _wiki_ask_stream_sse_v2(
     record_memory: bool = False,
     business_id: str | None = None,
 ) -> AsyncIterator[bytes]:
-    """SSE: each event is a single `data: {json}` line; types: token, sources, done."""
+    """Canonical wiki-ask SSE format (use ``POST/GET /ask/stream``).
+
+    Each frame is ``data: {json}\\n\\n`` with no ``event:`` line. Payload ``type`` values:
+    ``token``, ``sources``, ``done``, ``rag_progress``, or ``error``.
+    """
     try:
         async for ev in ask_svc.ask_stream(
             repository=repository,
@@ -151,6 +155,17 @@ async def wiki_ask(
     body: WikiAskBody,
     ask_svc: WikiAskService = Depends(get_wiki_ask_dep),
 ) -> StreamingResponse:
+    """Legacy SSE: named ``event:`` lines (``wiki-answer``, ``wiki-sources``, …).
+
+    Deprecated — migrate to ``POST /ask/stream`` (JSON ``data: {"type":...}`` frames).
+    """
+    log.warning(
+        "wiki_ask_legacy_sse_endpoint",
+        endpoint="POST /ask",
+        canonical="POST /ask/stream",
+        detail="Named event: lines are deprecated; use data-only JSON type frames.",
+    )
+
     async def sse() -> Any:
         try:
             async for ev in ask_svc.ask_stream(

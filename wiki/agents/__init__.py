@@ -9,6 +9,7 @@ from wiki.agents.guardrails import (
     PromptLengthGuardrail,
     ToolGuardrailWithCtx,
 )
+from wiki.agents.handoff import DelegateInput, HandoffConfig, HandoffResult, execute_handoff
 from wiki.agents.memory import Memory
 from wiki.agents.doc_orchestrator import DocOrchestrator, QualityResult
 from wiki.agents.events import (
@@ -32,6 +33,7 @@ __all__ = [
     "GuardrailResult", "GuardrailTrippedError",
     "InputGuardrail", "OutputGuardrail", "ToolGuardrailWithCtx",
     "PromptLengthGuardrail",
+    "HandoffConfig", "HandoffResult", "DelegateInput", "execute_handoff",
     "Memory",
     "AskOrchestrator",
     "DocOrchestrator", "QualityResult",

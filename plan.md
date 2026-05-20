@@ -1,8 +1,6 @@
 # Plan
 
-## In Progress
-
-Next: Layer 3 (Handoff formalization)
+All agent framework enhancement layers complete.
 
 ## Completed
 
@@ -14,3 +12,4 @@ Next: Layer 3 (Handoff formalization)
 6. ~~Layer 1b: output_type~~ → `GenericAgent.output_type` + `_render_output()` + complete_json fallback
 7. ~~Layer 2a: @function_tool~~ → `wiki/agents/tool_decorator.py`, auto-schema from type hints, ctx injection, collect_tools()
 8. ~~Layer 2b: Span Tracing~~ → `wiki/agents/tracing.py`, AgentTracer wired into run_tool_loop (agent_run + tool_call spans)
+9. ~~Layer 3: Handoff~~ → `wiki/agents/handoff.py`, HandoffConfig/Result/DelegateInput, execute_handoff()

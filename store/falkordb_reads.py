@@ -465,3 +465,27 @@ class FalkorDBReadsMixin:
         if not result.result_set:
             return None
         return self._row_to_graph_node(result.result_set[0][0])
+
+    async def find_nodes_by_uids(
+        self, repository: str, uids: list[str], *, chunk_size: int = 500,
+    ) -> dict[str, GraphNode]:
+        """Batch-fetch graph nodes by UID (repository reserved for API compatibility)."""
+        if not uids:
+            return {}
+        loop = asyncio.get_running_loop()
+        out: dict[str, GraphNode] = {}
+        uid_list = list(uids)
+        for i in range(0, len(uid_list), chunk_size):
+            batch = uid_list[i : i + chunk_size]
+            result = await loop.run_in_executor(
+                _graph_executor,
+                lambda b=batch: self._graph.query(  # type: ignore[union-attr]
+                    "UNWIND $uids AS uid MATCH (n {uid: uid}) RETURN n",
+                    params={"uids": b},
+                ),
+            )
+            for row in result.result_set or []:
+                n = self._row_to_graph_node(row[0])
+                if n is not None:
+                    out[n.uid] = n
+        return out

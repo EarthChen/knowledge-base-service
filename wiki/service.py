@@ -551,13 +551,22 @@ class WikiService:
             composer = self._composer_for(llm_provider)
 
             graph_nodes_by_uid: dict[str, GraphNode] = {}
-            for u in all_affected_uids:
+            batch_find = getattr(self._graph, "find_nodes_by_uids", None)
+            if batch_find is not None:
                 try:
-                    n = await self._graph.find_node_by_uid(repository, u)
-                    if n is not None:
-                        graph_nodes_by_uid[u] = n
+                    graph_nodes_by_uid = await batch_find(
+                        repository, list(all_affected_uids),
+                    )
                 except Exception:
-                    log.debug("incremental_prefetch_node_failed", uid=u, exc_info=True)
+                    log.debug("incremental_prefetch_nodes_batch_failed", exc_info=True)
+            else:
+                for u in all_affected_uids:
+                    try:
+                        n = await self._graph.find_node_by_uid(repository, u)
+                        if n is not None:
+                            graph_nodes_by_uid[u] = n
+                    except Exception:
+                        log.debug("incremental_prefetch_node_failed", uid=u, exc_info=True)
 
             glossary: dict[str, str] = {}
             if composer._wiki_store is not None:
@@ -596,6 +605,23 @@ class WikiService:
 
             sorted_uids = self._sort_by_depth(list(all_affected_uids), contains_edges)
             just_generated: dict[str, WikiPage] = {}
+            parent_pages_by_entity: dict[str, Any] = {}
+            if composer._wiki_store is not None and contains_edges:
+                parent_uids = {
+                    str(e.get("source", ""))
+                    for e in contains_edges
+                    if e.get("source")
+                }
+                batch_parent_fn = getattr(
+                    composer._wiki_store, "get_pages_by_entity_uids", None,
+                )
+                if batch_parent_fn is not None and parent_uids:
+                    try:
+                        parent_pages_by_entity = await batch_parent_fn(
+                            repository, list(parent_uids),
+                        )
+                    except Exception:
+                        log.debug("incremental_parent_pages_batch_failed", exc_info=True)
 
             for uid in sorted_uids:
                 try:
@@ -630,9 +656,11 @@ class WikiService:
                             if parent_pg_cached is not None and hasattr(parent_pg_cached, "content"):
                                 parent_context = str(parent_pg_cached.content)[:1200]
                             else:
-                                parent_page = await composer._wiki_store.get_page_by_entity_uid(
-                                    repository, parent_uid,
-                                )
+                                parent_page = parent_pages_by_entity.get(parent_uid)
+                                if parent_page is None and composer._wiki_store is not None:
+                                    parent_page = await composer._wiki_store.get_page_by_entity_uid(
+                                        repository, parent_uid,
+                                    )
                                 if parent_page and hasattr(parent_page, "content"):
                                     parent_context = str(parent_page.content)[:1200]
                         except Exception:

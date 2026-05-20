@@ -370,24 +370,40 @@ class WikiPageStoreMixin:
         self, repository: str, entity_uid: str,
     ) -> SimpleNamespace | None:
         """Return persisted wiki page content for a code entity linked via SOURCE_ENTITY, if any."""
+        pages = await self.get_pages_by_entity_uids(repository, [entity_uid])
+        return pages.get(entity_uid)
+
+    async def get_pages_by_entity_uids(
+        self, repository: str, entity_uids: list[str], *, chunk_size: int = 500,
+    ) -> dict[str, SimpleNamespace]:
+        """Batch version of :meth:`get_page_by_entity_uid` keyed by entity UID."""
+        if not entity_uids:
+            return {}
         _se = EdgeType.SOURCE_ENTITY.value
         q = (
-            f"MATCH (wp:WikiPage {{repository: $repo}})-[:{_se}]->(e {{uid: $entity_uid}}) "
-            "RETURN coalesce(wp.content, '') AS content, coalesce(wp.path, '') AS path LIMIT 1"
+            f"UNWIND $entity_uids AS entity_uid "
+            f"MATCH (wp:WikiPage {{repository: $repo}})-[:{_se}]->(e {{uid: entity_uid}}) "
+            "RETURN entity_uid, coalesce(wp.content, '') AS content, "
+            "coalesce(wp.path, '') AS path"
         )
-        result = await self._store.execute_query(
-            q, {"repo": repository, "entity_uid": entity_uid},
-        )
-        rows = getattr(result, "data", None) or []
-        if not rows:
-            return None
-        row = rows[0]
-        if not isinstance(row, dict):
-            return None
-        return SimpleNamespace(
-            content=str(row.get("content") or ""),
-            path=str(row.get("path") or ""),
-        )
+        out: dict[str, SimpleNamespace] = {}
+        uid_list = list(entity_uids)
+        for i in range(0, len(uid_list), chunk_size):
+            batch = uid_list[i : i + chunk_size]
+            result = await self._store.execute_query(
+                q, {"repo": repository, "entity_uids": batch},
+            )
+            for row in getattr(result, "data", None) or []:
+                if not isinstance(row, dict):
+                    continue
+                eu = str(row.get("entity_uid") or "")
+                if not eu:
+                    continue
+                out[eu] = SimpleNamespace(
+                    content=str(row.get("content") or ""),
+                    path=str(row.get("path") or ""),
+                )
+        return out
 
     async def get_wiki_page_navigation_row(
         self, repository: str, path: str,

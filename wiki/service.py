@@ -17,7 +17,6 @@ from wiki.community_context import CachedCommunityService, format_communities_ma
 from wiki.llm_port import LLMPort
 from wiki.protocols import WikiGraphStorePort
 from store.schema import EdgeType, GraphNode, NodeLabel
-from wiki.ask import set_default_resolver
 from wiki.backlink_builder import BacklinkBuilder
 from wiki.composer import WikiComposer
 from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
@@ -147,7 +146,6 @@ class WikiService:
             base=_llm_budget,
             ceiling=_ctx_window,
         )
-        set_default_resolver(self._budget_resolver)
         self._embedding_cfg = embedding_config
         self._collector = WikiDataCollector(
             graph,
@@ -167,6 +165,7 @@ class WikiService:
         self._community_service = community_service
         self._redis = redis_conn
         self._task_supervisor = task_supervisor
+        self._background_tasks: set[asyncio.Task] = set()
         self._persistence = WikiPagePersistence(
             store=store,
             graph=graph,
@@ -900,10 +899,18 @@ class WikiService:
         pages: list[WikiPage] = []
         degraded = False
         page_tier_map: dict[str, ImportanceTier] = {}
+        error_count = 0
+
+        class _StreamPageError:
+            __slots__ = ("path", "error")
+
+            def __init__(self, path: str, error: str) -> None:
+                self.path = path
+                self.error = error
 
         async def walk_stream(
             node: WikiStructureNode, parent_ctx: str = "",
-        ) -> AsyncIterator[WikiPage]:
+        ) -> AsyncIterator[WikiPage | _StreamPageError]:
             if node.page_type == PageType.REPO_OVERVIEW:
                 page = self._make_repo_overview_page(
                     repository, structure, config, community_markdown=community_markdown,
@@ -929,15 +936,27 @@ class WikiService:
                     skeleton_strat = SkeletonStrategy(raw)
                 except ValueError:
                     skeleton_strat = SkeletonStrategy.TEMPLATE
-            page = await composer.compose_page(
-                page_data,
-                node.page_type,
-                config,
-                parent_context=parent_ctx,
-                importance_tier=tier,
-                skeleton_strategy=skeleton_strat,
-                skeleton_light_model=stream_skeleton_light_model,
-            )
+            try:
+                page = await composer.compose_page(
+                    page_data,
+                    node.page_type,
+                    config,
+                    parent_context=parent_ctx,
+                    importance_tier=tier,
+                    skeleton_strategy=skeleton_strat,
+                    skeleton_light_model=stream_skeleton_light_model,
+                )
+            except Exception as exc:
+                log.warning(
+                    "stream_compose_page_failed",
+                    node_path=node.path,
+                    exc_info=True,
+                )
+                yield _StreamPageError(node.path, str(exc)[:200])
+                for ch in node.children:
+                    async for p in walk_stream(ch, parent_ctx):
+                        yield p
+                return
             if page is None:
                 for ch in node.children:
                     async for p in walk_stream(ch, parent_ctx):
@@ -953,7 +972,12 @@ class WikiService:
                 async for p in walk_stream(ch, parent_ctx):
                     yield p
 
-        async for page in walk_stream(structure.root):
+        async for item in walk_stream(structure.root):
+            if isinstance(item, _StreamPageError):
+                error_count += 1
+                yield {"type": "page_error", "path": item.path, "error": item.error}
+                continue
+            page = item
             pages.append(page)
             if config.mode == "full" and page.metadata.fallback_tier == 3:
                 degraded = True
@@ -995,6 +1019,8 @@ class WikiService:
             export_format="json",
             degraded=degraded,
         )
+        if error_count:
+            bundle["error_count"] = error_count
         yield {"complete": bundle}
 
     async def generate_business_wiki(
@@ -1745,7 +1771,9 @@ class WikiService:
                 name=f"regen-{page_uid}",
             )
         else:
-            asyncio.create_task(_run_regeneration())
+            task = asyncio.create_task(_run_regeneration())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
 
         return {"task_id": task_id, "page_uid": page_uid, "status": "accepted"}
 

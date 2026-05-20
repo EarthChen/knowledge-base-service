@@ -129,15 +129,11 @@ function depthRowClass(depth: number, maxDepth: number): string {
   return "bg-amber-500/10 dark:bg-amber-400/14";
 }
 
-function buildFlowNodesWithDagre(
+export function computeDagrePositions(
   apiNodes: ApiNode[],
   apiEdges: ApiEdge[],
-  isDark: boolean,
-  highlightUids?: Set<string>,
-): Node[] {
-  const PALETTE = paletteForTheme(isDark);
+): Map<string, { x: number; y: number }> {
   const nodeIdSet = new Set(apiNodes.map((n) => n.id));
-
   const g = new dagre.graphlib.Graph();
   const rankdir = hasInheritsEdges(apiEdges) ? "TB" : "LR";
   g.setGraph({ rankdir, nodesep: 60, ranksep: 80, marginx: 20, marginy: 20 });
@@ -153,10 +149,28 @@ function buildFlowNodesWithDagre(
   }
   dagre.layout(g);
 
-  const nodes: Node[] = apiNodes.map((n) => {
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const n of apiNodes) {
+    const pos = g.node(n.id);
+    positions.set(n.id, {
+      x: (pos?.x ?? 0) - NODE_WIDTH / 2,
+      y: (pos?.y ?? 0) - NODE_HEIGHT / 2,
+    });
+  }
+  return positions;
+}
+
+export function applyNodeStyles(
+  apiNodes: ApiNode[],
+  positions: Map<string, { x: number; y: number }>,
+  isDark: boolean,
+  highlightUids?: Set<string>,
+): Node[] {
+  const PALETTE = paletteForTheme(isDark);
+  return apiNodes.map((n) => {
     const nt = normalizeGraphType(n.type);
     const colors = PALETTE[nt];
-    const pos = g.node(n.id);
+    const pos = positions.get(n.id) ?? { x: 0, y: 0 };
     const hl = highlightUids?.has(n.id);
     const ring = hl
       ? isDark
@@ -167,10 +181,7 @@ function buildFlowNodesWithDagre(
         : `0 2px 8px rgba(0,0,0,0.12)`;
     return {
       id: n.id,
-      position: {
-        x: (pos?.x ?? 0) - NODE_WIDTH / 2,
-        y: (pos?.y ?? 0) - NODE_HEIGHT / 2,
-      },
+      position: pos,
       data: {
         label: n.name,
         type: n.type,
@@ -195,7 +206,16 @@ function buildFlowNodesWithDagre(
       },
     };
   });
-  return nodes;
+}
+
+function buildFlowNodesWithDagre(
+  apiNodes: ApiNode[],
+  apiEdges: ApiEdge[],
+  isDark: boolean,
+  highlightUids?: Set<string>,
+): Node[] {
+  const positions = computeDagrePositions(apiNodes, apiEdges);
+  return applyNodeStyles(apiNodes, positions, isDark, highlightUids);
 }
 
 function buildFlowEdges(
@@ -286,20 +306,14 @@ export default function GraphExplorer() {
   const [communityMinSize, setCommunityMinSize] = useState(3);
   const [communityHighlight, setCommunityHighlight] = useState<Set<string>>(new Set());
   const [selectedCommunityKey, setSelectedCommunityKey] = useState<number | null>(null);
+  const [graphSnapshot, setGraphSnapshot] = useState<{ nodes: ApiNode[]; edges: ApiEdge[] }>({
+    nodes: [],
+    edges: [],
+  });
 
   const apiNodesRef = useRef<Map<string, ApiNode>>(new Map());
   const edgesRef = useRef<ApiEdge[]>([]);
   const visibleNodeIdsRef = useRef<Set<string>>(new Set());
-  const showEdgeLabelsRef = useRef(showEdgeLabels);
-  const typeVisibleRef = useRef(typeVisible);
-
-  useEffect(() => {
-    showEdgeLabelsRef.current = showEdgeLabels;
-  }, [showEdgeLabels]);
-
-  useEffect(() => {
-    typeVisibleRef.current = typeVisible;
-  }, [typeVisible]);
 
   const { t } = useI18n();
   const isDark = useHtmlClassDark();
@@ -313,30 +327,26 @@ export default function GraphExplorer() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const applyGraphLayout = useCallback(() => {
-    const list = [...apiNodesRef.current.values()];
-    const builtNodes = buildFlowNodesWithDagre(
-      list,
-      edgesRef.current,
-      isDark,
-      communityHighlight.size ? communityHighlight : undefined,
-    );
-    const flowNodes = builtNodes.map((n) => {
-      const nt = normalizeGraphType((n.data?.type as string) || "");
-      let vis = true;
-      if (nt !== "Unknown") vis = typeVisibleRef.current[nt as NodeTypeKey];
-      return { ...n, hidden: !vis };
+    setGraphSnapshot({
+      nodes: [...apiNodesRef.current.values()],
+      edges: [...edgesRef.current],
     });
-    const nodeIds = new Set(builtNodes.map((n) => n.id));
-    visibleNodeIdsRef.current = nodeIds;
-    const flowEdges = buildFlowEdges(
-      edgesRef.current,
-      nodeIds,
-      showEdgeLabelsRef.current,
-      isDark,
-    );
-    setNodes(flowNodes);
-    setEdges(flowEdges);
-  }, [isDark, communityHighlight, setNodes, setEdges]);
+  }, []);
+
+  const highlightSet = useMemo(
+    () => (communityHighlight.size ? communityHighlight : undefined),
+    [communityHighlight],
+  );
+
+  const dagrePositions = useMemo(
+    () => computeDagrePositions(graphSnapshot.nodes, graphSnapshot.edges),
+    [graphSnapshot.nodes, graphSnapshot.edges],
+  );
+
+  const styledFlowNodes = useMemo(
+    () => applyNodeStyles(graphSnapshot.nodes, dagrePositions, isDark, highlightSet),
+    [graphSnapshot.nodes, dagrePositions, isDark, highlightSet],
+  );
 
   const handleExplore = useCallback(
     (name: string) => {
@@ -389,9 +399,22 @@ export default function GraphExplorer() {
   }, [nodeParam, depth, limit, mutation, expandMutation, applyGraphLayout]);
 
   useEffect(() => {
-    if (apiNodesRef.current.size === 0) return;
-    applyGraphLayout();
-  }, [communityHighlight, applyGraphLayout]);
+    if (graphSnapshot.nodes.length === 0) {
+      setNodes([]);
+      setEdges([]);
+      return;
+    }
+    const flowNodes = styledFlowNodes.map((n) => {
+      const nt = normalizeGraphType((n.data?.type as string) || "");
+      let vis = true;
+      if (nt !== "Unknown") vis = typeVisible[nt as NodeTypeKey];
+      return { ...n, hidden: !vis };
+    });
+    const nodeIds = new Set(styledFlowNodes.map((n) => n.id));
+    visibleNodeIdsRef.current = nodeIds;
+    setNodes(flowNodes);
+    setEdges(buildFlowEdges(graphSnapshot.edges, nodeIds, showEdgeLabels, isDark));
+  }, [graphSnapshot, styledFlowNodes, typeVisible, showEdgeLabels, isDark, setNodes, setEdges]);
 
   const handleBlastRadius = useCallback(() => {
     const names = blastNamesInput
@@ -471,13 +494,6 @@ export default function GraphExplorer() {
     applyGraphLayout();
   }, [expandHistory, applyGraphLayout]);
 
-  useEffect(() => {
-    if (!visibleNodeIdsRef.current.size) return;
-    setEdges(
-      buildFlowEdges(edgesRef.current, visibleNodeIdsRef.current, showEdgeLabels, isDark),
-    );
-  }, [showEdgeLabels, isDark, setEdges]);
-
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
@@ -503,45 +519,6 @@ export default function GraphExplorer() {
   const toggleType = useCallback((key: NodeTypeKey) => {
     setTypeVisible((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
-
-  useEffect(() => {
-    setNodes((nds) =>
-      nds.map((n) => {
-        const rawType = (n.data?.type as string) || "";
-        const nt = normalizeGraphType(rawType);
-        let visible = true;
-        if (nt !== "Unknown") visible = typeVisible[nt as NodeTypeKey];
-        const PALETTE = paletteForTheme(isDark);
-        const colors = PALETTE[nt];
-        const isCenter = Boolean(n.data?.isCenter);
-        const hl = communityHighlight.has(n.id);
-        const borderC = hl ? (isDark ? "#fbbf24" : "#d97706") : colors.border;
-        const boxShadow = hl
-          ? isDark
-            ? "0 0 0 3px #fbbf24, 0 2px 8px rgba(0,0,0,0.35)"
-            : "0 0 0 3px #d97706, 0 2px 8px rgba(0,0,0,0.12)"
-          : isCenter
-            ? `0 0 20px ${colors.border}60`
-            : `0 2px 8px rgba(0,0,0,0.12)`;
-        return {
-          ...n,
-          hidden: !visible,
-          style: {
-            background: isCenter ? colors.border : colors.bg,
-            color: colors.text,
-            border: `2px solid ${borderC}`,
-            borderRadius: "8px",
-            padding: "8px 14px",
-            fontSize: "12px",
-            fontWeight: isCenter ? 700 : 500,
-            boxShadow,
-            minWidth: "80px",
-            textAlign: "center" as const,
-          },
-        };
-      }),
-    );
-  }, [typeVisible, isDark, communityHighlight, setNodes]);
 
   const selectedApiNode = selectedNodeId ? apiNodesRef.current.get(selectedNodeId) : undefined;
   const businessId = getCurrentBusiness();

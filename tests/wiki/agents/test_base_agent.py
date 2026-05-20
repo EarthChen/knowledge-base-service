@@ -176,6 +176,28 @@ class TestToolRegistry:
         assert calls == [({"x": 1},)]
 
 
+    @pytest.mark.asyncio
+    async def test_dispatch_propagates_internal_typeerror(self):
+        """A TypeError INSIDE the handler must propagate as error, not be swallowed."""
+        from wiki.agents.base_agent import ToolDef, ToolRegistry
+        from wiki.agents.context import RunContext, WikiDeps
+        from unittest.mock import MagicMock
+
+        async def buggy_handler(args, ctx):
+            # This TypeError is an actual bug inside the tool
+            return len(None)  # TypeError: object of type 'NoneType' has no len()
+
+        reg = ToolRegistry()
+        reg.register(ToolDef("buggy", "d", {}, buggy_handler, tier=1))
+
+        deps = WikiDeps(graph_store=MagicMock())
+        ctx = RunContext(deps=deps)
+        result, _ = await reg.dispatch("buggy", {}, ctx=ctx)
+        # Should report the real TypeError as error
+        assert "error" in result
+        assert "NoneType" in result["error"]
+
+
 class TestWikiPageAgentCreateMemory:
     def test_create_memory_returns_working_memory(self):
         from wiki.page_agent import WikiPageAgent, WorkingMemory
@@ -364,12 +386,24 @@ class TestRunGeneration:
             prompt="user prompt", system="system prompt"
         )
 
+class TestRunGenerationError:
     @pytest.mark.asyncio
-    async def test_run_generation_returns_empty_on_failure(self):
+    async def test_run_generation_raises_on_llm_failure(self):
+        """LLM failure must raise LLMGenerationError, not return empty string."""
+        from wiki.agents.base_agent import LLMGenerationError
+
         mock_llm = MagicMock()
-        mock_llm.generate = AsyncMock(side_effect=RuntimeError("LLM down"))
+        mock_llm.generate = AsyncMock(side_effect=RuntimeError("model overloaded"))
 
         agent = ConcreteAgent(mock_llm)
-        result = await agent.run_generation("sys", "usr")
+        with pytest.raises(LLMGenerationError, match="model overloaded"):
+            await agent.run_generation("system", "user prompt")
 
-        assert result == ""
+    @pytest.mark.asyncio
+    async def test_run_generation_returns_text_on_success(self):
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(return_value="Hello world")
+
+        agent = ConcreteAgent(mock_llm)
+        result = await agent.run_generation("system", "user prompt")
+        assert result == "Hello world"

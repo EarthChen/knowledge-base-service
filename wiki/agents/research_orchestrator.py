@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from core.log import get_logger
+from wiki.agents.base_agent import LLMGenerationError
 
 log = get_logger(__name__)
 
@@ -56,7 +57,16 @@ class ResearchOrchestrator:
 
     async def decompose(self, question: str) -> list[str]:
         """Break question into sub-questions using agent.run_generation."""
-        raw = await self._agent.run_generation(DECOMPOSE_SYSTEM, question)
+        try:
+            raw = await self._agent.run_generation(DECOMPOSE_SYSTEM, question)
+        except LLMGenerationError:
+            log.warning(
+                "research_decompose_fallback",
+                reason="llm_failure",
+                question_preview=question[:240],
+                exc_info=True,
+            )
+            return [question]
         parsed = _parse_sub_questions(raw)
         if not parsed:
             log.warning(
@@ -78,7 +88,11 @@ class ResearchOrchestrator:
             f"Sub-question:\n{sub_question}\n\n"
             f"Evidence from tools:\n{findings}"
         )
-        return await self._agent.run_generation(ANSWER_SYSTEM, user_prompt)
+        try:
+            return await self._agent.run_generation(ANSWER_SYSTEM, user_prompt)
+        except LLMGenerationError:
+            log.warning("research_answer_generation_failed", exc_info=True)
+            return ""
 
     async def synthesize(
         self,
@@ -91,7 +105,11 @@ class ResearchOrchestrator:
         for i, (sq, sa) in enumerate(zip(sub_questions, sub_answers), start=1):
             parts.append(f"\n{i}. {sq}\n   Partial answer: {sa}\n")
         user_prompt = "".join(parts)
-        return await self._agent.run_generation(SYNTHESIS_SYSTEM, user_prompt)
+        try:
+            return await self._agent.run_generation(SYNTHESIS_SYSTEM, user_prompt)
+        except LLMGenerationError:
+            log.warning("research_synthesis_generation_failed", exc_info=True)
+            return "\n\n".join(sub_answers) if sub_answers else ""
 
     async def research(self, question: str) -> dict[str, Any]:
         """Full pipeline: decompose → explore → answer → synthesize."""

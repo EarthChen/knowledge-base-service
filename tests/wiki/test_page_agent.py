@@ -236,6 +236,33 @@ class TestWorkingMemory:
         assert "订单" in text
         assert "OrderService" in text
 
+    def test_enforce_limit_removes_oldest_when_all_high_relevance(self):
+        """Memory must enforce limit even when all entries have high relevance."""
+        wm = WorkingMemory()
+        big_snippet = "x" * 60_000
+        for i in range(5):
+            wm.code_snippets.append(f"[relevance:1.0] snippet_{i}: {big_snippet}")
+
+        total_before = sum(
+            len(e) for lst in [
+                wm.code_snippets, wm.discovered_callers,
+                wm.discovered_implementations, wm.discovered_call_chains,
+                wm.resolved_gaps, wm.wiki_references, wm.search_findings,
+            ] for e in lst
+        )
+        assert total_before > wm.MAX_TOTAL_CHARS
+
+        wm._enforce_limit()
+
+        total_after = sum(
+            len(e) for lst in [
+                wm.code_snippets, wm.discovered_callers,
+                wm.discovered_implementations, wm.discovered_call_chains,
+                wm.resolved_gaps, wm.wiki_references, wm.search_findings,
+            ] for e in lst
+        )
+        assert total_after <= wm.MAX_TOTAL_CHARS
+
 
 class TestMemoryQuality:
     def test_incorporate_skips_error_results(self):
@@ -663,6 +690,60 @@ class TestWikiPageAgent:
         content = "<!-- CONTEXT_GAP: test -->"
         await agent.enrich(content, domain_name="test")
         assert call_count <= agent.max_rounds
+
+
+class TestReadCodeRepoFilter:
+    @pytest.mark.asyncio
+    async def test_read_code_filters_by_repository(self):
+        """read_code should only return entities from the agent's repository."""
+        mock_graph = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = [
+            {
+                "name": "MyClass",
+                "type": "Class",
+                "file": "src/my_class.py",
+                "start_line": 1,
+                "end_line": 50,
+                "snippet": "class MyClass: ...",
+                "uid": "uid-1",
+                "repository": "target-repo",
+            },
+        ]
+        mock_graph.execute_query = AsyncMock(return_value=mock_result)
+
+        agent = WikiPageAgent(llm=None, graph_store=mock_graph, repo_path="/path/to/target-repo")
+        await agent.read_code("MyClass")
+
+        call_args = mock_graph.execute_query.call_args
+        params = call_args[0][1]
+        assert "repo" in params, "Expected 'repo' parameter in Cypher query params"
+
+    @pytest.mark.asyncio
+    async def test_read_code_no_repo_falls_back_to_unfiltered(self):
+        """Without repo_path, read_code queries without repository filter."""
+        mock_graph = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = [
+            {
+                "name": "MyClass",
+                "type": "Class",
+                "file": "src/my_class.py",
+                "start_line": 1,
+                "end_line": 50,
+                "snippet": "class MyClass: ...",
+                "uid": "uid-1",
+                "repository": "some-repo",
+            },
+        ]
+        mock_graph.execute_query = AsyncMock(return_value=mock_result)
+
+        agent = WikiPageAgent(llm=None, graph_store=mock_graph, repo_path=None)
+        await agent.read_code("MyClass")
+
+        call_args = mock_graph.execute_query.call_args
+        params = call_args[0][1]
+        assert "repo" not in params, "Should not filter by repo when repo_path is None"
 
 
 class TestWikiPageAgentConstruction:

@@ -168,16 +168,19 @@ def wiki_context_token_budget_from_resolver(
     return min(base + q_tokens, resolver.budget("decomposition"))
 
 
-def wiki_context_token_budget(question: str, question_type: str | None = None) -> int:
+def wiki_context_token_budget(
+    question: str,
+    question_type: str | None = None,
+    resolver: TokenBudgetResolver | None = None,
+) -> int:
     """Token budget for graph-enhanced wiki context collection.
 
     Combines a base allowance per ``question_type`` with the estimated token count of
     ``question`` (complexity). Capped to avoid runaway prompts.
     """
-    if _default_resolver is not None:
-        return wiki_context_token_budget_from_resolver(
-            question, question_type, _default_resolver
-        )
+    effective = resolver or _default_resolver
+    if effective is not None:
+        return wiki_context_token_budget_from_resolver(question, question_type, effective)
     qt = question_type if question_type is not None else detect_question_type(question)
     base = _WIKI_TYPE_TOKEN_BUDGET.get(qt, 8000)
     q_tokens = max(len(question) // 4, 0)

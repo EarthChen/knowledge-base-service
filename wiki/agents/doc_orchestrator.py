@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.log import get_logger
+from wiki.agents.base_agent import LLMGenerationError
 
 log = get_logger(__name__)
 
@@ -59,10 +60,17 @@ class DocOrchestrator(ABC):
 
         content = ""
         for iteration in range(self._max_iterations):
-            content = await self._agent.run_generation(
-                self._write_system_prompt,
-                self._build_write_prompt(baseline_context, memory),
-            )
+            try:
+                content = await self._agent.run_generation(
+                    self._write_system_prompt,
+                    self._build_write_prompt(baseline_context, memory),
+                )
+            except LLMGenerationError:
+                log.warning("doc_run_generation_failed", name=self._name, exc_info=True)
+                generate_skeleton = getattr(self._agent, "_generate_skeleton", None)
+                if generate_skeleton is not None:
+                    content = generate_skeleton(module_names, self._name)
+                break
 
             content = await self._verify_code_blocks(content, memory)
 

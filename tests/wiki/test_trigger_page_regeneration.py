@@ -14,6 +14,7 @@ def wiki_service():
     svc._settings = MagicMock()
     svc._llm = AsyncMock()
     svc._task_supervisor = None
+    svc._background_tasks = set()
     return svc
 
 

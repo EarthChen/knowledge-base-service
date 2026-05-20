@@ -122,6 +122,19 @@ RETURN f.name AS name, coalesce(f.file, '') AS file,
 LIMIT 3
 """.strip()
 
+ENTITY_LOCATION_BY_REPO_CY = """
+MATCH (f)
+WHERE (f:Function OR f:Class) AND f.name = $name AND f.repository = $repo
+RETURN f.name AS name, coalesce(f.file, '') AS file,
+       coalesce(f.start_line, 0) AS start_line,
+       coalesce(f.end_line, 0) AS end_line,
+       coalesce(f.code_snippet, '') AS snippet,
+       labels(f)[0] AS type,
+       coalesce(f.uid, '') AS uid,
+       coalesce(f.repository, '') AS repository
+LIMIT 3
+""".strip()
+
 _SEARCH_ENTITY_TEMPLATE = """
 MATCH (n:{label})
 WHERE toLower(n.name) CONTAINS toLower($keyword)

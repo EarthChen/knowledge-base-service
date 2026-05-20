@@ -55,7 +55,7 @@ class TestAskOrchestrator:
         assert "Where is auth implemented?" in explore_messages[1]["content"]
 
     @pytest.mark.asyncio
-    async def test_ask_returns_empty_answer_on_failure(self):
+    async def test_ask_returns_degraded_answer_on_failure(self):
         mock_llm = MagicMock()
         mock_llm.complete_with_tools = AsyncMock()
 
@@ -65,7 +65,8 @@ class TestAskOrchestrator:
         orch = AskOrchestrator(agent)
         result = await orch.ask("Anything?")
 
-        assert result["answer"] == ""
+        assert "Unable to generate an answer" in result["answer"]
+        assert result["sources"] == []
 
     @pytest.mark.asyncio
     async def test_ask_includes_sources_from_memory(self):

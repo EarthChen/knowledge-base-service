@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -105,9 +106,14 @@ class ToolRegistry:
 
         try:
             if ctx is not None:
-                try:
+                sig = inspect.signature(tool.handler)
+                accepts_ctx = "ctx" in sig.parameters or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD
+                    for p in sig.parameters.values()
+                )
+                if accepts_ctx:
                     result = await tool.handler(validated_args, ctx)
-                except TypeError:
+                else:
                     result = await tool.handler(validated_args)
             else:
                 result = await tool.handler(validated_args)
@@ -120,6 +126,12 @@ class ToolRegistry:
         if post_call:
             result_str = await self._guardrail.post_call(name, validated_args, result_str)
         return result, result_str
+
+
+class LLMGenerationError(Exception):
+    """Raised when the LLM fails to produce output."""
+
+    pass
 
 
 class GenericAgent(ABC):
@@ -255,9 +267,9 @@ class GenericAgent(ABC):
                 return output
         try:
             text = await self._llm.generate(prompt=user_prompt, system=system_prompt)
-        except Exception:
+        except Exception as exc:
             log.warning("run_generation_failed", exc_info=True)
-            return ""
+            raise LLMGenerationError(f"LLM generation failed: {exc}") from exc
         if text:
             await self._run_output_guardrails(text, config, ctx)
         return text

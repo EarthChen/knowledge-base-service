@@ -1078,9 +1078,17 @@ class WikiPageAgent(GenericAgent):
             max_chars = SINGLE_RESULT_LIMIT
         if not entity_name or not self._graph or not hasattr(self._graph, "execute_query"):
             return {"name": entity_name, "code": "", "file": "", "type": ""}
-        from wiki.cypher_queries import ENTITY_LOCATION_CY
+        repo_filter = self._repository_filter()
+        if repo_filter:
+            from wiki.cypher_queries import ENTITY_LOCATION_BY_REPO_CY
 
-        result = await self._graph.execute_query(ENTITY_LOCATION_CY, {"name": entity_name})
+            result = await self._graph.execute_query(
+                ENTITY_LOCATION_BY_REPO_CY, {"name": entity_name, "repo": repo_filter}
+            )
+        else:
+            from wiki.cypher_queries import ENTITY_LOCATION_CY
+
+            result = await self._graph.execute_query(ENTITY_LOCATION_CY, {"name": entity_name})
         rows = getattr(result, "data", None) or []
         matches: list[dict[str, Any]] = []
         for row in rows:

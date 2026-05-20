@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.log import get_logger
+from wiki.agents.base_agent import LLMGenerationError
 
 log = get_logger(__name__)
 
@@ -42,7 +43,14 @@ class AskOrchestrator:
         user_prompt = (
             f"Question: {question}\n\nCode intelligence findings:\n{memory_text}"
         )
-        answer = await self._agent.run_generation(ASK_ANSWER_SYSTEM, user_prompt)
+        try:
+            answer = await self._agent.run_generation(ASK_ANSWER_SYSTEM, user_prompt)
+        except LLMGenerationError:
+            log.warning("ask_run_generation_failed", exc_info=True)
+            answer = (
+                "Unable to generate an answer because the language model is unavailable. "
+                "See sources for gathered code intelligence."
+            )
 
         sources = self._extract_sources(memory)
         return {"answer": answer, "sources": sources}

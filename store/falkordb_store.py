@@ -7,6 +7,7 @@ Provides async-compatible connection management, schema initialization
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 from typing import Any
 
 from falkordb import FalkorDB, Graph
@@ -26,9 +27,11 @@ from store.falkordb_reads import FalkorDBReadsMixin
 from store.falkordb_search import FalkorDBSearchMixin
 from store.falkordb_wiki import FalkorDBWikiMixin
 
-from .schema import VECTOR_INDEX_CONFIGS, GraphEdge, GraphNode, NodeLabel
+from .schema import VECTOR_INDEX_CONFIGS, EdgeType, GraphEdge, GraphNode, NodeLabel
 
 log = get_logger(__name__)
+
+_BATCH_UPSERT_CHUNK = 500
 
 
 class FalkorDBStore(FalkorDBSearchMixin, FalkorDBWikiMixin, FalkorDBReadsMixin):
@@ -239,11 +242,69 @@ class FalkorDBStore(FalkorDBSearchMixin, FalkorDBWikiMixin, FalkorDBReadsMixin):
             _graph_executor, lambda: self._graph.query(query, params=params)  # type: ignore[union-attr]
         )
 
-    async def batch_upsert(self, nodes: list[GraphNode], edges: list[GraphEdge]) -> None:
+    async def _batch_upsert_nodes_for_label(
+        self, label: NodeLabel, nodes: list[GraphNode],
+    ) -> None:
+        if not nodes:
+            return
+        loop = asyncio.get_running_loop()
+        items: list[dict[str, Any]] = []
         for node in nodes:
-            await self.upsert_node(node)
-        for edge in edges:
-            await self.upsert_edge(edge)
+            props = {k: v for k, v in node.properties.items() if k != "embedding"}
+            props["uid"] = node.uid
+            items.append({"uid": node.uid, "props": props})
+        query = (
+            f"UNWIND $items AS item "
+            f"MERGE (n:{label} {{uid: item.uid}}) "
+            f"SET n += item.props"
+        )
+        for i in range(0, len(items), _BATCH_UPSERT_CHUNK):
+            batch = items[i : i + _BATCH_UPSERT_CHUNK]
+            await loop.run_in_executor(
+                _graph_executor,
+                lambda b=batch, q=query: self._graph.query(q, params={"items": b}),  # type: ignore[union-attr]
+            )
+
+    async def _batch_upsert_edges_for_type(
+        self, edge_type: EdgeType, edges: list[GraphEdge],
+    ) -> None:
+        if not edges:
+            return
+        loop = asyncio.get_running_loop()
+        items = [
+            {
+                "source_uid": edge.source_uid,
+                "target_uid": edge.target_uid,
+                "props": dict(edge.properties),
+            }
+            for edge in edges
+        ]
+        query = (
+            "UNWIND $items AS item "
+            "MATCH (a {uid: item.source_uid}), (b {uid: item.target_uid}) "
+            f"MERGE (a)-[r:{edge_type.value}]->(b) "
+            "SET r += item.props"
+        )
+        for i in range(0, len(items), _BATCH_UPSERT_CHUNK):
+            batch = items[i : i + _BATCH_UPSERT_CHUNK]
+            await loop.run_in_executor(
+                _graph_executor,
+                lambda b=batch, q=query: self._graph.query(q, params={"items": b}),  # type: ignore[union-attr]
+            )
+
+    async def batch_upsert(self, nodes: list[GraphNode], edges: list[GraphEdge]) -> None:
+        if nodes:
+            by_label: dict[NodeLabel, list[GraphNode]] = defaultdict(list)
+            for node in nodes:
+                by_label[node.label].append(node)
+            for label, group in by_label.items():
+                await self._batch_upsert_nodes_for_label(label, group)
+        if edges:
+            by_type: dict[EdgeType, list[GraphEdge]] = defaultdict(list)
+            for edge in edges:
+                by_type[edge.edge_type].append(edge)
+            for edge_type, group in by_type.items():
+                await self._batch_upsert_edges_for_type(edge_type, group)
 
     async def get_nodes_by_file(self, file_path: str) -> list:
         """Retrieve embeddable nodes (Function, Class, Document, Chunk) for a given file path."""

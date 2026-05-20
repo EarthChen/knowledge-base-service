@@ -11,6 +11,7 @@ interface AuthInfo {
 interface AuthContextType {
   role: string | null;
   authEnabled: boolean;
+  authResolved: boolean;
   isLoading: boolean;
   isAdmin: boolean;
   isEditor: boolean;
@@ -21,6 +22,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   role: null,
   authEnabled: false,
+  authResolved: false,
   isLoading: true,
   isAdmin: false,
   isEditor: false,
@@ -36,17 +38,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     retry: false,
   });
 
+  const authResolved = !isLoading;
   const role = data?.role ?? null;
-  const authEnabled = data?.auth_enabled ?? false;
+  const authEnabled = data?.auth_enabled === true;
   const boundBusiness = data?.business_id ?? null;
 
-  const isAdmin = !authEnabled || role === "admin";
-  const isEditor = isAdmin || role === "editor";
-  const isViewer = isEditor || role === "viewer";
+  const authDisabled = authResolved && data?.auth_enabled === false;
+
+  let isAdmin: boolean;
+  let isEditor: boolean;
+  let isViewer: boolean;
+
+  if (authDisabled) {
+    isAdmin = true;
+    isEditor = true;
+    isViewer = true;
+  } else if (!authResolved || !authEnabled) {
+    isAdmin = false;
+    isEditor = false;
+    isViewer = false;
+  } else {
+    isAdmin = role === "admin";
+    isEditor = role === "admin" || role === "editor";
+    isViewer = isEditor || role === "viewer";
+  }
 
   const value = useMemo(
-    () => ({ role, authEnabled, isLoading, isAdmin, isEditor, isViewer, boundBusiness }),
-    [role, authEnabled, isLoading, isAdmin, isEditor, isViewer, boundBusiness],
+    () => ({
+      role,
+      authEnabled,
+      authResolved,
+      isLoading,
+      isAdmin,
+      isEditor,
+      isViewer,
+      boundBusiness,
+    }),
+    [role, authEnabled, authResolved, isLoading, isAdmin, isEditor, isViewer, boundBusiness],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

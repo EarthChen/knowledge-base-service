@@ -255,6 +255,8 @@ class AppWikiFlags(BaseModel):
     #: When True, only LangGraph pipeline topic pages are generated.
     business_wiki_skip_repo_pages: bool = Field(default=True)
 
+    wiki_content_language: str = Field(default="简体中文", description="Language for wiki content generation")
+
     #: Max concurrent repo-level wiki generation (only used when skip_repo_pages=False).
     business_repo_concurrency: int = Field(default=3, ge=1)
 

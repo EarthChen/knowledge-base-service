@@ -8,11 +8,57 @@ import pytest
 from unittest.mock import AsyncMock
 
 from wiki.models import LeafSummary
+from wiki.nodes.aggregate import _compute_cross_domain_call_stats
 from wiki.pipeline_nodes import compose_parent_pages_node, has_parent_domains
+from wiki.prompts import system_wiki_parent_overview
 
 
 def _leaf_summary_field_names() -> set[str]:
     return {f.name for f in fields(LeafSummary)}
+
+
+def test_system_wiki_parent_overview_language_param():
+    prompt = system_wiki_parent_overview("English")
+    assert "English" in prompt
+    assert "简体中文" not in prompt
+
+    default = system_wiki_parent_overview()
+    assert "简体中文" in default
+
+
+def test_cross_domain_call_stats_basic():
+    parent = {
+        "name": "commerce",
+        "children": [
+            {"name": "payment", "display_name": "Payment", "modules": ["PaySvc", "PayDao"]},
+            {"name": "billing", "display_name": "Billing", "modules": ["BillSvc"]},
+        ],
+    }
+    edges = [
+        {"source": "PaySvc", "target": "BillSvc", "weight": 5},
+        {"source": "BillSvc", "target": "PayDao", "weight": 3},
+    ]
+    result = _compute_cross_domain_call_stats(parent, edges)
+    assert "Payment → Billing: 5" in result
+    assert "Billing → Payment: 3" in result
+
+
+def test_cross_domain_call_stats_no_edges():
+    parent = {"name": "test", "children": []}
+    result = _compute_cross_domain_call_stats(parent, None)
+    assert "No cross-domain call data" in result
+
+
+def test_cross_domain_call_stats_same_domain_ignored():
+    parent = {
+        "name": "test",
+        "children": [
+            {"name": "sub1", "display_name": "Sub1", "modules": ["A", "B"]},
+        ],
+    }
+    edges = [{"source": "A", "target": "B", "weight": 10}]
+    result = _compute_cross_domain_call_stats(parent, edges)
+    assert "No cross-sub-domain calls" in result
 
 
 def test_has_parent_domains_true():

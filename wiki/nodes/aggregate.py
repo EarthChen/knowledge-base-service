@@ -1,11 +1,13 @@
 """Parent pages, leaf summaries, and overview synthesis nodes."""
 
 import re
+from collections import Counter
 from dataclasses import asdict
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
+from core.config import get_settings
 from core.log import get_logger
 from wiki.dependency_graph import DomainNode
 from wiki.domain_complexity import DomainComplexity
@@ -25,12 +27,49 @@ from wiki.nodes.utils import (
     has_parent_domains,
     select_key_snippets,
 )
-from wiki.prompts import SYSTEM_WIKI_PARENT_OVERVIEW
+from wiki.prompts import system_wiki_parent_overview
 from wiki.reasoning import MultiStepReasoner, ReasoningLevel, TaskType, select_reasoning_level
 from wiki.system_overview_composer import SystemOverviewComposer
 from wiki.token_budget import TokenBudgetCalculator, TokenBudgetResolver
 
 log = get_logger(__name__)
+
+
+def _compute_cross_domain_call_stats(
+    parent_domain: dict[str, Any],
+    module_call_edges: list[dict[str, Any]] | None,
+) -> str:
+    """Compute cross-sub-domain call statistics for parent overview prompts."""
+    if not module_call_edges:
+        return "No cross-domain call data available."
+
+    children = parent_domain.get("children", [])
+    if not children:
+        return "No sub-domains to analyze."
+
+    module_to_subdomain: dict[str, str] = {}
+    for child in children:
+        child_name = child.get("display_name") or child.get("name", "")
+        for mod in child.get("modules", []):
+            module_to_subdomain[mod] = child_name
+
+    cross_calls: Counter[tuple[str, str]] = Counter()
+    for edge in module_call_edges:
+        src = edge.get("source", "")
+        tgt = edge.get("target", "")
+        src_domain = module_to_subdomain.get(src, "")
+        tgt_domain = module_to_subdomain.get(tgt, "")
+        if src_domain and tgt_domain and src_domain != tgt_domain:
+            weight = edge.get("weight", 1)
+            cross_calls[(src_domain, tgt_domain)] += weight
+
+    if not cross_calls:
+        return "No cross-sub-domain calls detected."
+
+    lines = []
+    for (src, tgt), count in cross_calls.most_common(20):
+        lines.append(f"- {src} → {tgt}: {count} calls")
+    return "\n".join(lines)
 
 
 async def summarize_leaves_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -108,6 +147,8 @@ async def compose_parent_pages_node(
     budget_resolver = TokenBudgetResolver()
     gen_budget = budget_resolver.budget("topic_page_generate")
     budget_calc = TokenBudgetCalculator()
+    content_language = get_settings().wiki.wiki_content_language
+    system_prompt = system_wiki_parent_overview(content_language)
 
     parent_levels = _collect_parent_domains_by_level(domain_tree)
     all_parent_pages: list[dict[str, Any]] = []
@@ -150,6 +191,10 @@ async def compose_parent_pages_node(
                 "\n".join(snippet_lines) if snippet_lines else "No code signatures available."
             )
 
+            cross_domain_stats = _compute_cross_domain_call_stats(
+                parent_domain, state.get("module_call_edges")
+            )
+
             prompt = (
                 f'Create a domain overview page for "{parent_name}" that synthesizes '
                 "its sub-domains.\n\n"
@@ -157,10 +202,12 @@ async def compose_parent_pages_node(
                 f"{child_summaries_text}\n\n"
                 "## Key Code Interfaces\n"
                 f"{snippet_text}\n\n"
+                "## Cross-Domain Call Statistics\n"
+                f"{cross_domain_stats}\n\n"
                 'Return ONLY valid JSON (no markdown fences) with keys: "title", '
                 '"content", "executive_summary", "page_type".\n'
                 "Requirements for content:\n"
-                "- Use Chinese (简体中文) for all text including the title\n"
+                f"- Use {content_language} for all text including the title\n"
                 "- Explain how sub-domains relate and describe data flow between them\n"
                 "- Include at least one Mermaid sequenceDiagram or flowchart showing interactions\n"
                 "- Reference key interfaces naturally in the explanation\n"
@@ -168,7 +215,7 @@ async def compose_parent_pages_node(
                 "executive_summary should be 150-300 chars capturing the domain's core purpose."
             )
             messages = [
-                {"role": "system", "content": SYSTEM_WIKI_PARENT_OVERVIEW},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ]
             parsed: dict[str, Any] | None = None
@@ -191,7 +238,7 @@ async def compose_parent_pages_node(
                 try:
                     response = await llm.generate(
                         prompt,
-                        system=SYSTEM_WIKI_PARENT_OVERVIEW,
+                        system=system_prompt,
                         max_tokens=gen_budget,
                     )
                     raw = response if isinstance(response, str) else str(response)

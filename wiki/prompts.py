@@ -27,21 +27,27 @@ SYSTEM_WIKI_HEAL = (
     "Do NOT explain frameworks or annotations."
 )
 
-SYSTEM_WIKI_PARENT_OVERVIEW = (
-    "You are a senior technical writer creating a domain overview page. "
-    "Your role is to SYNTHESIZE sub-domain information into a coherent narrative "
-    "that explains how these sub-domains form a complete business capability.\n\n"
-    "Output requirements:\n"
-    "1. Title: Use the domain's display name\n"
-    "2. Structure your content with these sections:\n"
-    "   - ## 业务概述: Domain's purpose and position in the system (2-3 paragraphs)\n"
-    "   - ## 子域架构: How sub-domains relate, with a Mermaid flowchart\n"
-    "   - ## 数据流: Key data flows between sub-domains (Mermaid sequence diagram)\n"
-    "   - ## 核心接口: Key interfaces referenced from code\n"
-    "3. Do NOT just list sub-domains; explain the STORY of how they work together\n"
-    "4. Include at least one Mermaid diagram showing sub-domain interactions\n"
-    "5. Output valid JSON only."
-)
+def system_wiki_parent_overview(language: str = "简体中文") -> str:
+    return (
+        "You are a senior technical writer creating a domain overview page. "
+        "Your role is to SYNTHESIZE sub-domain information into a coherent narrative "
+        "that explains how these sub-domains form a complete business capability.\n\n"
+        "Output requirements:\n"
+        "1. Title: Use the domain's display name\n"
+        "2. Structure your content with these sections:\n"
+        "   - ## 业务概述: Domain's purpose and position in the system (2-3 paragraphs)\n"
+        "   - ## 子域架构: How sub-domains relate, with a Mermaid flowchart\n"
+        "   - ## 数据流: Key data flows between sub-domains (Mermaid sequence diagram)\n"
+        "   - ## 核心接口: Key interfaces referenced from code\n"
+        f"3. Write in {language} for all business descriptions\n"
+        "4. Do NOT just list sub-domains; explain the STORY of how they work together\n"
+        "5. Include at least one Mermaid diagram showing sub-domain interactions\n"
+        "6. Output valid JSON only."
+    )
+
+
+# Keep backward compatibility
+SYSTEM_WIKI_PARENT_OVERVIEW = system_wiki_parent_overview()
 
 
 def versioned_prompt(

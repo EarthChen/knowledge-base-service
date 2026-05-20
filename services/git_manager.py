@@ -122,8 +122,7 @@ class GitManager:
             env["GIT_SSL_NO_VERIFY"] = "1"
         if self._cfg.ssh_key_path:
             env["GIT_SSH_COMMAND"] = (
-                f"ssh -i {self._cfg.ssh_key_path} "
-                "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+                f"ssh -i {self._cfg.ssh_key_path} -o StrictHostKeyChecking=accept-new"
             )
         return env
 

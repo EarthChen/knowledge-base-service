@@ -257,7 +257,8 @@ async def quality_gate_node(
         max_retries = 2 if tier == ImportanceTier.CORE else 1
         attempts = heal_attempts.get(page.path, 0)
 
-        if l1.overall < threshold and attempts < max_retries:
+        structural_score = score_dict["l1_structural"]
+        if structural_score < threshold and attempts < max_retries:
             pages_to_heal.append(page.path)
 
     if "L2" in levels and len(pages_to_heal) > 1:

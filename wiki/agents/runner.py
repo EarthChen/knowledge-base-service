@@ -267,6 +267,10 @@ async def run_agent_loop(
                     log.warning("tool_call_timeout", tool=tool_name, timeout=config.tool_call_timeout)
                     tool_result = {"error": f"Tool {tool_name} timed out after {config.tool_call_timeout}s"}
                     result_str = json.dumps(tool_result, ensure_ascii=False)
+                except Exception as exc:
+                    log.exception("tool_call_error", tool=tool_name)
+                    tool_result = {"error": f"Tool {tool_name} failed: {exc}"}
+                    result_str = json.dumps(tool_result, ensure_ascii=False)
 
                 if tool_span and tracer:
                     status = "error" if "error" in tool_result else "completed"

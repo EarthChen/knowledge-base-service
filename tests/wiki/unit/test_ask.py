@@ -310,6 +310,30 @@ class TestWikiAskService:
         assert "Bar" in blob
         assert "class Foo" in blob or "Foo" in blob
 
+    async def test_ask_rag_failure_does_not_persist_conversation(self) -> None:
+        search = AsyncMock()
+        llm = AsyncMock()
+        rag = AsyncMock()
+        rag.arun = AsyncMock(side_effect=RuntimeError("RAG engine down"))
+        store = ConversationStore(max_conversations=200, max_turns=10, ttl_seconds=1800)
+        svc = WikiAskService(search, llm, rag_engine=rag, conversation_store=store)
+
+        hist = store.create("repo")
+        cid = hist.conversation_id
+
+        events: list[dict] = []
+        async for ev in svc.ask_stream("repo", "What broke?", conversation_id=cid):
+            events.append(ev)
+
+        ans_events = [e for e in events if e["event"] == "wiki-answer"]
+        assert ans_events
+        text = ans_events[-1]["data"].get("content", "")
+        assert "could not generate" in text.lower() or "unavailable" in text.lower()
+
+        saved = store.get(cid)
+        assert saved is not None
+        assert saved.turns == []
+
     async def test_ask_no_llm_fallback(self) -> None:
         search = AsyncMock()
         search.search = AsyncMock(

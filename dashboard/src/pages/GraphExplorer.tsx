@@ -293,6 +293,10 @@ export default function GraphExplorer() {
   const [searchName, setSearchName] = useState(() => searchParams.get("q") ?? "");
   const [depth, setDepth] = useState(2);
   const [limit, setLimit] = useState(100);
+  const depthRef = useRef(depth);
+  const limitRef = useRef(limit);
+  depthRef.current = depth;
+  limitRef.current = limit;
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [typeVisible, setTypeVisible] = useState<Record<NodeTypeKey, boolean>>({ ...DEFAULT_VISIBILITY });
   const [showEdgeLabels, setShowEdgeLabels] = useState(true);
@@ -381,7 +385,7 @@ export default function GraphExplorer() {
     if (nodeDeepLinkRef.current === n) return;
     nodeDeepLinkRef.current = n;
     mutation.mutate(
-      { name: "", center_uid: n, depth, limit },
+      { name: "", center_uid: n, depth: depthRef.current, limit: limitRef.current },
       {
         onSuccess: (data) => {
           ingestExploreResult(data, n, {
@@ -396,7 +400,7 @@ export default function GraphExplorer() {
         },
       },
     );
-  }, [nodeParam, depth, limit, mutation, expandMutation, applyGraphLayout]);
+  }, [nodeParam, mutation, expandMutation, applyGraphLayout]);
 
   useEffect(() => {
     if (graphSnapshot.nodes.length === 0) {

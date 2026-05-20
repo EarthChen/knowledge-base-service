@@ -815,6 +815,7 @@ class WikiAskService:
         chunks_list: list[Any] = []
         use_stream = _is_arun_stream_callable(self._rag_engine)
         streamed_wiki_answers = False
+        rag_failed = False
         try:
             if use_stream:
                 acc_stream = ""
@@ -872,6 +873,7 @@ class WikiAskService:
             full_text = error_out
             chunks_list = []
             streamed_wiki_answers = False
+            rag_failed = True
 
         if not streamed_wiki_answers:
             acc = ""
@@ -896,11 +898,12 @@ class WikiAskService:
         }
         yield {"event": "wiki-answer-complete", "data": complete_data}
 
-        history.turns.append(ConversationTurn(role="user", content=question))
-        history.turns.append(ConversationTurn(role="assistant", content=full_text))
-        save_result = self._store.save(history)
-        if inspect.isawaitable(save_result):
-            await save_result
+        if not rag_failed:
+            history.turns.append(ConversationTurn(role="user", content=question))
+            history.turns.append(ConversationTurn(role="assistant", content=full_text))
+            save_result = self._store.save(history)
+            if inspect.isawaitable(save_result):
+                await save_result
 
         if (
             record_memory

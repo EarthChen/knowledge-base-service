@@ -147,13 +147,22 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
   const [reasoningPath, setReasoningPath] = useState<ReasoningPathData | null>(null);
   const [ragStages, setRagStages] = useState<Record<string, unknown>[]>([]);
   const abortRef = useRef<AbortController | null>(null);
+  const generationRef = useRef(0);
 
   useEffect(
     () => () => {
       abortRef.current?.abort();
+      generationRef.current += 1;
     },
     [],
   );
+
+  useEffect(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    generationRef.current += 1;
+    setIsStreaming(false);
+  }, [repository]);
 
   const reset = useCallback(() => {
     setAnswer("");
@@ -168,15 +177,21 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
     async (body: Omit<WikiAskBody, "repository">) => {
       if (!repository?.trim()) return;
       abortRef.current?.abort();
+      const generation = ++generationRef.current;
+      const isCurrent = () => generationRef.current === generation;
       const ac = new AbortController();
       abortRef.current = ac;
 
-      setIsStreaming(true);
-      setError(null);
-      setAnswer("");
-      setSources([]);
-      setReasoningPath(null);
-      setRagStages([]);
+      const patch = <T,>(setter: (value: T) => void, value: T) => {
+        if (isCurrent()) setter(value);
+      };
+
+      patch(setIsStreaming, true);
+      patch(setError, null);
+      patch(setAnswer, "");
+      patch(setSources, []);
+      patch(setReasoningPath, null);
+      patch(setRagStages, []);
 
       const payload: WikiAskBody = {
         repository,
@@ -195,14 +210,18 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
           signal: ac.signal,
         });
       } catch (e) {
+        if (!isCurrent()) return;
         setIsStreaming(false);
         if (e instanceof Error && e.name === "AbortError") return;
         setError(getErrorMessage(e, t.common.unexpectedError) || t.wiki.askRequestFailed);
         return;
       }
 
+      if (!isCurrent()) return;
+
       if (!res.ok) {
         const text = await res.text();
+        if (!isCurrent()) return;
         setIsStreaming(false);
         setError(text || res.statusText);
         return;
@@ -213,15 +232,21 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
           res,
           {
             onToken: (delta) => {
-              if (delta) setAnswer((prev) => prev + delta);
+              if (delta && isCurrent()) setAnswer((prev) => prev + delta);
             },
-            onSources: setSources,
+            onSources: (sources) => {
+              if (isCurrent()) setSources(sources);
+            },
             onComplete: (d) => {
+              if (!isCurrent()) return;
               setConversationId(d.conversation_id);
               setReasoningPath(d.reasoning_path);
             },
-            onError: (msg) => setError(msg),
+            onError: (msg) => {
+              if (isCurrent()) setError(msg);
+            },
             onRagProgress: (data) => {
+              if (!isCurrent()) return;
               setRagStages((prev) => {
                 const last = prev[prev.length - 1];
                 if (
@@ -239,11 +264,12 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
           ac.signal,
         );
       } catch (e) {
+        if (!isCurrent()) return;
         if (!(e instanceof Error) || e.name !== "AbortError") {
           setError(getErrorMessage(e, t.common.unexpectedError) || t.wiki.askStreamFailed);
         }
       } finally {
-        setIsStreaming(false);
+        if (isCurrent()) setIsStreaming(false);
       }
     },
     [repository, conversationId, pageContext, t],
@@ -251,6 +277,7 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
 
   const cancel = useCallback(() => {
     abortRef.current?.abort();
+    generationRef.current += 1;
     setIsStreaming(false);
   }, []);
 

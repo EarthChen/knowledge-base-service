@@ -44,6 +44,7 @@ class WikiEnrichmentCoordinator:
         self._repository_exists = repository_exists
         self._deferred_enrichment = deferred_enrichment
         self._supervisor = supervisor
+        self._enrichment_lock = asyncio.Lock()
 
     async def _require_repo(self, repository: str) -> None:
         if not await self._repository_exists(repository):
@@ -129,30 +130,31 @@ class WikiEnrichmentCoordinator:
                 "status": "skipped",
             }
 
-        existing_task = self._enrichment_running.get(repository)
-        if existing_task is not None:
-            return {
-                "task_id": existing_task,
-                "eligible_pages": eligible_pages,
-                "repository": repository,
-                "status": "already_running",
-            }
+        async with self._enrichment_lock:
+            existing_task = self._enrichment_running.get(repository)
+            if existing_task is not None:
+                return {
+                    "task_id": existing_task,
+                    "eligible_pages": eligible_pages,
+                    "repository": repository,
+                    "status": "already_running",
+                }
 
-        task_id = f"enrich-{uuid.uuid4().hex[:12]}"
-        self._enrichment_running[repository] = task_id
-        if self._supervisor is not None:
-            self._supervisor.spawn(
-                lambda r=repository,
-                lp=llm_port,
-                tid=task_id: self.run_enrichment_background(r, lp, tid),
-                name="indexing:enrichment-bg",
-                max_retries=2,
-            )
-        else:
-            asyncio.create_task(
-                self.run_enrichment_background(repository, llm_port, task_id),
-                name=f"enrichment-{task_id}",
-            )
+            task_id = f"enrich-{uuid.uuid4().hex[:12]}"
+            self._enrichment_running[repository] = task_id
+            if self._supervisor is not None:
+                self._supervisor.spawn(
+                    lambda r=repository,
+                    lp=llm_port,
+                    tid=task_id: self.run_enrichment_background(r, lp, tid),
+                    name="indexing:enrichment-bg",
+                    max_retries=2,
+                )
+            else:
+                asyncio.create_task(
+                    self.run_enrichment_background(repository, llm_port, task_id),
+                    name=f"enrichment-{task_id}",
+                )
         return {
             "task_id": task_id,
             "eligible_pages": eligible_pages,
@@ -348,4 +350,13 @@ class WikiEnrichmentCoordinator:
             for page in pages
             if page.page_type != PageType.REPO_OVERVIEW
         ]
-        await asyncio.gather(*(_enrich_one(p, t) for p, t in targets))
+        tasks = [_enrich_one(p, t) for p, t in targets]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for (page, _tier), result in zip(targets, results, strict=True):
+            if isinstance(result, Exception):
+                log.warning(
+                    "enrichment_compose_enrich_failed",
+                    path=page.path,
+                    error=str(result),
+                    exc_info=result,
+                )

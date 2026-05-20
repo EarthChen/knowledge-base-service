@@ -111,6 +111,26 @@ async def test_on_no_tool_calls_hook_nudge(mock_agent):
 
 
 @pytest.mark.asyncio
+async def test_tool_dispatch_exception_continues_loop(mock_agent):
+    """Unexpected tool exception is caught; loop continues instead of aborting."""
+    mock_agent._tool_registry.dispatch = AsyncMock(side_effect=RuntimeError("db connection lost"))
+    mock_agent._llm.complete_with_tools = AsyncMock(side_effect=[
+        {"tool_calls": [{"id": "tc1", "function": {"name": "test_tool", "arguments": "{}"}}]},
+        {"content": "Recovered after tool failure", "tool_calls": None},
+    ])
+
+    result = await run_agent_loop(mock_agent, "sys", "user", memory={})
+
+    assert result.final_output == "Recovered after tool failure"
+    assert result.exit_reason == "text_output"
+    assert result.total_tool_calls == 1
+    mock_agent.incorporate.assert_called_once()
+    tool_result = mock_agent.incorporate.call_args[0][1]
+    assert "error" in tool_result
+    assert "db connection lost" in tool_result["error"]
+
+
+@pytest.mark.asyncio
 async def test_on_loop_complete_hook_fallback(mock_agent):
     """Hook generates fallback output when loop exits without text."""
     async def fallback_hook(memory):

@@ -46,27 +46,35 @@ export function useWikiRegenerate(businessId: string) {
 
   const inFlightRef = useRef(false);
   const mountedRef = useRef(true);
+  const businessIdRef = useRef(businessId);
+  businessIdRef.current = businessId;
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      inFlightRef.current = false;
     };
   }, []);
 
+  const isActiveBusiness = useCallback((id: string) => businessIdRef.current === id, []);
+
   const pollTask = useCallback(
     async (tid: string, showToasts: boolean) => {
+      const pollForBusiness = businessId;
       const maxAttempts = 120;
       for (let i = 0; i < maxAttempts; i++) {
         await new Promise((r) => setTimeout(r, 2000));
-        if (!mountedRef.current) break;
+        if (!mountedRef.current || !isActiveBusiness(pollForBusiness)) break;
         let st: WikiAsyncTask;
         try {
           st = await businessWikiTaskStatus(tid);
         } catch {
           continue;
         }
+        if (!isActiveBusiness(pollForBusiness)) break;
         if (st.progress_pct !== undefined) {
-          if (!mountedRef.current) break;
+          if (!mountedRef.current || !isActiveBusiness(pollForBusiness)) break;
           setProgress({
             totalRepos: Number(st.total_repos) || 0,
             completedRepos: Number(st.completed_repos) || 0,
@@ -81,14 +89,18 @@ export function useWikiRegenerate(businessId: string) {
           });
         }
         if (st.status === "completed") {
-          clearActiveTask(businessId);
-          if (showToasts) toast("success", t.wiki.regenerateComplete);
-          await invalidateWikiQueriesForBusiness(queryClient, businessId);
+          clearActiveTask(pollForBusiness);
+          if (showToasts && isActiveBusiness(pollForBusiness)) {
+            toast("success", t.wiki.regenerateComplete);
+          }
+          if (isActiveBusiness(pollForBusiness)) {
+            await invalidateWikiQueriesForBusiness(queryClient, pollForBusiness);
+          }
           return;
         }
         if (st.status === "failed") {
-          clearActiveTask(businessId);
-          if (showToasts) {
+          clearActiveTask(pollForBusiness);
+          if (showToasts && isActiveBusiness(pollForBusiness)) {
             const err = st.error;
             const detail =
               err && typeof err === "object" && "detail" in err
@@ -101,7 +113,7 @@ export function useWikiRegenerate(businessId: string) {
           return;
         }
       }
-      if (mountedRef.current && inFlightRef.current) {
+      if (mountedRef.current && inFlightRef.current && isActiveBusiness(pollForBusiness)) {
         if (showToasts) {
           toast(
             "error",
@@ -110,19 +122,20 @@ export function useWikiRegenerate(businessId: string) {
               : "Wiki generation timed out. Please check status later.",
           );
         }
-        clearActiveTask(businessId);
+        clearActiveTask(pollForBusiness);
         setIsPending(false);
         setProgress(null);
         inFlightRef.current = false;
       }
     },
-    [businessId, locale, t, toast, queryClient],
+    [businessId, locale, t, toast, queryClient, isActiveBusiness],
   );
 
   // On mount / businessId change, check for a persisted active task and resume polling
   useEffect(() => {
     if (!businessId.trim()) return;
-    const savedTaskId = loadActiveTask(businessId);
+    const resumeForBusiness = businessId;
+    const savedTaskId = loadActiveTask(resumeForBusiness);
     if (!savedTaskId || inFlightRef.current) return;
 
     let cancelled = false;
@@ -133,20 +146,22 @@ export function useWikiRegenerate(businessId: string) {
     (async () => {
       try {
         const st = await businessWikiTaskStatus(savedTaskId);
-        if (cancelled) return;
+        if (cancelled || !isActiveBusiness(resumeForBusiness)) return;
         if (st.status === "completed" || st.status === "failed") {
-          if (st.status === "completed") {
-            await invalidateWikiQueriesForBusiness(queryClient, businessId);
+          if (st.status === "completed" && isActiveBusiness(resumeForBusiness)) {
+            await invalidateWikiQueriesForBusiness(queryClient, resumeForBusiness);
           }
-          clearActiveTask(businessId);
+          clearActiveTask(resumeForBusiness);
           return;
         }
         await pollTask(savedTaskId, true);
       } catch {
-        clearActiveTask(businessId);
+        if (isActiveBusiness(resumeForBusiness)) {
+          clearActiveTask(resumeForBusiness);
+        }
       } finally {
         inFlightRef.current = false;
-        if (!cancelled && mountedRef.current) {
+        if (!cancelled && mountedRef.current && isActiveBusiness(resumeForBusiness)) {
           setIsPending(false);
           setProgress(null);
         }
@@ -155,6 +170,7 @@ export function useWikiRegenerate(businessId: string) {
 
     return () => {
       cancelled = true;
+      inFlightRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [businessId]);
@@ -162,23 +178,26 @@ export function useWikiRegenerate(businessId: string) {
   const regenerate = useCallback(
     async (incremental = true) => {
       if (!businessId.trim() || inFlightRef.current) return;
+      const regenForBusiness = businessId.trim();
       inFlightRef.current = true;
       setIsPending(true);
       setProgress(null);
       try {
         const lang = locale === "zh" ? "zh" : "en";
         const mode = "full";
-        const res = await businessWikiGenerate(businessId.trim(), lang, incremental, mode);
+        const res = await businessWikiGenerate(regenForBusiness, lang, incremental, mode);
+        if (!isActiveBusiness(regenForBusiness)) return;
         const tid = res.task_id ? String(res.task_id) : "";
         if (!tid) {
           toast("success", t.wiki.regenerateStarted);
-          await invalidateWikiQueriesForBusiness(queryClient, businessId);
+          await invalidateWikiQueriesForBusiness(queryClient, regenForBusiness);
           return;
         }
-        saveActiveTask(businessId, tid);
+        saveActiveTask(regenForBusiness, tid);
         toast("info", t.wiki.regenerateRunning);
         await pollTask(tid, true);
       } catch (e: unknown) {
+        if (!isActiveBusiness(regenForBusiness)) return;
         if (e instanceof ApiError && e.status === 409) {
           toast("error", t.wiki.regenerateConflict);
         } else {
@@ -186,13 +205,13 @@ export function useWikiRegenerate(businessId: string) {
         }
       } finally {
         inFlightRef.current = false;
-        if (mountedRef.current) {
+        if (mountedRef.current && isActiveBusiness(regenForBusiness)) {
           setIsPending(false);
           setProgress(null);
         }
       }
     },
-    [businessId, locale, t, toast, queryClient, pollTask],
+    [businessId, locale, t, toast, queryClient, pollTask, isActiveBusiness],
   );
 
   return { regenerate, isPending, progress };

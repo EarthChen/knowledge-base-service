@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { StageEvent } from "../components/DeepResearchTimeline";
 import { API_BASE, authHeaders } from "../api/client";
 import { useI18n } from "../i18n/context";
@@ -33,6 +33,14 @@ export function useDeepSearchStream() {
   });
   const abortRef = useRef<AbortController | null>(null);
   const generationRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      generationRef.current += 1;
+    },
+    [],
+  );
 
   const start = useCallback(async (params: { query: string; max_iterations?: number }) => {
     abortRef.current?.abort();

@@ -33,9 +33,6 @@ _(当前无进行中任务)_
 - [ ] **F-04: API 响应无运行时校验** — `api/client.ts` 的 `api<T>()` 将 JSON 直接 cast 为 `T`，运行时数据形态完全信任服务端。
 - [ ] **WikiSourceLocRow 死代码** — 组件存在但未被任何页面引用（仅测试引用），应清理。
 
-### P1 — 语言插件扩展
-
-- [ ] **C/C++, C#, Rust language plugins** (DEEP_ANALYSIS B-18 remainder) — 9 languages covered, 4 major ones still missing.
 
 ### P2 — Product Feature Gaps (from DEEP_ANALYSIS)
 

@@ -3,7 +3,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useWikiPageByPath } from "../useWikiPageByPath";
-import { ApiError, api } from "../../api/client";
+import { api } from "../../api/client";
 import type { WikiPageDetail } from "../wikiTypes";
 
 vi.mock("../../api/client", async (importOriginal) => {
@@ -63,18 +63,15 @@ describe("useWikiPageByPath", () => {
     expect(noBiz.current.fetchStatus).toBe("idle");
   });
 
-  it("falls back to repository-scoped /pages/... when by-path returns 404", async () => {
-    vi.mocked(api)
-      .mockRejectedValueOnce(new ApiError("Wiki page not found: m/x.md", 404, null))
-      .mockResolvedValueOnce({ ...detail, path: "m/x.md" });
-    const { result } = renderHook(() => useWikiPageByPath("my/repo", "m/x.md"), {
-      wrapper: createWrapper(),
-    });
+  it("passes repository in by-path query when provided", async () => {
+    vi.mocked(api).mockResolvedValue(detail);
+    const { result } = renderHook(
+      () => useWikiPageByPath("b1", "/p/a", { repository: "my/repo" }),
+      { wrapper: createWrapper() },
+    );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(vi.mocked(api).mock.calls.length).toBe(2);
-    expect(String(vi.mocked(api).mock.calls[0]?.[0])).toContain("/wiki/pages/by-path");
-    expect(String(vi.mocked(api).mock.calls[1]?.[0])).toContain(
-      `/wiki/${encodeURIComponent("my/repo")}/pages/m/x.md`,
+    expect(vi.mocked(api)).toHaveBeenCalledWith(
+      `/wiki/pages/by-path?business_id=${encodeURIComponent("b1")}&path=${encodeURIComponent("/p/a")}&repository=${encodeURIComponent("my/repo")}`,
     );
   });
 });

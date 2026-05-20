@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, afterEach, vi } from "vitest";
 import MarkdownRenderer from "../MarkdownRenderer";
@@ -6,7 +6,11 @@ import { TestI18nProvider } from "../../../i18n/context";
 import { getMermaid } from "../mermaidLoader";
 
 vi.mock("../mermaidLoader", () => ({
-  getMermaid: vi.fn().mockResolvedValue({ run: vi.fn() }),
+  getMermaid: vi.fn().mockResolvedValue({
+    render: vi.fn().mockResolvedValue({
+      svg: '<svg xmlns="http://www.w3.org/2000/svg"><text>A --> B</text></svg>',
+    }),
+  }),
 }));
 
 describe("MarkdownRenderer XSS / sanitize", () => {
@@ -66,8 +70,7 @@ describe("MarkdownRenderer XSS / sanitize", () => {
       </TestI18nProvider>,
     );
     await findByText("A --> B", { exact: false });
-    const el = document.querySelector(".mermaid");
-    expect(el).toBeTruthy();
-    expect(vi.mocked(getMermaid)).toHaveBeenCalled();
+    await waitFor(() => expect(vi.mocked(getMermaid)).toHaveBeenCalled());
+    expect(document.querySelector("svg")).toBeTruthy();
   });
 });

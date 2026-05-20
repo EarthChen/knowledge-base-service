@@ -283,13 +283,30 @@ class FalkorDBStore(FalkorDBSearchMixin, FalkorDBWikiMixin, FalkorDBReadsMixin):
             "UNWIND $items AS item "
             "MATCH (a {uid: item.source_uid}), (b {uid: item.target_uid}) "
             f"MERGE (a)-[r:{edge_type.value}]->(b) "
-            "SET r += item.props"
+            "SET r += item.props "
+            "RETURN count(*) AS upserted"
         )
+        total_input = 0
+        total_upserted = 0
         for i in range(0, len(items), _BATCH_UPSERT_CHUNK):
             batch = items[i : i + _BATCH_UPSERT_CHUNK]
-            await loop.run_in_executor(
-                _graph_executor,
-                lambda b=batch, q=query: self._graph.query(q, params={"items": b}),  # type: ignore[union-attr]
+            total_input += len(batch)
+
+            def _run_batch(b: list[dict[str, Any]] = batch, q: str = query) -> Any:
+                return self._graph.query(q, params={"items": b})  # type: ignore[union-attr]
+
+            result = await loop.run_in_executor(_graph_executor, _run_batch)
+            upserted = int(result.result_set[0][0]) if result.result_set else 0
+            total_upserted += upserted
+
+        skipped = total_input - total_upserted
+        if skipped > 0:
+            log.warning(
+                "batch_edge_upsert_skipped",
+                edge_type=edge_type.value,
+                input_count=total_input,
+                upserted_count=total_upserted,
+                skipped_count=skipped,
             )
 
     async def batch_upsert(self, nodes: list[GraphNode], edges: list[GraphEdge]) -> None:

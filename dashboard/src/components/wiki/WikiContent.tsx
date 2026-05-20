@@ -28,6 +28,7 @@ import MobileTocBar from "./MobileTocBar";
 import { WikiVersionPicker } from "./WikiVersionPicker";
 import { ConfidenceBadge } from "./ConfidenceBadge";
 import { useI18n } from "../../i18n/context";
+import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../Toast";
 import { explorerGraphHref } from "../../routes/explorerRouteHelpers";
 
@@ -92,6 +93,7 @@ export default function WikiContent({
 }: Props) {
   const navigate = useNavigate();
   const { locale, t } = useI18n();
+  const { isEditor } = useAuth();
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
   const title =
@@ -169,7 +171,7 @@ export default function WikiContent({
                   generatedAt={detail?.generated_at || ""}
                 />
               ) : null}
-              {pageUid && detail ? (
+              {isEditor && pageUid && detail ? (
                 <button
                   type="button"
                   onClick={() => setEditing(true)}
@@ -180,11 +182,13 @@ export default function WikiContent({
                   {t.wiki.editContent}
                 </button>
               ) : null}
-              <WikiEditButton
-                gitRemoteUrl={detail?.context?.git_remote_url}
-                branch={detail?.context?.git_branch}
-                exportPath={detail?.context?.export_path}
-              />
+              {isEditor ? (
+                <WikiEditButton
+                  gitRemoteUrl={detail?.context?.git_remote_url}
+                  branch={detail?.context?.git_branch}
+                  exportPath={detail?.context?.export_path}
+                />
+              ) : null}
               {!editing && sourceEntityUids.length > 0
                 ? sourceEntityUids.map((uid) => (
                     <button
@@ -246,7 +250,7 @@ export default function WikiContent({
 
         {!isLoading && !error && detail && (
           <>
-            {editing && pageUid ? (
+            {isEditor && editing && pageUid ? (
               <div className="w-full min-h-[min(70vh,800px)]">
                 <WikiEditor
                   pageUid={pageUid}

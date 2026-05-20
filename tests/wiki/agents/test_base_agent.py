@@ -252,14 +252,21 @@ class TestRunToolLoop:
             call_count += 1
             return {"n": call_count}
 
+        _call_idx = 0
+
+        async def _varying_llm_response(*args, **kwargs):
+            nonlocal _call_idx
+            _call_idx += 1
+            return {
+                "tool_calls": [{
+                    "id": f"tc_{_call_idx}",
+                    "function": {"name": "counter", "arguments": f'{{"step": {_call_idx}}}'},
+                }],
+                "content": None,
+            }
+
         mock_llm = MagicMock()
-        mock_llm.complete_with_tools = AsyncMock(return_value={
-            "tool_calls": [{
-                "id": "tc",
-                "function": {"name": "counter", "arguments": "{}"},
-            }],
-            "content": None,
-        })
+        mock_llm.complete_with_tools = AsyncMock(side_effect=_varying_llm_response)
 
         agent = ConcreteAgent(mock_llm, max_rounds=100, max_tool_calls=3)
         agent._tool_registry.register(

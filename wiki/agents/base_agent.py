@@ -220,7 +220,7 @@ class GenericAgent(ABC):
             event_callback=config.event_callback,
             tracer=config.tracer,
             ctx=effective_ctx,
-            detect_repeated_calls=False,
+            detect_repeated_calls=True,
         )
 
         result = await run_agent_loop(

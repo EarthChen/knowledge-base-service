@@ -10,6 +10,8 @@ from typing import Any
 
 import httpx
 
+from llm.retry import llm_retry, llm_retry_async_iterator
+
 logger = logging.getLogger(__name__)
 
 
@@ -109,66 +111,40 @@ class OpenAIProvider:
             "stream": True,
             **kwargs,
         }
-        max_attempts = self._retry_count
-        last_exc: Exception | None = None
-        for attempt in range(max_attempts):
-            try:
-                async with self._semaphore:
-                    async with self._client.stream("POST", "/chat/completions", json=body) as resp:
-                        resp.raise_for_status()
-                        async for line in resp.aiter_lines():
-                            if not line.startswith("data: "):
-                                continue
-                            payload = line.removeprefix("data: ").strip()
-                            if payload == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(payload)
-                            except json.JSONDecodeError:
-                                continue
-                            choices = chunk.get("choices") or []
-                            if not choices:
-                                continue
-                            delta = (choices[0].get("delta") or {}) if isinstance(choices[0], dict) else {}
-                            content = delta.get("content")
-                            if content:
-                                yield content
-                return
-            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
-                last_exc = exc
-                if attempt < max_attempts - 1:
-                    wait = min(2**attempt, 10)
-                    logger.warning(
-                        "OpenAI stream failed (attempt %d/%d), retrying in %ds",
-                        attempt + 1,
-                        max_attempts,
-                        wait,
-                    )
-                    await asyncio.sleep(wait)
-        raise last_exc  # type: ignore[misc]
+        async def stream_once() -> AsyncIterator[str]:
+            async with self._semaphore:
+                async with self._client.stream("POST", "/chat/completions", json=body) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        payload = line.removeprefix("data: ").strip()
+                        if payload == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(payload)
+                        except json.JSONDecodeError:
+                            continue
+                        choices = chunk.get("choices") or []
+                        if not choices:
+                            continue
+                        delta = (choices[0].get("delta") or {}) if isinstance(choices[0], dict) else {}
+                        content = delta.get("content")
+                        if content:
+                            yield content
+
+        async for chunk in llm_retry_async_iterator(stream_once, max_retries=self._retry_count):
+            yield chunk
 
     async def _request_json(self, body: dict[str, Any]) -> dict[str, Any]:
-        max_attempts = self._retry_count
-        last_exc: Exception | None = None
-        for attempt in range(max_attempts):
-            try:
-                async with self._semaphore:
-                    resp = await self._client.post("/chat/completions", json=body)
-                    resp.raise_for_status()
-                    return resp.json()
-            except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
-                last_exc = exc
-                if attempt < max_attempts - 1:
-                    wait = min(2**attempt, 10)
-                    logger.warning(
-                        "OpenAI request failed (attempt %d/%d), retrying in %ds: %s",
-                        attempt + 1,
-                        max_attempts,
-                        wait,
-                        exc,
-                    )
-                    await asyncio.sleep(wait)
-        raise last_exc  # type: ignore[misc]
+        @llm_retry(max_retries=self._retry_count)
+        async def _call() -> dict[str, Any]:
+            async with self._semaphore:
+                resp = await self._client.post("/chat/completions", json=body)
+                resp.raise_for_status()
+                return resp.json()
+
+        return await _call()
 
     async def close(self) -> None:
         await self._client.aclose()

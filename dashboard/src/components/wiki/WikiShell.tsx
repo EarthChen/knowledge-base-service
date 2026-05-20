@@ -161,7 +161,7 @@ export default function WikiShell() {
 
   const [domainContextMenu, setDomainContextMenu] = useState<DomainContextMenuState>(null);
   const [wikiDomainDialog, setWikiDomainDialog] = useState<WikiDomainDialogState>(null);
-  const { isAdmin } = useAuth();
+  const { isAdmin, isEditor } = useAuth();
   const [clearWikiConfirmOpen, setClearWikiConfirmOpen] = useState(false);
   const [clearWikiConfirmInput, setClearWikiConfirmInput] = useState("");
   const clearWikiMutation = useMutation({
@@ -431,12 +431,14 @@ export default function WikiShell() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <WikiSearchBar linkParams={wikiLinkParams} repository={repoForIncremental} />
-              <div
-                className="inline-flex shrink-0 overflow-hidden rounded-lg border border-gray-200 text-xs font-medium dark:border-gray-600"
-                role="group"
-                aria-label={t.wiki.regenerate}
-              >
-                <button
+              {isEditor && (
+                <>
+                  <div
+                    className="inline-flex shrink-0 overflow-hidden rounded-lg border border-gray-200 text-xs font-medium dark:border-gray-600"
+                    role="group"
+                    aria-label={t.wiki.regenerate}
+                  >
+                    <button
                   type="button"
                   onClick={() => setWikiRegenIncremental(true)}
                   disabled={regeneratePending}
@@ -470,7 +472,9 @@ export default function WikiShell() {
               >
                 {regeneratePending ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <RefreshCw size={14} aria-hidden />}
                 {t.wiki.regenerate}
-              </button>
+                  </button>
+                </>
+              )}
               {isAdmin && (
                 <button
                   type="button"

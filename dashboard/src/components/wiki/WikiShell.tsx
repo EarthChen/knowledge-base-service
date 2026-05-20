@@ -32,6 +32,7 @@ import MoveDialog from "./dialogs/MoveDialog";
 import MergeDialog from "./dialogs/MergeDialog";
 import { useWikiTopicTree, type TopicTreeNode } from "../../hooks/useWikiDomainTree";
 import { useDomainHierarchy } from "../../hooks/useDomainHierarchy";
+import { useToast } from "../Toast";
 
 export { WikiToolSuspenseFallback };
 
@@ -125,6 +126,7 @@ export default function WikiShell() {
 
   const pageQuery = useWikiPageByPath(businessId, pagePath || undefined, { repository: searchRepo });
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { t } = useI18n();
   const {
     regenerate: handleRegenerateWiki,
@@ -172,7 +174,10 @@ export default function WikiShell() {
       setClearWikiConfirmOpen(false);
       setClearWikiConfirmInput("");
       void invalidateWikiQueriesForBusiness(queryClient, businessId);
-      alert(t.wiki.clearAllWikiSuccess.replace("{count}", String(data.deleted_nodes)));
+      toast(
+        "success",
+        t.wiki.clearAllWikiSuccess.replace("{count}", String(data.deleted_nodes)),
+      );
     },
   });
 

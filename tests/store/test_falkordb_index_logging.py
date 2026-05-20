@@ -6,8 +6,8 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_ensure_schema_logs_debug_when_index_creation_raises() -> None:
-    """Index creation failures (e.g. index already exists) should emit debug logs."""
+async def test_ensure_schema_logs_warning_when_index_creation_raises() -> None:
+    """Index creation failures (e.g. index already exists) should emit warning logs."""
 
     from store.falkordb_store import FalkorDBStore
 
@@ -19,6 +19,6 @@ async def test_ensure_schema_logs_debug_when_index_creation_raises() -> None:
     with patch("store.falkordb_store.log") as mock_log:
         await FalkorDBStore._ensure_schema(store)
 
-    debug_events = [c.args[0] for c in mock_log.debug.call_args_list if c.args]
-    assert "index_create_skipped" in debug_events
-    assert "vector_index_create_skipped" in debug_events
+    warning_events = [c.args[0] for c in mock_log.warning.call_args_list if c.args]
+    assert "index_create_skipped" in warning_events
+    assert "vector_index_create_skipped" in warning_events

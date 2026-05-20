@@ -125,7 +125,7 @@ class FalkorDBStore(FalkorDBSearchMixin, FalkorDBWikiMixin, FalkorDBReadsMixin):
                         ),
                     )
                 except Exception as exc:
-                    log.debug(
+                    log.warning(
                         "index_create_skipped",
                         label=str(label),
                         prop=prop,
@@ -144,7 +144,7 @@ class FalkorDBStore(FalkorDBSearchMixin, FalkorDBWikiMixin, FalkorDBReadsMixin):
                     ),
                 )
             except Exception as exc:
-                log.debug(
+                log.warning(
                     "vector_index_create_skipped",
                     label=idx_cfg["label"],
                     reason=str(exc)[:100],

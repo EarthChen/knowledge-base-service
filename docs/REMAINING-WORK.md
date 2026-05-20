@@ -31,7 +31,7 @@ _(当前无进行中任务)_
 ### P3 — 前端代码质量
 
 - [ ] **F-04: API 响应无运行时校验** — `api/client.ts` 的 `api<T>()` 将 JSON 直接 cast 为 `T`，运行时数据形态完全信任服务端。
-- [ ] **WikiSourceLocRow 死代码** — 组件存在但未被任何页面引用（仅测试引用），应清理。
+- [x] **WikiSourceLocRow 死代码** — 组件已删除 (2026-05-20)。
 
 
 ### P2 — Product Feature Gaps (from DEEP_ANALYSIS)
@@ -43,7 +43,7 @@ _(当前无进行中任务)_
 
 ### P2 — 死代码清理
 
-- [ ] **N3: CCB / unified_prompt_templates / 旧 Composer 分支** — Agent 管线已成为唯一路径，`content_context_builder.py` + `unified_prompt_templates.py` + `compose_bottomup` 分支为死代码。
+- [ ] **N3: CCB / unified_prompt_templates / 旧 Composer 分支** — ⚠️ 经代码审计确认：`content_context_builder.py`、`unified_prompt_templates.py` 仍被 LangGraph 管线活跃引用（`wiki/nodes/compose.py`、`wiki/topic_page_composer.py`、`wiki/domain_overview_composer.py`），**非死代码**。需先完成 Agent 管线对 compose 阶段的完整替代后才能删除。降级为长期目标。
 
 ### P3 — 数据质量
 
@@ -85,6 +85,8 @@ _(当前无进行中任务)_
 - [x] Agent Framework Enhancement Layer 0-3 ✅ (2026-05-19~20) — RunContext DI、Guardrails、output_type、@function_tool、Span Tracing (JsonlTraceProcessor)、Handoff 形式化、delegate_submodule 迁移、PromptLengthGuardrail 集成 (3730 tests)
 - [x] Migrate 14 WikiPageAgent tools to @function_tool ✅ (2026-05-20) — 消除 AGENT_TOOLS 手写 JSON Schema，改用 @function_tool 装饰器 + collect_tools 自动注册 (3764 tests)
 - [x] Infrastructure Resilience & Optimization ✅ (2026-05-20) — Embedding 并发度分离、Redis 重试装饰器、LLM retry 统一、跨文件内存优化 (SymbolEntry)、TanStack staleTime 分层
+- [x] Code Quality Quick Fixes ✅ (2026-05-20) — WikiShell Rules of Hooks 修复、business_manager @with_redis_retry 补全、WikiSourceLocRow 死代码删除、event bus 并发安全 (copy-on-iterate)、search_entities 并行查询 (asyncio.gather)、search_all 单次 embedding (3766 tests)
+- [x] Agent Runner Extraction ✅ (2026-05-20) — run_agent_loop() 独立函数 + LoopHooks + 重复调用检测 + enrich() 迁移 + agent_tool() 子代理组合 (3775 tests, 83.65% coverage)
 
 ---
 

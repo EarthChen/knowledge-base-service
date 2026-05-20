@@ -41,12 +41,12 @@ class TestWorkingMemory:
         assert len(wm.discovered_implementations) == 1
         assert "FooImpl implements IFoo" in wm.discovered_implementations[0]
 
-    def test_incorporate_snippet(self):
+    def test_incorporate_read_code(self):
         wm = WorkingMemory()
         wm.incorporate([
-            ToolResult(tool="read_source_snippet", data={
-                "snippet": "public void save() { db.insert(); }",
-                "func_name": "save"
+            ToolResult(tool="read_code", data={
+                "code": "public void save() { db.insert(); }",
+                "name": "save",
             })
         ])
         assert len(wm.code_snippets) == 1
@@ -56,8 +56,8 @@ class TestWorkingMemory:
         wm = WorkingMemory()
         for i in range(100):
             wm.incorporate([
-                ToolResult(tool="read_source_snippet", data={
-                    "snippet": "x" * 200, "func_name": f"func{i}"
+                ToolResult(tool="read_code", data={
+                    "code": "x" * 200, "name": f"func{i}",
                 })
             ])
         text = wm.to_prompt_section()

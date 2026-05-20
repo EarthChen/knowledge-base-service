@@ -43,7 +43,7 @@ _TOOL_INVOCATION_LINE_RE = re.compile(
     r"((?:我|接下来|然后)?(?:使用|调用|通过)\s*(?:read_code|query_module_detail|search_entities|"
     r"query_call_chain|query_callers|query_callees|query_domain_dependencies|"
     r"grep_code|list_files|read_file|semantic_search|read_wiki_page|"
-    r"query_implementations|read_source_snippet|delegate_submodule)"
+    r"query_implementations|delegate_submodule)"
     r"(?:\s*\(.*?\))?\s*(?:查看|获取|搜索|读取|查询|来|以)?.*)",
     re.IGNORECASE,
 )
@@ -307,12 +307,6 @@ class WorkingMemory:
                         self.discovered_implementations.append(
                             f"{impl_name} implements {intf_name}"
                         )
-            elif tool == "read_source_snippet":
-                snippet = str(data.get("snippet", "") or "")
-                func_name = str(data.get("func_name", "") or "")
-                if snippet:
-                    truncated = snippet[:400]
-                    self.code_snippets.append(f"// {func_name}\n{truncated}")
             elif tool == "query_module_detail":
                 summary = str(data.get("summary", "") or "")
                 name = str(data.get("name", "") or "")
@@ -1397,8 +1391,6 @@ class WikiPageAgent(GenericAgent):
                 return await self._tool_query_call_chain(validated_args)
             elif tool_name == "query_domain_dependencies":
                 return await self._tool_query_domain_dependencies(validated_args)
-            elif tool_name == "read_source_snippet":
-                return await self._tool_read_source_snippet(validated_args)
             elif tool_name == "delegate_submodule":
                 return await self._tool_delegate_submodule(validated_args)
             else:
@@ -1876,22 +1868,3 @@ class WikiPageAgent(GenericAgent):
             log.warning("query_domain_deps_incoming_failed", domain=domain_name, exc_info=True)
 
         return {"domain": domain_name, "outgoing": outgoing[:15], "incoming": incoming[:15]}
-
-    async def _tool_read_source_snippet(self, args: dict[str, Any]) -> dict[str, Any]:
-        name = str(args.get("name", ""))
-        if not name or not self._graph:
-            return {"error": "missing name or graph"}
-        from wiki.cypher_queries import SNIPPET_BY_FUNC_CY
-
-        result = await self._graph.execute_query(SNIPPET_BY_FUNC_CY, {"names": [name]})
-        rows = getattr(result, "data", None) or []
-        for row in rows:
-            if isinstance(row, dict):
-                snippet = str(row.get("snippet", "") or "")
-                if snippet:
-                    return {
-                        "func_name": str(row.get("func_name", "") or ""),
-                        "snippet": snippet[:600],
-                        "file": str(row.get("file_path", "") or ""),
-                    }
-        return {"func_name": name, "snippet": "", "file": ""}

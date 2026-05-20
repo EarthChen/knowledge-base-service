@@ -24,7 +24,11 @@ from pathlib import Path
 from typing import Any
 
 from core.auth import Role, TokenInfo
-from query.raw_cypher import RawCypherValidationError, validate_raw_cypher_read_only
+from query.raw_cypher import (
+    RawCypherValidationError,
+    check_raw_cypher_admin,
+    validate_raw_cypher_read_only,
+)
 from api.mcp_doc_indexer import DocumentIndexerMixin
 from api.mcp_helpers import (
     _MAX_FILE_READ_BYTES,
@@ -606,14 +610,13 @@ class KnowledgeBaseMCPHandler(DocumentIndexerMixin):
                 )
 
         if tool_name == "rag_graph" and str(arguments.get("query_type", "")).strip() == "raw_cypher":
-            if token_info is not None and token_info.role < Role.ADMIN:
-                return _mcp_error("forbidden", "raw_cypher requires admin role")
-            if get_settings().require_auth and (
-                token_info is None or token_info.role < Role.ADMIN
-            ):
-                return _mcp_error("forbidden", "raw_cypher requires admin role")
+            deny = check_raw_cypher_admin(token_info)
+            if deny:
+                return _mcp_error("forbidden", deny)
 
         try:
+            if tool_name == "rag_graph":
+                return await handler(arguments, token_info=token_info)
             return await handler(arguments)
         except Exception as exc:
             log.error("mcp_tool_error", tool=tool_name, error=str(exc), exc_info=True)
@@ -735,7 +738,12 @@ class KnowledgeBaseMCPHandler(DocumentIndexerMixin):
         }
 
     @mcp_tool("rag_graph")
-    async def handle_rag_graph(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def handle_rag_graph(
+        self,
+        args: dict[str, Any],
+        *,
+        token_info: TokenInfo | None = None,
+    ) -> dict[str, Any]:
         query_type = args.get("query_type", "")
         name = args.get("name", "")
         try:
@@ -786,6 +794,9 @@ class KnowledgeBaseMCPHandler(DocumentIndexerMixin):
             return {"type": "graph_stats", "stats": stats}
 
         elif query_type == "raw_cypher":
+            deny = check_raw_cypher_admin(token_info)
+            if deny:
+                return _mcp_error("forbidden", deny)
             cypher = args.get("cypher", "")
             if not cypher:
                 return _mcp_error("invalid_params", "cypher parameter is required for raw_cypher queries")
@@ -1002,8 +1013,8 @@ class KnowledgeBaseMCPHandler(DocumentIndexerMixin):
                 "total_count": total_count,
             }
         except Exception as exc:
-            log.error("mcp_search_architecture_failed", error=str(exc))
-            return _mcp_error("query_failed", str(exc))
+            log.error("mcp_search_architecture_failed", error=str(exc), exc_info=True)
+            return _mcp_error("query_failed", "Search operation failed")
 
     async def handle_code_quality(self, arguments: dict[str, Any]) -> dict[str, Any]:
         from query.agent_workflow import AgentWorkflowService
@@ -1189,8 +1200,8 @@ class KnowledgeBaseMCPHandler(DocumentIndexerMixin):
         try:
             result = await queries.list_documents(repository)
         except Exception as exc:
-            log.error("mcp_list_documents_failed", error=str(exc))
-            return _mcp_error("query_failed", str(exc))
+            log.error("mcp_list_documents_failed", error=str(exc), exc_info=True)
+            return _mcp_error("query_failed", "Document listing failed")
         return _format_list_documents_mcp(result.data)
 
     async def handle_get_document(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -1205,8 +1216,8 @@ class KnowledgeBaseMCPHandler(DocumentIndexerMixin):
         try:
             result = await queries.get_document(doc_uid)
         except Exception as exc:
-            log.error("mcp_get_document_failed", error=str(exc))
-            return _mcp_error("query_failed", str(exc))
+            log.error("mcp_get_document_failed", error=str(exc), exc_info=True)
+            return _mcp_error("query_failed", "Document fetch failed")
         if not result.data:
             return _mcp_error("not_found", "Document not found")
         return _format_get_document_mcp(result.data)

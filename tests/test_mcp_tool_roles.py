@@ -163,7 +163,10 @@ async def test_rag_graph_raw_cypher_rejects_mutating() -> None:
 
 
 @pytest.mark.asyncio
-async def test_rag_graph_raw_cypher_allows_read_only() -> None:
+async def test_rag_graph_raw_cypher_allows_read_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    import core.auth as auth
+
+    monkeypatch.setattr(auth, "_token_registry", {})
     graph = AsyncMock()
     graph.execute_raw = AsyncMock(return_value=MagicMock(data=[{"n": 1}]))
     h = KnowledgeBaseMCPHandler(

@@ -10,6 +10,7 @@ from api.mcp_server import KnowledgeBaseMCPHandler
 from core.auth import Role, TokenInfo
 from query.raw_cypher import (
     RAW_CYPHER_DEFAULT_LIMIT,
+    check_raw_cypher_admin,
     ensure_raw_cypher_limit,
     validate_raw_cypher_read_only,
 )
@@ -30,6 +31,40 @@ def test_ensure_raw_cypher_limit_preserves_existing() -> None:
 def test_validate_raw_cypher_read_only_rejects_create() -> None:
     with pytest.raises(RawCypherValidationError):
         validate_raw_cypher_read_only("CREATE (n:Node)")
+
+
+def test_check_raw_cypher_admin_denies_viewer_when_tokens_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.auth as auth
+
+    monkeypatch.setattr(
+        auth,
+        "_token_registry",
+        {"v": TokenInfo(role=Role.VIEWER), "a": TokenInfo(role=Role.ADMIN)},
+    )
+    assert check_raw_cypher_admin(TokenInfo(role=Role.VIEWER)) is not None
+    assert check_raw_cypher_admin(TokenInfo(role=Role.ADMIN)) is None
+
+
+def test_check_raw_cypher_admin_denies_missing_token_when_tokens_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.auth as auth
+
+    monkeypatch.setattr(
+        auth,
+        "_token_registry",
+        {"a": TokenInfo(role=Role.ADMIN)},
+    )
+    assert check_raw_cypher_admin(None) is not None
+
+
+def test_check_raw_cypher_admin_allows_open_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    import core.auth as auth
+
+    monkeypatch.setattr(auth, "_token_registry", {})
+    assert check_raw_cypher_admin(None) is None
 
 
 @pytest.mark.asyncio

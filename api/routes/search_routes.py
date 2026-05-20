@@ -113,16 +113,15 @@ async def graph_query(
     svc: KnowledgeBaseService = Depends(get_service),
     token_info: TokenInfo | None = Depends(require_role(Role.VIEWER)),
 ) -> dict[str, Any]:
-    if req.query_type == "raw_cypher":
-        if token_info is not None and token_info.role < Role.ADMIN:
-            raise HTTPException(status_code=403, detail="raw_cypher requires admin role")
-        from core.config import get_settings
+    from query.raw_cypher import check_raw_cypher_admin
 
-        if get_settings().require_auth and (
-            token_info is None or token_info.role < Role.ADMIN
-        ):
-            raise HTTPException(status_code=403, detail="raw_cypher requires admin role")
-    return await svc.mcp_handler.handle_rag_graph(req.model_dump())
+    if req.query_type == "raw_cypher":
+        deny = check_raw_cypher_admin(token_info)
+        if deny:
+            raise HTTPException(status_code=403, detail=deny)
+    return await svc.mcp_handler.handle_rag_graph(
+        req.model_dump(), token_info=token_info,
+    )
 
 
 @viewer_router.post("/hybrid")

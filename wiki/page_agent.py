@@ -934,8 +934,10 @@ class WikiPageAgent(GenericAgent):
 
         total_tool_calls = 0
         for round_num in range(self.max_rounds):
+            has_empty = memory._tool_contributed_chars == 0
+            tools = self._get_tools_for_round(round_num, has_empty_results=has_empty)
             try:
-                response = await self._llm.complete_with_tools(messages, AGENT_TOOLS)
+                response = await self._llm.complete_with_tools(messages, tools)
             except Exception:
                 log.warning("agent_llm_call_failed", round=round_num, exc_info=True)
                 break

@@ -17,6 +17,10 @@ from wiki.tool_guardrail import DefaultToolGuardrail
 
 log = get_logger(__name__)
 
+# Type aliases for guardrail lists (avoid circular import)
+_InputGuardrailList = list[Any]
+_OutputGuardrailList = list[Any]
+
 
 @dataclass
 class ToolDef:
@@ -56,6 +60,8 @@ class RunConfig:
     result_truncate_chars: int = 6000
     event_callback: EventCallback = None
     ctx: Any = None  # RunContext instance, passed to tool dispatch
+    input_guardrails: _InputGuardrailList = field(default_factory=list)
+    output_guardrails: _OutputGuardrailList = field(default_factory=list)
 
 
 class ToolRegistry:
@@ -194,6 +200,18 @@ class GenericAgent(ABC):
 
         effective_ctx = ctx if ctx is not None else (config.ctx if config else None)
 
+        # --- Input guardrails: run before any LLM call ---
+        if config.input_guardrails:
+            from wiki.agents.guardrails import GuardrailTrippedError
+
+            for guard in config.input_guardrails:
+                result = await guard.check(user_prompt, effective_ctx)
+                if result.tripwire:
+                    raise GuardrailTrippedError(
+                        result.output_info,
+                        guardrail_name=getattr(guard, "__class__", type(guard)).__name__,
+                    )
+
         if not self._tool_registry.has_tools():
             return memory
 
@@ -212,6 +230,7 @@ class GenericAgent(ABC):
         ]
         total_tool_calls = 0
         has_nonempty_result = False
+        final_output: str | None = None
 
         for round_num in range(config.max_rounds):
             if config.event_callback:
@@ -236,6 +255,7 @@ class GenericAgent(ABC):
             tool_calls = response.get("tool_calls")
 
             if not tool_calls:
+                final_output = response.get("content") or None
                 if round_num < 2 and total_tool_calls == 0 and config.nudge_message:
                     messages.append(response)
                     messages.append({"role": "user", "content": config.nudge_message})
@@ -298,6 +318,18 @@ class GenericAgent(ABC):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ]
+
+        # --- Output guardrails: run after the loop completes ---
+        if config.output_guardrails and final_output:
+            from wiki.agents.guardrails import GuardrailTrippedError
+
+            for guard in config.output_guardrails:
+                result = await guard.check(final_output, effective_ctx)
+                if result.tripwire:
+                    raise GuardrailTrippedError(
+                        result.output_info,
+                        guardrail_name=getattr(guard, "__class__", type(guard)).__name__,
+                    )
 
         return memory
 

@@ -62,6 +62,7 @@ class RunConfig:
     ctx: Any = None  # RunContext instance, passed to tool dispatch
     input_guardrails: _InputGuardrailList = field(default_factory=list)
     output_guardrails: _OutputGuardrailList = field(default_factory=list)
+    tracer: Any = None  # AgentTracer instance for span tracking
 
 
 class ToolRegistry:

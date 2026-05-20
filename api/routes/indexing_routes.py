@@ -42,19 +42,27 @@ public_router = kb_routers.public_router
 
 
 @viewer_router.get("/index/tasks")
-async def list_index_tasks() -> dict[str, Any]:
+async def list_index_tasks(
+    business_id: str = Depends(get_effective_business_id),
+) -> dict[str, Any]:
     if kb_state.task_manager is None:
         raise KbServiceUnavailable("Service not ready")
-    tasks = kb_state.task_manager.list_tasks()
+    tasks = [
+        t for t in kb_state.task_manager.list_tasks()
+        if t.business_id == business_id
+    ]
     return {"tasks": [t.to_dict() for t in tasks], "total": len(tasks)}
 
 
 @viewer_router.get("/index/tasks/{task_id}")
-async def get_index_task(task_id: str) -> dict[str, Any]:
+async def get_index_task(
+    task_id: str,
+    business_id: str = Depends(get_effective_business_id),
+) -> dict[str, Any]:
     if kb_state.task_manager is None:
         raise KbServiceUnavailable("Service not ready")
     task = kb_state.task_manager.get_task(task_id)
-    if task is None:
+    if task is None or task.business_id != business_id:
         raise KbNotFound("Task not found")
     return task.to_dict()
 

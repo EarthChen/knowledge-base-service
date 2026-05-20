@@ -18,6 +18,16 @@ _(当前无进行中任务)_
 
 - [ ] **Migrate 14 WikiPageAgent tools to `@function_tool`** — 基础设施已就绪 (`wiki/agents/tool_decorator.py`)，逐步 2-3 个工具迁移到 decorator，消除手写 JSON Schema。
 
+### P2 — 代码拆分重构（审计发现）
+
+- [ ] **WikiService god object** (1700+ lines) — `wiki/service.py` 混合了 generation、incremental updates、business wiki、enrichment、persistence、tree linking、streaming、graph writes。拆分为 `WikiGenerationOrchestrator`、`WikiIncrementalService`、`BusinessWikiPipeline` 等专职服务。
+- [ ] **WikiPageAgent monolith** (1885 lines) — `wiki/page_agent.py` 集成了 agent loop、tool execution、sanitization、output shaping。提取 tool handlers、prompt assembly、output post-processing 为独立模块。
+- [ ] **MCPHandler monolith** (1350 lines) — `api/mcp_server.py` 集成了 dispatch、validation、graph queries、file I/O、wiki tooling。拆分为独立 handler 按名称注册。
+- [ ] **WikiShell god component** (724 lines) — `dashboard/src/components/wiki/WikiShell.tsx` 混合了 routing、dialogs、SSE、tree nav、mutations、layout。拆分为 layout shell、nav、page loader、dialog host、event handler hooks。
+- [ ] **GraphExplorer monolith** (1100 lines) — `dashboard/src/pages/GraphExplorer.tsx` 混合了 graph layout、mutations、filters、blast radius、communities。提取 graph canvas、side panels、mutation hooks 为子模块。
+- [ ] **FalkorDBStore SRP violation** — `store/falkordb_store.py` 通过 mixin 组合了 search、wiki、read、CRUD、schema、batch 操作。暴露窄端口 (`GraphReadStore`, `GraphWriteStore`, `VectorSearchStore`) 给上层。
+- [ ] **kb_state.py 全局状态迁移** — 模块级 `reindex_sem`/`index_sem` 与 `AppContainer` 实例不是同一对象。统一通过 `AppContainer` + FastAPI `Depends` 注入。
+
 ### P3 — 前端代码质量
 
 - [ ] **F-04: API 响应无运行时校验** — `api/client.ts` 的 `api<T>()` 将 JSON 直接 cast 为 `T`，运行时数据形态完全信任服务端。

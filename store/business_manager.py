@@ -15,6 +15,7 @@ from typing import Any
 from falkordb import FalkorDB
 
 from core.log import get_logger
+from core.redis_resilience import with_redis_retry
 
 log = get_logger(__name__)
 
@@ -39,6 +40,7 @@ class BusinessManager:
     def __init__(self, db: FalkorDB) -> None:
         self._conn = db.connection
 
+    @with_redis_retry()
     def create_business(self, business_id: str, name: str, description: str = "") -> dict[str, Any]:
         if not _BUSINESS_ID_RE.match(business_id):
             raise ValueError(
@@ -59,6 +61,7 @@ class BusinessManager:
         log.info("business_created", business_id=business_id, name=name)
         return meta
 
+    @with_redis_retry()
     def list_businesses(self) -> list[dict[str, Any]]:
         pattern = f"{_REDIS_PREFIX}:*"
         keys = list(self._conn.scan_iter(match=pattern, count=200))
@@ -79,6 +82,7 @@ class BusinessManager:
         results.sort(key=lambda x: x.get("created_at", 0))
         return results
 
+    @with_redis_retry()
     def get_business(self, business_id: str) -> dict[str, Any] | None:
         raw = self._conn.hgetall(_meta_key(business_id))
         if not raw:
@@ -96,6 +100,7 @@ class BusinessManager:
         log.info("business_updated", business_id=business_id)
         return self.get_business(business_id)
 
+    @with_redis_retry()
     def delete_business(self, business_id: str) -> bool:
         if business_id == "default":
             raise ValueError("Cannot delete the default business")
@@ -106,12 +111,14 @@ class BusinessManager:
             log.info("business_deleted", business_id=business_id)
         return bool(deleted)
 
+    @with_redis_retry()
     def get_repos(self, business_id: str) -> list[str]:
         raw = self._conn.smembers(f"{_REDIS_PREFIX}:repos:{business_id}")
         return sorted(
             (r.decode() if isinstance(r, bytes) else r) for r in raw
         )
 
+    @with_redis_retry()
     def set_repos(self, business_id: str, repos: list[str]) -> list[str]:
         key = f"{_REDIS_PREFIX}:repos:{business_id}"
         self._conn.delete(key)
@@ -120,6 +127,7 @@ class BusinessManager:
         log.info("business_repos_updated", business_id=business_id, count=len(repos))
         return sorted(repos)
 
+    @with_redis_retry()
     def remove_repo(self, business_id: str, repository: str) -> bool:
         """Remove a single repository from a business's bound repo set."""
         key = f"{_REDIS_PREFIX}:repos:{business_id}"

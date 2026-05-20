@@ -81,19 +81,6 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _STATIC_DIR_RESOLVED = _STATIC_DIR.resolve()
 _INDEX_HTML = _STATIC_DIR / "index.html"
 
-_SPA_ROUTES = {
-    "search",
-    "deep-search",
-    "graph",
-    "explorer",
-    "repositories",
-    "indexing",
-    "settings",
-    "businesses",
-    "documents",
-    "sync",
-}
-
 
 def create_app() -> FastAPI:
     settings = get_settings()

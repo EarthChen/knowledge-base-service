@@ -209,7 +209,7 @@ export function applyNodeStyles(
   });
 }
 
-function buildFlowNodesWithDagre(
+export function buildFlowNodesWithDagre(
   apiNodes: ApiNode[],
   apiEdges: ApiEdge[],
   isDark: boolean,
@@ -229,7 +229,7 @@ function buildFlowEdges(
   const labelBg = isDark ? "#1e293b" : "#f8fafc";
   return apiEdges
     .filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
-    .map((e, i) => ({
+    .map((e) => ({
       id: `e-${e.source}-${e.type || "rel"}-${e.target}`,
       source: e.source,
       target: e.target,

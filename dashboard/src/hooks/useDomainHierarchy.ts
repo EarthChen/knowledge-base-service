@@ -20,7 +20,7 @@ export function useDomainHierarchy(businessId: string) {
   };
 
   const onError = (err: unknown) => {
-    toast({ title: "Domain operation failed", description: getErrorMessage(err), variant: "destructive" });
+    toast("error", `Domain operation failed: ${getErrorMessage(err)}`);
   };
 
   const rename = useMutation({

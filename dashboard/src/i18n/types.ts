@@ -481,6 +481,8 @@ export interface Translations {
     apiToken: string;
     apiTokenDesc: string;
     tokenPlaceholder: string;
+    showToken: string;
+    hideToken: string;
     save: string;
     tokenSaved: string;
     serviceInfo: string;

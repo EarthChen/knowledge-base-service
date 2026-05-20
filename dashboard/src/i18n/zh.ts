@@ -62,6 +62,7 @@ const zh: Translations = {
     service: "服务状态：",
     healthy: "正常",
     unreachable: "不可达",
+    authServiceUnavailable: "认证服务不可用",
   },
   overview: {
     title: "概览",

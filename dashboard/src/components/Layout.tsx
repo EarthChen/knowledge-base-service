@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useHealth } from "../api/hooks";
 import { useI18n } from "../i18n/context";
+import { useAuth } from "../contexts/AuthContext";
 import { useBusiness } from "../contexts/BusinessContext";
 import CommandPalette from "./CommandPalette";
 import FocusTrap from "./FocusTrap";
@@ -41,6 +42,7 @@ export default function Layout() {
   const { data: health } = useHealth();
   const { t } = useI18n();
   const { currentBusiness, setCurrentBusiness, businesses, isBound } = useBusiness();
+  const { authError } = useAuth();
   const isHealthy = health?.status === "ok";
 
   const [darkMode, setDarkMode] = useState(
@@ -313,6 +315,14 @@ export default function Layout() {
         </header>
 
         <main className="flex-1 bg-gray-50 p-4 dark:bg-slate-950 lg:p-6">
+          {authError && (
+            <div
+              className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+              role="alert"
+            >
+              {t.sidebar.authServiceUnavailable}
+            </div>
+          )}
           <Suspense
             fallback={
               <div className="flex items-center justify-center py-20">

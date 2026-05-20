@@ -68,6 +68,7 @@ export interface Translations {
     service: string;
     healthy: string;
     unreachable: string;
+    authServiceUnavailable: string;
   };
   overview: {
     title: string;

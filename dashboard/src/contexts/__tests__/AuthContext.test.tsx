@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "../AuthContext";
@@ -12,6 +12,7 @@ function AuthProbe() {
       data-auth-enabled={String(auth.authEnabled)}
       data-is-admin={String(auth.isAdmin)}
       data-is-editor={String(auth.isEditor)}
+      data-auth-error={String(auth.authError)}
       data-is-loading={String(auth.isLoading)}
     />
   );
@@ -77,5 +78,25 @@ describe("AuthContext deny-by-default", () => {
     const el = renderAuth({ role: "viewer", auth_enabled: true, business_id: null });
     expect(el.getAttribute("data-is-admin")).toBe("false");
     expect(el.getAttribute("data-is-editor")).toBe("false");
+  });
+
+  it("sets authError when /auth/me fetch fails", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryDefaults(["auth-me"], {
+      queryFn: () => Promise.reject(new Error("network")),
+    });
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <AuthProvider>
+          <AuthProbe />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+    await vi.waitFor(() => {
+      const el = container.querySelector("[data-testid='auth-probe']")!;
+      expect(el.getAttribute("data-auth-error")).toBe("true");
+    });
   });
 });

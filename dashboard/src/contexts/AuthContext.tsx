@@ -12,6 +12,7 @@ interface AuthContextType {
   role: string | null;
   authEnabled: boolean;
   authResolved: boolean;
+  authError: boolean;
   isLoading: boolean;
   isAdmin: boolean;
   isEditor: boolean;
@@ -23,6 +24,7 @@ const AuthContext = createContext<AuthContextType>({
   role: null,
   authEnabled: false,
   authResolved: false,
+  authError: false,
   isLoading: true,
   isAdmin: false,
   isEditor: false,
@@ -31,7 +33,7 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { data, isLoading } = useQuery<AuthInfo>({
+  const { data, isLoading, isError } = useQuery<AuthInfo>({
     queryKey: ["auth-me"],
     queryFn: () => api("/auth/me", { method: "GET" }),
     staleTime: 120_000,
@@ -39,6 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const authResolved = !isLoading;
+  const authError = isError;
   const role = data?.role ?? null;
   const authEnabled = data?.auth_enabled === true;
   const boundBusiness = data?.business_id ?? null;
@@ -68,13 +71,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role,
       authEnabled,
       authResolved,
+      authError,
       isLoading,
       isAdmin,
       isEditor,
       isViewer,
       boundBusiness,
     }),
-    [role, authEnabled, authResolved, isLoading, isAdmin, isEditor, isViewer, boundBusiness],
+    [role, authEnabled, authResolved, authError, isLoading, isAdmin, isEditor, isViewer, boundBusiness],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

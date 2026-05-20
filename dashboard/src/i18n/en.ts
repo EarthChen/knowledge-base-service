@@ -62,6 +62,7 @@ const en: Translations = {
     service: "Service:",
     healthy: "Healthy",
     unreachable: "Unreachable",
+    authServiceUnavailable: "Authentication service unavailable",
   },
   overview: {
     title: "Overview",

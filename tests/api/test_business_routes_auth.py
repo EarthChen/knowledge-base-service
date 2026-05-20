@@ -1,4 +1,4 @@
-"""Business mutating routes require EDITOR when require_auth is enabled."""
+"""Business mutating routes require appropriate roles when require_auth is enabled."""
 
 from __future__ import annotations
 

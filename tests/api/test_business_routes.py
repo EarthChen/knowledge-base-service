@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -44,6 +44,7 @@ def app(open_auth: None, mock_bm: MagicMock) -> FastAPI:
 
     mock_registry = MagicMock()
     mock_registry.business_manager = mock_bm
+    mock_registry.remove_service = AsyncMock()
     with patch.object(kb_state, "registry", mock_registry):
         yield application
 
@@ -106,10 +107,13 @@ async def test_update_business_not_found(app: FastAPI, mock_bm: MagicMock) -> No
 
 
 @pytest.mark.asyncio
-async def test_delete_business_returns_deleted(client: AsyncClient) -> None:
+async def test_delete_business_returns_deleted(client: AsyncClient, app: FastAPI) -> None:
     r = await client.delete("/api/v1/businesses/test-biz")
     assert r.status_code == 200
     assert r.json()["status"] == "deleted"
+    registry = kb_state.registry
+    assert registry is not None
+    registry.remove_service.assert_awaited_once_with("test-biz")  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio

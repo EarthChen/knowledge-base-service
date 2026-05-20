@@ -12,12 +12,11 @@ from fastapi import Depends, Header, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 import api.kb_state as kb_state
-from api.exceptions import KbClientError, KbError, KbNotFound, KbServiceUnavailable
+from api.exceptions import KbError, KbNotFound, KbServiceUnavailable
 from api.routes import kb_routers
 from api.routes.kb_dependencies import get_effective_business_id, get_service
 from api.routes.kb_index_helpers import infer_repo_root, resolve_canonical_repository_for_git
 from api.routes.kb_schemas import (
-    CreateBusinessRequest,
     SyncAllRequest,
     SyncRepoRequest,
     SyncScheduleRequest,
@@ -38,22 +37,6 @@ admin_router = kb_routers.admin_router
 public_router = kb_routers.public_router
 
 
-@admin_router.post("/businesses")
-async def create_business(req: CreateBusinessRequest) -> dict[str, Any]:
-    """Create a new business with its own isolated graph."""
-    if kb_state.registry is None:
-        raise KbServiceUnavailable("Service not ready")
-    loop = asyncio.get_running_loop()
-    try:
-        meta = await loop.run_in_executor(
-            None,
-            lambda: kb_state.registry.business_manager.create_business(req.id, req.name, req.description),  # type: ignore[union-attr]
-        )
-    except ValueError as exc:
-        raise KbClientError(str(exc)) from exc
-    return meta
-
-
 @viewer_router.get("/businesses/{business_id}")
 async def get_business(business_id: str) -> dict[str, Any]:
     """Get business details."""
@@ -64,18 +47,6 @@ async def get_business(business_id: str) -> dict[str, Any]:
     if meta is None:
         raise KbNotFound(f"Business '{business_id}' not found")
     return meta
-
-
-@admin_router.delete("/businesses/{business_id}")
-async def delete_business(business_id: str) -> dict[str, Any]:
-    """Delete a business and all its graph data."""
-    if kb_state.registry is None:
-        raise KbServiceUnavailable("Service not ready")
-    try:
-        await kb_state.registry.remove_service(business_id)
-    except ValueError as exc:
-        raise KbClientError(str(exc)) from exc
-    return {"deleted": business_id}
 
 
 def _schedule_to_response(cfg: SyncScheduleConfig) -> SyncScheduleResponse:

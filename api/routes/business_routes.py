@@ -41,7 +41,7 @@ def _get_bm():
     return kb_state.registry.business_manager
 
 
-@router.get("/businesses")
+@router.get("/businesses", dependencies=[Depends(require_role(Role.VIEWER))])
 async def list_businesses(
     offset: int = Query(default=0, ge=0),
     limit: int | None = Query(default=None, ge=1, le=100),
@@ -58,7 +58,7 @@ async def list_businesses(
     return out
 
 
-@router.post("/businesses", status_code=201, dependencies=[Depends(require_role(Role.EDITOR))])
+@router.post("/businesses", status_code=201, dependencies=[Depends(require_role(Role.ADMIN))])
 async def create_business(body: BusinessCreate) -> dict[str, Any]:
     bm = _get_bm()
     loop = asyncio.get_running_loop()
@@ -85,16 +85,15 @@ async def update_business(business_id: str, body: BusinessUpdate) -> dict[str, A
     return result
 
 
-@router.delete("/businesses/{business_id}", dependencies=[Depends(require_role(Role.EDITOR))])
+@router.delete("/businesses/{business_id}", dependencies=[Depends(require_role(Role.ADMIN))])
 async def delete_business(business_id: str) -> dict[str, str]:
-    bm = _get_bm()
-    loop = asyncio.get_running_loop()
+    """Delete a business: FalkorDB graph, cached service, and Redis metadata."""
+    if kb_state.registry is None:
+        raise KbServiceUnavailable("Service not ready")
     try:
-        deleted = await loop.run_in_executor(None, lambda: bm.delete_business(business_id))
+        await kb_state.registry.remove_service(business_id)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    if not deleted:
-        raise HTTPException(404, f"Business {business_id} not found")
     return {"status": "deleted"}
 
 
@@ -111,7 +110,7 @@ async def bind_repositories(business_id: str, body: RepositoryBind) -> dict[str,
     return {"business_id": business_id, "repositories": repos}
 
 
-@router.get("/businesses/{business_id}/repositories")
+@router.get("/businesses/{business_id}/repositories", dependencies=[Depends(require_role(Role.VIEWER))])
 async def get_repositories(business_id: str) -> dict[str, Any]:
     bm = _get_bm()
     loop = asyncio.get_running_loop()

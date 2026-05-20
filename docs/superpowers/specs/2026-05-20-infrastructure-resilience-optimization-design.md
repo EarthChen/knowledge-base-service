@@ -51,6 +51,8 @@ class EmbeddingGenerator:
 
 - ONNX Runtime 在 CoreML/CUDA provider 下不保证线程安全；`index_concurrency > 1` 时需用 thread pool 隔离 session
 - Torch MPS 不支持真正并发推理；该后端应固定 `index_concurrency=1`
+- **HTTP 后端优先级**：当 backend=http 时，使用 `http_max_concurrency` 而非 query/index 分离（HTTP 无 GPU 内存限制）
+- `query_concurrency > 1` 仅对 CPU/CoreML EP 安全；CUDA EP 应保持 1
 
 ---
 
@@ -117,8 +119,9 @@ def with_redis_retry(
 
 ### 2.4 约束
 
-- `BusinessManager` 是同步调用（routes 用 `run_in_executor`），装饰器需支持同步函数
-- 熔断打开时应降级（返回空列表 / 缓存数据），而非直接抛异常给用户
+- `BusinessManager` 是同步调用（routes 用 `run_in_executor`），装饰器需支持同步函数（内部用 `time.sleep`）
+- **熔断器移至可选 follow-up**：v1 仅实现重试装饰器；熔断器在观察到 Redis 频繁不稳定后再引入
+- v1 工期调整为 **0.5 天**（仅重试）
 
 ---
 
@@ -188,8 +191,11 @@ def _compute_backoff(exc, attempt, respect_retry_after):
 
 ### 3.4 约束
 
-- Streaming 调用重试会重新发起完整请求（无断点续传）
+- Streaming 调用重试会重新发起完整请求（无断点续传）；`_collect_stream` 保留独立的流中断重试
 - `complete_json` 的 `ValueError`（无效 JSON）不应重试——那是模型问题，不是网络问题
+- **新增 `max_total_time` 参数**（默认 90s）：防止 retries × timeout 导致调用链超时
+- **`complete_with_fallback` 交互**：使用 fallback 时，default provider 的 retry 应减少为 1 次（快速故障转移）
+- 工期调整为 **1.5 天**（含 4 provider 重构 + fallback 交互测试）
 
 ---
 
@@ -253,7 +259,8 @@ def iter_directory_with_cross_file(self, directory, ...):
 
 ### 4.4 约束
 
-- `_resolve_cross_file_edges` 当前访问 `all_nodes` 的 `label` 和 `properties["fqn"]`；需适配到 `_SymbolEntry`
+- **实施前验证**：grep `all_nodes` 在 `_resolve_cross_file_edges` 和 `_build_global_symbol_table` 中的属性访问，确认仅用 uid/name/fqn/label/file
+- 如发现其他属性需求，选择性添加到 `_SymbolEntry`（仍远比完整 GraphNode 轻量）
 - 不影响 `build_from_directory()`（那是全量加载路径，用途不同）
 
 ---
@@ -309,6 +316,8 @@ export const STALE_TIME = {
 
 - `BusinessContext` 切换时已有 `invalidateQueries` 逻辑，staleTime 不影响切换时的刷新
 - `useHealth` 用 `refetchInterval`，与 staleTime 独立
+- **AuthContext 保持 120s**（不强制归入分层，介于 NORMAL 和 SLOW 之间）
+- Graph stats 应从默认 30s 移至 NORMAL (60s)
 
 ---
 
@@ -320,14 +329,23 @@ export const STALE_TIME = {
 P0      | 跨文件内存优化          | 0.5天   | 低（仅内部数据结构）
 P1      | TanStack staleTime     | 0.5天   | 极低（仅缓存策略）
 P1      | Embedding 并发度        | 0.5天   | 低（新增配置字段）
-P2      | LLM retry 统一         | 1天     | 中（4个provider重构）
-P2      | Redis 韧性             | 1天     | 中（影响启动和 CRUD）
+P2      | LLM retry 统一         | 1.5天   | 中（4个provider重构 + fallback交互）
+P2      | Redis 韧性（仅重试）    | 0.5天   | 低（装饰器 + 无架构变更）
 ```
 
 ---
 
-## 7. Open Questions
+## 7. Open Questions (审阅后更新)
 
-1. **Embedding GPU 并发安全**：ONNX Runtime 在哪些 ExecutionProvider 下支持多会话并发？需要基准测试确认。
-2. **Redis 熔断降级策略**：BusinessManager 熔断时应返回缓存数据还是直接 503？
-3. **LLM 429 限流是否需要全局令牌桶**：多个并发 agent 可能同时触发 429，是否需要在 provider factory 层做全局限流？
+1. ~~**Embedding GPU 并发安全**~~ → 已回答：默认配置安全（query_concurrency=2 用 CPU EP；CUDA 保持 1）。仅在用户显式调高时需注意。
+2. ~~**Redis 熔断降级策略**~~ → 延迟至 follow-up：v1 仅做重试，无需回答降级策略。
+3. **LLM 全局令牌桶**：当前单实例部署不需要；多实例/多 agent 部署时需要在 ProviderFactory 层加共享限流。记录为 known limitation，后续按需实现。
+
+## 8. Sequential Thinking 审阅结论
+
+**整体评价**：设计可靠，无根本性缺陷。修正事项：
+- Redis 方案 v1 精简为仅重试（去掉熔断器），工期 0.5 天
+- LLM retry 增加 `max_total_time` 参数 + fallback 交互说明，工期 1.5 天
+- 跨文件内存方案需实施前验证属性访问
+- staleTime 中 AuthContext 保持 120s，不强制归入分层
+- 5 项提案互相独立，可并行实施

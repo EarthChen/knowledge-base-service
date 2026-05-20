@@ -37,9 +37,91 @@ async def create_links_node(state: dict[str, Any]) -> dict[str, Any]:
         if links:
             resolved_links[page_path] = links
 
+    _populate_navigation_from_domain_tree(pages, state.get("domain_tree") or [])
+
     log.info(
         "create_links_done",
         pages_with_links=len(resolved_links),
         total_links=sum(len(v) for v in resolved_links.values()),
     )
     return {"resolved_links": resolved_links}
+
+
+def _populate_navigation_from_domain_tree(
+    pages: list[dict[str, Any]],
+    domain_tree: list[dict[str, Any]],
+) -> None:
+    """Walk domain_tree and populate navigation field on matching pages."""
+    from wiki.path_conventions import domain_overview_path
+
+    pages_by_path: dict[str, dict[str, Any]] = {
+        p.get("path", ""): p for p in pages if p.get("path")
+    }
+
+    def _walk(
+        nodes: list[dict[str, Any]],
+        parent_path: str,
+        breadcrumbs: list[str],
+    ) -> None:
+        sibling_paths = [
+            domain_overview_path(n.get("name", ""))
+            for n in nodes
+            if domain_overview_path(n.get("name", "")) in pages_by_path
+        ]
+
+        for node in nodes:
+            name = node.get("name", "")
+            if not name:
+                continue
+            overview_path = domain_overview_path(name)
+            page = pages_by_path.get(overview_path)
+            children = node.get("children", [])
+
+            child_overview_paths = [
+                domain_overview_path(c.get("name", ""))
+                for c in children
+                if domain_overview_path(c.get("name", "")) in pages_by_path
+            ]
+
+            # Find topic pages for this domain
+            topic_paths = [
+                p_path for p_path, p_data in pages_by_path.items()
+                if (
+                    p_data.get("page_type") == "topic"
+                    and p_path.startswith(f"/__domains__/{name}/")
+                )
+            ]
+
+            if page is not None:
+                current_siblings = [s for s in sibling_paths if s != overview_path]
+                page["navigation"] = {
+                    "parent_path": parent_path,
+                    "parent_title": "",
+                    "sibling_paths": current_siblings,
+                    "child_paths": child_overview_paths + topic_paths,
+                    "related_flow_paths": [],
+                    "breadcrumbs": breadcrumbs + [overview_path],
+                }
+
+            # Set navigation for topic pages of this domain
+            for tp in topic_paths:
+                topic_page = pages_by_path.get(tp)
+                if topic_page:
+                    other_topics = [t for t in topic_paths if t != tp]
+                    topic_page["navigation"] = {
+                        "parent_path": overview_path,
+                        "parent_title": node.get("display_name", name),
+                        "sibling_paths": other_topics,
+                        "child_paths": [],
+                        "related_flow_paths": [],
+                        "breadcrumbs": breadcrumbs + [overview_path, tp],
+                    }
+
+            if children:
+                _walk(
+                    children,
+                    parent_path=overview_path,
+                    breadcrumbs=breadcrumbs + [overview_path],
+                )
+
+    _walk(domain_tree, parent_path="", breadcrumbs=[])

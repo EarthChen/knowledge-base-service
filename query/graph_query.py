@@ -211,15 +211,22 @@ class GraphQueryService:
 
     async def get_graph_stats(self) -> dict[str, int]:
         """Get statistics about the knowledge graph."""
+        import asyncio
+
+        labels = ("Function", "Class", "Module", "Document")
+        edge_types = ("CALLS", "INHERITS", "IMPORTS", "CONTAINS", "REFERENCES")
+        label_tasks = [self._traversal.count_nodes_by_label(lbl) for lbl in labels]
+        edge_tasks = [self._traversal.count_edges_by_type(et) for et in edge_types]
+        results = await asyncio.gather(*label_tasks, *edge_tasks)
+
         stats: dict[str, int] = {}
-        for label in ("Function", "Class", "Module", "Document"):
-            rows = await self._traversal.count_nodes_by_label(label)
+        for i, label in enumerate(labels):
+            rows = results[i]
             stats[label.lower() + "_count"] = rows[0][0] if rows else 0
-
-        for edge_type in ("CALLS", "INHERITS", "IMPORTS", "CONTAINS", "REFERENCES"):
-            rows = await self._traversal.count_edges_by_type(edge_type)
+        offset = len(labels)
+        for j, edge_type in enumerate(edge_types):
+            rows = results[offset + j]
             stats[edge_type.lower() + "_count"] = rows[0][0] if rows else 0
-
         return stats
 
     async def find_business_flow(self, name: str, k: int = 10) -> QueryResult:

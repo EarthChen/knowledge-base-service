@@ -1,7 +1,7 @@
 # Remaining Work (Unified Backlog)
 
 **Created:** 2026-05-09  
-**Last Updated:** 2026-05-13  
+**Last Updated:** 2026-05-20  
 **Status:** Active — items checked off when merged
 
 ---
@@ -13,6 +13,10 @@ _(当前无进行中任务)_
 ---
 
 ## 积压项
+
+### P2 — Agent 框架渐进迁移
+
+- [ ] **Migrate 14 WikiPageAgent tools to `@function_tool`** — 基础设施已就绪 (`wiki/agents/tool_decorator.py`)，逐步 2-3 个工具迁移到 decorator，消除手写 JSON Schema。
 
 ### P3 — 前端代码质量
 
@@ -71,6 +75,7 @@ _(当前无进行中任务)_
 - [x] 统一 Agent 抽象 Phase 1 ✅ (2026-05-13) — GenericAgent + ToolRegistry + ToolDef + Memory + WikiPageAgent 继承 + DocOrchestrator
 - [x] 统一 Agent 抽象 Phase 2-5 ✅ (2026-05-13) — DomainDocAgent 重构 + ResearchOrchestrator + AskOrchestrator + TopicDocAgent + FlowDocAgent (3396 tests)
 - [x] 代码块真实性保障 ✅ (2026-05-13) — 混合验证：CODE_REF 注入 + 后验证替换，DocOrchestrator 自动集成 (3429 tests)
+- [x] Agent Framework Enhancement Layer 0-3 ✅ (2026-05-19~20) — RunContext DI、Guardrails、output_type、@function_tool、Span Tracing (JsonlTraceProcessor)、Handoff 形式化、delegate_submodule 迁移、PromptLengthGuardrail 集成 (3730 tests)
 
 ---
 

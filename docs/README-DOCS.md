@@ -50,6 +50,9 @@
 | ~~`specs/2026-05-13-unified-agent-abstraction.md`~~ | (已完成并删除) **统一 Agent 抽象架构** Phase 1-5 全部完成 ✅；固化至 `wiki/agents/` 包。 |
 | ~~`plans/2026-05-13-unified-agent-abstraction-*.md`~~ | (已完成并删除) Phase 1-5 实施计划全部完成。 |
 | ~~`specs/20260513_142349_code-block-verifier.md`~~ | (已完成并删除) **代码块真实性保障**：混合验证模式 ✅；固化至 `wiki/code_block_verifier.py` + `DocOrchestrator._verify_code_blocks`。 |
+| ~~`specs/2026-05-19-openai-agent-sdk-patterns-analysis.md`~~ | (已完成并删除) OpenAI Agents SDK 模式分析 — 成果固化至 `wiki/agents/` 框架增强 (Layer 0-3)。 |
+| ~~`specs/2026-05-19-agent-framework-enhancement-design.md`~~ | (已完成并删除) Agent 框架增强设计 — Layer 0-3 全部实现 ✅；固化至 `wiki/agents/context.py`、`guardrails.py`、`tool_decorator.py`、`tracing.py`、`handoff.py`。 |
+| ~~`plans/2026-05-19-agent-framework-layer0-run-context.md`~~ | (已完成并删除) Layer 0: RunContext 实施计划 — Task 1-5 全部完成。 |
 
 ---
 

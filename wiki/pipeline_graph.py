@@ -16,20 +16,21 @@ from wiki.agent_config import _get_env
 from wiki.citation_verifier import verify_citations
 from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.models import ImportanceTier, WikiPage
+from wiki.nodes.graph_domain_decompose import graph_driven_domain_decompose_node
 from wiki.pipeline_nodes import (
     assign_canonical_keys_node,
-    classify_domains_node,
     classify_entities_node,
     compose_domain_agents_node,
     compose_leaf_modules_node,
+    compose_parent_pages_node,
     create_links_node,
-    decompose_hierarchy_node,
     detect_reorg_node,
     generate_titles_node,
     graph_decompose_node,
     heal_pages_node,
     persist_classification_node,
     set_review_status_node,
+    summarize_leaves_node,
 )
 from wiki.pipeline_state import WikiPipelineState
 from wiki.quality_evaluator import WikiQualityEvaluator
@@ -46,11 +47,12 @@ _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "assign_canonical_keys": ("assign_keys", 0.07),
     "classify_domains": ("classify_domains", 0.08),
     "persist_classification": ("persist_classification", 0.09),
-    "decompose_hierarchy": ("decompose_hierarchy", 0.10),
     "generate_titles": ("generate_titles", 0.12),
     "set_review_status": ("set_review_status", 0.15),
     "compose_leaf_modules": ("compose_leaf_modules", 0.18),
     "compose_domain_agents": ("compose_domain_agents", 0.30),
+    "summarize_leaves": ("summarize_leaves", 0.55),
+    "compose_parent_pages": ("compose_parent_pages", 0.60),
     "quality_gate": ("quality_gate", 0.70),
     "heal_pages": ("heal_pages", 0.80),
     "create_links": ("linking", 0.90),
@@ -318,12 +320,11 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("detect_reorg", _with_progress("detect_reorg", detect_reorg_node))
     graph.add_node("graph_decompose", _with_progress("graph_decompose", graph_decompose_node))
     graph.add_node("assign_canonical_keys", _with_progress("assign_canonical_keys", assign_canonical_keys_node))
-    graph.add_node("classify_domains", _with_progress("classify_domains", classify_domains_node))
+    graph.add_node("classify_domains", _with_progress("classify_domains", graph_driven_domain_decompose_node))
     graph.add_node(
         "persist_classification",
         _with_progress("persist_classification", persist_classification_node),
     )
-    graph.add_node("decompose_hierarchy", _with_progress("decompose_hierarchy", decompose_hierarchy_node))
     graph.add_node("generate_titles", _with_progress("generate_titles", generate_titles_node))
     graph.add_node("set_review_status", _with_progress("set_review_status", set_review_status_node))
     graph.add_node("compose_leaf_modules", _with_progress("compose_leaf_modules", compose_leaf_modules_node))
@@ -332,8 +333,12 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
         "compose_domain_agents",
         _with_progress("compose_domain_agents", compose_domain_agents_node),
     )
+    graph.add_node("summarize_leaves", _with_progress("summarize_leaves", summarize_leaves_node))
+    graph.add_node("compose_parent_pages", _with_progress("compose_parent_pages", compose_parent_pages_node))
     graph.add_edge("compose_leaf_modules", "compose_domain_agents")
-    graph.add_edge("compose_domain_agents", "quality_gate")
+    graph.add_edge("compose_domain_agents", "summarize_leaves")
+    graph.add_edge("summarize_leaves", "compose_parent_pages")
+    graph.add_edge("compose_parent_pages", "quality_gate")
 
     graph.add_node("quality_gate", _with_progress("quality_gate", quality_gate_node))
     graph.add_node("heal_pages", _with_progress("heal_pages", heal_pages_node))
@@ -349,8 +354,7 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_edge("graph_decompose", "assign_canonical_keys")
     graph.add_edge("assign_canonical_keys", "classify_domains")
     graph.add_edge("classify_domains", "persist_classification")
-    graph.add_edge("persist_classification", "decompose_hierarchy")
-    graph.add_edge("decompose_hierarchy", "generate_titles")
+    graph.add_edge("persist_classification", "generate_titles")
     graph.add_edge("generate_titles", "set_review_status")
     graph.add_edge("set_review_status", "compose_leaf_modules")
     graph.add_conditional_edges(

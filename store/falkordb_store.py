@@ -310,22 +310,27 @@ class FalkorDBStore(FalkorDBSearchMixin, FalkorDBWikiMixin, FalkorDBReadsMixin):
         """Retrieve embeddable nodes (Function, Class, Document, Chunk) for a given file path."""
         from store.schema import GraphNode
 
-        embeddable_labels = ["Function", "Class", "Document", "Chunk"]
-        nodes: list = []
         loop = asyncio.get_running_loop()
-        for lbl in embeddable_labels:
-            cypher = f"MATCH (n:{lbl} {{file: $file}}) RETURN n"
-            result = await loop.run_in_executor(
-                _graph_executor,
-                lambda q=cypher: self._graph.query(q, params={"file": file_path}),  # type: ignore[union-attr]
-            )
-            for row in result.result_set or []:
-                node_data = row[0] if row else None
-                if node_data and hasattr(node_data, "properties"):
-                    props = dict(node_data.properties)
-                    label = NodeLabel(lbl)
-                    uid = props.pop("uid", "") or f"{label}:{file_path}:{props.get('name', '')}:{props.get('start_line', 0)}"  # noqa: E501
-                    nodes.append(GraphNode(label=label, properties=props, uid=uid))
+        cypher = (
+            "MATCH (n) "
+            "WHERE (n:Function OR n:Class OR n:Document OR n:Chunk) AND n.file = $file "
+            "RETURN n"
+        )
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(cypher, params={"file": file_path}),  # type: ignore[union-attr]
+        )
+        nodes: list = []
+        for row in result.result_set or []:
+            node_data = row[0] if row else None
+            if node_data and hasattr(node_data, "properties"):
+                props = dict(node_data.properties)
+                label_str = "Function"
+                if hasattr(node_data, "labels") and node_data.labels:
+                    label_str = node_data.labels[0]
+                label = NodeLabel(label_str)
+                uid = props.pop("uid", "") or f"{label}:{file_path}:{props.get('name', '')}:{props.get('start_line', 0)}"  # noqa: E501
+                nodes.append(GraphNode(label=label, properties=props, uid=uid))
         return nodes
 
     async def delete_by_file(self, file_path: str) -> int:

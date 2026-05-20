@@ -527,6 +527,32 @@ class WikiTreeStoreMixin:
         )
         return await self._store.execute_query(q, {"uid": page_uid})
 
+    async def get_wiki_page_references_batch(
+        self, page_uids: list[str], *, chunk_size: int = 500,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Return outgoing WIKI_REFERENCES for many pages in one or few UNWIND queries."""
+        if not page_uids:
+            return {}
+        q = (
+            "UNWIND $uids AS uid "
+            "MATCH (s:WikiPage {uid: uid})-[r:WIKI_REFERENCES]->(t:WikiPage) "
+            "RETURN uid AS source_uid, t.path AS path, t.title AS title, "
+            "t.repository AS repository, "
+            "r.relation_type AS relation_type, r.context AS context "
+            "ORDER BY uid, r.relation_type, t.title"
+        )
+        out: dict[str, list[dict[str, Any]]] = {uid: [] for uid in page_uids}
+        for i in range(0, len(page_uids), chunk_size):
+            batch = page_uids[i : i + chunk_size]
+            result = await self._store.execute_query(q, {"uids": batch})
+            for row in result.data or []:
+                if not isinstance(row, dict):
+                    continue
+                src = str(row.get("source_uid") or "")
+                if src in out:
+                    out[src].append(row)
+        return out
+
     async def get_wiki_page_back_references(self, page_uid: str) -> QueryResultWrapper:
         q = (
             "MATCH (s:WikiPage)-[r:WIKI_REFERENCES]->(t:WikiPage {uid: $uid}) "

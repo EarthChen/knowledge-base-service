@@ -63,21 +63,40 @@ class WikiPagePersistence:
         from wiki.reference_generator import WikiReferenceGenerator
 
         ref_gen = WikiReferenceGenerator(self._wiki_store)
+        refs_by_uid: dict[str, list[str]] = {}
+        batch_fn = getattr(self._wiki_store, "get_wiki_page_references_batch", None)
+        if batch_fn is not None:
+            uids = [f"WikiPage:{repository}:{page.path}" for page in pages]
+            try:
+                batch_refs = await batch_fn(uids)
+                for uid, rows in batch_refs.items():
+                    paths: list[str] = []
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        p = str(row.get("path", "") or "").strip()
+                        if p:
+                            paths.append(p)
+                    refs_by_uid[uid] = paths
+            except Exception:
+                log.debug("wiki_page_references_batch_failed", repository=repository, exc_info=True)
         for page in pages:
             uid = f"WikiPage:{repository}:{page.path}"
-            try:
-                out = await self._wiki_store.get_wiki_page_references(uid)
-            except Exception:
-                log.debug("wiki_page_references_lookup_failed", page_uid=uid, exc_info=True)
-                continue
-            rows = getattr(out, "data", None) or []
-            paths: list[str] = []
-            for row in rows:
-                if not isinstance(row, dict):
+            paths = refs_by_uid.get(uid)
+            if paths is None:
+                try:
+                    out = await self._wiki_store.get_wiki_page_references(uid)
+                except Exception:
+                    log.debug("wiki_page_references_lookup_failed", page_uid=uid, exc_info=True)
                     continue
-                p = str(row.get("path", "") or "").strip()
-                if p:
-                    paths.append(p)
+                rows = getattr(out, "data", None) or []
+                paths = []
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    p = str(row.get("path", "") or "").strip()
+                    if p:
+                        paths.append(p)
             page.content = ref_gen.inject_wikilinks(page.content or "", paths)
 
     async def sync_graph_references_into_page_content(

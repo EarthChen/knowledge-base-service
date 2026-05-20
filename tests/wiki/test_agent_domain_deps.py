@@ -5,16 +5,22 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from wiki.page_agent import AGENT_TOOLS, ToolResult, WikiPageAgent, WorkingMemory
+from wiki.page_agent import ToolResult, WikiPageAgent, WorkingMemory
+
+
+def _get_tool_schemas():
+    agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+    return agent._tool_registry.get_all_tool_schemas()
 
 
 class TestDomainDepsToolDefinition:
     def test_in_agent_tools(self):
-        names = [t["function"]["name"] for t in AGENT_TOOLS]
+        schemas = _get_tool_schemas()
+        names = [t["function"]["name"] for t in schemas]
         assert "query_domain_dependencies" in names
 
     def test_has_domain_name_param(self):
-        for tool in AGENT_TOOLS:
+        for tool in _get_tool_schemas():
             if tool["function"]["name"] == "query_domain_dependencies":
                 params = tool["function"]["parameters"]["properties"]
                 assert "domain_name" in params
@@ -31,7 +37,7 @@ class TestDomainDepsTool:
             MagicMock(data=[]),  # incoming
         ])
         agent = WikiPageAgent(MagicMock(), gs)
-        result = await agent._tool_query_domain_dependencies({"domain_name": "Payment"})
+        result = await agent._execute_tool("query_domain_dependencies", {"domain_name": "Payment"})
         assert result["domain"] == "Payment"
         assert len(result["outgoing"]) == 1
         assert result["outgoing"][0]["target_domain"] == "Notification"
@@ -46,14 +52,14 @@ class TestDomainDepsTool:
             ]),
         ])
         agent = WikiPageAgent(MagicMock(), gs)
-        result = await agent._tool_query_domain_dependencies({"domain_name": "Payment"})
+        result = await agent._execute_tool("query_domain_dependencies", {"domain_name": "Payment"})
         assert len(result["incoming"]) == 1
         assert result["incoming"][0]["source_domain"] == "Order"
 
     @pytest.mark.asyncio
     async def test_handles_missing_domain_name(self):
         agent = WikiPageAgent(MagicMock(), MagicMock())
-        result = await agent._tool_query_domain_dependencies({"domain_name": ""})
+        result = await agent._execute_tool("query_domain_dependencies", {"domain_name": ""})
         assert "error" in result
 
     @pytest.mark.asyncio
@@ -61,8 +67,7 @@ class TestDomainDepsTool:
         gs = MagicMock()
         gs.execute_query = AsyncMock(side_effect=RuntimeError("db error"))
         agent = WikiPageAgent(MagicMock(), gs)
-        result = await agent._tool_query_domain_dependencies({"domain_name": "Payment"})
-        # Should not raise, returns empty lists
+        result = await agent._execute_tool("query_domain_dependencies", {"domain_name": "Payment"})
         assert result["outgoing"] == []
         assert result["incoming"] == []
 
@@ -75,7 +80,7 @@ class TestDomainDepsTool:
             MagicMock(data=[]),
         ])
         agent = WikiPageAgent(MagicMock(), gs)
-        result = await agent._tool_query_domain_dependencies({"domain_name": "Payment"})
+        result = await agent._execute_tool("query_domain_dependencies", {"domain_name": "Payment"})
         assert len(result["outgoing"]) <= 15
 
 

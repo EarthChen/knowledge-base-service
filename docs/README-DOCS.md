@@ -53,6 +53,7 @@
 | ~~`specs/2026-05-19-openai-agent-sdk-patterns-analysis.md`~~ | (已完成并删除) OpenAI Agents SDK 模式分析 — 成果固化至 `wiki/agents/` 框架增强 (Layer 0-3)。 |
 | ~~`specs/2026-05-19-agent-framework-enhancement-design.md`~~ | (已完成并删除) Agent 框架增强设计 — Layer 0-3 全部实现 ✅；固化至 `wiki/agents/context.py`、`guardrails.py`、`tool_decorator.py`、`tracing.py`、`handoff.py`。 |
 | ~~`plans/2026-05-19-agent-framework-layer0-run-context.md`~~ | (已完成并删除) Layer 0: RunContext 实施计划 — Task 1-5 全部完成。 |
+| [`specs/2026-05-20-infrastructure-resilience-optimization-design.md`](superpowers/specs/2026-05-20-infrastructure-resilience-optimization-design.md) | **Completed** — Infrastructure Resilience and Optimization (5 items). |
 
 ---
 

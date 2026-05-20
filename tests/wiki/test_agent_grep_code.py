@@ -5,16 +5,22 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from wiki.page_agent import WikiPageAgent, AGENT_TOOLS, WorkingMemory, ToolResult
+from wiki.page_agent import WikiPageAgent, WorkingMemory, ToolResult
+
+
+def _get_tool_schemas():
+    agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+    return agent._tool_registry.get_all_tool_schemas()
 
 
 class TestGrepCodeToolDefinition:
     def test_grep_code_in_agent_tools(self):
-        names = [t["function"]["name"] for t in AGENT_TOOLS]
+        schemas = _get_tool_schemas()
+        names = [t["function"]["name"] for t in schemas]
         assert "grep_code" in names
 
     def test_grep_code_has_pattern_param(self):
-        for tool in AGENT_TOOLS:
+        for tool in _get_tool_schemas():
             if tool["function"]["name"] == "grep_code":
                 params = tool["function"]["parameters"]["properties"]
                 assert "pattern" in params
@@ -37,44 +43,43 @@ class TestGrepCodeTool:
     @pytest.mark.asyncio
     async def test_finds_pattern(self, tmp_repo):
         agent = WikiPageAgent(MagicMock(), MagicMock(), repo_path=str(tmp_repo))
-        result = await agent._tool_grep_code({"pattern": "PaymentException"})
+        result = await agent._execute_tool("grep_code", {"pattern": "PaymentException"})
         assert len(result["matches"]) >= 1
         assert "Service.java" in result["matches"][0]["file"]
 
     @pytest.mark.asyncio
     async def test_regex_pattern(self, tmp_repo):
         agent = WikiPageAgent(MagicMock(), MagicMock(), repo_path=str(tmp_repo))
-        result = await agent._tool_grep_code({"pattern": r"throw\s+new\s+\w+Exception"})
+        result = await agent._execute_tool("grep_code", {"pattern": r"throw\s+new\s+\w+Exception"})
         assert len(result["matches"]) >= 1
 
     @pytest.mark.asyncio
     async def test_file_pattern_filter(self, tmp_repo):
         agent = WikiPageAgent(MagicMock(), MagicMock(), repo_path=str(tmp_repo))
-        result = await agent._tool_grep_code({"pattern": "port", "file_pattern": "*.yaml"})
+        result = await agent._execute_tool("grep_code", {"pattern": "port", "file_pattern": "*.yaml"})
         assert len(result["matches"]) >= 1
         assert "config.yaml" in result["matches"][0]["file"]
 
     @pytest.mark.asyncio
     async def test_returns_error_without_pattern(self, tmp_repo):
         agent = WikiPageAgent(MagicMock(), MagicMock(), repo_path=str(tmp_repo))
-        result = await agent._tool_grep_code({"pattern": ""})
+        result = await agent._execute_tool("grep_code", {"pattern": ""})
         assert "error" in result
 
     @pytest.mark.asyncio
     async def test_unavailable_without_repo_path(self):
         agent = WikiPageAgent(MagicMock(), MagicMock(), repo_path=None)
-        result = await agent._tool_grep_code({"pattern": "test"})
+        result = await agent._execute_tool("grep_code", {"pattern": "test"})
         assert "error" in result
 
     @pytest.mark.asyncio
     async def test_max_results_respected(self, tmp_path):
         d = tmp_path / "many"
         d.mkdir()
-        # Create file with many matching lines
         content = "\n".join(f"line {i} MATCH" for i in range(30))
         (d / "big.txt").write_text(content)
         agent = WikiPageAgent(MagicMock(), MagicMock(), repo_path=str(tmp_path))
-        result = await agent._tool_grep_code({"pattern": "MATCH", "max_results": 5})
+        result = await agent._execute_tool("grep_code", {"pattern": "MATCH", "max_results": 5})
         assert len(result["matches"]) == 5
         assert result["truncated"] is True
 
@@ -82,8 +87,7 @@ class TestGrepCodeTool:
     async def test_invalid_regex_fallback_to_literal(self, tmp_repo):
         """Invalid regex should fallback to literal search."""
         agent = WikiPageAgent(MagicMock(), MagicMock(), repo_path=str(tmp_repo))
-        result = await agent._tool_grep_code({"pattern": "class ["})  # Invalid regex
-        # Should not raise, falls back to literal
+        result = await agent._execute_tool("grep_code", {"pattern": "class ["})
         assert "error" not in result
 
 

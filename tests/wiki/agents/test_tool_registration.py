@@ -18,22 +18,28 @@ class TestWikiPageAgentToolRegistration:
         }
         assert names == expected_tools
 
-    def test_tool_tiers_match_existing(self):
-        from wiki.page_agent import WikiPageAgent, _TOOL_TIERS
+    def test_tool_tiers_are_assigned(self):
+        from wiki.page_agent import WikiPageAgent
+
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+        tier_1_expected = {"query_module_detail", "read_code", "query_call_chain", "query_callers", "query_callees"}
+        tier_2_expected = {"query_implementations", "query_domain_dependencies", "read_file", "search_entities"}
+        tier_3_expected = {"grep_code", "list_files", "semantic_search", "read_wiki_page", "delegate_submodule"}
+
+        for tool_def in agent._tool_registry._tools.values():
+            if tool_def.name in tier_1_expected:
+                assert tool_def.tier == 1, f"{tool_def.name} should be tier 1"
+            elif tool_def.name in tier_2_expected:
+                assert tool_def.tier == 2, f"{tool_def.name} should be tier 2"
+            elif tool_def.name in tier_3_expected:
+                assert tool_def.tier == 3, f"{tool_def.name} should be tier 3"
+
+    def test_all_tools_have_explicit_tier(self):
+        from wiki.page_agent import WikiPageAgent
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
         for tool_def in agent._tool_registry._tools.values():
-            expected_tier = _TOOL_TIERS.get(tool_def.name, 1)
-            assert tool_def.tier == expected_tier, (
-                f"Tool {tool_def.name}: expected tier {expected_tier}, got {tool_def.tier}"
-            )
-
-    def test_all_tools_have_explicit_tier(self):
-        from wiki.page_agent import AGENT_TOOLS, _TOOL_TIERS
-
-        tool_names = {t["function"]["name"] for t in AGENT_TOOLS}
-        missing = tool_names - _TOOL_TIERS.keys()
-        assert not missing, f"Tools missing from _TOOL_TIERS: {missing}"
+            assert tool_def.tier in (1, 2, 3), f"{tool_def.name} has invalid tier {tool_def.tier}"
 
     def test_registered_tools_have_callable_handlers(self):
         """Each registered tool should exist in the registry with a callable handler."""

@@ -16,7 +16,7 @@ async def test_delegate_submodule_creates_sub_agent():
 
     with patch.object(WikiPageAgent, "generate", new_callable=AsyncMock) as mock_generate:
         mock_generate.return_value = "# SubModule\n\nGenerated content for submodule delegation result."
-        result = await agent._tool_delegate_submodule({
+        result = await agent._execute_tool("delegate_submodule", {
             "entity_names": ["SubAuth", "SubToken"],
             "focus": "authentication flow",
         })
@@ -34,7 +34,7 @@ async def test_delegate_depth_limit_enforced():
     agent = WikiPageAgent(llm=AsyncMock(), graph_store=AsyncMock())
     agent._delegation_depth = 2
 
-    result = await agent._tool_delegate_submodule({"entity_names": ["A"], "focus": ""})
+    result = await agent._execute_tool("delegate_submodule", {"entity_names": ["A"], "focus": ""})
 
     assert "error" in result
     assert "depth" in result.get("error", "")
@@ -49,7 +49,7 @@ async def test_delegate_count_limit_enforced():
     agent._delegation_depth = 0
     agent._delegation_count = 3
 
-    result = await agent._tool_delegate_submodule({"entity_names": ["A"], "focus": ""})
+    result = await agent._execute_tool("delegate_submodule", {"entity_names": ["A"], "focus": ""})
 
     assert "error" in result
     assert "count" in result.get("error", "") or "delegation" in result.get("error", "").lower()

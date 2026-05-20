@@ -26,7 +26,7 @@ async def test_tool_read_code_default_truncates_at_single_result_limit():
         })(),
     )
     agent = WikiPageAgent(llm=AsyncMock(), graph_store=mock_graph, repo_path="/tmp/repo")
-    result = await agent._tool_read_code({"entity_name": "Foo"})
+    result = await agent._execute_tool("read_code", {"entity_name": "Foo"})
     assert result["code"] == "x" * SINGLE_RESULT_LIMIT
     assert len(result["code"]) == SINGLE_RESULT_LIMIT
 

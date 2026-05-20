@@ -9,7 +9,7 @@ from typing import Any
 
 from core.log import get_logger
 from wiki.agents.base_agent import GenericAgent
-from wiki.tool_guardrail import DefaultToolGuardrail
+from wiki.agents.tool_decorator import function_tool
 from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP_RE
 from wiki.structured_output import WikiPageOutput, render_wiki_page
 
@@ -495,296 +495,6 @@ class WorkingMemory:
         return "\n".join(sections)
 
 
-AGENT_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "query_module_detail",
-            "description": (
-                "Query detailed info about a module including methods and annotations. "
-                "Use when you need to understand a module's internal structure."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {"name": {"type": "string", "description": "Module name"}},
-                "required": ["name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "query_callers",
-            "description": (
-                "Query which modules call the given module. "
-                "Use when you need to understand who depends on a module."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {"name": {"type": "string", "description": "Target module name"}},
-                "required": ["name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "query_callees",
-            "description": (
-                "Query which modules the given module calls. "
-                "Use when you need to understand a module's outgoing dependencies."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {"name": {"type": "string", "description": "Caller module name"}},
-                "required": ["name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "query_implementations",
-            "description": (
-                "Query implementations of an interface. "
-                "Use when you need to find concrete classes for an abstract interface."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {"interface": {"type": "string", "description": "Interface name"}},
-                "required": ["interface"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "query_call_chain",
-            "description": (
-                "Query method-level call chain starting from a module. "
-                "Use when you need to trace execution flow across multiple modules."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {"module_name": {"type": "string", "description": "Entry module name"}},
-                "required": ["module_name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "query_domain_dependencies",
-            "description": (
-                "Query cross-domain call dependencies for a domain. Use when writing domain overviews "
-                "to understand how this domain interacts with other domains."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "domain_name": {"type": "string", "description": "Domain name to query dependencies for"},
-                },
-                "required": ["domain_name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_code",
-            "description": (
-                f"Read source code for a function or class by name (up to {SINGLE_RESULT_LIMIT} chars). "
-                "Use when you need to understand implementation details of a specific indexed entity."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "entity_name": {"type": "string", "description": "Function or class name"},
-                    "max_chars": {
-                        "type": "integer",
-                        "description": f"Max characters to return (default {SINGLE_RESULT_LIMIT})",
-                    },
-                },
-                "required": ["entity_name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": (
-                "Read file content by relative path. Use for config files, non-indexed source, "
-                "or any file not in the code graph (e.g. .yaml, .xml, .properties)."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {"type": "string", "description": "Relative path from repository root"},
-                    "start_line": {"type": "integer", "description": "Start line (1-based, default 1)"},
-                    "end_line": {"type": "integer", "description": "End line (default start+200)"},
-                },
-                "required": ["file_path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_entities",
-            "description": (
-                "Search code entities by keyword in names and docstrings. "
-                "Use when you don't know the exact name and need to discover related functions or classes."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "keyword": {"type": "string", "description": "Keyword to search for (case-insensitive)"},
-                    "limit": {"type": "integer", "description": "Max results (default 10)"},
-                },
-                "required": ["keyword"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_wiki_page",
-            "description": (
-                "Read an existing wiki page by path or title keyword. "
-                "Use to check what's already documented and avoid content duplication."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Page path or title keyword"},
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "semantic_search",
-            "description": (
-                "Semantic search across code and wiki using natural language. "
-                "Use when keyword search fails and you need conceptual or fuzzy matching."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Natural language query"},
-                    "limit": {"type": "integer", "description": "Max results (default 5)"},
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_files",
-            "description": (
-                "List files in a directory. Use when you need to explore project structure or "
-                "find related config/resource files near a module."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "directory": {
-                        "type": "string",
-                        "description": "Relative directory path from repo root (e.g. 'src/main/java/com/payment')",
-                    },
-                    "max_depth": {
-                        "type": "integer",
-                        "description": "Max directory depth to traverse (default 2, max 3)",
-                    },
-                },
-                "required": ["directory"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "grep_code",
-            "description": (
-                "Search for text patterns in source files. Use when you need to find specific "
-                "string literals, error messages, constants, or usage patterns across the codebase."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "pattern": {
-                        "type": "string",
-                        "description": "Text or regex pattern to search for",
-                    },
-                    "file_pattern": {
-                        "type": "string",
-                        "description": (
-                            "Glob pattern to filter files (e.g. '*.java', '*.py'). "
-                            "Default: all text files."
-                        ),
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Max matching lines to return (default 10, max 20)",
-                    },
-                },
-                "required": ["pattern"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "delegate_submodule",
-            "description": (
-                "Use when the current module is too complex to document in one pass: "
-                "delegate a sub-section to a specialized sub-agent. Returns the "
-                "generated documentation for that sub-section."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "entity_names": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Entity names to delegate",
-                    },
-                    "focus": {
-                        "type": "string",
-                        "description": "Aspect to focus on (e.g. 'data flow', 'error handling')",
-                    },
-                },
-                "required": ["entity_names"],
-            },
-        },
-    },
-]
-
-_TOOL_TIERS: dict[str, int] = {
-    "query_module_detail": 1,
-    "read_code": 1,
-    "query_call_chain": 1,
-    "query_callers": 1,
-    "query_callees": 1,
-    "query_implementations": 2,
-    "query_domain_dependencies": 2,
-    "read_file": 2,
-    "search_entities": 2,
-    "grep_code": 3,
-    "list_files": 3,
-    "semantic_search": 3,
-    "read_wiki_page": 3,
-    "delegate_submodule": 3,
-}
-
-AGENT_TOOLS_T1 = [t for t in AGENT_TOOLS if _TOOL_TIERS.get(t["function"]["name"]) == 1]
-AGENT_TOOLS_T2 = [t for t in AGENT_TOOLS if _TOOL_TIERS.get(t["function"]["name"]) == 2]
-AGENT_TOOLS_T3 = [t for t in AGENT_TOOLS if _TOOL_TIERS.get(t["function"]["name"]) == 3]
-
 _AGENT_SYSTEM = """你是一个代码知识库 Agent。你的任务是通过调用 tools 来补充 Wiki 页面中标记为 CONTEXT_GAP 的缺失信息。
 
 ## 执行步骤
@@ -823,7 +533,6 @@ class WikiPageAgent(GenericAgent):
         max_tool_calls: int = 30,
     ) -> None:
         super().__init__(llm, max_rounds=max_rounds, max_tool_calls=max_tool_calls)
-        self._tool_guardrail = DefaultToolGuardrail()
         self._graph = graph_store
         self._repo_path = repo_path
         self._search_service = search_service
@@ -842,40 +551,11 @@ class WikiPageAgent(GenericAgent):
         self._register_tools()
 
     def _register_tools(self) -> None:
-        """Register all 14 agent tools into ToolRegistry with tier info."""
-        from wiki.agents.base_agent import ToolDef
+        """Register all @function_tool decorated methods into ToolRegistry."""
+        from wiki.agents.tool_decorator import collect_tools
 
-        tool_handlers = {
-            "query_module_detail": self._tool_query_module_detail,
-            "query_callers": self._tool_query_callers,
-            "query_callees": self._tool_query_callees,
-            "query_implementations": self._tool_query_implementations,
-            "query_call_chain": self._tool_query_call_chain,
-            "query_domain_dependencies": self._tool_query_domain_dependencies,
-            "read_code": self._tool_read_code,
-            "read_file": self._tool_read_file,
-            "search_entities": self._tool_search_entities,
-            "read_wiki_page": self._tool_read_wiki_page,
-            "semantic_search": self._tool_semantic_search,
-            "list_files": self._tool_list_files,
-            "grep_code": self._tool_grep_code,
-            "delegate_submodule": self._tool_delegate_submodule,
-        }
-
-        for tool_schema in AGENT_TOOLS:
-            func_info = tool_schema["function"]
-            name = func_info["name"]
-            handler = tool_handlers.get(name)
-            if handler is None:
-                log.warning("tool_handler_missing", tool=name)
-                continue
-            self._tool_registry.register(ToolDef(
-                name=name,
-                description=func_info["description"],
-                parameters=func_info.get("parameters", {}),
-                handler=handler,
-                tier=_TOOL_TIERS.get(name, 1),
-            ))
+        for td in collect_tools(self):
+            self._tool_registry.register(td)
 
     def create_memory(self) -> WorkingMemory:
         return WorkingMemory()
@@ -890,12 +570,7 @@ class WikiPageAgent(GenericAgent):
         return str(memory)
 
     def _get_tools_for_round(self, round_num: int, has_empty_results: bool) -> list[dict]:
-        tools = list(AGENT_TOOLS_T1)
-        if round_num >= 3 or has_empty_results:
-            tools.extend(AGENT_TOOLS_T2)
-        if round_num >= 5 or has_empty_results:
-            tools.extend(AGENT_TOOLS_T3)
-        return tools
+        return self._tool_registry.get_tools_for_round(round_num, has_empty_results)
 
     async def enrich(
         self,
@@ -1359,51 +1034,25 @@ class WikiPageAgent(GenericAgent):
 
     async def _execute_tool(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         log.info("agent_tool_call", tool=tool_name, args_keys=list(args.keys()))
+        data, _ = await self._tool_registry.dispatch(tool_name, args)
+        return data
 
-        validated_args = await self._tool_guardrail.pre_call(tool_name, args)
-        if validated_args is None:
-            return {"error": f"rejected by guardrail: {tool_name} missing required params"}
-
-        try:
-            if tool_name == "read_code":
-                return await self._tool_read_code(validated_args)
-            elif tool_name == "read_file":
-                return await self._tool_read_file(validated_args)
-            elif tool_name == "search_entities":
-                return await self._tool_search_entities(validated_args)
-            elif tool_name == "read_wiki_page":
-                return await self._tool_read_wiki_page(validated_args)
-            elif tool_name == "semantic_search":
-                return await self._tool_semantic_search(validated_args)
-            elif tool_name == "list_files":
-                return await self._tool_list_files(validated_args)
-            elif tool_name == "grep_code":
-                return await self._tool_grep_code(validated_args)
-            elif tool_name == "query_module_detail":
-                return await self._tool_query_module_detail(validated_args)
-            elif tool_name == "query_callers":
-                return await self._tool_query_callers(validated_args)
-            elif tool_name == "query_callees":
-                return await self._tool_query_callees(validated_args)
-            elif tool_name == "query_implementations":
-                return await self._tool_query_implementations(validated_args)
-            elif tool_name == "query_call_chain":
-                return await self._tool_query_call_chain(validated_args)
-            elif tool_name == "query_domain_dependencies":
-                return await self._tool_query_domain_dependencies(validated_args)
-            elif tool_name == "delegate_submodule":
-                return await self._tool_delegate_submodule(validated_args)
-            else:
-                return {"error": f"unknown tool: {tool_name}"}
-        except Exception as e:
-            log.warning("agent_tool_failed", tool=tool_name, error=str(e))
-            return {"error": str(e)}
-
-    async def _tool_delegate_submodule(self, args: dict[str, Any]) -> dict[str, Any]:
+    @function_tool(
+        name="delegate_submodule",
+        tier=3,
+        description=(
+            "Use when the current module is too complex to document in one pass: "
+            "delegate a sub-section to a specialized sub-agent. Returns the "
+            "generated documentation for that sub-section."
+        ),
+    )
+    async def delegate_submodule(
+        self, entity_names: list[str], focus: str = ""
+    ) -> dict[str, Any]:
         from wiki.agents.handoff import HandoffConfig, execute_handoff
 
-        entity_names = args.get("entity_names", [])
-        focus = args.get("focus", "")
+        entity_names = entity_names or []
+        focus = focus or ""
 
         self._deps.delegation_count = getattr(self, "_delegation_count", 0)
         self._deps.delegation_depth = getattr(self, "_delegation_depth", 0)
@@ -1443,13 +1092,20 @@ class WikiPageAgent(GenericAgent):
             "content": result.output,
         }
 
-    async def _tool_read_code(self, args: dict[str, Any]) -> dict[str, Any]:
-        entity_name = str(args.get("entity_name", ""))
+    @function_tool(
+        name="read_code",
+        tier=1,
+        description=(
+            f"Read source code for a function or class by name (up to {SINGLE_RESULT_LIMIT} chars). "
+            "Use when you need to understand implementation details of a specific indexed entity."
+        ),
+    )
+    async def read_code(
+        self, entity_name: str, max_chars: int = SINGLE_RESULT_LIMIT
+    ) -> dict[str, Any]:
+        entity_name = str(entity_name or "")
         try:
-            max_chars = max(
-                0,
-                min(int(args.get("max_chars", SINGLE_RESULT_LIMIT) or SINGLE_RESULT_LIMIT), 10000),
-            )
+            max_chars = max(0, min(int(max_chars or SINGLE_RESULT_LIMIT), 10000))
         except (TypeError, ValueError):
             max_chars = SINGLE_RESULT_LIMIT
         if not entity_name or not self._graph or not hasattr(self._graph, "execute_query"):
@@ -1480,12 +1136,22 @@ class WikiPageAgent(GenericAgent):
 
     _MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
 
-    async def _tool_read_file(self, args: dict[str, Any]) -> dict[str, Any]:
+    @function_tool(
+        name="read_file",
+        tier=2,
+        description=(
+            "Read file content by relative path. Use for config files, non-indexed source, "
+            "or any file not in the code graph (e.g. .yaml, .xml, .properties)."
+        ),
+    )
+    async def read_file(
+        self, file_path: str, start_line: int = 1, end_line: int = 0
+    ) -> dict[str, Any]:
         from pathlib import Path
 
-        file_path = str(args.get("file_path", ""))
-        start_line = max(1, int(args.get("start_line", 1) or 1))
-        end_line = int(args.get("end_line", 0) or 0)
+        file_path = str(file_path or "")
+        start_line = max(1, int(start_line or 1))
+        end_line = int(end_line or 0)
         if not end_line:
             end_line = start_line + 200
         if end_line < start_line:
@@ -1518,9 +1184,17 @@ class WikiPageAgent(GenericAgent):
         except OSError as e:
             return {"error": f"read failed: {e}"}
 
-    async def _tool_search_entities(self, args: dict[str, Any]) -> dict[str, Any]:
-        keyword = str(args.get("keyword", ""))
-        limit = min(int(args.get("limit", 10) or 10), 20)
+    @function_tool(
+        name="search_entities",
+        tier=2,
+        description=(
+            "Search code entities by keyword in names and docstrings. "
+            "Use when you don't know the exact name and need to discover related functions or classes."
+        ),
+    )
+    async def search_entities(self, keyword: str, limit: int = 10) -> dict[str, Any]:
+        keyword = str(keyword or "")
+        limit = min(int(limit or 10), 20)
         if not keyword or not self._graph or not hasattr(self._graph, "execute_query"):
             return {"results": [], "total": 0}
         from wiki.cypher_queries import SEARCH_ENTITY_LABELS, search_entity_cypher
@@ -1546,8 +1220,16 @@ class WikiPageAgent(GenericAgent):
         truncated = len(results) >= limit
         return {"results": results[:limit], "total": len(results), "truncated": truncated}
 
-    async def _tool_read_wiki_page(self, args: dict[str, Any]) -> dict[str, Any]:
-        query = str(args.get("query", ""))
+    @function_tool(
+        name="read_wiki_page",
+        tier=3,
+        description=(
+            "Read an existing wiki page by path or title keyword. "
+            "Use to check what's already documented and avoid content duplication."
+        ),
+    )
+    async def read_wiki_page(self, query: str) -> dict[str, Any]:
+        query = str(query or "")
         if not query:
             return {"title": "", "path": "", "content": ""}
         if self._existing_pages:
@@ -1585,9 +1267,17 @@ class WikiPageAgent(GenericAgent):
         repo = clean_repo_path(self._repo_path.strip())
         return repo or None
 
-    async def _tool_semantic_search(self, args: dict[str, Any]) -> dict[str, Any]:
-        query = str(args.get("query", ""))
-        limit = min(int(args.get("limit", 5) or 5), 10)
+    @function_tool(
+        name="semantic_search",
+        tier=3,
+        description=(
+            "Semantic search across code and wiki using natural language. "
+            "Use when keyword search fails and you need conceptual or fuzzy matching."
+        ),
+    )
+    async def semantic_search(self, query: str, limit: int = 5) -> dict[str, Any]:
+        query = str(query or "")
+        limit = min(int(limit or 5), 10)
         if not query:
             return {"results": []}
         if not self._search_service:
@@ -1617,11 +1307,19 @@ class WikiPageAgent(GenericAgent):
             log.warning("semantic_search_failed", error=str(e))
             return {"error": str(e)}
 
-    async def _tool_list_files(self, args: dict[str, Any]) -> dict[str, Any]:
+    @function_tool(
+        name="list_files",
+        tier=3,
+        description=(
+            "List files in a directory. Use when you need to explore project structure or "
+            "find related config/resource files near a module."
+        ),
+    )
+    async def list_files(self, directory: str, max_depth: int = 2) -> dict[str, Any]:
         from pathlib import Path
 
-        directory = str(args.get("directory", ""))
-        max_depth = min(max(1, int(args.get("max_depth", 2) or 2)), 3)
+        directory = str(directory or "")
+        max_depth = min(max(1, int(max_depth or 2)), 3)
         if not directory or directory.startswith("/"):
             return {"error": "missing or absolute directory path"}
         if not self._repo_path:
@@ -1663,13 +1361,23 @@ class WikiPageAgent(GenericAgent):
             "truncated": len(files) >= _MAX_ENTRIES,
         }
 
-    async def _tool_grep_code(self, args: dict[str, Any]) -> dict[str, Any]:
+    @function_tool(
+        name="grep_code",
+        tier=3,
+        description=(
+            "Search for text patterns in source files. Use when you need to find specific "
+            "string literals, error messages, constants, or usage patterns across the codebase."
+        ),
+    )
+    async def grep_code(
+        self, pattern: str, file_pattern: str = "", max_results: int = 10
+    ) -> dict[str, Any]:
         from pathlib import Path
 
-        pattern_str = str(args.get("pattern", ""))
-        file_pattern = str(args.get("file_pattern", "") or "")
+        pattern_str = str(pattern or "")
+        file_pattern = str(file_pattern or "")
         try:
-            max_results = min(max(1, int(args.get("max_results", 10) or 10)), 20)
+            max_results = min(max(1, int(max_results or 10)), 20)
         except (TypeError, ValueError):
             max_results = 10
 
@@ -1729,8 +1437,16 @@ class WikiPageAgent(GenericAgent):
             "truncated": len(matches) >= max_results,
         }
 
-    async def _tool_query_module_detail(self, args: dict[str, Any]) -> dict[str, Any]:
-        name = str(args.get("name", ""))
+    @function_tool(
+        name="query_module_detail",
+        tier=1,
+        description=(
+            "Query detailed info about a module including methods and annotations. "
+            "Use when you need to understand a module's internal structure."
+        ),
+    )
+    async def query_module_detail(self, name: str) -> dict[str, Any]:
+        name = str(name or "")
         if not name or not self._graph:
             return {"error": "missing name or graph"}
         from wiki.cypher_queries import METHODS_CY
@@ -1747,8 +1463,16 @@ class WikiPageAgent(GenericAgent):
                 })
         return {"name": name, "methods": methods[:20], "summary": ""}
 
-    async def _tool_query_callers(self, args: dict[str, Any]) -> dict[str, Any]:
-        name = str(args.get("name", ""))
+    @function_tool(
+        name="query_callers",
+        tier=1,
+        description=(
+            "Query which modules call the given module. "
+            "Use when you need to understand who depends on a module."
+        ),
+    )
+    async def query_callers(self, name: str) -> dict[str, Any]:
+        name = str(name or "")
         if not name or not self._graph:
             return {"error": "missing name or graph"}
         from wiki.cypher_queries import CALLERS_CY
@@ -1764,8 +1488,16 @@ class WikiPageAgent(GenericAgent):
                 })
         return {"callers": callers[:15]}
 
-    async def _tool_query_callees(self, args: dict[str, Any]) -> dict[str, Any]:
-        name = str(args.get("name", ""))
+    @function_tool(
+        name="query_callees",
+        tier=1,
+        description=(
+            "Query which modules the given module calls. "
+            "Use when you need to understand a module's outgoing dependencies."
+        ),
+    )
+    async def query_callees(self, name: str) -> dict[str, Any]:
+        name = str(name or "")
         if not name or not self._graph:
             return {"error": "missing name or graph"}
         from wiki.cypher_queries import call_chain_cypher
@@ -1782,8 +1514,16 @@ class WikiPageAgent(GenericAgent):
                 })
         return {"callees": callees[:15]}
 
-    async def _tool_query_implementations(self, args: dict[str, Any]) -> dict[str, Any]:
-        interface = str(args.get("interface", ""))
+    @function_tool(
+        name="query_implementations",
+        tier=2,
+        description=(
+            "Query implementations of an interface. "
+            "Use when you need to find concrete classes for an abstract interface."
+        ),
+    )
+    async def query_implementations(self, interface: str) -> dict[str, Any]:
+        interface = str(interface or "")
         if not interface or not self._graph:
             return {"error": "missing interface or graph"}
         from wiki.cypher_queries import IMPLEMENTS_BY_INTERFACE_CY
@@ -1799,8 +1539,16 @@ class WikiPageAgent(GenericAgent):
                 })
         return {"implementations": impls[:10]}
 
-    async def _tool_query_call_chain(self, args: dict[str, Any]) -> dict[str, Any]:
-        module_name = str(args.get("module_name", ""))
+    @function_tool(
+        name="query_call_chain",
+        tier=1,
+        description=(
+            "Query method-level call chain starting from a module. "
+            "Use when you need to trace execution flow across multiple modules."
+        ),
+    )
+    async def query_call_chain(self, module_name: str) -> dict[str, Any]:
+        module_name = str(module_name or "")
         if not module_name or not self._graph:
             return {"error": "missing module_name or graph"}
         from wiki.call_chain_builder import CallChainBuilder
@@ -1818,8 +1566,16 @@ class WikiPageAgent(GenericAgent):
             ]
         }
 
-    async def _tool_query_domain_dependencies(self, args: dict[str, Any]) -> dict[str, Any]:
-        domain_name = str(args.get("domain_name", ""))
+    @function_tool(
+        name="query_domain_dependencies",
+        tier=2,
+        description=(
+            "Query cross-domain call dependencies for a domain. Use when writing domain overviews "
+            "to understand how this domain interacts with other domains."
+        ),
+    )
+    async def query_domain_dependencies(self, domain_name: str) -> dict[str, Any]:
+        domain_name = str(domain_name or "")
         if not domain_name or not self._graph:
             return {"error": "missing domain_name or graph"}
 

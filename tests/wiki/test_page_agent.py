@@ -627,9 +627,11 @@ class TestWikiPageAgent:
         assert "unavailable" in result["error"]
 
     def test_agent_tools_contains_new_tools(self):
-        from wiki.page_agent import AGENT_TOOLS
+        from wiki.page_agent import WikiPageAgent
 
-        tool_names = {t["function"]["name"] for t in AGENT_TOOLS}
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+        schemas = agent._tool_registry.get_all_tool_schemas()
+        tool_names = {t["function"]["name"] for t in schemas}
         assert "read_code" in tool_names
         assert "read_file" in tool_names
         assert "search_entities" in tool_names
@@ -1008,60 +1010,71 @@ class TestWritePrompt:
 
 class TestToolTiering:
     def test_tool_tiers_cover_all_tools(self):
-        """T1 + T2 + T3 should contain all AGENT_TOOLS."""
-        from wiki.page_agent import AGENT_TOOLS, AGENT_TOOLS_T1, AGENT_TOOLS_T2, AGENT_TOOLS_T3
+        """All registered tools should have tier 1, 2, or 3."""
+        from wiki.page_agent import WikiPageAgent
 
-        all_tiered_names = {t["function"]["name"] for t in AGENT_TOOLS_T1 + AGENT_TOOLS_T2 + AGENT_TOOLS_T3}
-        all_names = {t["function"]["name"] for t in AGENT_TOOLS}
-        assert all_tiered_names == all_names
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+        all_schemas = agent._tool_registry.get_all_tool_schemas()
+        t1 = agent._get_tools_for_round(1, has_empty_results=False)
+        t2_extra = agent._get_tools_for_round(3, has_empty_results=False)
+        all_tools = agent._get_tools_for_round(5, has_empty_results=False)
+        tiered_names = {t["function"]["name"] for t in all_tools}
+        all_names = {t["function"]["name"] for t in all_schemas}
+        assert tiered_names == all_names
 
     def test_t1_contains_core_tools(self):
-        from wiki.page_agent import AGENT_TOOLS_T1
+        from wiki.page_agent import WikiPageAgent
 
-        t1_names = {t["function"]["name"] for t in AGENT_TOOLS_T1}
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+        t1 = agent._get_tools_for_round(1, has_empty_results=False)
+        t1_names = {t["function"]["name"] for t in t1}
         assert "query_module_detail" in t1_names
         assert "read_code" in t1_names
         assert "query_call_chain" in t1_names
 
     def test_t3_contains_supplementary_tools(self):
-        from wiki.page_agent import AGENT_TOOLS_T3
+        from wiki.page_agent import WikiPageAgent
 
-        t3_names = {t["function"]["name"] for t in AGENT_TOOLS_T3}
+        agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
+        all_tools = agent._get_tools_for_round(5, has_empty_results=False)
+        t1 = agent._get_tools_for_round(1, has_empty_results=False)
+        t1_t2 = agent._get_tools_for_round(3, has_empty_results=False)
+        t3_names = {t["function"]["name"] for t in all_tools} - {t["function"]["name"] for t in t1_t2}
         assert "grep_code" in t3_names
         assert "list_files" in t3_names
         assert "delegate_submodule" in t3_names
 
     def test_get_tools_round_1_returns_t1_only(self):
-        from wiki.page_agent import AGENT_TOOLS_T1, WikiPageAgent
+        from wiki.page_agent import WikiPageAgent
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
         tools = agent._get_tools_for_round(1, has_empty_results=False)
-        assert len(tools) == len(AGENT_TOOLS_T1)
+        assert len(tools) == 5  # 5 tier-1 tools
 
     def test_get_tools_round_3_returns_t1_t2(self):
-        from wiki.page_agent import AGENT_TOOLS_T1, AGENT_TOOLS_T2, WikiPageAgent
+        from wiki.page_agent import WikiPageAgent
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
         tools = agent._get_tools_for_round(3, has_empty_results=False)
-        assert len(tools) == len(AGENT_TOOLS_T1) + len(AGENT_TOOLS_T2)
+        assert len(tools) == 9  # 5 tier-1 + 4 tier-2
 
     def test_get_tools_round_5_returns_all(self):
-        from wiki.page_agent import AGENT_TOOLS, WikiPageAgent
+        from wiki.page_agent import WikiPageAgent
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
         tools = agent._get_tools_for_round(5, has_empty_results=False)
-        assert len(tools) == len(AGENT_TOOLS)
+        assert len(tools) == 14  # all 14 tools
 
     def test_get_tools_empty_results_unlocks_all(self):
-        from wiki.page_agent import AGENT_TOOLS, WikiPageAgent
+        from wiki.page_agent import WikiPageAgent
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
         tools = agent._get_tools_for_round(1, has_empty_results=True)
-        assert len(tools) == len(AGENT_TOOLS)
+        assert len(tools) == 14  # all 14 tools
 
     def test_get_tools_empty_results_with_prefilled_memory(self):
         """Pre-filled memory should NOT prevent empty-results tool unlock."""
-        from wiki.page_agent import AGENT_TOOLS, WikiPageAgent, WorkingMemory
+        from wiki.page_agent import WikiPageAgent, WorkingMemory
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
 
@@ -1072,7 +1085,7 @@ class TestToolTiering:
 
         has_empty = True and memory._tool_contributed_chars == 0
         tools = agent._get_tools_for_round(1, has_empty)
-        assert len(tools) == len(AGENT_TOOLS)
+        assert len(tools) == 14  # all 14 tools
 
 
 class TestExploreGuardrails:

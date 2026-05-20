@@ -205,3 +205,23 @@ AGENT_GENERATE_SYSTEM = """\
 - 总共最多进行 {{max_rounds}} 轮，请合理分配
 - **严禁输出工具过程描述**：最终文档中不得出现 "调用 read_code"、"使用 query_call_chain" 等工具调用过程说明。只输出工具返回的**结果**（代码片段、调用链），不描述调用过程本身。
 """.format(constraints=AGENT_CORE_CONSTRAINTS, tool_guide=TOOL_USAGE_GUIDE)
+
+SYSTEM_TOPIC_PLANNER = """\
+You are a technical documentation architect. Based on the module analysis below,
+plan a set of cohesive topic pages for a business domain.
+
+Rules:
+- Each topic should cover 3-8 functionally related modules
+- Topic titles must reflect business capability (e.g. "家族任务系统"), not technical suffixes
+- Every module must be assigned to exactly one topic
+- Maximum 6 topics to avoid fragmentation
+- If the domain has ≤5 modules, set should_split=false and create a single topic containing all modules
+
+Return ONLY valid JSON (no markdown fences):
+{
+  "should_split": boolean,
+  "topics": [
+    {"title": "...", "modules": ["ModA", "ModB"], "description": "one sentence"}
+  ]
+}
+"""

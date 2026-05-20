@@ -9,6 +9,7 @@ import asyncio
 import os
 import re
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -25,6 +26,49 @@ from wiki.quality_report import evaluate_quality
 from wiki.quality_trace import AgentTrace, TraceCollector
 
 log = get_logger(__name__)
+
+
+@dataclass
+class TopicPlan:
+    title: str
+    modules: list[str]
+    description: str = ""
+
+
+@dataclass
+class DomainTopicOutline:
+    should_split: bool
+    topics: list[TopicPlan]
+
+
+def _parse_topic_outline(raw: str) -> DomainTopicOutline | None:
+    """Parse LLM output into a DomainTopicOutline. Returns None on failure."""
+    from wiki.json_robust import parse_json_robust_sync
+
+    parsed = parse_json_robust_sync(raw)
+    if not isinstance(parsed, dict):
+        return None
+    should_split = parsed.get("should_split")
+    topics_raw = parsed.get("topics")
+    if should_split is None or not isinstance(topics_raw, list):
+        return None
+    topics = []
+    for t in topics_raw:
+        if not isinstance(t, dict):
+            continue
+        title = t.get("title", "")
+        modules = t.get("modules", [])
+        if not title or not isinstance(modules, list):
+            continue
+        topics.append(TopicPlan(
+            title=str(title),
+            modules=[str(m) for m in modules],
+            description=str(t.get("description", "")),
+        ))
+    if not topics:
+        return None
+    return DomainTopicOutline(should_split=bool(should_split), topics=topics)
+
 
 MAX_PAGE_TOKENS = 5000
 
@@ -277,6 +321,65 @@ class DomainDocAgent(DocOrchestrator):
     async def _pre_fill_snippets(self, memory: WorkingMemory, module_names: list[str]) -> None:
         """Backward compat: delegates to pre_fill hook."""
         await self.pre_fill(memory, module_names)
+
+    async def _plan_topics(
+        self,
+        module_names: list[str],
+        memory: WorkingMemory,
+    ) -> DomainTopicOutline:
+        """Plan topic structure via single LLM call after explore phase."""
+        if len(module_names) <= 5:
+            return DomainTopicOutline(
+                should_split=False,
+                topics=[TopicPlan(
+                    title=self.domain_display_name,
+                    modules=list(module_names),
+                    description=f"{self.domain_display_name} overview",
+                )],
+            )
+
+        from wiki.agent_prompts import SYSTEM_TOPIC_PLANNER
+
+        module_list = "\n".join(f"- {m}" for m in module_names)
+        call_info = "\n".join(memory.discovered_call_chains[:20]) if memory.discovered_call_chains else "No call chain data available."
+
+        user_prompt = (
+            f"## Domain: {self.domain_display_name}\n\n"
+            f"## Module List ({len(module_names)} modules)\n{module_list}\n\n"
+            f"## Key Call Relationships\n{call_info}\n"
+        )
+        messages = [
+            {"role": "system", "content": SYSTEM_TOPIC_PLANNER},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        try:
+            llm = self._page_agent._llm
+            if hasattr(llm, "complete_json"):
+                result = await llm.complete_json(messages, {}, max_tokens=2000)
+                if isinstance(result, dict):
+                    import json
+                    raw = json.dumps(result, ensure_ascii=False)
+                else:
+                    raw = str(result)
+            else:
+                raw = await llm.generate(user_prompt, system=SYSTEM_TOPIC_PLANNER, max_tokens=2000)
+                raw = str(raw)
+            outline = _parse_topic_outline(raw)
+            if outline:
+                log.info("plan_topics_success", domain=self.domain_name, topics=len(outline.topics))
+                return outline
+        except Exception:
+            log.warning("plan_topics_failed", domain=self.domain_name, exc_info=True)
+
+        return DomainTopicOutline(
+            should_split=False,
+            topics=[TopicPlan(
+                title=self.domain_display_name,
+                modules=list(module_names),
+                description=f"{self.domain_display_name} overview",
+            )],
+        )
 
     async def generate_with_iterations(
         self,

@@ -210,6 +210,7 @@ class WorkingMemory:
     discovered_entity_uids: set[str] = field(default_factory=set)
     _tool_contributed_chars: int = 0
     relevant_modules: set[str] = field(default_factory=set)
+    topic_outline: Any | None = None
 
     MAX_TOTAL_CHARS = 200_000
 

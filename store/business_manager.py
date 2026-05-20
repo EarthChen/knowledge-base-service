@@ -120,6 +120,14 @@ class BusinessManager:
         log.info("business_repos_updated", business_id=business_id, count=len(repos))
         return sorted(repos)
 
+    def remove_repo(self, business_id: str, repository: str) -> bool:
+        """Remove a single repository from a business's bound repo set."""
+        key = f"{_REDIS_PREFIX}:repos:{business_id}"
+        removed = self._conn.srem(key, repository)
+        if removed:
+            log.info("business_repo_removed", business_id=business_id, repository=repository)
+        return bool(removed)
+
     def ensure_default(self) -> None:
         """Ensure the 'default' business exists."""
         if not self._conn.exists(_meta_key("default")):

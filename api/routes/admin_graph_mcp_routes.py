@@ -42,10 +42,17 @@ public_router = kb_routers.public_router
 async def delete_repository_index(
     repository: str,
     svc: KnowledgeBaseService = Depends(get_service),
+    business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
-    """Delete all indexed data for a specific repository."""
+    """Delete all indexed data for a specific repository and unbind from business."""
     queries = GraphQueryRepository(svc.store)
     deleted = await queries.delete_repository(repository)
+
+    if kb_state.registry is not None:
+        bm = kb_state.registry.business_manager
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, bm.remove_repo, business_id, repository)
+
     return {"repository": repository, "deleted_nodes": deleted}
 
 

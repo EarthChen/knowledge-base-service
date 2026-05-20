@@ -757,48 +757,6 @@ class HybridQueryService:
         out["end_line"] = end_i
         return out
 
-    @staticmethod
-    def _fuse_results_legacy(
-        keyword_hits: list[dict[str, Any]],
-        semantic_matches: list[dict[str, Any]],
-        k: int,
-    ) -> list[dict[str, Any]]:
-        """Deprecated: merge keyword and semantic results by score sort (pre-RRF).
-
-        Kept for backward compatibility; prefer :meth:`_fuse_results_rrf`.
-        """
-        merged: list[dict[str, Any]] = []
-        seen: set[str] = set()
-
-        for hit in keyword_hits:
-            key = HybridQueryService._doc_key(hit)
-            if key not in seen:
-                seen.add(key)
-                merged.append({
-                    "type": hit.get("type", ""),
-                    "name": hit.get("name", ""),
-                    "file": hit.get("file", ""),
-                    "line": hit.get("line", 0),
-                    "score": hit.get("score", 1.0),
-                    "signature": hit.get("signature", ""),
-                    "docstring": hit.get("docstring", ""),
-                    "match_source": "keyword",
-                })
-
-        for m in semantic_matches:
-            key = HybridQueryService._doc_key(m)
-            if key not in seen:
-                seen.add(key)
-                entry = dict(m)
-                entry["match_source"] = "semantic"
-                merged.append(entry)
-
-        merged.sort(key=lambda x: x.get("score", 0), reverse=True)
-        return merged[:k]
-
-    # Deprecated name; use :meth:`_fuse_results_rrf` for hybrid search.
-    _fuse_results = _fuse_results_legacy
-
     async def _fuse_expansion_results(
         self,
         query_text: str,

@@ -78,6 +78,12 @@ export function useWikiEditSession(pageUid: string) {
     stateRef.current = state;
   }, [state]);
 
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
   const startStreaming = useCallback(
     async (sessionIdForStream: string) => {
       abortRef.current?.abort();

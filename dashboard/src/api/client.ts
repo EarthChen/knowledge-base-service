@@ -59,9 +59,11 @@ function messageFromFailedResponse(
   return res.statusText || "";
 }
 
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 export async function api<T = unknown>(
   path: string,
-  options: RequestInit = {},
+  options: RequestInit & { timeoutMs?: number } = {},
 ): Promise<T> {
   let url: string;
   if (path.startsWith("http")) {
@@ -73,10 +75,29 @@ export async function api<T = unknown>(
   } else {
     url = API_BASE + path;
   }
-  const res = await fetch(url, {
-    ...options,
-    headers: { ...authHeaders(), ...(options.headers as Record<string, string>) },
-  });
+  const { timeoutMs, ...fetchOpts } = options;
+  const controller = new AbortController();
+  const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(), timeout);
+  const existingSignal = fetchOpts.signal;
+  if (existingSignal) {
+    existingSignal.addEventListener("abort", () => controller.abort());
+  }
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...fetchOpts,
+      signal: controller.signal,
+      headers: { ...authHeaders(), ...(fetchOpts.headers as Record<string, string>) },
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new ApiError(`Request timed out after ${timeout}ms`, 0, null);
+    }
+    throw e;
+  }
+  clearTimeout(timer);
   const text = await res.text();
   let data: unknown;
   try {

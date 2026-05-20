@@ -110,6 +110,8 @@ type Props = {
   repository: string | undefined;
   /** Optional wiki page body/title sent with the ask request (not shown in saved history). */
   pageContext?: string;
+  /** When set, prefills the input textarea (controlled via parent state). */
+  prefillQuestion?: string;
 };
 
 /** Relative “time ago” clock that avoids impure Date calls during parent render. */
@@ -221,13 +223,20 @@ function RagTimeline({ stages }: { stages: Record<string, unknown>[] }) {
   );
 }
 
-export default function AskPanel({ repository, pageContext }: Props) {
+export default function AskPanel({ repository, pageContext, prefillQuestion }: Props) {
   const { t } = useI18n();
   const { toast } = useToast();
   const [open, setOpen] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [input, setInput] = useState("");
   const [lastUserQuestion, setLastUserQuestion] = useState("");
+
+  useEffect(() => {
+    if (prefillQuestion) {
+      setInput(prefillQuestion);
+      setOpen(true);
+    }
+  }, [prefillQuestion]);
   const [crystallizeBusy, setCrystallizeBusy] = useState(false);
   const [crystallizeLink, setCrystallizeLink] = useState<{ path: string; title: string } | null>(null);
   const {

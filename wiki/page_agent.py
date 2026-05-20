@@ -1379,6 +1379,9 @@ class WikiPageAgent(GenericAgent):
         matches: list[dict[str, Any]] = []
         glob_pattern = file_pattern if file_pattern else "*"
 
+        if ".." in glob_pattern or glob_pattern.startswith("/"):
+            return {"error": "Invalid file_pattern: must not contain '..' or start with '/'"}
+
         files_scanned = 0
         for file_path in repo_root.rglob(glob_pattern):
             if len(matches) >= max_results:

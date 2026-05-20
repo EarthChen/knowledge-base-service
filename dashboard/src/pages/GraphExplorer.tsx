@@ -209,7 +209,7 @@ function buildFlowEdges(
   return apiEdges
     .filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
     .map((e, i) => ({
-      id: `e-${i}-${e.source}-${e.target}`,
+      id: `e-${e.source}-${e.type || "rel"}-${e.target}`,
       source: e.source,
       target: e.target,
       label: showLabels ? e.type : undefined,

@@ -164,6 +164,7 @@ export default function WikiShell() {
   const { isAdmin, isEditor } = useAuth();
   const [clearWikiConfirmOpen, setClearWikiConfirmOpen] = useState(false);
   const [clearWikiConfirmInput, setClearWikiConfirmInput] = useState("");
+  const [askPrefill, setAskPrefill] = useState<string | undefined>(undefined);
   const clearWikiMutation = useMutation({
     mutationFn: () =>
       api<{ business_id: string; deleted_nodes: number }>(
@@ -546,17 +547,11 @@ export default function WikiShell() {
             contentError={contentError}
             wikiLinkParams={wikiLinkParams}
             onAskQuestion={(q) => {
-              const el = document.getElementById("wiki-ask-panel");
-              if (el) {
-                el.scrollIntoView({ behavior: "smooth", block: "start" });
-                const input = el.querySelector<HTMLTextAreaElement>("textarea");
-                if (input) {
-                  input.value = q;
-                  input.dispatchEvent(new Event("input", { bubbles: true }));
-                  input.focus();
-                }
-              }
+              setAskPrefill(q);
+              document.getElementById("wiki-ask-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
             }}
+            askPrefill={askPrefill}
+            onAskPrefillConsumed={() => setAskPrefill(undefined)}
           />
         </div>
 

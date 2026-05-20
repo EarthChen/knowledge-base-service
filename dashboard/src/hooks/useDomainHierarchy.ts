@@ -1,5 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
+import { useToast } from "../components/Toast";
+import { getErrorMessage } from "../utils/errorUtils";
 import { invalidateWikiQueriesForBusiness } from "./invalidateWikiQueries";
 
 const BASE = "/wiki/domains/hierarchy";
@@ -8,16 +10,17 @@ function bq(businessId: string) {
   return `business_id=${encodeURIComponent(businessId)}`;
 }
 
-function logDomainOperationError(err: unknown) {
-  console.error("domain operation failed:", err);
-}
-
 export function useDomainHierarchy(businessId: string) {
   const qc = useQueryClient();
+  const { toast } = useToast();
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["domains", businessId] });
     void invalidateWikiQueriesForBusiness(qc, businessId);
+  };
+
+  const onError = (err: unknown) => {
+    toast({ title: "Domain operation failed", description: getErrorMessage(err), variant: "destructive" });
   };
 
   const rename = useMutation({
@@ -35,7 +38,7 @@ export function useDomainHierarchy(businessId: string) {
         body: JSON.stringify({ title, description }),
       }),
     onSuccess: invalidate,
-    onError: logDomainOperationError,
+    onError,
   });
 
   const remove = useMutation({
@@ -51,7 +54,7 @@ export function useDomainHierarchy(businessId: string) {
         { method: "DELETE" },
       ),
     onSuccess: invalidate,
-    onError: logDomainOperationError,
+    onError,
   });
 
   const create = useMutation({
@@ -72,7 +75,7 @@ export function useDomainHierarchy(businessId: string) {
         },
       ),
     onSuccess: invalidate,
-    onError: logDomainOperationError,
+    onError,
   });
 
   const move = useMutation({
@@ -88,7 +91,7 @@ export function useDomainHierarchy(businessId: string) {
         body: JSON.stringify({ uid, target_parent_uid: targetParentUid }),
       }),
     onSuccess: invalidate,
-    onError: logDomainOperationError,
+    onError,
   });
 
   const merge = useMutation({
@@ -107,7 +110,7 @@ export function useDomainHierarchy(businessId: string) {
         }),
       }),
     onSuccess: invalidate,
-    onError: logDomainOperationError,
+    onError,
   });
 
   const moveModule = useMutation({
@@ -126,7 +129,7 @@ export function useDomainHierarchy(businessId: string) {
         }),
       }),
     onSuccess: invalidate,
-    onError: logDomainOperationError,
+    onError,
   });
 
   return { rename, remove, create, move, merge, moveModule };

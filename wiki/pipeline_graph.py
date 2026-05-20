@@ -241,10 +241,11 @@ async def quality_gate_node(
                     score_dict["l3_llm_judge"] = round((avg_1_5 - 1.0) / 4.0, 4)
                     score_dict["l3_dimensions"] = l3_result.dimensions
 
+        _SCORE_KEYS = {"l1_structural", "l2_bench", "l3_llm_judge"}
         numeric_scores = [
             v
-            for v in score_dict.values()
-            if isinstance(v, (int, float)) and v is not None
+            for k, v in score_dict.items()
+            if k in _SCORE_KEYS and isinstance(v, (int, float)) and v is not None
         ]
         score_dict["overall"] = (
             round(sum(numeric_scores) / len(numeric_scores), 4) if numeric_scores else 0.0

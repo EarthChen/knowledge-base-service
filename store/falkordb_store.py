@@ -152,9 +152,15 @@ class FalkorDBStore(FalkorDBSearchMixin, FalkorDBWikiMixin, FalkorDBReadsMixin):
 
         log.info("falkordb_schema_ensured")
 
+    _VALID_PROP_KEY_RE = __import__("re").compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
     async def upsert_node(self, node: GraphNode) -> None:
         loop = asyncio.get_running_loop()
-        props = {k: v for k, v in node.properties.items() if k != "embedding"}
+        props = {
+            k: v
+            for k, v in node.properties.items()
+            if k != "embedding" and self._VALID_PROP_KEY_RE.match(k)
+        }
         props["uid"] = node.uid
 
         set_clauses = ", ".join(f"n.{k} = ${k}" for k in props)

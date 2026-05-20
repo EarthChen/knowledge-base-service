@@ -688,8 +688,6 @@ class WikiService:
                 await self._persist_pages_to_graph(
                     repository, regenerated_pages, language=language,
                 )
-
-            if updated_uids:
                 await self._update_wiki_code_hashes(repository, updated_uids)
                 current_version = last_version + 1
                 await wiki_meta.set_wiki_generation_version(repository, current_version)

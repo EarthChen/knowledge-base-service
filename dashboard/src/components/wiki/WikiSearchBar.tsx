@@ -36,11 +36,12 @@ export default function WikiSearchBar({ linkParams, repository }: Props) {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if ((isMac ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
+        e.stopImmediatePropagation();
         setOpen((o) => !o);
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, []);
 
   useEffect(() => {

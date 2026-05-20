@@ -56,6 +56,8 @@ type Props = {
   contentError: Error | null;
   wikiLinkParams: Record<string, string>;
   onAskQuestion?: (question: string) => void;
+  askPrefill?: string;
+  onAskPrefillConsumed?: () => void;
 };
 
 function mapTopicTreeToDomainPanelNodes(nodes: TopicTreeNode[]): {
@@ -105,6 +107,8 @@ export default function WikiToolPanel({
   contentError,
   wikiLinkParams,
   onAskQuestion,
+  askPrefill,
+  onAskPrefillConsumed,
 }: Props) {
   const { t } = useI18n();
   const panelBoundary = (children: ReactNode) => (
@@ -272,6 +276,8 @@ export default function WikiToolPanel({
                 onContentApplied={() => {
                   void pageQuery.refetch();
                 }}
+                askPrefill={askPrefill}
+                onAskPrefillConsumed={onAskPrefillConsumed}
               />
             </>,
           )}

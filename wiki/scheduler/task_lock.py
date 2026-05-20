@@ -27,15 +27,17 @@ class TaskLock:
             return self._locks[repository]
 
     async def acquire(self, repository: str) -> bool:
-        """Try to acquire lock for repository. Returns False if already locked."""
+        """Try to acquire lock for repository. Returns False if already locked.
+
+        In asyncio's cooperative model, ``locked()`` followed by ``acquire()``
+        without an intermediate ``await`` is race-free because no other coroutine
+        can preempt between the two calls.  The ``await`` inside ``acquire()``
+        returns immediately when the lock is free.
+        """
         lock = self._get_async_lock(repository)
         if lock.locked():
             return False
-        try:
-            # Non-blocking try: asyncio.Lock has no try_acquire; use a tiny window.
-            await asyncio.wait_for(lock.acquire(), timeout=0.001)
-        except TimeoutError:
-            return False
+        await lock.acquire()
         self._schedule_timeout_release(repository)
         return True
 

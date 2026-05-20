@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "../../i18n/context";
 import AskPanel from "./AskPanel";
 import WikiEditPanel from "./WikiEditPanel";
@@ -12,6 +12,8 @@ interface Props {
   repository: string;
   pageContext?: string;
   onContentApplied?: (newContent: string) => void;
+  askPrefill?: string;
+  onAskPrefillConsumed?: () => void;
 }
 
 export default function WikiAssistantPanel({
@@ -21,10 +23,19 @@ export default function WikiAssistantPanel({
   repository,
   pageContext,
   onContentApplied,
+  askPrefill,
+  onAskPrefillConsumed,
 }: Props) {
   const { t } = useI18n();
   const ep = t.wiki.edit_panel;
   const [tab, setTab] = useState<AssistantTab>("ask");
+
+  useEffect(() => {
+    if (askPrefill) {
+      setTab("ask");
+      onAskPrefillConsumed?.();
+    }
+  }, [askPrefill, onAskPrefillConsumed]);
 
   return (
     <div className="space-y-3">
@@ -58,7 +69,7 @@ export default function WikiAssistantPanel({
       </div>
 
       {tab === "ask" ? (
-        <AskPanel repository={repository} pageContext={pageContext} />
+        <AskPanel repository={repository} pageContext={pageContext} prefillQuestion={askPrefill} />
       ) : (
         <WikiEditPanel
           pageUid={pageUid}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -41,6 +42,10 @@ class LoopConfig:
     max_tool_calls: int = 30
     max_history_messages: int = 30
     nudge_message: str = "Please use the available tools to gather information."
+
+    # Timeouts (seconds); None = no timeout
+    llm_call_timeout: float | None = 120.0
+    tool_call_timeout: float | None = 60.0
 
     # Early stop
     enable_early_stop: bool = False
@@ -161,7 +166,15 @@ async def run_agent_loop(
                 break
 
             try:
-                response = await agent._llm.complete_with_tools(messages, round_tools)
+                coro = agent._llm.complete_with_tools(messages, round_tools)
+                if config.llm_call_timeout:
+                    response = await asyncio.wait_for(coro, timeout=config.llm_call_timeout)
+                else:
+                    response = await coro
+            except asyncio.TimeoutError:
+                log.warning("run_agent_loop_llm_timeout", round=round_num, timeout=config.llm_call_timeout)
+                result.exit_reason = "llm_timeout"
+                break
             except Exception:
                 log.warning("run_agent_loop_llm_failed", round=round_num, exc_info=True)
                 result.exit_reason = "llm_error"
@@ -240,9 +253,20 @@ async def run_agent_loop(
                 if tracer:
                     tool_span = tracer.start_span(tool_name, kind="tool_call")
 
-                tool_result, result_str = await agent._tool_registry.dispatch(
-                    tool_name, args, post_call=config.enable_post_call_guardrail, ctx=effective_ctx
-                )
+                try:
+                    dispatch_coro = agent._tool_registry.dispatch(
+                        tool_name, args, post_call=config.enable_post_call_guardrail, ctx=effective_ctx
+                    )
+                    if config.tool_call_timeout:
+                        tool_result, result_str = await asyncio.wait_for(
+                            dispatch_coro, timeout=config.tool_call_timeout
+                        )
+                    else:
+                        tool_result, result_str = await dispatch_coro
+                except asyncio.TimeoutError:
+                    log.warning("tool_call_timeout", tool=tool_name, timeout=config.tool_call_timeout)
+                    tool_result = {"error": f"Tool {tool_name} timed out after {config.tool_call_timeout}s"}
+                    result_str = json.dumps(tool_result, ensure_ascii=False)
 
                 if tool_span and tracer:
                     status = "error" if "error" in tool_result else "completed"

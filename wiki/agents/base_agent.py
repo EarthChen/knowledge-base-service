@@ -215,7 +215,13 @@ class GenericAgent(ABC):
                 if result.tripwire:
                     raise GuardrailTrippedError(
                         result.output_info,
-                        guardrail_name=getattr(guard, "__class__", type(guard)).__name__,
+                        guardrail_name=type(guard).__name__,
+                    )
+                if not result.passed:
+                    log.warning(
+                        "input_guardrail_soft_fail",
+                        guardrail=type(guard).__name__,
+                        info=result.output_info,
                     )
 
         if not self._tool_registry.has_tools():
@@ -223,6 +229,11 @@ class GenericAgent(ABC):
 
         from wiki.early_stop import EarlyStopDetector
         from wiki.context_manager import ContextManager
+
+        tracer = config.tracer
+        root_span = None
+        if tracer:
+            root_span = tracer.start_span("run_tool_loop", kind="agent_run")
 
         early_stop = EarlyStopDetector(max_empty_rounds=config.early_stop_max_empty) if config.enable_early_stop else None
         ctx_mgr = ContextManager(
@@ -287,9 +298,17 @@ class GenericAgent(ABC):
                 if config.event_callback:
                     await config.event_callback(ToolCallEvent(tool=tool_name, args=args))
 
+                tool_span = None
+                if tracer:
+                    tool_span = tracer.start_span(tool_name, kind="tool_call")
+
                 result, result_str = await self._tool_registry.dispatch(
                     tool_name, args, post_call=config.enable_post_call_guardrail, ctx=effective_ctx
                 )
+
+                if tool_span and tracer:
+                    status = "error" if "error" in result else "completed"
+                    tracer.end_span(tool_span, status=status)
 
                 if config.event_callback:
                     summary = self._summarize_tool_result(result)
@@ -325,6 +344,9 @@ class GenericAgent(ABC):
                     {"role": "user", "content": user_prompt},
                 ]
 
+        if root_span and tracer:
+            tracer.end_span(root_span)
+
         # --- Output guardrails: run after the loop completes ---
         if config.output_guardrails and final_output:
             from wiki.agents.guardrails import GuardrailTrippedError
@@ -334,7 +356,13 @@ class GenericAgent(ABC):
                 if result.tripwire:
                     raise GuardrailTrippedError(
                         result.output_info,
-                        guardrail_name=getattr(guard, "__class__", type(guard)).__name__,
+                        guardrail_name=type(guard).__name__,
+                    )
+                if not result.passed:
+                    log.warning(
+                        "output_guardrail_soft_fail",
+                        guardrail=type(guard).__name__,
+                        info=result.output_info,
                     )
 
         return memory
@@ -343,6 +371,9 @@ class GenericAgent(ABC):
         self,
         system_prompt: str,
         user_prompt: str,
+        *,
+        config: RunConfig | None = None,
+        ctx: Any = None,
     ) -> str:
         """Single-pass text generation without tools. Uses output_type if set."""
         if self.output_type is not None:
@@ -354,11 +385,40 @@ class GenericAgent(ABC):
                 result = await self._llm.complete_json(
                     messages, schema=self.output_type.model_json_schema()
                 )
-                return self._render_output(result)
+                output = self._render_output(result)
             except Exception:
                 log.warning("structured_output_failed_fallback_to_text", exc_info=True)
+                output = None
+            if output is not None:
+                await self._run_output_guardrails(output, config, ctx)
+                return output
         try:
-            return await self._llm.generate(prompt=user_prompt, system=system_prompt)
+            text = await self._llm.generate(prompt=user_prompt, system=system_prompt)
         except Exception:
             log.warning("run_generation_failed", exc_info=True)
             return ""
+        if text:
+            await self._run_output_guardrails(text, config, ctx)
+        return text
+
+    async def _run_output_guardrails(
+        self, output: str, config: RunConfig | None, ctx: Any
+    ) -> None:
+        """Run output guardrails if configured. Raises GuardrailTrippedError on tripwire."""
+        if not config or not config.output_guardrails:
+            return
+        effective_ctx = ctx if ctx is not None else config.ctx
+        from wiki.agents.guardrails import GuardrailTrippedError
+
+        for guard in config.output_guardrails:
+            result = await guard.check(output, effective_ctx)
+            if result.tripwire:
+                raise GuardrailTrippedError(
+                    result.output_info, guardrail_name=type(guard).__name__
+                )
+            if not result.passed:
+                log.warning(
+                    "output_guardrail_soft_fail",
+                    guardrail=type(guard).__name__,
+                    info=result.output_info,
+                )

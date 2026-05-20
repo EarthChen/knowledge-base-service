@@ -242,3 +242,78 @@ class TestRunToolLoopOutputGuardrails:
 
         with pytest.raises(GuardrailTrippedError):
             await agent.run_tool_loop("sys", "usr", Memory(), config=config, ctx=ctx)
+
+
+class TestRunGenerationOutputGuardrails:
+    @pytest.mark.asyncio
+    async def test_run_generation_triggers_output_guardrails(self):
+        """run_generation should run output guardrails on produced text."""
+        from wiki.agents.base_agent import RunConfig
+        from wiki.agents.guardrails import GuardrailResult, GuardrailTrippedError
+
+        class BlockBadOutput:
+            async def check(self, output, ctx):
+                if "secret" in output:
+                    return GuardrailResult(passed=False, tripwire=True, output_info="leak")
+                return GuardrailResult(passed=True)
+
+        from tests.wiki.agents.test_base_agent import ConcreteAgent
+
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(return_value="this has a secret in it")
+
+        agent = ConcreteAgent(mock_llm)
+        config = RunConfig(output_guardrails=[BlockBadOutput()])
+
+        with pytest.raises(GuardrailTrippedError):
+            await agent.run_generation("sys", "usr", config=config)
+
+
+class TestRunToolLoopTracing:
+    @pytest.mark.asyncio
+    async def test_tracer_creates_spans_for_tool_calls(self):
+        """When tracer is set, spans are created for agent_run and tool_call."""
+        from wiki.agents.base_agent import RunConfig, ToolDef
+        from wiki.agents.tracing import AgentTracer, Span
+
+        received_spans: list[Span] = []
+
+        class CollectingProcessor:
+            def on_span_end(self, span):
+                received_spans.append(span)
+
+        tracer = AgentTracer(group_id="test", processors=[CollectingProcessor()])
+
+        mock_llm = MagicMock()
+        mock_llm.complete_with_tools = AsyncMock(side_effect=[
+            {
+                "tool_calls": [{
+                    "id": "tc1",
+                    "function": {"name": "my_tool", "arguments": '{"x": 1}'},
+                }],
+                "content": None,
+            },
+            {"tool_calls": None, "content": "done"},
+        ])
+
+        from tests.wiki.agents.test_base_agent import ConcreteAgent
+
+        agent = ConcreteAgent(mock_llm, max_rounds=5, max_tool_calls=10)
+        agent._tool_registry.register(
+            ToolDef("my_tool", "d", {}, AsyncMock(return_value={"ok": True}), tier=1)
+        )
+
+        config = RunConfig(tracer=tracer)
+        ctx = RunContext(deps=WikiDeps(graph_store=MagicMock()))
+
+        from wiki.agents.memory import Memory
+
+        await agent.run_tool_loop("sys", "usr", Memory(), config=config, ctx=ctx)
+
+        assert len(received_spans) >= 2
+        kinds = {s.kind for s in received_spans}
+        assert "agent_run" in kinds
+        assert "tool_call" in kinds
+        tool_span = next(s for s in received_spans if s.kind == "tool_call")
+        assert tool_span.name == "my_tool"
+        assert tool_span.status == "completed"

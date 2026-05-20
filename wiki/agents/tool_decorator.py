@@ -30,10 +30,11 @@ def function_tool(
             hints = {}
 
         params_schema = _build_params_schema(fn, hints)
+        has_ctx_param = _fn_accepts_ctx(fn)
 
-        # Create a wrapper handler that unpacks dict args → kwargs
         async def _handler(args: dict[str, Any], ctx: Any = None) -> dict[str, Any]:
-            # For unbound functions (no self), just call with kwargs
+            if has_ctx_param and ctx is not None:
+                return await fn(ctx=ctx, **args)
             return await fn(**args)
 
         fn._tool_def = ToolDef(
@@ -46,6 +47,12 @@ def function_tool(
         return fn
 
     return decorator
+
+
+def _fn_accepts_ctx(fn: Callable) -> bool:
+    """Check if a function has a 'ctx' parameter."""
+    sig = inspect.signature(fn)
+    return "ctx" in sig.parameters
 
 
 def _build_params_schema(fn: Callable, hints: dict) -> dict[str, Any]:
@@ -108,11 +115,16 @@ def collect_tools(instance: Any) -> list[ToolDef]:
 
         original_td: ToolDef = attr._tool_def
         bound_method = getattr(instance, attr_name)
+        accepts_ctx = _fn_accepts_ctx(attr)
 
-        # Create a bound handler that passes self implicitly
         async def _bound_handler(
-            args: dict[str, Any], ctx: Any = None, _method=bound_method
+            args: dict[str, Any],
+            ctx: Any = None,
+            _method=bound_method,
+            _accepts_ctx=accepts_ctx,
         ) -> dict[str, Any]:
+            if _accepts_ctx and ctx is not None:
+                return await _method(ctx=ctx, **args)
             return await _method(**args)
 
         tools.append(ToolDef(

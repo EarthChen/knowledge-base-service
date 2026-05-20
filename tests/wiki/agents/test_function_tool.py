@@ -134,6 +134,57 @@ class TestFunctionToolHandler:
         assert result == {"key": "x", "data": "agent_data"}
 
 
+class TestCtxInjection:
+    @pytest.mark.asyncio
+    async def test_function_tool_passes_ctx_to_handler(self):
+        """When function has ctx param, decorator passes ctx through."""
+        from wiki.agents.tool_decorator import function_tool
+
+        received: list = []
+
+        @function_tool()
+        async def with_ctx(name: str, ctx: RunContext) -> dict:
+            """Tool with ctx."""
+            received.append(ctx)
+            return {"name": name, "biz": ctx.deps.business_id}
+
+        ctx = RunContext(deps=WikiDeps(graph_store=MagicMock(), business_id="b1"))
+        result = await with_ctx._tool_def.handler({"name": "test"}, ctx)
+        assert result == {"name": "test", "biz": "b1"}
+        assert received[0] is ctx
+
+    @pytest.mark.asyncio
+    async def test_function_tool_no_ctx_still_works(self):
+        """When function has no ctx param, ctx is not injected."""
+        from wiki.agents.tool_decorator import function_tool
+
+        @function_tool()
+        async def no_ctx(name: str) -> dict:
+            """No ctx."""
+            return {"name": name}
+
+        ctx = RunContext(deps=WikiDeps(graph_store=MagicMock()))
+        result = await no_ctx._tool_def.handler({"name": "x"}, ctx)
+        assert result == {"name": "x"}
+
+    @pytest.mark.asyncio
+    async def test_collect_tools_passes_ctx(self):
+        """collect_tools bound handlers should inject ctx when method accepts it."""
+        from wiki.agents.tool_decorator import function_tool, collect_tools
+
+        class Agent:
+            @function_tool()
+            async def with_ctx(self, q: str, ctx: RunContext) -> dict:
+                """With ctx."""
+                return {"q": q, "store": ctx.deps.graph_store}
+
+        agent = Agent()
+        tools = collect_tools(agent)
+        ctx = RunContext(deps=WikiDeps(graph_store="gs_mock"))
+        result = await tools[0].handler({"q": "hi"}, ctx)
+        assert result == {"q": "hi", "store": "gs_mock"}
+
+
 class TestAutoRegistration:
     def test_collect_decorated_tools(self):
         """collect_tools should find all @function_tool decorated methods."""

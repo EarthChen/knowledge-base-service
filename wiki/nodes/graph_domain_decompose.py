@@ -2,13 +2,15 @@
 
 from typing import Any
 
+import numpy as np
 from langchain_core.runnables import RunnableConfig
 
 from core.log import get_logger
+from wiki.domain_semantic_clusterer import DomainSemanticClusterer
 from wiki.entity_role_classifier import DOMAIN_CLASSIFICATION_ENTITY_ROLES
 from wiki.graph_call_query import fetch_module_call_edges
-from wiki.graph_community_detector import GraphCommunityDetector
 from wiki.graph_domain_namer import GraphDomainNamer
+from wiki.graph_semantic_corrector import GraphSemanticCorrector
 from wiki.nodes.classify import (
     _consolidate_split_entities,
     _ensure_ascii_keys,
@@ -217,19 +219,81 @@ def _collect_leaf_sub_domains(sub_tree: dict) -> list[dict]:
     return leaves
 
 
+async def _louvain_fallback_clustering(
+    biz_modules: list[tuple[str, str]],
+    edges: list[tuple[tuple[str, str], tuple[str, str], int | float]],
+) -> list[set[tuple[str, str]]]:
+    """Fallback: use Louvain community detection when embeddings are unavailable."""
+    from wiki.graph_community_detector import GraphCommunityDetector
+
+    detector = GraphCommunityDetector(target_min=5, target_max=15, seed=42)
+
+    if not edges:
+        return [set(biz_modules)]
+
+    nodes_with_edges: set[tuple[str, str]] = set()
+    for src, dst, _ in edges:
+        nodes_with_edges.add(src)
+        nodes_with_edges.add(dst)
+
+    connected = [n for n in biz_modules if n in nodes_with_edges]
+    isolated = [n for n in biz_modules if n not in nodes_with_edges]
+
+    communities = detector.detect(connected, edges) if connected else [set(biz_modules)]
+
+    if isolated and communities:
+        assignments = detector.assign_isolated_modules(isolated, communities)
+        for idx, assigned_modules in assignments.items():
+            if idx == -1:
+                if assigned_modules:
+                    communities.append(set(assigned_modules))
+            elif 0 <= idx < len(communities):
+                communities[idx].update(assigned_modules)
+
+    return communities
+
+
+async def _embedding_clustering(
+    biz_modules: list[tuple[str, str]],
+    edges: list[tuple[tuple[str, str], tuple[str, str], int | float]],
+    module_paths: dict[str, str],
+    module_summaries_raw: dict[str, dict[str, Any]],
+) -> tuple[list[set[tuple[str, str]]], np.ndarray | None]:
+    """Primary: semantic embedding clustering. Returns (clusters, embeddings_array)."""
+    from core.config import get_settings
+    from indexer.embedding_generator import EmbeddingGenerator
+
+    texts = DomainSemanticClusterer.build_embedding_texts(
+        biz_modules, module_summaries_raw, module_paths,
+    )
+
+    try:
+        config = get_settings().embedding
+        generator = EmbeddingGenerator.shared(config)
+        embedding_lists = await generator.generate(texts)
+        embeddings = np.array(embedding_lists, dtype=np.float32)
+    except Exception:
+        log.warning("embedding_generation_failed_fallback_louvain", exc_info=True)
+        return await _louvain_fallback_clustering(biz_modules, edges), None
+
+    clusterer = DomainSemanticClusterer()
+    communities = clusterer.cluster(embeddings, biz_modules, edges)
+    return communities, embeddings
+
+
 async def graph_driven_domain_decompose_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
-    """Graph-driven domain decomposition: replaces classify_domains + decompose_hierarchy.
+    """Semantic embedding domain decomposition with LLM refinement.
 
-    Uses Louvain community detection on module call graph to determine business domains.
-    Falls back to LLM classification when graph_store is unavailable.
+    Primary path: embed module summaries → HAC clustering → LLM naming → global review.
+    Falls back to Louvain when embeddings are unavailable, or old LLM classification
+    when graph_store is missing.
     """
     configurable = (config or {}).get("configurable", {})
     graph_store = configurable.get("graph_store")
     llm = configurable.get("llm")
 
-    # Fallback: no graph_store → use old LLM classification path
     if graph_store is None:
         log.info("graph_domain_decompose_fallback", reason="no graph_store")
         classify_result = await classify_domains_node(state, config)
@@ -237,20 +301,23 @@ async def graph_driven_domain_decompose_node(
         decompose_result = await decompose_hierarchy_node(state_with_classify, config)
         return {**classify_result, **decompose_result}
 
-    # --- Step 0: Filter to BIZ modules (same logic as classify_domains_node) ---
+    # --- Step 0: Filter to BIZ modules ---
     entity_roles = state.get("entity_roles", {})
     modules = state.get("modules", {})
     repositories = state.get("repositories", [])
 
-    biz_modules: list[tuple[str, str]] = []  # (repo_id, module_name)
+    module_paths: dict[str, str] = {}
+    biz_modules: list[tuple[str, str]] = []
     for repo, mod_list in modules.items():
         for mod_dict in mod_list:
             uid = mod_dict.get("uid", "")
-            if entity_roles.get(uid) not in DOMAIN_CLASSIFICATION_ENTITY_ROLES:
-                continue
             props = mod_dict.get("properties", {})
             name = str(props.get("name", ""))
             path = str(props.get("path", "") or "")
+            if name:
+                module_paths[name] = path
+            if entity_roles.get(uid) not in DOMAIN_CLASSIFICATION_ENTITY_ROLES:
+                continue
             if not name or path.startswith("<import:"):
                 continue
             if _is_data_model(name, path):
@@ -263,6 +330,7 @@ async def graph_driven_domain_decompose_node(
             "domain_display_names": {},
             "domain_tree": [],
             "affected_domains": [],
+            "module_call_edges": [],
         }
 
     valid_modules_set = set(biz_modules)
@@ -272,49 +340,43 @@ async def graph_driven_domain_decompose_node(
 
     log.info("graph_domain_decompose_edges", total_modules=len(biz_modules), total_edges=len(edges))
 
-    # --- Step 2: Community detection ---
-    detector = GraphCommunityDetector(target_min=5, target_max=15, seed=42)
+    # --- Step 1.5: Collect module summaries from pipeline state ---
+    module_summaries_raw: dict[str, dict[str, Any]] = state.get("module_summaries", {}) or {}
 
-    if not edges:
-        # No edges: all modules in one community
-        communities = [set(biz_modules)]
-    else:
-        # Separate nodes with edges from isolated nodes
-        nodes_with_edges = set()
-        for src, dst, _ in edges:
-            nodes_with_edges.add(src)
-            nodes_with_edges.add(dst)
+    # --- Step 2: Semantic embedding clustering (fallback: Louvain) ---
+    communities, embeddings = await _embedding_clustering(
+        biz_modules, edges, module_paths, module_summaries_raw,
+    )
 
-        connected_nodes = [n for n in biz_modules if n in nodes_with_edges]
-        isolated_nodes = [n for n in biz_modules if n not in nodes_with_edges]
-
-        if connected_nodes:
-            communities = detector.detect(connected_nodes, edges)
-        else:
-            communities = [set(biz_modules)]
-
-        # Assign isolated modules
-        if isolated_nodes and communities:
-            assignments = detector.assign_isolated_modules(isolated_nodes, communities)
-            for idx, assigned_modules in assignments.items():
-                if idx == -1:
-                    # Misc group: create a new community
-                    if assigned_modules:
-                        communities.append(set(assigned_modules))
-                elif 0 <= idx < len(communities):
-                    communities[idx].update(assigned_modules)
-
-    # --- Step 3: LLM Naming ---
+    # --- Step 3: LLM Naming with module_infos ---
     namer = GraphDomainNamer(llm)
-    communities_named = []
+    communities_named: list[dict[str, Any]] = []
+    used_names: list[str] = []
     for community in communities:
-        module_names = sorted([name for _, name in community])
-        naming = await namer.name_community(module_names)
+        module_infos = []
+        for repo_id, mod_name in sorted(community):
+            summary_data = module_summaries_raw.get(mod_name)
+            summary_text = ""
+            if isinstance(summary_data, dict):
+                summary_text = str(summary_data.get("summary_text", ""))
+            elif isinstance(summary_data, str):
+                summary_text = summary_data
+            module_infos.append({
+                "name": mod_name,
+                "path": module_paths.get(mod_name, ""),
+                "summary": summary_text,
+            })
+        naming = await namer.name_community(
+            module_infos=module_infos,
+            used_names=used_names,
+            business_id=state.get("business_id", ""),
+        )
+        used_names.append(naming["slug"])
         communities_named.append({
             "slug": naming["slug"],
             "display_name": naming["display_name"],
             "description": naming.get("description", ""),
-            "modules": sorted(community),  # (repo_id, name) tuples
+            "modules": sorted(community),
         })
 
     # Ensure unique slugs
@@ -340,7 +402,21 @@ async def graph_driven_domain_decompose_node(
     domain_mapping, domain_display_names = _consolidate_split_entities(domain_mapping, domain_display_names)
     domain_mapping, domain_display_names = _merge_domains_by_keyword(domain_mapping, domain_display_names)
 
-    # Rebuild communities_named to match merged domain_mapping (for tree building)
+    # --- Step 5.5: LLM Global Consistency Review ---
+    module_summaries_flat: dict[str, str] = {}
+    for mod_name, data in module_summaries_raw.items():
+        if isinstance(data, dict):
+            module_summaries_flat[mod_name] = str(data.get("summary_text", ""))
+        elif isinstance(data, str):
+            module_summaries_flat[mod_name] = data
+
+    corrector = GraphSemanticCorrector(llm)
+    domain_mapping, domain_display_names = await corrector.review_global_consistency(
+        domain_mapping, domain_display_names, module_paths, module_summaries_flat,
+        business_id=state.get("business_id", ""),
+    )
+
+    # Rebuild communities_named after review
     communities_named = []
     for slug, module_list in domain_mapping.items():
         communities_named.append({
@@ -368,31 +444,81 @@ async def graph_driven_domain_decompose_node(
     except Exception:
         log.warning("graph_domain_stabilizer_failed", exc_info=True)
 
-    # --- Step 7: Recursive sub-domain splitting ---
+    # Rebuild communities_named after stabilizer (slugs may have changed)
+    communities_named = []
+    for slug, module_list in domain_mapping.items():
+        communities_named.append({
+            "slug": slug,
+            "display_name": domain_display_names.get(slug, slug),
+            "modules": module_list,
+        })
+
+    # --- Step 7: Sub-domain splitting via embedding clustering ---
     sub_trees: dict[str, list[dict]] = {}
+    clusterer = DomainSemanticClusterer()
     for c in communities_named:
         slug = c["slug"]
-        community_nodes = set(c["modules"])
-        if len(community_nodes) > 8:
+        community_modules = list(c["modules"])
+        if len(community_modules) <= 15:
+            continue
+
+        # Build sub-domain embeddings for this community
+        if embeddings is not None:
+            mod_set = set(community_modules)
+            indices = [i for i, m in enumerate(biz_modules) if m in mod_set]
+            if not indices:
+                continue
+            sub_embeddings = embeddings[indices]
+            sub_modules = [biz_modules[i] for i in indices]
+            sub_clusters = clusterer.cluster_sub_domains(sub_embeddings, sub_modules, edges)
+        else:
+            from wiki.graph_community_detector import GraphCommunityDetector
+            detector = GraphCommunityDetector(target_min=2, target_max=5, seed=42)
+            community_set = set(community_modules)
             sub_result = detector.detect_sub_communities(
-                community_nodes, edges, max_depth=3, max_leaf_size=8
+                community_set, edges, max_depth=2, max_leaf_size=15,
             )
-            leaf_subs = []
+            sub_clusters_raw: list[set[tuple[str, str]]] = []
             for root in sub_result:
-                leaf_subs.extend(_collect_leaf_sub_domains(root))
-            if len(leaf_subs) > 1:
-                named_subs = []
-                for sub in leaf_subs:
-                    sub_module_names = sorted([name for _, name in sub.get("modules", [])])
-                    sub_naming = await namer.name_community(sub_module_names)
-                    named_subs.append({
-                        "slug": sub_naming["slug"],
-                        "display_name": sub_naming["display_name"],
-                        "modules": list(sub.get("modules", [])),
-                    })
-                parent_display = domain_display_names.get(slug, slug)
-                named_subs = _dedup_sub_domains(named_subs, parent_display)
-                sub_trees[slug] = named_subs
+                leaves = _collect_leaf_sub_domains(root)
+                for leaf in leaves:
+                    mods = leaf.get("modules", [])
+                    if mods:
+                        sub_clusters_raw.append(set(mods))
+            sub_clusters = sub_clusters_raw if len(sub_clusters_raw) > 1 else [community_set]
+        if len(sub_clusters) <= 1:
+            continue
+
+        named_subs: list[dict] = []
+        sub_used_names = list(used_names)
+        for sub_cluster in sub_clusters:
+            sub_infos = []
+            for repo_id, mod_name in sorted(sub_cluster):
+                summary_data = module_summaries_raw.get(mod_name)
+                summary_text = ""
+                if isinstance(summary_data, dict):
+                    summary_text = str(summary_data.get("summary_text", ""))
+                elif isinstance(summary_data, str):
+                    summary_text = summary_data
+                sub_infos.append({
+                    "name": mod_name,
+                    "path": module_paths.get(mod_name, ""),
+                    "summary": summary_text,
+                })
+            sub_naming = await namer.name_community(
+                module_infos=sub_infos,
+                used_names=sub_used_names,
+                business_id=state.get("business_id", ""),
+            )
+            sub_used_names.append(sub_naming["slug"])
+            named_subs.append({
+                "slug": sub_naming["slug"],
+                "display_name": sub_naming["display_name"],
+                "modules": list(sub_cluster),
+            })
+        parent_display = domain_display_names.get(slug, slug)
+        named_subs = _dedup_sub_domains(named_subs, parent_display)
+        sub_trees[slug] = named_subs
 
     # --- Step 8: Build domain_tree ---
     domain_tree = _build_domain_tree(communities_named, sub_trees)
@@ -407,9 +533,15 @@ async def graph_driven_domain_decompose_node(
         with_sub_domains=len(sub_trees),
     )
 
+    module_call_edges = [
+        {"source": src[1], "target": dst[1], "weight": w}
+        for src, dst, w in edges
+    ]
+
     return {
         "domain_mapping": domain_mapping,
         "domain_display_names": domain_display_names,
         "domain_tree": domain_tree,
         "affected_domains": affected_domains,
+        "module_call_edges": module_call_edges,
     }

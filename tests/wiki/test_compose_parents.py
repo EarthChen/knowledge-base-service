@@ -43,6 +43,28 @@ def test_cross_domain_call_stats_basic():
     assert "Billing → Payment: 3" in result
 
 
+def test_cross_domain_call_stats_from_tuple_edges():
+    """Edges converted from graph_domain_decompose tuple format should work."""
+    raw_edges = [
+        (("repo", "PaySvc"), ("repo", "BillSvc"), 5),
+        (("repo", "BillSvc"), ("repo", "PayDao"), 3),
+    ]
+    converted = [
+        {"source": src[1], "target": dst[1], "weight": w}
+        for src, dst, w in raw_edges
+    ]
+    parent = {
+        "name": "commerce",
+        "children": [
+            {"name": "payment", "display_name": "Payment", "modules": ["PaySvc", "PayDao"]},
+            {"name": "billing", "display_name": "Billing", "modules": ["BillSvc"]},
+        ],
+    }
+    result = _compute_cross_domain_call_stats(parent, converted)
+    assert "Payment → Billing: 5" in result
+    assert "Billing → Payment: 3" in result
+
+
 def test_cross_domain_call_stats_no_edges():
     parent = {"name": "test", "children": []}
     result = _compute_cross_domain_call_stats(parent, None)

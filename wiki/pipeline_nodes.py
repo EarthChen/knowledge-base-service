@@ -34,6 +34,7 @@ from wiki.nodes.compose import (
     plan_topic_structure_node,
 )
 from wiki.nodes.domain_compose import compose_domain_agents_node
+from wiki.nodes.graph_domain_decompose import graph_driven_domain_decompose_node
 from wiki.nodes.graph_nodes import (
     assign_canonical_keys_node,
     compose_bottomup_node,
@@ -104,6 +105,7 @@ __all__ = [
     "detect_reorg_node",
     "generate_titles_node",
     "graph_decompose_node",
+    "graph_driven_domain_decompose_node",
     "has_parent_domains",
     "heal_pages_node",
     "log",

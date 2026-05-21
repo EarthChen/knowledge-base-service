@@ -317,7 +317,12 @@ class WikiTreeStoreMixin:
         return roots
 
     def _prune_wiki_tree_to_topic_pages(self, nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Keep ``WikiPage`` nodes whose ``page_type`` is topic or domain_overview; keep sections with topic leaves."""
+        """Keep ``WikiPage`` nodes whose ``page_type`` is topic or domain_overview.
+
+        Also keep ``WikiSection`` nodes unconditionally (they represent
+        curated domain/topic categories and should be visible even before
+        wiki pages are generated underneath them).
+        """
 
         def visit(n: dict[str, Any]) -> dict[str, Any] | None:
             label = str(n.get("label") or "")
@@ -334,19 +339,24 @@ class WikiTreeStoreMixin:
                     out.setdefault("name", str(out.get("title") or ""))
                     return out
                 return None
-            if pruned_children:
-                out = {k: v for k, v in n.items() if k != "children"}
-                out["children"] = pruned_children
-                out.setdefault("name", str(out.get("title") or ""))
-                return out
-            return None
+            # WikiSection: always keep (domain sections should be visible
+            # immediately after domain classification, even without pages yet)
+            out = {k: v for k, v in n.items() if k != "children"}
+            out["children"] = pruned_children
+            out.setdefault("name", str(out.get("title") or ""))
+            return out
 
-        out: list[dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
         for n in nodes:
             pr = visit(n)
             if pr is not None:
-                out.append(pr)
-        return out
+                # Flatten __root__ wrapper: promote its children to top level
+                title = str(pr.get("title") or "")
+                if title == "__root__" and pr.get("children"):
+                    result.extend(pr["children"])
+                else:
+                    result.append(pr)
+        return result
 
     async def get_pipeline_domain_tree_snapshot(self, business_id: str) -> dict[str, Any]:
         """Load pipeline domain tree + review status persisted on ``WikiSpace`` (JSON blobs).

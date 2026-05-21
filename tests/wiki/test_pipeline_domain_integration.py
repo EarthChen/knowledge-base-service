@@ -8,10 +8,11 @@ class TestDomainClassificationInPipeline:
         node_names = set(pipeline.get_graph().nodes.keys())
         assert "classify_domains" in node_names
 
-    def test_pipeline_contains_decompose_hierarchy_node(self):
+    def test_pipeline_no_longer_has_decompose_hierarchy_node(self):
+        """decompose_hierarchy merged into classify_domains (graph_driven_domain_decompose)."""
         pipeline = build_wiki_pipeline(checkpointer=False)
         node_names = set(pipeline.get_graph().nodes.keys())
-        assert "decompose_hierarchy" in node_names
+        assert "decompose_hierarchy" not in node_names
 
 
 class TestAgentComposeIsDefault:
@@ -35,7 +36,6 @@ class TestAgentPipelineIntegration:
             "assign_canonical_keys",
             "classify_domains",
             "persist_classification",
-            "decompose_hierarchy",
             "generate_titles",
             "set_review_status",
             "compose_leaf_modules",

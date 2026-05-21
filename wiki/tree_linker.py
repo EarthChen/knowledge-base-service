@@ -831,7 +831,7 @@ class WikiTreeLinker:
         domain_tree: list[DomainNode],
         domain_path_to_section_uid: dict[str, str],
         tree_builder: WikiTreeBuilder,
-        threshold: float = 0.3,
+        threshold: float = 0.5,
     ) -> None:
         """Phase 4: discover unlinked domain overview pages and match to nearest domain node."""
         if not self._wiki_store or not domain_tree:

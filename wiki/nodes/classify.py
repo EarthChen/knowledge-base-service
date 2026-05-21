@@ -101,6 +101,76 @@ async def classify_entities_node(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _consolidate_split_entities(
+    domain_mapping: dict[str, list[tuple[str, str]]],
+    domain_display_names: dict[str, str],
+) -> tuple[dict[str, list[tuple[str, str]]], dict[str, str]]:
+    """Merge modules with the same business-entity prefix into one domain.
+
+    When LLM splits Family*, Intimacy* etc. across multiple domains, this
+    heuristic consolidates them: for each entity prefix that appears in 3+
+    modules, find the domain that owns the majority and move the rest there.
+    """
+    import re
+    from collections import Counter, defaultdict
+
+    _PREFIX_RE = re.compile(r"^([A-Z][a-z]{2,})")
+    _GENERIC_PREFIXES = frozenset({
+        "User", "Base", "Abstract", "Default", "Common", "Generic",
+        "Internal", "Simple", "Basic", "Custom", "Main", "Core",
+        "Global", "Shared", "App", "Web", "Service", "Data",
+    })
+
+    module_to_domain: dict[str, str] = {}
+    for slug, pairs in domain_mapping.items():
+        for _, mod_name in pairs:
+            module_to_domain[mod_name] = slug
+
+    prefix_modules: dict[str, list[str]] = defaultdict(list)
+    for mod_name in module_to_domain:
+        m = _PREFIX_RE.match(mod_name)
+        if m and m.group(1) not in _GENERIC_PREFIXES:
+            prefix_modules[m.group(1)].append(mod_name)
+
+    moves: dict[str, str] = {}
+    for prefix, mod_names in prefix_modules.items():
+        if len(mod_names) < 3:
+            continue
+        domain_counts: Counter[str] = Counter()
+        for mn in mod_names:
+            domain_counts[module_to_domain[mn]] += 1
+        if len(domain_counts) <= 1:
+            continue
+        majority_domain = domain_counts.most_common(1)[0][0]
+        for mn in mod_names:
+            current = module_to_domain[mn]
+            if current != majority_domain:
+                moves[mn] = majority_domain
+
+    if not moves:
+        return domain_mapping, domain_display_names
+
+    new_mapping: dict[str, list[tuple[str, str]]] = {}
+    for slug, pairs in domain_mapping.items():
+        kept = [(r, m) for r, m in pairs if moves.get(m, slug) == slug]
+        new_mapping[slug] = kept
+    for mod_name, target_slug in moves.items():
+        repo = ""
+        for slug, pairs in domain_mapping.items():
+            for r, m in pairs:
+                if m == mod_name:
+                    repo = r
+                    break
+            if repo:
+                break
+        new_mapping.setdefault(target_slug, []).append((repo, mod_name))
+
+    new_mapping = {k: v for k, v in new_mapping.items() if v}
+
+    log.info("consolidate_split_entities", moved=len(moves))
+    return new_mapping, domain_display_names
+
+
 async def classify_domains_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
@@ -319,6 +389,10 @@ async def classify_domains_node(
             log.warning("domain_stabilizer_failed", exc_info=True)
 
     domain_mapping, domain_display_names = _ensure_ascii_keys(
+        domain_mapping, domain_display_names
+    )
+
+    domain_mapping, domain_display_names = _consolidate_split_entities(
         domain_mapping, domain_display_names
     )
 

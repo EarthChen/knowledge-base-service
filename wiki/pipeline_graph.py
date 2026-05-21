@@ -1,7 +1,8 @@
 """LangGraph StateGraph definition for Wiki generation pipeline."""
-from __future__ import annotations
+# NOTE: Do NOT add `from __future__ import annotations` here.
+# LangGraph needs real type objects (not strings) to detect RunnableConfig
+# parameters and automatically inject config into nodes.
 
-import functools
 import inspect
 import os
 from collections.abc import Awaitable, Callable
@@ -45,11 +46,11 @@ _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "detect_reorg": ("detect_reorg", 0.02),
     "graph_decompose": ("graph_decompose", 0.05),
     "assign_canonical_keys": ("assign_keys", 0.07),
-    "classify_domains": ("classify_domains", 0.08),
-    "persist_classification": ("persist_classification", 0.09),
-    "generate_titles": ("generate_titles", 0.12),
-    "set_review_status": ("set_review_status", 0.15),
-    "compose_leaf_modules": ("compose_leaf_modules", 0.18),
+    "generate_titles": ("generate_titles", 0.08),
+    "compose_leaf_modules": ("compose_leaf_modules", 0.10),
+    "classify_domains": ("classify_domains", 0.18),
+    "persist_classification": ("persist_classification", 0.20),
+    "set_review_status": ("set_review_status", 0.22),
     "compose_domain_agents": ("compose_domain_agents", 0.30),
     "summarize_leaves": ("summarize_leaves", 0.55),
     "compose_parent_pages": ("compose_parent_pages", 0.60),
@@ -83,7 +84,6 @@ def _with_progress(
     pass_config = len(params) >= 2
 
     if pass_config:
-        @functools.wraps(func)
         async def _wrapper(
             state: WikiPipelineState,
             config: RunnableConfig | None = None,
@@ -112,7 +112,6 @@ def _with_progress(
             )
             return result
     else:
-        @functools.wraps(func)
         async def _wrapper(state: WikiPipelineState) -> dict[str, Any]:  # type: ignore[misc]
             import time as _time
             log.info("pipeline_node_enter", node=node_name, phase=phase)
@@ -126,6 +125,13 @@ def _with_progress(
                 elapsed_sec=round(elapsed, 1),
             )
             return result
+    # Copy __name__/__doc__ for debugging but NOT __annotations__/__wrapped__
+    # because functools.wraps would copy string annotations from the original
+    # function (which uses `from __future__ import annotations`), making
+    # LangGraph unable to detect the RunnableConfig type for config injection.
+    _wrapper.__name__ = func.__name__
+    _wrapper.__qualname__ = func.__qualname__
+    _wrapper.__doc__ = func.__doc__
 
     return _wrapper
 
@@ -335,7 +341,6 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     )
     graph.add_node("summarize_leaves", _with_progress("summarize_leaves", summarize_leaves_node))
     graph.add_node("compose_parent_pages", _with_progress("compose_parent_pages", compose_parent_pages_node))
-    graph.add_edge("compose_leaf_modules", "compose_domain_agents")
     graph.add_edge("compose_domain_agents", "summarize_leaves")
     graph.add_edge("summarize_leaves", "compose_parent_pages")
     graph.add_edge("compose_parent_pages", "quality_gate")
@@ -352,11 +357,12 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
         {"graph_decompose": "graph_decompose", "finalize": "finalize"},
     )
     graph.add_edge("graph_decompose", "assign_canonical_keys")
-    graph.add_edge("assign_canonical_keys", "classify_domains")
+    graph.add_edge("assign_canonical_keys", "generate_titles")
+    graph.add_edge("generate_titles", "compose_leaf_modules")
+    graph.add_edge("compose_leaf_modules", "classify_domains")
     graph.add_edge("classify_domains", "persist_classification")
-    graph.add_edge("persist_classification", "generate_titles")
-    graph.add_edge("generate_titles", "set_review_status")
-    graph.add_edge("set_review_status", "compose_leaf_modules")
+    graph.add_edge("persist_classification", "set_review_status")
+    graph.add_edge("set_review_status", "compose_domain_agents")
     graph.add_conditional_edges(
         "quality_gate",
         should_heal,

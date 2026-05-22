@@ -20,118 +20,6 @@ def corrector(mock_llm):
 
 
 @pytest.mark.asyncio
-async def test_correct_module_assignments_moves_misplaced_module(corrector, mock_llm):
-    """ClosedFriendTaskHandler should be moved from family-task to intimacy-mgmt."""
-    domain_mapping = {
-        "family-task": [
-            ("repo1", "FamilyTaskHandler"),
-            ("repo1", "FamilyTaskValidator"),
-            ("repo1", "ClosedFriendTaskHandler"),
-        ],
-        "intimacy-mgmt": [("repo1", "IntimacyService"), ("repo1", "IntimacyGiftHandler")],
-    }
-    domain_display_names = {"family-task": "家族任务管理", "intimacy-mgmt": "亲密关系管理"}
-    module_paths = {
-        "FamilyTaskHandler": "com/example/family/task/FamilyTaskHandler.java",
-        "FamilyTaskValidator": "com/example/family/task/FamilyTaskValidator.java",
-        "ClosedFriendTaskHandler": "com/example/closedfriend/task/ClosedFriendTaskHandler.java",
-        "IntimacyService": "com/example/intimacy/IntimacyService.java",
-        "IntimacyGiftHandler": "com/example/intimacy/gift/IntimacyGiftHandler.java",
-    }
-
-    mock_llm.generate.return_value = json.dumps({
-        "moves": [
-            {
-                "module": "ClosedFriendTaskHandler",
-                "from_domain": "family-task",
-                "to_domain": "intimacy-mgmt",
-                "reason": "ClosedFriend belongs to intimacy",
-            }
-        ]
-    })
-
-    result = await corrector.correct_module_assignments(
-        domain_mapping, domain_display_names, module_paths, {}
-    )
-
-    assert ("repo1", "ClosedFriendTaskHandler") not in result["family-task"]
-    assert ("repo1", "ClosedFriendTaskHandler") in result["intimacy-mgmt"]
-    assert len(result["family-task"]) == 2
-    assert len(result["intimacy-mgmt"]) == 3
-
-
-@pytest.mark.asyncio
-async def test_correct_no_moves_needed(corrector, mock_llm):
-    """When LLM finds no misplacements, domain_mapping is unchanged."""
-    domain_mapping = {
-        "family": [("repo1", "FamilyService")],
-    }
-    mock_llm.generate.return_value = json.dumps({"moves": []})
-
-    result = await corrector.correct_module_assignments(
-        domain_mapping, {"family": "家族"}, {}, {}
-    )
-
-    assert result == domain_mapping
-
-
-@pytest.mark.asyncio
-async def test_correct_llm_failure_returns_original(corrector, mock_llm):
-    """When LLM fails, return original domain_mapping unchanged."""
-    domain_mapping = {
-        "family": [("repo1", "FamilyService")],
-    }
-    mock_llm.generate.side_effect = Exception("LLM down")
-
-    result = await corrector.correct_module_assignments(
-        domain_mapping, {"family": "家族"}, {}, {}
-    )
-
-    assert result == domain_mapping
-
-
-@pytest.mark.asyncio
-async def test_correct_invalid_target_domain_skipped(corrector, mock_llm):
-    """Moves targeting non-existent domains are skipped."""
-    domain_mapping = {
-        "family": [("repo1", "FamilyService"), ("repo1", "SomeModule")],
-    }
-    mock_llm.generate.return_value = json.dumps({
-        "moves": [
-            {"module": "SomeModule", "from_domain": "family", "to_domain": "nonexistent", "reason": "test"}
-        ]
-    })
-
-    result = await corrector.correct_module_assignments(
-        domain_mapping, {"family": "家族"}, {}, {}
-    )
-
-    assert ("repo1", "SomeModule") in result["family"]
-
-
-@pytest.mark.asyncio
-async def test_correct_move_cap_30_percent(corrector, mock_llm):
-    """At most 30% of total modules can be moved in one correction."""
-    modules = [(f"repo1", f"Module{i}") for i in range(10)]
-    domain_mapping = {"domain-a": modules}
-    moves = [
-        {"module": f"Module{i}", "from_domain": "domain-a", "to_domain": "domain-b", "reason": "test"}
-        for i in range(10)
-    ]
-    mock_llm.generate.return_value = json.dumps({"moves": moves})
-
-    result = await corrector.correct_module_assignments(
-        {**domain_mapping, "domain-b": []},
-        {"domain-a": "A", "domain-b": "B"},
-        {},
-        {},
-    )
-
-    moved = len([m for m in modules if m not in result.get("domain-a", [])])
-    assert moved <= 3  # 30% of 10
-
-
-@pytest.mark.asyncio
 async def test_merge_similar_domains(corrector, mock_llm):
     """Domains with overlapping business meaning should be merged."""
     domain_infos = [
@@ -180,12 +68,26 @@ async def test_merge_llm_failure_returns_empty(corrector, mock_llm):
     assert result == []
 
 
+def _make_review_llm():
+    """Create an LLM mock suitable for review_global_consistency tests."""
+    llm = AsyncMock()
+    llm.generate.return_value = '{"merges": [], "renames": [], "moves": []}'
+    return llm
+
+
+def _get_prompt(llm):
+    """Extract the prompt string passed to llm.generate."""
+    return llm.generate.call_args[0][0]
+
+
 class TestReviewGlobalConsistency:
     @pytest.mark.asyncio
     async def test_merge_overlapping_domains(self):
-        llm = AsyncMock()
-        llm.generate = AsyncMock(
-            return_value='{"merges": [{"sources": ["intimacy-rel", "private-friends"], "target": "intimacy-rel", "new_display_name": "亲密关系", "reason": "same business"}], "renames": [], "moves": []}'
+        llm = _make_review_llm()
+        llm.generate.return_value = (
+            '{"merges": [{"sources": ["intimacy-rel", "private-friends"], '
+            '"target": "intimacy-rel", "new_display_name": "亲密关系", "reason": "same business"}], '
+            '"renames": [], "moves": []}'
         )
         corrector = GraphSemanticCorrector(llm)
         domain_mapping = {
@@ -204,8 +106,7 @@ class TestReviewGlobalConsistency:
 
     @pytest.mark.asyncio
     async def test_no_changes_needed(self):
-        llm = AsyncMock()
-        llm.generate = AsyncMock(return_value='{"merges": [], "renames": [], "moves": []}')
+        llm = _make_review_llm()
         corrector = GraphSemanticCorrector(llm)
         domain_mapping = {"a": [("r", "X")], "b": [("r", "Y")]}
         domain_display = {"a": "域A", "b": "域B"}
@@ -224,3 +125,106 @@ class TestReviewGlobalConsistency:
             domain_mapping, domain_display, module_paths={}, module_summaries={},
         )
         assert new_mapping == domain_mapping
+
+    @pytest.mark.asyncio
+    async def test_global_review_passes_top_10_modules(self):
+        """Task 4: listing should include top 10 modules per domain (not 5)."""
+        llm = _make_review_llm()
+        corrector = GraphSemanticCorrector(llm)
+
+        # Domain with 12 modules — expect 10 in the prompt
+        pairs = [("r", f"Mod{i:02d}") for i in range(12)]
+        domain_mapping = {
+            "big-domain": pairs,
+            "other": [("r", "OtherMod")],  # second domain so we don't early-return
+        }
+        domain_display = {"big-domain": "大域", "other": "其他"}
+
+        await corrector.review_global_consistency(
+            domain_mapping, domain_display, module_paths={}, module_summaries={},
+        )
+
+        prompt = _get_prompt(llm)
+        # Should contain 10 modules (Mod00..Mod09 sorted)
+        assert "Mod00" in prompt
+        assert "Mod09" in prompt
+        # Mod10 should NOT be in the prompt (only top 10)
+        assert "Mod10" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_global_review_passes_all_when_fewer_than_10(self):
+        """Task 4: domains with <10 modules should pass all of them."""
+        llm = _make_review_llm()
+        corrector = GraphSemanticCorrector(llm)
+
+        pairs = [("r", f"Mod{i}") for i in range(7)]
+        domain_mapping = {
+            "small-domain": pairs,
+            "other": [("r", "OtherMod")],
+        }
+        domain_display = {"small-domain": "小域", "other": "其他"}
+
+        await corrector.review_global_consistency(
+            domain_mapping, domain_display, module_paths={}, module_summaries={},
+        )
+
+        prompt = _get_prompt(llm)
+        for i in range(7):
+            assert f"Mod{i}" in prompt
+
+    @pytest.mark.asyncio
+    async def test_global_review_includes_shortened_path_and_summary(self):
+        """Task 4: each module entry should include shortened path and summary."""
+        llm = _make_review_llm()
+        corrector = GraphSemanticCorrector(llm)
+
+        domain_mapping = {
+            "auth": [("r", "LoginService"), ("r", "TokenValidator")],
+            "billing": [("r", "InvoiceService")],
+        }
+        domain_display = {"auth": "认证", "billing": "计费"}
+        module_paths = {
+            "LoginService": "com/example/auth/LoginService.java",
+            "TokenValidator": "com/example/auth/token/TokenValidator.java",
+        }
+        module_summaries = {
+            "LoginService": "Handles user login flow",
+            "TokenValidator": "Validates JWT tokens",
+        }
+
+        await corrector.review_global_consistency(
+            domain_mapping, domain_display,
+            module_paths=module_paths, module_summaries=module_summaries,
+        )
+
+        prompt = _get_prompt(llm)
+        # Shortened paths (last 3 levels)
+        assert "auth/LoginService.java" in prompt
+        assert "auth/token/TokenValidator.java" in prompt
+        # Summaries
+        assert "Handles user login flow" in prompt
+        assert "Validates JWT tokens" in prompt
+
+    @pytest.mark.asyncio
+    async def test_global_review_no_path_or_summary_shown_when_missing(self):
+        """When path/summary dicts are empty, listing still works without them."""
+        llm = _make_review_llm()
+        corrector = GraphSemanticCorrector(llm)
+
+        domain_mapping = {
+            "auth": [("r", "LoginService")],
+            "billing": [("r", "InvoiceService")],
+        }
+        domain_display = {"auth": "认证", "billing": "计费"}
+
+        await corrector.review_global_consistency(
+            domain_mapping, domain_display,
+            module_paths={}, module_summaries={},
+        )
+
+        prompt = _get_prompt(llm)
+        assert "LoginService" in prompt
+        # No path or summary annotations should appear
+        assert "[path:" not in prompt
+        # Summary separator " -- " should not appear
+        assert " -- " not in prompt

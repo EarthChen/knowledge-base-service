@@ -7,6 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 import pytest
 
+_PERSIST_TREE = "wiki.nodes.persist_classification._persist_domain_tree_to_wiki"
+_PERSIST_LABELS = "wiki.nodes.persist_classification._persist_domain_labels_on_modules"
+
 
 class TestReassemblyConfig:
     def test_default_config_values(self):
@@ -227,13 +230,77 @@ class TestOrphanMatching:
         assert assignments == []
 
 
+class TestPinnedDomains:
+    @pytest.mark.asyncio
+    async def test_get_pinned_domains_maps_display_names_to_slugs(self):
+        from store.falkordb_store import QueryResultWrapper
+        from wiki.nodes.reassemble_domains import _get_pinned_domains
+
+        mock_store = MagicMock()
+        mock_store.execute_query = AsyncMock(
+            return_value=QueryResultWrapper(
+                data=[{"title": "Authentication"}, {"title": "domain-b"}],
+                raw=[],
+            ),
+        )
+        wiki_tree_store = MagicMock()
+        wiki_tree_store._store = mock_store
+
+        config = {
+            "configurable": {
+                "wiki_tree_store": wiki_tree_store,
+                "business_id": "biz-1",
+            },
+        }
+        state = {
+            "domain_display_names": {
+                "domain-a": "Authentication",
+                "domain-b": "Payments",
+            },
+        }
+
+        pinned = await _get_pinned_domains(config, state)
+
+        assert pinned == {"domain-a", "domain-b"}
+        mock_store.execute_query.assert_awaited_once()
+        call_args = mock_store.execute_query.call_args
+        assert "user_modified = true" in call_args[0][0]
+        assert call_args[0][1]["business_id"] == "biz-1"
+
+    @pytest.mark.asyncio
+    async def test_get_pinned_domains_returns_empty_without_store(self):
+        from wiki.nodes.reassemble_domains import _get_pinned_domains
+
+        pinned = await _get_pinned_domains({"configurable": {}}, {})
+        assert pinned == set()
+
+    @pytest.mark.asyncio
+    async def test_get_pinned_domains_handles_query_failure(self):
+        from wiki.nodes.reassemble_domains import _get_pinned_domains
+
+        mock_store = MagicMock()
+        mock_store.execute_query = AsyncMock(side_effect=RuntimeError("db down"))
+        wiki_tree_store = MagicMock()
+        wiki_tree_store._store = mock_store
+
+        config = {
+            "configurable": {
+                "wiki_tree_store": wiki_tree_store,
+                "business_id": "biz-1",
+            },
+        }
+
+        pinned = await _get_pinned_domains(config, {"domain_display_names": {}})
+        assert pinned == set()
+
+
 class TestExecuteMerges:
     def test_merge_two_domains(self):
         from wiki.nodes.reassemble_domains import _execute_merges
 
         mapping = {"domain-a": [("repo", "ModA")], "domain-b": [("repo", "ModB")]}
         names = {"domain-a": "Auth", "domain-b": "Session"}
-        tree = [{"slug": "domain-a"}, {"slug": "domain-b"}]
+        tree = [{"name": "domain-a"}, {"name": "domain-b"}]
 
         new_mapping, new_names, new_tree, actions = _execute_merges(
             mapping, names, tree,
@@ -249,7 +316,7 @@ class TestExecuteMerges:
 
         mapping = {"a": [1], "b": [2], "c": [3]}
         names = {"a": "A", "b": "B", "c": "C"}
-        tree = [{"slug": "a"}, {"slug": "b"}, {"slug": "c"}]
+        tree = [{"name": "a"}, {"name": "b"}, {"name": "c"}]
 
         _, _, _, actions = _execute_merges(
             mapping, names, tree,
@@ -279,7 +346,7 @@ class TestReassembleDomainsNode:
         state = {
             "pages": [{"path": "some/page", "content": "No overviews here"}],
             "domain_mapping": {"domain-a": [("repo", "ModA")]},
-            "domain_tree": [{"slug": "domain-a"}],
+            "domain_tree": [{"name": "domain-a"}],
             "config": {},
         }
 
@@ -311,7 +378,7 @@ class TestReassembleDomainsNode:
                 "domain-a": [("repo", "ModA")],
                 "domain-b": [("repo", "ModB")],
             },
-            "domain_tree": [{"slug": "domain-a"}, {"slug": "domain-b"}],
+            "domain_tree": [{"name": "domain-a"}, {"name": "domain-b"}],
             "domain_display_names": {"domain-a": "Auth", "domain-b": "Session"},
             "config": {"reassembly_merge_threshold": 0.80},
         }
@@ -322,7 +389,7 @@ class TestReassembleDomainsNode:
         mock_generator.generate = AsyncMock(return_value=[emb, emb])
 
         mock_llm = AsyncMock()
-        mock_llm.chat_complete = AsyncMock(
+        mock_llm.complete = AsyncMock(
             return_value='{"approved_merges": [{"source": "domain-b", "target": "domain-a"}]}'
         )
 
@@ -353,7 +420,7 @@ class TestReassembleDomainsNode:
                 for i in range(10)
             ],
             "domain_mapping": {f"domain-{i}": [("repo", f"Mod{i}")] for i in range(10)},
-            "domain_tree": [{"slug": f"domain-{i}"} for i in range(10)],
+            "domain_tree": [{"name": f"domain-{i}"} for i in range(10)],
             "domain_display_names": {f"domain-{i}": f"Domain {i}" for i in range(10)},
             "config": {"reassembly_max_moves_pct": 0.05},  # Max 5% = 0.5 → effectively 0 moves allowed
         }
@@ -362,8 +429,11 @@ class TestReassembleDomainsNode:
         mock_generator.generate = AsyncMock(return_value=[[1.0] * 1024] * 10)
 
         mock_llm = AsyncMock()
-        mock_llm.chat_complete = AsyncMock(
-            return_value='{"approved_merges": [{"source": "domain-1", "target": "domain-0"}, {"source": "domain-2", "target": "domain-0"}]}'
+        mock_llm.complete = AsyncMock(
+            return_value=(
+                '{"approved_merges": [{"source": "domain-1", "target": "domain-0"}, '
+                '{"source": "domain-2", "target": "domain-0"}]}'
+            )
         )
 
         config = {"configurable": {"llm": mock_llm}}
@@ -423,7 +493,7 @@ class TestReassemblyDegradation:
                 {"path": "domain-b/_overview", "content": "Auth content very similar"},
             ],
             "domain_mapping": {"domain-a": [("repo", "ModA")], "domain-b": [("repo", "ModB")]},
-            "domain_tree": [{"slug": "domain-a"}, {"slug": "domain-b"}],
+            "domain_tree": [{"name": "domain-a"}, {"name": "domain-b"}],
             "domain_display_names": {"domain-a": "A", "domain-b": "B"},
             "config": {},
         }
@@ -432,7 +502,7 @@ class TestReassemblyDegradation:
         mock_generator.generate = AsyncMock(return_value=[[1.0] * 1024, [1.0] * 1024])
 
         mock_llm = AsyncMock()
-        mock_llm.chat_complete = AsyncMock(side_effect=RuntimeError("LLM down"))
+        mock_llm.complete = AsyncMock(side_effect=RuntimeError("LLM down"))
 
         config = {"configurable": {"llm": mock_llm}}
 
@@ -451,3 +521,165 @@ class TestReassemblyDegradation:
         # Both domains should still be in mapping
         assert "domain-a" in result.get("domain_mapping", state["domain_mapping"])
         assert "domain-b" in result.get("domain_mapping", state["domain_mapping"])
+
+
+class TestReassemblyPersistence:
+    @pytest.mark.asyncio
+    async def test_persists_after_merge(self):
+        from wiki.nodes.reassemble_domains import reassemble_domains_node
+
+        state = {
+            "business_id": "biz-1",
+            "pages": [
+                {"path": "domain-a/_overview", "content": "Handles authentication."},
+                {"path": "domain-b/_overview", "content": "Handles auth sessions."},
+            ],
+            "domain_mapping": {
+                "domain-a": [("repo", "ModA")],
+                "domain-b": [("repo", "ModB")],
+            },
+            "domain_tree": [{"name": "domain-a"}, {"name": "domain-b"}],
+            "domain_display_names": {"domain-a": "Auth", "domain-b": "Session"},
+            "modules": {"ModA": {"id": "ModA"}, "ModB": {"id": "ModB"}},
+            "config": {"reassembly_merge_threshold": 0.80},
+        }
+
+        mock_generator = AsyncMock()
+        emb = [1.0] * 1024
+        mock_generator.generate = AsyncMock(return_value=[emb, emb])
+
+        mock_llm = AsyncMock()
+        mock_llm.complete = AsyncMock(
+            return_value='{"approved_merges": [{"source": "domain-b", "target": "domain-a"}]}'
+        )
+
+        mock_wiki_store = AsyncMock()
+        mock_graph_store = AsyncMock()
+        config = {
+            "configurable": {
+                "llm": mock_llm,
+                "wiki_store": mock_wiki_store,
+                "graph_store": mock_graph_store,
+            },
+        }
+
+        with (
+            patch("wiki.nodes.reassemble_domains._get_embedding_generator", return_value=mock_generator),
+            patch("wiki.nodes.reassemble_domains._get_pinned_domains", return_value=set()),
+            patch("wiki.nodes.reassemble_domains.get_settings") as mock_settings,
+            patch(_PERSIST_TREE, new_callable=AsyncMock) as mock_persist_tree,
+            patch(_PERSIST_LABELS, new_callable=AsyncMock) as mock_persist_labels,
+        ):
+            mock_settings.return_value.wiki.domain_reassembly_enabled = True
+            mock_settings.return_value.wiki.reassembly_merge_threshold = 0.85
+            mock_settings.return_value.wiki.reassembly_orphan_threshold = 0.60
+            mock_settings.return_value.wiki.reassembly_max_moves_pct = 0.30
+            mock_settings.return_value.wiki.reassembly_respect_user_modified = True
+            mock_settings.return_value.embedding = MagicMock()
+            result = await reassemble_domains_node(state, config)
+
+        assert any(a["type"] == "merge" for a in result["reassembly_actions"])
+        mock_persist_tree.assert_awaited_once()
+        mock_persist_labels.assert_awaited_once()
+        persist_tree_args = mock_persist_tree.call_args[0]
+        assert persist_tree_args[0] is mock_wiki_store
+        assert persist_tree_args[1] == "biz-1"
+        persist_labels_args = mock_persist_labels.call_args[0]
+        assert persist_labels_args[0] is mock_graph_store
+        assert persist_labels_args[1] == "biz-1"
+
+    @pytest.mark.asyncio
+    async def test_no_persist_when_no_actions(self):
+        from wiki.nodes.reassemble_domains import reassemble_domains_node
+
+        state = {
+            "business_id": "biz-1",
+            "pages": [],
+            "domain_mapping": {"domain-a": [("repo", "ModA")]},
+            "domain_tree": [{"name": "domain-a"}],
+            "config": {},
+        }
+
+        mock_generator = AsyncMock()
+        mock_generator.generate = AsyncMock(return_value=[])
+
+        config = {
+            "configurable": {
+                "wiki_store": AsyncMock(),
+                "graph_store": AsyncMock(),
+            },
+        }
+
+        with (
+            patch("wiki.nodes.reassemble_domains._get_embedding_generator", return_value=mock_generator),
+            patch("wiki.nodes.reassemble_domains.get_settings") as mock_settings,
+            patch(_PERSIST_TREE, new_callable=AsyncMock) as mock_persist_tree,
+            patch(_PERSIST_LABELS, new_callable=AsyncMock) as mock_persist_labels,
+        ):
+            mock_settings.return_value.wiki.domain_reassembly_enabled = True
+            mock_settings.return_value.wiki.reassembly_merge_threshold = 0.85
+            mock_settings.return_value.wiki.reassembly_orphan_threshold = 0.60
+            mock_settings.return_value.wiki.reassembly_max_moves_pct = 0.30
+            mock_settings.return_value.wiki.reassembly_respect_user_modified = True
+            mock_settings.return_value.embedding = MagicMock()
+            result = await reassemble_domains_node(state, config)
+
+        assert result.get("reassembly_actions") == []
+        mock_persist_tree.assert_not_awaited()
+        mock_persist_labels.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_persist_failure_does_not_break_node(self):
+        from wiki.nodes.reassemble_domains import reassemble_domains_node
+
+        state = {
+            "business_id": "biz-1",
+            "pages": [
+                {"path": "domain-a/_overview", "content": "Handles authentication."},
+                {"path": "domain-b/_overview", "content": "Handles auth sessions."},
+            ],
+            "domain_mapping": {
+                "domain-a": [("repo", "ModA")],
+                "domain-b": [("repo", "ModB")],
+            },
+            "domain_tree": [{"name": "domain-a"}, {"name": "domain-b"}],
+            "domain_display_names": {"domain-a": "Auth", "domain-b": "Session"},
+            "modules": {},
+            "config": {"reassembly_merge_threshold": 0.80},
+        }
+
+        mock_generator = AsyncMock()
+        emb = [1.0] * 1024
+        mock_generator.generate = AsyncMock(return_value=[emb, emb])
+
+        mock_llm = AsyncMock()
+        mock_llm.complete = AsyncMock(
+            return_value='{"approved_merges": [{"source": "domain-b", "target": "domain-a"}]}'
+        )
+
+        config = {
+            "configurable": {
+                "llm": mock_llm,
+                "wiki_store": AsyncMock(),
+                "graph_store": AsyncMock(),
+            },
+        }
+
+        with (
+            patch("wiki.nodes.reassemble_domains._get_embedding_generator", return_value=mock_generator),
+            patch("wiki.nodes.reassemble_domains._get_pinned_domains", return_value=set()),
+            patch("wiki.nodes.reassemble_domains.get_settings") as mock_settings,
+            patch(_PERSIST_TREE, new_callable=AsyncMock, side_effect=RuntimeError("wiki down")),
+            patch(_PERSIST_LABELS, new_callable=AsyncMock, side_effect=RuntimeError("graph down")),
+        ):
+            mock_settings.return_value.wiki.domain_reassembly_enabled = True
+            mock_settings.return_value.wiki.reassembly_merge_threshold = 0.85
+            mock_settings.return_value.wiki.reassembly_orphan_threshold = 0.60
+            mock_settings.return_value.wiki.reassembly_max_moves_pct = 0.30
+            mock_settings.return_value.wiki.reassembly_respect_user_modified = True
+            mock_settings.return_value.embedding = MagicMock()
+            result = await reassemble_domains_node(state, config)
+
+        assert "domain-b" not in result["domain_mapping"]
+        assert any(a["type"] == "merge" for a in result["reassembly_actions"])
+        assert "domain_mapping" in result

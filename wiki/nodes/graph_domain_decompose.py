@@ -454,9 +454,13 @@ async def graph_driven_domain_decompose_node(
         }
 
     naming_tasks = [_name_community(community) for community in communities]
-    communities_named: list[dict[str, Any]] = list(
-        await asyncio.gather(*naming_tasks, return_exceptions=False)
-    )
+    results = await asyncio.gather(*naming_tasks, return_exceptions=True)
+    communities_named: list[dict[str, Any]] = []
+    for r in results:
+        if isinstance(r, Exception):
+            log.warning("domain_naming_task_failed", exc_info=r)
+        elif isinstance(r, dict):
+            communities_named.append(r)
 
     # Ensure unique slugs
     seen_slugs: set[str] = set()

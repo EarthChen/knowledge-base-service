@@ -116,7 +116,7 @@ class GraphSemanticCorrector:
 
     @staticmethod
     def _has_chinese(text: str) -> bool:
-        return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+        return any("一" <= ch <= "鿿" for ch in text)
 
     async def review_global_consistency(
         self,

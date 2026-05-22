@@ -2,7 +2,7 @@
 """Tests for wiki-driven domain reassembly."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
 import pytest
@@ -225,3 +225,159 @@ class TestOrphanMatching:
             [], {"d": np.array([1.0])}, AsyncMock(), threshold=0.6, pinned_domains=set(),
         )
         assert assignments == []
+
+
+class TestExecuteMerges:
+    def test_merge_two_domains(self):
+        from wiki.nodes.reassemble_domains import _execute_merges
+
+        mapping = {"domain-a": [("repo", "ModA")], "domain-b": [("repo", "ModB")]}
+        names = {"domain-a": "Auth", "domain-b": "Session"}
+        tree = [{"slug": "domain-a"}, {"slug": "domain-b"}]
+
+        new_mapping, new_names, new_tree, actions = _execute_merges(
+            mapping, names, tree,
+            [{"source": "domain-b", "target": "domain-a"}],
+        )
+        assert "domain-b" not in new_mapping
+        assert ("repo", "ModB") in new_mapping["domain-a"]
+        assert len(new_tree) == 1
+        assert actions[0]["type"] == "merge"
+
+    def test_skip_already_merged_source(self):
+        from wiki.nodes.reassemble_domains import _execute_merges
+
+        mapping = {"a": [1], "b": [2], "c": [3]}
+        names = {"a": "A", "b": "B", "c": "C"}
+        tree = [{"slug": "a"}, {"slug": "b"}, {"slug": "c"}]
+
+        _, _, _, actions = _execute_merges(
+            mapping, names, tree,
+            [{"source": "b", "target": "a"}, {"source": "b", "target": "c"}],
+        )
+        assert len(actions) == 1  # Second merge skipped because b already merged
+
+
+class TestReassembleDomainsNode:
+    @pytest.mark.asyncio
+    async def test_skip_when_disabled_in_config(self):
+        from wiki.nodes.reassemble_domains import reassemble_domains_node
+
+        state = {
+            "pages": [],
+            "domain_mapping": {},
+            "domain_tree": [],
+            "config": {"reassembly_enabled": False},
+        }
+        result = await reassemble_domains_node(state)
+        assert result.get("reassembly_actions") == []
+
+    @pytest.mark.asyncio
+    async def test_skip_when_no_overview_pages(self):
+        from wiki.nodes.reassemble_domains import reassemble_domains_node
+
+        state = {
+            "pages": [{"path": "some/page", "content": "No overviews here"}],
+            "domain_mapping": {"domain-a": [("repo", "ModA")]},
+            "domain_tree": [{"slug": "domain-a"}],
+            "config": {},
+        }
+
+        mock_generator = AsyncMock()
+        mock_generator.generate = AsyncMock(return_value=[])
+
+        with patch("wiki.nodes.reassemble_domains._get_embedding_generator", return_value=mock_generator), \
+             patch("wiki.nodes.reassemble_domains.get_settings") as mock_settings:
+            mock_settings.return_value.wiki.domain_reassembly_enabled = True
+            mock_settings.return_value.wiki.reassembly_merge_threshold = 0.85
+            mock_settings.return_value.wiki.reassembly_orphan_threshold = 0.60
+            mock_settings.return_value.wiki.reassembly_max_moves_pct = 0.30
+            mock_settings.return_value.wiki.reassembly_respect_user_modified = True
+            mock_settings.return_value.embedding = MagicMock()
+            result = await reassemble_domains_node(state)
+
+        assert result.get("reassembly_actions") == []
+
+    @pytest.mark.asyncio
+    async def test_merge_approved_by_llm(self):
+        from wiki.nodes.reassemble_domains import reassemble_domains_node
+
+        state = {
+            "pages": [
+                {"path": "domain-a/_overview", "content": "Handles authentication."},
+                {"path": "domain-b/_overview", "content": "Handles auth sessions."},
+            ],
+            "domain_mapping": {
+                "domain-a": [("repo", "ModA")],
+                "domain-b": [("repo", "ModB")],
+            },
+            "domain_tree": [{"slug": "domain-a"}, {"slug": "domain-b"}],
+            "domain_display_names": {"domain-a": "Auth", "domain-b": "Session"},
+            "config": {"reassembly_merge_threshold": 0.80},
+        }
+
+        mock_generator = AsyncMock()
+        # Very similar embeddings
+        emb = [1.0] * 1024
+        mock_generator.generate = AsyncMock(return_value=[emb, emb])
+
+        mock_llm = AsyncMock()
+        mock_llm.chat_complete = AsyncMock(
+            return_value='{"approved_merges": [{"source": "domain-b", "target": "domain-a"}]}'
+        )
+
+        config = {"configurable": {"llm": mock_llm}}
+
+        with patch("wiki.nodes.reassemble_domains._get_embedding_generator", return_value=mock_generator), \
+             patch("wiki.nodes.reassemble_domains._get_pinned_domains", return_value=set()), \
+             patch("wiki.nodes.reassemble_domains.get_settings") as mock_settings:
+            mock_settings.return_value.wiki.domain_reassembly_enabled = True
+            mock_settings.return_value.wiki.reassembly_merge_threshold = 0.85
+            mock_settings.return_value.wiki.reassembly_orphan_threshold = 0.60
+            mock_settings.return_value.wiki.reassembly_max_moves_pct = 0.30
+            mock_settings.return_value.wiki.reassembly_respect_user_modified = True
+            mock_settings.return_value.embedding = MagicMock()
+            result = await reassemble_domains_node(state, config)
+
+        assert "domain-b" not in result["domain_mapping"]
+        assert ("repo", "ModB") in result["domain_mapping"]["domain-a"]
+        assert any(a["type"] == "merge" for a in result["reassembly_actions"])
+
+    @pytest.mark.asyncio
+    async def test_rollback_when_too_many_moves(self):
+        from wiki.nodes.reassemble_domains import reassemble_domains_node
+
+        state = {
+            "pages": [
+                {"path": f"domain-{i}/_overview", "content": f"Domain {i} content."}
+                for i in range(10)
+            ],
+            "domain_mapping": {f"domain-{i}": [("repo", f"Mod{i}")] for i in range(10)},
+            "domain_tree": [{"slug": f"domain-{i}"} for i in range(10)],
+            "domain_display_names": {f"domain-{i}": f"Domain {i}" for i in range(10)},
+            "config": {"reassembly_max_moves_pct": 0.05},  # Max 5% = 0.5 → effectively 0 moves allowed
+        }
+
+        mock_generator = AsyncMock()
+        mock_generator.generate = AsyncMock(return_value=[[1.0] * 1024] * 10)
+
+        mock_llm = AsyncMock()
+        mock_llm.chat_complete = AsyncMock(
+            return_value='{"approved_merges": [{"source": "domain-1", "target": "domain-0"}, {"source": "domain-2", "target": "domain-0"}]}'
+        )
+
+        config = {"configurable": {"llm": mock_llm}}
+
+        with patch("wiki.nodes.reassemble_domains._get_embedding_generator", return_value=mock_generator), \
+             patch("wiki.nodes.reassemble_domains._get_pinned_domains", return_value=set()), \
+             patch("wiki.nodes.reassemble_domains.get_settings") as mock_settings:
+            mock_settings.return_value.wiki.domain_reassembly_enabled = True
+            mock_settings.return_value.wiki.reassembly_merge_threshold = 0.85
+            mock_settings.return_value.wiki.reassembly_orphan_threshold = 0.60
+            mock_settings.return_value.wiki.reassembly_max_moves_pct = 0.05
+            mock_settings.return_value.wiki.reassembly_respect_user_modified = True
+            mock_settings.return_value.embedding = MagicMock()
+            result = await reassemble_domains_node(state, config)
+
+        # Rollback should have triggered
+        assert any(a.get("type") == "rollback" for a in result["reassembly_actions"])

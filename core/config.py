@@ -198,6 +198,12 @@ class AppWikiFlags(BaseModel):
     cross_reference_min_confidence: float = 0.5
     cross_repo_domain_enabled: bool = False
     domain_classification_cache_enabled: bool = True
+    # Domain reassembly (post-wiki-generation domain structure correction)
+    domain_reassembly_enabled: bool = True
+    reassembly_merge_threshold: float = Field(default=0.85, ge=0.5, le=1.0)
+    reassembly_orphan_threshold: float = Field(default=0.60, ge=0.3, le=1.0)
+    reassembly_max_moves_pct: float = Field(default=0.30, ge=0.0, le=1.0)
+    reassembly_respect_user_modified: bool = True
     knowledge_injection_enabled: bool = True
     snapshot_enabled: bool = True
     """When true, run compilation snapshot after wiki pages are persisted."""

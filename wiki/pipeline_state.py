@@ -98,6 +98,8 @@ class WikiPipelineState(TypedDict):
     module_tree: NotRequired[list[dict[str, Any]]]  # serialized ModuleTree
     canonical_keys: NotRequired[dict[str, str]]  # canonical_key → readable title
     domain_cache: NotRequired[dict[str, str]]  # pipeline-level shared domain cache
+    # --- Domain reassembly (post-wiki-generation correction) ---
+    reassembly_actions: NotRequired[list[dict[str, Any]]]
     module_call_edges: NotRequired[list[dict[str, Any]]]  # cross-module call edges for parent overview stats
 
     # --- Domain display names (set by classify_domains, consumed by persist_classification + service) ---

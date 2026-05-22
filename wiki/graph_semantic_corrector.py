@@ -12,22 +12,6 @@ from wiki.prompts import SYSTEM_JSON_ONLY
 
 log = get_logger(__name__)
 
-_MODULE_CORRECTION_PROMPT = (
-    "You are reviewing business domain assignments for code modules.\n"
-    "Below are the detected domains with module details:\n\n"
-    "{domain_listing}\n\n"
-    "Identify modules that clearly DO NOT belong to their assigned domain.\n"
-    "Focus on modules whose NAME and PATH indicate a DIFFERENT business domain "
-    "from the majority in that domain.\n\n"
-    "Rules:\n"
-    "- Only flag OBVIOUS misplacements (module name/path clearly indicates different domain)\n"
-    "- Infrastructure modules (TaskExecutor, BaseService, CommonUtils, etc.) should stay\n"
-    "- If unsure, do NOT flag\n\n"
-    "Return ONLY valid JSON:\n"
-    '{{"moves": [{{"module": "...", "from_domain": "...", "to_domain": "...", "reason": "..."}}]}}\n'
-    'If no moves needed: {{"moves": []}}'
-)
-
 _DOMAIN_MERGE_PROMPT = (
     "You are reviewing domain names for a wiki documentation tree.\n"
     "Below are all current domain names:\n\n"
@@ -55,7 +39,9 @@ _GLOBAL_REVIEW_PROMPT = (
     "Rules:\n"
     "- Only merge when business meaning clearly overlaps\n"
     "- Keep the domain with more modules as the merge target\n"
-    "- Max 30% of modules can be moved\n\n"
+    "- Max 30% of modules can be moved\n"
+    "- IMPORTANT: new_display_name MUST be concise Chinese business terminology "
+    "(2-6 Chinese characters), NOT English or slug-like names\n\n"
     "Return ONLY valid JSON:\n"
     '{{"merges": [{{"sources": ["slug1", "slug2"], "target": "slug1",'
     ' "new_display_name": "...", "reason": "..."}}],'
@@ -73,115 +59,11 @@ def _shorten_path(path: str, levels: int = 3) -> str:
     return "/".join(parts[-levels:]) if len(parts) > levels else path
 
 
-def _build_domain_listing(
-    domain_mapping: dict[str, list[tuple[str, str]]],
-    domain_display_names: dict[str, str],
-    module_paths: dict[str, str],
-    module_summaries: dict[str, str],
-) -> str:
-    lines: list[str] = []
-    for slug, pairs in sorted(domain_mapping.items()):
-        display = domain_display_names.get(slug, slug)
-        lines.append(f"Domain: {slug} ({display})")
-        for _repo, mod_name in sorted(pairs, key=lambda p: p[1]):
-            path = module_paths.get(mod_name, "")
-            summary = module_summaries.get(mod_name, "")
-            path_part = f"  [path: {_shorten_path(path)}]" if path else ""
-            summary_part = f"  -- {summary}" if summary else ""
-            lines.append(f"  - {mod_name}{path_part}{summary_part}")
-        lines.append("")
-    return "\n".join(lines)
-
-
 class GraphSemanticCorrector:
     """LLM-based semantic coherence correction for domain assignments."""
 
     def __init__(self, llm: LLMPort | None):
         self._llm = llm
-
-    async def correct_module_assignments(
-        self,
-        domain_mapping: dict[str, list[tuple[str, str]]],
-        domain_display_names: dict[str, str],
-        module_paths: dict[str, str],
-        module_summaries: dict[str, str],
-    ) -> dict[str, list[tuple[str, str]]]:
-        if self._llm is None or not domain_mapping:
-            return domain_mapping
-
-        total_modules = sum(len(v) for v in domain_mapping.values())
-        if total_modules <= 3:
-            return domain_mapping
-
-        listing = _build_domain_listing(
-            domain_mapping,
-            domain_display_names,
-            module_paths,
-            module_summaries,
-        )
-        prompt = _MODULE_CORRECTION_PROMPT.format(domain_listing=listing)
-
-        try:
-            raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
-            parsed = parse_json_robust_sync(raw)
-        except Exception:
-            log.warning("semantic_correction_llm_failed", exc_info=True)
-            return domain_mapping
-
-        if not isinstance(parsed, dict):
-            return domain_mapping
-
-        moves = parsed.get("moves")
-        if not isinstance(moves, list) or not moves:
-            return domain_mapping
-
-        max_moves = max(int(total_modules * _MAX_MOVE_RATIO), 1)
-
-        module_to_repo: dict[str, str] = {}
-        for slug, pairs in domain_mapping.items():
-            for repo, mod_name in pairs:
-                module_to_repo[mod_name] = repo
-
-        new_mapping = {slug: list(pairs) for slug, pairs in domain_mapping.items()}
-        applied = 0
-
-        for move in moves:
-            if applied >= max_moves:
-                break
-            mod_name = move.get("module", "")
-            from_domain = move.get("from_domain", "")
-            to_domain = move.get("to_domain", "")
-
-            if not mod_name or not from_domain or not to_domain:
-                continue
-            if from_domain not in new_mapping or to_domain not in new_mapping:
-                continue
-
-            repo = module_to_repo.get(mod_name)
-            if repo is None:
-                continue
-
-            pair = (repo, mod_name)
-            if pair not in new_mapping[from_domain]:
-                continue
-
-            new_mapping[from_domain].remove(pair)
-            new_mapping[to_domain].append(pair)
-            applied += 1
-            log.info(
-                "semantic_correction_move",
-                module=mod_name,
-                from_domain=from_domain,
-                to_domain=to_domain,
-                reason=move.get("reason", ""),
-            )
-
-        new_mapping = {k: v for k, v in new_mapping.items() if v}
-
-        if applied:
-            log.info("semantic_correction_applied", total_moves=applied, max_allowed=max_moves)
-
-        return new_mapping
 
     async def merge_similar_domains(
         self,
@@ -232,6 +114,10 @@ class GraphSemanticCorrector:
 
         return valid_merges
 
+    @staticmethod
+    def _has_chinese(text: str) -> bool:
+        return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+
     async def review_global_consistency(
         self,
         domain_mapping: dict[str, list[tuple[str, str]]],
@@ -245,13 +131,18 @@ class GraphSemanticCorrector:
         if self._llm is None or len(domain_mapping) <= 1:
             return domain_mapping, domain_display_names
 
-        # Build compact listing (top 5 modules per domain, no full summaries)
+        # Build compact listing (top 10 modules per domain, with path and summary)
         lines: list[str] = []
         for slug, pairs in sorted(domain_mapping.items(), key=lambda x: -len(x[1])):
             display = domain_display_names.get(slug, slug)
-            top_names = sorted([name for _, name in pairs])[:5]
+            top = sorted(pairs, key=lambda p: p[1])[:10]
             lines.append(f"- {slug} ({display}) — {len(pairs)} modules")
-            lines.append(f"  {', '.join(top_names)}")
+            for _repo, mod_name in top:
+                path = module_paths.get(mod_name, "")
+                summary = module_summaries.get(mod_name, "")
+                path_part = f" [path: {_shorten_path(path)}]" if path else ""
+                summary_part = f" -- {summary}" if summary else ""
+                lines.append(f"  - {mod_name}{path_part}{summary_part}")
         listing = "\n".join(lines)
 
         prompt = _GLOBAL_REVIEW_PROMPT.format(
@@ -283,7 +174,7 @@ class GraphSemanticCorrector:
                 if target not in new_mapping:
                     continue
                 new_name = merge.get("new_display_name")
-                if isinstance(new_name, str) and new_name:
+                if isinstance(new_name, str) and new_name and self._has_chinese(new_name):
                     new_display[target] = new_name
                 for src in sources:
                     if src == target or src not in new_mapping:
@@ -299,6 +190,9 @@ class GraphSemanticCorrector:
                 slug = rename.get("slug", "")
                 new_name = rename.get("new_display_name", "")
                 if slug in new_display and isinstance(new_name, str) and new_name:
+                    if not self._has_chinese(new_name):
+                        log.warning("global_review_rename_skipped_non_chinese", slug=slug, new_name=new_name)
+                        continue
                     new_display[slug] = new_name
                     log.info("global_review_rename", slug=slug, new_name=new_name)
 

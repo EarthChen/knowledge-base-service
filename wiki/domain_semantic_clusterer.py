@@ -17,7 +17,7 @@ _MAX_CLUSTERS = 15
 _SMALL_N_THRESHOLD = 10
 
 
-def _shorten_path(path: str, levels: int = 2) -> str:
+def _shorten_path(path: str, levels: int = 4) -> str:
     parts = path.replace("\\", "/").split("/")
     if len(parts) <= 1:
         return path
@@ -53,14 +53,37 @@ class DomainSemanticClusterer:
             summary_data = summaries.get(name)
             if isinstance(summary_data, dict):
                 summary_text = str(summary_data.get("summary_text", ""))
+                methods = summary_data.get("methods", [])
+                docstring = str(summary_data.get("docstring", ""))
             elif isinstance(summary_data, str):
                 summary_text = summary_data
+                methods = []
+                docstring = ""
             else:
                 summary_text = ""
+                methods = []
+                docstring = ""
+
+            # Build enrichment parts
+            enrichment_parts: list[str] = []
             if summary_text:
-                texts.append(f"{name} [{path}] — {summary_text}")
-            else:
-                texts.append(f"{name} [{path}]" if path else name)
+                enrichment_parts.append(summary_text)
+            if docstring:
+                enrichment_parts.append(docstring)
+            if methods and isinstance(methods, list):
+                method_str = ", ".join(str(m) for m in methods[:10])
+                enrichment_parts.append(f"methods: {method_str}")
+
+            # If no enrichment at all, use method names as fallback
+            if not enrichment_parts and isinstance(summary_data, dict):
+                fallback_methods = summary_data.get("methods", [])
+                if fallback_methods and isinstance(fallback_methods, list):
+                    enrichment_parts.append(
+                        "methods: " + ", ".join(str(m) for m in fallback_methods[:10])
+                    )
+
+            enrichment = " — " + " | ".join(enrichment_parts) if enrichment_parts else ""
+            texts.append(f"{name} [{path}]{enrichment}" if path else f"{name}{enrichment}")
         return texts
 
     def _compute_cosine_distance(self, embeddings: np.ndarray) -> np.ndarray:

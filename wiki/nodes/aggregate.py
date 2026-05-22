@@ -151,13 +151,29 @@ async def compose_parent_pages_node(
     system_prompt = system_wiki_parent_overview(content_language)
 
     parent_levels = _collect_parent_domains_by_level(domain_tree)
+    total_parents = sum(len(lvl) for lvl in parent_levels)
+    log.info(
+        "compose_parent_pages_start",
+        levels=len(parent_levels),
+        total_parents=total_parents,
+    )
     all_parent_pages: list[dict[str, Any]] = []
+    parent_idx = 0
 
-    for level_parents in parent_levels:
+    for level_idx, level_parents in enumerate(parent_levels):
         for parent_domain in level_parents:
             parent_name = str(parent_domain.get("name", "") or "").strip()
             if not parent_name:
                 continue
+            parent_idx += 1
+            child_count = len(parent_domain.get("children", []) or [])
+            log.info(
+                "compose_parent_page_generating",
+                domain=parent_name,
+                level=level_idx,
+                progress=f"{parent_idx}/{total_parents}",
+                child_count=child_count,
+            )
             children = parent_domain.get("children", []) or []
             if not isinstance(children, list):
                 continue
@@ -226,6 +242,7 @@ async def compose_parent_pages_node(
                     log.warning(
                         "compose_parent_pages_complete_json_failed",
                         domain=parent_name,
+                        progress=f"{parent_idx}/{total_parents}",
                         exc_info=True,
                     )
                     continue
@@ -247,6 +264,7 @@ async def compose_parent_pages_node(
                     log.warning(
                         "compose_parent_pages_failed",
                         domain=parent_name,
+                        progress=f"{parent_idx}/{total_parents}",
                         exc_info=True,
                     )
                     continue
@@ -271,6 +289,12 @@ async def compose_parent_pages_node(
                     "metadata": {"executive_summary": exec_summary},
                 }
                 all_parent_pages.append(page_dict)
+                log.info(
+                    "compose_parent_page_done",
+                    domain=parent_name,
+                    progress=f"{parent_idx}/{total_parents}",
+                    content_len=len(content),
+                )
                 exec_str = str(exec_summary) if exec_summary is not None else ""
                 parent_ls = LeafSummary(
                     domain_name=parent_name,
@@ -287,6 +311,11 @@ async def compose_parent_pages_node(
                     exc_info=True,
                 )
 
+    log.info(
+        "compose_parent_pages_complete",
+        total_parents=total_parents,
+        pages_generated=len(all_parent_pages),
+    )
     return {"pages": all_parent_pages, "leaf_summaries": leaf_summaries}
 
 

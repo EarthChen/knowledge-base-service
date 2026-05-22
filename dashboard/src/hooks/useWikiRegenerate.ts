@@ -112,6 +112,13 @@ export function useWikiRegenerate(businessId: string) {
           }
           return;
         }
+        if (st.status === "cancelled") {
+          clearActiveTask(pollForBusiness);
+          if (showToasts && isActiveBusiness(pollForBusiness)) {
+            toast("info", t.wiki.taskCancelled);
+          }
+          return;
+        }
       }
       if (mountedRef.current && inFlightRef.current && isActiveBusiness(pollForBusiness)) {
         if (showToasts) {
@@ -147,7 +154,7 @@ export function useWikiRegenerate(businessId: string) {
       try {
         const st = await businessWikiTaskStatus(savedTaskId);
         if (cancelled || !isActiveBusiness(resumeForBusiness)) return;
-        if (st.status === "completed" || st.status === "failed") {
+        if (st.status === "completed" || st.status === "failed" || st.status === "cancelled") {
           if (st.status === "completed" && isActiveBusiness(resumeForBusiness)) {
             await invalidateWikiQueriesForBusiness(queryClient, resumeForBusiness);
           }

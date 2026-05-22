@@ -90,6 +90,14 @@ async def _persist_domain_tree_to_wiki(
         description=f"Business-level wiki for {business_id}",
     )
 
+    # Clean up stale WikiSection nodes from previous runs
+    try:
+        deleted = await wiki_store.delete_domain_sections(space_uid, "business_domain")
+        if deleted:
+            log.info("persist_classification_cleanup", deleted_sections=deleted)
+    except Exception:
+        log.warning("persist_classification_cleanup_failed", exc_info=True)
+
     has_nested = domain_tree is not None and len(domain_tree) > 0
 
     if has_nested:

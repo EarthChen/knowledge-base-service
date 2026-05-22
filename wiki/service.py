@@ -1090,6 +1090,44 @@ class WikiService:
                 changed_repos = set(all_modules.keys())
                 skipped_repos = []
 
+        # Business wikis store pages with repository=business_id, so the per-repo
+        # freshness join (Module.repository vs WikiPage.repository) can't match.
+        # Fall back to a business-level check when per-repo yields all-changed.
+        business_level_no_changes = False
+        if incremental and changed_repos == set(all_modules.keys()) and all_modules:
+            try:
+                result = await self._store.execute_query(
+                    "MATCH (m:Module) WHERE m.repository IS NOT NULL "
+                    "WITH max(coalesce(m.indexed_at, '')) AS max_indexed "
+                    "OPTIONAL MATCH (wp:WikiPage {repository: $biz_id}) "
+                    "WITH max_indexed, max(coalesce(wp.generated_at, '')) AS max_generated "
+                    "RETURN "
+                    "CASE WHEN max_indexed = '' THEN null ELSE max_indexed END AS max_indexed, "
+                    "CASE WHEN max_generated = '' THEN null ELSE max_generated END AS max_generated",
+                    {"biz_id": business_id},
+                )
+                rows = getattr(result, "data", None) or []
+                if rows and isinstance(rows[0], dict):
+                    max_idx = rows[0].get("max_indexed")
+                    max_gen = rows[0].get("max_generated")
+                    if max_idx and max_gen and str(max_gen) >= str(max_idx):
+                        business_level_no_changes = True
+                        log.info(
+                            "business_freshness_no_changes",
+                            business_id=business_id,
+                            max_indexed=max_idx,
+                            max_generated=max_gen,
+                        )
+                    else:
+                        log.info(
+                            "business_freshness_has_changes",
+                            business_id=business_id,
+                            max_indexed=max_idx,
+                            max_generated=max_gen,
+                        )
+            except Exception:
+                log.warning("business_freshness_check_failed", exc_info=True)
+
         # --- Domain-level incremental: detect affected domains ---
         existing_domain_tree: list | None = None
         affected_domain_names: list[str] | None = None
@@ -1122,6 +1160,18 @@ class WikiService:
                     )
             except Exception:
                 log.warning("compute_domain_diff_failed", business_id=business_id, exc_info=True)
+
+        no_content_changes = incremental and affected_domain_names is None and (
+            not changed_repos or business_level_no_changes
+        )
+        log.info(
+            "no_content_changes_eval",
+            incremental=incremental,
+            affected_domain_names=affected_domain_names,
+            changed_repos_count=len(changed_repos),
+            business_level_no_changes=business_level_no_changes,
+            no_content_changes=no_content_changes,
+        )
 
         total_repos = len(all_modules)
         if progress_callback:
@@ -1310,7 +1360,11 @@ class WikiService:
         )
 
         if all_pages:
-            await self._persist_pages_to_graph(business_id, all_pages, language=language)
+            await self._persist_pages_to_graph(
+                business_id, all_pages, language=language,
+                skip_claim_tracking=no_content_changes,
+                skip_embedding=no_content_changes,
+            )
 
             current_paths = [p.path for p in all_pages]
             if affected_domain_names:
@@ -1610,9 +1664,12 @@ class WikiService:
         *,
         language: str = "en",
         skip_claim_tracking: bool = False,
+        skip_embedding: bool = False,
     ) -> None:
         return await self._persistence.persist_pages_to_graph(
-            repository, pages, language=language, skip_claim_tracking=skip_claim_tracking
+            repository, pages, language=language,
+            skip_claim_tracking=skip_claim_tracking,
+            skip_embedding=skip_embedding,
         )
 
     @staticmethod

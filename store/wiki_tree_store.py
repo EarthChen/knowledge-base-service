@@ -140,6 +140,26 @@ class WikiTreeStoreMixin:
         rows = getattr(result, "data", None) or []
         return int(rows[0].get("moved", 0)) if rows else 0
 
+    async def delete_domain_sections(
+        self, space_uid: str, view_type: str = "business_domain",
+    ) -> int:
+        """Delete all WikiSection nodes under a WikiSpace for a given view_type.
+
+        Only removes WikiSection nodes (not WikiPage). HAS_CHILD edges to
+        WikiPage nodes are also removed so pages become temporarily unlinked
+        (the pipeline re-links them later).
+        """
+        q = (
+            "MATCH (ws {uid: $space_uid})-[:HAS_CHILD* {view_type: $vt}]->(s:WikiSection) "
+            "DETACH DELETE s "
+            "RETURN count(s) AS deleted"
+        )
+        result = await self._store.execute_query(
+            q, {"space_uid": space_uid, "vt": view_type},
+        )
+        rows = getattr(result, "data", None) or []
+        return int(rows[0].get("deleted", 0)) if rows else 0
+
     async def delete_wiki_section_cascade(
         self, uid: str, view_type: str = "business_domain",
     ) -> int:
@@ -253,7 +273,7 @@ class WikiTreeStoreMixin:
         self,
         business_id: str,
         view_type: str,
-        max_depth: int = 5,
+        max_depth: int = 8,
         wiki_tier: str | None = None,
     ) -> QueryResultWrapper:
         tier_filter = ""

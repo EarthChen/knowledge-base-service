@@ -119,7 +119,9 @@ class TestPipelineIntegration:
         """persist_classification_node should save domain_mapping."""
         from wiki.nodes.persist_classification import persist_classification_node
 
-        mock_persistence = AsyncMock()
+        mock_wiki_store = AsyncMock()
+        mock_graph_store = AsyncMock()
+        mock_graph_store.execute_query = AsyncMock()
         state = {
             "business_id": "biz1",
             "domain_mapping": {
@@ -129,11 +131,12 @@ class TestPipelineIntegration:
                     "modules": [("r1", "Svc")],
                 }
             },
-            "persistence": mock_persistence,
+            "domain_display_names": {"gift-system": "礼物系统"},
+            "modules": {},
         }
-        result = await persist_classification_node(state)
+        config = {"configurable": {"wiki_store": mock_wiki_store, "graph_store": mock_graph_store}}
+        result = await persist_classification_node(state, config)
         assert result["classification_persisted"] is True
-        mock_persistence.save_domain_classification.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_checkpoint_lifecycle(self):

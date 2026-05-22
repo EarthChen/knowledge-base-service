@@ -153,7 +153,7 @@ class TestHealUpdatesCache:
         }
         # Without LLM, heal only updates hints; cache should still be returned
         result = await heal_pages_node(state)
-        assert "_structural_check_cache" in result or True  # hint update is ok
+        assert "_structural_check_cache" in state  # cache preserved through heal
 
 
 class TestHealSkipsUnchanged:

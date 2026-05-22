@@ -19,6 +19,7 @@ def test_node_phase_map_covers_all_pipeline_nodes() -> None:
         "compose_domain_agents",
         "summarize_leaves",
         "compose_parent_pages",
+        "reassemble_domains",
         "quality_gate",
         "heal_pages",
         "create_links",

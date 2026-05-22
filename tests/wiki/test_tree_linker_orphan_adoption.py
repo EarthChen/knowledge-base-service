@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from wiki.dependency_graph import DomainNode
 from wiki.tree_builder import WikiTreeBuilder
 from wiki.tree_linker import WikiTreeLinker
+
+
+@pytest.fixture(autouse=True)
+def _disable_reassembly():
+    """Disable domain_reassembly so orphan adoption runs in these tests."""
+    with patch("wiki.tree_linker.get_settings") as mock_gs:
+        mock_gs.return_value.wiki.domain_reassembly_enabled = False
+        yield
 
 
 def _make_linker(wiki_store: MagicMock) -> WikiTreeLinker:

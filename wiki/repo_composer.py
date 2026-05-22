@@ -25,6 +25,7 @@ from wiki.models import (
     WikiStructure,
     WikiStructureNode,
 )
+from wiki.pipeline_concurrency import PipelineConcurrency
 from wiki.structure_planner import GraphQueryPort
 
 
@@ -75,9 +76,6 @@ def _wiki_architecture_path() -> str:
 def _wiki_data_flow_path(slug: str) -> str:
     safe = re.sub(r"[^a-zA-Z0-9_.-]+", "_", slug.strip())
     return f"flows/{safe}.md"
-
-
-MAX_CONCURRENT_MODULE_COMPOSE = 3
 
 
 class ArchitectureLayer(StrEnum):
@@ -481,7 +479,7 @@ class WikiRepoComposer:
         glossary = await self._ctx.build_glossary(module_names, module_names)
         repo_ctx = await self._ctx.build_repository_context(module_names)
 
-        sem = asyncio.Semaphore(MAX_CONCURRENT_MODULE_COMPOSE)
+        sem = PipelineConcurrency.semaphore("module_compose")
 
         async def one_module(mod: GraphNode) -> tuple[list[WikiPage], WikiStructureNode]:
             async with sem:

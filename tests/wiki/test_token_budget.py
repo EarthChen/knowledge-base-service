@@ -106,7 +106,7 @@ def test_budget_for_snippets_small_domain():
 
 def test_budget_for_snippets_large_domain_capped():
     calc = TokenBudgetCalculator()
-    assert calc.budget_for_snippets(100) == 3000  # capped
+    assert calc.budget_for_snippets(100) == 6000  # capped at 6000
 
 
 def test_budget_for_parent_summaries():
@@ -127,3 +127,73 @@ def test_budget_for_system_overview():
 def test_budget_for_system_overview_capped():
     calc = TokenBudgetCalculator()
     assert calc.budget_for_system_overview(50) == 8000
+
+
+class TestCrossComponentTracking:
+    """Task 17: Cross-component budget tracking."""
+
+    def test_initial_consumed_is_empty(self):
+        r = TokenBudgetResolver(base=30_000)
+        assert r._consumed == {}
+
+    def test_claim_returns_requested_when_budget_available(self):
+        r = TokenBudgetResolver(base=30_000)
+        # decomposition has ratio 1.0 → 30_000 budget
+        assert r.claim("decomposition", 1000) == 1000
+
+    def test_claim_caps_at_remaining_budget(self):
+        r = TokenBudgetResolver(base=30_000)
+        # compact has ratio 0.13 → 3_900 budget
+        r.claim("compact", 3000)
+        remaining = r.remaining("compact")
+        assert r.claim("compact", remaining + 500) == remaining
+
+    def test_claim_deducts_from_remaining(self):
+        r = TokenBudgetResolver(base=30_000)
+        budget = r.budget("assembly")  # 8100
+        r.claim("assembly", 2000)
+        assert r.remaining("assembly") == budget - 2000
+        r.claim("assembly", 1000)
+        assert r.remaining("assembly") == budget - 3000
+
+    def test_remaining_returns_full_budget_initially(self):
+        r = TokenBudgetResolver(base=30_000)
+        assert r.remaining("topic_page_generate") == r.budget("topic_page_generate")
+
+    def test_components_track_independently(self):
+        r = TokenBudgetResolver(base=30_000)
+        r.claim("compact", 1000)
+        assert r.remaining("compact") == r.budget("compact") - 1000
+        # Other component unaffected
+        assert r.remaining("assembly") == r.budget("assembly")
+
+    def test_claim_zero_returns_zero(self):
+        r = TokenBudgetResolver(base=30_000)
+        assert r.claim("compact", 0) == 0
+
+    def test_remaining_unknown_component_returns_budget(self):
+        r = TokenBudgetResolver(base=30_000)
+        assert r.remaining("unknown_component") == r.budget("unknown_component")
+
+    def test_drain_budget_entirely(self):
+        r = TokenBudgetResolver(base=30_000)
+        budget = r.budget("compact")
+        r.claim("compact", budget)
+        assert r.remaining("compact") == 0
+        assert r.claim("compact", 100) == 0
+
+
+def test_budget_for_snippets_at_old_cap_boundary():
+    """Module count that previously hit 3000 cap should now allow more."""
+    calc = TokenBudgetCalculator()
+    # 500 + 30 * 100 = 3500, was capped at 3000, now allows up to 6000
+    assert calc.budget_for_snippets(30) == 3500
+
+
+def test_budget_for_snippets_mid_range():
+    """Verify budget scales correctly in the new range."""
+    calc = TokenBudgetCalculator()
+    # 500 + 55 * 100 = 6000, exactly at new cap
+    assert calc.budget_for_snippets(55) == 6000
+    # 500 + 56 * 100 = 6100, capped at 6000
+    assert calc.budget_for_snippets(56) == 6000

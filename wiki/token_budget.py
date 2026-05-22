@@ -14,7 +14,7 @@ class TokenBudgetCalculator:
         return self.context_window - self.reserved_output - self.reserved_system
 
     def budget_for_snippets(self, module_count: int) -> int:
-        return min(500 + module_count * 100, 3000)
+        return min(500 + module_count * 100, 6000)
 
     def budget_for_parent_summaries(self, child_count: int) -> int:
         return min(child_count * 300, 5000)
@@ -66,6 +66,7 @@ class TokenBudgetResolver:
             base = 30_000
         self._base = base
         self._ceiling = int(ceiling * 0.8) if ceiling else None
+        self._consumed: dict[str, int] = {}
 
     def budget(self, component: str) -> int:
         ratio = self.RATIOS.get(component, 0.27)
@@ -78,3 +79,13 @@ class TokenBudgetResolver:
     def ask_budget(self, question_type: str | None = None) -> int:
         key = f"ask_{question_type or 'general'}"
         return self.budget(key)
+
+    def claim(self, component: str, requested: int) -> int:
+        """Claim tokens from a component's budget. Returns the amount granted (capped at remaining)."""
+        granted = min(requested, self.remaining(component))
+        self._consumed[component] = self._consumed.get(component, 0) + granted
+        return granted
+
+    def remaining(self, component: str) -> int:
+        """Return the remaining unclaimed budget for a component."""
+        return self.budget(component) - self._consumed.get(component, 0)

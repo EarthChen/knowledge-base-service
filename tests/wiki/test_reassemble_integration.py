@@ -1,8 +1,6 @@
 """Integration test: reassemble_domains is wired into the pipeline graph."""
 from __future__ import annotations
 
-import pytest
-
 
 class TestReassemblyPipelineWiring:
     def test_reassemble_node_exists_in_graph(self):

@@ -20,6 +20,54 @@ from wiki.models import WikiPage
 
 log = get_logger(__name__)
 
+_SECTION_MAX_CHARS = 6000
+
+
+def _split_content_for_embedding(content: str, max_chars: int = _SECTION_MAX_CHARS) -> list[str]:
+    """Split markdown content into sections that each fit within the embedding model's token limit.
+
+    Strategy: split on markdown headings (##), then on paragraph boundaries if still too long.
+    """
+    if not content or not content.strip():
+        return []
+    if len(content) <= max_chars:
+        return [content]
+
+    sections: list[str] = []
+    parts = re.split(r"(?=^#{1,3} )", content, flags=re.MULTILINE)
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        if len(part) <= max_chars:
+            sections.append(part)
+        else:
+            paragraphs = part.split("\n\n")
+            buf = ""
+            for para in paragraphs:
+                candidate = f"{buf}\n\n{para}" if buf else para
+                if len(candidate) <= max_chars:
+                    buf = candidate
+                else:
+                    if buf:
+                        sections.append(buf)
+                    buf = para[:max_chars] if len(para) > max_chars else para
+            if buf:
+                sections.append(buf)
+
+    return sections or [content[:max_chars]]
+
+
+def _mean_pool_embeddings(embeddings: list[list[float]]) -> list[float]:
+    """Average-pool a list of embedding vectors and L2-normalize."""
+    if len(embeddings) == 1:
+        return embeddings[0]
+    dim = len(embeddings[0])
+    n = len(embeddings)
+    avg = [sum(emb[i] for emb in embeddings) / n for i in range(dim)]
+    norm = sum(x * x for x in avg) ** 0.5 or 1.0
+    return [x / norm for x in avg]
+
 
 class WikiPagePersistence:
     """Owns all graph-write operations for wiki pages."""
@@ -148,6 +196,7 @@ class WikiPagePersistence:
         *,
         language: str = "en",
         skip_claim_tracking: bool = False,
+        skip_embedding: bool = False,
     ) -> None:
         if self._store is None or not hasattr(self._store, "persist_wiki_pages"):
             return
@@ -320,38 +369,67 @@ class WikiPagePersistence:
             except Exception as exc:
                 log.warning("wiki_confidence_persist_failed", repository=repository, error=str(exc))
 
-        if total_persisted > 0:
+        if total_persisted > 0 and not skip_embedding:
             _emb_t0 = _time.monotonic()
             log.info("wiki_page_embedding_start", repository=repository, page_count=len(persisted_dicts))
             try:
                 emb_gen = EmbeddingGenerator.shared(config=self._embedding_cfg)
-                items = [
-                    doc_dict_for_embedding(
-                        {"title": d["title"], "content": d["content"][:3000]},
-                    )
-                    for d in persisted_dicts
-                ]
-                embeddings = await emb_gen.generate_for_docs(items)
-                log.info("wiki_page_embedding_vectors_done", repository=repository, count=len(embeddings), elapsed_s=round(_time.monotonic() - _emb_t0, 1))
-                emb_items: list[tuple[str, NodeLabel, list[float]]] = [
-                    (
-                        f"WikiPage:{repository}:{page_dict['path']}",
-                        NodeLabel.WIKI_PAGE,
-                        embedding,
-                    )
-                    for page_dict, embedding in zip(persisted_dicts, embeddings, strict=True)
-                ]
+
+                all_sections: list[dict[str, str]] = []
+                page_section_counts: list[int] = []
+                for d in persisted_dicts:
+                    sections = _split_content_for_embedding(d["content"])
+                    if not sections:
+                        sections = [d["title"]]
+                    page_section_counts.append(len(sections))
+                    for sec in sections:
+                        all_sections.append(
+                            doc_dict_for_embedding({"title": d["title"], "content": sec})
+                        )
+
+                log.info(
+                    "wiki_page_embedding_sections",
+                    repository=repository,
+                    total_sections=len(all_sections),
+                    pages=len(persisted_dicts),
+                )
+
+                _WIKI_EMBED_CHUNK = 8
+                section_embeddings = await emb_gen.generate_for_docs(
+                    all_sections, chunk_size_override=_WIKI_EMBED_CHUNK,
+                )
+
+                idx = 0
+                emb_items: list[tuple[str, NodeLabel, list[float]]] = []
+                for page_dict, sec_count in zip(persisted_dicts, page_section_counts, strict=True):
+                    page_embs = section_embeddings[idx : idx + sec_count]
+                    idx += sec_count
+                    pooled = _mean_pool_embeddings(page_embs) if page_embs else []
+                    if pooled:
+                        emb_items.append((
+                            f"WikiPage:{repository}:{page_dict['path']}",
+                            NodeLabel.WIKI_PAGE,
+                            pooled,
+                        ))
+
+                log.info(
+                    "wiki_page_embedding_vectors_done",
+                    repository=repository,
+                    count=len(emb_items),
+                    elapsed_s=round(_time.monotonic() - _emb_t0, 1),
+                )
                 _batch = getattr(self._store, "batch_set_node_embeddings", None)
                 _f = getattr(_batch, "__func__", _batch) if _batch is not None else None
                 if _f is not None and inspect.iscoroutinefunction(_f):
                     await self._store.batch_set_node_embeddings(emb_items)
                 else:
-                    for page_dict, embedding in zip(persisted_dicts, embeddings, strict=True):
-                        uid = f"WikiPage:{repository}:{page_dict['path']}"
-                        await self._store.set_node_embedding(uid, NodeLabel.WIKI_PAGE, embedding)
+                    for uid, label, emb in emb_items:
+                        await self._store.set_node_embedding(uid, label, emb)
                 log.info("wiki_page_embedding_done", repository=repository, elapsed_s=round(_time.monotonic() - _emb_t0, 1))
             except Exception as exc:
                 log.warning("wiki_page_embedding_failed", repository=repository, error=str(exc))
+        elif skip_embedding:
+            log.info("wiki_page_embedding_skipped", repository=repository, reason="skip_embedding_flag")
         else:
             log.info("wiki_page_embedding_skipped", repository=repository, reason="no_pages_persisted")
 

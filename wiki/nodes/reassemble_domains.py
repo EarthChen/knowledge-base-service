@@ -129,7 +129,10 @@ def _get_llm_provider(config: RunnableConfig | None = None) -> Any:
     return configurable.get("llm")
 
 
-async def _get_pinned_domains(config: RunnableConfig | None = None) -> set[str]:
+async def _get_pinned_domains(
+    config: RunnableConfig | None = None,
+    state: dict[str, Any] | None = None,
+) -> set[str]:
     """Query wiki tree store for user_modified sections."""
     configurable = (config or {}).get("configurable", {}) or {}
     wiki_tree_store = configurable.get("wiki_tree_store")
@@ -137,8 +140,26 @@ async def _get_pinned_domains(config: RunnableConfig | None = None) -> set[str]:
         return set()
     try:
         business_id = configurable.get("business_id", "")
-        sections = await wiki_tree_store.get_all_sections(business_id)
-        return {s.get("slug", "") for s in sections if s.get("user_modified")}
+        q = (
+            "MATCH (ws:WikiSpace {business_id: $business_id})"
+            "-[:HAS_CHILD*1..8]->(sec:WikiSection) "
+            "WHERE sec.user_modified = true "
+            "RETURN sec.title AS title"
+        )
+        result = await wiki_tree_store._store.execute_query(q, {"business_id": business_id})
+        rows = getattr(result, "data", None) or []
+
+        domain_display_names = (state or {}).get("domain_display_names") or {}
+        display_to_slug = {v: k for k, v in domain_display_names.items()}
+
+        pinned: set[str] = set()
+        for row in rows:
+            title = row.get("title", "") if isinstance(row, dict) else ""
+            if title in domain_display_names:
+                pinned.add(title)
+            elif title in display_to_slug:
+                pinned.add(display_to_slug[title])
+        return pinned
     except Exception:
         log.warning("reassembly_pinned_domains_query_failed", exc_info=True)
         return set()
@@ -167,7 +188,7 @@ def _execute_merges(
         merged_away.add(source)
         actions.append({"type": "merge", "source": source, "target": target})
 
-    new_tree = [node for node in domain_tree if node.get("slug") not in merged_away]
+    new_tree = [node for node in domain_tree if node.get("name") not in merged_away]
     return domain_mapping, domain_display_names, new_tree, actions
 
 
@@ -201,7 +222,7 @@ async def _llm_review_merges(
         + "\n".join(candidate_desc)
     )
 
-    response = await llm.chat_complete(prompt)
+    response = await llm.complete([{"role": "user", "content": prompt}])
     parsed = parse_json_robust_sync(str(response))
     if isinstance(parsed, dict):
         return parsed.get("approved_merges", [])
@@ -258,7 +279,7 @@ async def reassemble_domains_node(
     # --- Step 2: Find pinned domains ---
     pinned_domains: set[str] = set()
     if respect_pinned:
-        pinned_domains = await _get_pinned_domains(config)
+        pinned_domains = await _get_pinned_domains(config, state)
 
     # --- Step 3: Find merge candidates ---
     merge_candidates = _find_merge_candidates(domain_embeddings, merge_threshold, pinned_domains)
@@ -311,6 +332,36 @@ async def reassemble_domains_node(
             max_pct=max_moves_pct,
         )
         return {"reassembly_actions": [{"type": "rollback", "reason": "too_many_moves"}]}
+
+    # --- Step 8: Persist reassembly results ---
+    if actions:
+        configurable = (config or {}).get("configurable", {}) or {}
+        wiki_store = configurable.get("wiki_store")
+        graph_store = configurable.get("graph_store")
+        business_id = state.get("business_id", "")
+
+        if wiki_store and business_id:
+            try:
+                from wiki.nodes.persist_classification import _persist_domain_tree_to_wiki
+
+                await _persist_domain_tree_to_wiki(
+                    wiki_store, business_id, domain_mapping,
+                    domain_display_names, domain_tree,
+                )
+                log.info("reassembly_persisted_tree", business_id=business_id)
+            except Exception:
+                log.warning("reassembly_persist_tree_failed", exc_info=True)
+
+        if graph_store and business_id:
+            try:
+                from wiki.nodes.persist_classification import _persist_domain_labels_on_modules
+
+                await _persist_domain_labels_on_modules(
+                    graph_store, business_id, domain_mapping, state.get("modules", {}),
+                )
+                log.info("reassembly_persisted_labels", business_id=business_id)
+            except Exception:
+                log.warning("reassembly_persist_labels_failed", exc_info=True)
 
     log.info("reassembly_complete", actions_count=len(actions))
     return {

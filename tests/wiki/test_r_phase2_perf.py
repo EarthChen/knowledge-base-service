@@ -47,7 +47,7 @@ async def test_persist_source_entity_single_unwind_query(monkeypatch: pytest.Mon
     store.execute_query = AsyncMock(side_effect=capture_se)
     store.batch_set_node_embeddings = AsyncMock()
 
-    async def fake_emb(_items: list) -> list[list[float]]:
+    async def fake_emb(_items: list, **_kw: object) -> list[list[float]]:
         return [[0.1, 0.2] for _ in _items]
 
     emb_gen = MagicMock()
@@ -290,7 +290,7 @@ async def test_persist_source_entity_skips_unwind_when_no_entity_uid(monkeypatch
     store.execute_query = AsyncMock(side_effect=capture_se)
     store.batch_set_node_embeddings = AsyncMock()
 
-    async def fake_emb(_items: list) -> list[list[float]]:
+    async def fake_emb(_items: list, **_kw: object) -> list[list[float]]:
         return [[0.1, 0.2] for _ in _items]
 
     emb_gen = MagicMock()

@@ -13,21 +13,6 @@ from wiki.prompts import SYSTEM_JSON_ONLY
 
 log = get_logger(__name__)
 
-NAMING_PROMPT = (
-    "You are naming a group of code modules that belong to the same business domain.\n"
-    "These modules were grouped by their call-graph relationships "
-    "(they call each other frequently).\n\n"
-    "Rules:\n"
-    "- Do NOT name based on technical suffixes (WebService, Handler, Dao, Provider)\n"
-    "- Focus on the BUSINESS capability these modules provide together\n"
-    "- Use concise Chinese business terminology for display_name\n"
-    "- The slug should be kebab-case ASCII describing the business capability\n"
-    "{used_names_block}"
-    "\n"
-    "Module list: {module_names}\n\n"
-    'Return ONLY valid JSON: {{"slug": "...", "display_name": "...", "description": "..."}}'
-)
-
 _NAMING_PROMPT_V2 = (
     "You are naming a group of code modules for a business documentation wiki.\n"
     "These modules were grouped by their semantic similarity (business function).\n"
@@ -36,12 +21,18 @@ _NAMING_PROMPT_V2 = (
     "{module_details}\n\n"
     "Rules:\n"
     "- Name the BUSINESS capability these modules provide, not code structure\n"
-    "- Use concise Chinese business terminology (2-6 chars) for display_name\n"
+    "- CRITICAL: display_name MUST be concise Chinese (2-6 Chinese characters), "
+    "e.g. '好友关系', '家族系统', '用户资料'. NEVER use English for display_name\n"
+    "- Prefer terms that appear in the code's own comments or class-level documentation\n"
     "- The slug should be kebab-case ASCII describing the business capability\n"
     "- Do NOT name based on technical patterns (Handler, Service, Dao, etc.)\n"
     "{used_names_block}\n"
     'Return ONLY valid JSON: {{"slug": "...", "display_name": "...", "description": "..."}}'
 )
+
+def _has_chinese(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+
 
 _TECH_SUFFIXES = frozenset({
     "Handler", "Service", "Manager", "Executor", "Provider",
@@ -154,6 +145,8 @@ class GraphDomainNamer:
                     display_name = parsed.get("display_name")
                     description = parsed.get("description")
                     if isinstance(slug, str) and slug and isinstance(display_name, str) and display_name:
+                        if not _has_chinese(display_name):
+                            log.warning("graph_domain_namer_non_chinese_display", display_name=display_name, slug=slug)
                         return {
                             "slug": slug,
                             "display_name": display_name,

@@ -8,10 +8,10 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from core.log import get_logger
+from wiki.pipeline_concurrency import PipelineConcurrency
 
 log = get_logger(__name__)
 
-_BOTTOMUP_CONCURRENCY = 24
 _LEAF_TIMEOUT_SEC = 120
 _PARENT_TIMEOUT_SEC = 60
 
@@ -166,7 +166,7 @@ async def generate_titles_node(
 
     if nodes_needing_llm and llm:
         log.info("generate_titles_llm", count=len(nodes_needing_llm))
-        sem = asyncio.Semaphore(_BOTTOMUP_CONCURRENCY)
+        sem = PipelineConcurrency.semaphore("bottomup")
 
         async def _gen_title(n: Any) -> tuple[Any, str, str]:
             async with sem:
@@ -291,7 +291,7 @@ async def compose_bottomup_node(
         leaf_uids_sample=[leaves[0].entity_uids[:3] if leaves else []],
     )
 
-    sem = asyncio.Semaphore(_BOTTOMUP_CONCURRENCY)
+    sem = PipelineConcurrency.semaphore("bottomup")
     progress_counter = [0]
     error_counter = [0]
     timeout_counter = [0]
@@ -345,7 +345,7 @@ async def compose_bottomup_node(
             count=len(leaves),
             has_llm=llm is not None,
             has_graph_store=graph_store is not None,
-            concurrency=_BOTTOMUP_CONCURRENCY,
+            concurrency=PipelineConcurrency.limit("bottomup"),
             leaf_timeout_sec=_LEAF_TIMEOUT_SEC,
             sample_keys=[n.canonical_key for n in leaves[:5]],
             sample_uids=[n.entity_uids[:2] for n in leaves[:3]],
@@ -385,7 +385,7 @@ async def compose_bottomup_node(
 
     if parents:
         parent_start = _time.monotonic()
-        parent_sem = asyncio.Semaphore(_BOTTOMUP_CONCURRENCY)
+        parent_sem = PipelineConcurrency.semaphore("bottomup")
         parent_by_key = {n.canonical_key: n for n in parents}
         remaining: set[str] = set(parent_by_key.keys())
         parents_done = 0

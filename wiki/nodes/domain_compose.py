@@ -9,11 +9,11 @@ from langchain_core.runnables import RunnableConfig
 from core.log import get_logger
 from wiki.domain_doc_agent import DomainDocAgent, _build_baseline
 from wiki.nodes.utils import _collect_leaf_domains
+from wiki.pipeline_concurrency import PipelineConcurrency
 from wiki.source_ref_validator import repair_broken_mermaid_blocks, sanitize_wiki_content
 
 log = get_logger(__name__)
 
-DOMAIN_AGENT_CONCURRENCY = int(os.environ.get("DOMAIN_AGENT_CONCURRENCY", "3"))
 DOMAIN_AGENT_TIMEOUT_SEC = int(os.environ.get("DOMAIN_AGENT_TIMEOUT_SEC", "600"))
 
 
@@ -123,7 +123,7 @@ async def compose_domain_agents_node(
         log.info("no_leaf_domains_found")
         return {"pages": [], "errors": list(state.get("errors", []))}
 
-    sem = asyncio.Semaphore(DOMAIN_AGENT_CONCURRENCY)
+    sem = PipelineConcurrency.semaphore("domain_agent")
     pages: list[dict[str, Any]] = []
     errors = list(state.get("errors", []))
 

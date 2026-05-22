@@ -61,7 +61,7 @@ async def test_multi_round_healing_improves_until_quality_passes() -> None:
         "heal_attempts": {},
         "heal_hints": {},
         "domain_tree": [{"name": "test-domain", "modules": ["M1"], "children": []}],
-        "config": {},
+        "config": {"importance_tiers": {"wiki/multi-round-test": "core"}},
     }
     result = await heal_pages_node(state, {"configurable": {"llm": mock_llm}})
 
@@ -88,7 +88,7 @@ async def test_early_exit_when_quality_passes_first_round() -> None:
         "heal_attempts": {},
         "heal_hints": {},
         "domain_tree": [],
-        "config": {},
+        "config": {"importance_tiers": {"wiki/multi-round-test": "core"}},
     }
     await heal_pages_node(state, {"configurable": {"llm": mock_llm}})
 
@@ -112,7 +112,7 @@ async def test_respects_max_three_rounds_when_quality_never_passes() -> None:
         "heal_attempts": {},
         "heal_hints": {},
         "domain_tree": [],
-        "config": {},
+        "config": {"importance_tiers": {"wiki/multi-round-test": "core"}},
     }
     result = await heal_pages_node(state, {"configurable": {"llm": mock_llm}})
 

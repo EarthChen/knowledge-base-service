@@ -45,6 +45,7 @@ class TestDeleteWikiData:
         repo = GraphQueryRepository(mock_store)
         await repo.delete_wiki_data("my-biz-123")
 
-        call_args = mock_store.execute_query.call_args
-        params = call_args[0][1]
-        assert params.get("business_id") == "my-biz-123"
+        all_params = [c[0][1] for c in mock_store.execute_query.call_args_list]
+        has_biz_id = any(p.get("business_id") == "my-biz-123" for p in all_params)
+        has_prefix = any("my-biz-123" in str(p.get("prefix", "")) for p in all_params)
+        assert has_biz_id or has_prefix, f"No call scoped to my-biz-123: {all_params}"

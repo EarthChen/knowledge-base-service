@@ -257,6 +257,16 @@ class AppWikiFlags(BaseModel):
     #: Max concurrent wiki subtrees during compose (sibling ``walk`` tasks) and enrichment.
     compose_concurrency: int = Field(default=12, ge=1)
 
+    #: Pipeline stage concurrency — unified control (see wiki/pipeline_concurrency.py)
+    domain_agent_concurrency: int = Field(default=3, ge=1)
+    heal_concurrency: int = Field(default=5, ge=1)
+    bottomup_concurrency: int = Field(default=24, ge=1)
+    module_compose_concurrency: int = Field(default=3, ge=1)
+
+    #: Heal strategy — tier-specific round limits
+    heal_max_rounds_core: int = Field(default=3, ge=1)
+    heal_max_rounds_standard: int = Field(default=1, ge=1)
+
     #: Skip per-repo module-level page generation in business wiki.
     #: When True, only LangGraph pipeline topic pages are generated.
     business_wiki_skip_repo_pages: bool = Field(default=True)

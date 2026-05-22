@@ -21,7 +21,7 @@ def setup_logging(level: str = "INFO") -> None:
         processors=[
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.TimeStamper(fmt="iso", utc=False),
             renderer,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),

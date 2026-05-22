@@ -23,6 +23,17 @@ def test_wiki_compose_concurrency_default() -> None:
     assert AppWikiFlags().compose_concurrency == 12
 
 
+def test_pipeline_concurrency_config_defaults():
+    from core.config import AppWikiFlags
+    cfg = AppWikiFlags()
+    assert cfg.domain_agent_concurrency == 3
+    assert cfg.heal_concurrency == 5
+    assert cfg.bottomup_concurrency == 24
+    assert cfg.module_compose_concurrency == 3
+    assert cfg.heal_max_rounds_core == 3
+    assert cfg.heal_max_rounds_standard == 1
+
+
 def test_decomposition_max_tokens_deprecated_field_still_works() -> None:
     cfg = AppWikiFlags()
     assert hasattr(cfg, "decomposition_max_tokens_per_batch")

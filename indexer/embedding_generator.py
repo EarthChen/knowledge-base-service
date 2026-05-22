@@ -486,7 +486,13 @@ class EmbeddingGenerator:
             self._backend.unload()
             self._backend = None
 
-    async def generate(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
+    async def generate(
+        self,
+        texts: list[str],
+        *,
+        is_query: bool = False,
+        chunk_size_override: int | None = None,
+    ) -> list[list[float]]:
         """Generate embeddings for a batch of texts, with configurable concurrency for HTTP backend."""
         if not texts:
             return []
@@ -494,7 +500,7 @@ class EmbeddingGenerator:
         if is_query and self._config.query_prefix:
             texts = [f"{self._config.query_prefix}{t}" for t in texts]
 
-        chunk_size = self._config.chunk_size
+        chunk_size = chunk_size_override or self._config.chunk_size
         chunks = list(_iter_chunks(texts, chunk_size))
 
         semaphore = self._get_query_semaphore() if is_query else self._get_index_semaphore()
@@ -577,8 +583,16 @@ class EmbeddingGenerator:
     async def generate_for_docs(
         self,
         items: list[dict[str, str]],
+        *,
+        chunk_size_override: int | None = None,
     ) -> list[list[float]]:
-        """Generate embeddings for documentation chunks (markdown sections)."""
+        """Generate embeddings for documentation chunks (markdown sections).
+
+        Args:
+            chunk_size_override: If set, overrides the default chunk_size for
+                splitting items into HTTP batches. Useful for wiki page
+                embeddings that send longer texts per item.
+        """
         texts = [
             _format_doc_text(
                 item.get("title", ""),
@@ -588,7 +602,7 @@ class EmbeddingGenerator:
             )
             for item in items
         ]
-        return await self.generate(texts, is_query=False)
+        return await self.generate(texts, is_query=False, chunk_size_override=chunk_size_override)
 
     @property
     def dimension(self) -> int:

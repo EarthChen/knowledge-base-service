@@ -172,10 +172,11 @@ class GraphQueryRepository:
         Targets: WikiPage, WikiSpace, WikiSection, WikiQA, WikiMeta,
         WikiPageVersion, WikiClaimHistory, WikiContradiction.
         """
-        wiki_labels = [
+        # WikiSection nodes don't have business_id property — match by UID prefix
+        uid_prefix_labels = ["WikiSection"]
+        prop_match_labels = [
             "WikiPage",
             "WikiSpace",
-            "WikiSection",
             "WikiQA",
             "WikiMeta",
             "WikiPageVersion",
@@ -183,11 +184,19 @@ class GraphQueryRepository:
             "WikiContradiction",
         ]
         total_deleted = 0
-        for label in wiki_labels:
+        for label in prop_match_labels:
             result = await self._store.execute_query(
                 f"MATCH (n:{label}) WHERE n.business_id = $business_id OR n.repository = $business_id "
                 f"DETACH DELETE n RETURN count(n) AS deleted",
                 {"business_id": business_id},
+            )
+            total_deleted += result.data[0]["deleted"] if result.data else 0
+        uid_prefix = f"WikiSection:{business_id}:"
+        for label in uid_prefix_labels:
+            result = await self._store.execute_query(
+                f"MATCH (n:{label}) WHERE n.uid STARTS WITH $prefix "
+                f"DETACH DELETE n RETURN count(n) AS deleted",
+                {"prefix": uid_prefix},
             )
             total_deleted += result.data[0]["deleted"] if result.data else 0
         return total_deleted

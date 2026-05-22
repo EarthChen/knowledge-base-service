@@ -1,5 +1,5 @@
 import { type ReactNode, createElement } from "react";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useWikiRegenerate } from "../useWikiRegenerate";
@@ -40,6 +40,7 @@ function createWrapper() {
 describe("useWikiRegenerate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     useI18nMock.mockReturnValue({ locale: "en" as const, t: en, setLocale: vi.fn() });
   });
 
@@ -239,5 +240,45 @@ describe("useWikiRegenerate", () => {
       await result.current.regenerate(true);
     });
     expect(toast).toHaveBeenCalledWith("error", en.wiki.regenerateConflict);
+  });
+
+  it("stops polling when task is cancelled during regenerate", async () => {
+    vi.useFakeTimers();
+    vi.mocked(client.businessWikiGenerate).mockResolvedValue({
+      task_id: "task-cancel",
+      status: "pending",
+      mode: "full",
+    });
+    vi.mocked(client.businessWikiTaskStatus).mockResolvedValue({
+      task_id: "task-cancel",
+      status: "cancelled",
+    });
+    const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
+    await act(async () => {
+      const regen = result.current.regenerate(true);
+      await vi.advanceTimersByTimeAsync(2000);
+      await regen;
+    });
+    expect(localStorage.getItem("kb_wiki_active_task:biz-1")).toBeNull();
+    expect(result.current.isPending).toBe(false);
+    expect(result.current.progress).toBeNull();
+    expect(vi.mocked(client.businessWikiTaskStatus)).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith("info", en.wiki.taskCancelled);
+  });
+
+  it("clears localStorage and resets state when resumed task is already cancelled", async () => {
+    localStorage.setItem("kb_wiki_active_task:biz-1", "task-cancelled");
+    vi.mocked(client.businessWikiTaskStatus).mockResolvedValue({
+      task_id: "task-cancelled",
+      status: "cancelled",
+    });
+    const { result } = renderHook(() => useWikiRegenerate("biz-1"), { wrapper: createWrapper() });
+    await waitFor(() => {
+      expect(result.current.isPending).toBe(false);
+    });
+    expect(localStorage.getItem("kb_wiki_active_task:biz-1")).toBeNull();
+    expect(result.current.progress).toBeNull();
+    expect(vi.mocked(client.businessWikiTaskStatus)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(client.businessWikiTaskStatus)).toHaveBeenCalledWith("task-cancelled");
   });
 });

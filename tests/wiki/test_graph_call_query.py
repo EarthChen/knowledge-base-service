@@ -21,8 +21,9 @@ class TestFetchModuleCallEdges:
         mock_store.execute_query = AsyncMock(side_effect=[mock_result, empty_result])
 
         valid = {("repo1", "ModA"), ("repo1", "ModB"), ("repo1", "ModC")}
-        edges = await fetch_module_call_edges(mock_store, ["repo1"], valid)
+        edges, errors = await fetch_module_call_edges(mock_store, ["repo1"], valid)
 
+        assert len(errors) == 0
         assert len(edges) == 2
         assert (("repo1", "ModA"), ("repo1", "ModB"), 5) in edges
         assert (("repo1", "ModA"), ("repo1", "ModC"), 3) in edges
@@ -35,8 +36,9 @@ class TestFetchModuleCallEdges:
         mock_result.data = []
         mock_store.execute_query = AsyncMock(return_value=mock_result)
 
-        edges = await fetch_module_call_edges(mock_store, ["repo1"], set())
+        edges, errors = await fetch_module_call_edges(mock_store, ["repo1"], set())
         assert edges == []
+        assert len(errors) == 0
         assert mock_store.execute_query.call_count == 2  # Both queries run
 
     @pytest.mark.asyncio
@@ -52,19 +54,22 @@ class TestFetchModuleCallEdges:
         mock_store.execute_query = AsyncMock(side_effect=[calls_result, empty_result])
 
         valid = {("repo1", "ModA"), ("repo2", "ModB")}
-        edges = await fetch_module_call_edges(mock_store, ["repo1", "repo2"], valid)
+        edges, errors = await fetch_module_call_edges(mock_store, ["repo1", "repo2"], valid)
 
+        assert len(errors) == 0
         assert len(edges) == 1
         assert edges[0] == (("repo1", "ModA"), ("repo2", "ModB"), 7)
 
     @pytest.mark.asyncio
-    async def test_query_failure_returns_empty(self):
-        """If both graph_store queries raise, return empty list (logged warning)."""
+    async def test_query_failure_returns_errors(self):
+        """If both graph_store queries raise, return empty edges and error list."""
         mock_store = MagicMock()
         mock_store.execute_query = AsyncMock(side_effect=Exception("DB down"))
 
-        edges = await fetch_module_call_edges(mock_store, ["repo1"], {("repo1", "A")})
+        edges, errors = await fetch_module_call_edges(mock_store, ["repo1"], {("repo1", "A")})
         assert edges == []
+        assert len(errors) == 2
+        assert all("DB down" in e for e in errors)
 
     def test_cypher_queries_contain_repos_param(self):
         """Both Cypher queries use $repos parameter for cross-repo support."""
@@ -89,8 +94,142 @@ class TestFetchModuleCallEdges:
         mock_store.execute_query = AsyncMock(side_effect=[calls_result, depends_result])
 
         valid = {("repo1", "ModA"), ("repo2", "ModB"), ("repo2", "ModC")}
-        edges = await fetch_module_call_edges(mock_store, ["repo1", "repo2"], valid)
+        edges, errors = await fetch_module_call_edges(mock_store, ["repo1", "repo2"], valid)
 
+        assert len(errors) == 0
         edge_dict = {(s, d): w for s, d, w in edges}
         assert edge_dict[(("repo1", "ModA"), ("repo2", "ModB"))] == 5  # 3+2
         assert edge_dict[(("repo1", "ModA"), ("repo2", "ModC"))] == 1
+
+
+class TestParallelQueryExecution:
+    """Task 5: Both Cypher queries should execute in parallel via asyncio.gather."""
+
+    @pytest.mark.asyncio
+    async def test_queries_run_in_parallel(self):
+        """Both queries must be launched concurrently, not serially."""
+        import asyncio
+
+        call_order = []
+        call_times = {}
+
+        async def tracking_execute(query, params):
+            name = "calls" if "CALLS" in query else "depends"
+            call_times[name] = asyncio.get_event_loop().time()
+            call_order.append(name)
+            await asyncio.sleep(0.05)  # simulate latency
+            result = MagicMock()
+            result.data = []
+            return result
+
+        mock_store = MagicMock()
+        mock_store.execute_query = AsyncMock(side_effect=tracking_execute)
+
+        await fetch_module_call_edges(mock_store, ["repo1"], set())
+
+        assert len(call_order) == 2
+        # Both should start nearly simultaneously (within 10ms)
+        assert abs(call_times["calls"] - call_times["depends"]) < 0.01
+
+
+class TestCypherWherePushdown:
+    """Task 13: valid_modules filtering should be pushed to Cypher WHERE clause."""
+
+    def test_cypher_contains_valid_names_param(self):
+        """Both Cypher queries should reference $valid_names for WHERE pushdown."""
+        assert "$valid_names" in _MODULE_CALLS_CYPHER
+        assert "$valid_names" in _MODULE_DEPENDS_ON_CYPHER
+
+    def test_cypher_has_where_valid_names_filter(self):
+        """Cypher queries should filter m1.name and m2.name against $valid_names."""
+        assert "m1.name IN $valid_names" in _MODULE_CALLS_CYPHER
+        assert "m2.name IN $valid_names" in _MODULE_CALLS_CYPHER
+        assert "m1.name IN $valid_names" in _MODULE_DEPENDS_ON_CYPHER
+        assert "m2.name IN $valid_names" in _MODULE_DEPENDS_ON_CYPHER
+
+    @pytest.mark.asyncio
+    async def test_valid_names_passed_to_execute_query(self):
+        """execute_query should receive valid_names param derived from valid_modules."""
+        mock_store = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = []
+        mock_store.execute_query = AsyncMock(return_value=mock_result)
+
+        valid = {("repo1", "ModA"), ("repo1", "ModB")}
+        await fetch_module_call_edges(mock_store, ["repo1"], valid)
+
+        for call in mock_store.execute_query.call_args_list:
+            params = call[0][1]
+            assert "valid_names" in params
+            assert set(params["valid_names"]) == {"ModA", "ModB"}
+
+
+class TestErrorReporting:
+    """Task 14: fetch_module_call_edges should return (edges, errors) tuple."""
+
+    @pytest.mark.asyncio
+    async def test_return_type_is_tuple(self):
+        """Return value must be a 2-tuple (list, list)."""
+        mock_store = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = []
+        mock_store.execute_query = AsyncMock(return_value=mock_result)
+
+        result = await fetch_module_call_edges(mock_store, ["repo1"], set())
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        edges, errors = result
+        assert isinstance(edges, list)
+        assert isinstance(errors, list)
+
+    @pytest.mark.asyncio
+    async def test_partial_failure_returns_partial_edges_and_errors(self):
+        """If one query succeeds and one fails, return edges from success + error from failure."""
+        mock_store = MagicMock()
+        calls_result = MagicMock()
+        calls_result.data = [
+            {"source_repo": "repo1", "source": "ModA", "target_repo": "repo1", "target": "ModB", "weight": 5},
+        ]
+
+        async def mixed_execute(query, params):
+            if "CALLS" in query:
+                return calls_result
+            raise ConnectionError("timeout")
+
+        mock_store.execute_query = AsyncMock(side_effect=mixed_execute)
+
+        valid = {("repo1", "ModA"), ("repo1", "ModB")}
+        edges, errors = await fetch_module_call_edges(mock_store, ["repo1"], valid)
+
+        assert len(edges) == 1
+        assert len(errors) == 1
+        assert "timeout" in errors[0]
+
+    @pytest.mark.asyncio
+    async def test_error_messages_include_query_identifier(self):
+        """Error strings should identify which query failed."""
+        mock_store = MagicMock()
+
+        async def fail_calls(query, params):
+            if "CALLS" in query:
+                raise RuntimeError("calls broke")
+            result = MagicMock()
+            result.data = []
+            return result
+
+        mock_store.execute_query = AsyncMock(side_effect=fail_calls)
+
+        edges, errors = await fetch_module_call_edges(mock_store, ["repo1"], set())
+        assert len(errors) == 1
+        assert "calls" in errors[0].lower() or "CALLS" in errors[0]
+
+
+class TestContainsDepthOptimization:
+    """Task 15: CONTAINS*1..3 should be changed to CONTAINS*1..2."""
+
+    def test_contains_depth_is_at_most_2(self):
+        """Both Cypher queries should use CONTAINS*1..2, not CONTAINS*1..3."""
+        assert "CONTAINS*1..3" not in _MODULE_CALLS_CYPHER
+        assert "CONTAINS*1..3" not in _MODULE_DEPENDS_ON_CYPHER
+        assert "CONTAINS*1..2" in _MODULE_CALLS_CYPHER
+        assert "CONTAINS*1..2" in _MODULE_DEPENDS_ON_CYPHER

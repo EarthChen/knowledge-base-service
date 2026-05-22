@@ -31,6 +31,37 @@ class TestDistanceMatrix:
         # Discount is symmetric
         assert dist[0, 1] == pytest.approx(dist[1, 0], abs=1e-6)
 
+    def test_weight_aware_discount_high_weight(self):
+        """High-weight edge should get stronger discount than low-weight."""
+        embeddings = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        modules = [("repo", "A"), ("repo", "B"), ("repo", "C")]
+        # A-B has weight 50 (high), A-C has weight 1 (low)
+        edges = [
+            (("repo", "A"), ("repo", "B"), 50),
+            (("repo", "A"), ("repo", "C"), 1),
+        ]
+        clusterer = DomainSemanticClusterer()
+        dist = clusterer._compute_distance_matrix(embeddings, modules, edges)
+        # High-weight edge A-B should be more discounted (smaller distance) than A-C
+        assert dist[0, 1] < dist[0, 2]
+        # Both should still be discounted from base distance (1.0)
+        assert dist[0, 1] < 1.0
+        assert dist[0, 2] < 1.0
+        # Symmetric
+        assert dist[0, 1] == pytest.approx(dist[1, 0], abs=1e-6)
+
+    def test_weight_aware_discount_equal_weight(self):
+        """Equal-weight edges should get equal discount."""
+        embeddings = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        modules = [("repo", "A"), ("repo", "B"), ("repo", "C")]
+        edges = [
+            (("repo", "A"), ("repo", "B"), 10),
+            (("repo", "A"), ("repo", "C"), 10),
+        ]
+        clusterer = DomainSemanticClusterer()
+        dist = clusterer._compute_distance_matrix(embeddings, modules, edges)
+        assert dist[0, 1] == pytest.approx(dist[0, 2], abs=1e-6)
+
 
 class TestClustering:
     def test_cluster_returns_sets_of_modules(self):
@@ -51,7 +82,7 @@ class TestClustering:
         assert all_mods == set(modules)
 
     def test_small_n_returns_single_cluster(self):
-        # N < 10 → single cluster
+        # N < 3 → single cluster (threshold lowered from 10 to 3)
         embeddings = np.array([[1.0, 0.0], [0.0, 1.0]])
         modules = [("r", "A"), ("r", "B")]
         clusterer = DomainSemanticClusterer()
@@ -60,7 +91,16 @@ class TestClustering:
         assert len(clusters[0]) == 2
 
     def test_n_below_threshold_returns_single_cluster(self):
-        # N=6 < 10 → single cluster (spec: small-N threshold = 10)
+        # N=2 < 3 → single cluster
+        embeddings = np.array([[1.0, 0.0], [0.0, 1.0]])
+        modules = [("r", "A"), ("r", "B")]
+        clusterer = DomainSemanticClusterer()
+        clusters = clusterer.cluster(embeddings, modules, edges=[])
+        assert len(clusters) == 1
+        assert len(clusters[0]) == 2
+
+    def test_medium_n_cluster_two_groups(self):
+        # N=6 with 2 distinct groups → should cluster, NOT single cluster
         embeddings = np.array([
             [1.0, 0.0], [0.9, 0.1], [0.8, 0.2],
             [0.0, 1.0], [0.1, 0.9], [0.2, 0.8],
@@ -68,8 +108,23 @@ class TestClustering:
         modules = [("r", f"M{i}") for i in range(6)]
         clusterer = DomainSemanticClusterer()
         clusters = clusterer.cluster(embeddings, modules, edges=[])
-        assert len(clusters) == 1
-        assert len(clusters[0]) == 6
+        assert len(clusters) >= 2
+        all_mods = set()
+        for c in clusters:
+            all_mods.update(c)
+        assert all_mods == set(modules)
+
+    def test_n_three_cluster_with_distinct_groups(self):
+        # N=3 with 2 distinct groups → should cluster into 2
+        embeddings = np.array([
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [0.05, 0.95],
+        ])
+        modules = [("r", "A"), ("r", "B"), ("r", "C")]
+        clusterer = DomainSemanticClusterer()
+        clusters = clusterer.cluster(embeddings, modules, edges=[])
+        assert len(clusters) >= 2
 
 
 class TestBuildEmbeddingTexts:

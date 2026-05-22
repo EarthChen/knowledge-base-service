@@ -91,3 +91,66 @@ class TestBuildEmbeddingTexts:
         assert len(texts) == 1
         assert "FooHandler" in texts[0]
         assert "foo/handler" in texts[0]
+
+    def test_path_keeps_four_levels(self):
+        """Default shorten_path should keep 4 directory levels, not 2."""
+        modules = [("repo", "UserService")]
+        summaries = {"UserService": {"summary_text": "用户服务"}}
+        paths = {"UserService": "com/example/biz/user/service/UserService.java"}
+        texts = DomainSemanticClusterer.build_embedding_texts(modules, summaries, paths)
+        assert len(texts) == 1
+        # Should contain 4 levels: example/biz/user/service
+        assert "example/biz/user/service" in texts[0]
+        # Should NOT be truncated to just 2 levels
+        assert "user/service" in texts[0]
+
+    def test_with_methods_and_docstring(self):
+        """Embedding text should include method signatures and docstring when available."""
+        modules = [("repo", "FamilyService")]
+        summaries = {
+            "FamilyService": {
+                "summary_text": "家族系统核心服务",
+                "methods": ["createFamily", "joinFamily", "disbandFamily"],
+                "docstring": "Manage family group lifecycle.",
+            }
+        }
+        paths = {"FamilyService": "family/service/FamilyService.java"}
+        texts = DomainSemanticClusterer.build_embedding_texts(modules, summaries, paths)
+        assert len(texts) == 1
+        assert "FamilyService" in texts[0]
+        assert "家族系统核心服务" in texts[0]
+        assert "createFamily" in texts[0]
+        assert "joinFamily" in texts[0]
+
+    def test_empty_summary_fallback_uses_methods(self):
+        """When summary_text is empty, use method names as fallback."""
+        modules = [("repo", "GuildManager")]
+        summaries = {
+            "GuildManager": {
+                "summary_text": "",
+                "methods": ["addMember", "removeMember", "getGuildInfo"],
+            }
+        }
+        paths = {"GuildManager": "guild/manager/GuildManager.java"}
+        texts = DomainSemanticClusterer.build_embedding_texts(modules, summaries, paths)
+        assert len(texts) == 1
+        assert "GuildManager" in texts[0]
+        assert "addMember" in texts[0]
+        assert "removeMember" in texts[0]
+
+
+class TestShortenPath:
+    def test_default_keeps_four_levels(self):
+        from wiki.domain_semantic_clusterer import _shorten_path
+        result = _shorten_path("com/example/biz/user/service/UserService.java")
+        assert "example/biz/user/service" in result
+
+    def test_short_path_unchanged(self):
+        from wiki.domain_semantic_clusterer import _shorten_path
+        result = _shorten_path("user/service/UserService.java")
+        assert "user/service" in result
+
+    def test_custom_levels(self):
+        from wiki.domain_semantic_clusterer import _shorten_path
+        result = _shorten_path("a/b/c/d/e/f/G.java", levels=2)
+        assert result == "e/f"

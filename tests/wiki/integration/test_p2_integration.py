@@ -21,7 +21,6 @@ from wiki.cache import WikiCache
 from wiki.composer import WikiComposer
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import PageData, WikiDataCollector
-from wiki.disk_exporter import WikiDiskExporter
 from wiki.exporter import WikiExporter
 from wiki.incremental import WikiIncrementalUpdater
 from wiki.models import PageType, SourceLocation, WikiConfig, WikiPage, WikiPageMetadata
@@ -190,23 +189,6 @@ def _repo_composer_from_graph(graph: AsyncMock, llm_port: Any | None = None) -> 
 def wiki_config() -> WikiConfig:
     return WikiConfig(repository=REPO, mode="structure", format="json", language="en")
 
-
-@pytest.mark.asyncio
-async def test_full_repo_compose_with_export(tmp_path: Path, wiki_config: WikiConfig) -> None:
-    graph = _make_full_graph()
-    rc = _repo_composer_from_graph(graph)
-    pages, structure = await rc.compose_repo_wiki(REPO, wiki_config)
-
-    exporter = WikiDiskExporter(WikiExporter())
-    result = exporter.export_to_disk(pages, structure, str(tmp_path))
-
-    assert result.index_path
-    assert Path(result.index_path).is_file()
-    md_files = list(tmp_path.rglob("*.md"))
-    assert len(md_files) >= 2
-    index_text = Path(result.index_path).read_text(encoding="utf-8")
-    assert REPO in index_text
-    assert "Contents" in index_text
 
 
 @pytest.mark.asyncio
@@ -421,24 +403,6 @@ async def test_persistent_cache_roundtrip_with_real_pages(tmp_path: Path, wiki_c
     assert got is not None
     assert len(got) == len(pages)
     assert {p.title for p in got} == {p.title for p in pages}
-
-
-@pytest.mark.asyncio
-async def test_disk_export_with_cross_refs(tmp_path: Path, wiki_config: WikiConfig) -> None:
-    graph = _make_full_graph()
-    rc = _repo_composer_from_graph(graph)
-    pages, structure = await rc.compose_repo_wiki(REPO, wiki_config)
-
-    exporter = WikiDiskExporter(WikiExporter())
-    exporter.export_to_disk(pages, structure, str(tmp_path))
-
-    linked_any = False
-    for md in tmp_path.rglob("*.md"):
-        text = md.read_text(encoding="utf-8")
-        if "](" in text and ".md" in text:
-            linked_any = True
-            break
-    assert linked_any
 
 
 @pytest.mark.asyncio

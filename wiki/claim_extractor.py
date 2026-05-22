@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -15,11 +15,6 @@ if TYPE_CHECKING:
 class ExtractedClaim(BaseModel):
     claim_text: str
     subject_entity: str = Field(default="")
-
-
-@runtime_checkable
-class _ClaimLlm(Protocol):
-    async def generate(self, prompt: str, system: str = "") -> str: ...
 
 
 def _parse_claims_json(raw: str) -> list[ExtractedClaim]:

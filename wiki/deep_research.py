@@ -20,7 +20,6 @@ class DeepResearchService:
         llm: _LLMDecomposePort | Any | None = None,
         *,
         agent: Any | None = None,
-        agent_mode: bool = True,
     ) -> None:
         self._engine = rag_engine
         self._llm = llm

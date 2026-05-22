@@ -1,6 +1,7 @@
 """FalkorDB queries for module call graph construction."""
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from core.log import get_logger
@@ -8,39 +9,52 @@ from core.log import get_logger
 log = get_logger(__name__)
 
 _MODULE_CALLS_CYPHER = (
-    "MATCH (m1:Module)-[:CONTAINS*1..3]->(f1)"
-    "-[:CALLS]->(f2)<-[:CONTAINS*1..3]-(m2:Module) "
+    "MATCH (m1:Module)-[:CONTAINS*1..2]->(f1)"
+    "-[:CALLS]->(f2)<-[:CONTAINS*1..2]-(m2:Module) "
     "WHERE m1.repository IN $repos AND m2.repository IN $repos AND m1 <> m2 "
+    "AND m1.name IN $valid_names AND m2.name IN $valid_names "
     "RETURN m1.repository AS source_repo, m1.name AS source, "
     "m2.repository AS target_repo, m2.name AS target, "
     "count(*) AS weight"
 )
 
 _MODULE_DEPENDS_ON_CYPHER = (
-    "MATCH (m1:Module)-[:CONTAINS*1..3]->(c1:Class)"
-    "-[:DEPENDS_ON]->(c2:Class)<-[:CONTAINS*1..3]-(m2:Module) "
+    "MATCH (m1:Module)-[:CONTAINS*1..2]->(c1:Class)"
+    "-[:DEPENDS_ON]->(c2:Class)<-[:CONTAINS*1..2]-(m2:Module) "
     "WHERE m1.repository IN $repos AND m2.repository IN $repos AND m1 <> m2 "
+    "AND m1.name IN $valid_names AND m2.name IN $valid_names "
     "RETURN m1.repository AS source_repo, m1.name AS source, "
     "m2.repository AS target_repo, m2.name AS target, "
     "count(*) AS weight"
 )
+
+_QUERY_NAMES = {
+    _MODULE_CALLS_CYPHER: "CALLS",
+    _MODULE_DEPENDS_ON_CYPHER: "DEPENDS_ON",
+}
 
 
 async def fetch_module_call_edges(
     graph_store: Any,
     repositories: list[str],
     valid_modules: set[tuple[str, str]],
-) -> list[tuple[tuple[str, str], tuple[str, str], int]]:
+) -> tuple[list[tuple[tuple[str, str], tuple[str, str], int]], list[str]]:
     """Fetch weighted module call edges from FalkorDB (CALLS + DEPENDS_ON).
 
     Returns:
-        List of (source_node, target_node, weight) where nodes are (repo_id, module_name) tuples.
+        Tuple of (edges, errors) where edges is a list of (source_node, target_node, weight)
+        and errors is a list of error message strings for failed queries.
     """
     edge_map: dict[tuple[tuple[str, str], tuple[str, str]], int] = {}
+    errors: list[str] = []
+    valid_names = list({name for _, name in valid_modules})
 
-    for cypher in (_MODULE_CALLS_CYPHER, _MODULE_DEPENDS_ON_CYPHER):
+    async def _run_query(cypher: str) -> None:
+        query_name = _QUERY_NAMES.get(cypher, cypher[:40])
         try:
-            result = await graph_store.execute_query(cypher, {"repos": repositories})
+            result = await graph_store.execute_query(
+                cypher, {"repos": repositories, "valid_names": valid_names}
+            )
             for row in result.data:
                 source_repo = row.get("source_repo")
                 source = row.get("source")
@@ -55,7 +69,10 @@ async def fetch_module_call_edges(
                 weight = int(row.get("weight", 0))
                 key = (source_node, target_node)
                 edge_map[key] = edge_map.get(key, 0) + weight
-        except Exception:
-            log.warning("fetch_module_edges_query_failed", cypher=cypher[:40], exc_info=True)
+        except Exception as exc:
+            log.warning("fetch_module_edges_query_failed", cypher=query_name, exc_info=True)
+            errors.append(f"{query_name}: {exc}")
 
-    return [(src, dst, w) for (src, dst), w in edge_map.items()]
+    await asyncio.gather(*[_run_query(c) for c in (_MODULE_CALLS_CYPHER, _MODULE_DEPENDS_ON_CYPHER)])
+
+    return [(src, dst, w) for (src, dst), w in edge_map.items()], errors

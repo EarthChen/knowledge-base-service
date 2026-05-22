@@ -1,5 +1,7 @@
 """Graph-driven domain decomposition node for wiki pipeline."""
 
+import asyncio
+import re
 from typing import Any
 
 import numpy as np
@@ -132,6 +134,30 @@ def _merge_domains_by_keyword(
     return new_mapping, new_display
 
 
+_SPLIT_THRESHOLD = 10
+_MAX_SPLIT_DEPTH = 3
+
+
+def _sub_to_tree_node(sub: dict) -> dict[str, Any]:
+    """Convert a recursive sub-domain dict into a domain_tree node."""
+    children_raw = sub.get("children", [])
+    children = [_sub_to_tree_node(c) for c in children_raw]
+    if children:
+        return {
+            "name": sub.get("slug", ""),
+            "display_name": sub.get("display_name", ""),
+            "modules": [],
+            "children": children,
+        }
+    mod_names = [name for _, name in sub.get("modules", [])]
+    return {
+        "name": sub.get("slug", ""),
+        "display_name": sub.get("display_name", ""),
+        "modules": mod_names,
+        "children": [],
+    }
+
+
 def _build_domain_tree(
     communities_named: list[dict],
     sub_trees: dict[str, list[dict]],
@@ -139,34 +165,24 @@ def _build_domain_tree(
     """Build domain_tree from named communities and their sub-trees.
 
     communities_named: [{"slug": "...", "display_name": "...", "modules": [(repo, name), ...]}]
-    sub_trees: slug -> list of sub-domain dicts from detect_sub_communities
+    sub_trees: slug -> list of sub-domain dicts (may contain nested children)
     """
     tree = []
     for community in communities_named:
         slug = community["slug"]
         display_name = community["display_name"]
-        modules = community["modules"]  # list of (repo_id, name) tuples
+        modules = community["modules"]
 
         sub = sub_trees.get(slug, [])
         if sub and len(sub) > 1:
-            # Has sub-domains
-            children = []
-            for sub_domain in sub:
-                child_modules = [name for _, name in sub_domain.get("modules", [])]
-                children.append({
-                    "name": sub_domain.get("slug", f"{slug}-sub"),
-                    "display_name": sub_domain.get("display_name", ""),
-                    "modules": child_modules,
-                    "children": [],
-                })
+            children = [_sub_to_tree_node(s) for s in sub]
             tree.append({
                 "name": slug,
                 "display_name": display_name,
-                "modules": [],  # modules live in children
+                "modules": [],
                 "children": children,
             })
         else:
-            # Leaf domain
             mod_names = [name for _, name in modules]
             tree.append({
                 "name": slug,
@@ -253,6 +269,15 @@ async def _louvain_fallback_clustering(
     return communities
 
 
+def _tfidf_fallback_clustering(
+    biz_modules: list[tuple[str, str]],
+    module_paths: dict[str, str],
+    edges: list[tuple[tuple[str, str], tuple[str, str], int | float]],
+) -> list[set[tuple[str, str]]]:
+    """TODO: implement TF-IDF fallback clustering."""
+    raise NotImplementedError
+
+
 async def _embedding_clustering(
     biz_modules: list[tuple[str, str]],
     edges: list[tuple[tuple[str, str], tuple[str, str], int | float]],
@@ -307,6 +332,7 @@ async def graph_driven_domain_decompose_node(
     repositories = state.get("repositories", [])
 
     module_paths: dict[str, str] = {}
+    module_docstrings: dict[str, str] = {}
     biz_modules: list[tuple[str, str]] = []
     for repo, mod_list in modules.items():
         for mod_dict in mod_list:
@@ -316,6 +342,9 @@ async def graph_driven_domain_decompose_node(
             path = str(props.get("path", "") or "")
             if name:
                 module_paths[name] = path
+                doc = str(props.get("business_summary", "") or props.get("docstring", "") or "")
+                if doc:
+                    module_docstrings[name] = doc
             if entity_roles.get(uid) not in DOMAIN_CLASSIFICATION_ENTITY_ROLES:
                 continue
             if not name or path.startswith("<import:"):
@@ -336,8 +365,10 @@ async def graph_driven_domain_decompose_node(
     valid_modules_set = set(biz_modules)
 
     # --- Step 1: Fetch call graph edges ---
-    edges = await fetch_module_call_edges(graph_store, repositories, valid_modules_set)
+    edges, query_errors = await fetch_module_call_edges(graph_store, repositories, valid_modules_set)
 
+    if query_errors:
+        log.warning("graph_domain_decompose_query_errors", errors=query_errors)
     log.info("graph_domain_decompose_edges", total_modules=len(biz_modules), total_edges=len(edges))
 
     # --- Step 1.5: Collect module summaries from pipeline state ---
@@ -361,6 +392,9 @@ async def graph_driven_domain_decompose_node(
                 summary_text = str(summary_data.get("summary_text", ""))
             elif isinstance(summary_data, str):
                 summary_text = summary_data
+            doc = module_docstrings.get(mod_name, "")
+            if doc and doc not in summary_text:
+                summary_text = f"[{doc}] {summary_text}" if summary_text else doc
             module_infos.append({
                 "name": mod_name,
                 "path": module_paths.get(mod_name, ""),
@@ -453,21 +487,25 @@ async def graph_driven_domain_decompose_node(
             "modules": module_list,
         })
 
-    # --- Step 7: Sub-domain splitting via embedding clustering ---
+    # --- Step 7: Recursive sub-domain splitting ---
     sub_trees: dict[str, list[dict]] = {}
-    clusterer = DomainSemanticClusterer()
-    for c in communities_named:
-        slug = c["slug"]
-        community_modules = list(c["modules"])
-        if len(community_modules) <= 15:
-            continue
+    business_id = state.get("business_id", "")
 
-        # Build sub-domain embeddings for this community
+    async def _recursive_split(
+        community_modules: list[tuple[str, str]],
+        parent_used_names: list[str],
+        parent_display: str,
+        depth: int,
+    ) -> list[dict]:
+        if len(community_modules) <= _SPLIT_THRESHOLD or depth >= _MAX_SPLIT_DEPTH:
+            return []
+
+        clusterer = DomainSemanticClusterer()
         if embeddings is not None:
             mod_set = set(community_modules)
             indices = [i for i, m in enumerate(biz_modules) if m in mod_set]
             if not indices:
-                continue
+                return []
             sub_embeddings = embeddings[indices]
             sub_modules = [biz_modules[i] for i in indices]
             sub_clusters = clusterer.cluster_sub_domains(sub_embeddings, sub_modules, edges)
@@ -476,21 +514,21 @@ async def graph_driven_domain_decompose_node(
             detector = GraphCommunityDetector(target_min=2, target_max=5, seed=42)
             community_set = set(community_modules)
             sub_result = detector.detect_sub_communities(
-                community_set, edges, max_depth=2, max_leaf_size=15,
+                community_set, edges, max_depth=2, max_leaf_size=_SPLIT_THRESHOLD,
             )
             sub_clusters_raw: list[set[tuple[str, str]]] = []
             for root in sub_result:
-                leaves = _collect_leaf_sub_domains(root)
-                for leaf in leaves:
+                for leaf in _collect_leaf_sub_domains(root):
                     mods = leaf.get("modules", [])
                     if mods:
                         sub_clusters_raw.append(set(mods))
             sub_clusters = sub_clusters_raw if len(sub_clusters_raw) > 1 else [community_set]
+
         if len(sub_clusters) <= 1:
-            continue
+            return []
 
         named_subs: list[dict] = []
-        sub_used_names = list(used_names)
+        sub_used_names = list(parent_used_names)
         for sub_cluster in sub_clusters:
             sub_infos = []
             for repo_id, mod_name in sorted(sub_cluster):
@@ -500,6 +538,9 @@ async def graph_driven_domain_decompose_node(
                     summary_text = str(summary_data.get("summary_text", ""))
                 elif isinstance(summary_data, str):
                     summary_text = summary_data
+                doc = module_docstrings.get(mod_name, "")
+                if doc and doc not in summary_text:
+                    summary_text = f"[{doc}] {summary_text}" if summary_text else doc
                 sub_infos.append({
                     "name": mod_name,
                     "path": module_paths.get(mod_name, ""),
@@ -508,17 +549,30 @@ async def graph_driven_domain_decompose_node(
             sub_naming = await namer.name_community(
                 module_infos=sub_infos,
                 used_names=sub_used_names,
-                business_id=state.get("business_id", ""),
+                business_id=business_id,
             )
             sub_used_names.append(sub_naming["slug"])
+
+            children = await _recursive_split(
+                list(sub_cluster), sub_used_names, sub_naming["display_name"], depth + 1,
+            )
             named_subs.append({
                 "slug": sub_naming["slug"],
                 "display_name": sub_naming["display_name"],
                 "modules": list(sub_cluster),
+                "children": children,
             })
-        parent_display = domain_display_names.get(slug, slug)
+
         named_subs = _dedup_sub_domains(named_subs, parent_display)
-        sub_trees[slug] = named_subs
+        return named_subs
+
+    for c in communities_named:
+        slug = c["slug"]
+        community_modules = list(c["modules"])
+        parent_display = domain_display_names.get(slug, slug)
+        subs = await _recursive_split(community_modules, used_names, parent_display, 0)
+        if subs and len(subs) > 1:
+            sub_trees[slug] = subs
 
     # --- Step 8: Build domain_tree ---
     domain_tree = _build_domain_tree(communities_named, sub_trees)

@@ -276,55 +276,42 @@ async def heal_pages_node(
                             "content_hash": new_hash,
                         }
                     except Exception:
-                        pass
+                        log.debug("heal_cache_update_failed", page=page_path, exc_info=True)
                 return ok
             else:
                 _update_heal_hint(page_path, page_dict, evaluator, heal_hints)
                 return False
 
-    # CORE pages: up to heal_max_rounds_core rounds
-    max_rounds_core = wiki_cfg.heal_max_rounds_core if llm else 1
-    active_core = list(core_pages)
-    for round_num in range(max_rounds_core):
-        if not active_core:
-            break
-        await asyncio.gather(*[_bounded_heal(p) for p in active_core], return_exceptions=True)
-        still_failing: list[str] = []
-        for p in active_core:
-            page_dict = page_by_path.get(p)
-            if not page_dict:
-                continue
-            try:
-                page = WikiPage.from_dict(page_dict)
-            except Exception:
-                still_failing.append(p)
-                continue
-            if not _page_passes_post_heal(page, state, evaluator):
-                still_failing.append(p)
-        active_core = still_failing
-        if active_core:
-            log.info("heal_core_round", round=round_num + 1, still_failing=len(active_core))
+    async def _run_heal_tier(active: list[str], max_rounds: int, tier: str) -> list[str]:
+        """Run heal rounds for a tier (core/standard), return still-failing paths."""
+        for round_num in range(max_rounds):
+            if not active:
+                break
+            results = await asyncio.gather(*[_bounded_heal(p) for p in active], return_exceptions=True)
+            for r in results:
+                if isinstance(r, Exception):
+                    log.warning("heal_unhandled_exception", exc_info=r)
+            failing: list[str] = []
+            for p in active:
+                page_dict = page_by_path.get(p)
+                if not page_dict:
+                    continue
+                try:
+                    page = WikiPage.from_dict(page_dict)
+                except Exception:
+                    failing.append(p)
+                    continue
+                if not _page_passes_post_heal(page, state, evaluator):
+                    failing.append(p)
+            active = failing
+            if active:
+                log.info("heal_tier_round", tier=tier, round=round_num + 1, still_failing=len(active))
+        return active
 
-    # STANDARD pages: heal_max_rounds_standard rounds
+    max_rounds_core = wiki_cfg.heal_max_rounds_core if llm else 1
     max_rounds_std = wiki_cfg.heal_max_rounds_standard if llm else 1
-    active_std = list(standard_pages)
-    for round_num in range(max_rounds_std):
-        if not active_std:
-            break
-        await asyncio.gather(*[_bounded_heal(p) for p in active_std], return_exceptions=True)
-        still_failing_std: list[str] = []
-        for p in active_std:
-            page_dict = page_by_path.get(p)
-            if not page_dict:
-                continue
-            try:
-                page = WikiPage.from_dict(page_dict)
-            except Exception:
-                still_failing_std.append(p)
-                continue
-            if not _page_passes_post_heal(page, state, evaluator):
-                still_failing_std.append(p)
-        active_std = still_failing_std
+    active_core = await _run_heal_tier(list(core_pages), max_rounds_core, "core")
+    active_std = await _run_heal_tier(list(standard_pages), max_rounds_std, "standard")
 
     # Phase 3: Results
     initial_paths = core_pages + standard_pages

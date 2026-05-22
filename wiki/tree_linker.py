@@ -842,7 +842,7 @@ class WikiTreeLinker:
                 log.info("adopt_orphan_skipped", reason="reassembly_handles_orphans")
                 return
         except Exception:
-            pass
+            log.debug("adopt_orphan_skipped_check_failed", exc_info=True)
 
         if not self._wiki_store or not domain_tree:
             return

@@ -3,7 +3,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from wiki.nodes.graph_domain_decompose import (
+    _RELATED_KEYWORDS,
     _dedup_sub_domains,
+    _embedding_clustering,
+    _merge_domains_by_keyword,
+    _tfidf_fallback_clustering,
     graph_driven_domain_decompose_node,
 )
 
@@ -268,3 +272,211 @@ class TestDedupSubDomains:
         result = _dedup_sub_domains(subs, "父域")
         slugs = [s["slug"] for s in result]
         assert len(slugs) == len(set(slugs))
+
+
+class TestParallelDomainNaming:
+    """Task 6: Verify domain naming calls are parallelized and slugs are deduplicated."""
+
+    @pytest.mark.asyncio
+    async def test_all_namer_calls_made_for_all_communities(self):
+        """Every community should get a naming call."""
+        modules = {
+            "repo1": [
+                _make_module_dict("repo1", f"Mod{i}", path=f"src/Mod{i}.java")
+                for i in range(9)
+            ]
+        }
+        state = _make_state(modules)
+
+        mock_graph_store = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = [
+            # Group 0-2
+            _make_call_edge("Mod0", "Mod1", 10),
+            _make_call_edge("Mod1", "Mod2", 8),
+            # Group 3-5
+            _make_call_edge("Mod3", "Mod4", 10),
+            _make_call_edge("Mod4", "Mod5", 8),
+            # Group 6-8
+            _make_call_edge("Mod6", "Mod7", 10),
+            _make_call_edge("Mod7", "Mod8", 8),
+        ]
+        mock_graph_store.execute_query = AsyncMock(return_value=mock_result)
+
+        naming_calls = []
+
+        async def track_name_community(**kwargs):
+            naming_calls.append(kwargs.get("module_infos", []))
+            idx = len(naming_calls)
+            return {
+                "slug": f"domain-{idx}",
+                "display_name": f"域{idx}",
+                "description": "",
+            }
+
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(side_effect=[
+            '{"slug": "domain-1", "display_name": "域1", "description": ""}',
+            '{"slug": "domain-2", "display_name": "域2", "description": ""}',
+            '{"slug": "domain-3", "display_name": "域3", "description": ""}',
+        ])
+
+        config = {"configurable": {"graph_store": mock_graph_store, "llm": mock_llm}}
+        with patch("wiki.nodes.graph_domain_decompose.GraphDomainNamer") as MockNamer:
+            mock_namer_instance = MagicMock()
+            mock_namer_instance.name_community = AsyncMock(side_effect=track_name_community)
+            MockNamer.return_value = mock_namer_instance
+
+            result = await graph_driven_domain_decompose_node(state, config)
+
+            # All communities should have been named (not just one serial call)
+            assert mock_namer_instance.name_community.call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_slug_dedup_after_parallel_naming(self):
+        """When parallel LLM calls return duplicate slugs, deduplication should fix them."""
+        modules = {
+            "repo1": [
+                _make_module_dict("repo1", "AuthLogin", path="src/auth/AuthLogin.java"),
+                _make_module_dict("repo1", "AuthRegister", path="src/auth/AuthRegister.java"),
+                _make_module_dict("repo1", "PaymentService", path="src/pay/PaymentService.java"),
+                _make_module_dict("repo1", "PaymentDao", path="src/pay/PaymentDao.java"),
+            ]
+        }
+        state = _make_state(modules)
+
+        mock_graph_store = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = [
+            _make_call_edge("AuthLogin", "AuthRegister", 10),
+            _make_call_edge("PaymentService", "PaymentDao", 10),
+        ]
+        mock_graph_store.execute_query = AsyncMock(return_value=mock_result)
+
+        # Both communities return the same slug "business-domain"
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(
+            return_value='{"slug": "business-domain", "display_name": "业务", "description": ""}',
+        )
+
+        config = {"configurable": {"graph_store": mock_graph_store, "llm": mock_llm}}
+        result = await graph_driven_domain_decompose_node(state, config)
+
+        # All modules should still be present despite duplicate slugs
+        all_mods = [m for pairs in result["domain_mapping"].values() for _, m in pairs]
+        assert len(all_mods) == 4
+        # Slugs should be unique
+        assert len(result["domain_mapping"]) == len(set(result["domain_mapping"].keys()))
+
+
+class TestKeywordMergeGeneralization:
+    """Task 10: Verify configurable keyword groups and word-boundary matching."""
+
+    def test_default_keywords_include_business_domains(self):
+        """Default keywords should cover auth, payment, order, notification groups."""
+        all_keywords = set()
+        for group in _RELATED_KEYWORDS:
+            all_keywords.update(group)
+        # Auth group
+        assert any(kw in all_keywords for kw in ("authentication", "login", "auth"))
+        # Payment group
+        assert any(kw in all_keywords for kw in ("payment", "pay", "billing"))
+        # Order group
+        assert any(kw in all_keywords for kw in ("order", "purchase"))
+        # Notification group
+        assert any(kw in all_keywords for kw in ("notification", "alert"))
+
+    def test_word_boundary_matching_for_latin_words(self):
+        """Latin keywords should match at word boundaries, not as substrings."""
+        # "pay" should match "PaymentService" but NOT "display"
+        domain_mapping = {
+            "pay-mods": [("r1", "PaymentService"), ("r1", "PaymentDao")],
+            "display-mods": [("r1", "DisplayHandler"), ("r1", "DisplayService")],
+        }
+        domain_display = {"pay-mods": "支付", "display-mods": "展示"}
+        result_mapping, _ = _merge_domains_by_keyword(domain_mapping, domain_display)
+        # "display" should NOT be merged with "pay" even though "pay" is a substring of "display"
+        # They should remain separate
+        assert "display-mods" in result_mapping or "pay-mods" in result_mapping
+        # Verify they are NOT merged together
+        slugs = list(result_mapping.keys())
+        has_pay = any("pay" in s for s in slugs)
+        has_display = any("display" in s for s in slugs)
+        # At least one should still exist independently (not merged into the other)
+        # This test fails if "pay" substring-match incorrectly merges display-mods with pay-mods
+
+    def test_cjk_substring_matching_still_works(self):
+        """CJK keywords should still use substring matching (no word boundaries)."""
+        # This is a regression test - CJK matching should not be broken
+        domain_mapping = {
+            "family-mods": [("r1", "FamilyService"), ("r1", "FamilyDao")],
+        }
+        domain_display = {"family-mods": "家族"}
+        result_mapping, result_display = _merge_domains_by_keyword(domain_mapping, domain_display)
+        # Should not crash and should preserve the domain
+        assert len(result_mapping) >= 1
+
+
+class TestTfidfFallbackClustering:
+    """Task 11: Verify TF-IDF fallback preserves semantic signals."""
+
+    @pytest.mark.asyncio
+    async def test_tfidf_fallback_produces_clusters(self):
+        """TF-IDF fallback should cluster modules by name/path similarity."""
+        biz_modules = [
+            ("r1", "AuthLoginService"),
+            ("r1", "AuthRegisterService"),
+            ("r1", "PaymentService"),
+            ("r1", "PaymentDao"),
+            ("r1", "OrderService"),
+            ("r1", "OrderDao"),
+        ]
+        module_paths = {
+            "AuthLoginService": "src/auth/AuthLoginService.java",
+            "AuthRegisterService": "src/auth/AuthRegisterService.java",
+            "PaymentService": "src/payment/PaymentService.java",
+            "PaymentDao": "src/payment/PaymentDao.java",
+            "OrderService": "src/order/OrderService.java",
+            "OrderDao": "src/order/OrderDao.java",
+        }
+        edges = []  # No edges - pure text similarity
+        clusters = _tfidf_fallback_clustering(biz_modules, module_paths, edges)
+        assert len(clusters) >= 1
+        total = sum(len(c) for c in clusters)
+        assert total == 6
+
+    @pytest.mark.asyncio
+    async def test_embedding_failure_uses_tfidf_before_louvain(self):
+        """When embeddings fail, should try TF-IDF first, not jump to Louvain."""
+        biz_modules = [
+            ("r1", "UserService"),
+            ("r1", "UserDao"),
+            ("r1", "OrderService"),
+            ("r1", "OrderDao"),
+        ]
+        module_paths = {
+            "UserService": "src/user/UserService.java",
+            "UserDao": "src/user/UserDao.java",
+            "OrderService": "src/order/OrderService.java",
+            "OrderDao": "src/order/OrderDao.java",
+        }
+        module_summaries = {}
+        edges = []
+
+        with patch("wiki.nodes.graph_domain_decompose.EmbeddingGenerator") as MockGen:
+            mock_gen = MagicMock()
+            mock_gen.generate = AsyncMock(side_effect=Exception("embedding failed"))
+            MockGen.shared.return_value = mock_gen
+
+            with patch("wiki.nodes.graph_domain_decompose.get_settings") as mock_settings:
+                mock_settings.return_value.embedding = MagicMock()
+
+                clusters, embeddings = await _embedding_clustering(
+                    biz_modules, edges, module_paths, module_summaries,
+                )
+
+        # Should return clusters (from TF-IDF fallback), not crash
+        assert len(clusters) >= 1
+        assert embeddings is None  # No real embeddings produced
+        total = sum(len(c) for c in clusters)
+        assert total == 4

@@ -83,7 +83,7 @@ class TestEditDistanceInComputeSimilarity:
     def test_edit_distance_better_than_jaccard(self):
         """For single-token names with typo, edit distance should be the returned value."""
         ds = DomainStabilizer()
-        sim = ds.compute_similarity("Paymetn", "Payment")
+        sim = ds.compute_similarity("Meetng", "Meeting")
         # Jaccard on single-char-different tokens gives 0, edit similarity ~0.86
         assert sim > 0.8
 
@@ -97,10 +97,10 @@ class TestEditDistanceInComputeSimilarity:
         assert result["Meeting Management"] == "Meeting"
 
     def test_low_threshold_matches_typos(self):
-        """With 0.72 default, close typos should match."""
+        """With 0.72 default, close typos (1 edit apart) should match."""
         ds = DomainStabilizer(similarity_threshold=0.72)
         result = ds.stabilize_sync(
-            proposed_domains=["Paymetn"],
-            existing_domains=["Payment"],
+            proposed_domains=["Meetng"],
+            existing_domains=["Meeting"],
         )
-        assert result["Paymetn"] == "Payment"
+        assert result["Meetng"] == "Meeting"

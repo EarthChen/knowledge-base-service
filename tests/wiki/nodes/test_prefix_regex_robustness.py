@@ -12,27 +12,31 @@ class TestPrefixRegexCamelCase:
 
     @pytest.fixture()
     def prefix_re(self):
-        return re.compile(r"^([A-Z][a-z]{2,}|[A-Z]{2,}[a-z]+|[A-Z][a-z]*[A-Z][a-z]+)")
+        return re.compile(r"^([A-Z]{2,}(?=[A-Z][a-z])|[A-Z][a-z]{2,})")
 
     def test_matches_pascal_case(self, prefix_re):
         assert prefix_re.match("FamilyService")
         assert prefix_re.match("PaymentHandler")
 
     def test_matches_all_caps_prefix(self, prefix_re):
-        """IOHandler, AJAXUtil, XMLParser should match."""
+        """IOHandler, AJAXUtil, XMLParser should match the ALL-CAPS prefix."""
         m = prefix_re.match("IOHandler")
         assert m is not None
-        assert m.group(1) == "IOHandler"
+        assert m.group(1) == "IO"
 
         m = prefix_re.match("AJAXUtil")
         assert m is not None
+        assert m.group(1) == "AJAX"
 
         m = prefix_re.match("XMLParser")
         assert m is not None
+        assert m.group(1) == "XML"
 
-    def test_matches_camel_case_inner_caps(self, prefix_re):
-        m = prefix_re.match("getDOMNode")
+    def test_matches_pascal_case_extracts_first_word(self, prefix_re):
+        """FamilyWebService should extract just 'Family' as the prefix."""
+        m = prefix_re.match("FamilyWebService")
         assert m is not None
+        assert m.group(1) == "Family"
 
 
 class TestGenericPrefixesExpanded:

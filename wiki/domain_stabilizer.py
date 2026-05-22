@@ -34,7 +34,7 @@ class DomainStabilizer:
     containment, and Jaccard token similarity (not embedding-based).
     """
 
-    def __init__(self, graph_store: Any | None = None, *, similarity_threshold: float = 0.85):
+    def __init__(self, graph_store: Any | None = None, *, similarity_threshold: float = 0.72):
         self._graph = graph_store
         self._threshold = similarity_threshold
 
@@ -77,6 +77,29 @@ class DomainStabilizer:
                 break
         return s
 
+    @staticmethod
+    def _levenshtein_distance(a: str, b: str) -> int:
+        """Pure-Python Levenshtein edit distance (O(m*n) time, O(min(m,n)) space)."""
+        if len(a) < len(b):
+            a, b = b, a
+        if not b:
+            return len(a)
+        prev = list(range(len(b) + 1))
+        for i in range(1, len(a) + 1):
+            curr = [i]
+            for j in range(1, len(b) + 1):
+                cost = 0 if a[i - 1] == b[j - 1] else 1
+                curr.append(min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost))
+            prev = curr
+        return prev[-1]
+
+    def _edit_distance_similarity(self, a: str, b: str) -> float:
+        """Normalised edit distance similarity in [0, 1]."""
+        if not a or not b:
+            return 0.0
+        dist = self._levenshtein_distance(a, b)
+        return 1.0 - dist / max(len(a), len(b))
+
     def compute_similarity(self, name_a: str, name_b: str) -> float:
         """Compute text similarity between two domain names.
 
@@ -84,6 +107,7 @@ class DomainStabilizer:
         1. Exact match after normalization
         2. Substring containment
         3. Jaccard similarity on word tokens
+        4. Normalised Levenshtein edit distance (fallback)
         """
         na = self.normalize_domain_name(name_a)
         nb = self.normalize_domain_name(name_b)
@@ -96,15 +120,17 @@ class DomainStabilizer:
         ta = self._tokenize_for_jaccard(na)
         tb = self._tokenize_for_jaccard(nb)
         if not ta or not tb:
-            return 0.0
+            return self._edit_distance_similarity(na, nb)
         inter = len(ta & tb)
         union = len(ta | tb)
         j = inter / union if union else 0.0
         pa = na.split()
         pb = nb.split()
         if len(pa) >= 2 and len(pb) >= 2 and pa[0] == pb[0]:
-            return max(j, 0.85)
-        return j
+            j = max(j, 0.85)
+        # Fallback: if Jaccard is below threshold, try edit distance
+        edit_sim = self._edit_distance_similarity(na, nb)
+        return max(j, edit_sim)
 
     _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 

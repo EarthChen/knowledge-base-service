@@ -1,5 +1,7 @@
 """Quality healing node for wiki pages."""
 
+import asyncio
+import hashlib
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -16,7 +18,7 @@ from wiki.reasoning import GuidedPromptEnhancer, ReasoningLevel, TaskType, selec
 
 log = get_logger(__name__)
 
-_MAX_HEAL_ROUNDS = 3
+_MAX_HEAL_ROUNDS = 3  # Legacy constant; actual rounds now from config (heal_max_rounds_core/standard)
 
 
 def _update_heal_hint(
@@ -125,9 +127,9 @@ async def _heal_one_page(
             cleaned = cleanup_context_gaps(raw_content)
             page_dict["content"] = cleaned
             raw_has_context_gap = "<!-- CONTEXT_GAP" in raw_content
-            too_short_after_clean = len(cleaned.strip()) < 200
+            too_short_after_clean = len(cleaned.strip()) < 100
             if graph_store is not None and (
-                raw_has_context_gap or too_short_after_clean
+                raw_has_context_gap and too_short_after_clean
             ):
                 agent = WikiPageAgent(llm, graph_store)
                 new_content = await agent.enrich(
@@ -175,51 +177,79 @@ async def _heal_one_page(
 async def heal_pages_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
-    """Regenerate pages that failed the quality gate (replaces them via merge_wiki_pages)."""
+    """Concurrent, tier-aware page healing.
+
+    Phase 1: Triage pages by ImportanceTier (skip SKELETON)
+    Phase 2: Concurrent heal with per-tier round limits
+    Phase 3: Merge results
+    """
+    from core.config import get_settings
+    from wiki.pipeline_concurrency import PipelineConcurrency
+
     configurable = (config or {}).get("configurable", {})
     llm = configurable.get("llm")
     graph_store = configurable.get("graph_store")
+    wiki_cfg = get_settings().wiki
     evaluator = WikiQualityEvaluator()
-    heal_attempts = dict(state.get("heal_attempts", {}))
-    heal_hints = dict(state.get("heal_hints", {}))
+    heal_attempts: dict[str, int] = dict(state.get("heal_attempts", {}))
+    heal_hints: dict[str, str] = dict(state.get("heal_hints", {}))
+    check_cache: dict[str, dict[str, Any]] = dict(state.get("_structural_check_cache", {}))
 
-    initial_paths: list[str] = []
-    seen_setup: set[str] = set()
-    for page_path in state.get("pages_to_heal", []):
-        if page_path in seen_setup:
-            continue
-        seen_setup.add(page_path)
-        initial_paths.append(page_path)
+    # De-duplicate
+    seen: set[str] = set()
+    all_paths: list[str] = []
+    for p in state.get("pages_to_heal", []):
+        if p not in seen:
+            seen.add(p)
+            all_paths.append(p)
 
-    if not initial_paths:
+    if not all_paths:
         log.info("heal_pages_done", healed_count=0)
-        return {
-            "pages_to_heal": [],
-            "heal_attempts": heal_attempts,
-            "heal_hints": heal_hints,
-            "pages": [],
-        }
+        return {"pages_to_heal": [], "heal_attempts": heal_attempts, "heal_hints": heal_hints, "pages": [], "_structural_check_cache": check_cache}
 
+    # Build page lookup
     page_by_path: dict[str, dict[str, Any]] = {}
     for p in state.get("pages", []):
         path = p.get("path")
-        if path in seen_setup:
+        if path in seen:
             page_by_path[str(path)] = dict(p)
 
-    max_rounds = _MAX_HEAL_ROUNDS if llm else 1
-    active = list(initial_paths)
+    # Phase 1: Triage by tier
+    # When importance_tiers is empty (production default), treat all pages as "core"
+    # to preserve the original 3-round healing behavior.
+    importance_tiers: dict[str, str] = (state.get("config") or {}).get("importance_tiers", {})
+    core_pages: list[str] = []
+    standard_pages: list[str] = []
+    has_tier_info = bool(importance_tiers)
+
+    for path in all_paths:
+        raw_tier = str(importance_tiers.get(path, "")).lower() if has_tier_info else ""
+        if raw_tier == "skeleton":
+            continue
+        elif raw_tier == "standard":
+            standard_pages.append(path)
+        else:
+            # "core", unknown, or empty (no tier info) → treated as core for full healing
+            core_pages.append(path)
+
+    log.info(
+        "heal_triage",
+        total=len(all_paths),
+        core=len(core_pages),
+        standard=len(standard_pages),
+        skipped_skeleton=len(all_paths) - len(core_pages) - len(standard_pages),
+    )
+
+    # Phase 2: Concurrent heal
+    sem = PipelineConcurrency.semaphore("heal")
     healed_by_path: dict[str, dict[str, Any]] = {}
 
-    for _ in range(max_rounds):
-        if not active:
-            break
-        next_active: list[str] = []
-        for page_path in active:
-            heal_attempts[page_path] = heal_attempts.get(page_path, 0) + 1
+    async def _bounded_heal(page_path: str) -> bool:
+        async with sem:
             page_dict = page_by_path.get(page_path)
             if not page_dict:
-                continue
-
+                return False
+            heal_attempts[page_path] = heal_attempts.get(page_path, 0) + 1
             if llm:
                 ok = await _heal_one_page(
                     page_path=page_path,
@@ -233,29 +263,84 @@ async def heal_pages_node(
                 )
                 if ok:
                     healed_by_path[page_path] = dict(page_dict)
+                    # Update structural check cache for healed page
+                    new_content = page_dict.get("content", "")
+                    new_hash = hashlib.sha256(
+                        new_content.encode("utf-8", errors="replace")
+                    ).hexdigest()
+                    try:
+                        healed_page = WikiPage.from_dict(page_dict)
+                        l1 = evaluator.structural_check(healed_page)
+                        check_cache[page_path] = {
+                            "score": {"l1_structural": l1.overall},
+                            "content_hash": new_hash,
+                        }
+                    except Exception:
+                        pass
+                return ok
             else:
                 _update_heal_hint(page_path, page_dict, evaluator, heal_hints)
-                log.info("page_heal_skip_no_llm", page=page_path)
+                return False
 
-        for page_path in active:
-            page_dict = page_by_path.get(page_path)
+    # CORE pages: up to heal_max_rounds_core rounds
+    max_rounds_core = wiki_cfg.heal_max_rounds_core if llm else 1
+    active_core = list(core_pages)
+    for round_num in range(max_rounds_core):
+        if not active_core:
+            break
+        await asyncio.gather(*[_bounded_heal(p) for p in active_core], return_exceptions=True)
+        still_failing: list[str] = []
+        for p in active_core:
+            page_dict = page_by_path.get(p)
             if not page_dict:
                 continue
             try:
                 page = WikiPage.from_dict(page_dict)
             except Exception:
-                next_active.append(page_path)
+                still_failing.append(p)
                 continue
             if not _page_passes_post_heal(page, state, evaluator):
-                next_active.append(page_path)
+                still_failing.append(p)
+        active_core = still_failing
+        if active_core:
+            log.info("heal_core_round", round=round_num + 1, still_failing=len(active_core))
 
-        active = next_active
+    # STANDARD pages: heal_max_rounds_standard rounds
+    max_rounds_std = wiki_cfg.heal_max_rounds_standard if llm else 1
+    active_std = list(standard_pages)
+    for round_num in range(max_rounds_std):
+        if not active_std:
+            break
+        await asyncio.gather(*[_bounded_heal(p) for p in active_std], return_exceptions=True)
+        still_failing_std: list[str] = []
+        for p in active_std:
+            page_dict = page_by_path.get(p)
+            if not page_dict:
+                continue
+            try:
+                page = WikiPage.from_dict(page_dict)
+            except Exception:
+                still_failing_std.append(p)
+                continue
+            if not _page_passes_post_heal(page, state, evaluator):
+                still_failing_std.append(p)
+        active_std = still_failing_std
 
+    # Phase 3: Results
+    initial_paths = core_pages + standard_pages
     healed_pages = [healed_by_path[p] for p in initial_paths if p in healed_by_path]
-    log.info("heal_pages_done", healed_count=len(healed_pages))
+    log.info(
+        "heal_pages_done",
+        healed_count=len(healed_pages),
+        core_healed=len([p for p in core_pages if p in healed_by_path]),
+        standard_healed=len([p for p in standard_pages if p in healed_by_path]),
+        still_failing_core=len(active_core),
+        still_failing_standard=len(active_std),
+    )
     return {
         "pages_to_heal": [],
         "heal_attempts": heal_attempts,
         "heal_hints": heal_hints,
         "pages": healed_pages,
+        "_structural_check_cache": check_cache,
     }

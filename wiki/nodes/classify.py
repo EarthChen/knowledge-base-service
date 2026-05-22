@@ -114,11 +114,12 @@ def _consolidate_split_entities(
     import re
     from collections import Counter, defaultdict
 
-    _PREFIX_RE = re.compile(r"^([A-Z][a-z]{2,})")
+    _PREFIX_RE = re.compile(r"^([A-Z]{2,}(?=[A-Z][a-z])|[A-Z][a-z]{2,})")
     _GENERIC_PREFIXES = frozenset({
         "User", "Base", "Abstract", "Default", "Common", "Generic",
         "Internal", "Simple", "Basic", "Custom", "Main", "Core",
         "Global", "Shared", "App", "Web", "Service", "Data",
+        "Info", "Config", "Util", "Tool", "System",
     })
 
     module_to_domain: dict[str, str] = {}

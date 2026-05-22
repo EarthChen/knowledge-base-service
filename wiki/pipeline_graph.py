@@ -3,6 +3,7 @@
 # LangGraph needs real type objects (not strings) to detect RunnableConfig
 # parameters and automatically inject config into nodes.
 
+import hashlib
 import inspect
 import os
 from collections.abc import Awaitable, Callable
@@ -177,6 +178,9 @@ async def quality_gate_node(
     1. state["config"]["quality_levels"]
     2. config["configurable"]["quality_levels"]
     3. Default: ["L1", "L2"]
+
+    Uses _structural_check_cache to skip re-evaluation when page content is
+    unchanged between heal cycles.
     """
     cfg = state.get("config") or {}
     levels = (
@@ -188,6 +192,9 @@ async def quality_gate_node(
     evaluator = WikiQualityEvaluator()
     importance_tiers: dict[str, str] = cfg.get("importance_tiers", {})
     heal_attempts = state.get("heal_attempts", {})
+
+    # Load or initialise structural check cache
+    check_cache: dict[str, dict[str, Any]] = dict(state.get("_structural_check_cache", {}))
 
     quality_scores: dict[str, dict[str, Any]] = {}
     pages_to_heal: list[str] = []
@@ -216,31 +223,47 @@ async def quality_gate_node(
             quality_scores[page.path] = {"l1_structural": 1.0, "overall": 1.0}
             continue
 
+        # Compute content hash for cache lookup
+        content_bytes = (page.content or "").encode("utf-8", errors="replace")
+        content_hash = hashlib.sha256(content_bytes).hexdigest()
+        cached = check_cache.get(page.path)
+
         score_dict: dict[str, Any] = {}
 
-        l1 = evaluator.structural_check(page)
-        score_dict["l1_structural"] = l1.overall
+        if cached and cached.get("content_hash") == content_hash:
+            # Reuse cached L1 score
+            cached_score = cached.get("score", {})
+            l1_overall = cached_score.get("l1_structural", 0.0)
+            score_dict["l1_structural"] = l1_overall
+        else:
+            # Evaluate structural check fresh
+            l1 = evaluator.structural_check(page)
+            score_dict["l1_structural"] = l1.overall
 
-        # Citation verification — detect hallucinated entity references
-        citation_result = verify_citations(page.content, all_module_names)
-        if citation_result.invalid_count > 0:
-            score_dict["citation_invalid_count"] = citation_result.invalid_count
-            score_dict["citation_invalid_refs"] = citation_result.invalid_refs[:5]
-            penalty = min(0.2, citation_result.invalid_count * 0.05)
-            l1_adjusted = max(0.0, l1.overall - penalty)
-            score_dict["l1_structural"] = round(l1_adjusted, 4)
+            # Citation verification — detect hallucinated entity references
+            citation_result = verify_citations(page.content, all_module_names)
+            if citation_result.invalid_count > 0:
+                score_dict["citation_invalid_count"] = citation_result.invalid_count
+                score_dict["citation_invalid_refs"] = citation_result.invalid_refs[:5]
+                penalty = min(0.2, citation_result.invalid_count * 0.05)
+                l1_adjusted = max(0.0, l1.overall - penalty)
+                score_dict["l1_structural"] = round(l1_adjusted, 4)
 
-        gap_issues = [i for i in l1.issues if i.startswith("context_gaps:")]
-        if gap_issues:
-            gap_count = int(gap_issues[0].split(":")[1])
-            score_dict["context_gap_count"] = gap_count
+            gap_issues = [i for i in l1.issues if i.startswith("context_gaps:")]
+            if gap_issues:
+                gap_count = int(gap_issues[0].split(":")[1])
+                score_dict["context_gap_count"] = gap_count
+
+            # Update cache
+            check_cache[page.path] = {"score": dict(score_dict), "content_hash": content_hash}
 
         if "L2" in levels:
             l2 = evaluator.bench_score(page)
             score_dict["l2_bench"] = l2.overall
 
         score_dict["l3_llm_judge"] = None
-        if "L3" in levels and tier == ImportanceTier.CORE and l1.overall >= 0.7:
+        l1_val = score_dict.get("l1_structural", 0.0)
+        if "L3" in levels and tier == ImportanceTier.CORE and l1_val >= 0.7:
             llm = (config or {}).get("configurable", {}).get("llm")
             if llm:
                 harness_eval = WikiPageEvaluator()
@@ -290,7 +313,11 @@ async def quality_gate_node(
         context_gaps_total=total_gaps,
         pages_with_context_gaps=pages_with_gaps,
     )
-    return {"quality_scores": quality_scores, "pages_to_heal": pages_to_heal}
+    return {
+        "quality_scores": quality_scores,
+        "pages_to_heal": pages_to_heal,
+        "_structural_check_cache": check_cache,
+    }
 
 
 async def finalize_node(state: WikiPipelineState) -> dict[str, Any]:

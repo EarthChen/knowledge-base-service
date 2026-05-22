@@ -381,3 +381,73 @@ class TestReassembleDomainsNode:
 
         # Rollback should have triggered
         assert any(a.get("type") == "rollback" for a in result["reassembly_actions"])
+
+
+class TestReassemblyDegradation:
+    @pytest.mark.asyncio
+    async def test_embedding_failure_skips_gracefully(self):
+        from wiki.nodes.reassemble_domains import reassemble_domains_node
+
+        state = {
+            "pages": [
+                {"path": "domain-a/_overview", "content": "Auth content"},
+                {"path": "domain-b/_overview", "content": "Payment content"},
+            ],
+            "domain_mapping": {"domain-a": [], "domain-b": []},
+            "domain_tree": [],
+            "config": {},
+        }
+
+        mock_generator = AsyncMock()
+        mock_generator.generate = AsyncMock(side_effect=RuntimeError("embedding service down"))
+
+        with patch("wiki.nodes.reassemble_domains._get_embedding_generator", return_value=mock_generator), \
+             patch("wiki.nodes.reassemble_domains.get_settings") as mock_settings:
+            mock_settings.return_value.wiki.domain_reassembly_enabled = True
+            mock_settings.return_value.wiki.reassembly_merge_threshold = 0.85
+            mock_settings.return_value.wiki.reassembly_orphan_threshold = 0.60
+            mock_settings.return_value.wiki.reassembly_max_moves_pct = 0.30
+            mock_settings.return_value.wiki.reassembly_respect_user_modified = True
+            mock_settings.return_value.embedding = MagicMock()
+            result = await reassemble_domains_node(state)
+
+        assert result["reassembly_actions"] == []
+
+    @pytest.mark.asyncio
+    async def test_llm_failure_still_processes_orphans(self):
+        from wiki.nodes.reassemble_domains import reassemble_domains_node
+
+        state = {
+            "pages": [
+                {"path": "domain-a/_overview", "content": "Auth content"},
+                {"path": "domain-b/_overview", "content": "Auth content very similar"},
+            ],
+            "domain_mapping": {"domain-a": [("repo", "ModA")], "domain-b": [("repo", "ModB")]},
+            "domain_tree": [{"slug": "domain-a"}, {"slug": "domain-b"}],
+            "domain_display_names": {"domain-a": "A", "domain-b": "B"},
+            "config": {},
+        }
+
+        mock_generator = AsyncMock()
+        mock_generator.generate = AsyncMock(return_value=[[1.0] * 1024, [1.0] * 1024])
+
+        mock_llm = AsyncMock()
+        mock_llm.chat_complete = AsyncMock(side_effect=RuntimeError("LLM down"))
+
+        config = {"configurable": {"llm": mock_llm}}
+
+        with patch("wiki.nodes.reassemble_domains._get_embedding_generator", return_value=mock_generator), \
+             patch("wiki.nodes.reassemble_domains._get_pinned_domains", return_value=set()), \
+             patch("wiki.nodes.reassemble_domains.get_settings") as mock_settings:
+            mock_settings.return_value.wiki.domain_reassembly_enabled = True
+            mock_settings.return_value.wiki.reassembly_merge_threshold = 0.85
+            mock_settings.return_value.wiki.reassembly_orphan_threshold = 0.60
+            mock_settings.return_value.wiki.reassembly_max_moves_pct = 0.30
+            mock_settings.return_value.wiki.reassembly_respect_user_modified = True
+            mock_settings.return_value.embedding = MagicMock()
+            result = await reassemble_domains_node(state, config)
+
+        # LLM failure means no merges approved, but node doesn't crash
+        # Both domains should still be in mapping
+        assert "domain-a" in result.get("domain_mapping", state["domain_mapping"])
+        assert "domain-b" in result.get("domain_mapping", state["domain_mapping"])

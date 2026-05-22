@@ -18,6 +18,7 @@ from wiki.citation_verifier import verify_citations
 from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.models import ImportanceTier, WikiPage
 from wiki.nodes.graph_domain_decompose import graph_driven_domain_decompose_node
+from wiki.nodes.reassemble_domains import reassemble_domains_node
 from wiki.pipeline_nodes import (
     assign_canonical_keys_node,
     classify_entities_node,
@@ -54,6 +55,7 @@ _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "compose_domain_agents": ("compose_domain_agents", 0.30),
     "summarize_leaves": ("summarize_leaves", 0.55),
     "compose_parent_pages": ("compose_parent_pages", 0.60),
+    "reassemble_domains": ("reassemble_domains", 0.65),
     "quality_gate": ("quality_gate", 0.70),
     "heal_pages": ("heal_pages", 0.80),
     "create_links": ("linking", 0.90),
@@ -343,7 +345,12 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("compose_parent_pages", _with_progress("compose_parent_pages", compose_parent_pages_node))
     graph.add_edge("compose_domain_agents", "summarize_leaves")
     graph.add_edge("summarize_leaves", "compose_parent_pages")
-    graph.add_edge("compose_parent_pages", "quality_gate")
+    graph.add_node(
+        "reassemble_domains",
+        _with_progress("reassemble_domains", reassemble_domains_node),
+    )
+    graph.add_edge("compose_parent_pages", "reassemble_domains")
+    graph.add_edge("reassemble_domains", "quality_gate")
 
     graph.add_node("quality_gate", _with_progress("quality_gate", quality_gate_node))
     graph.add_node("heal_pages", _with_progress("heal_pages", heal_pages_node))

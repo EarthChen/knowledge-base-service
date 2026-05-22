@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.config import get_settings
 from core.log import get_logger
 from store.wiki_store import WikiStore
 from wiki.dependency_graph import DomainNode
@@ -834,6 +835,15 @@ class WikiTreeLinker:
         threshold: float = 0.5,
     ) -> None:
         """Phase 4: discover unlinked domain overview pages and match to nearest domain node."""
+        # Skip when reassembly handles orphans
+        try:
+            settings = get_settings().wiki
+            if settings.domain_reassembly_enabled:
+                log.info("adopt_orphan_skipped", reason="reassembly_handles_orphans")
+                return
+        except Exception:
+            pass
+
         if not self._wiki_store or not domain_tree:
             return
 

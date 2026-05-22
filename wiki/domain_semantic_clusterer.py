@@ -13,8 +13,8 @@ log = get_logger(__name__)
 
 _DEFAULT_CALL_GRAPH_DISCOUNT = 0.85
 _MIN_CLUSTERS = 3
-_MAX_CLUSTERS = 15
-_SMALL_N_THRESHOLD = 10
+_MAX_CLUSTERS = 25
+_SMALL_N_THRESHOLD = 3
 
 
 def _shorten_path(path: str, levels: int = 4) -> str:
@@ -104,17 +104,22 @@ class DomainSemanticClusterer:
         if not edges:
             return dist
         mod_idx = {mod: i for i, mod in enumerate(modules)}
-        for src, dst, _w in edges:
+        max_w = max((abs(w) for _, _, w in edges), default=1)
+        max_w = max(max_w, 1)
+        for src, dst, w in edges:
             i = mod_idx.get(src)
             j = mod_idx.get(dst)
             if i is not None and j is not None and i != j:
-                dist[i, j] *= self._discount
-                dist[j, i] *= self._discount
+                # Weight-aware: higher weight → stronger discount (smaller distance)
+                ratio = min(abs(w) / max_w, 1.0)
+                discount = 1.0 - 0.15 * ratio
+                dist[i, j] *= discount
+                dist[j, i] *= discount
         return dist
 
     def _find_best_k(self, dist: np.ndarray, n: int) -> int:
-        k_min = max(self._min_k, n // 20)
-        k_max = min(max(k_min + 1, n // 3), self._max_k)
+        k_min = max(self._min_k, n // 15)
+        k_max = min(max(k_min + 1, n // 4), self._max_k)
         if k_max <= k_min:
             return k_min
         best_k = k_min

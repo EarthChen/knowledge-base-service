@@ -42,7 +42,22 @@ def _is_data_model(name: str, path: str) -> bool:
 _RELATED_KEYWORDS = [
     frozenset({"intimacy", "closedfriend", "closed"}),
     frozenset({"family", "guild"}),
+    frozenset({"authentication", "login", "auth"}),
+    frozenset({"payment", "pay", "billing"}),
+    frozenset({"order", "purchase"}),
+    frozenset({"notification", "alert"}),
 ]
+
+
+def _has_cjk(text: str) -> bool:
+    return any("一" <= ch <= "鿿" for ch in text)
+
+
+def _keyword_matches_name(keyword: str, name_lower: str) -> bool:
+    """Match keyword against module name with word-boundary check for Latin, substring for CJK."""
+    if _has_cjk(keyword):
+        return keyword in name_lower
+    return bool(re.search(r"\b" + re.escape(keyword) + r"\b", name_lower))
 
 
 def _merge_domains_by_keyword(
@@ -63,7 +78,7 @@ def _merge_domains_by_keyword(
             name_lower = name.lower()
             for group in _RELATED_KEYWORDS:
                 for kw in group:
-                    if kw in name_lower:
+                    if _keyword_matches_name(kw, name_lower):
                         group_key = "|".join(sorted(group))
                         group_scores[group_key] = group_scores.get(group_key, 0) + 1
                         break
@@ -100,7 +115,7 @@ def _merge_domains_by_keyword(
         for group in _RELATED_KEYWORDS:
             matched_kw = None
             for kw in group:
-                if kw in slug_lower:
+                if _keyword_matches_name(kw, slug_lower):
                     matched_kw = kw
                     break
             if matched_kw:
@@ -274,8 +289,31 @@ def _tfidf_fallback_clustering(
     module_paths: dict[str, str],
     edges: list[tuple[tuple[str, str], tuple[str, str], int | float]],
 ) -> list[set[tuple[str, str]]]:
-    """TODO: implement TF-IDF fallback clustering."""
-    raise NotImplementedError
+    """Fallback: use TF-IDF on module names+paths when embeddings are unavailable."""
+    from sklearn.cluster import AgglomerativeClustering
+    from sklearn.feature_extraction.text import TfidfVectorizer
+
+    n = len(biz_modules)
+    if n < 3:
+        return [set(biz_modules)]
+
+    texts = [f"{name} {module_paths.get(name, '')}" for _, name in biz_modules]
+    vectorizer = TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 4))
+    tfidf_matrix = vectorizer.fit_transform(texts)
+
+    # Convert sparse TF-IDF to dense cosine distance
+    from sklearn.metrics.pairwise import cosine_distances
+    dist = cosine_distances(tfidf_matrix)
+
+    k = min(max(2, n // 5), n - 1)
+    model = AgglomerativeClustering(
+        n_clusters=k, metric="precomputed", linkage="average",
+    )
+    labels = model.fit_predict(dist)
+    clusters: dict[int, set[tuple[str, str]]] = {}
+    for i, label in enumerate(labels):
+        clusters.setdefault(int(label), set()).add(biz_modules[i])
+    return list(clusters.values())
 
 
 async def _embedding_clustering(
@@ -298,8 +336,12 @@ async def _embedding_clustering(
         embedding_lists = await generator.generate(texts)
         embeddings = np.array(embedding_lists, dtype=np.float32)
     except Exception:
-        log.warning("embedding_generation_failed_fallback_louvain", exc_info=True)
-        return await _louvain_fallback_clustering(biz_modules, edges), None
+        log.warning("embedding_generation_failed_fallback_tfidf", exc_info=True)
+        try:
+            return _tfidf_fallback_clustering(biz_modules, module_paths, edges), None
+        except Exception:
+            log.warning("tfidf_fallback_failed_fallback_louvain", exc_info=True)
+            return await _louvain_fallback_clustering(biz_modules, edges), None
 
     clusterer = DomainSemanticClusterer()
     communities = clusterer.cluster(embeddings, biz_modules, edges)
@@ -379,11 +421,10 @@ async def graph_driven_domain_decompose_node(
         biz_modules, edges, module_paths, module_summaries_raw,
     )
 
-    # --- Step 3: LLM Naming with module_infos ---
+    # --- Step 3: LLM Naming with module_infos (parallelized) ---
     namer = GraphDomainNamer(llm)
-    communities_named: list[dict[str, Any]] = []
-    used_names: list[str] = []
-    for community in communities:
+
+    async def _name_community(community: set[tuple[str, str]]) -> dict[str, Any]:
         module_infos = []
         for repo_id, mod_name in sorted(community):
             summary_data = module_summaries_raw.get(mod_name)
@@ -402,16 +443,20 @@ async def graph_driven_domain_decompose_node(
             })
         naming = await namer.name_community(
             module_infos=module_infos,
-            used_names=used_names,
+            used_names=None,
             business_id=state.get("business_id", ""),
         )
-        used_names.append(naming["slug"])
-        communities_named.append({
+        return {
             "slug": naming["slug"],
             "display_name": naming["display_name"],
             "description": naming.get("description", ""),
             "modules": sorted(community),
-        })
+        }
+
+    naming_tasks = [_name_community(community) for community in communities]
+    communities_named: list[dict[str, Any]] = list(
+        await asyncio.gather(*naming_tasks, return_exceptions=False)
+    )
 
     # Ensure unique slugs
     seen_slugs: set[str] = set()
@@ -423,6 +468,8 @@ async def graph_driven_domain_decompose_node(
                 counter += 1
             c["slug"] = f"{slug}-{counter}"
         seen_slugs.add(c["slug"])
+
+    used_names: list[str] = [c["slug"] for c in communities_named]
 
     # --- Step 4: Build domain_mapping ---
     domain_mapping: dict[str, list[tuple[str, str]]] = {}

@@ -35,6 +35,7 @@ from wiki.nodes.compose import (
     plan_topic_structure_node,
 )
 from wiki.nodes.domain_compose import compose_domain_agents_node
+from wiki.nodes.finalize import finalize_node  # noqa: F401
 from wiki.nodes.flow_compose import compose_flow_agents_node, merge_flow_pages_node  # noqa: F401
 from wiki.nodes.graph_domain_decompose import graph_driven_domain_decompose_node
 from wiki.nodes.graph_nodes import (
@@ -46,6 +47,7 @@ from wiki.nodes.graph_nodes import (
 from wiki.nodes.heal import heal_pages_node
 from wiki.nodes.links import create_links_node
 from wiki.nodes.persist_classification import persist_classification_node
+from wiki.nodes.quality_gate import quality_gate_node  # noqa: F401
 from wiki.nodes.reassemble_domains import reassemble_domains_node
 from wiki.nodes.tour import generate_tour_node  # noqa: F401
 from wiki.nodes.utils import (
@@ -108,6 +110,7 @@ __all__ = [
     "create_links_node",
     "decompose_hierarchy_node",
     "detect_reorg_node",
+    "finalize_node",
     "generate_titles_node",
     "generate_tour_node",
     "graph_decompose_node",
@@ -117,6 +120,7 @@ __all__ = [
     "log",
     "persist_classification_node",
     "plan_topic_structure_node",
+    "quality_gate_node",
     "reassemble_domains_node",
     "select_key_snippets",
     "set_review_status_node",

@@ -21,6 +21,8 @@ class TestReassemblyPipelineWiring:
         for edge in graph_data.edges:
             edges.add((edge.source, edge.target))
         assert ("compose_parent_pages", "reassemble_domains") in edges
-        assert ("reassemble_domains", "quality_gate") in edges
+        assert ("reassemble_domains", "compose_flow_agents") in edges
+        assert ("compose_flow_agents", "merge_flow_pages") in edges
+        assert ("merge_flow_pages", "quality_gate") in edges
         # Old direct edge should NOT exist
-        assert ("compose_parent_pages", "quality_gate") not in edges
+        assert ("reassemble_domains", "quality_gate") not in edges

@@ -275,6 +275,7 @@ class AppWikiFlags(BaseModel):
     #: Heal strategy — tier-specific round limits
     heal_max_rounds_core: int = Field(default=3, ge=1)
     heal_max_rounds_standard: int = Field(default=1, ge=1)
+    heal_loop_max_total_attempts: int = Field(default=10, ge=1)
 
     #: Skip per-repo module-level page generation in business wiki.
     #: When True, only LangGraph pipeline topic pages are generated.

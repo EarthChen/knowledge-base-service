@@ -13,6 +13,7 @@ export interface TopicTreeNode {
   description?: string;
   module_count?: number;
   quality_score?: number;
+  architecture_layers?: Record<string, number>;
 }
 
 interface TopicTreeResponse {

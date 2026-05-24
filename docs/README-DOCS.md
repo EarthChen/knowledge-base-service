@@ -55,6 +55,21 @@
 | ~~`specs/2026-05-20-infrastructure-resilience-optimization-design.md`~~ | (已完成并删除) Infrastructure Resilience & Optimization — 固化至 `core/redis_resilience.py`、`indexer/embedding_generator.py`、`llm/retry.py`、`dashboard/src/api/cacheConfig.ts`。 |
 | ~~`specs/2026-05-20-agent-quality-harness-and-sdk-patterns.md`~~ | (已完成并删除) Agent Quality Harness & SDK Patterns — 核心项固化至 `wiki/agents/runner.py` (repeated call detection, LoopHooks)。 |
 | ~~`specs/2026-05-20-agent-runner-extraction-design.md`~~ | (已完成并删除) Agent Runner Extraction — 固化至 `wiki/agents/runner.py`、`wiki/agents/agent_tool.py`、`wiki/page_agent.py` (enrich migration)。 |
+| [`specs/2026-05-20-parent-domain-agent-overview-design.md`](superpowers/specs/2026-05-20-parent-domain-agent-overview-design.md) | **待实现**：Parent Domain Overview Agent 重构设计 — 将 `compose_parent_pages_node` 重构为 Agent 模式。 |
+| [`specs/2026-05-22-heal-redesign-and-unified-llm-rate-control.md`](superpowers/specs/2026-05-22-heal-redesign-and-unified-llm-rate-control.md) | **部分完成**：Heal 并发已实现 ✅；统一 LLM 频控层 Migration 部分未完成（`compose.py`、`wiki_shared.py` 仍用硬编码 Semaphore）。 |
+| [`plans/2026-05-22-heal-redesign-and-unified-llm-rate-control.md`](superpowers/plans/2026-05-22-heal-redesign-and-unified-llm-rate-control.md) | 同上 spec 的实施计划。 |
+| ~~`specs/2026-05-22-wiki-driven-domain-reassembly-design.md`~~ | (已完成并删除) Wiki 内容驱动的域重组 ✅；固化至 `wiki/nodes/reassemble_domains.py`。 |
+| ~~`plans/2026-05-22-wiki-driven-domain-reassembly-impl-plan.md`~~ | (已完成并删除) 域重组实施计划全部完成。 |
+| ~~`specs/2026-05-24-batch1-wiki-pipeline-quick-wins-design.md`~~ | (已完成并删除) Batch 1: 并行 LLM 命名、动态关键词发现、语言特定概念注入、交替重复检测、L3 质量门 ✅。 |
+| ~~`plans/2026-05-24-batch1-wiki-pipeline-quick-wins.md`~~ | (已完成并删除) Batch 1 实施计划全部完成。 |
+| ~~`specs/2026-05-24-batch2-architecture-layer-dagre-incremental-design.md`~~ | (已完成并删除) Batch 2: 架构层分类、dagre 布局、三级增量更新 ✅；固化至 `wiki/architecture_classifier.py`、`wiki/nodes/classify_architecture.py`、`WikiKnowledgeGraph.tsx`。 |
+| ~~`plans/2026-05-24-batch2-architecture-layer-dagre-incremental.md`~~ | (已完成并删除) Batch 2 实施计划全部完成。 |
+| ~~`specs/20260524_155835_batch3-tour-heal-strategy-flow-model.md`~~ | (已完成并删除) Batch 3: Guided Tour、Heal Fallback Strategy、业务流三级模型 ✅；固化至 `wiki/nodes/tour.py`、`wiki/nodes/flow_compose.py`。 |
+| ~~`plans/2026-05-24-batch3-tour-heal-strategy-flow-model.md`~~ | (已完成并删除) Batch 3 实施计划全部完成。 |
+| ~~`specs/2026-05-24-pipeline-graph-refactor-design.md`~~ | (已完成并删除) Pipeline Graph 重构：quality_gate/finalize 提取、L3 并行、HEAL_LOOP_MAX 配置化 ✅。 |
+| ~~`plans/2026-05-24-pipeline-graph-refactor.md`~~ | (已完成并删除) Pipeline Graph 重构实施计划全部完成 (2900 tests)。 |
+| [`reviews/2026-05-22-domain-classification-review.md`](superpowers/reviews/2026-05-22-domain-classification-review.md) | **审阅记录**：域分类现状分析与优化建议。 |
+| [`reviews/2026-05-24-wiki-pipeline-vs-understand-anything-review.md`](superpowers/reviews/2026-05-24-wiki-pipeline-vs-understand-anything-review.md) | **审阅记录**：Wiki 管线 vs Understand-Anything 项目对比分析。 |
 
 ---
 

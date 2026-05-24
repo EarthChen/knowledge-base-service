@@ -338,24 +338,36 @@ sequenceDiagram
 
 ### 11.2 Wiki 生成 StateGraph（节点级真相）
 
-**`wiki/pipeline_graph.build_wiki_pipeline()`** 编译 **`StateGraph(WikiPipelineState)`**，主线为：
+**`wiki/pipeline_graph.build_wiki_pipeline()`** 编译 **`StateGraph(WikiPipelineState)`**，`pipeline_graph.py` 仅负责图定义（节点注册、边/条件边连接），所有节点实现分布在 `wiki/nodes/` 子模块中。
 
-`classify_entity_roles` → `detect_reorg` →（条件）`graph_decompose` → `assign_canonical_keys` → `generate_titles` → `set_review_status` → `compose_leaf_modules` → `compose_bottomup` → **`quality_gate`** ⇄ **`heal_pages`** → `create_links` → `finalize`。
+完整节点主线为：
 
+`classify_entity_roles` → `classify_architecture_layers` → `detect_reorg` →（条件）`graph_decompose` → `assign_canonical_keys` → `generate_titles` → `compose_leaf_modules` → `classify_domains` → `persist_classification` → `set_review_status` → `compose_domain_agents` → `summarize_leaves` → `compose_parent_pages` → `reassemble_domains` → `compose_flow_agents` → `merge_flow_pages` → **`quality_gate`** ⇄ **`heal_pages`** → `create_links` → `generate_tour` → `finalize`。
+
+- **classify_architecture_layers**（`wiki/nodes/classify_architecture.py`）：多信号投票（路径模式、命名约定、框架注解）将模块分类到架构层（Controller / Service / Repository / Model / Config / Util 等），结果持久化到图属性。
 - **detect_reorg**：若 **`reorg_type == none`** 可直接 **`finalize`**（无变更短路）。
 - **graph_decompose**：`GraphModuleDecomposer` 通过 FalkorDB 图查询生成确定性模块树，大 SCC 支持 LLM 语义聚类回退。
 - **assign_canonical_keys / generate_titles**：为模块树节点分配稳定 canonical key 和人类可读标题。
 - **compose_leaf_modules**：`WikiGenerationHarness` 驱动叶模块页面生成（含 `WikiPageAgent` 工具调用、sectional 生成策略）。
-- **compose_bottomup**：自下而上合成父模块页面（`ParentSynthesizer`），叶节点可使用图查询上下文增强。
-- **quality_gate**：L1 结构检查 + `verify_citations` 引用校验（罚分）/ L2 静态 benchmark（代码引用、Mermaid、交叉引用）/ 可选 L3 LLM judge（4×1-5 via `WikiPageEvaluator`，仅 Core Tier）；不合格页进入 **heal** 循环，总尝试 **`HEAL_LOOP_MAX_TOTAL_ATTEMPTS`**（默认 10）兜底。
+- **classify_domains / persist_classification**：图驱动域分解（HAC 聚类 + LLM 命名），结果持久化到 FalkorDB。
+- **compose_domain_agents → summarize_leaves → compose_parent_pages**：Agent 驱动的域文档生成，自下而上合成父域概览。
+- **reassemble_domains**：基于 Wiki 内容的域重组（embedding 相似度 + LLM 审核合并 + 孤儿匹配）。
+- **compose_flow_agents / merge_flow_pages**：业务流三级模型（Domain → Flow → Step），Agent 驱动的业务流文档生成。
+- **quality_gate**（`wiki/nodes/quality_gate.py`）：L1 结构检查 + `verify_citations` 引用校验（罚分）/ L2 静态 benchmark（代码引用、Mermaid、交叉引用）/ 可选 L3 LLM judge（`asyncio.gather` 并行评估，`PipelineConcurrency.semaphore("quality_l3")` 控制并发）；`pages_to_heal` 按 L2 分数排序（L2 未启用时 fallback 到 L1 分数）；不合格页进入 **heal** 循环，总尝试上限由 **`AppWikiFlags.heal_loop_max_total_attempts`**（默认 10）控制。
+- **heal_pages**：并发修复（`PipelineConcurrency.semaphore("heal")`），按重要性 Tier 分层处理（Core 优先、Standard 次之）。
+- **generate_tour**（`wiki/nodes/tour.py`）：基于 Wiki 树结构和页面质量生成 Guided Tour 阅读路径。
+- **finalize**（`wiki/nodes/finalize.py`）：记录管道完成指标。
 
-### 11.3 与「四阶段」概念的映射（便于对照 RFC）
+### 11.3 与「六阶段」概念的映射
 
 | 概念阶段 | 图节点 |
 |----------|--------|
-| **Classify & Decompose** | `classify_entity_roles`、`detect_reorg`、`graph_decompose`、`assign_canonical_keys`、`generate_titles`、`set_review_status` |
-| **Leaf content** | `compose_leaf_modules` + `compose_bottomup` + **`quality_gate`** / **`heal_pages`** |
-| **Link & Finalize** | `create_links`、`finalize` |
+| **Classify & Decompose** | `classify_entity_roles`、`classify_architecture_layers`、`detect_reorg`、`graph_decompose`、`assign_canonical_keys`、`generate_titles` |
+| **Leaf content** | `compose_leaf_modules`、`classify_domains`、`persist_classification`、`set_review_status` |
+| **Domain & Flow composition** | `compose_domain_agents`、`summarize_leaves`、`compose_parent_pages`、`reassemble_domains`、`compose_flow_agents`、`merge_flow_pages` |
+| **Quality & Heal** | `quality_gate`、`heal_pages` |
+| **Link & Tour** | `create_links`、`generate_tour` |
+| **Finalize** | `finalize` |
 
 ### 11.4 TopicPageComposer
 
@@ -482,8 +494,9 @@ sequenceDiagram
 | **延迟 Enrichment** | `wiki/deferred_enrichment.py`、`indexer/enrichment.py`、`indexer/embedding_generator.py` |
 | **规划 / 收集 / 组稿** | `wiki/structure_planner.py`、`wiki/topic_structure_planner.py`、`wiki/data_collector.py`、`wiki/composer.py`、`wiki/diagram_gen.py`、`wiki/page_composer_service.py` |
 | **业务域 / 跨仓** | `wiki/business_domain_planner.py`、`wiki/cross_repo_domain_planner.py`、`wiki/domain_overview_composer.py`、`wiki/dependency_graph.py` |
-| **LangGraph** | `wiki/pipeline_graph.py`、`wiki/pipeline_nodes.py`、`wiki/pipeline_state.py`、`wiki/pipeline_orchestrator.py`、`wiki/quality_evaluator.py` |
-| **实体角色** | `wiki/entity_role_classifier.py` |
+| **LangGraph** | `wiki/pipeline_graph.py`（纯图定义）、`wiki/pipeline_nodes.py`（re-export hub）、`wiki/pipeline_state.py`、`wiki/pipeline_orchestrator.py`、`wiki/pipeline_concurrency.py` |
+| **节点实现** | `wiki/nodes/quality_gate.py`、`wiki/nodes/finalize.py`、`wiki/nodes/classify_architecture.py`、`wiki/nodes/flow_compose.py`、`wiki/nodes/tour.py`、`wiki/nodes/heal.py`、`wiki/nodes/compose.py`、`wiki/nodes/domain_compose.py`、`wiki/nodes/aggregate.py`、`wiki/nodes/classify.py`、`wiki/nodes/graph_nodes.py`、`wiki/nodes/links.py`、`wiki/nodes/persist_classification.py`、`wiki/nodes/reassemble_domains.py`、`wiki/nodes/graph_domain_decompose.py` |
+| **实体角色 / 架构层** | `wiki/entity_role_classifier.py`、`wiki/architecture_classifier.py` |
 | **主题页策略** | `wiki/topic_page_composer.py`、`wiki/domain_complexity.py` |
 | **增量 / 仓级** | `wiki/repo_composer.py`、`wiki/incremental.py`、`wiki/disk_exporter.py`、`wiki/persistent_cache.py` |
 | **新鲜度 / 持久化** | `store/wiki_page_store.py`（`get_repo_wiki_freshness`）、`wiki/persistence.py`、`wiki/service.py` |

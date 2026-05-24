@@ -14,6 +14,28 @@ from wiki.tree_builder import WikiTreeBuilder
 log = get_logger(__name__)
 
 
+def _attach_architecture_layers(
+    nodes: list[dict[str, Any]],
+    layers: dict[str, dict[str, int]],
+) -> None:
+    """Recursively attach architecture_layers to matching domain tree nodes."""
+    for node in nodes:
+        name = node.get("name", "")
+        if name and name in layers:
+            node["architecture_layers"] = layers[name]
+        children = node.get("children", [])
+        if children:
+            _attach_architecture_layers(children, layers)
+            # Aggregate child layers to parent
+            if "architecture_layers" not in node:
+                agg: dict[str, int] = {}
+                for child in children:
+                    for layer, count in child.get("architecture_layers", {}).items():
+                        agg[layer] = agg.get(layer, 0) + count
+                if agg:
+                    node["architecture_layers"] = agg
+
+
 def _safe_truncate(text: str, max_len: int = 150) -> str:
     """Truncate text at a Markdown-safe boundary."""
     if len(text) <= max_len:
@@ -50,7 +72,16 @@ class WikiTreeLinker:
         if self._store is None:
             return {"tree": [], "review_status": {}}
         ws = WikiStore(self._store)
-        return await ws.get_pipeline_domain_tree_snapshot(business_id)
+        result = await ws.get_pipeline_domain_tree_snapshot(business_id)
+
+        try:
+            arch_layers = await ws.get_domain_architecture_layers(business_id)
+            if arch_layers:
+                _attach_architecture_layers(result.get("tree", []), arch_layers)
+        except Exception:
+            log.warning("domain_tree_arch_layers_enrichment_failed", business_id=business_id, exc_info=True)
+
+        return result
 
     async def get_topic_tree(self, business_id: str) -> dict[str, Any]:
         """Topic and domain-overview pages as a nested tree for dashboard wiki navigation."""

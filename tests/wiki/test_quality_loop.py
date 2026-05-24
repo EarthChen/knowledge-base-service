@@ -44,7 +44,7 @@ BAD_CONTENT = "Short stub."
 
 @pytest.mark.asyncio
 async def test_quality_gate_identifies_low_quality_pages() -> None:
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
 
     state: WikiPipelineState = {
         "business_id": "biz",
@@ -80,7 +80,7 @@ async def test_quality_gate_identifies_low_quality_pages() -> None:
 
 @pytest.mark.asyncio
 async def test_quality_gate_skips_skeleton_pages() -> None:
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
 
     state: WikiPipelineState = {
         "business_id": "biz",
@@ -107,7 +107,7 @@ async def test_quality_gate_skips_skeleton_pages() -> None:
 
 @pytest.mark.asyncio
 async def test_quality_gate_respects_max_retries() -> None:
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
 
     state: WikiPipelineState = {
         "business_id": "biz",
@@ -163,7 +163,7 @@ async def test_heal_pages_increments_attempts() -> None:
 @pytest.mark.asyncio
 async def test_quality_gate_handles_topic_page_dict() -> None:
     """quality_gate should evaluate pages produced by compose_leaf_pages_node (no metadata)."""
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
 
     topic_page = {
         "path": "wiki/payment",

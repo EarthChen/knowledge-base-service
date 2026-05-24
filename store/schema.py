@@ -40,13 +40,13 @@ Edge types:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 
 
 def utc_indexed_at_iso() -> str:
     """UTC ISO-8601 timestamp recorded on nodes when they are indexed."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class NodeLabel(StrEnum):

@@ -44,7 +44,7 @@ def test_compose_has_agent_path():
 
 def test_quality_gate_has_citation_check():
     """quality_gate_node must reference citation_verifier."""
-    with open("wiki/pipeline_graph.py") as f:
+    with open("wiki/nodes/quality_gate.py") as f:
         source = f.read()
     assert "citation_verifier" in source or "verify_citations" in source
 

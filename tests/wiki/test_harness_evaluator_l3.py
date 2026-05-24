@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 @pytest.mark.asyncio
 async def test_quality_gate_uses_harness_evaluator_l3():
     """quality_gate_node should use WikiPageEvaluator.evaluate_l3 for L3 scoring."""
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
 
     state = {
         "pages": [
@@ -27,7 +27,7 @@ async def test_quality_gate_uses_harness_evaluator_l3():
 
     mock_llm = AsyncMock()
 
-    with patch("wiki.pipeline_graph.WikiPageEvaluator") as MockEval:
+    with patch("wiki.nodes.quality_gate.WikiPageEvaluator") as MockEval:
         from wiki.harness_evaluator import EvalResult
         mock_eval_instance = MagicMock()
         mock_eval_instance.evaluate_l3 = AsyncMock(return_value=EvalResult(

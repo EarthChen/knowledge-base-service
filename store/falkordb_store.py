@@ -27,7 +27,7 @@ from store.falkordb_reads import FalkorDBReadsMixin
 from store.falkordb_search import FalkorDBSearchMixin
 from store.falkordb_wiki import FalkorDBWikiMixin
 
-from .schema import VECTOR_INDEX_CONFIGS, EdgeType, GraphEdge, GraphNode, NodeLabel
+from .schema import VECTOR_INDEX_CONFIGS, EdgeType, GraphEdge, GraphNode, NodeLabel, utc_indexed_at_iso
 
 log = get_logger(__name__)
 
@@ -439,6 +439,43 @@ class FalkorDBStore(FalkorDBSearchMixin, FalkorDBWikiMixin, FalkorDBReadsMixin):
             if row and row[0]:
                 uids.add(str(row[0]))
         return uids
+
+    async def get_module_structural_hash(self, file_path: str) -> str | None:
+        """Return stored ``structural_hash`` for the Module node at *file_path*, if any."""
+        loop = asyncio.get_running_loop()
+        cypher = (
+            "MATCH (m:Module) WHERE m.path = $path "
+            "RETURN m.structural_hash AS sh LIMIT 1"
+        )
+        result = await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                cypher, params={"path": file_path},
+            ),
+        )
+        for row in result.result_set or []:
+            if row and row[0]:
+                return str(row[0])
+        return None
+
+    async def update_module_metadata(self, file_path: str, *, commit_sha: str | None = None) -> None:
+        """Update Module indexing metadata without a full structural re-upsert."""
+        loop = asyncio.get_running_loop()
+        cypher = (
+            "MATCH (m:Module) WHERE m.path = $path "
+            "SET m.commit_sha = $sha, m.indexed_at = $ts"
+        )
+        await loop.run_in_executor(
+            _graph_executor,
+            lambda: self._graph.query(  # type: ignore[union-attr]
+                cypher,
+                params={
+                    "path": file_path,
+                    "sha": commit_sha or "",
+                    "ts": utc_indexed_at_iso(),
+                },
+            ),
+        )
 
     async def delete_parser_edges_for_file(self, file_path: str) -> None:
         """Delete indexing-time edges that touch nodes belonging to *file_path* (see :meth:`delete_parser_edges_for_files`)."""  # noqa: E501

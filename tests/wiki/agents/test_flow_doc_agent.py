@@ -73,7 +73,7 @@ class TestFlowDocAgentPostProcess:
         pages = agent.post_process(content, ["Mod"], WorkingMemory())
         assert len(pages) == 1
         p = pages[0]
-        assert p["page_type"] == "flow"
+        assert p["page_type"] == "business_flow"
         assert p["title"] == "Order Flow"
         assert p["path"] == domain_topic_path("retail", "Order Flow")
         assert p["content"] == content
@@ -161,7 +161,7 @@ class TestFlowDocAgentGenerate:
             )
 
         assert len(pages) == 1
-        assert pages[0]["page_type"] == "flow"
+        assert pages[0]["page_type"] == "business_flow"
         assert pages[0]["title"] == "Checkout"
         assert pages[0]["path"] == domain_topic_path("pay", "Checkout")
         mock_page.create_memory.assert_called_once()

@@ -8,6 +8,7 @@ from wiki.pipeline_graph import _NODE_PHASE_MAP
 def test_node_phase_map_covers_all_pipeline_nodes() -> None:
     expected_nodes = {
         "classify_entity_roles",
+        "classify_architecture_layers",
         "detect_reorg",
         "graph_decompose",
         "assign_canonical_keys",
@@ -20,9 +21,12 @@ def test_node_phase_map_covers_all_pipeline_nodes() -> None:
         "summarize_leaves",
         "compose_parent_pages",
         "reassemble_domains",
+        "compose_flow_agents",
+        "merge_flow_pages",
         "quality_gate",
         "heal_pages",
         "create_links",
+        "generate_tour",
         "finalize",
     }
     assert set(_NODE_PHASE_MAP.keys()) == expected_nodes

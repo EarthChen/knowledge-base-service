@@ -5,7 +5,7 @@ import pytest
 
 def test_quality_gate_uses_citation_verifier():
     """quality_gate_node must call verify_citations or reference citation_verifier."""
-    with open("wiki/pipeline_graph.py") as f:
+    with open("wiki/nodes/quality_gate.py") as f:
         source = f.read()
     assert "citation_verifier" in source or "verify_citations" in source, (
         "quality_gate_node must use citation_verifier"
@@ -14,7 +14,7 @@ def test_quality_gate_uses_citation_verifier():
 
 def test_quality_gate_collects_module_names():
     """quality_gate_node must collect module names for entity verification."""
-    with open("wiki/pipeline_graph.py") as f:
+    with open("wiki/nodes/quality_gate.py") as f:
         source = f.read()
     assert "all_module_names" in source or "known_entities" in source or "module_names" in source, (
         "quality_gate_node must collect entity names for citation verification"
@@ -46,7 +46,7 @@ def _make_page(path: str, content: str) -> dict:
 @pytest.mark.asyncio
 async def test_quality_gate_heal_uses_citation_penalized_structural_score():
     """Pages above raw L1 threshold but below penalized score must enter heal."""
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
 
     state = {
         "pages": [_make_page("wiki/svc", _CONTENT_WITH_INVALID_CITATIONS)],

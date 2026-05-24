@@ -47,7 +47,7 @@ class TestQualityGateWritesCache:
 
     @pytest.mark.asyncio
     async def test_quality_gate_populates_cache(self):
-        from wiki.pipeline_graph import quality_gate_node
+        from wiki.nodes.quality_gate import quality_gate_node
 
         page = _make_page("wiki/svc", GOOD_CONTENT)
         state = {
@@ -65,7 +65,7 @@ class TestQualityGateWritesCache:
 
     @pytest.mark.asyncio
     async def test_cache_uses_content_hash(self):
-        from wiki.pipeline_graph import quality_gate_node
+        from wiki.nodes.quality_gate import quality_gate_node
 
         page = _make_page("wiki/svc", GOOD_CONTENT)
         state = {
@@ -86,7 +86,7 @@ class TestQualityGateReadsCache:
 
     @pytest.mark.asyncio
     async def test_skips_unchanged_page(self):
-        from wiki.pipeline_graph import quality_gate_node
+        from wiki.nodes.quality_gate import quality_gate_node
         import hashlib
 
         page = _make_page("wiki/svc", GOOD_CONTENT)
@@ -108,7 +108,7 @@ class TestQualityGateReadsCache:
 
     @pytest.mark.asyncio
     async def test_rechecks_changed_page(self):
-        from wiki.pipeline_graph import quality_gate_node
+        from wiki.nodes.quality_gate import quality_gate_node
 
         page = _make_page("wiki/svc", GOOD_CONTENT)
         pre_cache = {

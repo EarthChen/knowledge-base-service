@@ -214,7 +214,9 @@ class TestWikiPagesGraphBacked:
             params={"path": "classes/Foo.md"},
         )
         assert r.status_code == 200
-        assert r.json() == payload
+        data = r.json()
+        data.pop("reading_order", None)
+        assert data == payload
         _cypher, params = store.execute_query.await_args.args
         assert params == {"repo": "my-repo", "path": "classes/Foo.md"}
 

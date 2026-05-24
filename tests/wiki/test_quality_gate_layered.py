@@ -26,7 +26,7 @@ GOOD_CONTENT = (
 
 @pytest.mark.asyncio
 async def test_quality_gate_l1_only():
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
 
     state = {
         "pages": [_make_page("wiki/svc", GOOD_CONTENT)],
@@ -43,7 +43,7 @@ async def test_quality_gate_l1_only():
 
 @pytest.mark.asyncio
 async def test_quality_gate_l1_l2_default():
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
 
     state = {
         "pages": [_make_page("wiki/svc", GOOD_CONTENT)],
@@ -60,7 +60,7 @@ async def test_quality_gate_l1_l2_default():
 
 @pytest.mark.asyncio
 async def test_quality_gate_l3_requires_llm_and_core():
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
 
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(
@@ -84,7 +84,7 @@ async def test_quality_gate_l3_requires_llm_and_core():
 
 @pytest.mark.asyncio
 async def test_quality_gate_l3_skips_non_core():
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
 
     mock_llm = AsyncMock()
     state = {
@@ -105,7 +105,7 @@ async def test_quality_gate_l3_skips_non_core():
 
 @pytest.mark.asyncio
 async def test_quality_gate_config_override_from_state():
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
 
     state = {
         "pages": [_make_page("wiki/svc", GOOD_CONTENT)],

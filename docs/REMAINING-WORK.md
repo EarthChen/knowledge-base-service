@@ -1,7 +1,7 @@
 # Remaining Work (Unified Backlog)
 
 **Created:** 2026-05-09  
-**Last Updated:** 2026-05-20  
+**Last Updated:** 2026-05-24  
 **Status:** Active — items checked off when merged
 
 ---
@@ -87,6 +87,11 @@ _(当前无进行中任务)_
 - [x] Infrastructure Resilience & Optimization ✅ (2026-05-20) — Embedding 并发度分离、Redis 重试装饰器、LLM retry 统一、跨文件内存优化 (SymbolEntry)、TanStack staleTime 分层
 - [x] Code Quality Quick Fixes ✅ (2026-05-20) — WikiShell Rules of Hooks 修复、business_manager @with_redis_retry 补全、WikiSourceLocRow 死代码删除、event bus 并发安全 (copy-on-iterate)、search_entities 并行查询 (asyncio.gather)、search_all 单次 embedding (3766 tests)
 - [x] Agent Runner Extraction ✅ (2026-05-20) — run_agent_loop() 独立函数 + LoopHooks + 重复调用检测 + enrich() 迁移 + agent_tool() 子代理组合 (3775 tests, 83.65% coverage)
+- [x] Batch 1: Wiki Pipeline Quick Wins ✅ (2026-05-24) — 并行 LLM 命名、动态关键词发现、语言特定概念注入、交替重复检测、L3 质量门
+- [x] Batch 2: Architecture Layer + dagre + Incremental ✅ (2026-05-24) — 架构层分类 (`classify_architecture_layers`)、WikiKnowledgeGraph dagre 布局、三级增量更新
+- [x] Batch 3: Tour + Heal Strategy + Flow Model ✅ (2026-05-24) — Guided Tour (`generate_tour`)、Heal Fallback Strategy、业务流三级模型 (`compose_flow_agents` + `merge_flow_pages`)
+- [x] Pipeline Graph Refactor ✅ (2026-05-24) — `quality_gate_node`/`finalize_node` 提取至 `wiki/nodes/`、L3 并行评估 (`asyncio.gather` + semaphore)、`heal_loop_max_total_attempts` 配置化至 `AppWikiFlags`、`pages_to_heal` L1 排序 fallback、`import time` 模块级化 (2900 tests)
+- [x] Wiki-Driven Domain Reassembly ✅ (2026-05-22) — `reassemble_domains_node` 基于 embedding 相似度 + LLM 审核的域重组、孤儿匹配、回滚保护
 
 ---
 

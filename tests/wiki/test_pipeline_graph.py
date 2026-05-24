@@ -31,13 +31,36 @@ def test_should_heal_returns_heal_when_pages_need_healing():
 
 
 def test_should_heal_respects_global_attempt_budget():
-    from wiki.pipeline_graph import HEAL_LOOP_MAX_TOTAL_ATTEMPTS, should_heal
+    from wiki.pipeline_graph import should_heal
 
     state = {
         "pages_to_heal": ["page/a"],
-        "heal_attempts": {"page/a": HEAL_LOOP_MAX_TOTAL_ATTEMPTS, "page/b": 1},
+        "heal_attempts": {"page/a": 10, "page/b": 1},
+        "config": {},
     }
     assert should_heal(state) == "create_links"
+
+
+def test_should_heal_respects_config_override():
+    from wiki.pipeline_graph import should_heal
+
+    state = {
+        "pages_to_heal": ["page/a"],
+        "heal_attempts": {"page/a": 3, "page/b": 3},
+        "config": {"heal_loop_max_total_attempts": 5},
+    }
+    assert should_heal(state) == "create_links"
+
+
+def test_should_heal_uses_default_when_no_config():
+    from wiki.pipeline_graph import should_heal
+
+    state = {
+        "pages_to_heal": ["page/a"],
+        "heal_attempts": {"page/a": 1},
+        "config": {},
+    }
+    assert should_heal(state) == "heal_pages"
 
 
 def test_should_heal_routes_to_heal_when_pages_present():
@@ -113,7 +136,7 @@ def _make_page(path: str, content: str) -> dict:
 @pytest.mark.asyncio
 async def test_quality_gate_l3_triggers_for_healed_standard_page(monkeypatch):
     """A STANDARD page that was healed and has L1>=0.7 should trigger L3."""
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
     from wiki.quality_evaluator import WikiQualityEvaluator
 
     mock_eval = MagicMock(spec=WikiQualityEvaluator)
@@ -138,8 +161,8 @@ async def test_quality_gate_l3_triggers_for_healed_standard_page(monkeypatch):
 
     config = {"configurable": {"llm": MagicMock()}}
 
-    monkeypatch.setattr("wiki.pipeline_graph.WikiQualityEvaluator", lambda: mock_eval)
-    monkeypatch.setattr("wiki.pipeline_graph.WikiPageEvaluator", lambda: mock_l3_eval)
+    monkeypatch.setattr("wiki.nodes.quality_gate.WikiQualityEvaluator", lambda: mock_eval)
+    monkeypatch.setattr("wiki.nodes.quality_gate.WikiPageEvaluator", lambda: mock_l3_eval)
 
     result = await quality_gate_node(state, config)
     scores = result["quality_scores"]["domain/auth.md"]
@@ -149,7 +172,7 @@ async def test_quality_gate_l3_triggers_for_healed_standard_page(monkeypatch):
 @pytest.mark.asyncio
 async def test_quality_gate_l3_not_triggered_for_unhealed_standard(monkeypatch):
     """A STANDARD page that was NOT healed should NOT trigger L3 (existing behavior)."""
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
     from wiki.quality_evaluator import WikiQualityEvaluator
 
     mock_eval = MagicMock(spec=WikiQualityEvaluator)
@@ -172,8 +195,8 @@ async def test_quality_gate_l3_not_triggered_for_unhealed_standard(monkeypatch):
 
     config = {"configurable": {"llm": MagicMock()}}
 
-    monkeypatch.setattr("wiki.pipeline_graph.WikiQualityEvaluator", lambda: mock_eval)
-    monkeypatch.setattr("wiki.pipeline_graph.WikiPageEvaluator", lambda: mock_l3_eval)
+    monkeypatch.setattr("wiki.nodes.quality_gate.WikiQualityEvaluator", lambda: mock_eval)
+    monkeypatch.setattr("wiki.nodes.quality_gate.WikiPageEvaluator", lambda: mock_l3_eval)
 
     result = await quality_gate_node(state, config)
     scores = result["quality_scores"]["domain/order.md"]
@@ -184,7 +207,7 @@ async def test_quality_gate_l3_not_triggered_for_unhealed_standard(monkeypatch):
 @pytest.mark.asyncio
 async def test_quality_gate_l3_cache_prevents_duplicate_evaluation(monkeypatch):
     """When l3_evaluated is set in cache, L3 should not be re-evaluated."""
-    from wiki.pipeline_graph import quality_gate_node
+    from wiki.nodes.quality_gate import quality_gate_node
     from wiki.quality_evaluator import WikiQualityEvaluator
 
     mock_eval = MagicMock(spec=WikiQualityEvaluator)
@@ -216,8 +239,8 @@ async def test_quality_gate_l3_cache_prevents_duplicate_evaluation(monkeypatch):
 
     config = {"configurable": {"llm": MagicMock()}}
 
-    monkeypatch.setattr("wiki.pipeline_graph.WikiQualityEvaluator", lambda: mock_eval)
-    monkeypatch.setattr("wiki.pipeline_graph.WikiPageEvaluator", lambda: mock_l3_eval)
+    monkeypatch.setattr("wiki.nodes.quality_gate.WikiQualityEvaluator", lambda: mock_eval)
+    monkeypatch.setattr("wiki.nodes.quality_gate.WikiPageEvaluator", lambda: mock_l3_eval)
 
     await quality_gate_node(state, config)
     mock_l3_eval.evaluate_l3.assert_not_called()

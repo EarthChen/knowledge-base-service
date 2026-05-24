@@ -412,6 +412,35 @@ class WikiTreeStoreMixin:
                     pass
         return {"tree": tree, "review_status": review_status}
 
+    async def get_domain_architecture_layers(
+        self, business_id: str,
+    ) -> dict[str, dict[str, int]]:
+        """Aggregate architecture layers from Module nodes for each domain.
+
+        Returns: {domain_name: {layer: count, ...}, ...}
+        """
+        q = (
+            "MATCH (m:Module) "
+            "WHERE m.business_domain IS NOT NULL AND m.wiki_architecture_layer IS NOT NULL "
+            "RETURN m.business_domain AS domain, m.wiki_architecture_layer AS layer, "
+            "count(*) AS cnt"
+        )
+        result = await self._store.execute_query(q, {})
+        rows = getattr(result, "data", None) or []
+
+        layers: dict[str, dict[str, int]] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            domain = str(row.get("domain") or "")
+            layer = str(row.get("layer") or "")
+            cnt = int(row.get("cnt") or 0)
+            if domain and layer:
+                if domain not in layers:
+                    layers[domain] = {}
+                layers[domain][layer] = cnt
+        return layers
+
     async def get_topic_navigation_tree(self, business_id: str) -> list[dict[str, Any]]:
         """Business-domain wiki tree filtered to topic and domain_overview pages (dashboard navigation)."""
         result = await self.get_wiki_tree(business_id, "business_domain", wiki_tier=None)

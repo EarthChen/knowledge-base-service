@@ -62,6 +62,17 @@ async def persist_classification_node(
         except Exception:
             log.warning("persist_classification_module_labels_failed", business_id=business_id, exc_info=True)
 
+    # --- Phase 3: Persist architecture layers on Module nodes ---
+    arch_layers = state.get("architecture_layers") or {}
+    all_modules = state.get("modules", {})
+    if graph_store is not None and arch_layers:
+        try:
+            await _persist_architecture_layers_on_modules(
+                graph_store, all_modules, arch_layers,
+            )
+        except Exception:
+            log.warning("persist_classification_arch_layers_failed", business_id=business_id, exc_info=True)
+
     log.info(
         "persist_classification_done",
         business_id=business_id,
@@ -234,3 +245,37 @@ async def _persist_domain_labels_on_modules(
                     module=mod_name, domain=domain_name, exc_info=True,
                 )
     log.info("persist_classification_module_labels_done", updated=updated)
+
+
+async def _persist_architecture_layers_on_modules(
+    graph_store: Any,
+    all_modules: dict[str, list],
+    arch_layers: dict[str, dict[str, Any]],
+) -> None:
+    """Write wiki_architecture_layer and wiki_architecture_confidence to Module nodes."""
+    updated = 0
+    for repo, mod_list in all_modules.items():
+        if not isinstance(mod_list, list):
+            continue
+        for mod_dict in mod_list:
+            if not isinstance(mod_dict, dict):
+                continue
+            props = mod_dict.get("properties") or {}
+            name = props.get("name", "")
+            uid = mod_dict.get("uid", "")
+            if not name or not uid:
+                continue
+            layer_info = arch_layers.get(name)
+            if not layer_info:
+                continue
+            try:
+                await graph_store.update_node_property(
+                    "Module", uid, "wiki_architecture_layer", layer_info.get("layer", ""),
+                )
+                await graph_store.update_node_property(
+                    "Module", uid, "wiki_architecture_confidence", layer_info.get("confidence", 0.0),
+                )
+                updated += 1
+            except Exception:
+                log.debug("persist_arch_layer_failed", module=name, exc_info=True)
+    log.info("persist_architecture_layers_done", updated=updated)

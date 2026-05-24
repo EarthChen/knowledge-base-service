@@ -317,13 +317,22 @@ flowchart LR
   WS --> WCA --> SQG
 ```
 
-### 11.3 Phase 7（架构整合摘要）
+### 11.3 LangGraph 管线节点全序
+
+`pipeline_graph.py` 仅负责图定义，所有节点实现分布在 `wiki/nodes/` 子模块：
+
+`classify_entity_roles` → `classify_architecture_layers` → `detect_reorg` →（条件）`graph_decompose` → `assign_canonical_keys` → `generate_titles` → `compose_leaf_modules` → `classify_domains` → `persist_classification` → `set_review_status` → `compose_domain_agents` → `summarize_leaves` → `compose_parent_pages` → `reassemble_domains` → `compose_flow_agents` → `merge_flow_pages` → **`quality_gate`** ⇄ **`heal_pages`** → `create_links` → `generate_tour` → `finalize`
+
+关键节点说明见 [wiki-generation-architecture.md §11.2](wiki-generation-architecture.md)。
+
+### 11.4 Phase 7（架构整合摘要）
 
 - **P0**：**`unified_knowledge_query`** 接入 **`IterativeRAGEngine`**；**`max_context_tokens`** 动态化；文档工具数量统一（**22 = 12 + 10**）。
 - **P1-A**：LLM 抽象收敛为 **`wiki/llm_port.py`** **`LLMPort`**。
 - **P1-B**：**`WikiAskService`**、**`DeepSearchEngine`**、**`DeepResearchService`** 共用 **`IterativeRAGEngine`**；**`HybridGraphRetriever`** 等统一检索内核。
 - **P1-B2**：引擎内 **`plan` / `evaluate`** 节点与 **`model_strategy`** 路由（**`rag_plan` / `rag_generate` / `rag_evaluate`**）。
 - **P1-C**：Business 路由去重、**`compose_concurrency`** 单一配置源等。
+- **P1-D**（2026-05-24）：`quality_gate_node` / `finalize_node` 提取至 `wiki/nodes/`；L3 评估并行化；`classify_architecture_layers` / `compose_flow_agents` / `merge_flow_pages` / `generate_tour` 新节点；`heal_loop_max_total_attempts` 配置化。
 
 ---
 

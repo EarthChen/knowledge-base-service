@@ -97,6 +97,40 @@ function collectDomainApprovalReviews(
   return reviews;
 }
 
+export function flattenDomainTree(nodes: TopicTreeNode[]): Array<{
+  id: string;
+  label: string;
+  children: string[];
+  moduleCount?: number;
+  architectureLayers?: Record<string, number>;
+}> {
+  const result: Array<{
+    id: string;
+    label: string;
+    children: string[];
+    moduleCount?: number;
+    architectureLayers?: Record<string, number>;
+  }> = [];
+
+  function walk(items: TopicTreeNode[]) {
+    for (const node of items) {
+      result.push({
+        id: node.name,
+        label: node.name,
+        children: (node.children ?? []).map((c) => c.name),
+        moduleCount: node.module_count,
+        architectureLayers: node.architecture_layers,
+      });
+      if (node.children?.length) {
+        walk(node.children);
+      }
+    }
+  }
+
+  walk(nodes);
+  return result;
+}
+
 export default function WikiToolPanel({
   toolTab,
   businessId,
@@ -154,12 +188,7 @@ export default function WikiToolPanel({
   );
 
   const domainGraphDomains = useMemo(
-    () =>
-      (domainTreeQuery.data?.tree ?? []).map((d) => ({
-        id: d.name,
-        label: d.name,
-        children: [] as string[],
-      })),
+    () => flattenDomainTree(domainTreeQuery.data?.tree ?? []),
     [domainTreeQuery.data?.tree],
   );
 

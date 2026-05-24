@@ -13,6 +13,7 @@ class IndexReport:
     total_files: int = 0
     success_files: int = 0
     skipped_files: int = 0
+    cosmetic_files: int = 0
     failed_files: int = 0
     failed_file_list: list[dict[str, str]] = field(default_factory=list)
     node_counts: dict[str, int] = field(default_factory=dict)
@@ -56,6 +57,11 @@ class IndexReport:
         """Record a file that was skipped (e.g. unsupported language)."""
         self.skipped_files += 1
 
+    def record_file_cosmetic(self, _file_path: str) -> None:
+        """Record a file indexed via COSMETIC skip (structural hash unchanged)."""
+        self.cosmetic_files += 1
+        self.success_files += 1
+
     def finalize(self) -> None:
         """Compute derived metrics after all files are processed."""
         self.total_files = self.success_files + self.failed_files + self.skipped_files
@@ -70,6 +76,7 @@ class IndexReport:
             "total_files": self.total_files,
             "success_files": self.success_files,
             "skipped_files": self.skipped_files,
+            "cosmetic_files": self.cosmetic_files,
             "failed_files": self.failed_files,
             "failed_file_list": self.failed_file_list[:50],  # cap for API response size
             "node_counts": self.node_counts,

@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from core.config import get_settings
+from core.log import get_logger
+from indexer.chunk_hash import apply_content_hash_to_nodes
 from indexer.code_graph_builder import CodeGraphBuilder
 from indexer.config_indexer import _config_file_extension
 from indexer.doc_indexer import DocumentIndexer
@@ -26,13 +28,12 @@ from indexer.enrichment import (
 )
 from indexer.graph_enricher import GraphEnricher
 from indexer.import_resolver import ImportResolver
-from indexer.chunk_hash import apply_content_hash_to_nodes
 from indexer.index_report import IndexReport
-from core.log import get_logger
+from indexer.structural_hash import compute_structural_hash
 from store.falkordb_store import FalkorDBStore
 from store.indexer_store import IndexerStore
-from store.settings_store import SettingsStore
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
+from store.settings_store import SettingsStore
 from wiki.incremental import WikiIncrementalUpdater
 from wiki.models import WikiConfig
 
@@ -591,6 +592,48 @@ class IncrementalIndexer:
                         import_resolver=import_resolver,
                     )
                     apply_content_hash_to_nodes(nodes)
+
+                    functions = [n for n in nodes if n.label == NodeLabel.FUNCTION]
+                    classes = [n for n in nodes if n.label == NodeLabel.CLASS]
+                    import_edges = [e for e in edges if e.edge_type == EdgeType.IMPORTS]
+
+                    try:
+                        new_structural = compute_structural_hash(functions, classes, import_edges)
+                        old_structural = await self._store.get_module_structural_hash(fpath)
+                    except Exception:
+                        log.warning("structural_hash_check_failed", file=fpath, exc_info=True)
+                        old_structural = None
+                        new_structural = "force_structural"
+
+                    if old_structural and old_structural == new_structural:
+                        try:
+                            await self._store.update_module_metadata(fpath, commit_sha=commit_sha)
+                        except Exception:
+                            log.warning("cosmetic_metadata_update_failed", file=fpath, exc_info=True)
+
+                        embeddable = [n for n in nodes if n.label in (NodeLabel.FUNCTION, NodeLabel.CLASS)]
+                        to_embed = [
+                            n
+                            for n in embeddable
+                            if old_hashes.get(n.uid) != n.properties.get("content_hash")
+                        ]
+                        if to_embed:
+                            total_embeds += await self._generate_and_store_embeddings(
+                                to_embed, skip_enrich=True,
+                            )
+
+                        report.record_file_cosmetic(fpath)
+                        log.info("incremental_cosmetic_skip", file=fpath, embed_updated=len(to_embed))
+                        processed_count += 1
+                        if progress_callback:
+                            progress_callback(
+                                current_file=fpath,
+                                processed_files=processed_count,
+                                nodes=total_nodes,
+                                edges=total_edges,
+                            )
+                        continue
+
                     new_uids = {n.uid for n in nodes}
                     stale = list(old_uids - new_uids)
                     await self._store.delete_parser_edges_for_files(path_keys)
@@ -601,6 +644,10 @@ class IncrementalIndexer:
                     deferred_import_edges.extend(
                         e for e in edges if e.edge_type == EdgeType.IMPORTS
                     )
+                    module_nodes = [n for n in nodes if n.label == NodeLabel.MODULE]
+                    if module_nodes and new_structural:
+                        for mn in module_nodes:
+                            mn.properties["structural_hash"] = new_structural
                     await self._store.batch_upsert(nodes, immediate_edges)
                     code_file_paths.append(fpath)
                     total_nodes += len(nodes)

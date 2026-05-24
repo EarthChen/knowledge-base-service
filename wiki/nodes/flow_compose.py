@@ -19,7 +19,7 @@ def _is_flow_enabled() -> bool:
 
         return get_settings().wiki.flow_compose_enabled
     except Exception:
-        return True
+        return False
 
 
 def _extract_leaf_domains(domain_tree: list[dict[str, Any]]) -> list[dict[str, Any]]:

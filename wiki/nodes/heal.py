@@ -108,11 +108,7 @@ async def _heal_one_page(
     )
 
     chain = _make_strategy_chain()
-    try:
-        result = await chain.execute(ctx)
-    except Exception:
-        log.warning("heal_page_regen_failed", page=page_path, exc_info=True)
-        return False
+    result = await chain.execute(ctx)
 
     if result:
         page_dict["content"] = result.content

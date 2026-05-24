@@ -16,7 +16,7 @@ def _is_tour_enabled() -> bool:
 
         return get_settings().wiki.guided_tour_enabled
     except Exception:
-        return True
+        return False
 
 
 def _build_page_dependency_graph(pages: list[dict[str, Any]]) -> dict[str, list[str]]:

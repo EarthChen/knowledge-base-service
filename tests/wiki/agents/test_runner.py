@@ -131,6 +131,90 @@ async def test_tool_dispatch_exception_continues_loop(mock_agent):
 
 
 @pytest.mark.asyncio
+async def test_alternating_repeat_detection(mock_agent):
+    """A→B→A→B→A→B pattern triggers alternating repeat detection."""
+    call_a = {"id": "tc_a", "function": {"name": "tool_a", "arguments": '{"x":1}'}}
+    call_b = {"id": "tc_b", "function": {"name": "tool_b", "arguments": '{"y":2}'}}
+    mock_agent._llm.complete_with_tools = AsyncMock(side_effect=[
+        {"tool_calls": [call_a]},
+        {"tool_calls": [call_b]},
+        {"tool_calls": [call_a]},
+        {"tool_calls": [call_b]},
+        {"tool_calls": [call_a]},
+        {"tool_calls": [call_b]},
+        {"content": "done", "tool_calls": None},
+    ])
+
+    result = await run_agent_loop(
+        mock_agent, "sys", "user", memory={},
+        config=LoopConfig(
+            max_rounds=10,
+            max_consecutive_repeats=3,
+            detect_repeated_calls=True,
+            detect_alternating_repeats=True,
+            alternating_window_size=6,
+            alternating_unique_threshold=0.5,
+        ),
+    )
+    assert result.repeated_calls_detected >= 1
+    assert mock_agent._tool_registry.dispatch.await_count == 5
+
+
+@pytest.mark.asyncio
+async def test_alternating_repeat_six_unique_no_detection(mock_agent):
+    """6 different calls do NOT trigger alternating detection."""
+    side_effect = [
+        {
+            "tool_calls": [{
+                "id": f"tc{i}",
+                "function": {"name": f"tool_{i}", "arguments": f'{{"i":{i}}}'},
+            }]
+        }
+        for i in range(6)
+    ]
+    side_effect.append({"content": "done", "tool_calls": None})
+    mock_agent._llm.complete_with_tools = AsyncMock(side_effect=side_effect)
+
+    result = await run_agent_loop(
+        mock_agent, "sys", "user", memory={},
+        config=LoopConfig(
+            max_rounds=10,
+            detect_repeated_calls=True,
+            detect_alternating_repeats=True,
+        ),
+    )
+    assert result.repeated_calls_detected == 0
+    assert mock_agent._tool_registry.dispatch.await_count == 6
+
+
+@pytest.mark.asyncio
+async def test_alternating_repeat_detection_disabled(mock_agent):
+    """When detect_alternating_repeats=False, alternating pattern executes normally."""
+    call_a = {"id": "tc_a", "function": {"name": "tool_a", "arguments": '{"x":1}'}}
+    call_b = {"id": "tc_b", "function": {"name": "tool_b", "arguments": '{"y":2}'}}
+    mock_agent._llm.complete_with_tools = AsyncMock(side_effect=[
+        {"tool_calls": [call_a]},
+        {"tool_calls": [call_b]},
+        {"tool_calls": [call_a]},
+        {"tool_calls": [call_b]},
+        {"tool_calls": [call_a]},
+        {"tool_calls": [call_b]},
+        {"content": "done", "tool_calls": None},
+    ])
+
+    result = await run_agent_loop(
+        mock_agent, "sys", "user", memory={},
+        config=LoopConfig(
+            max_rounds=10,
+            max_consecutive_repeats=3,
+            detect_alternating_repeats=False,
+        ),
+    )
+    assert result.repeated_calls_detected == 0
+    assert mock_agent._tool_registry.dispatch.await_count == 6
+
+
+@pytest.mark.asyncio
 async def test_on_loop_complete_hook_fallback(mock_agent):
     """Hook generates fallback output when loop exits without text."""
     async def fallback_hook(memory):

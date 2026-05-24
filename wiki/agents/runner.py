@@ -59,6 +59,9 @@ class LoopConfig:
     # Repeated call detection
     detect_repeated_calls: bool = True
     max_consecutive_repeats: int = 2
+    detect_alternating_repeats: bool = True
+    alternating_window_size: int = 6
+    alternating_unique_threshold: float = 0.5
 
     # Guardrails
     enable_post_call_guardrail: bool = False
@@ -242,6 +245,37 @@ async def run_agent_loop(
                                             f"Repeated call detected. You called {tool_name} "
                                             f"with identical arguments {config.max_consecutive_repeats} "
                                             "times. Try a different approach."
+                                        )
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                            })
+                            continue
+
+                    if (
+                        config.detect_alternating_repeats
+                        and len(_recent_signatures) >= config.alternating_window_size
+                    ):
+                        window = _recent_signatures[-config.alternating_window_size :]
+                        unique_ratio = len(set(window)) / len(window)
+                        if unique_ratio < config.alternating_unique_threshold:
+                            result.repeated_calls_detected += 1
+                            log.info(
+                                "alternating_repeat_detected",
+                                tool=tool_name,
+                                window_size=config.alternating_window_size,
+                                unique_ratio=round(unique_ratio, 2),
+                            )
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tc.get("id", ""),
+                                "content": json.dumps(
+                                    {
+                                        "error": (
+                                            f"Alternating repeat pattern detected in last "
+                                            f"{config.alternating_window_size} calls "
+                                            f"(only {len(set(window))} unique patterns). "
+                                            "Try a completely different approach or tool."
                                         )
                                     },
                                     ensure_ascii=False,

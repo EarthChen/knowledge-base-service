@@ -1,4 +1,5 @@
 """Tests for wiki pipeline graph definition."""
+import hashlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -177,4 +178,46 @@ async def test_quality_gate_l3_not_triggered_for_unhealed_standard(monkeypatch):
     result = await quality_gate_node(state, config)
     scores = result["quality_scores"]["domain/order.md"]
     assert scores.get("l3_llm_judge") is None, "L3 should NOT trigger for unhealed STANDARD"
+    mock_l3_eval.evaluate_l3.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_quality_gate_l3_cache_prevents_duplicate_evaluation(monkeypatch):
+    """When l3_evaluated is set in cache, L3 should not be re-evaluated."""
+    from wiki.pipeline_graph import quality_gate_node
+    from wiki.quality_evaluator import WikiQualityEvaluator
+
+    mock_eval = MagicMock(spec=WikiQualityEvaluator)
+    mock_eval.structural_check.return_value = MagicMock(overall=0.75, issues=[])
+    mock_eval.bench_score.return_value = MagicMock(overall=0.6)
+
+    mock_l3_eval = MagicMock()
+    mock_l3_eval.evaluate_l3 = AsyncMock()
+
+    page_content = "# Auth\n" + "x" * 300
+    content_hash = hashlib.sha256(page_content.encode("utf-8", errors="replace")).hexdigest()
+
+    state = {
+        "pages": [_make_page("domain/auth.md", page_content)],
+        "heal_attempts": {"domain/auth.md": 1},
+        "quality_scores": {},
+        "_structural_check_cache": {
+            "domain/auth.md": {
+                "score": {"l1_structural": 0.75},
+                "content_hash": content_hash,
+                "l3_evaluated": True,
+            }
+        },
+        "config": {
+            "importance_tiers": {"domain/auth.md": "standard"},
+            "quality_levels": ["L1", "L3"],
+        },
+    }
+
+    config = {"configurable": {"llm": MagicMock()}}
+
+    monkeypatch.setattr("wiki.pipeline_graph.WikiQualityEvaluator", lambda: mock_eval)
+    monkeypatch.setattr("wiki.pipeline_graph.WikiPageEvaluator", lambda: mock_l3_eval)
+
+    await quality_gate_node(state, config)
     mock_l3_eval.evaluate_l3.assert_not_called()

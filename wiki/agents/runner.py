@@ -59,9 +59,9 @@ class LoopConfig:
     # Repeated call detection
     detect_repeated_calls: bool = True
     max_consecutive_repeats: int = 2
-    detect_alternating_repeats: bool = True
+    detect_alternating_repeats: bool = True  # requires detect_repeated_calls=True
     alternating_window_size: int = 6
-    alternating_unique_threshold: float = 0.5
+    alternating_unique_threshold: float = 0.5  # unique_ratio < threshold triggers block
 
     # Guardrails
     enable_post_call_guardrail: bool = False

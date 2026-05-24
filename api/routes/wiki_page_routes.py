@@ -40,7 +40,7 @@ from api.routes.wiki_shared import (
 )
 from core.auth import Role, require_role
 from services.git_manager import normalize_repo_name
-from store.schema import EdgeType
+from store.schema import EdgeType, NodeLabel
 from store.wiki_store import WikiStore
 from wiki.coverage_analyzer import WikiCoverageAnalyzer
 from wiki.editing_store import WikiEditingStore
@@ -563,39 +563,78 @@ async def wiki_list_claim_history(
     return {"items": rows}
 
 
+def _build_flows_graph_response(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build nodes + FLOW_STEP edges for the business-flow visualization API."""
+    nodes_by_uid: dict[str, dict[str, Any]] = {}
+    edges: list[dict[str, Any]] = []
+    seen_edges: set[tuple[str, str]] = set()
+
+    for r in rows:
+        bf_uid = str(r.get("bf_uid") or "").strip()
+        if not bf_uid:
+            continue
+        if bf_uid not in nodes_by_uid:
+            node: dict[str, Any] = {
+                "uid": bf_uid,
+                "title": str(r.get("bf_name") or bf_uid),
+                "description": str(r.get("bf_description") or ""),
+                "type": "business_flow",
+            }
+            domain = str(r.get("bf_domain") or "").strip()
+            if domain:
+                node["domain"] = domain
+            nodes_by_uid[bf_uid] = node
+
+        step_uid = str(r.get("step_uid") or "").strip()
+        if not step_uid:
+            continue
+        if step_uid not in nodes_by_uid:
+            nodes_by_uid[step_uid] = {
+                "uid": step_uid,
+                "title": str(r.get("step_name") or step_uid),
+                "type": "flow_step",
+            }
+
+        edge_key = (bf_uid, step_uid)
+        if edge_key in seen_edges:
+            continue
+        seen_edges.add(edge_key)
+        weight = r.get("step_weight")
+        label = f"step {weight}" if weight is not None else "step"
+        edges.append({"source": bf_uid, "target": step_uid, "label": label})
+
+    return {"nodes": list(nodes_by_uid.values()), "edges": edges}
+
+
 @router.get("/flows", response_model=None)
 async def wiki_business_flows(
     request: Request,
     business_id: str = Query(..., min_length=1),
 ) -> dict[str, Any]:
-    """Return BusinessFlow nodes (and optional edges) for business wiki visualization."""
+    """Return BusinessFlow nodes and FlowStep edges for business wiki visualization."""
     raw_store: Any = await get_wiki_store_dep(request)
+    flow_step_edge = EdgeType.FLOW_STEP.value
+    flow_step_label = NodeLabel.FLOW_STEP.value
+    contains_flow_edge = EdgeType.CONTAINS_FLOW.value
     cypher = (
         "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage) "
-        "WITH collect(DISTINCT wp.repository) AS raw_repos "
-        "WITH [r IN raw_repos WHERE r IS NOT NULL AND r <> ''] AS repos "
+        "WITH collect(DISTINCT wp.repository) AS raw_repos, collect(DISTINCT wp) AS pages "
+        "WITH [r IN raw_repos WHERE r IS NOT NULL AND r <> ''] AS repos, pages "
+        f"OPTIONAL MATCH (p:WikiPage)-[:{contains_flow_edge}]->(bf_linked:BusinessFlow) "
+        "WHERE p IN pages "
+        "WITH repos, collect(DISTINCT bf_linked) AS linked_flows "
         "MATCH (bf:BusinessFlow) "
-        "WHERE bf.repository IN repos "
-        "RETURN bf.uid AS uid, bf.name AS name, coalesce(bf.description, '') AS description, "
-        "coalesce(bf.category, '') AS category, coalesce(bf.repository, '') AS repository "
-        "LIMIT 200"
+        "WHERE bf IN linked_flows OR bf.repository IN repos "
+        f"OPTIONAL MATCH (bf)-[fs:{flow_step_edge}]->(step:{flow_step_label}) "
+        "RETURN bf.uid AS bf_uid, bf.name AS bf_name, coalesce(bf.description, '') AS bf_description, "
+        "coalesce(bf.domain, '') AS bf_domain, "
+        "step.uid AS step_uid, step.name AS step_name, fs.weight AS step_weight "
+        "ORDER BY bf.uid, coalesce(fs.weight, 0) "
+        "LIMIT 500"
     )
     result = await raw_store.execute_query(cypher, {"business_id": business_id})
     rows = getattr(result, "data", None) or []
-    nodes: list[dict[str, Any]] = []
-    for r in rows:
-        uid = str(r.get("uid") or "")
-        if not uid:
-            continue
-        nodes.append(
-            {
-                "uid": uid,
-                "title": str(r.get("name") or uid),
-                "description": str(r.get("description") or ""),
-                "type": "business_flow",
-            }
-        )
-    return {"nodes": nodes, "edges": []}
+    return _build_flows_graph_response(rows)
 
 
 async def _compute_tour_from_graph(raw_store: Any, business_id: str) -> dict[str, Any]:

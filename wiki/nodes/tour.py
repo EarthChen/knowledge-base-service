@@ -25,7 +25,8 @@ def _build_page_dependency_graph(pages: list[dict[str, Any]]) -> dict[str, list[
     for page in pages:
         path = page.get("path", "")
         for uid in page.get("covered_entity_uids") or []:
-            uid_to_page[uid] = path
+            if uid not in uid_to_page:
+                uid_to_page[uid] = path
 
     edges: dict[str, list[str]] = {p.get("path", ""): [] for p in pages}
     page_paths = {p.get("path", "") for p in pages}
@@ -34,12 +35,12 @@ def _build_page_dependency_graph(pages: list[dict[str, Any]]) -> dict[str, list[
         path = page.get("path", "")
         if not path:
             continue
-        deps = set()
         for uid in page.get("covered_entity_uids") or []:
             dep_page = uid_to_page.get(uid, "")
             if dep_page and dep_page != path and dep_page in page_paths:
-                deps.add(dep_page)
-        edges[path] = list(deps)
+                targets = edges.setdefault(dep_page, [])
+                if path not in targets:
+                    targets.append(path)
 
     return edges
 

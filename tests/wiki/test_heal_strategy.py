@@ -204,6 +204,23 @@ class TestHealStrategyChain:
         assert result.strategy_name == "s2"
 
     @pytest.mark.asyncio
+    async def test_skip_empty_content(self):
+        s1 = MagicMock()
+        s1.name = "s1"
+        s1.can_apply.return_value = True
+        s1.apply = AsyncMock(return_value=HealResult(content="   ", strategy_name="s1"))
+        s2 = MagicMock()
+        s2.name = "s2"
+        s2.can_apply.return_value = True
+        s2.apply = AsyncMock(return_value=HealResult(content="valid", strategy_name="s2"))
+
+        chain = HealStrategyChain(strategies=[s1, s2])
+        ctx = _make_context(llm=MagicMock())
+        result = await chain.execute(ctx)
+        assert result is not None
+        assert result.strategy_name == "s2"
+
+    @pytest.mark.asyncio
     async def test_default_strategies(self):
         chain = HealStrategyChain()
         assert len(chain._strategies) == 3

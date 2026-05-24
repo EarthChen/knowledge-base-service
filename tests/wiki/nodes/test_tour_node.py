@@ -3,7 +3,27 @@ from __future__ import annotations
 import pytest
 from unittest.mock import patch
 
-from wiki.nodes.tour import generate_tour_node
+from wiki.nodes.tour import _build_page_dependency_graph, generate_tour_node
+
+
+class TestBuildPageDependencyGraph:
+    def test_prerequisite_before_dependent(self):
+        pages = [
+            {"path": "owner.md", "covered_entity_uids": ["e1"]},
+            {"path": "dependent.md", "covered_entity_uids": ["e1", "e2"]},
+        ]
+        edges = _build_page_dependency_graph(pages)
+        assert edges["owner.md"] == ["dependent.md"]
+        assert edges["dependent.md"] == []
+
+    def test_first_wins_entity_owner(self):
+        pages = [
+            {"path": "first.md", "covered_entity_uids": ["shared"]},
+            {"path": "second.md", "covered_entity_uids": ["shared"]},
+        ]
+        edges = _build_page_dependency_graph(pages)
+        assert edges["first.md"] == ["second.md"]
+        assert edges["second.md"] == []
 
 
 class TestGenerateTourNode:

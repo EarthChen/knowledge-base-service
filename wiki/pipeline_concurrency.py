@@ -54,6 +54,7 @@ class PipelineConcurrency:
             "title_gen": cfg.bottomup_concurrency,
             "module_compose": cfg.module_compose_concurrency,
             "domain_naming": cfg.domain_naming_concurrency,
+            "flow_compose": cfg.flow_compose_concurrency,
         }
         return mapping.get(stage, cfg.compose_concurrency)
 

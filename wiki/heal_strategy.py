@@ -161,7 +161,7 @@ class HealStrategyChain:
                 continue
             try:
                 result = await strategy.apply(context)
-                if result:
+                if result and result.content and result.content.strip():
                     log.info("heal_strategy_success", strategy=strategy.name, page=context.page.path)
                     return result
                 log.debug("heal_strategy_pass", strategy=strategy.name, page=context.page.path)

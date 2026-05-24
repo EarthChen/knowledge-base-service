@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from core.log import get_logger
 from wiki.flow_baseline import FlowBaseline, extract_flow_baseline, format_flow_baseline_for_prompt
+from wiki.pipeline_concurrency import PipelineConcurrency
 
 log = get_logger(__name__)
 
@@ -90,6 +91,7 @@ async def _persist_flow_structure(
     domain_name: str,
     flow_pages: list[dict[str, Any]],
     baseline: FlowBaseline,
+    repository: str = "",
 ) -> None:
     """Persist BusinessFlow and FlowStep nodes using UNWIND batch Cypher."""
     if not graph_store or not baseline.entry_points:
@@ -104,6 +106,7 @@ async def _persist_flow_structure(
                     "name": f"{ep.module_name}.{ep.function_name}",
                     "entry_type": ep.entry_type,
                     "domain": domain_name,
+                    "repository": repository,
                 }
             )
 
@@ -111,13 +114,14 @@ async def _persist_flow_structure(
             create_cy = """
             UNWIND $flows AS f
             MERGE (bf:BusinessFlow {uid: f.uid})
-            SET bf.name = f.name, bf.entry_type = f.entry_type, bf.domain = f.domain
+            SET bf.name = f.name, bf.entry_type = f.entry_type, bf.domain = f.domain,
+                bf.repository = f.repository
             """
             await graph_store.execute_query(create_cy, {"flows": flow_data})
 
             link_cy = """
             UNWIND $flows AS f
-            MATCH (wp:WikiPage {domain: f.domain, page_type: 'domain_overview'})
+            MATCH (wp:WikiPage {business_domain: f.domain, page_type: 'domain_overview'})
             MATCH (bf:BusinessFlow {uid: f.uid})
             MERGE (wp)-[:CONTAINS_FLOW]->(bf)
             """
@@ -147,14 +151,10 @@ async def compose_flow_agents_node(
     if not leaf_domains:
         return {"flow_pages": []}
 
-    try:
-        from core.config import get_settings
+    repos = state.get("repositories") or []
+    repository = str(configurable.get("repository") or (repos[0] if repos else "")).strip()
 
-        max_concurrent = get_settings().wiki.flow_compose_concurrency
-    except Exception:
-        max_concurrent = 3
-
-    sem = asyncio.Semaphore(max_concurrent)
+    sem = PipelineConcurrency.semaphore("flow_compose")
     all_flow_pages: list[dict[str, Any]] = []
 
     async def _process_domain(domain: dict[str, Any]) -> list[dict[str, Any]]:
@@ -170,7 +170,7 @@ async def compose_flow_agents_node(
                 return []
 
             pages = await _run_flow_agent(domain_name, baseline, llm, graph_store, state)
-            await _persist_flow_structure(graph_store, domain_name, pages, baseline)
+            await _persist_flow_structure(graph_store, domain_name, pages, baseline, repository)
             return pages
 
     results = await asyncio.gather(*[_process_domain(d) for d in leaf_domains], return_exceptions=True)

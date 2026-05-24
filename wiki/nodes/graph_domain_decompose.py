@@ -97,7 +97,10 @@ async def _merge_domains_by_embedding(
         for j in range(i + 1, len(slugs)):
             if slugs[j] in merge_map or slugs[j] in merged_targets:
                 continue
-            sim = dot(embeddings[i], embeddings[j]) / (norm(embeddings[i]) * norm(embeddings[j]))
+            norm_i, norm_j = norm(embeddings[i]), norm(embeddings[j])
+            if norm_i == 0 or norm_j == 0:
+                continue
+            sim = dot(embeddings[i], embeddings[j]) / (norm_i * norm_j)
             if sim >= similarity_threshold:
                 size_i = len(domain_mapping.get(slugs[i], []))
                 size_j = len(domain_mapping.get(slugs[j], []))
@@ -143,15 +146,20 @@ async def _merge_domains_by_llm(
     messages = [{"role": "user", "content": prompt}]
 
     merge_groups: list[list[str]] = []
+    if not hasattr(llm, "complete_json"):
+        log.warning("llm_no_complete_json_method", provider=type(llm).__name__)
+        try:
+            return await _merge_domains_by_embedding(domain_mapping, domain_display_names)
+        except Exception:
+            log.warning("embedding_domain_merge_fallback_failed", exc_info=True)
+            return domain_mapping, domain_display_names
+
     try:
-        if hasattr(llm, "complete_json"):
-            result = await llm.complete_json(messages, {})
-            if isinstance(result, dict):
-                raw_groups = result.get("merge_groups", [])
-                if isinstance(raw_groups, list):
-                    merge_groups = raw_groups
-        else:
-            raise AttributeError("llm has no complete_json")
+        result = await llm.complete_json(messages, {})
+        if isinstance(result, dict):
+            raw_groups = result.get("merge_groups", [])
+            if isinstance(raw_groups, list):
+                merge_groups = raw_groups
     except Exception:
         log.warning("llm_domain_merge_failed", exc_info=True)
         try:

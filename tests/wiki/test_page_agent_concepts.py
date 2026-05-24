@@ -98,3 +98,33 @@ async def test_detect_module_languages_from_module_paths() -> None:
     assert "java" in languages
     assert len(languages["java"]) >= 5
     assert mock_graph.execute_query.await_count == 1
+
+
+class TestExtensionForPath:
+    """Boundary tests for WikiPageAgent._extension_for_path."""
+
+    @pytest.mark.parametrize(
+        "path,expected",
+        [
+            ("src/main/UserService.java", ".java"),
+            ("src/utils.py", ".py"),
+            ("src/index.ts", ".ts"),
+            ("src/Component.tsx", ".tsx"),
+            ("src/app.jsx", ".jsx"),
+            ("src/types.d.ts", ".d.ts"),
+            ("src/config.mjs", ".mjs"),
+            ("src/common.cjs", ".cjs"),
+            ("src/Build.kts", ".kts"),
+            ("lib/widget.g.dart", ".g.dart"),
+            ("src/module.swift", ".swift"),
+            ("src/file.go", ".go"),
+            ("src\\windows\\path.cs", ".cs"),  # backslash normalization
+            ("src/UPPERCASE.JAVA", ".java"),  # case insensitive
+            ("Makefile", ""),  # no extension
+            ("", ""),  # empty string
+            ("src/.hidden", ".hidden"),  # dot file
+            ("path/to/file.tar.gz", ".gz"),  # double extension (not special)
+        ],
+    )
+    def test_extension_for_path(self, path: str, expected: str) -> None:
+        assert WikiPageAgent._extension_for_path(path) == expected

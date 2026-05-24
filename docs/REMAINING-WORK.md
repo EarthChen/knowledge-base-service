@@ -93,6 +93,7 @@ _(当前无进行中任务)_
 - [x] Pipeline Graph Refactor ✅ (2026-05-24) — `quality_gate_node`/`finalize_node` 提取至 `wiki/nodes/`、L3 并行评估 (`asyncio.gather` + semaphore)、`heal_loop_max_total_attempts` 配置化至 `AppWikiFlags`、`pages_to_heal` L1 排序 fallback、`import time` 模块级化 (2900 tests)
 - [x] Wiki-Driven Domain Reassembly ✅ (2026-05-22) — `reassemble_domains_node` 基于 embedding 相似度 + LLM 审核的域重组、孤儿匹配、回滚保护
 - [x] Heal Redesign + Unified LLM Rate Control ✅ (2026-05-24) — heal 并发 (PipelineConcurrency.semaphore("heal"))、Tier 分层 (CORE 3轮/STANDARD 1轮/SKELETON skip)、全部 6 节点统一频控迁移 (compose, wiki_shared, enrichment_coordinator, bootstrap, domain_compose, graph_nodes, repo_composer)
+- [x] Batch A: Domain Clustering Accuracy + Infra ✅ (2026-05-24) — 嵌入文本 key_methods 字段修复 + deps/callers 注入 (P0)、全局 LLM 审查代表性排序 + 方法签名 (P1)、discount 死代码修复 (P1)、PipelineConcurrency 信号量缓存 (P2)、Reassembly 阈值微调 0.78/0.65 (P2)
 
 ---
 

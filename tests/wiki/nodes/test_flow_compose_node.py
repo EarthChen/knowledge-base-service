@@ -44,7 +44,7 @@ class TestComposeFlowAgentsNode:
             mock_extract.return_value = FlowBaseline(
                 "d1", [EntryPointInfo("create", "Ctrl", "http", "f.py")], [], 1, []
             )
-            mock_agent.return_value = [{"path": "d1/flows.md", "page_type": "flow", "content": "# Flow"}]
+            mock_agent.return_value = [{"path": "d1/flows.md", "page_type": "business_flow", "content": "# Flow"}]
             result = await compose_flow_agents_node(
                 state, config={"configurable": {"llm": mock_llm, "graph_store": mock_graph}}
             )

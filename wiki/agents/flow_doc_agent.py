@@ -110,7 +110,7 @@ class FlowDocAgent(DocOrchestrator):
                 "<!-- CONTEXT_GAP: Flow generation incomplete -->"
             )
         return [{
-            "page_type": "flow",
+            "page_type": "business_flow",
             "title": self.flow_name,
             "path": domain_topic_path(self.domain_name, self.flow_name),
             "content": content,

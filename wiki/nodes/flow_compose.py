@@ -45,35 +45,40 @@ async def _run_flow_agent(
     from wiki.agents.flow_doc_agent import FlowDocAgent
 
     baseline_text = format_flow_baseline_for_prompt(baseline)
-    agent = FlowDocAgent(llm=llm, graph_store=graph_store)
+    flow_name = f"{domain_name} Business Flows"
 
-    pre_fill = {
-        "domain_name": domain_name,
-        "baseline_text": baseline_text,
-        "entry_points": [
-            {"function": ep.function_name, "module": ep.module_name, "type": ep.entry_type}
-            for ep in baseline.entry_points
-        ],
-    }
+    agent = FlowDocAgent(
+        flow_name=flow_name,
+        domain_name=domain_name,
+        llm=llm,
+        graph_store=graph_store,
+    )
+
+    module_names = [ep.module_name for ep in baseline.entry_points]
+    seen: set[str] = set()
+    unique_modules: list[str] = []
+    for m in module_names:
+        if m not in seen:
+            seen.add(m)
+            unique_modules.append(m)
 
     try:
         result = await agent.generate(
-            domain_name=domain_name,
-            pre_fill=pre_fill,
-            existing_pages=state.get("pages"),
+            module_names=unique_modules,
+            baseline_context=baseline_text,
         )
+        if isinstance(result, list):
+            return result
         if isinstance(result, str):
             return [
                 {
                     "path": f"{domain_name}/business-flows.md",
-                    "page_type": "flow",
+                    "page_type": "business_flow",
                     "content": result,
                     "domain": domain_name,
-                    "title": f"{domain_name} Business Flows",
+                    "title": flow_name,
                 }
             ]
-        if isinstance(result, list):
-            return result
         return []
     except Exception:
         log.warning("flow_agent_failed", domain=domain_name, exc_info=True)

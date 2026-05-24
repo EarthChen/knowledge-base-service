@@ -422,3 +422,35 @@ uv run ruff format .
 - **[REMAINING-WORK.md](REMAINING-WORK.md)**：剩余工作积压项。
 
 若在文档与代码之间发现不一致，**以代码与测试为准**，并欢迎提交文档修正。
+
+---
+
+## 10. AI Agent 常见任务
+
+### 10.1 Adding a new agent tool
+
+1. Define the method on `WikiPageAgent` (or relevant agent) with `@function_tool` decorator
+2. Specify `tier=` parameter (1-3) for activation round
+3. The tool is auto-registered by `collect_tools()` — no manual schema needed
+4. Add tests in `tests/wiki/agents/`
+
+### 10.2 Adding a new MCP tool
+
+1. Add to `MCP_TOOLS_MANIFEST` in `api/mcp_server.py` (or `WIKI_MCP_TOOLS_MANIFEST` in `wiki/mcp_tools.py`)
+2. Implement handler with `@mcp_tool("name", min_role=Role.VIEWER)` decorator
+3. Test in `tests/api/`
+
+### 10.3 Adding a new API route
+
+1. Choose router by role: `public_router`, `viewer_router`, `editor_router`, `admin_router`
+2. Add route in appropriate `api/routes/*_routes.py`
+3. Use `Depends(require_role(...))` for auth
+4. Add response type to `api/models/`
+
+### 10.4 Modifying the wiki generation pipeline
+
+1. Pipeline definition: `wiki/pipeline_graph.py`
+2. Node implementations: `wiki/nodes/` (17 node files)
+3. State: `wiki/pipeline_state.py`
+4. Concurrency: `wiki/pipeline_concurrency.py` (PipelineConcurrency)
+5. Test: `tests/wiki/integration/` + `tests/wiki/nodes/`

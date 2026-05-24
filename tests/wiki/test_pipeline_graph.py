@@ -1,4 +1,6 @@
 """Tests for wiki pipeline graph definition."""
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 
@@ -93,3 +95,86 @@ def test_pipeline_has_all_expected_nodes():
     }
     missing = expected - node_names
     assert not missing, f"Missing nodes: {missing}"
+
+
+def _make_page(path: str, content: str) -> dict:
+    return {
+        "path": path,
+        "title": path.split("/")[-1].replace(".md", ""),
+        "content": content,
+        "page_type": "topic",
+        "diagrams": [],
+        "source_locations": [],
+        "metadata": {},
+    }
+
+
+@pytest.mark.asyncio
+async def test_quality_gate_l3_triggers_for_healed_standard_page(monkeypatch):
+    """A STANDARD page that was healed and has L1>=0.7 should trigger L3."""
+    from wiki.pipeline_graph import quality_gate_node
+    from wiki.quality_evaluator import WikiQualityEvaluator
+
+    mock_eval = MagicMock(spec=WikiQualityEvaluator)
+    mock_eval.structural_check.return_value = MagicMock(overall=0.75, issues=[])
+    mock_eval.bench_score.return_value = MagicMock(overall=0.6)
+
+    mock_l3_eval = MagicMock()
+    mock_l3_result = MagicMock()
+    mock_l3_result.dimensions = {"completeness": 4, "accuracy": 3, "readability": 4, "structure": 3}
+    mock_l3_eval.evaluate_l3 = AsyncMock(return_value=mock_l3_result)
+
+    state = {
+        "pages": [_make_page("domain/auth.md", "# Auth\n" + "x" * 300)],
+        "heal_attempts": {"domain/auth.md": 1},
+        "quality_scores": {},
+        "_structural_check_cache": {},
+        "config": {
+            "importance_tiers": {"domain/auth.md": "standard"},
+            "quality_levels": ["L1", "L3"],
+        },
+    }
+
+    config = {"configurable": {"llm": MagicMock()}}
+
+    monkeypatch.setattr("wiki.pipeline_graph.WikiQualityEvaluator", lambda: mock_eval)
+    monkeypatch.setattr("wiki.pipeline_graph.WikiPageEvaluator", lambda: mock_l3_eval)
+
+    result = await quality_gate_node(state, config)
+    scores = result["quality_scores"]["domain/auth.md"]
+    assert scores.get("l3_llm_judge") is not None, "L3 should be triggered for healed page"
+
+
+@pytest.mark.asyncio
+async def test_quality_gate_l3_not_triggered_for_unhealed_standard(monkeypatch):
+    """A STANDARD page that was NOT healed should NOT trigger L3 (existing behavior)."""
+    from wiki.pipeline_graph import quality_gate_node
+    from wiki.quality_evaluator import WikiQualityEvaluator
+
+    mock_eval = MagicMock(spec=WikiQualityEvaluator)
+    mock_eval.structural_check.return_value = MagicMock(overall=0.75, issues=[])
+    mock_eval.bench_score.return_value = MagicMock(overall=0.6)
+
+    mock_l3_eval = MagicMock()
+    mock_l3_eval.evaluate_l3 = AsyncMock()
+
+    state = {
+        "pages": [_make_page("domain/order.md", "# Order\n" + "x" * 300)],
+        "heal_attempts": {},
+        "quality_scores": {},
+        "_structural_check_cache": {},
+        "config": {
+            "importance_tiers": {"domain/order.md": "standard"},
+            "quality_levels": ["L1", "L3"],
+        },
+    }
+
+    config = {"configurable": {"llm": MagicMock()}}
+
+    monkeypatch.setattr("wiki.pipeline_graph.WikiQualityEvaluator", lambda: mock_eval)
+    monkeypatch.setattr("wiki.pipeline_graph.WikiPageEvaluator", lambda: mock_l3_eval)
+
+    result = await quality_gate_node(state, config)
+    scores = result["quality_scores"]["domain/order.md"]
+    assert scores.get("l3_llm_judge") is None, "L3 should NOT trigger for unhealed STANDARD"
+    mock_l3_eval.evaluate_l3.assert_not_called()

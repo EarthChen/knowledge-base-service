@@ -263,16 +263,22 @@ async def quality_gate_node(
 
         score_dict["l3_llm_judge"] = None
         l1_val = score_dict.get("l1_structural", 0.0)
-        if "L3" in levels and tier == ImportanceTier.CORE and l1_val >= 0.7:
-            llm = (config or {}).get("configurable", {}).get("llm")
-            if llm:
-                harness_eval = WikiPageEvaluator()
-                page_modules = page_dict.get("entity_uids") or [page.title or page.path]
-                l3_result = await harness_eval.evaluate_l3(page.content, page_modules, llm)
-                if l3_result.dimensions:
-                    avg_1_5 = sum(l3_result.dimensions.values()) / len(l3_result.dimensions)
-                    score_dict["l3_llm_judge"] = round((avg_1_5 - 1.0) / 4.0, 4)
-                    score_dict["l3_dimensions"] = l3_result.dimensions
+        was_healed = page.path in heal_attempts and heal_attempts.get(page.path, 0) > 0
+        if "L3" in levels and l1_val >= 0.7:
+            should_l3 = (tier == ImportanceTier.CORE) or was_healed
+            l3_cache_key = check_cache.get(page.path, {}).get("l3_evaluated", False)
+            if should_l3 and not l3_cache_key:
+                llm = (config or {}).get("configurable", {}).get("llm")
+                if llm:
+                    harness_eval = WikiPageEvaluator()
+                    page_modules = page_dict.get("entity_uids") or [page.title or page.path]
+                    l3_result = await harness_eval.evaluate_l3(page.content, page_modules, llm)
+                    if l3_result.dimensions:
+                        avg_1_5 = sum(l3_result.dimensions.values()) / len(l3_result.dimensions)
+                        score_dict["l3_llm_judge"] = round((avg_1_5 - 1.0) / 4.0, 4)
+                        score_dict["l3_dimensions"] = l3_result.dimensions
+                    if page.path in check_cache:
+                        check_cache[page.path]["l3_evaluated"] = True
 
         _SCORE_KEYS = {"l1_structural", "l2_bench", "l3_llm_judge"}
         numeric_scores = [

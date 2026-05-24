@@ -68,6 +68,18 @@ class JavaPlugin(BaseLanguagePlugin):
         return [".java"]
 
     @property
+    def concepts(self) -> list[str]:
+        return [
+            "annotations",
+            "generics",
+            "streams API",
+            "Spring dependency injection",
+            "lambda expressions",
+            "checked exceptions",
+            "sealed classes",
+        ]
+
+    @property
     def interop_group(self) -> str | None:
         return "jvm"
 

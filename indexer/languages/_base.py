@@ -96,6 +96,11 @@ class BaseLanguagePlugin(ABC):
     def interop_group(self) -> str | None:
         return None
 
+    @property
+    def concepts(self) -> list[str]:
+        """Language-specific programming concepts for LLM prompt enrichment."""
+        return []
+
     def extract_signature(self, func_node: Node, source: bytes) -> str:
         return self._extract_signature_generic(func_node, source)
 

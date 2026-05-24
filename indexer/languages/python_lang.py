@@ -33,6 +33,18 @@ class PythonPlugin(BaseLanguagePlugin):
     def file_extensions(self) -> list[str]:
         return [".py"]
 
+    @property
+    def concepts(self) -> list[str]:
+        return [
+            "decorators",
+            "list comprehensions",
+            "generators and iterators",
+            "context managers",
+            "type hints and annotations",
+            "async/await coroutines",
+            "dataclasses",
+        ]
+
     def get_queries(self) -> dict[str, str]:
         return dict(_PYTHON_QUERIES)
 

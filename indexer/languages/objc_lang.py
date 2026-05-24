@@ -49,6 +49,16 @@ class ObjectiveCPlugin(BaseLanguagePlugin):
         return [".m", ".h"]
 
     @property
+    def concepts(self) -> list[str]:
+        return [
+            "protocols",
+            "categories",
+            "blocks",
+            "ARC memory management",
+            "message passing",
+        ]
+
+    @property
     def interop_group(self) -> str | None:
         return "apple"
 

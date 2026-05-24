@@ -41,6 +41,17 @@ class SwiftPlugin(BaseLanguagePlugin):
         return [".swift"]
 
     @property
+    def concepts(self) -> list[str]:
+        return [
+            "protocols",
+            "optionals",
+            "value types vs reference types",
+            "actors",
+            "async/await",
+            "property wrappers",
+        ]
+
+    @property
     def interop_group(self) -> str | None:
         return "apple"
 

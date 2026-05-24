@@ -186,3 +186,8 @@ MODULE_CALLERS_CY = (
     "collect(DISTINCT m1.name)[0..5] AS callers, "
     "count(DISTINCT m1) AS fan_in"
 )
+
+MODULE_PATH_CY = (
+    "MATCH (m:Module {name: $name}) "
+    "RETURN m.path AS path LIMIT 1"
+)

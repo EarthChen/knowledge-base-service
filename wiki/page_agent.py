@@ -681,7 +681,7 @@ class WikiPageAgent(GenericAgent):
 
         rounds = max_rounds if max_rounds is not None else self.max_rounds
         system = AGENT_EXPLORE_SYSTEM.format(max_rounds=rounds)
-        user_prompt = self._build_explore_user_prompt(
+        user_prompt = await self._build_explore_user_prompt(
             module_names, domain_name, baseline_context, focus_modules,
         )
 
@@ -716,7 +716,7 @@ class WikiPageAgent(GenericAgent):
         )
         return memory
 
-    def _build_explore_user_prompt(
+    async def _build_explore_user_prompt(
         self,
         module_names: list[str],
         domain_name: str,
@@ -757,7 +757,65 @@ class WikiPageAgent(GenericAgent):
                 f"你还需要重点探索以下模块：{', '.join(focus_modules)}"
             )
 
+        if self._graph:
+            languages = await self._detect_module_languages(module_names)
+            if languages:
+                concept_lines = [
+                    f"- **{lang}**: {', '.join(concepts)}"
+                    for lang, concepts in languages.items()
+                    if concepts
+                ]
+                if concept_lines:
+                    parts.append("\n## 语言特定概念（探索时关注）\n" + "\n".join(concept_lines))
+
         return "\n".join(parts)
+
+    @staticmethod
+    def _extension_for_path(file_path: str) -> str:
+        normalized = file_path.replace("\\", "/").lower()
+        for ext in (".d.ts", ".tsx", ".jsx", ".mjs", ".cjs", ".kts", ".g.dart"):
+            if normalized.endswith(ext):
+                return ext
+        dot = normalized.rfind(".")
+        return normalized[dot:] if dot != -1 else ""
+
+    async def _get_module_file_path(self, module_name: str) -> str | None:
+        """Query graph store for the file path of a module node."""
+        if not self._graph or not hasattr(self._graph, "execute_query"):
+            return None
+        from wiki.cypher_queries import MODULE_PATH_CY
+
+        try:
+            result = await self._graph.execute_query(MODULE_PATH_CY, {"name": module_name})
+        except Exception:
+            log.debug("module_path_query_failed", module=module_name, exc_info=True)
+            return None
+        rows = getattr(result, "data", None) or []
+        if not rows or not isinstance(rows[0], dict):
+            return None
+        path = str(rows[0].get("path", "") or "").strip()
+        return path or None
+
+    async def _detect_module_languages(self, module_names: list[str]) -> dict[str, list[str]]:
+        """Detect languages from module file paths and return plugin concepts."""
+        from indexer.languages import create_default_registry
+
+        if not self._graph:
+            return {}
+
+        registry = create_default_registry()
+        lang_concepts: dict[str, list[str]] = {}
+        for name in module_names[:20]:
+            file_path = await self._get_module_file_path(name)
+            if not file_path:
+                continue
+            ext = self._extension_for_path(file_path)
+            if not ext:
+                continue
+            plugin = registry.get_by_extension(ext)
+            if plugin and plugin.name not in lang_concepts:
+                lang_concepts[plugin.name] = plugin.concepts
+        return lang_concepts
 
     async def write(
         self,

@@ -56,6 +56,18 @@ class GoPlugin(BaseLanguagePlugin):
     def file_extensions(self) -> list[str]:
         return [".go"]
 
+    @property
+    def concepts(self) -> list[str]:
+        return [
+            "goroutines",
+            "channels",
+            "interfaces",
+            "defer statements",
+            "error-as-return-value",
+            "struct embedding",
+            "context package",
+        ]
+
     def get_queries(self) -> dict[str, str]:
         return dict(_GO_QUERIES)
 

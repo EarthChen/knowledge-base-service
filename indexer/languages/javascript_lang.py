@@ -70,6 +70,16 @@ class JavaScriptPlugin(BaseLanguagePlugin):
         return [".js", ".jsx", ".mjs"]
 
     @property
+    def concepts(self) -> list[str]:
+        return [
+            "closures",
+            "prototype chain",
+            "promises",
+            "async/await",
+            "destructuring",
+        ]
+
+    @property
     def interop_group(self) -> str | None:
         return "js"
 
@@ -440,6 +450,19 @@ class TypeScriptPlugin(JavaScriptPlugin):
     @property
     def file_extensions(self) -> list[str]:
         return [".ts", ".tsx"]
+
+    @property
+    def concepts(self) -> list[str]:
+        return [
+            "closures",
+            "prototype chain",
+            "promises",
+            "async/await",
+            "destructuring",
+            "generics",
+            "type guards",
+            "discriminated unions",
+        ]
 
     def get_queries(self) -> dict[str, str]:
         return dict(_TS_QUERIES)

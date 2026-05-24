@@ -42,6 +42,16 @@ class KotlinPlugin(BaseLanguagePlugin):
         return [".kt", ".kts"]
 
     @property
+    def concepts(self) -> list[str]:
+        return [
+            "coroutines",
+            "sealed classes",
+            "extension functions",
+            "data classes",
+            "null safety operators",
+        ]
+
+    @property
     def interop_group(self) -> str | None:
         return "jvm"
 

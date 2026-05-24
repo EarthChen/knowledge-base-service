@@ -49,6 +49,16 @@ class DartPlugin(BaseLanguagePlugin):
     def file_extensions(self) -> list[str]:
         return [".dart"]
 
+    @property
+    def concepts(self) -> list[str]:
+        return [
+            "futures and streams",
+            "mixins",
+            "extension methods",
+            "null safety",
+            "isolates",
+        ]
+
     def get_queries(self) -> dict[str, str]:
         return dict(_DART_QUERIES)
 

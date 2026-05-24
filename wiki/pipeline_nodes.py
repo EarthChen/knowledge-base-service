@@ -35,6 +35,7 @@ from wiki.nodes.compose import (
     plan_topic_structure_node,
 )
 from wiki.nodes.domain_compose import compose_domain_agents_node
+from wiki.nodes.flow_compose import compose_flow_agents_node  # noqa: F401
 from wiki.nodes.graph_domain_decompose import graph_driven_domain_decompose_node
 from wiki.nodes.graph_nodes import (
     assign_canonical_keys_node,

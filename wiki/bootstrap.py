@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from core.config import Settings
 from core.log import get_logger
 from store.graph_queries import GraphQueryRepository
+from wiki.pipeline_concurrency import PipelineConcurrency
 
 log = get_logger(__name__)
 
@@ -23,7 +24,7 @@ def _get_wiki_generation_sem(state: Any) -> asyncio.Semaphore:
     try:
         return state["wiki_generation_sem"]
     except (KeyError, TypeError):
-        sem = asyncio.Semaphore(5)
+        sem = PipelineConcurrency.semaphore("wiki_generation")
         state["wiki_generation_sem"] = sem
         return sem
 

@@ -16,6 +16,7 @@ from wiki.models import (
     WikiPageMetadata,
 )
 from wiki.errors import WikiRepoNotFoundError
+from wiki.pipeline_concurrency import PipelineConcurrency
 
 log = get_logger(__name__)
 
@@ -253,8 +254,7 @@ class WikiEnrichmentCoordinator:
                 )
                 return
 
-            enrich_limit = max(1, int(getattr(self._wiki_cfg, "compose_concurrency", 3)))
-            enrich_sem = asyncio.Semaphore(enrich_limit)
+            enrich_sem = PipelineConcurrency.semaphore("compose")
 
             async def _enrich_one(page: WikiPage, tier: ImportanceTier) -> None:
                 async with enrich_sem:
@@ -332,8 +332,7 @@ class WikiEnrichmentCoordinator:
                 reason="ImportanceScorer did not run; enrichment requires tier data",
             )
             return
-        enrich_limit = max(1, int(getattr(self._wiki_cfg, "compose_concurrency", 3)))
-        enrich_sem = asyncio.Semaphore(enrich_limit)
+        enrich_sem = PipelineConcurrency.semaphore("compose")
 
         async def _enrich_one(page: WikiPage, tier: ImportanceTier) -> None:
             async with enrich_sem:

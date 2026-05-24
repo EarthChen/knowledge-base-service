@@ -267,6 +267,7 @@ class AppWikiFlags(BaseModel):
 
     #: Pipeline stage concurrency — unified control (see wiki/pipeline_concurrency.py)
     domain_agent_concurrency: int = Field(default=3, ge=1)
+    wiki_generation_concurrency: int = Field(default=5, ge=1)
     heal_concurrency: int = Field(default=5, ge=1)
     bottomup_concurrency: int = Field(default=24, ge=1)
     module_compose_concurrency: int = Field(default=3, ge=1)

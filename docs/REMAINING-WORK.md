@@ -92,6 +92,7 @@ _(当前无进行中任务)_
 - [x] Batch 3: Tour + Heal Strategy + Flow Model ✅ (2026-05-24) — Guided Tour (`generate_tour`)、Heal Fallback Strategy、业务流三级模型 (`compose_flow_agents` + `merge_flow_pages`)
 - [x] Pipeline Graph Refactor ✅ (2026-05-24) — `quality_gate_node`/`finalize_node` 提取至 `wiki/nodes/`、L3 并行评估 (`asyncio.gather` + semaphore)、`heal_loop_max_total_attempts` 配置化至 `AppWikiFlags`、`pages_to_heal` L1 排序 fallback、`import time` 模块级化 (2900 tests)
 - [x] Wiki-Driven Domain Reassembly ✅ (2026-05-22) — `reassemble_domains_node` 基于 embedding 相似度 + LLM 审核的域重组、孤儿匹配、回滚保护
+- [x] Heal Redesign + Unified LLM Rate Control ✅ (2026-05-24) — heal 并发 (PipelineConcurrency.semaphore("heal"))、Tier 分层 (CORE 3轮/STANDARD 1轮/SKELETON skip)、全部 6 节点统一频控迁移 (compose, wiki_shared, enrichment_coordinator, bootstrap, domain_compose, graph_nodes, repo_composer)
 
 ---
 

@@ -14,11 +14,11 @@ from wiki.domain_overview_composer import DomainOverviewComposer
 from wiki.json_robust import parse_json_robust_sync
 from wiki.models import PageType
 from wiki.nodes.utils import (
-    _COMPOSE_CONCURRENCY,
     _build_page_data_for_semantic_diagrams,
     _collect_leaf_domains,
     select_key_snippets,
 )
+from wiki.pipeline_concurrency import PipelineConcurrency
 from wiki.reasoning import TaskType, select_reasoning_level
 from wiki.semantic_diagram_gen import SemanticDiagramGenerator
 from wiki.token_budget import TokenBudgetCalculator, TokenBudgetResolver
@@ -668,7 +668,7 @@ async def compose_leaf_modules_node(
     if not target_modules:
         return {"module_summaries": {}}
 
-    sem = asyncio.Semaphore(_COMPOSE_CONCURRENCY)
+    sem = PipelineConcurrency.semaphore("compose")
 
     async def _bounded_r1(name: str) -> tuple[str, dict[str, Any]]:
         async with sem:
@@ -913,7 +913,7 @@ async def _compose_from_topic_structure(
 
     budget_resolver = TokenBudgetResolver()
     budget = budget_resolver.budget("topic_page_generate")
-    sem = asyncio.Semaphore(_COMPOSE_CONCURRENCY)
+    sem = PipelineConcurrency.semaphore("compose")
 
     all_pages: list[dict[str, Any]] = []
     generated_uids: list[str] = []
@@ -1053,7 +1053,7 @@ async def compose_leaf_pages_node(
                 )
                 budget_resolver = TokenBudgetResolver()
                 budget = budget_resolver.budget("topic_page_generate")
-                sem = asyncio.Semaphore(_COMPOSE_CONCURRENCY)
+                sem = PipelineConcurrency.semaphore("compose")
 
                 async def _fill_gap(leaf: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
                     async with sem:
@@ -1147,7 +1147,7 @@ async def compose_leaf_pages_node(
             ordered_leaves.extend(name_to_leaf.values())
             leaf_domains = ordered_leaves
 
-    sem = asyncio.Semaphore(_COMPOSE_CONCURRENCY)
+    sem = PipelineConcurrency.semaphore("compose")
 
     async def _bounded(leaf: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
         async with sem:

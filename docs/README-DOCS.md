@@ -56,8 +56,8 @@
 | ~~`specs/2026-05-20-agent-quality-harness-and-sdk-patterns.md`~~ | (已完成并删除) Agent Quality Harness & SDK Patterns — 核心项固化至 `wiki/agents/runner.py` (repeated call detection, LoopHooks)。 |
 | ~~`specs/2026-05-20-agent-runner-extraction-design.md`~~ | (已完成并删除) Agent Runner Extraction — 固化至 `wiki/agents/runner.py`、`wiki/agents/agent_tool.py`、`wiki/page_agent.py` (enrich migration)。 |
 | [`specs/2026-05-20-parent-domain-agent-overview-design.md`](superpowers/specs/2026-05-20-parent-domain-agent-overview-design.md) | **待实现**：Parent Domain Overview Agent 重构设计 — 将 `compose_parent_pages_node` 重构为 Agent 模式。 |
-| [`specs/2026-05-22-heal-redesign-and-unified-llm-rate-control.md`](superpowers/specs/2026-05-22-heal-redesign-and-unified-llm-rate-control.md) | **部分完成**：Heal 并发已实现 ✅；统一 LLM 频控层 Migration 部分未完成（`compose.py`、`wiki_shared.py` 仍用硬编码 Semaphore）。 |
-| [`plans/2026-05-22-heal-redesign-and-unified-llm-rate-control.md`](superpowers/plans/2026-05-22-heal-redesign-and-unified-llm-rate-control.md) | 同上 spec 的实施计划。 |
+| ~~`specs/2026-05-22-heal-redesign-and-unified-llm-rate-control.md`~~ | (已完成并删除) Heal 并发重设计 + 统一 LLM 频控 ✅；固化至 `wiki/nodes/heal.py`（并发 + Tier 分层）、`wiki/pipeline_concurrency.py`（统一入口）、全部 6 节点迁移完成。 |
+| ~~`plans/2026-05-22-heal-redesign-and-unified-llm-rate-control.md`~~ | (已完成并删除) Heal 重设计实施计划全部完成。 |
 | ~~`specs/2026-05-22-wiki-driven-domain-reassembly-design.md`~~ | (已完成并删除) Wiki 内容驱动的域重组 ✅；固化至 `wiki/nodes/reassemble_domains.py`。 |
 | ~~`plans/2026-05-22-wiki-driven-domain-reassembly-impl-plan.md`~~ | (已完成并删除) 域重组实施计划全部完成。 |
 | ~~`specs/2026-05-24-batch1-wiki-pipeline-quick-wins-design.md`~~ | (已完成并删除) Batch 1: 并行 LLM 命名、动态关键词发现、语言特定概念注入、交替重复检测、L3 质量门 ✅。 |

@@ -48,6 +48,7 @@ class PipelineConcurrency:
         cfg = get_settings().wiki
         mapping = {
             "domain_agent": cfg.domain_agent_concurrency,
+            "wiki_generation": cfg.wiki_generation_concurrency,
             "heal": cfg.heal_concurrency,
             "compose": cfg.compose_concurrency,
             "bottomup": cfg.bottomup_concurrency,

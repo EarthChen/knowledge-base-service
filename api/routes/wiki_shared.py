@@ -15,6 +15,7 @@ from core.log import get_logger
 from query.graph_query import GraphQueryService
 from store.wiki_feedback_store import WikiFeedbackStore
 from wiki.ask import WikiAskService
+from wiki.pipeline_concurrency import PipelineConcurrency
 from wiki.cache import WikiCache
 from wiki.deep_research import DeepResearchService
 from wiki.edit_service import WikiEditService
@@ -305,7 +306,7 @@ def get_wiki_generation_sem(request: Request) -> asyncio.Semaphore:
     try:
         sem = request.app.state["wiki_generation_sem"]
     except KeyError:
-        sem = asyncio.Semaphore(5)
+        sem = PipelineConcurrency.semaphore("wiki_generation")
         request.app.state["wiki_generation_sem"] = sem
     return sem
 

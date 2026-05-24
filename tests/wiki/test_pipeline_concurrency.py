@@ -40,6 +40,16 @@ class TestPipelineConcurrencyLimit:
 
 
 class TestPipelineConcurrencySemaphore:
+    def setup_method(self) -> None:
+        from wiki.pipeline_concurrency import PipelineConcurrency
+
+        PipelineConcurrency.reset()
+
+    def teardown_method(self) -> None:
+        from wiki.pipeline_concurrency import PipelineConcurrency
+
+        PipelineConcurrency.reset()
+
     def test_returns_semaphore_with_correct_limit(self):
         from wiki.pipeline_concurrency import PipelineConcurrency
         sem = PipelineConcurrency.semaphore("heal")
@@ -50,3 +60,25 @@ class TestPipelineConcurrencySemaphore:
         from wiki.pipeline_concurrency import PipelineConcurrency
         sem = PipelineConcurrency.semaphore("domain_agent")
         assert sem._value == 3
+
+    def test_semaphore_returns_same_instance(self):
+        from wiki.pipeline_concurrency import PipelineConcurrency
+
+        sem1 = PipelineConcurrency.semaphore("compose")
+        sem2 = PipelineConcurrency.semaphore("compose")
+        assert sem1 is sem2
+
+    def test_semaphore_different_stages_different_instances(self):
+        from wiki.pipeline_concurrency import PipelineConcurrency
+
+        sem_compose = PipelineConcurrency.semaphore("compose")
+        sem_heal = PipelineConcurrency.semaphore("heal")
+        assert sem_compose is not sem_heal
+
+    def test_reset_clears_cache(self):
+        from wiki.pipeline_concurrency import PipelineConcurrency
+
+        sem_before = PipelineConcurrency.semaphore("compose")
+        PipelineConcurrency.reset()
+        sem_after = PipelineConcurrency.semaphore("compose")
+        assert sem_before is not sem_after

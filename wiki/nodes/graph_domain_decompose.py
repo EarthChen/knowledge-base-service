@@ -561,6 +561,7 @@ async def graph_driven_domain_decompose_node(
     domain_mapping, domain_display_names = await corrector.review_global_consistency(
         domain_mapping, domain_display_names, module_paths, module_summaries_flat,
         business_id=state.get("business_id", ""),
+        module_details=module_summaries_raw,
     )
 
     # Rebuild communities_named after review

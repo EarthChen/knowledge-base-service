@@ -15,6 +15,8 @@ from core.config import get_settings
 class PipelineConcurrency:
     """Provides stage-specific semaphores from unified config."""
 
+    _cache: ClassVar[dict[str, asyncio.Semaphore]] = {}
+
     _LEGACY_ENV_ALIASES: ClassVar[dict[str, str]] = {
         "domain_agent": "DOMAIN_AGENT_CONCURRENCY",
     }
@@ -62,8 +64,15 @@ class PipelineConcurrency:
 
     @classmethod
     def semaphore(cls, stage: str) -> asyncio.Semaphore:
-        """Create a Semaphore with the resolved concurrency limit for the given stage."""
-        return asyncio.Semaphore(cls._resolve_limit(stage))
+        """Return cached Semaphore with the resolved concurrency limit for the given stage."""
+        if stage not in cls._cache:
+            cls._cache[stage] = asyncio.Semaphore(cls._resolve_limit(stage))
+        return cls._cache[stage]
+
+    @classmethod
+    def reset(cls) -> None:
+        """Clear cached semaphores (for testing)."""
+        cls._cache.clear()
 
     @classmethod
     def limit(cls, stage: str) -> int:

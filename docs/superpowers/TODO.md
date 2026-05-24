@@ -3,6 +3,7 @@
 **Created:** 2026-05-24
 **Last Updated:** 2026-05-24
 **Sources:** 合并自 specs/2026-05-12、specs/2026-05-20、reviews/2026-05-22、reviews/2026-05-24
+**Last Audit:** 2026-05-24（深度代码探索后标注过时项）
 
 ---
 
@@ -55,20 +56,24 @@
 
 - [x] #6: 硬编码关键词合并 → LLM 动态发现 (Batch 1)
 - [x] #9(§6.9): 域命名 LLM 串行 → asyncio.gather 并行化 (Batch 1)
+- [x] #2: 小样本跳过聚类 → `_SMALL_N_THRESHOLD` 已降至 3 ✅
+- [x] #3: 调用图边折扣因子 → 已实现权重感知 `discount = 1 - 0.15 * ratio` ✅
+- [x] #4: k 值搜索范围 → 已扩展至 `k_min=max(3,n//15)`, `k_max=min(max(k_min+1,n//4),25)` ✅
 
 ### 未修复
 
 | 优先级 | 问题 | 文件 | 说明 |
 |--------|------|------|------|
-| P0 | #1: 嵌入文本信息量不足 | `wiki/domain_semantic_clusterer.py` | 路径保留 3-4 级 + 方法签名 + docstring |
-| P0 | #2: 小样本跳过聚类 | `wiki/domain_semantic_clusterer.py` | 降低 `_SMALL_N_THRESHOLD` 到 3 |
-| P1 | #3: 调用图边折扣因子无权重感知 | `wiki/domain_semantic_clusterer.py` | `discount = 1 - 0.15 * min(w/max_w, 1.0)` |
-| P1 | #4: k 值搜索范围过窄 | `wiki/domain_semantic_clusterer.py` | k_min → `max(3, n//15)`, k_max → `min(n//4, 25)` |
-| P1 | #5: 全局 LLM 审查信息不足 | `wiki/graph_semantic_corrector.py` | top 10 模块 + 路径 + 摘要 |
-| P2 | #8: 嵌入失败 fallback 丢失语义 | `wiki/nodes/graph_domain_decompose.py` | TF-IDF 或名称相似度替代嵌入 |
-| P2 | #10: 域稳定器阈值过高 | `wiki/domain_stabilizer.py` | Jaccard 0.85 → 0.7-0.75 + 编辑距离 |
+| **P0** | #1: 嵌入文本信息量不足 | `wiki/domain_semantic_clusterer.py` | `build_embedding_texts` 读取 `methods` 但 compose 返回 `key_methods`，导致方法签名几乎全部丢失；`docstring` 和 `dependencies`/`callers` 同样未注入 |
+| P1 | #5: 全局 LLM 审查信息不足 | `wiki/graph_semantic_corrector.py` | 已有 top 10 + path + summary，但缺少方法签名和 repo 信息；top-10 按字母排序非代表性排序 |
+| P1 | #3b: `call_graph_discount` 构造参数死代码 | `wiki/domain_semantic_clusterer.py` | `self._discount` 存了但从未被使用，0.15 因子是硬编码 |
+| P2 | #8: 嵌入失败 fallback 丢失语义 | `wiki/nodes/graph_domain_decompose.py` | 三级 fallback 已有（embed→TF-IDF→Louvain），但 TF-IDF 仅用 name+path |
+| P2 | #10: 域稳定器阈值 | `wiki/domain_stabilizer.py` | 当前已为 0.72（非 TODO 所述 0.85），含编辑距离 fallback；可能已合理 |
 | P3 | #7: 前缀正则不鲁棒 | `wiki/nodes/classify.py` | `IOHandler`、`AJAXUtil` 等不匹配 |
-| P3 | #9: 死代码 `correct_module_assignments` | `wiki/graph_semantic_corrector.py` | 生产未调用 |
+
+### 已过时（可移除）
+
+- ~~#9: 死代码 `correct_module_assignments`~~ → 已由 `d92c47b` 删除
 
 ---
 
@@ -76,23 +81,31 @@
 
 > 来源: reviews/2026-05-22 §六
 
+### 已修复
+
+- [x] 图查询串行执行 → `asyncio.gather` 并行化 ✅（`graph_call_query.py:76`）
+- [x] 变长路径笛卡尔爆炸 → `CONTAINS*1..2`（降自 `*1..3`）✅
+- [x] 异常静默吞没 → 返回 `(edges, errors)` 元组 + structured warning ✅
+
+### 未修复
+
 | 优先级 | 问题 | 文件 | 说明 |
 |--------|------|------|------|
-| P1 | 图查询串行执行 | `wiki/graph_call_query.py:41` | 两条独立 Cypher → `asyncio.gather()` |
-| P2 | 变长路径笛卡尔爆炸 | `wiki/graph_call_query.py:10-26` | `CONTAINS*1..3` 双侧遍历考虑降到 `*1..2` |
-| P2 | 异常静默吞没 | `wiki/graph_call_query.py:58-59` | 返回 `(edges, errors)` 元组 |
-| P2 | Healing 二次 LLM 调用 | `wiki/nodes/heal.py:128-139` | TargetedHealer 成功后仍可能触发 enrich |
-| P2 | Token 预算无跨组件协调 | `wiki/token_budget.py` | snippet 预算 3000 对大域不足 |
-| P3 | Python 侧过滤应推入 Cypher | `wiki/graph_call_query.py:53-54` | `valid_modules` 过滤在 WHERE 子句 |
+| P2 | Token 预算无跨组件协调 | `wiki/token_budget.py` | `TokenBudgetResolver` 已有 `claim`/`remaining` 追踪，但 snippet 预算 `min(500+n*100,6000)` 对大域仍可能不足 |
+| P3 | Python 侧过滤部分推入 Cypher | `wiki/graph_call_query.py` | names 已在 WHERE 子句，但 `(repo,name)` 对仍在 Python 侧过滤（Cypher 无法表达复合键成员关系） |
 | P3 | Quality Gate 和 Healing 重复结构检查 | 多文件 | 同一页面最多检查 4 次 |
+
+### 已过时（可移除）
+
+- ~~Healing 二次 LLM 调用~~ → **非问题**：仅在 `CONTEXT_GAP` + 内容 <100 chars 的极端 fallback 下触发 enrich
 
 ### 架构层面
 
-| 问题 | 说明 |
-|------|------|
-| 域分类未利用叶子页面内容 | `classify_domains` 只用 `business_summary`，不用已生成的叶子页面 Markdown |
-| Reassembly 阈值不合理 | merge 0.85 过高建议 0.75，orphan 0.60 偏低建议 0.65 |
-| 信号量跨管线场景 | `PipelineConcurrency.semaphore()` 每次新建，多管线并行时全局限制失效 |
+| 优先级 | 问题 | 说明 |
+|--------|------|------|
+| P1 | 域分类未利用叶子页面内容 | `classify_domains` 只用 `business_summary`，不用已生成的叶子页面 Markdown |
+| P2 | Reassembly 阈值 | merge=0.85 和 orphan=0.60 是可配置的（`core/config.py`），但默认值可能需优化至 0.75/0.65 |
+| P2 | 信号量跨管线场景 | `PipelineConcurrency.semaphore()` 每次调用新建 `asyncio.Semaphore`，多管线并行时全局限制失效 |
 
 ---
 

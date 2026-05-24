@@ -126,6 +126,7 @@ class GraphSemanticCorrector:
         module_summaries: dict[str, str],
         *,
         business_id: str = "",
+        module_details: dict[str, dict[str, Any]] | None = None,
     ) -> tuple[dict[str, list[tuple[str, str]]], dict[str, str]]:
         """One-shot global review: merge overlapping domains, rename, move modules."""
         if self._llm is None or len(domain_mapping) <= 1:
@@ -135,14 +136,21 @@ class GraphSemanticCorrector:
         lines: list[str] = []
         for slug, pairs in sorted(domain_mapping.items(), key=lambda x: -len(x[1])):
             display = domain_display_names.get(slug, slug)
-            top = sorted(pairs, key=lambda p: p[1])[:10]
+            top = sorted(pairs, key=lambda p: -len(module_summaries.get(p[1], "")))[:10]
             lines.append(f"- {slug} ({display}) — {len(pairs)} modules")
             for _repo, mod_name in top:
                 path = module_paths.get(mod_name, "")
                 summary = module_summaries.get(mod_name, "")
                 path_part = f" [path: {_shorten_path(path)}]" if path else ""
                 summary_part = f" -- {summary}" if summary else ""
-                lines.append(f"  - {mod_name}{path_part}{summary_part}")
+                methods_part = ""
+                if module_details:
+                    detail = module_details.get(mod_name)
+                    if isinstance(detail, dict):
+                        km = detail.get("key_methods") or detail.get("methods") or []
+                        if km and isinstance(km, list):
+                            methods_part = f" [methods: {', '.join(str(m) for m in km[:5])}]"
+                lines.append(f"  - {mod_name}{path_part}{summary_part}{methods_part}")
         listing = "\n".join(lines)
 
         prompt = _GLOBAL_REVIEW_PROMPT.format(

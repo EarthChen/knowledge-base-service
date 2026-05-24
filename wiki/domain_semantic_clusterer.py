@@ -53,7 +53,7 @@ class DomainSemanticClusterer:
             summary_data = summaries.get(name)
             if isinstance(summary_data, dict):
                 summary_text = str(summary_data.get("summary_text", ""))
-                methods = summary_data.get("methods", [])
+                methods = summary_data.get("methods") or summary_data.get("key_methods") or []
                 docstring = str(summary_data.get("docstring", ""))
             elif isinstance(summary_data, str):
                 summary_text = summary_data
@@ -73,10 +73,16 @@ class DomainSemanticClusterer:
             if methods and isinstance(methods, list):
                 method_str = ", ".join(str(m) for m in methods[:10])
                 enrichment_parts.append(f"methods: {method_str}")
+            deps = summary_data.get("dependencies", []) if isinstance(summary_data, dict) else []
+            callers_list = summary_data.get("callers", []) if isinstance(summary_data, dict) else []
+            if deps and isinstance(deps, list):
+                enrichment_parts.append(f"depends: {', '.join(str(d) for d in deps[:8])}")
+            if callers_list and isinstance(callers_list, list):
+                enrichment_parts.append(f"callers: {', '.join(str(c) for c in callers_list[:8])}")
 
             # If no enrichment at all, use method names as fallback
             if not enrichment_parts and isinstance(summary_data, dict):
-                fallback_methods = summary_data.get("methods", [])
+                fallback_methods = summary_data.get("methods") or summary_data.get("key_methods") or []
                 if fallback_methods and isinstance(fallback_methods, list):
                     enrichment_parts.append(
                         "methods: " + ", ".join(str(m) for m in fallback_methods[:10])
@@ -112,7 +118,8 @@ class DomainSemanticClusterer:
             if i is not None and j is not None and i != j:
                 # Weight-aware: higher weight → stronger discount (smaller distance)
                 ratio = min(abs(w) / max_w, 1.0)
-                discount = 1.0 - 0.15 * ratio
+                max_discount = 1.0 - self._discount
+                discount = 1.0 - max_discount * ratio
                 dist[i, j] *= discount
                 dist[j, i] *= discount
         return dist

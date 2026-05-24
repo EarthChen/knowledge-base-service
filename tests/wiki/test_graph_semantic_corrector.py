@@ -228,3 +228,62 @@ class TestReviewGlobalConsistency:
         assert "[path:" not in prompt
         # Summary separator " -- " should not appear
         assert " -- " not in prompt
+
+    @pytest.mark.asyncio
+    async def test_review_global_consistency_sorts_by_summary_length(self):
+        """Modules with longer summaries should appear first in the domain listing."""
+        llm = _make_review_llm()
+        corrector = GraphSemanticCorrector(llm)
+
+        # 12 modules — only top 10 included; Z* names would win alphabetically
+        pairs = [("r", f"Mod{i:02d}") for i in range(12)]
+        domain_mapping = {
+            "big-domain": pairs,
+            "other": [("r", "OtherMod")],
+        }
+        domain_display = {"big-domain": "大域", "other": "其他"}
+        module_summaries = {
+            "Mod00": "short",
+            "Mod01": "x" * 100,
+            "Mod02": "medium length summary here",
+        }
+
+        await corrector.review_global_consistency(
+            domain_mapping, domain_display,
+            module_paths={}, module_summaries=module_summaries,
+        )
+
+        prompt = _get_prompt(llm)
+        mod01_pos = prompt.index("Mod01")
+        mod00_pos = prompt.index("Mod00")
+        assert mod01_pos < mod00_pos, "Mod01 (longest summary) should appear before Mod00 (short)"
+
+    @pytest.mark.asyncio
+    async def test_review_global_consistency_includes_key_methods(self):
+        """module_details key_methods should appear in the LLM prompt."""
+        llm = _make_review_llm()
+        corrector = GraphSemanticCorrector(llm)
+
+        domain_mapping = {
+            "auth": [("r", "LoginService")],
+            "billing": [("r", "InvoiceService")],
+        }
+        domain_display = {"auth": "认证", "billing": "计费"}
+        module_summaries = {
+            "LoginService": "Handles user login flow",
+        }
+        module_details = {
+            "LoginService": {
+                "summary_text": "Handles user login flow",
+                "key_methods": ["login", "logout", "refreshToken"],
+            },
+        }
+
+        await corrector.review_global_consistency(
+            domain_mapping, domain_display,
+            module_paths={}, module_summaries=module_summaries,
+            module_details=module_details,
+        )
+
+        prompt = _get_prompt(llm)
+        assert "[methods: login, logout, refreshToken]" in prompt

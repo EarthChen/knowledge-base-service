@@ -1,7 +1,7 @@
 """Tests for DomainSemanticClusterer."""
 
-import pytest
 import numpy as np
+import pytest
 
 from wiki.domain_semantic_clusterer import DomainSemanticClusterer
 
@@ -30,6 +30,20 @@ class TestDistanceMatrix:
         assert dist[0, 1] == pytest.approx(dist[0, 2] * 0.85, abs=0.01)
         # Discount is symmetric
         assert dist[0, 1] == pytest.approx(dist[1, 0], abs=1e-6)
+
+    def test_discount_constructor_param_affects_distance(self):
+        """call_graph_discount constructor param must affect distance matrix, not hardcoded 0.15."""
+        embeddings = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        modules = [("repo", "A"), ("repo", "B"), ("repo", "C")]
+        edges = [(("repo", "A"), ("repo", "B"), 1)]
+        default_clusterer = DomainSemanticClusterer(call_graph_discount=0.85)
+        custom_clusterer = DomainSemanticClusterer(call_graph_discount=0.7)
+        default_dist = default_clusterer._compute_distance_matrix(embeddings, modules, edges)
+        custom_dist = custom_clusterer._compute_distance_matrix(embeddings, modules, edges)
+        # Base distance is 1.0; with max weight ratio=1: default → 0.85, custom → 0.7
+        assert default_dist[0, 1] == pytest.approx(0.85, abs=0.01)
+        assert custom_dist[0, 1] == pytest.approx(0.7, abs=0.01)
+        assert custom_dist[0, 1] < default_dist[0, 1]
 
     def test_weight_aware_discount_high_weight(self):
         """High-weight edge should get stronger discount than low-weight."""
@@ -192,6 +206,38 @@ class TestBuildEmbeddingTexts:
         assert "GuildManager" in texts[0]
         assert "addMember" in texts[0]
         assert "removeMember" in texts[0]
+
+    def test_build_embedding_texts_reads_key_methods(self):
+        """compose_leaf_modules returns key_methods, not methods — both must work."""
+        modules = [("repo", "OrderService")]
+        summaries = {
+            "OrderService": {
+                "summary_text": "订单处理服务",
+                "key_methods": ["createOrder", "cancelOrder", "refundOrder"],
+            }
+        }
+        paths = {"OrderService": "order/service/OrderService.java"}
+        texts = DomainSemanticClusterer.build_embedding_texts(modules, summaries, paths)
+        assert len(texts) == 1
+        assert "createOrder" in texts[0]
+        assert "cancelOrder" in texts[0]
+        assert "refundOrder" in texts[0]
+
+    def test_build_embedding_texts_includes_dependencies_and_callers(self):
+        """dependencies and callers from compose summaries should enrich embedding text."""
+        modules = [("repo", "PaymentGateway")]
+        summaries = {
+            "PaymentGateway": {
+                "summary_text": "支付网关",
+                "dependencies": ["OrderService", "UserService", "ConfigLoader"],
+                "callers": ["CheckoutController", "RefundHandler"],
+            }
+        }
+        paths = {"PaymentGateway": "payment/gateway/PaymentGateway.java"}
+        texts = DomainSemanticClusterer.build_embedding_texts(modules, summaries, paths)
+        assert len(texts) == 1
+        assert "depends: OrderService, UserService, ConfigLoader" in texts[0]
+        assert "callers: CheckoutController, RefundHandler" in texts[0]
 
 
 class TestShortenPath:

@@ -17,8 +17,8 @@ class TestReassemblyConfig:
 
         flags = AppWikiFlags()
         assert flags.domain_reassembly_enabled is True
-        assert flags.reassembly_merge_threshold == 0.85
-        assert flags.reassembly_orphan_threshold == 0.60
+        assert flags.reassembly_merge_threshold == 0.78
+        assert flags.reassembly_orphan_threshold == 0.65
         assert flags.reassembly_max_moves_pct == 0.30
         assert flags.reassembly_respect_user_modified is True
 

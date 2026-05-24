@@ -208,8 +208,8 @@ class AppWikiFlags(BaseModel):
     )
     # Domain reassembly (post-wiki-generation domain structure correction)
     domain_reassembly_enabled: bool = True
-    reassembly_merge_threshold: float = Field(default=0.85, ge=0.5, le=1.0)
-    reassembly_orphan_threshold: float = Field(default=0.60, ge=0.3, le=1.0)
+    reassembly_merge_threshold: float = Field(default=0.78, ge=0.5, le=1.0)
+    reassembly_orphan_threshold: float = Field(default=0.65, ge=0.3, le=1.0)
     reassembly_max_moves_pct: float = Field(default=0.30, ge=0.0, le=1.0)
     reassembly_respect_user_modified: bool = True
     knowledge_injection_enabled: bool = True

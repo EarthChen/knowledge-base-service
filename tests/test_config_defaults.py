@@ -59,3 +59,13 @@ def test_enrichment_strategy_core_only_valid(monkeypatch) -> None:
 
     s = Settings()
     assert s.llm.enrichment_strategy == "core_only"
+
+
+def test_reassembly_threshold_defaults(monkeypatch) -> None:
+    monkeypatch.delenv("WIKI__REASSEMBLY_MERGE_THRESHOLD", raising=False)
+    monkeypatch.delenv("WIKI__REASSEMBLY_ORPHAN_THRESHOLD", raising=False)
+    from core.config import Settings
+
+    s = Settings()
+    assert s.wiki.reassembly_merge_threshold == 0.78
+    assert s.wiki.reassembly_orphan_threshold == 0.65

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -104,6 +104,7 @@ class NavigationContext:
     child_paths: list[str] = field(default_factory=list)
     related_flow_paths: list[str] = field(default_factory=list)
     breadcrumbs: list[tuple[str, str]] = field(default_factory=list)
+    reading_order: int | None = None
 
     def to_api_dict(self) -> dict[str, Any]:
         """JSON-serializable shape for APIs (breadcrumbs as list pairs)."""
@@ -114,6 +115,7 @@ class NavigationContext:
             "child_paths": list(self.child_paths),
             "related_flow_paths": list(self.related_flow_paths),
             "breadcrumbs": [[t, p] for t, p in self.breadcrumbs],
+            "reading_order": self.reading_order,
         }
 
     @classmethod
@@ -123,6 +125,15 @@ class NavigationContext:
         for item in crumbs_raw:
             if isinstance(item, (list, tuple)) and len(item) >= 2:
                 breadcrumbs.append((str(item[0]), str(item[1])))
+        raw_order = data.get("reading_order")
+        reading_order: int | None
+        if raw_order is None:
+            reading_order = None
+        else:
+            try:
+                reading_order = int(raw_order)
+            except (TypeError, ValueError):
+                reading_order = None
         return cls(
             parent_path=data.get("parent_path"),
             parent_title=data.get("parent_title"),
@@ -130,6 +141,7 @@ class NavigationContext:
             child_paths=[str(x) for x in (data.get("child_paths") or [])],
             related_flow_paths=[str(x) for x in (data.get("related_flow_paths") or [])],
             breadcrumbs=breadcrumbs,
+            reading_order=reading_order,
         )
 
 
@@ -277,7 +289,7 @@ class WikiSpaceNode:
 
     def __post_init__(self) -> None:
         if not self.created_at:
-            self.created_at = datetime.now(timezone.utc).isoformat()
+            self.created_at = datetime.now(UTC).isoformat()
         if not self.updated_at:
             self.updated_at = self.created_at
 

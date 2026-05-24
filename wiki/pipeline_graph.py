@@ -14,10 +14,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph
 
 from core.log import get_logger
-from wiki.agent_config import _get_env
 from wiki.citation_verifier import verify_citations
 from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.models import ImportanceTier, WikiPage
+from wiki.nodes.classify_architecture import classify_architecture_layers_node
 from wiki.nodes.graph_domain_decompose import graph_driven_domain_decompose_node
 from wiki.nodes.reassemble_domains import reassemble_domains_node
 from wiki.pipeline_nodes import (
@@ -29,6 +29,7 @@ from wiki.pipeline_nodes import (
     create_links_node,
     detect_reorg_node,
     generate_titles_node,
+    generate_tour_node,
     graph_decompose_node,
     heal_pages_node,
     persist_classification_node,
@@ -45,6 +46,7 @@ HEAL_LOOP_MAX_TOTAL_ATTEMPTS = 10
 # Node name → (API phase label, baseline progress 0..1 for task status / UI)
 _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "classify_entity_roles": ("classify_entities", 0.0),
+    "classify_architecture_layers": ("classify_architecture_layers", 0.01),
     "detect_reorg": ("detect_reorg", 0.02),
     "graph_decompose": ("graph_decompose", 0.05),
     "assign_canonical_keys": ("assign_keys", 0.07),
@@ -60,6 +62,7 @@ _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "quality_gate": ("quality_gate", 0.70),
     "heal_pages": ("heal_pages", 0.80),
     "create_links": ("linking", 0.90),
+    "generate_tour": ("generate_tour", 0.92),
     "finalize": ("finalize", 0.95),
 }
 
@@ -358,6 +361,10 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph = StateGraph(WikiPipelineState)
 
     graph.add_node("classify_entity_roles", _with_progress("classify_entity_roles", classify_entities_node))
+    graph.add_node(
+        "classify_architecture_layers",
+        _with_progress("classify_architecture_layers", classify_architecture_layers_node),
+    )
     graph.add_node("detect_reorg", _with_progress("detect_reorg", detect_reorg_node))
     graph.add_node("graph_decompose", _with_progress("graph_decompose", graph_decompose_node))
     graph.add_node("assign_canonical_keys", _with_progress("assign_canonical_keys", assign_canonical_keys_node))
@@ -388,9 +395,11 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("quality_gate", _with_progress("quality_gate", quality_gate_node))
     graph.add_node("heal_pages", _with_progress("heal_pages", heal_pages_node))
     graph.add_node("create_links", _with_progress("create_links", create_links_node))
+    graph.add_node("generate_tour", _with_progress("generate_tour", generate_tour_node))
     graph.add_node("finalize", _with_progress("finalize", finalize_node))
 
-    graph.add_edge("classify_entity_roles", "detect_reorg")
+    graph.add_edge("classify_entity_roles", "classify_architecture_layers")
+    graph.add_edge("classify_architecture_layers", "detect_reorg")
     graph.add_conditional_edges(
         "detect_reorg",
         route_by_reorg_type,
@@ -409,7 +418,8 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
         {"heal_pages": "heal_pages", "create_links": "create_links"},
     )
     graph.add_edge("heal_pages", "quality_gate")
-    graph.add_edge("create_links", "finalize")
+    graph.add_edge("create_links", "generate_tour")
+    graph.add_edge("generate_tour", "finalize")
 
     graph.set_entry_point("classify_entity_roles")
     graph.set_finish_point("finalize")

@@ -25,6 +25,7 @@ from wiki.nodes.classify import (
     detect_reorg_node,
     set_review_status_node,
 )
+from wiki.nodes.classify_architecture import classify_architecture_layers_node
 from wiki.nodes.compose import (
     _compose_from_topic_structure,
     _compose_single_leaf_domain,
@@ -45,6 +46,7 @@ from wiki.nodes.heal import heal_pages_node
 from wiki.nodes.links import create_links_node
 from wiki.nodes.persist_classification import persist_classification_node
 from wiki.nodes.reassemble_domains import reassemble_domains_node
+from wiki.nodes.tour import generate_tour_node  # noqa: F401
 from wiki.nodes.utils import (
     _COMPOSE_CONCURRENCY,
     _MAX_LEAF_MODULES,
@@ -94,6 +96,7 @@ __all__ = [
     "_normalize_pages_map",
     "_topic_to_domain_dict",
     "assign_canonical_keys_node",
+    "classify_architecture_layers_node",
     "classify_domains_node",
     "classify_entities_node",
     "compose_bottomup_node",
@@ -105,6 +108,7 @@ __all__ = [
     "decompose_hierarchy_node",
     "detect_reorg_node",
     "generate_titles_node",
+    "generate_tour_node",
     "graph_decompose_node",
     "graph_driven_domain_decompose_node",
     "has_parent_domains",

@@ -105,5 +105,12 @@ class WikiPipelineState(TypedDict):
     # --- Domain display names (set by classify_domains, consumed by persist_classification + service) ---
     domain_display_names: NotRequired[dict[str, str]]  # slug → localized display name
 
+    # Module-level architecture layer classification (classify_architecture_layers node)
+    architecture_layers: NotRequired[dict[str, dict[str, Any]]]
+
     # --- Structural check cache (avoids redundant quality_evaluator calls) ---
     _structural_check_cache: NotRequired[dict[str, dict[str, Any]]]  # path -> {score, content_hash}
+
+    # --- Flow composition + guided tour (Batch 3) ---
+    flow_pages: NotRequired[list[dict[str, Any]]]
+    guided_tour: NotRequired[dict[str, Any]]

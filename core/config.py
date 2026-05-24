@@ -198,6 +198,14 @@ class AppWikiFlags(BaseModel):
     cross_reference_min_confidence: float = 0.5
     cross_repo_domain_enabled: bool = False
     domain_classification_cache_enabled: bool = True
+    architecture_layer_patterns: dict[str, list[str]] = Field(
+        default={
+            "api": ["controller/", "handler/", "routes/", "api/", "resource/", "endpoint/"],
+            "service": ["service/", "usecase/", "business/", "manager/", "facade/"],
+            "data": ["repository/", "dao/", "store/", "mapper/", "entity/", "model/"],
+            "infrastructure": ["config/", "util/", "helper/", "common/", "middleware/", "infra/"],
+        }
+    )
     # Domain reassembly (post-wiki-generation domain structure correction)
     domain_reassembly_enabled: bool = True
     reassembly_merge_threshold: float = Field(default=0.85, ge=0.5, le=1.0)
@@ -276,6 +284,10 @@ class AppWikiFlags(BaseModel):
 
     #: Max concurrent repo-level wiki generation (only used when skip_repo_pages=False).
     business_repo_concurrency: int = Field(default=3, ge=1)
+
+    flow_compose_enabled: bool = Field(default=True, description="Enable business flow agent composition")
+    flow_compose_concurrency: int = Field(default=3, description="FlowDocAgent concurrency per pipeline run")
+    guided_tour_enabled: bool = Field(default=True, description="Enable guided tour generation in pipeline")
 
     # Phase 2 Task 7: hierarchical compose — business-flow aggregation & delegation
     business_flow_aggregation_enabled: bool = Field(default=True)

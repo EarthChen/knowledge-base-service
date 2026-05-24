@@ -61,6 +61,7 @@ class NodeLabel(StrEnum):
     WIKI_SECTION = "WikiSection"
     WIKI_QA = "WikiQA"
     CHUNK = "Chunk"
+    FLOW_STEP = "FlowStep"
 
 
 class EdgeType(StrEnum):
@@ -86,6 +87,8 @@ class EdgeType(StrEnum):
     HAS_CHILD = "HAS_CHILD"
     WIKI_REFERENCES = "WIKI_REFERENCES"
     SOURCE_ENTITY = "SOURCE_ENTITY"
+    CONTAINS_FLOW = "CONTAINS_FLOW"
+    FLOW_STEP = "FLOW_STEP"
 
 
 @dataclass

@@ -45,6 +45,32 @@ def _build_page_dependency_graph(pages: list[dict[str, Any]]) -> dict[str, list[
     return edges
 
 
+def _reading_order_by_path(tour: GuidedTour) -> dict[str, int]:
+    """Map page path to tour reading order."""
+    order_by_path: dict[str, int] = {}
+    for step in tour.steps:
+        for tour_page in step.pages:
+            order_by_path[tour_page.path] = tour_page.reading_order
+    return order_by_path
+
+
+def _inject_reading_order(
+    pages: list[dict[str, Any]],
+    tour: GuidedTour,
+) -> list[dict[str, Any]]:
+    """Write tour reading_order into each matching page's navigation context."""
+    order_by_path = _reading_order_by_path(tour)
+    updated: list[dict[str, Any]] = []
+    for page in pages:
+        path = page.get("path", "")
+        if path not in order_by_path:
+            continue
+        nav = dict(page.get("navigation") or {})
+        nav["reading_order"] = order_by_path[path]
+        updated.append({**page, "navigation": nav})
+    return updated
+
+
 async def generate_tour_node(state: dict[str, Any]) -> dict[str, Any]:
     """Generate guided tour from page dependencies + architecture layers."""
     if not _is_tour_enabled():
@@ -67,6 +93,7 @@ async def generate_tour_node(state: dict[str, Any]) -> dict[str, Any]:
 
     page_layers = assign_page_layers(pages, architecture_layers, entity_to_module)
     tour = build_tour(topo_order, page_layers, pages)
+    updated_pages = _inject_reading_order(pages, tour)
 
     log.info("tour_generated", total_pages=tour.total_pages, steps=len(tour.steps))
-    return {"guided_tour": tour.to_dict()}
+    return {"guided_tour": tour.to_dict(), "pages": updated_pages}

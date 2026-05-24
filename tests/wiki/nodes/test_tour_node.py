@@ -57,3 +57,33 @@ class TestGenerateTourNode:
         with patch("wiki.nodes.tour._is_tour_enabled", return_value=False):
             result = await generate_tour_node(state)
         assert result["guided_tour"]["total_pages"] == 0
+
+    @pytest.mark.asyncio
+    async def test_populates_reading_order_in_page_navigation(self):
+        state = {
+            "pages": [
+                {
+                    "path": "owner.md",
+                    "title": "Owner",
+                    "covered_entity_uids": ["e1"],
+                    "navigation": {"parent_path": None, "sibling_paths": []},
+                },
+                {
+                    "path": "dependent.md",
+                    "title": "Dependent",
+                    "covered_entity_uids": ["e1", "e2"],
+                    "navigation": {"parent_path": None, "sibling_paths": []},
+                },
+            ],
+            "architecture_layers": {
+                "OwnerMod": {"layer": "api", "confidence": 0.9, "entity_uids": ["e1"]},
+                "DepMod": {"layer": "service", "confidence": 0.8, "entity_uids": ["e2"]},
+            },
+            "domain_tree": [],
+        }
+        result = await generate_tour_node(state)
+
+        pages_by_path = {p["path"]: p for p in result["pages"]}
+        assert pages_by_path["owner.md"]["navigation"]["reading_order"] == 1
+        assert pages_by_path["dependent.md"]["navigation"]["reading_order"] == 2
+        assert pages_by_path["owner.md"]["navigation"]["sibling_paths"] == []

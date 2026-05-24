@@ -7,14 +7,9 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from core.log import get_logger
-from wiki.context_gap import cleanup_context_gaps
-from wiki.domain_complexity import DomainComplexityScorer
 from wiki.models import ImportanceTier, WikiPage
 from wiki.nodes.utils import _find_domain_in_tree
-from wiki.page_agent import WikiPageAgent
-from wiki.prompts import SYSTEM_WIKI_HEAL
 from wiki.quality_evaluator import WikiQualityEvaluator
-from wiki.reasoning import GuidedPromptEnhancer, ReasoningLevel, TaskType, select_reasoning_level
 
 log = get_logger(__name__)
 
@@ -64,6 +59,21 @@ def _page_passes_post_heal(
     return l1.overall >= threshold
 
 
+def _make_strategy_chain():
+    from wiki.heal_strategy import HealStrategyChain
+
+    return HealStrategyChain()
+
+
+def _build_domain_context(state: dict[str, Any], page_dict: dict[str, Any]) -> str:
+    domain_name = page_dict.get("domain", "unknown")
+    dmatch = _find_domain_in_tree(state.get("domain_tree", []) or [], domain_name)
+    if dmatch is not None:
+        modules = dmatch.get("modules", [])
+        return f"Domain: {domain_name}, Modules: {', '.join(str(m) for m in modules[:10])}"
+    return ""
+
+
 async def _heal_one_page(
     *,
     page_path: str,
@@ -76,102 +86,44 @@ async def _heal_one_page(
     graph_store: Any | None = None,
 ) -> bool:
     import wiki.pipeline_nodes as pn
+    from wiki.heal_strategy import HealContext
 
     if not _update_heal_hint(page_path, page_dict, evaluator, heal_hints):
         return False
 
     page = WikiPage.from_dict(page_dict)
-    hint = heal_hints[page_path]
-
     heal_budget = pn.TokenBudgetResolver().budget("topic_page_generate")
-    content_char_limit = heal_budget * 3
-    domain_name = page_dict.get("domain", "unknown")
-    domain_context = ""
-    dmatch = _find_domain_in_tree(state.get("domain_tree", []) or [], domain_name)
-    if dmatch is not None:
-        modules = dmatch.get("modules", [])
-        domain_context = (
-            f"Domain: {domain_name}, Modules: {', '.join(str(m) for m in modules[:10])}"
-        )
 
-    heal_prompt = (
-        f"Improve this wiki page for domain '{domain_name}'.\n\n"
-        f"Domain context: {domain_context}\n\n"
-        f"Quality issues found:{hint}\n\n"
-        f"Current content:\n{page_dict.get('content', '')[:content_char_limit]}\n\n"
-        "Generate an improved version with these required sections:\n"
-        "1. ## 业务概述 (business overview)\n"
-        "2. ## 核心业务流程 (include Mermaid sequenceDiagram or flowchart)\n"
-        "3. ## 核心服务详情 (detailed service descriptions)\n"
-        "4. ## 数据模型 (data models table if applicable)\n"
-        "5. ## 关联主题 ([[wiki-link]] to related domains)\n\n"
-        "Requirements:\n"
-        "- Include at least one Mermaid diagram\n"
-        "- Use Chinese for business descriptions\n"
-        "- Focus on business logic, not framework details\n"
+    ctx = HealContext(
+        page=page,
+        page_dict=page_dict,
+        hint=heal_hints[page_path],
+        domain_name=page_dict.get("domain", "unknown"),
+        domain_context=_build_domain_context(state, page_dict),
+        llm=llm,
+        graph_store=graph_store,
+        state=state,
+        content_char_limit=heal_budget * 3,
+        heal_budget=heal_budget,
     )
-    try:
-        from wiki.targeted_healer import TargetedHealer
 
-        healer = TargetedHealer()
-        targeted_result = await healer.heal(
-            page,
-            hint,
-            llm,
-            domain_context,
-            content_char_limit=content_char_limit,
-            max_tokens=heal_budget,
-        )
-        if targeted_result:
-            raw_content = targeted_result.content or ""
-            cleaned = cleanup_context_gaps(raw_content)
-            page_dict["content"] = cleaned
-            raw_has_context_gap = "<!-- CONTEXT_GAP" in raw_content
-            too_short_after_clean = len(cleaned.strip()) < 100
-            if graph_store is not None and (
-                raw_has_context_gap and too_short_after_clean
-            ):
-                agent = WikiPageAgent(llm, graph_store)
-                new_content = await agent.enrich(
-                    page_dict["content"],
-                    domain_name=domain_name,
-                    existing_pages=state.get("pages"),
-                )
-                page_dict["content"] = cleanup_context_gaps(new_content)
-            log.info("targeted_heal_success", page=page_path)
-            return True
-        heal_scorer = DomainComplexityScorer()
-        dmods = list(dmatch.get("modules", [])) if isinstance(dmatch, dict) else []
-        heal_domain = {
-            "name": domain_name,
-            "biz_entities": [{"name": str(m), "methods": [], "calls": []} for m in dmods[:80]],
-            "data_models": [],
-        }
-        heal_metrics = heal_scorer.score(heal_domain)
-        heal_level = select_reasoning_level(TaskType.HEAL, heal_metrics.complexity)
-        fallback_prompt = heal_prompt
-        if heal_level == ReasoningLevel.GUIDED:
-            fallback_prompt = GuidedPromptEnhancer().enhance_heal_prompt(heal_prompt)
-        if graph_store is not None:
-            agent = WikiPageAgent(llm, graph_store)
-            raw_for_enrich = page_dict.get("content", "")
-            new_content = await agent.enrich(
-                raw_for_enrich,
-                domain_name=domain_name,
-                existing_pages=state.get("pages"),
-            )
-        else:
-            new_content = await llm.generate(
-                fallback_prompt,
-                system=SYSTEM_WIKI_HEAL,
-                max_tokens=heal_budget,
-            )
-        page_dict["content"] = cleanup_context_gaps(new_content)
-        log.info("page_healed", page=page_path, attempt=heal_attempts[page_path])
-        return True
+    chain = _make_strategy_chain()
+    try:
+        result = await chain.execute(ctx)
     except Exception:
         log.warning("heal_page_regen_failed", page=page_path, exc_info=True)
         return False
+
+    if result:
+        page_dict["content"] = result.content
+        log.info(
+            "page_healed",
+            page=page_path,
+            strategy=result.strategy_name,
+            attempt=heal_attempts.get(page_path, 0),
+        )
+        return True
+    return False
 
 
 async def heal_pages_node(

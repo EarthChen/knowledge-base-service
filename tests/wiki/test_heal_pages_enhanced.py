@@ -36,16 +36,16 @@ async def test_heal_uses_agent_enrich_when_graph_store_available():
 
     config = {"configurable": {"llm": mock_llm, "graph_store": mock_graph}}
 
-    with patch("wiki.nodes.heal.WikiPageAgent") as MockAgent:
+    with patch("wiki.heal_strategy._create_page_agent") as mock_create:
         mock_agent_instance = AsyncMock()
         mock_agent_instance.enrich = AsyncMock(return_value="# Test\n\n## 概述\n\nEnriched content with graph context.\n\n## 核心业务流程\n\nDetailed flow.")
-        MockAgent.return_value = mock_agent_instance
+        mock_create.return_value = mock_agent_instance
 
         result = await heal_pages_node(state, config)
 
-    MockAgent.assert_called_once()
-    call_kwargs = MockAgent.call_args
-    assert call_kwargs[1].get("graph_store") == mock_graph or (len(call_kwargs[0]) > 1 and call_kwargs[0][1] == mock_graph)
+    mock_create.assert_called_once()
+    call_args = mock_create.call_args[0]
+    assert len(call_args) >= 2 and call_args[1] == mock_graph
 
 
 @pytest.mark.asyncio
@@ -87,7 +87,7 @@ async def test_heal_calls_enrich_after_targeted_when_context_gaps_remain():
         mock_healer.heal = AsyncMock(return_value=patched_page)
         MockHealer.return_value = mock_healer
 
-        with patch("wiki.nodes.heal.WikiPageAgent") as MockAgent:
+        with patch("wiki.heal_strategy._create_page_agent") as mock_create:
             mock_agent_instance = AsyncMock()
             mock_agent_instance.enrich = AsyncMock(
                 return_value=still_gappy.replace(
@@ -95,7 +95,7 @@ async def test_heal_calls_enrich_after_targeted_when_context_gaps_remain():
                     "Filled by graph enrich.",
                 )
             )
-            MockAgent.return_value = mock_agent_instance
+            mock_create.return_value = mock_agent_instance
 
             await heal_pages_node(state, config)
 
@@ -145,10 +145,10 @@ async def test_enrich_skipped_when_content_is_short_but_no_context_gap():
         mock_healer.heal = AsyncMock(return_value=patched_page)
         MockHealer.return_value = mock_healer
 
-        with patch("wiki.nodes.heal.WikiPageAgent") as MockAgent:
+        with patch("wiki.heal_strategy._create_page_agent") as mock_create:
             mock_agent_instance = AsyncMock()
             mock_agent_instance.enrich = AsyncMock(return_value="enriched")
-            MockAgent.return_value = mock_agent_instance
+            mock_create.return_value = mock_agent_instance
 
             await heal_pages_node(state, config)
 
@@ -199,10 +199,10 @@ async def test_enrich_fires_when_both_short_and_context_gap():
         mock_healer.heal = AsyncMock(return_value=patched_page)
         MockHealer.return_value = mock_healer
 
-        with patch("wiki.nodes.heal.WikiPageAgent") as MockAgent:
+        with patch("wiki.heal_strategy._create_page_agent") as mock_create:
             mock_agent_instance = AsyncMock()
             mock_agent_instance.enrich = AsyncMock(return_value="enriched")
-            MockAgent.return_value = mock_agent_instance
+            mock_create.return_value = mock_agent_instance
 
             await heal_pages_node(state, config)
 
@@ -249,10 +249,10 @@ async def test_enrich_fires_when_context_gap_and_very_short():
         mock_healer.heal = AsyncMock(return_value=patched_page)
         MockHealer.return_value = mock_healer
 
-        with patch("wiki.nodes.heal.WikiPageAgent") as MockAgent:
+        with patch("wiki.heal_strategy._create_page_agent") as mock_create:
             mock_agent_instance = AsyncMock()
             mock_agent_instance.enrich = AsyncMock(return_value="enriched result")
-            MockAgent.return_value = mock_agent_instance
+            mock_create.return_value = mock_agent_instance
 
             await heal_pages_node(state, config)
 

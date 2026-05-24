@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 from wiki.flow_baseline import (
     EntryPointInfo,
     FlowBaseline,
+    _classify_entry_type,
     extract_flow_baseline,
     format_flow_baseline_for_prompt,
 )
@@ -18,7 +19,7 @@ class TestExtractFlowBaseline:
         mock_result = MagicMock()
         mock_result.data = [
             {"name": "createOrder", "module": "OrderController",
-             "file_path": "src/order/controller.py", "annotations": "RequestMapping,PostMapping"},
+             "file_path": "src/order/controller.py", "annotations": ["RequestMapping", "PostMapping"]},
         ]
         mock_graph.execute_query.return_value = mock_result
 
@@ -45,6 +46,21 @@ class TestExtractFlowBaseline:
         baseline = await extract_flow_baseline(mock_graph, "broken", ["Mod"])
         assert baseline.entry_points == []
         assert baseline.call_chains == []
+
+
+class TestClassifyEntryType:
+    def test_list_annotations(self):
+        assert _classify_entry_type(["RequestMapping", "PostMapping"]) == "http"
+
+    def test_string_annotations(self):
+        assert _classify_entry_type("RequestMapping,PostMapping") == "http"
+
+    def test_kafka_listener_list(self):
+        assert _classify_entry_type(["KafkaListener"]) == "event"
+
+    def test_empty_annotations(self):
+        assert _classify_entry_type(None) == "main"
+        assert _classify_entry_type([]) == "main"
 
 
 class TestFormatFlowBaseline:

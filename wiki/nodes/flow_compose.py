@@ -182,3 +182,14 @@ async def compose_flow_agents_node(
 
     log.info("flow_compose_done", total_flow_pages=len(all_flow_pages))
     return {"flow_pages": all_flow_pages}
+
+
+async def merge_flow_pages_node(
+    state: dict[str, Any], config: RunnableConfig | None = None
+) -> dict[str, Any]:
+    """Merge flow_pages into pages so quality_gate and persistence see them."""
+    flow_pages = state.get("flow_pages") or []
+    if not flow_pages:
+        return {}
+    log.info("merge_flow_pages", count=len(flow_pages))
+    return {"pages": flow_pages}

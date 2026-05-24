@@ -25,6 +25,7 @@ from wiki.pipeline_nodes import (
     classify_entities_node,
     compose_domain_agents_node,
     compose_flow_agents_node,
+    merge_flow_pages_node,
     compose_leaf_modules_node,
     compose_parent_pages_node,
     create_links_node,
@@ -61,6 +62,7 @@ _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "compose_parent_pages": ("compose_parent_pages", 0.60),
     "reassemble_domains": ("reassemble_domains", 0.65),
     "compose_flow_agents": ("compose_flow_agents", 0.67),
+    "merge_flow_pages": ("merge_flow_pages", 0.68),
     "quality_gate": ("quality_gate", 0.70),
     "heal_pages": ("heal_pages", 0.80),
     "create_links": ("linking", 0.90),
@@ -397,7 +399,12 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
         _with_progress("compose_flow_agents", compose_flow_agents_node),
     )
     graph.add_edge("reassemble_domains", "compose_flow_agents")
-    graph.add_edge("compose_flow_agents", "quality_gate")
+    graph.add_node(
+        "merge_flow_pages",
+        _with_progress("merge_flow_pages", merge_flow_pages_node),
+    )
+    graph.add_edge("compose_flow_agents", "merge_flow_pages")
+    graph.add_edge("merge_flow_pages", "quality_gate")
 
     graph.add_node("quality_gate", _with_progress("quality_gate", quality_gate_node))
     graph.add_node("heal_pages", _with_progress("heal_pages", heal_pages_node))

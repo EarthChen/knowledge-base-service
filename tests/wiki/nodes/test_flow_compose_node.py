@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from wiki.nodes.flow_compose import compose_flow_agents_node
+from wiki.nodes.flow_compose import compose_flow_agents_node, merge_flow_pages_node
 
 
 class TestComposeFlowAgentsNode:
@@ -61,3 +61,17 @@ class TestComposeFlowAgentsNode:
                 state, config={"configurable": {"llm": mock_llm}}
             )
         assert result["flow_pages"] == []
+
+
+class TestMergeFlowPagesNode:
+    @pytest.mark.asyncio
+    async def test_noop_when_empty(self):
+        state = {"pages": [{"path": "a.md"}], "flow_pages": []}
+        assert await merge_flow_pages_node(state) == {}
+
+    @pytest.mark.asyncio
+    async def test_merges_into_pages(self):
+        flow_page = {"path": "d1/business-flows.md", "page_type": "business_flow", "content": "# Flow"}
+        state = {"pages": [{"path": "a.md"}], "flow_pages": [flow_page]}
+        result = await merge_flow_pages_node(state)
+        assert result == {"pages": [flow_page]}

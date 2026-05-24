@@ -12,17 +12,25 @@ ENTRY_POINT_CY = """
 MATCH (m:Module)-[:CONTAINS]->(f:Function)
 WHERE m.name IN $modules
 AND (
-    f.annotations CONTAINS 'RequestMapping'
-    OR f.annotations CONTAINS 'PostMapping'
-    OR f.annotations CONTAINS 'GetMapping'
-    OR f.annotations CONTAINS 'PutMapping'
-    OR f.annotations CONTAINS 'DeleteMapping'
-    OR f.annotations CONTAINS 'app.route'
-    OR f.annotations CONTAINS 'router.'
-    OR f.annotations CONTAINS 'KafkaListener'
-    OR f.annotations CONTAINS 'EventListener'
-    OR f.annotations CONTAINS 'Scheduled'
-    OR f.annotations CONTAINS 'GrpcService'
+    ANY(a IN coalesce(f.annotations, []) WHERE
+        a CONTAINS 'RequestMapping'
+        OR a CONTAINS 'PostMapping'
+        OR a CONTAINS 'GetMapping'
+        OR a CONTAINS 'PutMapping'
+        OR a CONTAINS 'DeleteMapping'
+        OR a CONTAINS 'PatchMapping'
+        OR a CONTAINS 'app.route'
+        OR a CONTAINS 'router.'
+        OR a CONTAINS 'KafkaListener'
+        OR a CONTAINS 'KafkaHandler'
+        OR a CONTAINS 'EventListener'
+        OR a CONTAINS 'Scheduled'
+        OR a CONTAINS 'GrpcService'
+    )
+    OR 'http_endpoint' IN coalesce(f.semantic_roles, [])
+    OR 'message_listener' IN coalesce(f.semantic_roles, [])
+    OR 'scheduled_task' IN coalesce(f.semantic_roles, [])
+    OR 'rpc_provider' IN coalesce(f.semantic_roles, [])
     OR f.name = 'main'
 )
 RETURN f.name AS name, m.name AS module, f.file_path AS file_path, f.annotations AS annotations
@@ -54,8 +62,13 @@ class FlowBaseline:
     cross_domain_calls: list[tuple[str, str]] = field(default_factory=list)
 
 
-def _classify_entry_type(annotations: str) -> str:
-    ann = (annotations or "").lower()
+def _classify_entry_type(annotations: str | list[str] | None) -> str:
+    if annotations is None:
+        ann = ""
+    elif isinstance(annotations, list):
+        ann = " ".join(str(a) for a in annotations).lower()
+    else:
+        ann = str(annotations).lower()
     http_keys = (
         "requestmapping", "postmapping", "getmapping", "putmapping",
         "deletemapping", "app.route", "router.",
@@ -89,7 +102,7 @@ async def extract_flow_baseline(
             ep = EntryPointInfo(
                 function_name=str(row.get("name", "")),
                 module_name=str(row.get("module", "")),
-                entry_type=_classify_entry_type(str(row.get("annotations", ""))),
+                entry_type=_classify_entry_type(row.get("annotations")),
                 file_path=str(row.get("file_path", "")),
             )
             entry_points.append(ep)

@@ -14,17 +14,6 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Requ
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.exceptions import KbNotFound, KbServiceUnavailable
-from core.auth import Role, require_role
-from services.git_manager import normalize_repo_name
-from store.schema import EdgeType
-from store.wiki_store import WikiStore
-from wiki.coverage_analyzer import WikiCoverageAnalyzer
-from wiki.models import ImportanceTier, PageType, WikiPage, WikiPageMetadata
-from wiki.quality_evaluator import WikiQualityEvaluator
-from wiki.quality_score import WikiQualityScorer
-from wiki.persistence import WikiPersistence
-from wiki.service import WikiRepoNotFoundError, WikiService
-from wiki.search import SearchResponse
 from api.models.wiki_entity import RelatedEntity, WikiPageEntitiesResponse
 from api.models.wiki_models import (
     AnalyzeImpactBody,
@@ -33,8 +22,8 @@ from api.models.wiki_models import (
     WikiPageContentBody,
     WikiSearchBody,
 )
-from api.routes.kb_routers import editor_router
 from api.routes.kb_dependencies import get_effective_business_id
+from api.routes.kb_routers import editor_router
 from api.routes.wiki_shared import (
     _GLOBAL_SEARCH_CONCURRENCY,
     _GLOBAL_SEARCH_MAX_REPOS,
@@ -49,8 +38,21 @@ from api.routes.wiki_shared import (
     get_wiki_store_dep,
     log,
 )
+from core.auth import Role, require_role
+from services.git_manager import normalize_repo_name
+from store.schema import EdgeType
+from store.wiki_store import WikiStore
+from wiki.coverage_analyzer import WikiCoverageAnalyzer
 from wiki.editing_store import WikiEditingStore
-from wiki.models import navigation_context_api_from_stored_json
+from wiki.models import ImportanceTier, PageType, WikiPage, WikiPageMetadata, navigation_context_api_from_stored_json
+from wiki.nodes.tour import _build_page_dependency_graph
+from wiki.persistence import WikiPersistence
+from wiki.quality_evaluator import WikiQualityEvaluator
+from wiki.quality_score import WikiQualityScorer
+from wiki.search import SearchResponse
+from wiki.service import WikiRepoNotFoundError, WikiService
+from wiki.topo_sort import kahn_topological_order
+from wiki.tour import GuidedTour, assign_page_layers, build_tour
 
 _SLUG_RE = _re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-]{0,99}$")
 
@@ -594,6 +596,86 @@ async def wiki_business_flows(
             }
         )
     return {"nodes": nodes, "edges": []}
+
+
+async def _compute_tour_from_graph(raw_store: Any, business_id: str) -> dict[str, Any]:
+    """Build guided tour from persisted WikiPage + Module architecture layer data."""
+    pages_q = (
+        "MATCH (ws:WikiSpace {business_id: $business_id})-[:HAS_CHILD*1..10]->(wp:WikiPage) "
+        "OPTIONAL MATCH (wp)-[:SOURCE_ENTITY]->(e) "
+        "WITH wp.path AS path, wp.title AS title, collect(DISTINCT e.uid) AS entity_uids "
+        "WHERE path IS NOT NULL AND path <> '' "
+        "RETURN path, title, [u IN entity_uids WHERE u IS NOT NULL AND u <> ''] AS entity_uids "
+        "ORDER BY path"
+    )
+    pages_result = await raw_store.execute_query(pages_q, {"business_id": business_id})
+    page_rows = getattr(pages_result, "data", None) or []
+
+    pages: list[dict[str, Any]] = []
+    for row in page_rows:
+        if not isinstance(row, dict):
+            continue
+        path = str(row.get("path") or "").strip()
+        if not path:
+            continue
+        raw_uids = row.get("entity_uids") or []
+        entity_uids = [str(u).strip() for u in raw_uids if u and str(u).strip()]
+        pages.append({
+            "path": path,
+            "title": str(row.get("title") or path),
+            "covered_entity_uids": entity_uids,
+        })
+
+    if not pages:
+        return GuidedTour(total_pages=0).to_dict()
+
+    layers_q = (
+        "MATCH (m:Module) "
+        "WHERE m.wiki_architecture_layer IS NOT NULL AND m.name IS NOT NULL "
+        "OPTIONAL MATCH (m)-[:CONTAINS*1..3]->(e) "
+        "WHERE e.uid IS NOT NULL "
+        "RETURN m.name AS name, m.uid AS uid, m.wiki_architecture_layer AS layer, "
+        "coalesce(m.wiki_architecture_confidence, 0.0) AS confidence, "
+        "collect(DISTINCT e.uid) AS entity_uids"
+    )
+    layers_result = await raw_store.execute_query(layers_q, {})
+    layer_rows = getattr(layers_result, "data", None) or []
+
+    architecture_layers: dict[str, dict[str, Any]] = {}
+    entity_to_module: dict[str, str] = {}
+    for row in layer_rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        mod_uid = str(row.get("uid") or "").strip()
+        raw_entity_uids = row.get("entity_uids") or []
+        entity_uids = [str(u).strip() for u in raw_entity_uids if u and str(u).strip()]
+        if mod_uid:
+            entity_uids = list(dict.fromkeys([mod_uid, *entity_uids]))
+        architecture_layers[name] = {
+            "layer": str(row.get("layer") or "unknown"),
+            "confidence": float(row.get("confidence") or 0.0),
+            "entity_uids": entity_uids,
+        }
+        for uid in entity_uids:
+            entity_to_module[uid] = name
+
+    page_deps = _build_page_dependency_graph(pages)
+    topo_order = kahn_topological_order(page_deps)
+    page_layers = assign_page_layers(pages, architecture_layers, entity_to_module)
+    return build_tour(topo_order, page_layers, pages).to_dict()
+
+
+@router.get("/tour", response_model=None)
+async def wiki_guided_tour(
+    request: Request,
+    business_id: str = Query(..., min_length=1),
+) -> dict[str, Any]:
+    """Return guided tour with architecture-layer-grouped reading order."""
+    raw_store: Any = await get_wiki_store_dep(request)
+    return await _compute_tour_from_graph(raw_store, business_id)
 
 
 @router.get("/tree")

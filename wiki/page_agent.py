@@ -779,34 +779,29 @@ class WikiPageAgent(GenericAgent):
         dot = normalized.rfind(".")
         return normalized[dot:] if dot != -1 else ""
 
-    async def _get_module_file_path(self, module_name: str) -> str | None:
-        """Query graph store for the file path of a module node."""
-        if not self._graph or not hasattr(self._graph, "execute_query"):
-            return None
-        from wiki.cypher_queries import MODULE_PATH_CY
-
-        try:
-            result = await self._graph.execute_query(MODULE_PATH_CY, {"name": module_name})
-        except Exception:
-            log.debug("module_path_query_failed", module=module_name, exc_info=True)
-            return None
-        rows = getattr(result, "data", None) or []
-        if not rows or not isinstance(rows[0], dict):
-            return None
-        path = str(rows[0].get("path", "") or "").strip()
-        return path or None
-
     async def _detect_module_languages(self, module_names: list[str]) -> dict[str, list[str]]:
         """Detect languages from module file paths and return plugin concepts."""
         from indexer.languages import create_default_registry
 
-        if not self._graph:
+        if not self._graph or not hasattr(self._graph, "execute_query"):
             return {}
 
+        from wiki.cypher_queries import MODULE_PATHS_BATCH_CY
+
+        sampled = module_names[:20]
+        try:
+            result = await self._graph.execute_query(MODULE_PATHS_BATCH_CY, {"names": sampled})
+        except Exception:
+            log.debug("module_paths_batch_query_failed", exc_info=True)
+            return {}
+
+        rows = getattr(result, "data", None) or []
         registry = create_default_registry()
         lang_concepts: dict[str, list[str]] = {}
-        for name in module_names[:20]:
-            file_path = await self._get_module_file_path(name)
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            file_path = str(row.get("path", "") or "").strip()
             if not file_path:
                 continue
             ext = self._extension_for_path(file_path)

@@ -57,12 +57,39 @@ async def test_explore_prompt_omits_concepts_without_graph() -> None:
 
 
 @pytest.mark.asyncio
+async def test_detect_module_languages_uses_batch_query() -> None:
+    """_detect_module_languages should query all modules in a single Cypher call."""
+    mock_llm = MagicMock()
+    mock_graph = MagicMock()
+    mock_graph.execute_query = AsyncMock(
+        return_value=MagicMock(
+            data=[
+                {"name": "UserService", "path": "src/UserService.java"},
+                {"name": "OrderRepo", "path": "src/OrderRepo.java"},
+                {"name": "PayHandler", "path": "src/PayHandler.py"},
+            ],
+        ),
+    )
+    agent = WikiPageAgent(mock_llm, mock_graph)
+    languages = await agent._detect_module_languages(["UserService", "OrderRepo", "PayHandler"])
+
+    assert mock_graph.execute_query.await_count == 1
+    assert "java" in languages
+    assert "python" in languages
+
+
+@pytest.mark.asyncio
 async def test_detect_module_languages_from_module_paths() -> None:
     """_detect_module_languages maps module file paths to plugin concepts."""
     mock_llm = MagicMock()
     mock_graph = MagicMock()
     mock_graph.execute_query = AsyncMock(
-        return_value=MagicMock(data=[{"path": "src/main/UserService.java"}]),
+        return_value=MagicMock(
+            data=[
+                {"name": "UserService", "path": "src/main/UserService.java"},
+                {"name": "OrderRepo", "path": "src/main/OrderRepo.java"},
+            ],
+        ),
     )
     agent = WikiPageAgent(mock_llm, mock_graph)
 
@@ -70,4 +97,4 @@ async def test_detect_module_languages_from_module_paths() -> None:
 
     assert "java" in languages
     assert len(languages["java"]) >= 5
-    mock_graph.execute_query.assert_called()
+    assert mock_graph.execute_query.await_count == 1

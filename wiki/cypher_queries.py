@@ -187,7 +187,7 @@ MODULE_CALLERS_CY = (
     "count(DISTINCT m1) AS fan_in"
 )
 
-MODULE_PATH_CY = (
-    "MATCH (m:Module {name: $name}) "
-    "RETURN m.path AS path LIMIT 1"
+MODULE_PATHS_BATCH_CY = (
+    "MATCH (m:Module) WHERE m.name IN $names "
+    "RETURN m.name AS name, m.path AS path"
 )

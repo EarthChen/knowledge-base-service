@@ -1039,6 +1039,17 @@ const en: Translations = {
       tool_panel_failed: "Wiki tool panel failed to render",
       content_error: "Content rendering error",
     },
+    guidedTour: {
+      readingProgress: "Reading progress",
+      noTourAvailable: "No guided tour available",
+      layers: {
+        api: "API Entry Layer",
+        service: "Business Service Layer",
+        data: "Data Access Layer",
+        infrastructure: "Infrastructure Layer",
+        unknown: "Other",
+      },
+    },
     domain_management: {
       rename: 'Rename Domain',
       delete: 'Delete Domain',

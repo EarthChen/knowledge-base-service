@@ -56,7 +56,7 @@ class TestTourDataModel:
 
     def test_tour_step(self):
         tp = TourPage(path="a.md", title="A", reading_order=1, architecture_layer="api")
-        ts = TourStep(order=1, layer_name="api", layer_display="API 入口层", pages=[tp])
+        ts = TourStep(order=1, layer_name="api", layer_display="API Entry Layer", pages=[tp])
         assert len(ts.pages) == 1
 
     def test_guided_tour_to_dict(self):
@@ -101,6 +101,9 @@ class TestTourBuilder:
         assert tour.steps[2].layer_name == "data"
         assert tour.steps[0].pages[0].reading_order == 1
         assert tour.steps[2].pages[0].reading_order == 3
+        assert tour.steps[0].layer_display == "API Entry Layer"
+        assert tour.steps[1].layer_display == "Business Service Layer"
+        assert tour.steps[2].layer_display == "Data Access Layer"
 
     def test_build_tour_empty_pages(self):
         tour = build_tour([], {}, [])

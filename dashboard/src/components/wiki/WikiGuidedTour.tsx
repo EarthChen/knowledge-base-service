@@ -8,6 +8,7 @@ import {
   Server,
   Wrench,
 } from "lucide-react";
+import { useI18n } from "../../i18n/context";
 import { useWikiTour } from "../../hooks/useWikiTour";
 
 interface WikiGuidedTourProps {
@@ -31,6 +32,22 @@ function layerIcon(layerName: string) {
   }
 }
 
+function layerLabel(
+  layerName: string,
+  layers: {
+    api: string;
+    service: string;
+    data: string;
+    infrastructure: string;
+    unknown: string;
+  },
+): string {
+  if (layerName in layers) {
+    return layers[layerName as keyof typeof layers];
+  }
+  return layers.unknown;
+}
+
 function TourLoadingSkeleton() {
   return (
     <div data-testid="tour-loading" className="space-y-3 p-4">
@@ -51,8 +68,10 @@ export default function WikiGuidedTour({
   currentPath,
   onNavigate,
 }: WikiGuidedTourProps) {
+  const { t } = useI18n();
   const { data, isLoading } = useWikiTour(businessId);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const layerLabels = t.wiki.guidedTour.layers;
 
   const currentReadingOrder = useMemo(() => {
     if (!data?.steps || !currentPath) return 0;
@@ -93,7 +112,7 @@ export default function WikiGuidedTour({
     return (
       <div className="flex flex-col items-center justify-center gap-2 p-6 text-center text-sm text-gray-500 dark:text-gray-400">
         <BookOpen className="h-8 w-8 opacity-40" />
-        <p>No guided tour available</p>
+        <p>{t.wiki.guidedTour.noTourAvailable}</p>
       </div>
     );
   }
@@ -102,7 +121,7 @@ export default function WikiGuidedTour({
     <div className="flex h-full flex-col">
       <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
         <div className="mb-1 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-          <span>Reading progress</span>
+          <span>{t.wiki.guidedTour.readingProgress}</span>
           <span>
             {pagesRead} / {totalPages}
           </span>
@@ -119,6 +138,7 @@ export default function WikiGuidedTour({
         {data.steps.map((step) => {
           const Icon = layerIcon(step.layer_name);
           const isCollapsed = collapsed.has(step.layer_name);
+          const displayLabel = layerLabel(step.layer_name, layerLabels);
 
           return (
             <div key={step.layer_name} className="mb-1">
@@ -133,7 +153,7 @@ export default function WikiGuidedTour({
                   <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
                 )}
                 <Icon className="h-4 w-4 shrink-0 text-blue-500" />
-                <span className="flex-1 truncate">{step.layer_display}</span>
+                <span className="flex-1 truncate">{displayLabel}</span>
                 <span className="text-xs text-gray-400">{step.pages.length}</span>
               </button>
 

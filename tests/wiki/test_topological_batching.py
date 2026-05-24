@@ -1,4 +1,4 @@
-from wiki.topological_sort import topological_batches
+from wiki.topo_sort import topological_batches
 
 
 def test_no_edges_single_batch():

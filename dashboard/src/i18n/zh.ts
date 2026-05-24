@@ -1022,6 +1022,17 @@ const zh: Translations = {
       tool_panel_failed: "Wiki 工具面板渲染失败",
       content_error: "内容渲染错误",
     },
+    guidedTour: {
+      readingProgress: "阅读进度",
+      noTourAvailable: "暂无导览",
+      layers: {
+        api: "API 入口层",
+        service: "业务服务层",
+        data: "数据访问层",
+        infrastructure: "基础设施层",
+        unknown: "其他",
+      },
+    },
     domain_management: {
       rename: '重命名域',
       delete: '删除域',

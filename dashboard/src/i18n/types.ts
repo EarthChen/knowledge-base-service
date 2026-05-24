@@ -1059,6 +1059,17 @@ export interface Translations {
       tool_panel_failed: string;
       content_error: string;
     };
+    guidedTour: {
+      readingProgress: string;
+      noTourAvailable: string;
+      layers: {
+        api: string;
+        service: string;
+        data: string;
+        infrastructure: string;
+        unknown: string;
+      };
+    };
     domain_management: {
       rename: string;
       delete: string;

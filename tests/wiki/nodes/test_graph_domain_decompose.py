@@ -4,6 +4,7 @@ import pytest
 
 from wiki.nodes.graph_domain_decompose import (
     _RELATED_KEYWORDS,
+    _dedup_parallel_naming_results,
     _dedup_sub_domains,
     _embedding_clustering,
     _merge_domains_by_keyword,
@@ -309,7 +310,162 @@ class TestDedupSubDomains:
 
 
 class TestParallelDomainNaming:
-    """Task 6: Verify domain naming calls are parallelized and slugs are deduplicated."""
+    """Verify sub-domain naming is parallelized and slugs are deduplicated."""
+
+    def test_parallel_naming_slug_dedup(self):
+        """When LLM generates duplicate slugs, hash suffix should be appended."""
+        results = [
+            {"slug": "core", "display_name": "Core A"},
+            {"slug": "core", "display_name": "Core B"},
+            {"slug": "auth", "display_name": "Auth"},
+        ]
+        deduped = _dedup_parallel_naming_results(results, existing_slugs=["payment"])
+
+        slugs = [r["slug"] for r in deduped]
+        assert len(set(slugs)) == 3, "All slugs must be unique"
+        assert "core" in slugs, "First 'core' keeps original name"
+        assert any(s.startswith("core-") and s != "core" for s in slugs), "Duplicate gets hash suffix"
+        assert "payment" not in slugs, "Existing slugs not added"
+
+    @pytest.mark.asyncio
+    async def test_recursive_split_naming_runs_in_parallel(self):
+        """Sub-domain naming tasks should overlap when multiple sub-clusters exist."""
+        import asyncio
+
+        import numpy as np
+
+        modules_list = [(f"repo1", f"Mod{i}") for i in range(12)]
+        big_community = set(modules_list)
+        sub_clusters = [
+            set(modules_list[0:4]),
+            set(modules_list[4:8]),
+            set(modules_list[8:12]),
+        ]
+
+        in_flight = [0]
+        max_in_flight = [0]
+
+        async def mock_embedding_clustering(*_args, **_kwargs):
+            return [[big_community], np.zeros((12, 8))]
+
+        async def name_community(**kwargs):
+            used_names = kwargs.get("used_names")
+            if used_names is not None:
+                in_flight[0] += 1
+                max_in_flight[0] = max(max_in_flight[0], in_flight[0])
+                await asyncio.sleep(0.05)
+                in_flight[0] -= 1
+                mod_name = kwargs["module_infos"][0]["name"]
+                slug = mod_name.lower()
+                return {"slug": slug, "display_name": f"Domain {slug}"}
+            return {"slug": "big-domain", "display_name": "Big Domain"}
+
+        modules = {
+            "repo1": [
+                _make_module_dict("repo1", f"Mod{i}", path=f"src/Mod{i}.java")
+                for i in range(12)
+            ]
+        }
+        state = _make_state(modules)
+
+        mock_graph_store = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = [
+            _make_call_edge(f"Mod{i}", f"Mod{i + 1}", 10) for i in range(11)
+        ]
+        mock_graph_store.execute_query = AsyncMock(return_value=mock_result)
+
+        mock_namer = MagicMock()
+        mock_namer.name_community = AsyncMock(side_effect=name_community)
+        mock_clusterer = MagicMock()
+        mock_clusterer.cluster_sub_domains.return_value = sub_clusters
+
+        config = {"configurable": {"graph_store": mock_graph_store, "llm": MagicMock()}}
+        with patch(
+            "wiki.nodes.graph_domain_decompose._embedding_clustering",
+            side_effect=mock_embedding_clustering,
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.DomainSemanticClusterer",
+            return_value=mock_clusterer,
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
+            return_value=mock_namer,
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
+            return_value=_mock_corrector(),
+        ):
+            result = await graph_driven_domain_decompose_node(state, config)
+
+        assert max_in_flight[0] >= 2, "Sub-domain naming should run concurrently"
+        assert result["domain_tree"]
+
+    @pytest.mark.asyncio
+    async def test_recursive_split_dedups_colliding_sub_domain_slugs(self):
+        """Parallel sub-domain naming resolves duplicate slugs via hash suffix."""
+        import numpy as np
+
+        modules_list = [(f"repo1", f"Mod{i}") for i in range(12)]
+        big_community = set(modules_list)
+        sub_clusters = [
+            set(modules_list[0:4]),
+            set(modules_list[4:8]),
+            set(modules_list[8:12]),
+        ]
+
+        async def mock_embedding_clustering(*_args, **_kwargs):
+            return [[big_community], np.zeros((12, 8))]
+
+        async def name_community(**kwargs):
+            used_names = kwargs.get("used_names")
+            if used_names is not None:
+                mod_name = kwargs["module_infos"][0]["name"]
+                return {"slug": "core", "display_name": f"Core {mod_name}"}
+            return {"slug": "big-domain", "display_name": "Big Domain"}
+
+        modules = {
+            "repo1": [
+                _make_module_dict("repo1", f"Mod{i}", path=f"src/Mod{i}.java")
+                for i in range(12)
+            ]
+        }
+        state = _make_state(modules)
+
+        mock_graph_store = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = [
+            _make_call_edge(f"Mod{i}", f"Mod{i + 1}", 10) for i in range(11)
+        ]
+        mock_graph_store.execute_query = AsyncMock(return_value=mock_result)
+
+        mock_namer = MagicMock()
+        mock_namer.name_community = AsyncMock(side_effect=name_community)
+        mock_clusterer = MagicMock()
+        mock_clusterer.cluster_sub_domains.return_value = sub_clusters
+
+        config = {"configurable": {"graph_store": mock_graph_store, "llm": MagicMock()}}
+        with patch(
+            "wiki.nodes.graph_domain_decompose._embedding_clustering",
+            side_effect=mock_embedding_clustering,
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.DomainSemanticClusterer",
+            return_value=mock_clusterer,
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
+            return_value=mock_namer,
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
+            return_value=_mock_corrector(),
+        ):
+            result = await graph_driven_domain_decompose_node(state, config)
+
+        tree = result["domain_tree"]
+        assert len(tree) == 1
+        children = tree[0]["children"]
+        assert len(children) == 3
+        child_slugs = [c["name"] for c in children]
+        assert len(set(child_slugs)) == 3
+        assert child_slugs.count("core") == 1
+        assert sum(1 for s in child_slugs if s.startswith("core-")) == 2
 
     @pytest.mark.asyncio
     async def test_all_namer_calls_made_for_all_communities(self):

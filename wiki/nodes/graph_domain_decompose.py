@@ -1,6 +1,7 @@
 """Graph-driven domain decomposition node for wiki pipeline."""
 
 import asyncio
+import hashlib
 import re
 from typing import Any
 
@@ -19,6 +20,7 @@ from wiki.nodes.classify import (
     classify_domains_node,
     decompose_hierarchy_node,
 )
+from wiki.pipeline_concurrency import PipelineConcurrency
 
 log = get_logger(__name__)
 
@@ -206,6 +208,23 @@ def _build_domain_tree(
                 "children": [],
             })
     return tree
+
+
+def _dedup_parallel_naming_results(
+    results: list[dict],
+    existing_slugs: list[str],
+) -> list[dict]:
+    """Deduplicate slugs after parallel LLM naming."""
+    seen: set[str] = set(existing_slugs)
+    for result in results:
+        slug = result["slug"]
+        if slug in seen:
+            suffix = hashlib.md5(str(result).encode()).hexdigest()[:4]
+            new_slug = f"{slug}-{suffix}"
+            log.warning("slug_collision_resolved", original=slug, resolved=new_slug)
+            result["slug"] = new_slug
+        seen.add(result["slug"])
+    return results
 
 
 def _dedup_sub_domains(
@@ -578,9 +597,9 @@ async def graph_driven_domain_decompose_node(
         if len(sub_clusters) <= 1:
             return []
 
-        named_subs: list[dict] = []
-        sub_used_names = list(parent_used_names)
-        for sub_cluster in sub_clusters:
+        sem = PipelineConcurrency.semaphore("domain_naming")
+
+        async def _name_one_sub(sub_cluster: set[tuple[str, str]]) -> dict[str, Any]:
             sub_infos = []
             for repo_id, mod_name in sorted(sub_cluster):
                 summary_data = module_summaries_raw.get(mod_name)
@@ -597,15 +616,37 @@ async def graph_driven_domain_decompose_node(
                     "path": module_paths.get(mod_name, ""),
                     "summary": summary_text,
                 })
-            sub_naming = await namer.name_community(
-                module_infos=sub_infos,
-                used_names=sub_used_names,
-                business_id=business_id,
-            )
-            sub_used_names.append(sub_naming["slug"])
+            async with sem:
+                return await namer.name_community(
+                    module_infos=sub_infos,
+                    used_names=list(parent_used_names),
+                    business_id=business_id,
+                )
 
+        naming_results = await asyncio.gather(
+            *[_name_one_sub(sc) for sc in sub_clusters],
+            return_exceptions=True,
+        )
+
+        valid_results: list[dict[str, Any]] = []
+        valid_clusters: list[set[tuple[str, str]]] = []
+        for result, sub_cluster in zip(naming_results, sub_clusters, strict=True):
+            if isinstance(result, Exception):
+                log.warning("sub_domain_naming_failed", exc_info=result)
+            else:
+                valid_results.append(result)
+                valid_clusters.append(sub_cluster)
+
+        if not valid_results:
+            return []
+
+        deduped_results = _dedup_parallel_naming_results(valid_results, list(parent_used_names))
+        all_slugs = list(parent_used_names) + [r["slug"] for r in deduped_results]
+
+        named_subs: list[dict] = []
+        for sub_naming, sub_cluster in zip(deduped_results, valid_clusters, strict=True):
             children = await _recursive_split(
-                list(sub_cluster), sub_used_names, sub_naming["display_name"], depth + 1,
+                list(sub_cluster), all_slugs, sub_naming["display_name"], depth + 1,
             )
             named_subs.append({
                 "slug": sub_naming["slug"],

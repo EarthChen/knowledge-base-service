@@ -262,6 +262,7 @@ class AppWikiFlags(BaseModel):
     heal_concurrency: int = Field(default=5, ge=1)
     bottomup_concurrency: int = Field(default=24, ge=1)
     module_compose_concurrency: int = Field(default=3, ge=1)
+    domain_naming_concurrency: int = Field(default=5, ge=1)
 
     #: Heal strategy — tier-specific round limits
     heal_max_rounds_core: int = Field(default=3, ge=1)

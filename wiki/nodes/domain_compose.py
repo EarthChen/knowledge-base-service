@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from core.log import get_logger
 from wiki.domain_doc_agent import DomainDocAgent, _build_baseline
+from wiki.flow_baseline import extract_flow_baseline, format_flow_baseline_for_prompt
 from wiki.nodes.utils import _collect_leaf_domains
 from wiki.pipeline_concurrency import PipelineConcurrency
 from wiki.source_ref_validator import repair_broken_mermaid_blocks, sanitize_wiki_content
@@ -15,6 +16,36 @@ from wiki.source_ref_validator import repair_broken_mermaid_blocks, sanitize_wik
 log = get_logger(__name__)
 
 DOMAIN_AGENT_TIMEOUT_SEC = int(os.environ.get("DOMAIN_AGENT_TIMEOUT_SEC", "600"))
+
+
+def _build_layer_summary(
+    module_names: list[str],
+    architecture_layers: dict[str, dict[str, Any]],
+) -> str:
+    """Format architecture layer info for a domain's modules.
+
+    Returns a string like:
+    Architecture layers in this domain:
+    - api (2 modules): UserController, AuthHandler
+    - service (3 modules): UserService, AuthService, NotificationManager
+    """
+    from collections import defaultdict
+
+    layer_modules: dict[str, list[str]] = defaultdict(list)
+    for name in module_names:
+        info = architecture_layers.get(name)
+        if info:
+            layer_modules[info.get("layer", "unknown")].append(name)
+
+    if not layer_modules:
+        return ""
+
+    lines = ["Architecture layers in this domain:"]
+    for layer in ("api", "service", "data", "infrastructure"):
+        modules = layer_modules.get(layer, [])
+        if modules:
+            lines.append(f"- {layer} ({len(modules)} modules): {', '.join(modules[:5])}")
+    return "\n".join(lines)
 
 
 def _module_dict_by_name(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -126,6 +157,7 @@ async def compose_domain_agents_node(
     sem = PipelineConcurrency.semaphore("domain_agent")
     pages: list[dict[str, Any]] = []
     errors = list(state.get("errors", []))
+    arch_layers = state.get("architecture_layers") or {}
 
     def _domain_repo_path(domain: dict[str, Any]) -> str | None:
         if not repo_paths:
@@ -154,12 +186,29 @@ async def compose_domain_agents_node(
                     repo_path=_domain_repo_path(domain),
                     repo_paths=repo_paths,
                 )
+                layer_summary = _build_layer_summary(
+                    domain.get("modules", []),
+                    arch_layers,
+                )
+                baseline = _build_baseline(domain, module_summaries, module_tree=module_tree)
+                if layer_summary:
+                    baseline = baseline + "\n\n" + layer_summary
+                if graph_store:
+                    try:
+                        flow_baseline = await extract_flow_baseline(
+                            graph_store,
+                            domain_slug,
+                            domain.get("modules", []),
+                        )
+                        flow_text = format_flow_baseline_for_prompt(flow_baseline)
+                        if flow_text:
+                            baseline = baseline + "\n\n" + flow_text
+                    except Exception:
+                        log.warning("domain_flow_baseline_failed", domain=domain_slug, exc_info=True)
                 result = await asyncio.wait_for(
                     agent.generate_with_iterations(
                         module_names=domain.get("modules", []),
-                        baseline_context=_build_baseline(
-                            domain, module_summaries, module_tree=module_tree
-                        ),
+                        baseline_context=baseline,
                     ),
                     timeout=DOMAIN_AGENT_TIMEOUT_SEC,
                 )

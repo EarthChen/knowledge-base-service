@@ -3,14 +3,25 @@
 import re
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
+
 from core.log import get_logger
 
 log = get_logger(__name__)
 
+_DOMAIN_FLOW_CY = """
+MATCH (wp:WikiPage {domain: $domain, page_type: 'domain_overview'})-[:CONTAINS_FLOW]->(bf:BusinessFlow)
+RETURN bf.uid AS uid, bf.name AS name
+"""
 
-async def create_links_node(state: dict[str, Any]) -> dict[str, Any]:
+
+async def create_links_node(
+    state: dict[str, Any],
+    config: RunnableConfig | None = None,
+) -> dict[str, Any]:
     """Phase 4c-4d: resolve cross-links and prepare link metadata for persistence."""
-    pages = state.get("pages", [])
+    pages = list(state.get("pages", []))
+    pages.extend(state.get("flow_pages") or [])
     page_titles = {p.get("title", "").lower(): p.get("path", "") for p in pages}
     page_paths = {
         p.get("path", "").rsplit("/", 1)[-1].lower(): p.get("path", "")
@@ -38,6 +49,10 @@ async def create_links_node(state: dict[str, Any]) -> dict[str, Any]:
             resolved_links[page_path] = links
 
     _populate_navigation_from_domain_tree(pages, state.get("domain_tree") or [])
+
+    configurable = (config or {}).get("configurable", {}) or {}
+    graph_store = configurable.get("graph_store")
+    await _populate_flow_paths(pages, graph_store)
 
     log.info(
         "create_links_done",
@@ -129,3 +144,57 @@ def _populate_navigation_from_domain_tree(
                 )
 
     _walk(domain_tree, parent_path="", parent_title="", breadcrumbs=[])
+
+
+def _domain_from_overview_page(page: dict[str, Any]) -> str:
+    domain = str(page.get("domain") or page.get("business_domain") or "").strip()
+    if domain:
+        return domain
+    path = page.get("path", "")
+    if path.startswith("/__domains__/") and path.endswith("/_overview"):
+        parts = path.split("/")
+        if len(parts) >= 3:
+            return parts[2]
+    return ""
+
+
+def _flow_paths_for_domain(pages: list[dict[str, Any]], domain: str) -> list[str]:
+    paths: list[str] = []
+    for page in pages:
+        if page.get("page_type") != "flow":
+            continue
+        page_domain = str(page.get("domain") or page.get("business_domain") or "").strip()
+        if page_domain == domain:
+            page_path = page.get("path")
+            if page_path:
+                paths.append(str(page_path))
+    return sorted(set(paths))
+
+
+async def _query_domain_flows(graph_store: Any, domain: str) -> list[str]:
+    result = await graph_store.execute_query(_DOMAIN_FLOW_CY, {"domain": domain})
+    rows = getattr(result, "data", None) or []
+    return [str(row.get("uid", "")) for row in rows if isinstance(row, dict) and row.get("uid")]
+
+
+async def _populate_flow_paths(pages: list[dict[str, Any]], graph_store: Any) -> None:
+    """Populate related_flow_paths for domain pages from BusinessFlow graph."""
+    for page in pages:
+        if page.get("page_type") != "domain_overview":
+            continue
+        domain = _domain_from_overview_page(page)
+        if not domain:
+            continue
+
+        flow_paths = _flow_paths_for_domain(pages, domain)
+        if graph_store:
+            try:
+                flow_uids = await _query_domain_flows(graph_store, domain)
+                if flow_uids and not flow_paths:
+                    flow_paths = [f"{domain}/business-flows.md"]
+            except Exception:
+                log.warning("populate_flow_paths_failed", domain=domain, exc_info=True)
+
+        nav = page.get("navigation") or {}
+        nav["related_flow_paths"] = flow_paths
+        page["navigation"] = nav

@@ -45,31 +45,8 @@
 | ~~`specs/2026-05-11-incremental-wiki-update-design.md`~~ | (已实现并移除) 增量 Wiki 更新设计 — 设计要点已固化至 `wiki/incremental_diff.py`、`wiki/nodes/domain_compose.py`、`wiki/pipeline_orchestrator.py`。 |
 | ~~`specs/2026-05-12-agent-wiki-quality-and-tree-fix.md`~~ | (已归档并删除) Task A-G ✅；遗留项已完成。 |
 | ~~`specs/2026-05-13-wiki-agent-real-code-and-domain-mgmt.md`~~ | (已完成并删除) S1-S3 代码片段虚构修复 + T2/T10/T11/T12 域管理补全 ✅。 |
-| [`specs/2026-05-12-multi-view-wiki-structure-idea.md`](superpowers/specs/2026-05-12-multi-view-wiki-structure-idea.md) | **构想记录**：多视图 Wiki 结构（域/仓库/技术文档）、域概览/主题内容定位、Agent 组件抽象化。P3 待后续提案。 |
-| ~~`specs/2026-05-13-unified-agent-abstraction.md`~~ | (已完成并删除) **统一 Agent 抽象架构** Phase 1-5 全部完成 ✅；固化至 `wiki/agents/` 包。 |
-| ~~`plans/2026-05-13-unified-agent-abstraction-*.md`~~ | (已完成并删除) Phase 1-5 实施计划全部完成。 |
-| ~~`specs/20260513_142349_code-block-verifier.md`~~ | (已完成并删除) **代码块真实性保障**：混合验证模式 ✅；固化至 `wiki/code_block_verifier.py` + `DocOrchestrator._verify_code_blocks`。 |
-| ~~`specs/2026-05-19-openai-agent-sdk-patterns-analysis.md`~~ | (已完成并删除) OpenAI Agents SDK 模式分析 — 成果固化至 `wiki/agents/` 框架增强 (Layer 0-3)。 |
-| ~~`specs/2026-05-19-agent-framework-enhancement-design.md`~~ | (已完成并删除) Agent 框架增强设计 — Layer 0-3 全部实现 ✅；固化至 `wiki/agents/context.py`、`guardrails.py`、`tool_decorator.py`、`tracing.py`、`handoff.py`。 |
-| ~~`plans/2026-05-19-agent-framework-layer0-run-context.md`~~ | (已完成并删除) Layer 0: RunContext 实施计划 — Task 1-5 全部完成。 |
-| ~~`specs/2026-05-20-infrastructure-resilience-optimization-design.md`~~ | (已完成并删除) Infrastructure Resilience & Optimization — 固化至 `core/redis_resilience.py`、`indexer/embedding_generator.py`、`llm/retry.py`、`dashboard/src/api/cacheConfig.ts`。 |
-| ~~`specs/2026-05-20-agent-quality-harness-and-sdk-patterns.md`~~ | (已完成并删除) Agent Quality Harness & SDK Patterns — 核心项固化至 `wiki/agents/runner.py` (repeated call detection, LoopHooks)。 |
-| ~~`specs/2026-05-20-agent-runner-extraction-design.md`~~ | (已完成并删除) Agent Runner Extraction — 固化至 `wiki/agents/runner.py`、`wiki/agents/agent_tool.py`、`wiki/page_agent.py` (enrich migration)。 |
-| [`specs/2026-05-20-parent-domain-agent-overview-design.md`](superpowers/specs/2026-05-20-parent-domain-agent-overview-design.md) | **待实现**：Parent Domain Overview Agent 重构设计 — 将 `compose_parent_pages_node` 重构为 Agent 模式。 |
-| ~~`specs/2026-05-22-heal-redesign-and-unified-llm-rate-control.md`~~ | (已完成并删除) Heal 并发重设计 + 统一 LLM 频控 ✅；固化至 `wiki/nodes/heal.py`（并发 + Tier 分层）、`wiki/pipeline_concurrency.py`（统一入口）、全部 6 节点迁移完成。 |
-| ~~`plans/2026-05-22-heal-redesign-and-unified-llm-rate-control.md`~~ | (已完成并删除) Heal 重设计实施计划全部完成。 |
-| ~~`specs/2026-05-22-wiki-driven-domain-reassembly-design.md`~~ | (已完成并删除) Wiki 内容驱动的域重组 ✅；固化至 `wiki/nodes/reassemble_domains.py`。 |
-| ~~`plans/2026-05-22-wiki-driven-domain-reassembly-impl-plan.md`~~ | (已完成并删除) 域重组实施计划全部完成。 |
-| ~~`specs/2026-05-24-batch1-wiki-pipeline-quick-wins-design.md`~~ | (已完成并删除) Batch 1: 并行 LLM 命名、动态关键词发现、语言特定概念注入、交替重复检测、L3 质量门 ✅。 |
-| ~~`plans/2026-05-24-batch1-wiki-pipeline-quick-wins.md`~~ | (已完成并删除) Batch 1 实施计划全部完成。 |
-| ~~`specs/2026-05-24-batch2-architecture-layer-dagre-incremental-design.md`~~ | (已完成并删除) Batch 2: 架构层分类、dagre 布局、三级增量更新 ✅；固化至 `wiki/architecture_classifier.py`、`wiki/nodes/classify_architecture.py`、`WikiKnowledgeGraph.tsx`。 |
-| ~~`plans/2026-05-24-batch2-architecture-layer-dagre-incremental.md`~~ | (已完成并删除) Batch 2 实施计划全部完成。 |
-| ~~`specs/20260524_155835_batch3-tour-heal-strategy-flow-model.md`~~ | (已完成并删除) Batch 3: Guided Tour、Heal Fallback Strategy、业务流三级模型 ✅；固化至 `wiki/nodes/tour.py`、`wiki/nodes/flow_compose.py`。 |
-| ~~`plans/2026-05-24-batch3-tour-heal-strategy-flow-model.md`~~ | (已完成并删除) Batch 3 实施计划全部完成。 |
-| ~~`specs/2026-05-24-pipeline-graph-refactor-design.md`~~ | (已完成并删除) Pipeline Graph 重构：quality_gate/finalize 提取、L3 并行、HEAL_LOOP_MAX 配置化 ✅。 |
-| ~~`plans/2026-05-24-pipeline-graph-refactor.md`~~ | (已完成并删除) Pipeline Graph 重构实施计划全部完成 (2900 tests)。 |
-| [`reviews/2026-05-22-domain-classification-review.md`](superpowers/reviews/2026-05-22-domain-classification-review.md) | **审阅记录**：域分类现状分析与优化建议。 |
-| [`reviews/2026-05-24-wiki-pipeline-vs-understand-anything-review.md`](superpowers/reviews/2026-05-24-wiki-pipeline-vs-understand-anything-review.md) | **审阅记录**：Wiki 管线 vs Understand-Anything 项目对比分析。 |
+| [`superpowers/TODO.md`](superpowers/TODO.md) | **统一待办清单**：合并自已归档的 spec/review，包含未实现设计提案（多视图 Wiki、Parent Domain Agent、非代码解析）、域分类精度优化（10 项）、管线质量与性能（7 项）。 |
+| ~~旧 specs/plans/reviews~~ | 全部已归档：已完成项删除（固化记录见上方删除线条目）；未完成项合并入 `TODO.md`。 |
 
 ---
 

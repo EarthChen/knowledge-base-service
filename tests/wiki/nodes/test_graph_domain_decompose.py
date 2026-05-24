@@ -3,11 +3,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from wiki.nodes.graph_domain_decompose import (
-    _RELATED_KEYWORDS,
+    _apply_merge_map,
     _dedup_parallel_naming_results,
     _dedup_sub_domains,
     _embedding_clustering,
-    _merge_domains_by_keyword,
+    _merge_domains_by_embedding,
+    _merge_domains_by_llm,
     _tfidf_fallback_clustering,
     graph_driven_domain_decompose_node,
 )
@@ -545,63 +546,214 @@ class TestParallelDomainNaming:
         assert len(result["domain_mapping"]) == len(set(result["domain_mapping"].keys()))
 
 
-class TestKeywordMergeGeneralization:
-    """Task 10: Verify configurable keyword groups and word-boundary matching."""
-
-    def test_default_keywords_include_business_domains(self):
-        """Default keywords should cover auth, payment, order, notification groups."""
-        all_keywords = set()
-        for group in _RELATED_KEYWORDS:
-            all_keywords.update(group)
-        # Auth group
-        assert any(kw in all_keywords for kw in ("authentication", "login", "auth"))
-        # Payment group
-        assert any(kw in all_keywords for kw in ("payment", "pay", "billing"))
-        # Order group
-        assert any(kw in all_keywords for kw in ("order", "purchase"))
-        # Notification group
-        assert any(kw in all_keywords for kw in ("notification", "alert"))
-
-    def test_word_boundary_matching_for_latin_words(self):
-        """Latin keywords should match at word boundaries, not as substrings."""
-        # "pay" should match "PaymentService" but NOT "display"
+class TestApplyMergeMap:
+    def test_merges_modules_into_target(self):
         domain_mapping = {
-            "pay-mods": [("r1", "PaymentService"), ("r1", "PaymentDao")],
-            "display-mods": [("r1", "DisplayHandler"), ("r1", "DisplayService")],
+            "auth": [("r1", "LoginService")],
+            "login": [("r1", "LoginDao")],
+            "payment": [("r1", "PaymentService")],
         }
-        domain_display = {"pay-mods": "支付", "display-mods": "展示"}
-        result_mapping, _ = _merge_domains_by_keyword(domain_mapping, domain_display)
-        # "display" should NOT be merged with "pay" even though "pay" is a substring
-        assert "display-mods" in result_mapping or "pay-mods" in result_mapping
-        # They should remain separate domains (not merged together)
-        slugs = list(result_mapping.keys())
-        has_pay = any("pay" in s for s in slugs)
-        has_display = any("display" in s for s in slugs)
-        # Both should still exist (no false merge)
-        if has_pay and has_display:
-            assert len(result_mapping) == 2
+        domain_display = {"auth": "认证", "login": "登录", "payment": "支付"}
+        merge_map = {"login": "auth"}
+        new_mapping, new_display = _apply_merge_map(merge_map, domain_mapping, domain_display)
+        assert set(new_mapping.keys()) == {"auth", "payment"}
+        assert len(new_mapping["auth"]) == 2
+        assert new_display["auth"] == "认证"
 
-    def test_cjk_substring_matching_still_works(self):
-        """CJK keywords should still use substring matching (no word boundaries)."""
-        domain_mapping = {
-            "family-mods": [("r1", "FamilyService"), ("r1", "FamilyDao")],
-        }
-        domain_display = {"family-mods": "家族"}
-        result_mapping, result_display = _merge_domains_by_keyword(domain_mapping, domain_display)
-        assert len(result_mapping) >= 1
 
-    def test_auth_keyword_matches_login_modules(self):
-        """Auth keyword group should merge domains with login/authentication modules."""
+class TestMergeDomainsByLlm:
+    @pytest.mark.asyncio
+    async def test_llm_merge_path(self):
         domain_mapping = {
-            "login-mods": [("r1", "LoginService"), ("r1", "LoginDao")],
-            "auth-mods": [("r1", "AuthenticationManager"), ("r1", "AuthProvider")],
+            "login": [("r1", "LoginService"), ("r1", "LoginDao")],
+            "auth": [("r1", "AuthProvider")],
+            "payment": [("r1", "PaymentService")],
         }
-        domain_display = {"login-mods": "登录", "auth-mods": "认证"}
-        result_mapping, _ = _merge_domains_by_keyword(domain_mapping, domain_display)
-        # With the auth keyword group, login and auth should be in the same group
-        # But only if >50% of modules match - which they do
-        # At minimum, no crash should happen
-        assert len(result_mapping) >= 1
+        domain_display = {"login": "登录", "auth": "认证", "payment": "支付"}
+        mock_llm = MagicMock()
+        mock_llm.complete_json = AsyncMock(
+            return_value={"merge_groups": [["login", "auth"]]},
+        )
+        result_mapping, result_display = await _merge_domains_by_llm(
+            domain_mapping, domain_display, mock_llm,
+        )
+        assert set(result_mapping.keys()) == {"login", "payment"}
+        assert len(result_mapping["login"]) == 3
+        assert result_display["login"] == "登录"
+        mock_llm.complete_json.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_llm_empty_merge_groups(self):
+        domain_mapping = {
+            "login": [("r1", "LoginService")],
+            "payment": [("r1", "PaymentService")],
+        }
+        domain_display = {"login": "登录", "payment": "支付"}
+        mock_llm = MagicMock()
+        mock_llm.complete_json = AsyncMock(return_value={"merge_groups": []})
+        result_mapping, result_display = await _merge_domains_by_llm(
+            domain_mapping, domain_display, mock_llm,
+        )
+        assert result_mapping == domain_mapping
+        assert result_display == domain_display
+
+    @pytest.mark.asyncio
+    async def test_llm_failure_falls_back_to_embedding(self, monkeypatch):
+        domain_mapping = {
+            "domain-a": [("r1", "ModA")],
+            "domain-b": [("r1", "ModB")],
+            "domain-c": [("r1", "ModC")],
+        }
+        domain_display = {"domain-a": "A", "domain-b": "B", "domain-c": "C"}
+        mock_llm = MagicMock()
+        mock_llm.complete_json = AsyncMock(side_effect=Exception("llm timeout"))
+        mock_embedding_merge = AsyncMock(return_value=(domain_mapping, domain_display))
+        monkeypatch.setattr(
+            "wiki.nodes.graph_domain_decompose._merge_domains_by_embedding",
+            mock_embedding_merge,
+        )
+        await _merge_domains_by_llm(domain_mapping, domain_display, mock_llm)
+        mock_embedding_merge.assert_awaited_once_with(domain_mapping, domain_display)
+
+    @pytest.mark.asyncio
+    async def test_skips_merge_when_two_or_fewer_domains(self):
+        domain_mapping = {"only": [("r1", "ModA")]}
+        domain_display = {"only": "唯一域"}
+        mock_llm = MagicMock()
+        mock_llm.complete_json = AsyncMock()
+        result_mapping, result_display = await _merge_domains_by_llm(
+            domain_mapping, domain_display, mock_llm,
+        )
+        assert result_mapping == domain_mapping
+        mock_llm.complete_json.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_large_domain_not_merged(self):
+        large_modules = [(f"r{i}", f"Mod{i}") for i in range(41)]
+        domain_mapping = {
+            "large": large_modules,
+            "small": [("r1", "SmallService")],
+            "other": [("r1", "OtherService"), ("r1", "OtherDao")],
+        }
+        domain_display = {"large": "大域", "small": "小域", "other": "其他"}
+        mock_llm = MagicMock()
+        mock_llm.complete_json = AsyncMock(
+            return_value={"merge_groups": [["large", "small"]]},
+        )
+        result_mapping, _ = await _merge_domains_by_llm(
+            domain_mapping, domain_display, mock_llm,
+        )
+        assert "large" in result_mapping
+        assert "small" not in result_mapping
+        assert len(result_mapping["large"]) == 42
+
+
+class TestMergeDomainsByEmbedding:
+    @pytest.mark.asyncio
+    async def test_embedding_merge_above_threshold(self, monkeypatch):
+        domain_mapping = {
+            "auth-login": [("r1", "LoginService")],
+            "auth-signin": [("r1", "SignInService")],
+            "payment": [("r1", "PaymentService")],
+        }
+        domain_display = {
+            "auth-login": "用户登录",
+            "auth-signin": "用户登入",
+            "payment": "支付结算",
+        }
+        emb_a = [1.0, 0.0]
+        emb_b = [0.99, 0.01]
+        emb_c = [0.0, 1.0]
+
+        mock_generator = MagicMock()
+        mock_generator.generate = AsyncMock(return_value=[emb_a, emb_b, emb_c])
+        monkeypatch.setattr(
+            "core.config.get_settings",
+            lambda: MagicMock(embedding=MagicMock()),
+        )
+        monkeypatch.setattr(
+            "indexer.embedding_generator.EmbeddingGenerator.shared",
+            lambda _config: mock_generator,
+        )
+        result_mapping, _ = await _merge_domains_by_embedding(
+            domain_mapping, domain_display, similarity_threshold=0.8,
+        )
+        assert len(result_mapping) == 2
+        merged_slug = next(
+            slug for slug, mods in result_mapping.items() if len(mods) == 2
+        )
+        assert merged_slug in {"auth-login", "auth-signin"}
+
+    @pytest.mark.asyncio
+    async def test_embedding_merge_below_threshold(self, monkeypatch):
+        domain_mapping = {
+            "auth": [("r1", "LoginService")],
+            "payment": [("r1", "PaymentService")],
+            "order": [("r1", "OrderService")],
+        }
+        domain_display = {"auth": "认证", "payment": "支付", "order": "订单"}
+        emb_a = [1.0, 0.0]
+        emb_b = [0.707, 0.707]
+        emb_c = [0.0, 1.0]
+
+        mock_generator = MagicMock()
+        mock_generator.generate = AsyncMock(return_value=[emb_a, emb_b, emb_c])
+        monkeypatch.setattr(
+            "core.config.get_settings",
+            lambda: MagicMock(embedding=MagicMock()),
+        )
+        monkeypatch.setattr(
+            "indexer.embedding_generator.EmbeddingGenerator.shared",
+            lambda _config: mock_generator,
+        )
+        result_mapping, _ = await _merge_domains_by_embedding(
+            domain_mapping, domain_display, similarity_threshold=0.8,
+        )
+        assert len(result_mapping) == 3
+
+    @pytest.mark.asyncio
+    async def test_embedding_failure_returns_original(self, monkeypatch):
+        domain_mapping = {
+            "a": [("r1", "ModA")],
+            "b": [("r1", "ModB")],
+            "c": [("r1", "ModC")],
+        }
+        domain_display = {"a": "A", "b": "B", "c": "C"}
+        monkeypatch.setattr(
+            "core.config.get_settings",
+            lambda: MagicMock(embedding=MagicMock()),
+        )
+        monkeypatch.setattr(
+            "indexer.embedding_generator.EmbeddingGenerator.shared",
+            lambda _config: MagicMock(
+                generate=AsyncMock(side_effect=Exception("embedding failed")),
+            ),
+        )
+        result_mapping, result_display = await _merge_domains_by_embedding(
+            domain_mapping, domain_display,
+        )
+        assert result_mapping == domain_mapping
+        assert result_display == domain_display
+
+    @pytest.mark.asyncio
+    async def test_double_fallback_returns_original(self, monkeypatch):
+        domain_mapping = {
+            "a": [("r1", "ModA")],
+            "b": [("r1", "ModB")],
+            "c": [("r1", "ModC")],
+        }
+        domain_display = {"a": "A", "b": "B", "c": "C"}
+        mock_llm = MagicMock()
+        mock_llm.complete_json = AsyncMock(side_effect=Exception("llm failed"))
+        monkeypatch.setattr(
+            "wiki.nodes.graph_domain_decompose._merge_domains_by_embedding",
+            AsyncMock(side_effect=Exception("embedding failed")),
+        )
+        result_mapping, result_display = await _merge_domains_by_llm(
+            domain_mapping, domain_display, mock_llm,
+        )
+        assert result_mapping == domain_mapping
+        assert result_display == domain_display
 
 
 class TestTfidfFallbackClustering:

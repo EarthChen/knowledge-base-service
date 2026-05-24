@@ -2,7 +2,6 @@
 
 import asyncio
 import hashlib
-import re
 from typing import Any
 
 import numpy as np
@@ -41,97 +40,12 @@ def _is_data_model(name: str, path: str) -> bool:
     return False
 
 
-_RELATED_KEYWORDS = [
-    frozenset({"intimacy", "closedfriend", "closed"}),
-    frozenset({"family", "guild"}),
-    frozenset({"authentication", "login", "auth"}),
-    frozenset({"payment", "pay", "billing"}),
-    frozenset({"order", "purchase"}),
-    frozenset({"notification", "alert"}),
-]
-
-
-def _has_cjk(text: str) -> bool:
-    return any("一" <= ch <= "鿿" for ch in text)
-
-
-def _keyword_matches_name(keyword: str, name_lower: str) -> bool:
-    """Match keyword against module name with word-boundary check for Latin, substring for CJK."""
-    if _has_cjk(keyword):
-        return keyword in name_lower
-    return bool(re.search(r"\b" + re.escape(keyword) + r"\b", name_lower))
-
-
-def _merge_domains_by_keyword(
+def _apply_merge_map(
+    merge_map: dict[str, str],
     domain_mapping: dict[str, list],
     domain_display_names: dict[str, str],
 ) -> tuple[dict[str, list], dict[str, str]]:
-    """Merge small domains sharing related business keywords into a larger sibling.
-
-    Only merges when the domain's DOMINANT keyword (>50% of module names) matches.
-    Domains with >40 modules are never merged away (they're already well-formed).
-    """
-    domain_dominant_group: dict[str, str] = {}
-    for domain, modules in domain_mapping.items():
-        if not modules:
-            continue
-        group_scores: dict[str, int] = {}
-        for _, name in modules:
-            name_lower = name.lower()
-            for group in _RELATED_KEYWORDS:
-                for kw in group:
-                    if _keyword_matches_name(kw, name_lower):
-                        group_key = "|".join(sorted(group))
-                        group_scores[group_key] = group_scores.get(group_key, 0) + 1
-                        break
-        if not group_scores:
-            continue
-        best_group = max(group_scores, key=lambda g: group_scores[g])
-        # Only assign if >50% of modules match this keyword group
-        if group_scores[best_group] > len(modules) * 0.5:
-            domain_dominant_group[domain] = best_group
-
-    # Group domains by their dominant keyword group
-    group_to_domains: dict[str, list[str]] = {}
-    for domain, group_key in domain_dominant_group.items():
-        group_to_domains.setdefault(group_key, []).append(domain)
-
-    merge_map: dict[str, str] = {}
-    for _group_key, domains in group_to_domains.items():
-        if len(domains) <= 1:
-            continue
-        target = max(domains, key=lambda d: len(domain_mapping.get(d, [])))
-        for d in domains:
-            if d == target:
-                continue
-            # Don't merge large domains (>40 modules)
-            if len(domain_mapping.get(d, [])) > 40:
-                continue
-            merge_map[d] = target
-
-    # Also merge tiny domains (≤2 modules) by slug keyword match
-    for domain, modules in domain_mapping.items():
-        if domain in merge_map or len(modules) > 2:
-            continue
-        slug_lower = domain.lower()
-        for group in _RELATED_KEYWORDS:
-            matched_kw = None
-            for kw in group:
-                if _keyword_matches_name(kw, slug_lower):
-                    matched_kw = kw
-                    break
-            if matched_kw:
-                group_key = "|".join(sorted(group))
-                # Find the largest domain in the same keyword group
-                candidates = [
-                    d for d, g in domain_dominant_group.items()
-                    if g == group_key and d != domain and d not in merge_map
-                ]
-                if candidates:
-                    target = max(candidates, key=lambda d: len(domain_mapping.get(d, [])))
-                    merge_map[domain] = target
-                break
-
+    """Apply a slug→target merge map to domain mapping and display names."""
     if not merge_map:
         return domain_mapping, domain_display_names
 
@@ -147,8 +61,122 @@ def _merge_domains_by_keyword(
         if d not in merge_map and d not in new_display:
             new_display[d] = display
 
-    log.info("merge_domains_by_keyword", merged=len(merge_map), targets=list(set(merge_map.values())))
     return new_mapping, new_display
+
+
+async def _merge_domains_by_embedding(
+    domain_mapping: dict[str, list],
+    domain_display_names: dict[str, str],
+    similarity_threshold: float = 0.8,
+) -> tuple[dict[str, list], dict[str, str]]:
+    """Fallback: merge domains whose display_name embeddings exceed similarity threshold."""
+    from numpy import dot
+    from numpy.linalg import norm
+
+    from core.config import get_settings
+    from indexer.embedding_generator import EmbeddingGenerator
+
+    slugs = list(domain_display_names.keys())
+    names = [domain_display_names[s] for s in slugs]
+    if len(names) <= 2:
+        return domain_mapping, domain_display_names
+
+    try:
+        config = get_settings().embedding
+        generator = EmbeddingGenerator.shared(config)
+        embeddings = await generator.generate(names)
+    except Exception:
+        log.warning("embedding_domain_merge_failed", exc_info=True)
+        return domain_mapping, domain_display_names
+
+    merge_map: dict[str, str] = {}
+    merged_targets: set[str] = set()
+    for i in range(len(slugs)):
+        if slugs[i] in merge_map:
+            continue
+        for j in range(i + 1, len(slugs)):
+            if slugs[j] in merge_map or slugs[j] in merged_targets:
+                continue
+            sim = dot(embeddings[i], embeddings[j]) / (norm(embeddings[i]) * norm(embeddings[j]))
+            if sim >= similarity_threshold:
+                size_i = len(domain_mapping.get(slugs[i], []))
+                size_j = len(domain_mapping.get(slugs[j], []))
+                if size_i >= size_j:
+                    target, source = slugs[i], slugs[j]
+                else:
+                    target, source = slugs[j], slugs[i]
+                if len(domain_mapping.get(source, [])) <= 40:
+                    merge_map[source] = target
+                    merged_targets.add(target)
+
+    if not merge_map:
+        return domain_mapping, domain_display_names
+
+    log.info("merge_domains_by_embedding", merged=len(merge_map), targets=list(set(merge_map.values())))
+    return _apply_merge_map(merge_map, domain_mapping, domain_display_names)
+
+
+async def _merge_domains_by_llm(
+    domain_mapping: dict[str, list],
+    domain_display_names: dict[str, str],
+    llm,
+) -> tuple[dict[str, list], dict[str, str]]:
+    """Use LLM to discover which domains should be merged based on semantic similarity."""
+    if len(domain_mapping) <= 2:
+        return domain_mapping, domain_display_names
+
+    domain_infos = []
+    for slug, modules in domain_mapping.items():
+        display = domain_display_names.get(slug, slug)
+        sample_names = sorted({name for _, name in modules})[:8]
+        domain_infos.append(f"- {slug} ({display}): {', '.join(sample_names)}")
+
+    prompt = (
+        "Given these business domains and their module samples, "
+        "identify which domains should be merged because they represent "
+        "the same business concept from different angles.\n\n"
+        + "\n".join(domain_infos)
+        + "\n\nReturn JSON: {\"merge_groups\": [[\"slugA\", \"slugB\"], ...]}. "
+        "Only include groups that should definitely be merged. "
+        "Return {\"merge_groups\": []} if no merges are needed."
+    )
+    messages = [{"role": "user", "content": prompt}]
+
+    merge_groups: list[list[str]] = []
+    try:
+        if hasattr(llm, "complete_json"):
+            result = await llm.complete_json(messages, {})
+            if isinstance(result, dict):
+                raw_groups = result.get("merge_groups", [])
+                if isinstance(raw_groups, list):
+                    merge_groups = raw_groups
+        else:
+            raise AttributeError("llm has no complete_json")
+    except Exception:
+        log.warning("llm_domain_merge_failed", exc_info=True)
+        try:
+            return await _merge_domains_by_embedding(domain_mapping, domain_display_names)
+        except Exception:
+            log.warning("embedding_domain_merge_fallback_failed", exc_info=True)
+            return domain_mapping, domain_display_names
+
+    merge_map: dict[str, str] = {}
+    for group in merge_groups:
+        if not isinstance(group, list):
+            continue
+        valid = [s for s in group if s in domain_mapping]
+        if len(valid) <= 1:
+            continue
+        target = max(valid, key=lambda s: len(domain_mapping.get(s, [])))
+        for s in valid:
+            if s != target and len(domain_mapping.get(s, [])) <= 40:
+                merge_map[s] = target
+
+    if not merge_map:
+        return domain_mapping, domain_display_names
+
+    log.info("merge_domains_by_llm", merged=len(merge_map), targets=list(set(merge_map.values())))
+    return _apply_merge_map(merge_map, domain_mapping, domain_display_names)
 
 
 _SPLIT_THRESHOLD = 10
@@ -504,7 +532,14 @@ async def graph_driven_domain_decompose_node(
     # --- Step 5: Post-processing (safety nets) ---
     domain_mapping, domain_display_names = _ensure_ascii_keys(domain_mapping, domain_display_names)
     domain_mapping, domain_display_names = _consolidate_split_entities(domain_mapping, domain_display_names)
-    domain_mapping, domain_display_names = _merge_domains_by_keyword(domain_mapping, domain_display_names)
+    if llm:
+        domain_mapping, domain_display_names = await _merge_domains_by_llm(
+            domain_mapping, domain_display_names, llm,
+        )
+    else:
+        domain_mapping, domain_display_names = await _merge_domains_by_embedding(
+            domain_mapping, domain_display_names,
+        )
 
     # --- Step 5.5: LLM Global Consistency Review ---
     module_summaries_flat: dict[str, str] = {}

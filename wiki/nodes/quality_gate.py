@@ -86,6 +86,7 @@ async def quality_gate_node(
 
     # Load or initialise structural check cache
     check_cache: dict[str, dict[str, Any]] = dict(state.get("_structural_check_cache", {}))
+    heal_hints: dict[str, str] = dict(state.get("heal_hints", {}))
 
     quality_scores: dict[str, dict[str, Any]] = {}
     pages_to_heal: list[str] = []
@@ -232,6 +233,40 @@ async def quality_gate_node(
         else:
             pages_to_heal.sort(key=lambda p: quality_scores.get(p, {}).get("l1_structural", 0.0))
 
+    page_by_path = {
+        str(p.get("path")): p for p in state.get("pages", []) if p.get("path")
+    }
+    for page_path in pages_to_heal:
+        if heal_hints.get(page_path):
+            continue
+        page_dict = page_by_path.get(page_path)
+        if not page_dict:
+            continue
+        if page_dict.get("metadata", {}).get("generation_mode") == "agent_error":
+            heal_hints[page_path] = (
+                "Regenerate failed documentation with Overview, key components, "
+                "relationships, and at least one mermaid diagram."
+            )
+            continue
+        try:
+            page = WikiPage.from_dict(page_dict)
+            bench = evaluator.bench_score(page)
+            hint = evaluator.build_heal_prompt_hint_v2(bench)
+            l3_dims = quality_scores.get(page_path, {}).get("l3_dimensions")
+            if isinstance(l3_dims, dict) and l3_dims:
+                low_dims = [
+                    dim
+                    for dim, val in l3_dims.items()
+                    if isinstance(val, (int, float)) and val < 3.0
+                ]
+                if low_dims:
+                    hint += "\n\n## L3 judge improvement hints\n" + "\n".join(
+                        f"- Improve {dim}." for dim in low_dims
+                    )
+            heal_hints[page_path] = hint
+        except Exception:
+            log.warning("quality_gate_heal_hint_failed", page=page_path, exc_info=True)
+
     total_gaps = sum(
         v.get("context_gap_count", 0) for v in quality_scores.values()
     )
@@ -251,5 +286,6 @@ async def quality_gate_node(
     return {
         "quality_scores": quality_scores,
         "pages_to_heal": pages_to_heal,
+        "heal_hints": heal_hints,
         "_structural_check_cache": check_cache,
     }

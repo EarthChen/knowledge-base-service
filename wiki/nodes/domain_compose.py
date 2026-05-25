@@ -24,7 +24,35 @@ log = get_logger(__name__)
 _MERMAID_FENCE_RE = re.compile(r"```\s*mermaid\b", re.IGNORECASE)
 
 
-def _inject_dependency_diagram(content: str, module_names: list[str]) -> str:
+def _domain_call_edges(
+    module_names: list[str],
+    all_edges: list[dict[str, Any]] | None,
+) -> list[tuple[str, str]]:
+    """Extract bare module call pairs relevant to a domain from pipeline edge dicts."""
+    if not all_edges:
+        return []
+    module_set = {str(m) for m in module_names}
+    pairs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for edge in all_edges:
+        if not isinstance(edge, dict):
+            continue
+        caller = str(edge.get("source") or "")
+        callee = str(edge.get("target") or "")
+        if caller not in module_set and callee not in module_set:
+            continue
+        pair = (caller, callee)
+        if pair not in seen:
+            pairs.append(pair)
+            seen.add(pair)
+    return pairs
+
+
+def _inject_dependency_diagram(
+    content: str,
+    module_names: list[str],
+    call_edges: list[tuple[str, str]] | None = None,
+) -> str:
     """Append a placeholder Architecture Mermaid diagram when agent output lacks one."""
     if _MERMAID_FENCE_RE.search(content or ""):
         return content
@@ -36,8 +64,25 @@ def _inject_dependency_diagram(content: str, module_names: list[str]) -> str:
     for idx, mod in enumerate(nodes):
         safe = str(mod).replace('"', "'")
         lines.append(f'    M{idx}["{safe}"]')
-    for idx in range(len(nodes) - 1):
-        lines.append(f"    M{idx} --> M{idx + 1}")
+
+    name_to_idx = {name: idx for idx, name in enumerate(nodes)}
+
+    if call_edges:
+        added: set[tuple[int, int]] = set()
+        for caller, callee in call_edges:
+            if caller in name_to_idx and callee in name_to_idx and caller != callee:
+                i, j = name_to_idx[caller], name_to_idx[callee]
+                edge = (i, j)
+                if edge not in added:
+                    lines.append(f"    M{i} --> M{j}")
+                    added.add(edge)
+        if not added:
+            for idx in range(len(nodes) - 1):
+                lines.append(f"    M{idx} --> M{idx + 1}")
+    else:
+        for idx in range(len(nodes) - 1):
+            lines.append(f"    M{idx} --> M{idx + 1}")
+
     diagram = "\n".join(lines)
     return f"{content.rstrip()}\n\n## Architecture\n\n```mermaid\n{diagram}\n```\n"
 
@@ -58,6 +103,23 @@ def _max_iterations_for_domain(domain: dict[str, Any], state: dict[str, Any]) ->
     if tier == ImportanceTier.STANDARD:
         return wiki_cfg.domain_agent_max_iterations_standard
     return wiki_cfg.domain_agent_max_iterations_skeleton
+
+
+def _explore_limits_for_domain(domain: dict[str, Any], state: dict[str, Any]) -> tuple[int | None, int | None]:
+    """Resolve tier-appropriate explore limits for DomainDocAgent."""
+    module_count = len(domain.get("modules") or [])
+    domain_path = domain_overview_path(str(domain.get("name") or ""))
+    config_tiers = (state.get("config") or {}).get("importance_tiers") or {}
+    if domain_path not in config_tiers:
+        effective_tiers = {**config_tiers, domain_path: tier_for_module_count(module_count)}
+    else:
+        effective_tiers = config_tiers
+    tier = resolve_tier(domain_path, effective_tiers)
+    if tier == ImportanceTier.SKELETON:
+        return 2, 8
+    if tier == ImportanceTier.STANDARD:
+        return 5, 20
+    return None, None
 
 
 def _build_layer_summary(
@@ -270,6 +332,7 @@ async def compose_domain_agents_node(
             domain_slug = domain["name"]
             domain_display = domain.get("display_name", domain_slug)
             try:
+                explore_rounds, explore_calls = _explore_limits_for_domain(domain, state)
                 agent = DomainDocAgent(
                     domain_name=domain_slug,
                     domain_display_name=domain_display,
@@ -278,6 +341,8 @@ async def compose_domain_agents_node(
                     repo_path=_domain_repo_path(domain),
                     repo_paths=repo_paths,
                     max_iterations=_max_iterations_for_domain(domain, state),
+                    explore_max_rounds=explore_rounds,
+                    explore_max_tool_calls=explore_calls,
                     budget_resolver=budget_resolver,
                 )
                 module_repo_pairs, valid_pairs = _domain_module_pairs(
@@ -314,11 +379,16 @@ async def compose_domain_agents_node(
                     ),
                     timeout=outer_timeout,
                 )
+                domain_edges = _domain_call_edges(
+                    list(domain.get("modules") or []),
+                    state.get("module_call_edges"),
+                )
                 for page in result:
                     if page.get("metadata", {}).get("generation_mode") != "agent_error":
                         page["content"] = _inject_dependency_diagram(
                             page.get("content", ""),
                             list(domain.get("modules") or []),
+                            call_edges=domain_edges,
                         )
                 elapsed = asyncio.get_running_loop().time() - domain_start
                 log.info(

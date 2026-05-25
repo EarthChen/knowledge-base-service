@@ -10,6 +10,7 @@ class TestFalkorDBConfig:
         assert cfg.port == 6379
         assert cfg.password == ""
         assert cfg.graph_name == "code_knowledge"
+        assert cfg.thread_pool_size == 8
 
 
 class TestEmbeddingConfig:

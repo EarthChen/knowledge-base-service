@@ -14,6 +14,7 @@ class FalkorDBConfig(BaseModel):
     port: int = 6379
     password: str = ""
     graph_name: str = "code_knowledge"
+    thread_pool_size: int = Field(default=8, ge=1)
 
 
 class EmbeddingConfig(BaseModel):
@@ -287,7 +288,7 @@ class AppWikiFlags(BaseModel):
     wiki_generation_concurrency: int = Field(default=5, ge=1)
     heal_concurrency: int = Field(default=5, ge=1)
     bottomup_concurrency: int = Field(default=24, ge=1)
-    module_compose_concurrency: int = Field(default=3, ge=1)
+    module_compose_concurrency: int = Field(default=6, ge=1)
     domain_naming_concurrency: int = Field(default=5, ge=1)
 
     #: Global LLM provider rate limits across all pipeline stages (0 = disabled).

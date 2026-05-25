@@ -1,7 +1,7 @@
 # 待办事项与改进建议
 
 **Created:** 2026-05-24
-**Last Updated:** 2026-05-25 (Round 9 — P1/P2 深度探索修复)
+**Last Updated:** 2026-05-25 (Round 10 — 管线性能+质量优化)
 
 ---
 
@@ -57,6 +57,13 @@ Graph Explorer 中叠加当前工作区变更的可视化。
 - ✅ LLM rate limiter 释放锁后 sleep — 消除并发串行化瓶颈
 - ✅ Pipeline `ainvoke()` 顶层错误边界 — 未处理节点异常不再崩溃整个管线
 
+性能+质量优化（Batch AM/AN）：
+- ✅ 探索轮次 tier-aware — SKELETON 8→2, STANDARD 8→5, CORE 保持 8（减少 ~30% explore LLM）
+- ✅ `module_compose_concurrency` 默认 3→6（leaf compose 阶段加速 ~2×）
+- ✅ FalkorDB `thread_pool_size` 默认 4→8 并暴露配置
+- ✅ Mermaid 图基于真实调用关系 — 替换线性链占位符，使用 `module_call_edges`
+- ✅ quality_gate → heal hints 传递 — heal 策略直接使用 gate 的 per-dimension hints
+
 ---
 
 ## 四、前端 Dashboard 质量 ✅
@@ -86,6 +93,32 @@ Graph Explorer 中叠加当前工作区变更的可视化。
 非阻塞改进：
 - ~~P2: `except Exception` 审计收窄~~ ✅ Batch AI — Top 5 高风险站点已修复
 - P2: 超时/限制统一配置迁移（部分已中心化，建议按需渐进迁移）
+
+---
+
+## 六、管线性能与质量进阶优化（延后）
+
+以下优化需要更多设计或评估，建议在当前优化效果验证后再实施。
+
+### 1. DocOrchestrator 统一 [P2]
+
+将 `use_orchestrator_template` 默认改为 `True`，统一 DomainDocAgent 的生成路径。当前 `generate_with_iterations()` 有更丰富的 guardrails/timeouts，需要将这些能力迁移到 DocOrchestrator 模板后再切换。
+
+### 2. Agent semantic_search 查询扩展 [P2]
+
+当前 `WikiPageAgent.semantic_search` 禁用了 `query_expansion`。启用 `expand_depth=1` + graph expansion 可提升召回率，但也会增加工具返回数据量、占用工作记忆。建议仅对 CORE tier 启用。
+
+### 3. 工作记忆动态调整 [P3]
+
+当前固定 200K chars 上限。大域探索可能驱逐早期发现。可根据 tier 动态调整：CORE 300K，STANDARD 200K，SKELETON 100K。需要评估 LLM context window 限制。
+
+### 4. generate_titles 批量化 [P3]
+
+当前每个 module tree 节点 1 次 LLM 调用。可以将 10-20 个节点合并为 1 次 LLM 调用，减少请求数但需要处理 JSON 批量输出的解析可靠性。
+
+### 5. Graph Reviewer Node [P2]
+
+在 `finalize_node` 前加 `graph_review_node`，运行确定性 Cypher 检查（悬空引用、孤立节点），复用 `wiki/lint.py` 查询层。
 
 ---
 

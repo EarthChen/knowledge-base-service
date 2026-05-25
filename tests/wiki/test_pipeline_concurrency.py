@@ -82,3 +82,51 @@ class TestPipelineConcurrencySemaphore:
         PipelineConcurrency.reset()
         sem_after = PipelineConcurrency.semaphore("compose")
         assert sem_before is not sem_after
+
+
+class TestPipelineConcurrencyRefresh:
+    """Tests for PipelineConcurrency.refresh() — hot-reload support."""
+
+    def setup_method(self) -> None:
+        from wiki.pipeline_concurrency import PipelineConcurrency
+        PipelineConcurrency.reset()
+
+    def teardown_method(self) -> None:
+        from wiki.pipeline_concurrency import PipelineConcurrency
+        PipelineConcurrency.reset()
+
+    def test_refresh_clears_cached_semaphores(self):
+        from wiki.pipeline_concurrency import PipelineConcurrency
+        sem_before = PipelineConcurrency.semaphore("heal")
+        PipelineConcurrency.refresh()
+        sem_after = PipelineConcurrency.semaphore("heal")
+        assert sem_before is not sem_after
+
+    def test_refresh_picks_up_new_config_values(self):
+        from wiki.pipeline_concurrency import PipelineConcurrency
+        # Initially heal_concurrency=5
+        sem_before = PipelineConcurrency.semaphore("heal")
+        assert sem_before._value == 5
+        # Simulate config change via env var
+        with patch.dict(os.environ, {"WIKI_HEAL_CONCURRENCY": "15"}):
+            PipelineConcurrency.refresh()
+            sem_after = PipelineConcurrency.semaphore("heal")
+            assert sem_after._value == 15
+
+    def test_refresh_with_overrides(self):
+        from wiki.pipeline_concurrency import PipelineConcurrency
+        PipelineConcurrency.refresh(overrides={"heal": 20, "compose": 30})
+        assert PipelineConcurrency.limit("heal") == 20
+        assert PipelineConcurrency.limit("compose") == 30
+
+    def test_refresh_overrides_take_priority_over_env(self):
+        from wiki.pipeline_concurrency import PipelineConcurrency
+        with patch.dict(os.environ, {"WIKI_HEAL_CONCURRENCY": "10"}):
+            PipelineConcurrency.refresh(overrides={"heal": 25})
+            assert PipelineConcurrency.limit("heal") == 25
+
+    def test_refresh_without_overrides_uses_config(self):
+        from wiki.pipeline_concurrency import PipelineConcurrency
+        PipelineConcurrency.refresh()
+        # Should still resolve from config defaults
+        assert PipelineConcurrency.limit("heal") == 5

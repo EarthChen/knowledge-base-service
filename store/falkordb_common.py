@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-import os
 from typing import Any
 
-_POOL_SIZE = int(os.environ.get("FALKORDB__THREAD_POOL_SIZE", "4"))
+from core.config import get_settings
+
+_POOL_SIZE = get_settings().falkordb.thread_pool_size
 _graph_executor = concurrent.futures.ThreadPoolExecutor(max_workers=_POOL_SIZE, thread_name_prefix="falkordb")
 _xref_lock = asyncio.Lock()
 

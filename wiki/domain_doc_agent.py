@@ -276,13 +276,15 @@ class DomainDocAgent(DocOrchestrator):
         repo_paths: dict[str, str] | None = None,
         search_service: Any | None = None,
         budget_resolver: Any | None = None,
+        explore_max_rounds: int | None = None,
+        explore_max_tool_calls: int | None = None,
     ) -> None:
         from core.config import get_settings
         from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM, AGENT_WRITE_SYSTEM
 
         wiki_cfg = get_settings().wiki
-        explore_rounds = wiki_cfg.domain_agent_explore_max_rounds
-        explore_tool_calls = wiki_cfg.domain_agent_explore_max_tool_calls
+        explore_rounds = explore_max_rounds or wiki_cfg.domain_agent_explore_max_rounds
+        explore_tool_calls = explore_max_tool_calls or wiki_cfg.domain_agent_explore_max_tool_calls
 
         page_agent = WikiPageAgent(
             llm,

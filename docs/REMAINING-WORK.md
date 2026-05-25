@@ -133,6 +133,8 @@ _(当前无进行中任务)_
 - [x] Batch AJ: Dashboard 管线配置 + 细粒度进度 ✅ (2026-05-25) — Dashboard: PipelineConcurrencySection (compose/heal/domain/module/flow 并发、heal 轮次、LLM RPM)；后端: heal_pages_node + compose_domain_agents_node 细粒度 progress_callback (4365+535 tests)
 - [x] Batch AK: P1 架构持久化修复 ✅ (2026-05-25) — _ALLOWED_PROPERTIES 增加 wiki_architecture_layer/confidence、persist_classification compound-key 查找 (repo|name fallback bare name)、Settings dirty 状态保护 (refetch 不覆盖未保存编辑)、数字字段 min/max 校验 (4368+536 tests)
 - [x] Batch AL: P2 安全+性能+前端 ✅ (2026-05-25) — LLM rate limiter 释放锁后 sleep (消除串行化)、/wiki/quick 增加 EDITOR 角色检查、domain 路由 business 绑定校验、pipeline ainvoke 顶层错误边界、前端 useWikiEditSession pageUid 切换重置、test_domain_agent_tier_cap 并发顺序断言修复 (4375+536 tests)
+- [x] Batch AM: 管线性能优化 ✅ (2026-05-25) — 探索轮次 tier-aware (SKELETON 8→2, STANDARD 8→5)、module_compose_concurrency 3→6、FalkorDB thread_pool_size 4→8 并暴露配置 (4379 tests)
+- [x] Batch AN: 管线质量优化 ✅ (2026-05-25) — Mermaid 图基于 module_call_edges 真实调用关系替代线性链、quality_gate → heal_hints 传递至 heal 策略 (4389 tests)
 
 ---
 

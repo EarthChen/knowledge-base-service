@@ -29,7 +29,7 @@ def test_pipeline_concurrency_config_defaults():
     assert cfg.domain_agent_concurrency == 3
     assert cfg.heal_concurrency == 5
     assert cfg.bottomup_concurrency == 24
-    assert cfg.module_compose_concurrency == 3
+    assert cfg.module_compose_concurrency == 6
     assert cfg.heal_max_rounds_core == 3
     assert cfg.heal_max_rounds_standard == 1
 

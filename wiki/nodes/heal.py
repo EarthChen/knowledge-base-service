@@ -124,8 +124,9 @@ async def _heal_one_page(
     from wiki.heal_strategy import HealContext
     from wiki.token_budget import TokenBudgetResolver
 
-    if not _update_heal_hint(page_path, page_dict, evaluator, heal_hints, check_cache=check_cache):
-        return False
+    if not heal_hints.get(page_path):
+        if not _update_heal_hint(page_path, page_dict, evaluator, heal_hints, check_cache=check_cache):
+            return False
 
     page = WikiPage.from_dict(page_dict)
     resolver = budget_resolver or TokenBudgetResolver()

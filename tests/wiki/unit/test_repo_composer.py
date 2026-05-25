@@ -254,7 +254,7 @@ class TestComposeRepoWiki:
         collector.collect = AsyncMock(side_effect=collect)
         rc = WikiRepoComposer(graph, composer, collector, WikiExporter(), WikiContextBuilder())
         await rc.compose_repo_wiki("demo", wiki_config)
-        assert max_seen["n"] <= 3
+        assert max_seen["n"] <= 6
 
 
 class TestClassificationAndOrdering:

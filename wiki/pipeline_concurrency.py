@@ -16,6 +16,7 @@ class PipelineConcurrency:
     """Provides stage-specific semaphores from unified config."""
 
     _cache: ClassVar[dict[str, asyncio.Semaphore]] = {}
+    _overrides: ClassVar[dict[str, int] | None] = None
 
     _LEGACY_ENV_ALIASES: ClassVar[dict[str, str]] = {
         "domain_agent": "DOMAIN_AGENT_CONCURRENCY",
@@ -32,6 +33,10 @@ class PipelineConcurrency:
 
     @classmethod
     def _resolve_limit(cls, stage: str) -> int:
+        # 0. Runtime overrides (highest priority)
+        if cls._overrides and stage in cls._overrides:
+            return cls._overrides[stage]
+
         env_key = f"WIKI_{stage.upper()}_CONCURRENCY"
         env_val = os.environ.get(env_key)
         if env_val is not None:
@@ -73,6 +78,18 @@ class PipelineConcurrency:
     def reset(cls) -> None:
         """Clear cached semaphores (for testing)."""
         cls._cache.clear()
+        cls._overrides = None
+
+    @classmethod
+    def refresh(cls, overrides: dict[str, int] | None = None) -> None:
+        """Clear cached semaphores so next access picks up new config values.
+
+        Call after settings hot-reload to apply concurrency changes without restart.
+        Optionally pass ``overrides`` to set runtime values that take priority over
+        env vars and config defaults.
+        """
+        cls._cache.clear()
+        cls._overrides = overrides
 
     @classmethod
     def limit(cls, stage: str) -> int:

@@ -302,7 +302,8 @@ export type WikiEventType =
   | "wiki:page_updated"
   | "wiki:generation_started"
   | "wiki:generation_completed"
-  | "wiki:generation_failed";
+  | "wiki:generation_failed"
+  | "business_gen_progress";
 
 export type WikiEvent = {
   type: WikiEventType;

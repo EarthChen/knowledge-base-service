@@ -166,6 +166,18 @@ export interface WikiAsyncTask {
   phase?: string;
   /** Human-readable detail text from the running pipeline step. */
   detail?: string;
+  /** Per-node status map for pipeline visualization. */
+  node_statuses?: Record<string, {
+    status: "pending" | "running" | "completed" | "failed" | "skipped";
+    started_at?: number;
+    completed_at?: number;
+    elapsed_sec?: number;
+    detail?: string;
+    items_processed?: number;
+    items_total?: number;
+  }>;
+  /** Snapshot of config values that drove this task. */
+  config_snapshot?: Record<string, string | number | boolean>;
   /** @deprecated Prefer `phase`; legacy field from older task payloads. */
   current_phase?: string;
   incremental?: string;

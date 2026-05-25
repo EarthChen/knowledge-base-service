@@ -1,45 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, XCircle, AlertTriangle } from "lucide-react";
+import { Loader2, XCircle, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { cancelWikiTask, listActiveWikiTasks } from "../../api/client";
 import type { WikiAsyncTask } from "../../api/types";
 import type { Translations } from "../../i18n/types";
 import { useI18n } from "../../i18n/context";
 import { useToast } from "../Toast";
-
-type PhaseKey =
-  | "classify_entities"
-  | "detect_reorg"
-  | "graph_domain_decompose"
-  | "set_review_status"
-  | "compose_leaf_modules"
-  | "plan_topic_structure"
-  | "compose_leaf"
-  | "quality_gate"
-  | "heal_pages"
-  | "summarize_leaves"
-  | "parent_aggregate"
-  | "overview"
-  | "linking"
-  | "finalize"
-  | "leaf_compose"
-  | "business_flow"
-  | "navigation"
-  | "quality_eval"
-  | "classifying_domains"
-  | "persisting_pages"
-  | "generating_pages";
-
-const ORDERED_PHASES: PhaseKey[] = [
-  "classify_entities",
-  "graph_domain_decompose",
-  "compose_leaf_modules",
-  "compose_leaf",
-  "quality_gate",
-  "parent_aggregate",
-  "overview",
-  "linking",
-  "finalize",
-];
+import WikiPipelineVisualization from "./WikiPipelineVisualization";
 
 type WikiPhaseTranslationKey =
   | "phaseClassifyEntities"
@@ -94,6 +60,7 @@ export default function WikiActiveTasks({ businessId }: WikiActiveTasksProps) {
   const [pollFailed, setPollFailed] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const [expandedPipeline, setExpandedPipeline] = useState<Record<string, boolean>>({});
   const mountedRef = useRef(true);
   const pollFailCountRef = useRef(0);
   const { t } = useI18n();
@@ -246,39 +213,33 @@ export default function WikiActiveTasks({ businessId }: WikiActiveTasksProps) {
               <p className="mt-0.5 text-xs text-sky-600 dark:text-sky-400">{task.detail}</p>
             )}
 
-            {/* Stage flow indicator */}
-            <div className="mt-1.5 flex items-center gap-1">
-              {ORDERED_PHASES.map((phase, idx) => {
-                const currentPhase = task.phase;
-                const currentIdx = currentPhase
-                  ? ORDERED_PHASES.indexOf(currentPhase as PhaseKey)
-                  : -1;
-                const isCompleted = currentIdx > idx;
-                const isCurrent = currentIdx === idx;
-                return (
-                  <div key={phase} className="flex items-center gap-1">
-                    <div
-                      className={`h-2 w-2 rounded-full transition-colors ${
-                        isCurrent
-                          ? "bg-sky-500 ring-2 ring-sky-300 dark:ring-sky-700"
-                          : isCompleted
-                            ? "bg-sky-400 dark:bg-sky-500"
-                            : "bg-gray-200 dark:bg-gray-700"
-                      }`}
-                      title={wikiPhaseLabel(t.wiki, phase)}
-                    />
-                    {idx < ORDERED_PHASES.length - 1 && (
-                      <div
-                        className={`h-px w-2 ${
-                          isCompleted
-                            ? "bg-sky-400 dark:bg-sky-500"
-                            : "bg-gray-200 dark:bg-gray-700"
-                        }`}
-                      />
-                    )}
-                  </div>
-                );
-              })}
+            {/* Pipeline visualization */}
+            <div className="mt-1.5">
+              <button
+                type="button"
+                className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                onClick={() =>
+                  setExpandedPipeline((prev) => ({
+                    ...prev,
+                    [task.task_id]: !prev[task.task_id],
+                  }))
+                }
+                aria-expanded={!!expandedPipeline[task.task_id]}
+              >
+                {expandedPipeline[task.task_id] ? (
+                  <ChevronDown size={12} />
+                ) : (
+                  <ChevronRight size={12} />
+                )}
+                {t.wiki.pipelineVisualization}
+              </button>
+              <div className="mt-1">
+                <WikiPipelineVisualization
+                  nodeStatuses={task.node_statuses}
+                  currentPhase={task.phase}
+                  compact={!expandedPipeline[task.task_id]}
+                />
+              </div>
             </div>
 
             {pct > 0 && (

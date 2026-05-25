@@ -522,6 +522,13 @@ export interface Translations {
     pipelineGroupHealRounds: string;
     pipelineGroupRateLimit: string;
     wikiGitTitle: string;
+    domainAgentTitle: string;
+    compositionTitle: string;
+    domainReassemblyTitle: string;
+    healingQualityTitle: string;
+    delegationEnrichmentTitle: string;
+    businessDomainTitle: string;
+    incrementalBudgetTitle: string;
     llmTitle: string;
     llmProviderPool: string;
     llmProviderPoolDesc: string;
@@ -580,7 +587,58 @@ export interface Translations {
       fieldLlmGlobalRpmLimit: string;
       fieldRagEnabled: string;
       fieldEnrichmentEnabled: string;
+      fieldEnrichmentRound1Enabled: string;
+      fieldEnrichmentRound2Enabled: string;
       fieldGitPublishEnabled: string;
+      // Domain agent
+      fieldDomainAgentMaxIterationsCore: string;
+      fieldDomainAgentMaxIterationsStandard: string;
+      fieldDomainAgentMaxIterationsSkeleton: string;
+      fieldDomainAgentTimeoutSec: string;
+      fieldDomainAgentExploreMaxRounds: string;
+      fieldDomainAgentExploreMaxToolCalls: string;
+      fieldDomainAgentEarlyExitQuality: string;
+      fieldDomainAgentEarlyExitMinChars: string;
+      // Composition
+      fieldWikiContentLanguage: string;
+      fieldFlowComposeEnabled: string;
+      fieldGuidedTourEnabled: string;
+      fieldBusinessWikiSkipRepoPages: string;
+      // Reassembly
+      fieldDomainReassemblyEnabled: string;
+      fieldReassemblyMergeThreshold: string;
+      fieldEmbeddingMergeThreshold: string;
+      fieldReassemblyOrphanThreshold: string;
+      fieldReassemblyMaxMovesPct: string;
+      fieldReassemblyRespectUserModified: string;
+      fieldConsolidationMinCount: string;
+      fieldConsolidationMinDomains: string;
+      // Healing & quality
+      fieldHealLoopMaxTotalAttempts: string;
+      fieldHealL2Threshold: string;
+      fieldHealOnL3Failure: string;
+      fieldHealL3Threshold: string;
+      fieldQualityEvaluationMode: string;
+      fieldQualityMinScore: string;
+      fieldQualityAutoHeal: string;
+      fieldQualityJudgeModel: string;
+      fieldQualitySampleSize: string;
+      // Delegation
+      fieldDelegationEnabled: string;
+      fieldDelegationMaxChildren: string;
+      fieldDelegationMaxCodeLines: string;
+      fieldDelegationGroupingStrategy: string;
+      // Business domain
+      fieldBusinessDomainSubBatchSize: string;
+      fieldBusinessDomainClassifyTimeout: string;
+      fieldBusinessDomainMaxConcurrency: string;
+      fieldBusinessDomainCacheTtl: string;
+      // Incremental & budget
+      fieldIncrementalEnabled: string;
+      fieldResumeFromSaved: string;
+      fieldDefaultLlmBudget: string;
+      fieldSkeletonStrategy: string;
+      fieldSkeletonLightModel: string;
       fieldLlmEnabled: string;
       fieldRequireAuth: string;
       fieldUseFp16: string;
@@ -595,6 +653,20 @@ export interface Translations {
       optionCodeStructure: string;
       optionOriginal: string;
       optionKebab: string;
+      // Quality evaluation mode
+      optionHeuristic: string;
+      optionLlm: string;
+      optionHybrid: string;
+      // Delegation grouping strategy
+      optionFlat: string;
+      optionHierarchical: string;
+      // Skeleton strategy
+      optionPriority: string;
+      optionRoundRobin: string;
+      // Content language
+      optionLangEn: string;
+      optionLangZh: string;
+      optionLangAuto: string;
       // Source badges
       fieldSourceDb: string;
       fieldSourceEnv: string;
@@ -982,6 +1054,32 @@ export interface Translations {
     phaseClassifyingDomains: string;
     phasePersistingPages: string;
     phaseGeneratingPages: string;
+    /** Pipeline node labels (21 nodes) */
+    phaseDetectReorg: string;
+    phaseClassifyEntityRoles: string;
+    phaseGraphDecompose: string;
+    phaseAssignKeys: string;
+    phaseGenerateTitles: string;
+    phaseComposeLeafModulesNew: string;
+    phaseClassifyArchitectureLayers: string;
+    phaseGraphDomainDecompose: string;
+    phasePersistClassification: string;
+    phaseSetReviewStatus: string;
+    phaseComposeDomainAgents: string;
+    phaseSummarizeLeaves: string;
+    phaseComposeParentPages: string;
+    phaseReassembleDomains: string;
+    phaseComposeFlowAgents: string;
+    phaseMergeFlowPages: string;
+    phaseQualityGateNew: string;
+    phaseHealPages: string;
+    phaseCreateLinks: string;
+    phaseGenerateTourNew: string;
+    phaseFinalizeNew: string;
+    /** Pipeline visualization UI */
+    pipelineVisualization: string;
+    /** Use {elapsed} for elapsed seconds */
+    nodeElapsed: string;
     /** Nested wiki UI strings for topic/domain review and related surfaces */
     domain_review: {
       pending_review_message: string;

@@ -128,6 +128,7 @@ class SettingsService:
         valid = get_valid_keys()
         key_to_category = _build_key_category_map()
         items = []
+        has_concurrency_change = False
         for u in updates:
             key = u["key"]
             if key not in valid:
@@ -137,7 +138,13 @@ class SettingsService:
             if key in SENSITIVE_KEYS:
                 value = encrypt_value(value)
             items.append({"key": key, "value": value, "category": category})
+            if key.startswith("wiki.") and key.endswith("_concurrency"):
+                has_concurrency_change = True
         await self._store.upsert_batch(items)
+        if has_concurrency_change:
+            from wiki.pipeline_concurrency import PipelineConcurrency
+            PipelineConcurrency.refresh()
+            log.info("pipeline_concurrency_refreshed", trigger="settings_update")
 
     async def delete_setting(self, key: str) -> bool:
         return await self._store.delete(key)

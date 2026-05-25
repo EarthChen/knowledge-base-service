@@ -10,12 +10,12 @@ class TestPipelineConcurrencyLimit:
     def test_known_stage_returns_config_value(self):
         from wiki.pipeline_concurrency import PipelineConcurrency
         limit = PipelineConcurrency.limit("heal")
-        assert limit == 5
+        assert limit == 8
 
     def test_unknown_stage_returns_compose_default(self):
         from wiki.pipeline_concurrency import PipelineConcurrency
         limit = PipelineConcurrency.limit("nonexistent_stage")
-        assert limit == 12
+        assert limit == 16
 
     def test_env_var_override_takes_priority(self):
         from wiki.pipeline_concurrency import PipelineConcurrency
@@ -54,12 +54,12 @@ class TestPipelineConcurrencySemaphore:
         from wiki.pipeline_concurrency import PipelineConcurrency
         sem = PipelineConcurrency.semaphore("heal")
         assert isinstance(sem, asyncio.Semaphore)
-        assert sem._value == 5
+        assert sem._value == 8
 
     def test_domain_agent_default(self):
         from wiki.pipeline_concurrency import PipelineConcurrency
         sem = PipelineConcurrency.semaphore("domain_agent")
-        assert sem._value == 3
+        assert sem._value == 6
 
     def test_semaphore_returns_same_instance(self):
         from wiki.pipeline_concurrency import PipelineConcurrency
@@ -104,9 +104,9 @@ class TestPipelineConcurrencyRefresh:
 
     def test_refresh_picks_up_new_config_values(self):
         from wiki.pipeline_concurrency import PipelineConcurrency
-        # Initially heal_concurrency=5
+        # Initially heal_concurrency=8
         sem_before = PipelineConcurrency.semaphore("heal")
-        assert sem_before._value == 5
+        assert sem_before._value == 8
         # Simulate config change via env var
         with patch.dict(os.environ, {"WIKI_HEAL_CONCURRENCY": "15"}):
             PipelineConcurrency.refresh()
@@ -129,4 +129,4 @@ class TestPipelineConcurrencyRefresh:
         from wiki.pipeline_concurrency import PipelineConcurrency
         PipelineConcurrency.refresh()
         # Should still resolve from config defaults
-        assert PipelineConcurrency.limit("heal") == 5
+        assert PipelineConcurrency.limit("heal") == 8

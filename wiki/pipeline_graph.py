@@ -102,6 +102,8 @@ def _with_progress(
                         "phase": phase,
                         "progress_pct": pct,
                         "detail": f"{phase} 开始",
+                        "node_name": node_name,
+                        "node_status": "running",
                     })
                 except Exception:
                     log.debug("progress_callback_failed", phase=phase, exc_info=True)
@@ -115,6 +117,18 @@ def _with_progress(
                 phase=phase,
                 elapsed_sec=round(elapsed, 1),
             )
+            if cb:
+                try:
+                    await cb({
+                        "phase": phase,
+                        "progress_pct": pct,
+                        "detail": f"{phase} 完成 ({elapsed:.1f}s)",
+                        "node_name": node_name,
+                        "node_status": "completed",
+                        "elapsed_sec": round(elapsed, 2),
+                    })
+                except Exception:
+                    log.debug("progress_callback_failed", phase=phase, exc_info=True)
             return result
     else:
         async def _wrapper(state: WikiPipelineState) -> dict[str, Any]:  # type: ignore[misc]

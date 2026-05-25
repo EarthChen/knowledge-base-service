@@ -20,16 +20,16 @@ def test_wiki_supersession_default_enabled() -> None:
 
 
 def test_wiki_compose_concurrency_default() -> None:
-    assert AppWikiFlags().compose_concurrency == 12
+    assert AppWikiFlags().compose_concurrency == 16
 
 
 def test_pipeline_concurrency_config_defaults():
     from core.config import AppWikiFlags
     cfg = AppWikiFlags()
-    assert cfg.domain_agent_concurrency == 3
-    assert cfg.heal_concurrency == 5
+    assert cfg.domain_agent_concurrency == 6
+    assert cfg.heal_concurrency == 8
     assert cfg.bottomup_concurrency == 24
-    assert cfg.module_compose_concurrency == 6
+    assert cfg.module_compose_concurrency == 12
     assert cfg.heal_max_rounds_core == 3
     assert cfg.heal_max_rounds_standard == 1
 

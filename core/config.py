@@ -268,10 +268,10 @@ class AppWikiFlags(BaseModel):
     progressive_persist_batch_size: int = 20
 
     #: Max concurrent wiki subtrees during compose (sibling ``walk`` tasks) and enrichment.
-    compose_concurrency: int = Field(default=12, ge=1)
+    compose_concurrency: int = Field(default=16, ge=1)
 
     #: Pipeline stage concurrency — unified control (see wiki/pipeline_concurrency.py)
-    domain_agent_concurrency: int = Field(default=3, ge=1)
+    domain_agent_concurrency: int = Field(default=6, ge=1)
     domain_agent_max_iterations_core: int = Field(default=20, ge=1)
     domain_agent_max_iterations_standard: int = Field(default=8, ge=1)
     domain_agent_max_iterations_skeleton: int = Field(default=3, ge=1)
@@ -286,9 +286,9 @@ class AppWikiFlags(BaseModel):
     )
     topic_split_quality_check: bool = True
     wiki_generation_concurrency: int = Field(default=5, ge=1)
-    heal_concurrency: int = Field(default=5, ge=1)
+    heal_concurrency: int = Field(default=8, ge=1)
     bottomup_concurrency: int = Field(default=24, ge=1)
-    module_compose_concurrency: int = Field(default=6, ge=1)
+    module_compose_concurrency: int = Field(default=12, ge=1)
     domain_naming_concurrency: int = Field(default=5, ge=1)
 
     #: Global LLM provider rate limits across all pipeline stages (0 = disabled).

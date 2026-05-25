@@ -35,6 +35,29 @@ HOT_RELOAD_KEYS = frozenset({
     "llm.strategy.rag_generate",
     "llm.strategy.overview",
     "llm.strategy.context",
+    # Pipeline concurrency — hot-reloadable via PipelineConcurrency.refresh()
+    "wiki.compose_concurrency",
+    "wiki.domain_agent_concurrency",
+    "wiki.wiki_generation_concurrency",
+    "wiki.heal_concurrency",
+    "wiki.bottomup_concurrency",
+    "wiki.module_compose_concurrency",
+    "wiki.domain_naming_concurrency",
+    "wiki.flow_compose_concurrency",
+    # LLM rate limits
+    "wiki.llm_global_rpm_limit",
+    "wiki.llm_global_tpm_limit",
+    # Domain agent tuning
+    "wiki.domain_agent_max_iterations_core",
+    "wiki.domain_agent_max_iterations_standard",
+    "wiki.domain_agent_max_iterations_skeleton",
+    # Heal tuning
+    "wiki.heal_max_rounds_core",
+    "wiki.heal_max_rounds_standard",
+    "wiki.heal_loop_max_total_attempts",
+    # Quality
+    "wiki.quality_min_score",
+    "wiki.quality_sample_size",
 })
 
 

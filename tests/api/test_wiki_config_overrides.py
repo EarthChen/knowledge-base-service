@@ -6,14 +6,7 @@ and that overrides are merged into pipeline state config.
 
 from __future__ import annotations
 
-import asyncio
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
-
 from api.models.wiki_models import BusinessWikiGenerateBody
-
 
 # ---------------------------------------------------------------------------
 # Phase 5a: BusinessWikiGenerateBody accepts config_overrides
@@ -76,6 +69,7 @@ def test_pipeline_concurrency_refresh_applies_overrides() -> None:
 def test_pipeline_concurrency_refresh_overrides_take_priority() -> None:
     """Runtime overrides have higher priority than env vars and config."""
     import os
+
     from wiki.pipeline_concurrency import PipelineConcurrency
 
     PipelineConcurrency.reset()
@@ -94,7 +88,6 @@ def test_pipeline_concurrency_refresh_clears_semaphore_cache() -> None:
 
     PipelineConcurrency.reset()
     _ = PipelineConcurrency.semaphore("compose_concurrency")
-    initial_limit = PipelineConcurrency.limit("compose_concurrency")
 
     PipelineConcurrency.refresh(overrides={"compose_concurrency": 50})
     assert PipelineConcurrency.limit("compose_concurrency") == 50

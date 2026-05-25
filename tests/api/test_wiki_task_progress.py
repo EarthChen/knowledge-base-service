@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -177,7 +176,6 @@ async def test_task_response_includes_config_snapshot(task_store: SqliteTaskStor
 
 async def test_progress_callback_enriches_registry(registry) -> None:
     """The _progress callback passes node_statuses into WikiTaskRegistry.put_task()."""
-    from api.routes.wiki_task_routes import _run_business_wiki_background
 
     # Set up a task in registry
     registry.put_task("task-5", {"task_id": "task-5", "status": "pending", "business_id": "biz-1"})

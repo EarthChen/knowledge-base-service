@@ -139,7 +139,10 @@ class WikiExportExecuteBody(BaseModel):
     target_dir: str = Field(..., min_length=1)
     selected_files: list[str] | None = Field(
         default=None,
-        description="If set, only these wiki paths are written (create/update). If null, all pending create/update from preview.",
+        description=(
+            "If set, only these wiki paths are written (create/update). "
+            "If null, all pending create/update from preview."
+        ),
     )
 
 

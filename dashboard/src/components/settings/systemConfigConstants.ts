@@ -25,6 +25,17 @@ export const WIKI_FEATURES_KEYS = [
   "wiki.schema_validation_enabled",
 ] as const;
 
+export const WIKI_PIPELINE_CONCURRENCY_KEYS = [
+  "wiki.compose_concurrency",
+  "wiki.heal_concurrency",
+  "wiki.domain_agent_concurrency",
+  "wiki.module_compose_concurrency",
+  "wiki.flow_compose_concurrency",
+  "wiki.heal_max_rounds_core",
+  "wiki.heal_max_rounds_standard",
+  "wiki.llm_global_rpm_limit",
+] as const;
+
 export const WIKI_GENERATION_KEYS = [
   "wiki.code_budget_enabled",
   "wiki.core_code_budget",
@@ -102,6 +113,7 @@ export const SYSTEM_KEYS_LIST = ["host", "port", "log_level", "rate_limit_rpm", 
 export const ALL_CONFIG_KEYS: string[] = [
   ...WIKI_FEATURES_KEYS,
   ...WIKI_GENERATION_KEYS,
+  ...WIKI_PIPELINE_CONCURRENCY_KEYS,
   ...WIKI_GIT_KEYS,
   ...LLM_KEYS,
   ...STORAGE_KEYS_LIST,
@@ -126,6 +138,36 @@ export const BOOL_KEYS = new Set<string>([
 ]);
 
 export type SettingMeta = { source: string; sensitive: boolean; category: string };
+
+export type NumberFieldConstraint = { min: number; max: number };
+
+/** Min/max bounds for number settings validated on save. */
+export const NUMBER_FIELD_CONSTRAINTS: Record<string, NumberFieldConstraint> = {
+  "wiki.compose_concurrency": { min: 1, max: 50 },
+  "wiki.heal_concurrency": { min: 1, max: 20 },
+  "wiki.domain_agent_concurrency": { min: 1, max: 10 },
+  "wiki.module_compose_concurrency": { min: 1, max: 10 },
+  "wiki.flow_compose_concurrency": { min: 1, max: 10 },
+  "wiki.heal_max_rounds_core": { min: 0, max: 5 },
+  "wiki.heal_max_rounds_standard": { min: 0, max: 5 },
+  "wiki.llm_global_rpm_limit": { min: 0, max: 300 },
+};
+
+export type NumberFieldValidationError =
+  | { kind: "empty"; key: string }
+  | { kind: "outOfRange"; key: string; min: number; max: number };
+
+export function validateNumberFieldValue(key: string, value: string): NumberFieldValidationError | null {
+  const constraint = NUMBER_FIELD_CONSTRAINTS[key];
+  if (!constraint) return null;
+  const trimmed = value.trim();
+  if (trimmed === "") return { kind: "empty", key };
+  const num = Number(trimmed);
+  if (!Number.isFinite(num) || num < constraint.min || num > constraint.max) {
+    return { kind: "outOfRange", key, min: constraint.min, max: constraint.max };
+  }
+  return null;
+}
 
 export function truthyString(s: string): boolean {
   const v = s.trim().toLowerCase();

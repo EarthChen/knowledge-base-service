@@ -199,7 +199,7 @@ class BusinessPipelineRunner:
                     else:
                         skipped_repos.append(repo_name)
             except Exception:
-                log.warning("freshness_check_failed", exc_info=True)
+                log.error("freshness_check_failed", exc_info=True)
                 changed_repos = set(all_modules.keys())
                 skipped_repos = []
 

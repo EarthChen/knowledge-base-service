@@ -932,6 +932,7 @@ class WikiPageAgent(GenericAgent):
             repaired = strip_agent_artifacts(response) if response else ""
             return repaired if len(repaired) > 200 else content
         except Exception:
+            log.warning("repair_failed", exc_info=True)
             return content
 
     def _generate_skeleton(self, module_names: list[str], domain_name: str) -> str:
@@ -1252,6 +1253,7 @@ class WikiPageAgent(GenericAgent):
                         })
                 return label_results
             except Exception:
+                log.warning("search_label_failed", label=label, keyword=keyword, exc_info=True)
                 return []
 
         per_label_results = await asyncio.gather(

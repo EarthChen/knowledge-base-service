@@ -8,6 +8,8 @@ type Props = {
   placeholder?: string;
   source?: string;
   description?: string;
+  min?: number;
+  max?: number;
 };
 
 export default function SettingsInput({
@@ -18,6 +20,8 @@ export default function SettingsInput({
   placeholder,
   source,
   description,
+  min,
+  max,
 }: Props) {
   const id = useId();
   return (
@@ -35,6 +39,8 @@ export default function SettingsInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        min={min}
+        max={max}
         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
       />
     </div>

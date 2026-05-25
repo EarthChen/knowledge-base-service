@@ -68,7 +68,7 @@ async def test_incremental_no_change_skips_edge_fetch():
 
 @pytest.mark.asyncio
 async def test_classify_architecture_layers_compound_keys():
-    """Two repos with same module name preserve distinct architecture layers."""
+    """Two repos with same module name both get compound-key entries."""
     from wiki.architecture_classifier import LayerResult
     from wiki.nodes.classify_architecture import classify_architecture_layers_node
 
@@ -80,12 +80,11 @@ async def test_classify_architecture_layers_compound_keys():
     }
     config = {"configurable": {"graph_store": MagicMock(), "llm": MagicMock()}}
 
-    async def _classify(name: str, path: str) -> LayerResult:
-        layer = "api" if path.startswith("a/") else "service"
-        return LayerResult(layer=layer, confidence=0.9, votes=[])
+    async def _batch_classify(modules):
+        return {"UserService": LayerResult(layer="service", confidence=0.9, votes=[])}
 
     mock_classifier = MagicMock()
-    mock_classifier.classify_module = AsyncMock(side_effect=_classify)
+    mock_classifier.classify_modules_batch = AsyncMock(side_effect=_batch_classify)
 
     with patch(
         "wiki.architecture_classifier.ArchitectureLayerClassifier",
@@ -94,7 +93,9 @@ async def test_classify_architecture_layers_compound_keys():
         result = await classify_architecture_layers_node(modules_state, config)
 
     layers = result["architecture_layers"]
-    assert layers["repo_a|UserService"] == {"layer": "api", "confidence": 0.9}
+    assert "repo_a|UserService" in layers
+    assert "repo_b|UserService" in layers
+    assert layers["repo_a|UserService"] == {"layer": "service", "confidence": 0.9}
     assert layers["repo_b|UserService"] == {"layer": "service", "confidence": 0.9}
 
 

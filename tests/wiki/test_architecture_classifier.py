@@ -285,3 +285,116 @@ class TestClassifyModule:
         assert result.confidence > 0
         assert len(result.votes) == 3
         assert {v.signal for v in result.votes} == {"annotation", "topology", "path_pattern"}
+
+
+class TestBatchClassification:
+    """Tests for batch classification (3 queries instead of 3*N)."""
+
+    @pytest.mark.asyncio
+    async def test_batch_annotations_single_query(
+        self, config: AppWikiFlags, store: MagicMock
+    ) -> None:
+        """Batch annotations should issue ONE query for all modules."""
+        store.execute_query = AsyncMock(
+            return_value=MagicMock(data=[
+                {"module_name": "UserCtrl", "layer": "presentation"},
+                {"module_name": "UserCtrl", "layer": "presentation"},
+                {"module_name": "UserRepo", "layer": "data_access"},
+            ])
+        )
+        clf = ArchitectureLayerClassifier(config=config, graph_store=store)
+        votes = await clf._batch_vote_by_annotations(["UserCtrl", "UserRepo", "EmptyMod"])
+
+        # Only 1 query call
+        assert store.execute_query.await_count == 1
+        assert votes["UserCtrl"].layer == "api"
+        assert votes["UserRepo"].layer == "data"
+        assert votes["EmptyMod"].layer == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_batch_topology_two_queries(
+        self, config: AppWikiFlags, store: MagicMock
+    ) -> None:
+        """Batch topology should issue exactly 2 queries (fan_in + fan_out)."""
+        store.execute_query = AsyncMock(
+            side_effect=[
+                MagicMock(data=[
+                    {"module_name": "ApiMod", "fan_in": 8},
+                    {"module_name": "DataMod", "fan_in": 1},
+                ]),
+                MagicMock(data=[
+                    {"module_name": "ApiMod", "fan_out": 1},
+                    {"module_name": "DataMod", "fan_out": 8},
+                ]),
+            ]
+        )
+        clf = ArchitectureLayerClassifier(config=config, graph_store=store)
+        fan_in_map, fan_out_map = await clf._batch_vote_by_topology(["ApiMod", "DataMod"])
+
+        assert store.execute_query.await_count == 2
+        assert fan_in_map["ApiMod"] == 8
+        assert fan_out_map["DataMod"] == 8
+
+    @pytest.mark.asyncio
+    async def test_classify_modules_batch_end_to_end(
+        self, config: AppWikiFlags, store: MagicMock
+    ) -> None:
+        """Full batch classification uses 3 total queries."""
+        call_count = 0
+
+        async def mock_query(query, params=None):
+            nonlocal call_count
+            call_count += 1
+            if "architecture_layer" in query:
+                return MagicMock(data=[
+                    {"module_name": "UserService", "layer": "business"},
+                    {"module_name": "UserService", "layer": "business"},
+                ])
+            elif "fan_in" in query.split("RETURN")[1]:
+                return MagicMock(data=[
+                    {"module_name": "UserService", "fan_in": 4},
+                ])
+            else:
+                return MagicMock(data=[
+                    {"module_name": "UserService", "fan_out": 4},
+                ])
+
+        store.execute_query = AsyncMock(side_effect=mock_query)
+        clf = ArchitectureLayerClassifier(config=config, graph_store=store)
+        results = await clf.classify_modules_batch([
+            ("UserService", "src/service/UserService.java"),
+        ])
+
+        assert call_count == 3  # 1 annotation + 2 topology
+        assert "UserService" in results
+        assert results["UserService"].layer == "service"
+
+    @pytest.mark.asyncio
+    async def test_batch_empty_modules(
+        self, config: AppWikiFlags, store: MagicMock
+    ) -> None:
+        """Empty input should return empty results without any queries."""
+        clf = ArchitectureLayerClassifier(config=config, graph_store=store)
+        results = await clf.classify_modules_batch([])
+
+        assert results == {}
+        store.execute_query.assert_not_awaited()
+
+    def test_compute_topology_vote_high_fan_in(self) -> None:
+        vote = ArchitectureLayerClassifier._compute_topology_vote(8, 1)
+        assert vote.layer == "api"
+        assert vote.confidence == pytest.approx(0.9)
+
+    def test_compute_topology_vote_high_fan_out(self) -> None:
+        vote = ArchitectureLayerClassifier._compute_topology_vote(1, 8)
+        assert vote.layer == "data"
+        assert vote.confidence == pytest.approx(0.9)
+
+    def test_compute_topology_vote_balanced(self) -> None:
+        vote = ArchitectureLayerClassifier._compute_topology_vote(4, 4)
+        assert vote.layer == "service"
+
+    def test_compute_topology_vote_low_total(self) -> None:
+        vote = ArchitectureLayerClassifier._compute_topology_vote(1, 1)
+        assert vote.layer == "unknown"
+        assert vote.confidence == 0.0

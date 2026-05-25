@@ -49,6 +49,36 @@ describe("useWikiEditSession", () => {
     fetchMock.mockRestore();
   });
 
+  it("resets session state when pageUid changes", async () => {
+    vi.mocked(api).mockResolvedValue({ session_id: "sess-1" });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("", { status: 200, headers: { "Content-Type": "text/event-stream" } }),
+    );
+
+    const { result, rerender } = renderHook(({ pageUid }: { pageUid: string }) => useWikiEditSession(pageUid), {
+      wrapper: createWrapper(),
+      initialProps: { pageUid: "page-uid-1" },
+    });
+
+    await act(async () => {
+      await result.current.createSession("improve intro", "# Hello");
+    });
+
+    expect(result.current.sessionId).toBe("sess-1");
+
+    rerender({ pageUid: "page-uid-2" });
+
+    await waitFor(() => {
+      expect(result.current.sessionId).toBeNull();
+      expect(result.current.events).toEqual([]);
+      expect(result.current.isStreaming).toBe(false);
+      expect(result.current.editedContent).toBeNull();
+      expect(result.current.error).toBeNull();
+    });
+
+    fetchMock.mockRestore();
+  });
+
   it("discards session without API when no session id", async () => {
     const { result } = renderHook(() => useWikiEditSession("page-uid-2"), {
       wrapper: createWrapper(),

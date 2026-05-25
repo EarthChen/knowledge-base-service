@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -87,6 +88,143 @@ class ArchitectureLayerClassifier:
 
         return result
 
+    async def classify_modules_batch(
+        self, modules: list[tuple[str, str]]
+    ) -> dict[str, LayerResult]:
+        """Classify multiple modules with only 3 Cypher queries total.
+
+        Args:
+            modules: list of (module_name, module_path) tuples
+        Returns:
+            dict mapping module_name → LayerResult
+        """
+        if not modules:
+            return {}
+
+        names = [name for name, _ in modules]
+
+        # 3 batch queries instead of 3*N individual ones
+        annotation_votes = await self._batch_vote_by_annotations(names)
+        fan_in_map, fan_out_map = await self._batch_vote_by_topology(names)
+
+        results: dict[str, LayerResult] = {}
+        low_confidence: list[tuple[str, str, list[LayerVote]]] = []
+
+        for name, path in modules:
+            ann_vote = annotation_votes.get(name, LayerVote(layer="unknown", confidence=0.0, signal="annotation"))
+            topo_vote = self._compute_topology_vote(
+                fan_in_map.get(name, 0), fan_out_map.get(name, 0)
+            )
+            path_vote = self._vote_by_path(path)
+            votes = [ann_vote, topo_vote, path_vote]
+            result = self._aggregate(votes)
+
+            if result.confidence < 0.5 and self._llm is not None:
+                low_confidence.append((name, path, votes))
+            else:
+                results[name] = result
+
+        # LLM tiebreak for low-confidence items (still per-module, as LLM needs individual context)
+        for name, path, votes in low_confidence:
+            llm_vote = await self._vote_by_llm(name, path, votes)
+            votes.append(llm_vote)
+            results[name] = self._aggregate(votes)
+
+        return results
+
+    async def _batch_vote_by_annotations(self, module_names: list[str]) -> dict[str, LayerVote]:
+        """Single query to get annotation votes for all modules."""
+        query = """
+        MATCH (m:Module)-[:CONTAINS]->(c:Class)
+        WHERE m.name IN $names
+        RETURN m.name AS module_name, c.architecture_layer AS layer
+        """
+        result = await self._store.execute_query(query, {"names": module_names})
+        rows = getattr(result, "data", None) or []
+
+        # Group by module
+        module_layers: dict[str, list[str]] = defaultdict(list)
+        for row in rows:
+            mod_name = row.get("module_name")
+            raw = row.get("layer")
+            if not mod_name or not raw or raw == "unknown":
+                continue
+            classifier_layer = _ENRICHER_TO_CLASSIFIER.get(str(raw))
+            if classifier_layer:
+                module_layers[mod_name].append(classifier_layer)
+
+        votes: dict[str, LayerVote] = {}
+        for name in module_names:
+            mapped = module_layers.get(name, [])
+            if not mapped:
+                votes[name] = LayerVote(layer="unknown", confidence=0.0, signal="annotation")
+            else:
+                counts = Counter(mapped)
+                best_layer, best_count = counts.most_common(1)[0]
+                confidence = best_count / len(mapped)
+                confidence = min(confidence, min(1.0, len(mapped) / 3))
+                votes[name] = LayerVote(layer=best_layer, confidence=confidence, signal="annotation")
+
+        return votes
+
+    async def _batch_vote_by_topology(
+        self, module_names: list[str]
+    ) -> tuple[dict[str, int], dict[str, int]]:
+        """Two queries to get fan_in and fan_out for all modules."""
+        fan_in_query = """
+        MATCH (m:Module)-[:CONTAINS]->(f:Function)
+        WHERE m.name IN $names
+        OPTIONAL MATCH (ext:Function)-[:CALLS]->(f)
+        WHERE NOT (m)-[:CONTAINS]->(ext)
+        RETURN m.name AS module_name, count(DISTINCT ext) AS fan_in
+        """
+        fan_out_query = """
+        MATCH (m:Module)-[:CONTAINS]->(f:Function)
+        WHERE m.name IN $names
+        OPTIONAL MATCH (f)-[:CALLS]->(ext:Function)
+        WHERE NOT (m)-[:CONTAINS]->(ext)
+        RETURN m.name AS module_name, count(DISTINCT ext) AS fan_out
+        """
+        fan_in_result, fan_out_result = await asyncio.gather(
+            self._store.execute_query(fan_in_query, {"names": module_names}),
+            self._store.execute_query(fan_out_query, {"names": module_names}),
+        )
+
+        fan_in_rows = getattr(fan_in_result, "data", None) or []
+        fan_out_rows = getattr(fan_out_result, "data", None) or []
+
+        fan_in_map: dict[str, int] = {}
+        for row in fan_in_rows:
+            name = row.get("module_name")
+            if name:
+                fan_in_map[name] = int(row.get("fan_in") or 0)
+
+        fan_out_map: dict[str, int] = {}
+        for row in fan_out_rows:
+            name = row.get("module_name")
+            if name:
+                fan_out_map[name] = int(row.get("fan_out") or 0)
+
+        return fan_in_map, fan_out_map
+
+    @staticmethod
+    def _compute_topology_vote(fan_in: int, fan_out: int) -> LayerVote:
+        """Pure function: compute topology vote from fan_in/fan_out counts."""
+        total = fan_in + fan_out
+        if total < 3:
+            return LayerVote(layer="unknown", confidence=0.0, signal="topology")
+
+        ratio_in = fan_in / total
+        if ratio_in > 0.7:
+            layer = "api"
+        elif ratio_in < 0.3:
+            layer = "data"
+        else:
+            layer = "service"
+
+        confidence = min(1.0, total / 10)
+        return LayerVote(layer=layer, confidence=confidence, signal="topology")
+
     async def _vote_by_annotations(self, module_name: str) -> LayerVote:
         query = """
         MATCH (m:Module {name: $name})-[:CONTAINS]->(c:Class)
@@ -133,21 +271,7 @@ class ArchitectureLayerClassifier:
         fan_out_rows = getattr(fan_out_result, "data", None) or []
         fan_in = int((fan_in_rows[0] if fan_in_rows else {}).get("fan_in") or 0)
         fan_out = int((fan_out_rows[0] if fan_out_rows else {}).get("fan_out") or 0)
-
-        total = fan_in + fan_out
-        if total < 3:
-            return LayerVote(layer="unknown", confidence=0.0, signal="topology")
-
-        ratio_in = fan_in / total
-        if ratio_in > 0.7:
-            layer = "api"
-        elif ratio_in < 0.3:
-            layer = "data"
-        else:
-            layer = "service"
-
-        confidence = min(1.0, total / 10)
-        return LayerVote(layer=layer, confidence=confidence, signal="topology")
+        return self._compute_topology_vote(fan_in, fan_out)
 
     def _vote_by_path(self, module_path: str) -> LayerVote:
         lower = module_path.lower()

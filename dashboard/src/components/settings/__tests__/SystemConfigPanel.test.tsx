@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -8,6 +8,7 @@ import { TestI18nProvider } from "../../../i18n/context";
 import { ToastProvider } from "../../Toast";
 import { server } from "../../../test/mocks/server";
 import { mockSettingsResponse } from "../../../test/mocks/handlers";
+import { queryKeys } from "../../../api/queryKeys";
 import type { SettingsResponse } from "../../../hooks/settingsTypes";
 
 function renderPanel() {
@@ -17,7 +18,7 @@ function renderPanel() {
       mutations: { retry: false },
     },
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <TestI18nProvider>
         <ToastProvider>
@@ -26,6 +27,12 @@ function renderPanel() {
       </TestI18nProvider>
     </QueryClientProvider>,
   );
+  return { client, ...view };
+}
+
+function getPipelineConcurrencySection() {
+  const heading = screen.getByRole("heading", { name: /pipeline concurrency/i });
+  return heading.closest(".rounded-xl") as HTMLElement;
 }
 
 describe("SystemConfigPanel", () => {
@@ -60,6 +67,7 @@ describe("SystemConfigPanel", () => {
       expect(screen.getByRole("heading", { name: /wiki features/i })).toBeInTheDocument();
     });
     expect(screen.getByRole("heading", { name: /wiki generation/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /pipeline concurrency/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /wiki git/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /^llm$/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /storage/i })).toBeInTheDocument();
@@ -143,5 +151,84 @@ describe("SystemConfigPanel", () => {
     });
     expect(screen.getByText("env")).toBeInTheDocument();
     expect(screen.getByText("default")).toBeInTheDocument();
+  });
+
+  it("preserves dirty fields during background refetch", async () => {
+    const user = userEvent.setup();
+    let fetchCount = 0;
+
+    server.use(
+      http.get("/api/v1/settings", () => {
+        fetchCount += 1;
+        return HttpResponse.json({
+          categories: {
+            wiki_pipeline: {
+              "wiki.compose_concurrency": {
+                value: fetchCount === 1 ? "4" : "99",
+                source: "db",
+                sensitive: false,
+              },
+            },
+          },
+        } satisfies SettingsResponse);
+      }),
+    );
+
+    const { client } = renderPanel();
+
+    await screen.findByRole("heading", { name: /pipeline concurrency/i });
+    const composeInput = within(getPipelineConcurrencySection()).getByRole("spinbutton", {
+      name: /^compose concurrency$/i,
+    });
+    expect(composeInput).toHaveValue(4);
+
+    await user.clear(composeInput);
+    await user.type(composeInput, "10");
+
+    await client.invalidateQueries({ queryKey: queryKeys.settings });
+
+    await waitFor(() => {
+      expect(fetchCount).toBeGreaterThan(1);
+    });
+
+    expect(composeInput).toHaveValue(10);
+    expect(screen.getByRole("button", { name: /save changes \(1\)/i })).toBeInTheDocument();
+  });
+
+  it("rejects empty number fields on save", async () => {
+    const user = userEvent.setup();
+    const putSpy = vi.fn();
+
+    server.use(
+      http.get("/api/v1/settings", () =>
+        HttpResponse.json({
+          categories: {
+            wiki_pipeline: {
+              "wiki.compose_concurrency": { value: "4", source: "db", sensitive: false },
+            },
+          },
+        } satisfies SettingsResponse),
+      ),
+      http.put("/api/v1/settings", async ({ request }) => {
+        putSpy(await request.json());
+        return HttpResponse.json({ status: "ok", updated: "1" });
+      }),
+    );
+
+    renderPanel();
+
+    await screen.findByRole("heading", { name: /pipeline concurrency/i });
+    const composeInput = within(getPipelineConcurrencySection()).getByRole("spinbutton", {
+      name: /^compose concurrency$/i,
+    });
+    await user.clear(composeInput);
+
+    const saveBtn = await screen.findByRole("button", { name: /save changes \(1\)/i });
+    await user.click(saveBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/compose concurrency cannot be empty/i)).toBeInTheDocument();
+    });
+    expect(putSpy).not.toHaveBeenCalled();
   });
 });

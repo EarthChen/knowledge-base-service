@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
+from api.routes.kb_dependencies import get_effective_business_id
 from core.log import get_logger
 
 log = get_logger(__name__)
@@ -55,7 +56,7 @@ class MoveModuleDomainBody(BaseModel):
 async def rename_domain(
     uid: str,
     body: UpdateDomainBody,
-    business_id: str = Query(...),
+    business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
     svc = _get_domain_service()
     return await svc.rename_domain(business_id, uid, body.title, body.description)
@@ -65,7 +66,7 @@ async def rename_domain(
 async def delete_domain(
     uid: str,
     promote_children: bool = Query(True),
-    business_id: str = Query(...),
+    business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
     svc = _get_domain_service()
     return await svc.delete_domain(business_id, uid, promote_children)
@@ -75,7 +76,7 @@ async def delete_domain(
 async def create_subdomain(
     uid: str,
     body: CreateSubdomainBody,
-    business_id: str = Query(...),
+    business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
     svc = _get_domain_service()
     return await svc.create_subdomain(business_id, uid, body.title, body.description)
@@ -84,7 +85,7 @@ async def create_subdomain(
 @router.post("/move")
 async def move_domain_v2(
     body: MoveDomainBody,
-    business_id: str = Query(...),
+    business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
     """Move a WikiSection or WikiPage to a new parent. UID in body to handle slashes."""
     if not body.uid:
@@ -97,7 +98,7 @@ async def move_domain_v2(
 async def move_domain(
     uid: str,
     body: MoveDomainBody,
-    business_id: str = Query(...),
+    business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
     svc = _get_domain_service()
     return await svc.move_domain(business_id, body.uid or uid, body.target_parent_uid)
@@ -106,7 +107,7 @@ async def move_domain(
 @router.post("/merge")
 async def merge_domains(
     body: MergeDomainBody,
-    business_id: str = Query(...),
+    business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
     svc = _get_domain_service()
     return await svc.merge_domains(business_id, body.source_uid, body.target_uid)
@@ -115,7 +116,7 @@ async def merge_domains(
 @router.post("/move-module")
 async def move_module_domain(
     body: MoveModuleDomainBody,
-    business_id: str = Query(...),
+    business_id: str = Depends(get_effective_business_id),
 ) -> dict[str, Any]:
     svc = _get_domain_service()
     return await svc.move_module_domain(business_id, body.module_uid, body.target_domain)
@@ -123,7 +124,7 @@ async def move_module_domain(
 
 @router.post("/reorganize")
 async def reorganize_domains(
-    business_id: str = Query(...),
+    business_id: str = Depends(get_effective_business_id),
     reset_user_edits: bool = Query(False),
 ) -> dict[str, Any]:
     """Manually trigger domain theme aggregation."""

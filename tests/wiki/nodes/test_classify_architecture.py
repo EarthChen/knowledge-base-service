@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -29,12 +28,15 @@ async def test_classify_arch_layers_node_basic() -> None:
     mock_store = MagicMock()
     config = {"configurable": {"graph_store": mock_store, "llm": MagicMock()}}
 
-    async def _classify(name: str, path: str) -> LayerResult:
-        layer = "api" if "Controller" in name else "service"
-        return LayerResult(layer=layer, confidence=0.85, votes=[])
+    async def _classify_batch(modules: list[tuple[str, str]]) -> dict[str, LayerResult]:
+        results: dict[str, LayerResult] = {}
+        for name, _path in modules:
+            layer = "api" if "Controller" in name else "service"
+            results[name] = LayerResult(layer=layer, confidence=0.85, votes=[])
+        return results
 
     mock_classifier = MagicMock()
-    mock_classifier.classify_module = AsyncMock(side_effect=_classify)
+    mock_classifier.classify_modules_batch = AsyncMock(side_effect=_classify_batch)
 
     with patch(
         "wiki.architecture_classifier.ArchitectureLayerClassifier",
@@ -46,7 +48,10 @@ async def test_classify_arch_layers_node_basic() -> None:
     layers = result["architecture_layers"]
     assert layers["repo1|UserController"] == {"layer": "api", "confidence": 0.85}
     assert layers["repo1|UserService"] == {"layer": "service", "confidence": 0.85}
-    assert mock_classifier.classify_module.await_count == 2
+    mock_classifier.classify_modules_batch.assert_awaited_once()
+    call_args = mock_classifier.classify_modules_batch.await_args[0][0]
+    assert ("UserController", "src/api/UserController.java") in call_args
+    assert ("UserService", "src/service/UserService.java") in call_args
 
 
 @pytest.mark.asyncio
@@ -60,19 +65,14 @@ async def test_classify_arch_layers_node_no_store() -> None:
 
 @pytest.mark.asyncio
 async def test_classify_arch_layers_node_error_handling() -> None:
-    """One module throws → others still classified."""
+    """Batch failure → returns empty architecture_layers."""
     from wiki.nodes.classify_architecture import classify_architecture_layers_node
 
     mock_store = MagicMock()
     config = {"configurable": {"graph_store": mock_store}}
 
-    async def _classify(name: str, path: str) -> LayerResult:
-        if name == "UserController":
-            raise RuntimeError("classifier boom")
-        return LayerResult(layer="service", confidence=0.7, votes=[])
-
     mock_classifier = MagicMock()
-    mock_classifier.classify_module = AsyncMock(side_effect=_classify)
+    mock_classifier.classify_modules_batch = AsyncMock(side_effect=RuntimeError("classifier boom"))
 
     with patch(
         "wiki.architecture_classifier.ArchitectureLayerClassifier",
@@ -80,37 +80,25 @@ async def test_classify_arch_layers_node_error_handling() -> None:
     ):
         result = await classify_architecture_layers_node(_modules_state(), config)
 
-    layers = result["architecture_layers"]
-    assert "repo1|UserController" not in layers
-    assert layers["repo1|UserService"] == {"layer": "service", "confidence": 0.7}
+    assert result == {"architecture_layers": {}}
 
 
 @pytest.mark.asyncio
-async def test_classify_arch_layers_node_concurrent() -> None:
-    """Multiple modules should be classified concurrently (not strictly one-at-a-time)."""
+async def test_classify_arch_layers_node_batch_single_call() -> None:
+    """All modules should be classified in a single batch call."""
     from wiki.nodes.classify_architecture import classify_architecture_layers_node
-
-    concurrent = [0]
-    max_concurrent = [0]
-    lock = asyncio.Lock()
 
     mock_store = MagicMock()
     config = {"configurable": {"graph_store": mock_store}}
 
-    async def _classify(name: str, path: str) -> LayerResult:
-        async with lock:
-            concurrent[0] += 1
-            max_concurrent[0] = max(max_concurrent[0], concurrent[0])
-        try:
-            await asyncio.sleep(0.05)
-        finally:
-            async with lock:
-                concurrent[0] -= 1
-        layer = "api" if "Controller" in name else "service"
-        return LayerResult(layer=layer, confidence=0.85, votes=[])
+    async def _classify_batch(modules: list[tuple[str, str]]) -> dict[str, LayerResult]:
+        return {
+            name: LayerResult(layer="service", confidence=0.85, votes=[])
+            for name, _path in modules
+        }
 
     mock_classifier = MagicMock()
-    mock_classifier.classify_module = AsyncMock(side_effect=_classify)
+    mock_classifier.classify_modules_batch = AsyncMock(side_effect=_classify_batch)
 
     n_modules = 8
     modules_state = {
@@ -134,8 +122,5 @@ async def test_classify_arch_layers_node_concurrent() -> None:
         result = await classify_architecture_layers_node(modules_state, config)
 
     assert len(result["architecture_layers"]) == n_modules
-    assert mock_classifier.classify_module.await_count == n_modules
-    assert max_concurrent[0] >= 2, (
-        "classify_module should overlap for independent modules "
-        f"(expected >= 2 concurrent, got max {max_concurrent[0]})"
-    )
+    mock_classifier.classify_modules_batch.assert_awaited_once()
+    assert len(mock_classifier.classify_modules_batch.await_args[0][0]) == n_modules

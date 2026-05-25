@@ -125,3 +125,41 @@ class TestWikiQuick:
         assert r.status_code == 200
         assert r.json()["pages"][0]["title"] == "Overview"
         mock_svc.generate.assert_awaited_once()
+
+
+class TestWikiQuickAuth:
+    def test_viewer_token_receives_403_when_auth_enforced(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import core.auth as auth_mod
+
+        registry = {"viewer-only": auth_mod.TokenInfo(role=auth_mod.Role.VIEWER)}
+        monkeypatch.setattr(auth_mod, "_get_registry", lambda: registry)
+
+        async def status(_git_url: str, _branch: str | None, _token: str | None) -> tuple[str, bool, int]:
+            return ("new-repo", False, 0)
+
+        _, client = _make_quick_app(repo_status=status)
+
+        r = client.post(
+            "/api/v1/wiki/quick",
+            json={"git_url": "https://gitlab.example.com/group/proj.git", "mode": "structure"},
+            headers={"Authorization": "Bearer viewer-only"},
+        )
+        assert r.status_code == 403
+
+    def test_editor_token_allowed_when_auth_enforced(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import core.auth as auth_mod
+
+        registry = {"ed": auth_mod.TokenInfo(role=auth_mod.Role.EDITOR)}
+        monkeypatch.setattr(auth_mod, "_get_registry", lambda: registry)
+
+        async def status(_git_url: str, _branch: str | None, _token: str | None) -> tuple[str, bool, int]:
+            return ("new-repo", False, 0)
+
+        _, client = _make_quick_app(repo_status=status)
+
+        r = client.post(
+            "/api/v1/wiki/quick",
+            json={"git_url": "https://gitlab.example.com/group/proj.git", "mode": "structure"},
+            headers={"Authorization": "Bearer ed"},
+        )
+        assert r.status_code == 202

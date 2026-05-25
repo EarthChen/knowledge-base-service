@@ -128,6 +128,11 @@ _(当前无进行中任务)_
 - [x] Batch AE: §三 管线 P3 清零 ✅ (2026-05-25) — wikilink 域路径前缀、detect_reorg medium 分层、tour 增量门控、死字段移除、Mermaid 去重、死节点导出移除、jieba 模块级导入、generate_titles_node budget 接入 (4342 tests)
 - [x] Batch AF: §四 前端 P2 清零 ✅ (2026-05-25) — TopicTreeNav rename a11y、Indexing 拆分 (816→350行)、shared TreeView、apiStream/apiDownload 提取、列表 memoization、全局 mutation toast、OfflinePackDownloadButton 友好错误 (533 frontend tests)
 - [x] Batch AG: §五 架构 P2/P3 清零 ✅ (2026-05-25) — _reconcile_tree_with_mapping 复合键、死管线节点导出移除、Pipeline state 类型修正、heal 计数器语义文档 (4348 tests)
+- [x] Batch AH: 架构层分类性能优化 ✅ (2026-05-25) — classify_architecture_layers 移至 compose_leaf_modules 之后、批量 Cypher 查询 5600→3 次、_compute_topology_vote 静态方法提取、compound key 去重映射修复 (4361 tests)
+- [x] Batch AI: P2 非阻塞改进 ✅ (2026-05-25) — 前端: 每路由 ErrorBoundary 覆盖 (13 lazy pages)；后端: wiki_shared wrong-tenant fallback 修复 (ValueError→404, RuntimeError→503)、page_agent repair/search_label 日志补全、pipeline runner freshness 日志级别提升、persist_classification 日志级别提升 (4361+533 tests)
+- [x] Batch AJ: Dashboard 管线配置 + 细粒度进度 ✅ (2026-05-25) — Dashboard: PipelineConcurrencySection (compose/heal/domain/module/flow 并发、heal 轮次、LLM RPM)；后端: heal_pages_node + compose_domain_agents_node 细粒度 progress_callback (4365+535 tests)
+- [x] Batch AK: P1 架构持久化修复 ✅ (2026-05-25) — _ALLOWED_PROPERTIES 增加 wiki_architecture_layer/confidence、persist_classification compound-key 查找 (repo|name fallback bare name)、Settings dirty 状态保护 (refetch 不覆盖未保存编辑)、数字字段 min/max 校验 (4368+536 tests)
+- [x] Batch AL: P2 安全+性能+前端 ✅ (2026-05-25) — LLM rate limiter 释放锁后 sleep (消除串行化)、/wiki/quick 增加 EDITOR 角色检查、domain 路由 business 绑定校验、pipeline ainvoke 顶层错误边界、前端 useWikiEditSession pageUid 切换重置、test_domain_agent_tier_cap 并发顺序断言修复 (4375+536 tests)
 
 ---
 

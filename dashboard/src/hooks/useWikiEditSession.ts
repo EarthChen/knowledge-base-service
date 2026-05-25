@@ -75,6 +75,18 @@ export function useWikiEditSession(pageUid: string) {
   const stateRef = useRef(state);
 
   useEffect(() => {
+    abortRef.current?.abort();
+    setState({
+      sessionId: null,
+      events: [],
+      isStreaming: false,
+      editedContent: null,
+      error: null,
+    });
+    abortRef.current = new AbortController();
+  }, [pageUid]);
+
+  useEffect(() => {
     stateRef.current = state;
   }, [state]);
 

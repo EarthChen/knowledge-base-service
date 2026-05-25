@@ -48,7 +48,7 @@ async def persist_classification_node(
             )
             persisted_tree = True
         except Exception:
-            log.warning("persist_classification_tree_failed", business_id=business_id, exc_info=True)
+            log.error("persist_classification_tree_failed", business_id=business_id, exc_info=True)
     else:
         log.info("persist_classification_no_wiki_store", business_id=business_id)
 
@@ -60,7 +60,7 @@ async def persist_classification_node(
             )
             persisted_domains = True
         except Exception:
-            log.warning("persist_classification_module_labels_failed", business_id=business_id, exc_info=True)
+            log.error("persist_classification_module_labels_failed", business_id=business_id, exc_info=True)
 
     # --- Phase 3: Persist architecture layers on Module nodes ---
     arch_layers = state.get("architecture_layers") or {}
@@ -71,7 +71,7 @@ async def persist_classification_node(
                 graph_store, all_modules, arch_layers,
             )
         except Exception:
-            log.warning("persist_classification_arch_layers_failed", business_id=business_id, exc_info=True)
+            log.error("persist_classification_arch_layers_failed", business_id=business_id, exc_info=True)
 
     log.info(
         "persist_classification_done",
@@ -266,7 +266,7 @@ async def _persist_architecture_layers_on_modules(
             uid = mod_dict.get("uid", "")
             if not name or not uid:
                 continue
-            layer_info = arch_layers.get(name)
+            layer_info = arch_layers.get(f"{repo}|{name}") or arch_layers.get(name)
             if not layer_info:
                 continue
             try:

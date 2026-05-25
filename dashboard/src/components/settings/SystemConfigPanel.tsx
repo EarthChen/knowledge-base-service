@@ -15,10 +15,13 @@ import StorageSection from "./sections/StorageSection";
 import SystemSection from "./sections/SystemSection";
 import WikiFeaturesSection from "./sections/WikiFeaturesSection";
 import WikiGenerationSection from "./sections/WikiGenerationSection";
+import PipelineConcurrencySection from "./sections/PipelineConcurrencySection";
 import WikiGitSection from "./sections/WikiGitSection";
+import { configFieldLabel } from "./configFieldLabels";
 import {
   flattenCategories,
   mergeKeys,
+  validateNumberFieldValue,
   type SettingMeta,
 } from "./systemConfigConstants";
 
@@ -34,20 +37,21 @@ export default function SystemConfigPanel() {
   const [meta, setMeta] = useState<Record<string, SettingMeta>>({});
   const [syncedAt, setSyncedAt] = useState(0);
 
-  useEffect(() => {
-    if (!data?.categories || dataUpdatedAt === syncedAt) return;
-    const flat = flattenCategories(data.categories);
-    setValues(mergeKeys(flat.values));
-    setBaseline(mergeKeys(flat.values));
-    setMeta(flat.meta);
-    setSyncedAt(dataUpdatedAt);
-  }, [data, dataUpdatedAt, syncedAt]);
-
   const dirtyKeys = useMemo(
     () => Object.keys(values).filter((k) => values[k] !== baseline[k]),
     [values, baseline],
   );
   const dirtyCount = dirtyKeys.length;
+
+  useEffect(() => {
+    if (!data?.categories || dataUpdatedAt === syncedAt) return;
+    if (dirtyCount > 0) return;
+    const flat = flattenCategories(data.categories);
+    setValues(mergeKeys(flat.values));
+    setBaseline(mergeKeys(flat.values));
+    setMeta(flat.meta);
+    setSyncedAt(dataUpdatedAt);
+  }, [data, dataUpdatedAt, syncedAt, dirtyCount]);
 
   const setVal = (key: string, value: string) => {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -55,6 +59,24 @@ export default function SystemConfigPanel() {
 
   async function handleSave() {
     if (dirtyCount === 0) return;
+    for (const key of dirtyKeys) {
+      const validationError = validateNumberFieldValue(key, values[key] ?? "");
+      if (validationError) {
+        const label = configFieldLabel(key, t);
+        if (validationError.kind === "empty") {
+          toast("error", t.configSettings.validationNumberEmpty.replace("{field}", label));
+        } else {
+          toast(
+            "error",
+            t.configSettings.validationNumberOutOfRange
+              .replace("{field}", label)
+              .replace("{min}", String(validationError.min))
+              .replace("{max}", String(validationError.max)),
+          );
+        }
+        return;
+      }
+    }
     const updates = dirtyKeys.map((key) => ({
       key,
       value: values[key],
@@ -112,6 +134,7 @@ export default function SystemConfigPanel() {
     <div className="relative space-y-6 pb-24">
       <WikiFeaturesSection {...sectionProps} />
       <WikiGenerationSection {...sectionProps} />
+      <PipelineConcurrencySection {...sectionProps} />
       <WikiGitSection {...sectionProps} />
       <LLMSection
         {...sectionProps}

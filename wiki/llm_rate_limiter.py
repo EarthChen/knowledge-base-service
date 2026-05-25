@@ -33,28 +33,30 @@ class GlobalLLMRateLimiter:
         if not self._rpm_limit and not self._tpm_limit:
             return
 
-        async with self._lock:
-            now = time.monotonic()
-            self._prune(now)
+        while True:
+            wait = 0.0
+            async with self._lock:
+                now = time.monotonic()
+                self._prune(now)
 
-            if self._rpm_limit and len(self._request_times) >= self._rpm_limit:
-                wait = _WINDOW_SEC - (now - self._request_times[0])
-                if wait > 0:
-                    await asyncio.sleep(wait)
-                    now = time.monotonic()
-                    self._prune(now)
+                if self._rpm_limit and len(self._request_times) >= self._rpm_limit:
+                    rpm_wait = _WINDOW_SEC - (now - self._request_times[0])
+                    if rpm_wait > 0:
+                        wait = rpm_wait
 
-            if self._tpm_limit:
-                current_tokens = sum(tokens for _, tokens in self._token_log)
-                if current_tokens + estimated_tokens > self._tpm_limit:
-                    wait = _WINDOW_SEC - (now - self._token_log[0][0])
-                    if wait > 0:
-                        await asyncio.sleep(wait)
-                        now = time.monotonic()
-                        self._prune(now)
+                if wait <= 0 and self._tpm_limit:
+                    current_tokens = sum(tokens for _, tokens in self._token_log)
+                    if current_tokens + estimated_tokens > self._tpm_limit:
+                        tpm_wait = _WINDOW_SEC - (now - self._token_log[0][0])
+                        if tpm_wait > 0:
+                            wait = tpm_wait
 
-            self._request_times.append(now)
-            self._token_log.append((now, estimated_tokens))
+                if wait <= 0:
+                    self._request_times.append(now)
+                    self._token_log.append((now, estimated_tokens))
+                    return
+
+            await asyncio.sleep(wait)
 
     def report_actual_tokens(self, tokens: int) -> None:
         """Update the last entry with actual token count."""

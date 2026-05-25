@@ -259,7 +259,7 @@ def _wiki_event_to_sse_data(ev: WikiEvent) -> str:
     return json.dumps(d, default=str)
 
 
-@router.post("/quick", response_model=None)
+@router.post("/quick", response_model=None, dependencies=[Depends(require_role(Role.EDITOR))])
 async def wiki_quick(
     body: WikiQuickBody,
     request: Request,

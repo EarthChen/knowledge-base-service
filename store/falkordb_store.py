@@ -210,6 +210,7 @@ class FalkorDBStore(FalkorDBSearchMixin, FalkorDBWikiMixin, FalkorDBReadsMixin):
         "business_summary", "business_domain", "description", "embedding", "fqn",
         "content_hash", "confidence_score", "category", "source", "aliases",
         "memory_status", "stability_factor", "last_accessed",
+        "wiki_architecture_layer", "wiki_architecture_confidence",
     })
 
     async def update_node_property(

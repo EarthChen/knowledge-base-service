@@ -47,11 +47,15 @@ class TestLLMPathRemoval:
         node_names = set(pipeline.get_graph().nodes.keys())
         assert "graph_domain_decompose" in node_names
 
-    def test_compose_leaf_modules_routes_to_graph_domain_decompose(self) -> None:
+    def test_compose_leaf_modules_routes_through_classify_architecture_layers(self) -> None:
         pipeline = build_wiki_pipeline(checkpointer=False)
         edges = pipeline.get_graph().edges
         assert any(
-            e.source == "compose_leaf_modules" and e.target == "graph_domain_decompose"
+            e.source == "compose_leaf_modules" and e.target == "classify_architecture_layers"
+            for e in edges
+        )
+        assert any(
+            e.source == "classify_architecture_layers" and e.target == "graph_domain_decompose"
             for e in edges
         )
 

@@ -24,22 +24,22 @@ export default function App() {
       <ErrorBoundary>
         <Routes>
           <Route element={<Layout />}>
-            <Route index element={<Overview />} />
-            <Route path="search" element={<SearchPage />} />
-            <Route path="explorer" element={<GraphExplorer />} />
-            <Route path="files" element={<FileExplorer />} />
-            <Route path="architecture" element={<ArchitecturePage />} />
-            <Route path="repositories" element={<Repositories />} />
-            <Route path="documents" element={<Documents />} />
-            <Route path="indexing" element={<Indexing />} />
-            <Route path="wiki" element={<WikiPage />} />
-            <Route path="pr-impact" element={<PrImpactPage />} />
-            <Route path="settings" element={<SettingsPage />} />
+            <Route index element={<ErrorBoundary><Overview /></ErrorBoundary>} />
+            <Route path="search" element={<ErrorBoundary><SearchPage /></ErrorBoundary>} />
+            <Route path="explorer" element={<ErrorBoundary><GraphExplorer /></ErrorBoundary>} />
+            <Route path="files" element={<ErrorBoundary><FileExplorer /></ErrorBoundary>} />
+            <Route path="architecture" element={<ErrorBoundary><ArchitecturePage /></ErrorBoundary>} />
+            <Route path="repositories" element={<ErrorBoundary><Repositories /></ErrorBoundary>} />
+            <Route path="documents" element={<ErrorBoundary><Documents /></ErrorBoundary>} />
+            <Route path="indexing" element={<ErrorBoundary><Indexing /></ErrorBoundary>} />
+            <Route path="wiki" element={<ErrorBoundary><WikiPage /></ErrorBoundary>} />
+            <Route path="pr-impact" element={<ErrorBoundary><PrImpactPage /></ErrorBoundary>} />
+            <Route path="settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
             <Route path="deep-search" element={<Navigate to="/search" replace />} />
             <Route path="graph" element={<Navigate to="/explorer" replace />} />
-            <Route path="businesses" element={<Businesses />} />
+            <Route path="businesses" element={<ErrorBoundary><Businesses /></ErrorBoundary>} />
           </Route>
-          <Route path="*" element={<NotFound />} />
+          <Route path="*" element={<ErrorBoundary><NotFound /></ErrorBoundary>} />
         </Routes>
       </ErrorBoundary>
     </ToastProvider>

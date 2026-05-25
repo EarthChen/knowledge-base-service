@@ -465,11 +465,29 @@ async def run_langgraph_pipeline(
     import time as _time
 
     pipeline_t0 = _time.monotonic()
-    async with get_checkpointer(business_id) as checkpointer:
-        pipeline = build_wiki_pipeline(checkpointer=checkpointer)
-        result = await pipeline.ainvoke(
-            initial_state,
-            config={"configurable": configurable},
+    try:
+        async with get_checkpointer(business_id) as checkpointer:
+            pipeline = build_wiki_pipeline(checkpointer=checkpointer)
+            result = await pipeline.ainvoke(
+                initial_state,
+                config={"configurable": configurable},
+            )
+    except Exception as exc:
+        pipeline_elapsed = _time.monotonic() - pipeline_t0
+        log.error(
+            "pipeline_invoke_crashed",
+            business_id=business_id,
+            error=str(exc),
+            exc_info=True,
+        )
+        return PipelineResult(
+            domain_mapping={},
+            domain_tree=None,
+            pages=[],
+            resolved_links={},
+            entity_roles={},
+            errors=[f"pipeline_invoke_failed:{exc}"],
+            domain_display_names={},
         )
     pipeline_elapsed = _time.monotonic() - pipeline_t0
 

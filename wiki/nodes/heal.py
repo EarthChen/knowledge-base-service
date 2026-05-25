@@ -173,9 +173,18 @@ async def heal_pages_node(
     from wiki.pipeline_concurrency import PipelineConcurrency
 
     configurable = (config or {}).get("configurable", {})
+    progress_cb = configurable.get("progress_callback")
     llm = configurable.get("llm")
     graph_store = configurable.get("graph_store")
     budget_resolver = configurable.get("budget_resolver")
+
+    async def _report_progress(detail: str, fraction: float = 0.0) -> None:
+        if progress_cb:
+            pct = 0.80 + fraction * 0.09  # 0.80 → 0.89
+            try:
+                await progress_cb({"phase": "heal_pages", "progress_pct": pct, "detail": detail})
+            except Exception:
+                pass
     wiki_cfg = get_settings().wiki
     evaluator = WikiQualityEvaluator()
     heal_attempts: dict[str, int] = dict(state.get("heal_attempts", {}))
@@ -230,6 +239,10 @@ async def heal_pages_node(
         standard=len(standard_pages),
         skipped_skeleton=len(all_paths) - len(core_pages) - len(standard_pages),
     )
+    await _report_progress(
+        f"heal_pages: {len(core_pages)} core + {len(standard_pages)} standard pages",
+        0.0,
+    )
 
     # Phase 2: Concurrent heal
     sem = PipelineConcurrency.semaphore("heal")
@@ -276,11 +289,23 @@ async def heal_pages_node(
                 _update_heal_hint(page_path, page_dict, evaluator, heal_hints, check_cache=check_cache)
                 return False
 
-    async def _run_heal_tier(active: list[str], max_rounds: int, tier: str) -> list[str]:
+    async def _run_heal_tier(
+        active: list[str],
+        max_rounds: int,
+        tier: str,
+        base_fraction: float = 0.0,
+        fraction_range: float = 0.0,
+    ) -> list[str]:
         """Run heal rounds for a tier (core/standard), return still-failing paths."""
         for round_num in range(max_rounds):
             if not active:
                 break
+            if fraction_range > 0:
+                round_fraction = base_fraction + (round_num / max_rounds) * fraction_range
+                await _report_progress(
+                    f"{tier}: round {round_num + 1}/{max_rounds}, healing {len(active)} pages",
+                    round_fraction,
+                )
             results = await asyncio.gather(*[_bounded_heal(p) for p in active], return_exceptions=True)
             for r in results:
                 if isinstance(r, Exception):
@@ -304,8 +329,14 @@ async def heal_pages_node(
 
     max_rounds_core = wiki_cfg.heal_max_rounds_core if llm else 1
     max_rounds_std = wiki_cfg.heal_max_rounds_standard if llm else 1
-    active_core = await _run_heal_tier(list(core_pages), max_rounds_core, "core")
-    active_std = await _run_heal_tier(list(standard_pages), max_rounds_std, "standard")
+    active_core = await _run_heal_tier(
+        list(core_pages), max_rounds_core, "core", base_fraction=0.0, fraction_range=0.5
+    )
+    await _report_progress(f"core pages done, {len(active_core)} still failing", 0.5)
+    active_std = await _run_heal_tier(
+        list(standard_pages), max_rounds_std, "standard", base_fraction=0.5, fraction_range=0.4
+    )
+    await _report_progress(f"standard pages done, {len(active_std)} still failing", 0.9)
 
     # Phase 3: Results
     initial_paths = core_pages + standard_pages

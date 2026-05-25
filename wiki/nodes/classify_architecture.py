@@ -1,13 +1,11 @@
 """Pipeline node: classify architecture layers for all modules."""
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
 from core.log import get_logger
-from wiki.pipeline_concurrency import PipelineConcurrency
 
 log = get_logger(__name__)
 
@@ -15,11 +13,6 @@ log = get_logger(__name__)
 async def classify_architecture_layers_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
-    """Run ArchitectureLayerClassifier on all modules.
-
-    Reads 'modules' from state, classifies each module, returns
-    architecture_layers: dict mapping module_name → {"layer": str, "confidence": float}
-    """
     configurable = (config or {}).get("configurable", {}) or {}
     graph_store = configurable.get("graph_store")
     llm = configurable.get("llm")
@@ -32,27 +25,15 @@ async def classify_architecture_layers_node(
     from core.config import AppWikiFlags
     from wiki.architecture_classifier import ArchitectureLayerClassifier
 
-    # Get wiki flags from config or use defaults
     wiki_flags = configurable.get("wiki_flags") or AppWikiFlags()
     classifier = ArchitectureLayerClassifier(wiki_flags, graph_store, llm, budget_resolver)
 
     all_modules = state.get("modules") or {}
-    results: dict[str, dict[str, Any]] = {}
-    sem = PipelineConcurrency.semaphore("arch_classify")
 
-    async def _classify_one(
-        repo: str, name: str, path: str,
-    ) -> tuple[str, dict[str, Any]] | None:
-        async with sem:
-            try:
-                result = await classifier.classify_module(name, path)
-                compound_key = f"{repo}|{name}"
-                return (compound_key, {"layer": result.layer, "confidence": result.confidence})
-            except Exception:
-                log.warning("classify_arch_layer_failed", module=name, repo=repo, exc_info=True)
-                return None
+    # Track all entries including repo for compound key mapping
+    module_entries: list[tuple[str, str, str]] = []  # (repo, name, path)
+    unique_by_name: dict[str, str] = {}  # name → first path (deduplicate for batch)
 
-    tasks: list = []
     for repo, mod_list in all_modules.items():
         if not isinstance(mod_list, list):
             continue
@@ -64,13 +45,23 @@ async def classify_architecture_layers_node(
             path = props.get("path", "") or props.get("file", "") or ""
             if not name:
                 continue
-            tasks.append(_classify_one(repo, name, path))
+            module_entries.append((repo, name, path))
+            if name not in unique_by_name:
+                unique_by_name[name] = path
 
-    for result in await asyncio.gather(*tasks, return_exceptions=True):
-        if isinstance(result, tuple):
-            results[result[0]] = result[1]
-        elif isinstance(result, BaseException):
-            log.warning("classify_arch_layer_gather_error", error=str(result))
+    try:
+        batch_results = await classifier.classify_modules_batch(list(unique_by_name.items()))
+    except Exception:
+        log.warning("classify_arch_layers_batch_failed", exc_info=True)
+        batch_results = {}
+
+    # Map back to compound keys (same name in different repos both get their entry)
+    results: dict[str, dict[str, Any]] = {}
+    for repo, name, _ in module_entries:
+        layer_result = batch_results.get(name)
+        if layer_result is not None:
+            compound_key = f"{repo}|{name}"
+            results[compound_key] = {"layer": layer_result.layer, "confidence": layer_result.confidence}
 
     log.info("classify_arch_layers_done", total=len(results))
     return {"architecture_layers": results}

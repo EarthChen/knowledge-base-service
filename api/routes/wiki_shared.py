@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import Depends, Header, HTTPException, Request
 
-from api.exceptions import KbServiceUnavailable
+from api.exceptions import KbNotFound, KbServiceUnavailable
 from core.auth import resolve_business_id, resolve_token, TokenInfo
 from core.log import get_logger
 from query.graph_query import GraphQueryService
@@ -131,8 +131,15 @@ async def get_wiki_store_dep(request: Request) -> Any:
                 store = await resolver(business_id)
                 if store is not None:
                     return store
+            except ValueError as exc:
+                raise KbNotFound(str(exc)) from exc
+            except RuntimeError as exc:
+                raise KbServiceUnavailable(str(exc)) from exc
             except Exception:
-                log.debug("wiki_store_for_business_fallback", business_id=business_id, exc_info=True)
+                log.error("wiki_store_for_business_failed", business_id=business_id, exc_info=True)
+                raise KbServiceUnavailable(
+                    f"Failed to resolve graph store for business '{business_id}'"
+                ) from None
     store = getattr(request.app.state, "wiki_store", None)
     if store is None:
         raise KbServiceUnavailable("Graph store not configured")
@@ -180,8 +187,15 @@ async def get_wiki_search_dep(request: Request) -> WikiSearchService:
             svc = await factory(business_id)
             cache[business_id] = svc
             return svc
+        except ValueError as exc:
+            raise KbNotFound(str(exc)) from exc
+        except RuntimeError as exc:
+            raise KbServiceUnavailable(str(exc)) from exc
         except Exception:
-            log.debug("wiki_search_for_business_fallback", business_id=business_id, exc_info=True)
+            log.error("wiki_search_for_business_failed", business_id=business_id, exc_info=True)
+            raise KbServiceUnavailable(
+                f"Failed to resolve wiki search for business '{business_id}'"
+            ) from None
 
     return default_svc
 
@@ -211,8 +225,15 @@ async def get_wiki_ask_dep(request: Request) -> WikiAskService:
             svc = await factory(business_id)
             cache[business_id] = svc
             return svc
+        except ValueError as exc:
+            raise KbNotFound(str(exc)) from exc
+        except RuntimeError as exc:
+            raise KbServiceUnavailable(str(exc)) from exc
         except Exception:
-            log.debug("wiki_ask_for_business_fallback", business_id=business_id, exc_info=True)
+            log.error("wiki_ask_for_business_failed", business_id=business_id, exc_info=True)
+            raise KbServiceUnavailable(
+                f"Failed to resolve wiki ask for business '{business_id}'"
+            ) from None
 
     return default_svc
 
@@ -242,8 +263,15 @@ async def get_wiki_deep_research_dep(request: Request) -> DeepResearchService:
             svc = await factory(business_id)
             cache[business_id] = svc
             return svc
+        except ValueError as exc:
+            raise KbNotFound(str(exc)) from exc
+        except RuntimeError as exc:
+            raise KbServiceUnavailable(str(exc)) from exc
         except Exception:
-            log.debug("wiki_deep_research_for_business_fallback", business_id=business_id, exc_info=True)
+            log.error("wiki_deep_research_for_business_failed", business_id=business_id, exc_info=True)
+            raise KbServiceUnavailable(
+                f"Failed to resolve deep research for business '{business_id}'"
+            ) from None
 
     return default_svc
 

@@ -63,32 +63,64 @@ async def test_report_actual_tokens_updates_last_entry() -> None:
 
 
 @pytest.mark.asyncio
-async def test_concurrent_acquire_calls_are_serialized() -> None:
+async def test_concurrent_acquire_calls_do_not_deadlock() -> None:
     limiter = GlobalLLMRateLimiter(rpm_limit=1, tpm_limit=0)
     clock = [0.0]
-    order: list[str] = []
 
     async def fake_sleep(duration: float) -> None:
         clock[0] += duration
 
-    async def first() -> None:
-        order.append("first_start")
+    async def worker() -> None:
         await limiter.acquire()
-        order.append("first_done")
-
-    async def second() -> None:
-        order.append("second_start")
-        await limiter.acquire()
-        order.append("second_done")
 
     with (
         patch("wiki.llm_rate_limiter.time.monotonic", lambda: clock[0]),
         patch("wiki.llm_rate_limiter.asyncio.sleep", fake_sleep),
     ):
-        await asyncio.gather(first(), second())
+        await asyncio.gather(worker(), worker())
 
-    assert order.index("first_done") < order.index("second_start")
     assert clock[0] == 60.0
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_releases_lock_during_sleep() -> None:
+    """RPM wait must not hold the lock — other acquire() callers need to compute their wait."""
+    limiter = GlobalLLMRateLimiter(rpm_limit=1, tpm_limit=0)
+    clock = [0.0]
+    lock_held_during_sleep: list[bool] = []
+
+    async def fake_sleep(duration: float) -> None:
+        lock_held_during_sleep.append(limiter._lock.locked())
+        clock[0] += duration
+
+    with (
+        patch("wiki.llm_rate_limiter.time.monotonic", lambda: clock[0]),
+        patch("wiki.llm_rate_limiter.asyncio.sleep", fake_sleep),
+    ):
+        await limiter.acquire()
+        await limiter.acquire()
+
+    assert lock_held_during_sleep == [False]
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_releases_lock_during_tpm_sleep() -> None:
+    limiter = GlobalLLMRateLimiter(rpm_limit=0, tpm_limit=1000)
+    clock = [0.0]
+    lock_held_during_sleep: list[bool] = []
+
+    async def fake_sleep(duration: float) -> None:
+        lock_held_during_sleep.append(limiter._lock.locked())
+        clock[0] += duration
+
+    with (
+        patch("wiki.llm_rate_limiter.time.monotonic", lambda: clock[0]),
+        patch("wiki.llm_rate_limiter.asyncio.sleep", fake_sleep),
+    ):
+        await limiter.acquire(estimated_tokens=600)
+        await limiter.acquire(estimated_tokens=500)
+
+    assert lock_held_during_sleep == [False]
 
 
 @pytest.mark.asyncio

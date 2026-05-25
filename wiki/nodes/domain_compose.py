@@ -14,6 +14,7 @@ from wiki.llm_rate_limiter import acquire_llm_quota
 from wiki.models import ImportanceTier
 from wiki.nodes.tier_utils import resolve_tier, tier_for_module_count
 from wiki.nodes.utils import _collect_leaf_domains
+from wiki.nodes.compose import _maybe_pipeline_progress
 from wiki.path_conventions import domain_overview_path
 from wiki.pipeline_concurrency import PipelineConcurrency
 from wiki.source_ref_validator import repair_broken_mermaid_blocks, sanitize_wiki_content
@@ -234,6 +235,16 @@ async def compose_domain_agents_node(
         log.info("no_leaf_domains_found")
         return {"pages": [], "errors": list(state.get("errors", []))}
 
+    total_domains = len(leaf_domains)
+    await _maybe_pipeline_progress(
+        configurable,
+        {
+            "phase": "compose_domain_agents",
+            "progress_pct": 0.30,
+            "detail": f"域文档生成 0/{total_domains}",
+        },
+    )
+
     sem = PipelineConcurrency.semaphore("domain_agent")
     pages: list[dict[str, Any]] = []
     errors = list(state.get("errors", []))
@@ -328,8 +339,28 @@ async def compose_domain_agents_node(
                 )
                 return [_make_error_placeholder(domain, e)]
 
-    tasks = [_run_domain(d) for d in leaf_domains]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    async def _run_domain_indexed(index: int, domain: dict[str, Any]) -> tuple[int, list[dict[str, Any]] | BaseException]:
+        try:
+            return index, await _run_domain(domain)
+        except BaseException as exc:
+            return index, exc
+
+    wrapped = [_run_domain_indexed(i, d) for i, d in enumerate(leaf_domains)]
+    results: list[list[dict[str, Any]] | BaseException | None] = [None] * total_domains
+    completed = 0
+    for item in asyncio.as_completed(wrapped):
+        index, result = await item
+        results[index] = result
+        completed += 1
+        domain_name = leaf_domains[index]["name"]
+        await _maybe_pipeline_progress(
+            configurable,
+            {
+                "phase": "compose_domain_agents",
+                "progress_pct": 0.30 + (completed / total_domains) * 0.24,
+                "detail": f"域文档 {completed}/{total_domains}: {domain_name}",
+            },
+        )
 
     for i, result in enumerate(results):
         if isinstance(result, BaseException):

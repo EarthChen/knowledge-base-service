@@ -517,6 +517,10 @@ export interface Translations {
     wikiGroupMemoryEvolution: string;
     wikiGroupAutomation: string;
     wikiGenerationTitle: string;
+    pipelineConcurrencyTitle: string;
+    pipelineGroupConcurrency: string;
+    pipelineGroupHealRounds: string;
+    pipelineGroupRateLimit: string;
     wikiGitTitle: string;
     llmTitle: string;
     llmProviderPool: string;
@@ -537,6 +541,8 @@ export interface Translations {
     connectionFailed: string;
     resetToDefault: string;
     unsavedChanges: string;
+    validationNumberEmpty: string;
+    validationNumberOutOfRange: string;
     fields: {
       // Field labels (key suffix / common keys)
       fieldTreeEnabled: string;
@@ -564,6 +570,14 @@ export interface Translations {
       fieldForgettingEnabled: string;
       fieldSchemaValidationEnabled: string;
       fieldCodeBudgetEnabled: string;
+      fieldComposeConcurrency: string;
+      fieldHealConcurrency: string;
+      fieldDomainAgentConcurrency: string;
+      fieldModuleComposeConcurrency: string;
+      fieldFlowComposeConcurrency: string;
+      fieldHealMaxRoundsCore: string;
+      fieldHealMaxRoundsStandard: string;
+      fieldLlmGlobalRpmLimit: string;
       fieldRagEnabled: string;
       fieldEnrichmentEnabled: string;
       fieldGitPublishEnabled: string;

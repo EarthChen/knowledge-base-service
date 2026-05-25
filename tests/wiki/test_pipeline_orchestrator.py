@@ -260,3 +260,35 @@ async def test_run_langgraph_pipeline_incremental_no_change():
 
     assert isinstance(result, PipelineResult)
     assert len(result.pages) == 0
+
+
+@pytest.mark.asyncio
+async def test_run_langgraph_pipeline_returns_errors_on_invoke_crash(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.ainvoke = AsyncMock(side_effect=RuntimeError("node exploded"))
+
+    mock_checkpointer = MagicMock()
+    mock_cm = MagicMock()
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_checkpointer)
+    mock_cm.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr("wiki.pipeline_orchestrator.build_wiki_pipeline", lambda **_: mock_pipeline)
+    monkeypatch.setattr("wiki.pipeline_orchestrator.get_checkpointer", lambda _: mock_cm)
+
+    all_modules = {
+        "test-repo": [_make_graph_node("PaymentService", "Module::PaymentService:0")],
+    }
+
+    result = await run_langgraph_pipeline(
+        business_id="crash-test",
+        repositories=["test-repo"],
+        all_modules=all_modules,
+        llm=AsyncMock(),
+    )
+
+    assert isinstance(result, PipelineResult)
+    assert result.pages == []
+    assert result.domain_mapping == {}
+    assert any("node exploded" in err for err in result.errors)

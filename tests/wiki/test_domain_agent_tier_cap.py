@@ -69,7 +69,9 @@ class TestDomainAgentMaxIterations:
             "errors": [],
             "config": {},
         }
-        config = {"configurable": {"llm": MagicMock(), "graph_store": MagicMock()}}
+        mock_gs = AsyncMock()
+        mock_gs.execute_query = AsyncMock(return_value=MagicMock(data=[]))
+        config = {"configurable": {"llm": MagicMock(), "graph_store": mock_gs}}
 
         captured: list[int] = []
 
@@ -87,7 +89,7 @@ class TestDomainAgentMaxIterations:
 
             await compose_domain_agents_node(state, config)
 
-        assert captured == [20, 8, 3]
+        assert sorted(captured) == sorted([20, 8, 3])
 
     @pytest.mark.asyncio
     async def test_config_importance_tiers_override_module_count(self):
@@ -107,7 +109,9 @@ class TestDomainAgentMaxIterations:
                 },
             },
         }
-        config = {"configurable": {"llm": MagicMock(), "graph_store": MagicMock()}}
+        mock_gs = AsyncMock()
+        mock_gs.execute_query = AsyncMock(return_value=MagicMock(data=[]))
+        config = {"configurable": {"llm": MagicMock(), "graph_store": mock_gs}}
 
         captured: list[int] = []
 

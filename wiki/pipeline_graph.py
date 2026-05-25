@@ -44,12 +44,12 @@ log = get_logger(__name__)
 # Node name → (API phase label, baseline progress 0..1 for task status / UI)
 _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "classify_entity_roles": ("classify_entities", 0.0),
-    "classify_architecture_layers": ("classify_architecture_layers", 0.01),
     "detect_reorg": ("detect_reorg", 0.02),
     "graph_decompose": ("graph_decompose", 0.05),
     "assign_canonical_keys": ("assign_keys", 0.07),
     "generate_titles": ("generate_titles", 0.08),
     "compose_leaf_modules": ("compose_leaf_modules", 0.10),
+    "classify_architecture_layers": ("classify_architecture_layers", 0.15),
     "graph_domain_decompose": ("graph_domain_decompose", 0.18),
     "persist_classification": ("persist_classification", 0.20),
     "set_review_status": ("set_review_status", 0.22),
@@ -249,8 +249,7 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("generate_tour", _with_progress("generate_tour", generate_tour_node))
     graph.add_node("finalize", _with_progress("finalize", finalize_node))
 
-    graph.add_edge("classify_entity_roles", "classify_architecture_layers")
-    graph.add_edge("classify_architecture_layers", "graph_decompose")
+    graph.add_edge("classify_entity_roles", "graph_decompose")
     graph.add_conditional_edges(
         "detect_reorg",
         route_by_reorg_type,
@@ -259,7 +258,8 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_edge("graph_decompose", "assign_canonical_keys")
     graph.add_edge("assign_canonical_keys", "generate_titles")
     graph.add_edge("generate_titles", "compose_leaf_modules")
-    graph.add_edge("compose_leaf_modules", "graph_domain_decompose")
+    graph.add_edge("compose_leaf_modules", "classify_architecture_layers")
+    graph.add_edge("classify_architecture_layers", "graph_domain_decompose")
     graph.add_edge("graph_domain_decompose", "persist_classification")
     graph.add_edge("persist_classification", "set_review_status")
     graph.add_edge("set_review_status", "compose_domain_agents")

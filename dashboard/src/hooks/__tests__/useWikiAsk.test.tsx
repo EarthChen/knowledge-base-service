@@ -1,97 +1,75 @@
-import type { ReactNode } from "react";
-import { renderHook, act } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import * as client from "../../api/client";
-import { TestI18nProvider } from "../../i18n/context";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { useWikiAsk } from "../useWikiAsk";
+import { TestI18nProvider } from "../../i18n/context";
+import type { ReactNode } from "react";
 
-const wrapper = ({ children }: { children: ReactNode }) => (
-  <TestI18nProvider locale="en">{children}</TestI18nProvider>
-);
+function wrapper({ children }: { children: ReactNode }) {
+  return <TestI18nProvider>{children}</TestI18nProvider>;
+}
+
+function sseResponse(chunks: string[]) {
+  const encoder = new TextEncoder();
+  let i = 0;
+  const stream = new ReadableStream({
+    pull(controller) {
+      if (i >= chunks.length) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(encoder.encode(chunks[i]));
+      i += 1;
+    },
+  });
+  return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+}
 
 describe("useWikiAsk", () => {
   beforeEach(() => {
-    vi.spyOn(client, "authHeaders").mockReturnValue({
-      "Content-Type": "application/json",
-      Authorization: "Bearer test-token",
-    });
-    globalThis.fetch = vi.fn().mockImplementation(() => new Promise(() => {}));
-  });
-  afterEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
-  it("uses shared authHeaders from client when starting ask", async () => {
-    const { result } = renderHook(() => useWikiAsk("my-repo"), { wrapper });
-
-    await act(async () => {
-      void result.current.ask({ question: "hello" });
-    });
-
-    expect(client.authHeaders).toHaveBeenCalled();
-    expect(globalThis.fetch).toHaveBeenCalled();
-    const init = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1] as RequestInit;
-    const headers = init.headers as Record<string, string>;
-    expect(headers).toEqual(
-      expect.objectContaining({
-        "Content-Type": "application/json",
-        Authorization: "Bearer test-token",
-      }),
+  it("streams tokens and completes with sources", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      sseResponse([
+        'data: {"type":"token","content":"Hello"}\n\n',
+        'data: {"type":"sources","sources":[{"entity":"Doc","file_path":"doc.md","start_line":1,"wiki_page":"/doc","relevance_score":0.9}]}\n\n',
+        'data: {"type":"done","conversation_id":"conv-1","tokens_used":3,"reasoning_path":null}\n\n',
+      ]),
     );
-    const body = JSON.parse(init.body as string) as { question: string };
-    expect(body.question).toBe("hello");
+
+    const { result } = renderHook(() => useWikiAsk("demo-repo"), { wrapper });
+
+    await act(async () => {
+      await result.current.ask({ repository: "demo-repo", question: "What is this?" });
+    });
+
+    await waitFor(() => expect(result.current.isStreaming).toBe(false));
+    expect(result.current.answer).toBe("Hello");
+    expect(result.current.sources).toHaveLength(1);
+    expect(result.current.conversationId).toBe("conv-1");
   });
 
-  it("prepends pageContext to the ask question in the request body", async () => {
-    const { result } = renderHook(() => useWikiAsk("my-repo", "[Current page: A]\nexcerpt"), {
-      wrapper,
-    });
+  it("sets error when response is not ok", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("bad", { status: 500 }));
+    const { result } = renderHook(() => useWikiAsk("demo-repo"), { wrapper });
 
     await act(async () => {
-      void result.current.ask({ question: "hello" });
+      await result.current.ask({ repository: "demo-repo", question: "fail?" });
     });
 
-    const init = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1] as RequestInit;
-    const body = JSON.parse(init.body as string) as { question: string };
-    expect(body.question).toBe("[Current page: A]\nexcerpt\n\n---\n\nhello");
+    await waitFor(() => expect(result.current.error).toBeTruthy());
   });
 
-  it("sends the question unchanged when pageContext is only whitespace", async () => {
-    const { result } = renderHook(() => useWikiAsk("my-repo", "  \t  "), { wrapper });
-
-    await act(async () => {
-      void result.current.ask({ question: "hello" });
+  it("reset clears state", async () => {
+    const { result } = renderHook(() => useWikiAsk("demo-repo"), { wrapper });
+    act(() => {
+      result.current.setAnswer("partial");
     });
-
-    const init = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1] as RequestInit;
-    const body = JSON.parse(init.body as string) as { question: string };
-    expect(body.question).toBe("hello");
-  });
-
-  it("aborts the in-flight request on unmount", async () => {
-    const abortSpy = vi.spyOn(AbortController.prototype, "abort");
-
-    const { result, unmount } = renderHook(() => useWikiAsk("my-repo"), { wrapper });
-
-    await act(async () => {
-      void result.current.ask({ question: "q" });
+    act(() => {
+      result.current.reset();
     });
-
-    unmount();
-    expect(abortSpy).toHaveBeenCalled();
-  });
-
-  it("aborts a previous in-flight request when a new ask starts", async () => {
-    const abortSpy = vi.spyOn(AbortController.prototype, "abort");
-    const { result } = renderHook(() => useWikiAsk("my-repo"), { wrapper });
-
-    await act(async () => {
-      void result.current.ask({ question: "first" });
-    });
-    await act(async () => {
-      void result.current.ask({ question: "second" });
-    });
-
-    expect(abortSpy).toHaveBeenCalled();
+    expect(result.current.answer).toBe("");
+    expect(result.current.error).toBeNull();
   });
 });

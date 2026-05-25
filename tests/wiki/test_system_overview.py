@@ -230,16 +230,16 @@ class TestSystemOverviewIntegration:
         """generate_business_wiki should use LangGraph pipeline (which includes synthesize_overviews_node)."""
         import inspect
 
-        from wiki.service import WikiService
+        from wiki.business_pipeline_runner import BusinessPipelineRunner
 
-        source = inspect.getsource(WikiService.generate_business_wiki)
+        source = inspect.getsource(BusinessPipelineRunner.run)
         assert "run_langgraph_pipeline" in source
 
     def test_domain_sort_idx_starts_from_1(self):
         """Domain section sort_idx should start from 1 (not 0) since system overview takes position 0."""
         import inspect
 
-        from wiki.service import WikiService
+        from wiki.business_pipeline_runner import BusinessPipelineRunner
 
-        source = inspect.getsource(WikiService.generate_business_wiki)
+        source = inspect.getsource(BusinessPipelineRunner.run)
         assert "sort_idx = 1" in source

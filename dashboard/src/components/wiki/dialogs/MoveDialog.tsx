@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useId, useState } from "react";
+import FocusTrap from "../../FocusTrap";
 import { useI18n } from "../../../i18n/context";
 
 interface TreeNode {
@@ -54,15 +55,25 @@ function TreeSelector({
 
 export default function MoveDialog({ currentUid, treeData, onConfirm, onCancel }: MoveDialogProps) {
   const { t } = useI18n();
+  const titleId = useId();
   const [selected, setSelected] = useState("");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onCancel}>
-      <div
-        className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-white">{t.wiki.domain_management.moveTitle}</h3>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      onClick={onCancel}
+    >
+      <FocusTrap onEscape={onCancel}>
+        <div
+          className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 id={titleId} className="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
+            {t.wiki.domain_management.moveTitle}
+          </h3>
         <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">{t.wiki.domain_management.selectTarget}</p>
         <div className="mb-4 max-h-60 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-gray-600">
           <TreeSelector nodes={treeData} excludeUid={currentUid} selected={selected} onSelect={setSelected} />
@@ -84,7 +95,8 @@ export default function MoveDialog({ currentUid, treeData, onConfirm, onCancel }
             {t.wiki.domain_management.confirm}
           </button>
         </div>
-      </div>
+        </div>
+      </FocusTrap>
     </div>
   );
 }

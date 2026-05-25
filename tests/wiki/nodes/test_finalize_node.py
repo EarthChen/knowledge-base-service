@@ -13,8 +13,6 @@ async def test_finalize_node_returns_empty_dict():
 
     state = {
         "pages": [{"path": "a"}, {"path": "b"}],
-        "stage_timings": {"classify": 100, "compose": 200},
-        "llm_call_count": 5,
         "errors": ["one_error"],
     }
     result = await finalize_node(state)

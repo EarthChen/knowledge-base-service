@@ -41,6 +41,11 @@ _IDENT_RE = re.compile(
 
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
+try:
+    import jieba as _jieba
+except ImportError:  # pragma: no cover
+    _jieba = None
+
 # Optional filter for POST /hybrid (kept in sync with main._HYBRID_ENTITY_TYPE_TO_LABEL)
 _HYBRID_ENTITY_TYPE_TO_LABEL: dict[str, str] = {
     "function": "Function",
@@ -93,6 +98,12 @@ def _apply_offset_limit(merged: list[dict[str, Any]], offset: int, limit: int) -
     return merged[off : off + lim], total, off, lim
 
 
+def _branch_fetch_k(limit: int, offset: int, k: int) -> int:
+    """Per-branch candidate pool before RRF fusion (3× page window, capped at 500)."""
+    page_need = max(1, int(limit)) + max(0, int(offset))
+    return min(500, page_need * 3)
+
+
 def _contains_cjk(text: str) -> bool:
     return _CJK_RE.search(text) is not None
 
@@ -111,9 +122,10 @@ def _extract_identifiers(query: str) -> list[str]:
     if not _contains_cjk(query):
         return regex_filtered
 
-    import jieba
+    if _jieba is None:
+        return regex_filtered
 
-    chinese_tokens = [w.strip() for w in jieba.lcut_for_search(query) if w.strip()]
+    chinese_tokens = [w.strip() for w in _jieba.lcut_for_search(query) if w.strip()]
     merged: list[str] = []
     seen: set[str] = set()
     for t in regex_filtered + chinese_tokens:
@@ -206,9 +218,11 @@ class HybridQueryService:
 
         router_strategy = route_query(query_text) if use_query_router else None
 
+        fetch_k = _branch_fetch_k(limit, offset, k)
+
         if use_child_chunks:
             return await self._search_with_child_chunks(
-                query_text, k, expand_depth, include_callers, include_callees,
+                query_text, fetch_k, expand_depth, include_callers, include_callees,
                 repository=repository, language=language, per_file_cap=per_file_cap,
                 router_strategy=router_strategy,
                 use_query_router=use_query_router,
@@ -239,14 +253,13 @@ class HybridQueryService:
                 identifiers = _extract_identifiers(eq)
 
             kw_coro = (
-                self._keyword_search_multi(identifiers, k, repository=repository, language=language)
+                self._keyword_search_multi(identifiers, fetch_k, repository=repository, language=language)
                 if identifiers else _empty_list()
             )
-            sem_coro = self._semantic.search_all(eq, k, repository=repository, language=language)
+            sem_coro = self._semantic.search_all(eq, fetch_k, repository=repository, language=language)
             if do_bm25 and self._search_store is not None:
-                bm25_lim = max(k * 3, 20)
                 bm25_coro = self._search_store.fulltext_search(
-                    eq, limit=bm25_lim, repository=repository, language=language,
+                    eq, limit=fetch_k, repository=repository, language=language,
                 )
                 kw_hits, sem_result, bm25_hits = await asyncio.gather(kw_coro, sem_coro, bm25_coro)
             else:
@@ -371,7 +384,7 @@ class HybridQueryService:
                 enable_bm25=enable_bm25,
             )
 
-        fetch_limit = 500
+        fetch_limit = _branch_fetch_k(limit, offset, k)
         tasks = [
             self.search_with_context(
                 query_text,

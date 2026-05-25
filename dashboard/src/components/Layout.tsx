@@ -1,4 +1,4 @@
-import { useState, Suspense, useRef, useLayoutEffect, useEffect } from "react";
+import { useState, Suspense, useRef, useEffect } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -37,7 +37,6 @@ function clampIndex(len: number, i: number) {
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const mobileNavOverlayRef = useRef<HTMLDivElement>(null);
   const [bizDropdownOpen, setBizDropdownOpen] = useState(false);
   const { data: health } = useHealth();
   const { t } = useI18n();
@@ -55,20 +54,6 @@ export default function Layout() {
     const next = toggleStoredTheme();
     setDarkMode(next === "dark");
   }
-
-  useLayoutEffect(() => {
-    if (!sidebarOpen) return;
-    mobileNavOverlayRef.current?.focus({ preventScroll: true });
-  }, [sidebarOpen]);
-
-  useEffect(() => {
-    if (!sidebarOpen) return;
-    function onDocumentKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setSidebarOpen(false);
-    }
-    document.addEventListener("keydown", onDocumentKeyDown);
-    return () => document.removeEventListener("keydown", onDocumentKeyDown);
-  }, [sidebarOpen]);
 
   const businessListRef = useRef<HTMLDivElement>(null);
 
@@ -145,28 +130,15 @@ export default function Layout() {
     },
   ];
 
-  return (
-    <div className="flex min-h-screen">
-      {sidebarOpen && (
-        <div
-          ref={mobileNavOverlayRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Navigation"
-          tabIndex={-1}
-          className="fixed inset-0 z-30 bg-black/30 dark:bg-black/50 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setSidebarOpen(false);
-          }}
-        />
-      )}
-
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-gray-200 bg-white transition-transform duration-200 dark:border-gray-700 dark:bg-gray-900 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
+  const sidebar = (
+    <aside
+      role={sidebarOpen ? "dialog" : undefined}
+      aria-modal={sidebarOpen ? "true" : undefined}
+      aria-label={sidebarOpen ? "Navigation" : undefined}
+      className={`fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r border-gray-200 bg-white transition-transform duration-200 dark:border-gray-700 dark:bg-gray-900 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
+        sidebarOpen ? "translate-x-0" : "-translate-x-full"
+      }`}
+    >
         <div className="flex h-14 items-center gap-2.5 border-b border-gray-200 px-5 dark:border-gray-700">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 text-sky-600 dark:bg-sky-950 dark:text-sky-400">
             <Database size={18} />
@@ -288,20 +260,43 @@ export default function Layout() {
           </div>
         </div>
       </aside>
+  );
+
+  return (
+    <div className="flex min-h-screen">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-2 focus:bg-white focus:text-blue-600 dark:focus:bg-gray-800 dark:focus:text-blue-400"
+      >
+        {t.common.skipToContent}
+      </a>
+      {sidebarOpen ? (
+        <FocusTrap onEscape={() => setSidebarOpen(false)}>
+          <>
+            <div
+              className="fixed inset-0 z-30 bg-black/30 dark:bg-black/50 lg:hidden"
+              onClick={() => setSidebarOpen(false)}
+            />
+            {sidebar}
+          </>
+        </FocusTrap>
+      ) : (
+        sidebar
+      )}
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center gap-3 border-b border-gray-200 bg-white px-4 dark:border-gray-700 dark:bg-gray-900 lg:px-6">
           <button
             type="button"
-            aria-label="Toggle menu"
+            aria-label={t.app.toggleMenu}
             className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 lg:hidden"
             onClick={() => setSidebarOpen(!sidebarOpen)}
           >
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <h1 className="min-w-0 flex-1 truncate text-sm font-medium text-gray-600 dark:text-gray-300">
+          <div className="min-w-0 flex-1 truncate text-sm font-medium text-gray-600 dark:text-gray-300">
             {t.app.headerTitle}
-          </h1>
+          </div>
           <button
             type="button"
             onClick={handleThemeToggle}
@@ -314,7 +309,7 @@ export default function Layout() {
           <CommandPalette />
         </header>
 
-        <main className="flex-1 bg-gray-50 p-4 dark:bg-slate-950 lg:p-6">
+        <main id="main-content" className="flex-1 bg-gray-50 p-4 dark:bg-slate-950 lg:p-6">
           {authError && (
             <div
               className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"

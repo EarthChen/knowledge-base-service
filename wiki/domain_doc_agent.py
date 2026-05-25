@@ -10,6 +10,7 @@ import json
 import os
 import re
 import time
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -77,6 +78,18 @@ MAX_PAGE_TOKENS = 5000
 
 EXPLORE_TIMEOUT_SEC = int(os.environ.get("EXPLORE_TIMEOUT_SEC", "240"))
 WRITE_TIMEOUT_SEC = int(os.environ.get("WRITE_TIMEOUT_SEC", "180"))
+_DOMAIN_AGENT_INNER_MARGIN_SEC = 30
+_DEFAULT_DOMAIN_AGENT_TIMEOUT_SEC = 600
+
+
+def _domain_agent_total_budget_sec() -> int:
+    """Inner elapsed budget — stays below outer asyncio.wait_for timeout."""
+    from core.config import get_settings
+
+    outer_timeout = get_settings().wiki.domain_agent_timeout_sec
+    if not isinstance(outer_timeout, int):
+        outer_timeout = _DEFAULT_DOMAIN_AGENT_TIMEOUT_SEC
+    return max(1, outer_timeout - _DOMAIN_AGENT_INNER_MARGIN_SEC)
 
 
 def _extract_tree_edges(
@@ -190,7 +203,7 @@ def _maybe_split(
                 "generation_mode": "agent",
             },
         })
-        child_links.append(f"- [[{section_title}]]")
+        child_links.append(f"- [[{domain_slug}/{section_title}]]")
 
     if not overview.strip():
         overview = f"# {display}\n\n"
@@ -198,6 +211,36 @@ def _maybe_split(
     parent_page = _make_page(parent_content, domain_slug, display)
 
     return [parent_page, *child_pages]
+
+
+def _extract_executive_summary(content: str, max_len: int = 300) -> str:
+    """Extract the first non-heading paragraph as executive summary."""
+    if not content:
+        return ""
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        if stripped.startswith("```"):
+            continue
+        if stripped.startswith("|"):
+            continue
+        if stripped.startswith("-") or stripped.startswith("*"):
+            continue
+        return stripped[:max_len]
+    return ""
+
+
+def _inject_executive_summaries(pages: list[dict[str, Any]]) -> None:
+    for page in pages:
+        if "metadata" not in page:
+            page["metadata"] = {}
+        if not page["metadata"].get("executive_summary"):
+            page["metadata"]["executive_summary"] = _extract_executive_summary(
+                page.get("content", "")
+            )
 
 
 def _make_page(content: str, slug: str, display_name: str = "") -> dict[str, Any]:
@@ -232,14 +275,20 @@ class DomainDocAgent(DocOrchestrator):
         repo_path: str | None = None,
         repo_paths: dict[str, str] | None = None,
         search_service: Any | None = None,
+        budget_resolver: Any | None = None,
     ) -> None:
+        from core.config import get_settings
         from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM, AGENT_WRITE_SYSTEM
+
+        wiki_cfg = get_settings().wiki
+        explore_rounds = wiki_cfg.domain_agent_explore_max_rounds
+        explore_tool_calls = wiki_cfg.domain_agent_explore_max_tool_calls
 
         page_agent = WikiPageAgent(
             llm,
             graph_store,
-            max_rounds=20,
-            max_tool_calls=100,
+            max_rounds=explore_rounds,
+            max_tool_calls=explore_tool_calls,
             repo_path=repo_path,
             search_service=search_service,
         )
@@ -247,13 +296,15 @@ class DomainDocAgent(DocOrchestrator):
             agent=page_agent,
             name=domain_name,
             max_iterations=max_iterations,
-            explore_system_prompt=AGENT_EXPLORE_SYSTEM.format(max_rounds=20),
+            explore_system_prompt=AGENT_EXPLORE_SYSTEM.format(max_rounds=explore_rounds),
             write_system_prompt=AGENT_WRITE_SYSTEM,
         )
         self.domain_name = domain_name
         self.domain_display_name = domain_display_name or domain_name
         self._repo_paths = repo_paths or {}
         self._page_agent = page_agent
+        self._budget_resolver = budget_resolver
+        self._valid_pairs: list[str] | None = None
         self.iteration_history: list[dict[str, Any]] = []
         self._output_guardrail = OutputGuardrailChain([
             FormatCheck(),
@@ -262,7 +313,13 @@ class DomainDocAgent(DocOrchestrator):
         ])
 
     # --- Hook 1: pre_fill ---
-    async def pre_fill(self, memory: Any, module_names: list[str]) -> None:
+    async def pre_fill(
+        self,
+        memory: Any,
+        module_names: list[str],
+        *,
+        valid_pairs: list[str] | None = None,
+    ) -> None:
         """Seed code snippets from graph before exploration."""
         graph = self._page_agent._graph
         if not graph or not module_names:
@@ -270,7 +327,15 @@ class DomainDocAgent(DocOrchestrator):
         try:
             from wiki.cypher_queries import CHUNK_SNIPPETS_CY, SNIPPETS_CY
 
-            result = await graph.execute_query(SNIPPETS_CY, {"names": module_names})
+            pairs = list(valid_pairs if valid_pairs is not None else self._valid_pairs or [])
+            bare_names = [str(name) for name in module_names if "|" not in str(name)]
+            for name in module_names:
+                compound = str(name)
+                if "|" in compound and compound not in pairs:
+                    pairs.append(compound)
+            query_params = {"names": bare_names or [str(n) for n in module_names], "valid_pairs": pairs}
+
+            result = await graph.execute_query(SNIPPETS_CY, query_params)
             for row in (getattr(result, "data", None) or []):
                 func_name = str(row.get("func_name", ""))
                 snippet = str(row.get("snippet", "")).strip()
@@ -278,7 +343,7 @@ class DomainDocAgent(DocOrchestrator):
                 if snippet and hasattr(memory, "code_snippets"):
                     memory.code_snippets.append(f"[{func_name} @ {file_path}]\n{snippet}")
             if hasattr(memory, "code_snippets") and not memory.code_snippets:
-                result = await graph.execute_query(CHUNK_SNIPPETS_CY, {"names": module_names})
+                result = await graph.execute_query(CHUNK_SNIPPETS_CY, query_params)
                 for row in (getattr(result, "data", None) or []):
                     entity_name = str(row.get("entity_name", ""))
                     snippet = str(row.get("snippet", "")).strip()
@@ -338,9 +403,15 @@ class DomainDocAgent(DocOrchestrator):
         return pages
 
     # --- Backward-compatible internal helper (renamed from _pre_fill_snippets) ---
-    async def _pre_fill_snippets(self, memory: WorkingMemory, module_names: list[str]) -> None:
+    async def _pre_fill_snippets(
+        self,
+        memory: WorkingMemory,
+        module_names: list[str],
+        *,
+        valid_pairs: list[str] | None = None,
+    ) -> None:
         """Backward compat: delegates to pre_fill hook."""
-        await self.pre_fill(memory, module_names)
+        await self.pre_fill(memory, module_names, valid_pairs=valid_pairs)
 
     async def _plan_topics(
         self,
@@ -375,14 +446,19 @@ class DomainDocAgent(DocOrchestrator):
 
         try:
             llm = self._page_agent._llm
+            from wiki.token_budget import resolve_max_tokens
+
+            plan_tokens = resolve_max_tokens(self._budget_resolver, "topic_plan")
             if hasattr(llm, "complete_json"):
-                result = await llm.complete_json(messages, {}, max_tokens=2000)
+                result = await llm.complete_json(messages, {}, max_tokens=plan_tokens)
                 if isinstance(result, dict):
                     raw = json.dumps(result, ensure_ascii=False)
                 else:
                     raw = str(result)
             else:
-                raw = await llm.generate(user_prompt, system=SYSTEM_TOPIC_PLANNER, max_tokens=2000)
+                raw = await llm.generate(
+                    user_prompt, system=SYSTEM_TOPIC_PLANNER, max_tokens=plan_tokens,
+                )
                 raw = str(raw)
             outline = _parse_topic_outline(raw)
             if outline:
@@ -412,7 +488,10 @@ class DomainDocAgent(DocOrchestrator):
             content = await self._page_agent.write(
                 self.domain_name, baseline_context, memory,
             )
-            return _maybe_split(content, self.domain_name, self.domain_display_name)
+            content = await self._verify_code_blocks(content, memory)
+            pages = _maybe_split(content, self.domain_name, self.domain_display_name)
+            _inject_executive_summaries(pages)
+            return pages
 
         from wiki.path_conventions import domain_topic_path
 
@@ -431,6 +510,7 @@ class DomainDocAgent(DocOrchestrator):
             topic_content = await self._page_agent.write(
                 self.domain_name, topic_context, memory,
             )
+            topic_content = await self._verify_code_blocks(topic_content, memory)
             topic_path = domain_topic_path(self.domain_name, topic.title)
             topic_pages.append({
                 "page_type": "topic",
@@ -446,7 +526,7 @@ class DomainDocAgent(DocOrchestrator):
                 },
                 "business_domain": self.domain_name,
             })
-            topic_links.append(f"- [[{topic.title}]]")
+            topic_links.append(f"- [[{self.domain_name}/{topic.title}]]")
 
         overview_content = (
             f"# {self.domain_display_name}\n\n"
@@ -458,20 +538,39 @@ class DomainDocAgent(DocOrchestrator):
         )
         overview_page = _make_page(overview_content, self.domain_name, self.domain_display_name)
 
-        return [overview_page, *topic_pages]
+        pages = [overview_page, *topic_pages]
+        _inject_executive_summaries(pages)
+        return pages
 
     async def generate_with_iterations(
         self,
         module_names: list[str],
         baseline_context: str,
+        *,
+        valid_pairs: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Generate domain documentation with Explore → Write → Quality loop.
 
         Each phase (explore, write) has its own timeout. Write retries once
         on first timeout. A total elapsed-time budget prevents runaway loops.
         """
+        warnings.warn(
+            "DomainDocAgent.generate_with_iterations() is deprecated; "
+            "prefer DocOrchestrator.generate() via use_orchestrator_template.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        from core.config import get_settings
+
+        wiki_cfg = get_settings().wiki
+        if wiki_cfg.use_orchestrator_template:
+            self._valid_pairs = valid_pairs
+            pages = await self.generate(module_names, baseline_context)
+            _inject_executive_summaries(pages)
+            return pages
+
         start_time = time.monotonic()
-        total_budget = int(os.environ.get("DOMAIN_AGENT_TIMEOUT_SEC", "900"))
+        total_budget = _domain_agent_total_budget_sec()
         loop = asyncio.get_running_loop()
         t0 = loop.time()
 
@@ -479,7 +578,7 @@ class DomainDocAgent(DocOrchestrator):
             return max(0, total_budget - (loop.time() - t0))
 
         memory = WorkingMemory()
-        await self._pre_fill_snippets(memory, module_names)
+        await self._pre_fill_snippets(memory, module_names, valid_pairs=valid_pairs)
         try:
             timeout = min(EXPLORE_TIMEOUT_SEC, _remaining())
             await asyncio.wait_for(
@@ -507,10 +606,43 @@ class DomainDocAgent(DocOrchestrator):
             pages = await self._write_with_outline(
                 outline, baseline_context, memory, module_names,
             )
+
+            from core.config import get_settings
+
+            wiki_cfg = get_settings().wiki
+            if wiki_cfg.topic_split_quality_check and _remaining() > 30:
+                for page in pages:
+                    content = page.get("content", "")
+                    page_modules = page.get("metadata", {}).get("covered_modules", module_names)
+                    quality = evaluate_quality(content, page_modules)
+                    if quality.coverage < wiki_cfg.domain_agent_early_exit_quality:
+                        log.info(
+                            "topic_split_low_quality",
+                            domain=self.domain_name,
+                            topic=page.get("title", ""),
+                            coverage=quality.coverage,
+                        )
+                        if quality.uncovered_modules and _remaining() > 20:
+                            try:
+                                focus_modules = quality.uncovered_modules[:5]
+                                timeout = min(30, _remaining())
+                                await asyncio.wait_for(
+                                    self._page_agent.explore(
+                                        module_names=focus_modules,
+                                        domain_name=self.domain_name,
+                                        baseline_context=baseline_context,
+                                        memory=memory,
+                                    ),
+                                    timeout=timeout,
+                                )
+                            except (asyncio.TimeoutError, TimeoutError):
+                                pass
+
             if memory.discovered_entity_uids:
                 entity_uids = list(memory.discovered_entity_uids)
                 for page in pages:
                     page["covered_entity_uids"] = entity_uids
+            _inject_executive_summaries(pages)
             return pages
 
         if not module_names:
@@ -519,11 +651,13 @@ class DomainDocAgent(DocOrchestrator):
                 baseline_context,
                 memory,
             )
+            content = await self._verify_code_blocks(content, memory)
             pages = _maybe_split(content, self.domain_name, self.domain_display_name)
             if memory.discovered_entity_uids:
                 entity_uids = list(memory.discovered_entity_uids)
                 for page in pages:
                     page["covered_entity_uids"] = entity_uids
+            _inject_executive_summaries(pages)
             return pages
 
         content = ""
@@ -546,6 +680,7 @@ class DomainDocAgent(DocOrchestrator):
                     timeout=timeout,
                 )
                 write_timeout_count = 0
+                content = await self._verify_code_blocks(content, memory)
             except (asyncio.TimeoutError, TimeoutError):
                 write_timeout_count += 1
                 log.warning(
@@ -558,6 +693,30 @@ class DomainDocAgent(DocOrchestrator):
                 continue
 
             quality = evaluate_quality(content, module_names)
+            from core.config import get_settings
+
+            early_exit = get_settings().wiki.domain_agent_early_exit_quality
+            min_chars = get_settings().wiki.domain_agent_early_exit_min_chars
+            if (
+                quality.coverage >= early_exit
+                and quality.citation_density >= 0.3
+                and len(content or "") >= min_chars
+            ):
+                self.iteration_history.append({
+                    "iteration": iteration,
+                    "coverage": quality.coverage,
+                    "citation_density": quality.citation_density,
+                    "context_gaps": quality.context_gap_count,
+                    "uncovered_count": len(quality.uncovered_modules),
+                })
+                log.info(
+                    "agent_early_exit",
+                    domain=self.domain_name,
+                    coverage=quality.coverage,
+                    citation=quality.citation_density,
+                )
+                break
+
             guardrail_result = await self._output_guardrail.evaluate(
                 content, {"module_names": module_names}
             )
@@ -654,6 +813,8 @@ class DomainDocAgent(DocOrchestrator):
             )
             for page in pages:
                 page["covered_entity_uids"] = entity_uids
+
+        _inject_executive_summaries(pages)
 
         try:
             covered = [m for m in module_names if m.lower() in (content or "").lower()]

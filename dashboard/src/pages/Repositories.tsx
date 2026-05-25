@@ -9,6 +9,7 @@ import { useBusiness } from "../contexts/BusinessContext";
 import { useBusinessRepositories } from "../hooks/useBusinessRepositories";
 import { useToast } from "../components/Toast";
 import { SkeletonLine } from "../components/Skeleton";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 export default function Repositories() {
   const { data, isLoading, error, refetch } = useRepositories();
@@ -19,6 +20,7 @@ export default function Repositories() {
   const { toast } = useToast();
   const { isAdmin } = useAuth();
   const [syncingRepo, setSyncingRepo] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const currentBizName =
     businesses.find((b) => b.id === currentBusiness)?.name || currentBusiness;
@@ -42,9 +44,10 @@ export default function Repositories() {
   const tableLoading =
     isLoading || !boundReposQuery.isFetched || businessesLoading;
 
-  async function handleDelete(repo: string) {
-    const msg = t.repos.deleteConfirm.replace("{repo}", repo);
-    if (!confirm(msg)) return;
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    const repo = deleteTarget;
+    setDeleteTarget(null);
     try {
       const result = await deleteMutation.mutateAsync(repo);
       toast(
@@ -69,15 +72,21 @@ export default function Repositories() {
       });
       const pullStatus = typeof res.git_pull === "string" ? res.git_pull : "updated";
       if (pullStatus === "already_up_to_date") {
-        toast("info", `${repo}: already up to date`);
+        toast("info", t.repos.syncAlreadyUpToDate.replace("{repo}", repo));
       } else {
         const nodeCount = res.index_stats?.nodes ?? 0;
-        const wikiMsg = res.wiki_triggered ? ", wiki regeneration started" : "";
-        toast("success", `${repo}: synced (${nodeCount} nodes indexed${wikiMsg})`);
+        const wikiMsg = res.wiki_triggered ? t.repos.syncWikiTriggeredSuffix : "";
+        toast(
+          "success",
+          t.repos.syncSuccess
+            .replace("{repo}", repo)
+            .replace("{count}", String(nodeCount))
+            .replace("{wiki}", wikiMsg),
+        );
       }
       refetch();
     } catch (err) {
-      toast("error", getErrorMessage(err, "Sync failed"));
+      toast("error", getErrorMessage(err, t.repos.syncFailed));
     } finally {
       setSyncingRepo(null);
     }
@@ -158,19 +167,19 @@ export default function Repositories() {
                           onClick={() => handleSyncAndWiki(r.repository, r.git_url)}
                           disabled={syncingRepo === r.repository}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-50 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-400 dark:hover:bg-sky-950/60"
-                          title="Update code & regenerate wiki"
+                          title={t.repos.syncWikiTitle}
                         >
                           {syncingRepo === r.repository ? (
                             <Loader2 size={12} className="animate-spin" />
                           ) : (
                             <RefreshCw size={12} />
                           )}
-                          Sync & Wiki
+                          {t.repos.syncWikiBtn}
                         </button>
                       )}
                       {isAdmin && (
                         <button
-                          onClick={() => handleDelete(r.repository)}
+                          onClick={() => setDeleteTarget(r.repository)}
                           disabled={deleteMutation.isPending}
                           className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
                         >
@@ -190,6 +199,17 @@ export default function Repositories() {
           </tbody>
         </table>
       </div>
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title={t.repos.delete}
+          message={t.repos.deleteConfirm.replace("{repo}", deleteTarget)}
+          confirmLabel={t.repos.delete}
+          variant="danger"
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   );
 }

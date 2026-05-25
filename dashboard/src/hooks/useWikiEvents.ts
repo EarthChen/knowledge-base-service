@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { API_BASE, authHeaders } from "../api/client";
+import { apiStream } from "../api/client";
 import type { WikiEvent } from "./wikiTypes";
 
 export type WikiEventsConnectionStatus = "connected" | "reconnecting" | "disconnected";
@@ -38,11 +38,11 @@ export function useWikiEvents(
       abortController = ac;
 
       const params = new URLSearchParams({ business_id: businessId });
-      const url = `${API_BASE}/wiki/events?${params.toString()}`;
+      const path = `/wiki/events?${params.toString()}`;
 
       try {
-        const res = await fetch(url, {
-          headers: { ...authHeaders(), Accept: "text/event-stream" },
+        const res = await apiStream(path, {
+          headers: { Accept: "text/event-stream" },
           signal: ac.signal,
         });
 

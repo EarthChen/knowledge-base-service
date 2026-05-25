@@ -15,9 +15,8 @@ import WikiQualityScoreCard from "./WikiQualityScoreCard";
 import WikiQualitySummary from "./WikiQualitySummary";
 import WikiLandingPage from "./WikiLandingPage";
 import WikiDomainReviewPanel from "./WikiDomainReviewPanel";
-import WikiKnowledgeGraph from "./WikiKnowledgeGraph";
-
 const WikiReferenceGraph = lazy(() => import("./WikiReferenceGraph"));
+const WikiKnowledgeGraph = lazy(() => import("./WikiKnowledgeGraph"));
 const GraphInsightsPanel = lazy(() => import("./GraphInsightsPanel"));
 const WikiBusinessExportPanel = lazy(() => import("./WikiBusinessExportPanel"));
 const WikiLintPanel = lazy(() => import("./WikiLintPanel"));
@@ -406,13 +405,15 @@ export default function WikiToolPanel({
       {toolTab === "knowledge_graph" && (
         <div role="tabpanel" id="wiki-panel-knowledge_graph" aria-labelledby="wiki-tab-knowledge_graph">
           {panelBoundary(
-            <WikiKnowledgeGraph
-              domains={domainGraphDomains}
-              domainEdges={domainEdgesQuery.data?.edges ?? []}
-              onNodeClick={handleKnowledgeGraphNodeClick}
-              isLoading={knowledgeGraphLoading}
-              error={knowledgeGraphError}
-            />,
+            <Suspense fallback={<WikiToolSuspenseFallback />}>
+              <WikiKnowledgeGraph
+                domains={domainGraphDomains}
+                domainEdges={domainEdgesQuery.data?.edges ?? []}
+                onNodeClick={handleKnowledgeGraphNodeClick}
+                isLoading={knowledgeGraphLoading}
+                error={knowledgeGraphError}
+              />
+            </Suspense>,
           )}
         </div>
       )}

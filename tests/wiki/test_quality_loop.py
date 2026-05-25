@@ -121,6 +121,7 @@ async def test_quality_gate_respects_max_retries() -> None:
         "quality_scores": {},
         "pages_to_heal": [],
         "heal_attempts": {"bad_page": 2},
+        "heal_cycles": {"bad_page": 2},
         "heal_hints": {},
         "stage_timings": {},
         "llm_call_count": 0,

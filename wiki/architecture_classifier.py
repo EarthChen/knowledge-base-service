@@ -65,10 +65,12 @@ class ArchitectureLayerClassifier:
         config: AppWikiFlags,
         graph_store: FalkorDBStore,
         llm: LLMProvider | None = None,
+        budget_resolver: Any | None = None,
     ) -> None:
         self._patterns = config.architecture_layer_patterns
         self._store = graph_store
         self._llm = llm
+        self._budget_resolver = budget_resolver
 
     async def classify_module(self, module_name: str, module_path: str) -> LayerResult:
         votes: list[LayerVote] = [
@@ -173,7 +175,10 @@ class ArchitectureLayerClassifier:
         messages = [{"role": "user", "content": prompt}]
 
         try:
-            response = await self._llm.complete_json(messages, _LLM_SCHEMA)
+            from wiki.token_budget import resolve_max_tokens
+
+            max_tokens = resolve_max_tokens(self._budget_resolver, "arch_classify")
+            response = await self._llm.complete_json(messages, _LLM_SCHEMA, max_tokens=max_tokens)
             layer = str(response.get("layer") or "").lower()
             if layer not in LAYERS:
                 return LayerVote(layer="unknown", confidence=0.0, signal="llm")

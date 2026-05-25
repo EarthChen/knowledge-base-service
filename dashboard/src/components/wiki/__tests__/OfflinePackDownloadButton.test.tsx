@@ -75,4 +75,20 @@ describe("OfflinePackDownloadButton", () => {
       expect(screen.getByText(zh.wiki.offlinePackDataTruncated, { exact: true })).toBeInTheDocument();
     });
   });
+
+  it("shows user-friendly error message instead of raw HTTP status", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ detail: "forbidden" }), { status: 403 }),
+    );
+    render(
+      <TestI18nProvider locale="en">
+        <OfflinePackDownloadButton repository="test-repo" businessId="b1" />
+      </TestI18nProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: en.wiki.offlinePackButton }));
+    await waitFor(() => {
+      expect(screen.getByText(en.wiki.offlinePackDownloadFailed)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/HTTP 403/)).not.toBeInTheDocument();
+  });
 });

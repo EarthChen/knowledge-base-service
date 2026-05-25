@@ -5,9 +5,39 @@ import json
 import re
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from wiki.pipeline_graph import build_wiki_pipeline
+
+
+async def _mock_graph_domain_decompose(state, config=None):
+    """Stub graph-driven domain decomposition for e2e tests without graph_store."""
+    return {
+        "domain_mapping": {
+            "payment": [("test-repo", "PaymentService"), ("test-repo", "RefundService")],
+            "user-management": [("test-repo", "UserService")],
+        },
+        "domain_display_names": {
+            "payment": "Payment",
+            "user-management": "User Management",
+        },
+        "domain_tree": [
+            {
+                "name": "payment",
+                "display_name": "Payment",
+                "modules": ["PaymentService", "RefundService"],
+                "children": [],
+            },
+            {
+                "name": "user-management",
+                "display_name": "User Management",
+                "modules": ["UserService"],
+                "children": [],
+            },
+        ],
+        "affected_domains": ["payment", "user-management"],
+        "module_call_edges": [],
+    }
 
 
 def _mock_llm_generate(prompt: str, system: str = "", **kwargs) -> str:
@@ -325,8 +355,6 @@ async def test_full_pipeline_e2e_with_mock_llm():
     mock_llm.agenerate = AsyncMock(side_effect=_mock_llm_agenerate)
     mock_llm.complete_with_tools = AsyncMock(side_effect=_mock_complete_with_tools)
 
-    pipeline = build_wiki_pipeline()
-
     initial_state = {
         "business_id": "test-e2e",
         "repositories": ["test-repo"],
@@ -356,10 +384,15 @@ async def test_full_pipeline_e2e_with_mock_llm():
         "resolved_links": {},
     }
 
-    result = await pipeline.ainvoke(
-        initial_state,
-        config={"configurable": {"thread_id": "e2e-test-1", "llm": mock_llm}},
-    )
+    with patch(
+        "wiki.pipeline_graph.graph_driven_domain_decompose_node",
+        new=_mock_graph_domain_decompose,
+    ):
+        pipeline = build_wiki_pipeline()
+        result = await pipeline.ainvoke(
+            initial_state,
+            config={"configurable": {"thread_id": "e2e-test-1", "llm": mock_llm}},
+        )
 
     assert result is not None
     assert result["business_id"] == "test-e2e"
@@ -381,9 +414,9 @@ async def test_full_pipeline_e2e_with_mock_llm():
     # Phase 1: detect_reorg should return first_run (no prior domain_tree in state).
     assert result.get("reorg_type") == "first_run"
 
-    # Domain-aware path: classify_domains fills domain_mapping; hierarchy may be in domain_tree.
+    # Domain-aware path: graph_domain_decompose fills domain_mapping; hierarchy in domain_tree.
     dm = result.get("domain_mapping") or {}
-    assert dm, "domain_mapping should be populated after classify_domains"
+    assert dm, "domain_mapping should be populated after graph_domain_decompose"
     assert "payment" in dm and "user-management" in dm
     assert result.get("domain_tree") is not None
     module_tree = result.get("module_tree") or []
@@ -503,14 +536,12 @@ async def test_pipeline_incremental_no_change_skips():
 
 @pytest.mark.asyncio
 async def test_pipeline_light_reorg():
-    """Incremental run with affected domains and small change should route through classify_domains."""
+    """Incremental run with affected domains and small change should route through graph_domain_decompose."""
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(side_effect=_mock_llm_generate)
     mock_llm.complete_json = AsyncMock(side_effect=_mock_llm_complete_json)
     mock_llm.agenerate = AsyncMock(side_effect=_mock_llm_agenerate)
     mock_llm.complete_with_tools = AsyncMock(side_effect=_mock_complete_with_tools)
-
-    pipeline = build_wiki_pipeline()
 
     initial_state = {
         "business_id": "light-reorg-test",
@@ -547,10 +578,15 @@ async def test_pipeline_light_reorg():
         "resolved_links": {},
     }
 
-    result = await pipeline.ainvoke(
-        initial_state,
-        config={"configurable": {"thread_id": "light-reorg-1", "llm": mock_llm}},
-    )
+    with patch(
+        "wiki.pipeline_graph.graph_driven_domain_decompose_node",
+        new=_mock_graph_domain_decompose,
+    ):
+        pipeline = build_wiki_pipeline()
+        result = await pipeline.ainvoke(
+            initial_state,
+            config={"configurable": {"thread_id": "light-reorg-1", "llm": mock_llm}},
+        )
 
     assert result is not None
     # Should detect reorg as light or heavy (depends on ratio calculation)
@@ -567,8 +603,6 @@ async def test_pipeline_full_reorg():
     mock_llm.complete_json = AsyncMock(side_effect=_mock_llm_complete_json)
     mock_llm.agenerate = AsyncMock(side_effect=_mock_llm_agenerate)
     mock_llm.complete_with_tools = AsyncMock(side_effect=_mock_complete_with_tools)
-
-    pipeline = build_wiki_pipeline()
 
     initial_state = {
         "business_id": "full-reorg-test",
@@ -601,10 +635,15 @@ async def test_pipeline_full_reorg():
         "resolved_links": {},
     }
 
-    result = await pipeline.ainvoke(
-        initial_state,
-        config={"configurable": {"thread_id": "full-reorg-1", "llm": mock_llm}},
-    )
+    with patch(
+        "wiki.pipeline_graph.graph_driven_domain_decompose_node",
+        new=_mock_graph_domain_decompose,
+    ):
+        pipeline = build_wiki_pipeline()
+        result = await pipeline.ainvoke(
+            initial_state,
+            config={"configurable": {"thread_id": "full-reorg-1", "llm": mock_llm}},
+        )
 
     assert result is not None
     assert result.get("reorg_type") == "full"

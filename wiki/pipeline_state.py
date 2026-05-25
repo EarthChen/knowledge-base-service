@@ -60,12 +60,13 @@ class WikiPipelineState(TypedDict):
     # --- Quality tracking ---
     quality_scores: dict[str, dict[str, Any]]
     pages_to_heal: list[str]
+    # Per-page total inner-round heal attempts across all outer cycles.
     heal_attempts: dict[str, int]
+    # Per-page outer quality-gate → heal loop iterations.
+    heal_cycles: NotRequired[dict[str, int]]
     heal_hints: dict[str, str]
 
     # --- Observability ---
-    stage_timings: dict[str, float]
-    llm_call_count: int
     errors: list[str]
 
     # --- Entity classification (Phase 1) ---
@@ -76,6 +77,9 @@ class WikiPipelineState(TypedDict):
     is_incremental: bool
     reorg_type: str
     affected_domains: list[str]
+    existing_domain_mapping: NotRequired[dict[str, list[tuple[str, str]]]]
+    pinned_modules: NotRequired[dict[str, str]]
+    affected_modules: NotRequired[set[str]]
 
     # --- Review tracking ---
     review_status: dict[str, str]
@@ -102,7 +106,7 @@ class WikiPipelineState(TypedDict):
     reassembly_actions: NotRequired[list[dict[str, Any]]]
     module_call_edges: NotRequired[list[dict[str, Any]]]  # cross-module call edges for parent overview stats
 
-    # --- Domain display names (set by classify_domains, consumed by persist_classification + service) ---
+    # --- Domain display names (set by graph_domain_decompose, consumed by persist_classification + service) ---
     domain_display_names: NotRequired[dict[str, str]]  # slug → localized display name
 
     # Module-level architecture layer classification (classify_architecture_layers node)
@@ -114,3 +118,12 @@ class WikiPipelineState(TypedDict):
     # --- Flow composition + guided tour (Batch 3) ---
     flow_pages: NotRequired[list[dict[str, Any]]]
     guided_tour: NotRequired[dict[str, Any]]
+
+    # --- Persistence handle ---
+    persistence: NotRequired[Any]
+
+    # --- Existing module summaries for incremental reuse ---
+    existing_summaries: NotRequired[dict[str, dict[str, Any]]]
+
+    # --- Embedding cache (SHA-256 text hash → vector; shared across pipeline nodes) ---
+    embedding_cache: NotRequired[dict[str, list[float]]]

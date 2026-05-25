@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ErrorBoundary from "../ErrorBoundary";
 import { BookOpen, Network, Pencil } from "lucide-react";
 import type { WikiPageDetail } from "../../hooks/wikiTypes";
 import { useWikiAnnotations } from "../../hooks/useWikiAnnotations";
 import MarkdownRenderer from "./MarkdownRenderer";
-import { WikiEditor } from "./WikiEditor";
+const WikiEditor = lazy(() => import("./WikiEditor"));
 import WikiAnnotationLayer from "./WikiAnnotationLayer";
 import WikiAnnotationSidebar from "./WikiAnnotationSidebar";
 import WikiEditButton from "./WikiEditButton";
@@ -252,14 +252,22 @@ export default function WikiContent({
           <>
             {isEditor && editing && pageUid ? (
               <div className="w-full min-h-[min(70vh,800px)]">
-                <WikiEditor
-                  pageUid={pageUid}
-                  initialContent={detail.content}
-                  currentVersion={pageVersion}
-                  businessId={businessId}
-                  wikiLinkParams={wikiLinkParams}
-                  onClose={() => setEditing(false)}
-                />
+                <Suspense
+                  fallback={
+                    <div className="flex items-center justify-center py-12 text-sm text-gray-400">
+                      {t.common.loading}
+                    </div>
+                  }
+                >
+                  <WikiEditor
+                    pageUid={pageUid}
+                    initialContent={detail.content}
+                    currentVersion={pageVersion}
+                    businessId={businessId}
+                    wikiLinkParams={wikiLinkParams}
+                    onClose={() => setEditing(false)}
+                  />
+                </Suspense>
               </div>
             ) : (
               <div className="flex flex-col gap-4">

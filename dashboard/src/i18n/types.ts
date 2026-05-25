@@ -13,6 +13,7 @@ export interface Translations {
     commandPaletteNoMatches: string;
     themeToggleDark: string;
     themeToggleLight: string;
+    toggleMenu: string;
   };
   nav: {
     overview: string;
@@ -54,6 +55,7 @@ export interface Translations {
     unexpectedError: string;
     /** Short label for an unknown error detail in toasts */
     unknown: string;
+    skipToContent: string;
     /** Mermaid diagram error in wiki markdown */
     mermaidRenderFailed: string;
     /** Placeholder while a Mermaid or diagram block is rendering */
@@ -61,6 +63,7 @@ export interface Translations {
     /** Hint on diagram preview hover */
     diagramClickToZoom: string;
     retry: string;
+    clearSearch: string;
   };
   errorBoundary: {
     defaultMessage: string;
@@ -277,6 +280,12 @@ export interface Translations {
     deletedNodes: string;
     deleteFailed: string;
     currentBusinessContext: string;
+    syncWikiTitle: string;
+    syncWikiBtn: string;
+    syncAlreadyUpToDate: string;
+    syncSuccess: string;
+    syncWikiTriggeredSuffix: string;
+    syncFailed: string;
   };
   documents: {
     title: string;
@@ -407,6 +416,7 @@ export interface Translations {
     expandAllNeighbors: string;
     maxNodesReached: string;
     graphRenderFailed: string;
+    canvasLabel: string;
     blastTitle: string;
     blastNamesLabel: string;
     blastNamesPlaceholder: string;
@@ -719,6 +729,7 @@ export interface Translations {
     generated: string;
     askWiki: string;
     askQuestionPlaceholder: string;
+    askSubmit: string;
     stop: string;
     clear: string;
     sources: string;
@@ -981,6 +992,10 @@ export interface Translations {
       expanded: string;
       collapsed: string;
       pending_review: string;
+      edit: string;
+      delete: string;
+      delete_confirm: string;
+      rename_input: string;
     };
     topic_content: {
       select_page: string;
@@ -1087,6 +1102,7 @@ export interface Translations {
       mergeConfirm: string;
       deleteTitle: string;
       deleteConfirm: string;
+      deleteOptions: string;
       promoteChildren: string;
       cascadeDelete: string;
       cancel: string;

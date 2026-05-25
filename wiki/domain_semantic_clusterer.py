@@ -48,9 +48,10 @@ class DomainSemanticClusterer:
     ) -> list[str]:
         """Build text for each module to be embedded."""
         texts: list[str] = []
-        for _repo, name in modules:
-            path = _shorten_path(paths.get(name, ""))
-            summary_data = summaries.get(name)
+        for repo, name in modules:
+            compound_key = f"{repo}|{name}"
+            path = _shorten_path(paths.get(compound_key, paths.get(name, "")))
+            summary_data = summaries.get(compound_key, summaries.get(name))
             if isinstance(summary_data, dict):
                 summary_text = str(summary_data.get("summary_text", ""))
                 methods = summary_data.get("methods") or summary_data.get("key_methods") or []

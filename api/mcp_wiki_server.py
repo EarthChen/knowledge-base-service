@@ -204,14 +204,11 @@ class MCPWikiServer:
 
         affected = await self._change_detector.detect_from_file_list(repo, files, trigger="mcp")
 
-        from wiki.compact_formatter import CompactFormatter
-
-        formatter = CompactFormatter()
-        return formatter.format_impact({
+        return {
             "page_uids": affected.page_uids,
             "affected_entities": affected.affected_entities,
             "trigger": affected.trigger,
-        })
+        }
 
     @mcp_tool("wiki_get_snapshot")
     async def _handle_wiki_get_snapshot(self, args: dict[str, Any]) -> dict[str, Any]:

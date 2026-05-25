@@ -8,6 +8,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from core.log import get_logger
+from wiki.llm_rate_limiter import acquire_llm_quota
 from wiki.pipeline_concurrency import PipelineConcurrency
 
 log = get_logger(__name__)
@@ -45,6 +46,10 @@ async def graph_decompose_node(
     config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
     """Build module tree from dependency graph using SCC + topological sort."""
+    if state.get("is_incremental") and not state.get("affected_modules"):
+        log.info("graph_decompose_skipped", reason="incremental_no_affected_modules")
+        return {}
+
     from wiki.graph_module_decomposer import GraphModuleDecomposer
 
     configurable = (config or {}).get("configurable", {}) or {}
@@ -142,6 +147,7 @@ async def generate_titles_node(
 
     configurable = (config or {}).get("configurable", {}) or {}
     llm = configurable.get("llm")
+    budget_resolver = configurable.get("budget_resolver")
 
     tree_data = state.get("module_tree", [])
     tree = ModuleTree.from_dicts(tree_data, repo_id=state.get("business_id", ""))
@@ -178,7 +184,11 @@ async def generate_titles_node(
                     f'输出JSON: {{"title": "标题", "description": "描述"}}'
                 )
                 try:
-                    raw_text = await llm.generate(prompt, max_tokens=200)
+                    from wiki.token_budget import resolve_max_tokens
+
+                    title_tokens = resolve_max_tokens(budget_resolver, "title_generation", default=200)
+                    await acquire_llm_quota(config, estimated_tokens=title_tokens)
+                    raw_text = await llm.generate(prompt, max_tokens=title_tokens)
                     data = json.loads(raw_text) if raw_text else {}
                     return n, data.get("title", n.canonical_key), data.get("description", "")
                 except Exception:
@@ -218,6 +228,7 @@ async def compose_bottomup_node(
     configurable = (config or {}).get("configurable", {}) or {}
     llm = configurable.get("llm")
     graph_store = configurable.get("graph_store")
+    budget_resolver = configurable.get("budget_resolver")
     tree_data = state.get("module_tree", [])
     tree = ModuleTree.from_dicts(tree_data, repo_id=state.get("business_id", ""))
     domain_cache = dict(state.get("domain_cache", {}))
@@ -304,7 +315,11 @@ async def compose_bottomup_node(
             try:
                 result = await asyncio.wait_for(
                     _compose_leaf_for_bottomup(
-                        node, llm, module_summaries, graph_store=graph_store
+                        node,
+                        llm,
+                        module_summaries,
+                        graph_store=graph_store,
+                        budget_resolver=budget_resolver,
                     ),
                     timeout=_LEAF_TIMEOUT_SEC,
                 )
@@ -541,7 +556,7 @@ async def _enrich_leaf_context(node: Any, graph_store: Any) -> str:
         short_name_sample=short_names[:3],
     )
 
-    params = {"names": short_names}
+    params = {"names": short_names, "valid_pairs": []}
     enrich_start = _time.monotonic()
 
     async def _safe_query(cypher: str, label: str) -> list[dict]:
@@ -639,6 +654,7 @@ async def _compose_leaf_for_bottomup(
     module_summaries: dict[str, Any] | None = None,
     *,
     graph_store: Any | None = None,
+    budget_resolver: Any | None = None,
 ) -> dict[str, Any]:
     import time as _time
     leaf_start = _time.monotonic()
@@ -688,7 +704,10 @@ async def _compose_leaf_for_bottomup(
         )
         llm_start = _time.monotonic()
         try:
-            content = await llm.generate(prompt, system=system, max_tokens=2000)
+            from wiki.token_budget import resolve_max_tokens
+
+            compose_tokens = resolve_max_tokens(budget_resolver, "leaf_compose")
+            content = await llm.generate(prompt, system=system, max_tokens=compose_tokens)
             llm_elapsed = _time.monotonic() - llm_start
             if llm_elapsed > 15:
                 log.warning(

@@ -146,3 +146,5 @@ export function WikiEditor({
     </div>
   );
 }
+
+export default WikiEditor;

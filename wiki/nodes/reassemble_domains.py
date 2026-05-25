@@ -28,8 +28,11 @@ def _extract_domain_slug(path: str) -> str | None:
 async def _extract_domain_embeddings(
     pages: list[dict[str, Any]],
     embedding_generator: Any,
+    embedding_cache: dict[str, list[float]] | None = None,
 ) -> dict[str, np.ndarray]:
     """Embed each domain's overview page content."""
+    from wiki.nodes.graph_domain_decompose import _embed_texts_with_cache
+
     overview_pages: list[tuple[str, str]] = []
     for page in pages:
         path = str(page.get("path") or "")
@@ -44,10 +47,11 @@ async def _extract_domain_embeddings(
         return {}
 
     texts = [content for _, content in overview_pages]
-    embeddings_list = await embedding_generator.generate(texts)
+    cache = embedding_cache if embedding_cache is not None else {}
+    embeddings_list = await _embed_texts_with_cache(texts, cache, embedding_generator)
 
     result: dict[str, np.ndarray] = {}
-    for (slug, _), emb in zip(overview_pages, embeddings_list):
+    for (slug, _), emb in zip(overview_pages, embeddings_list, strict=True):
         result[slug] = np.array(emb, dtype=np.float32)
     return result
 
@@ -85,13 +89,17 @@ async def _match_orphan_pages(
     embedding_generator: Any,
     threshold: float,
     pinned_domains: set[str],
+    embedding_cache: dict[str, list[float]] | None = None,
 ) -> list[dict[str, Any]]:
     """Match orphan pages to the closest domain by embedding similarity."""
+    from wiki.nodes.graph_domain_decompose import _embed_texts_with_cache
+
     if not orphan_pages or not domain_embeddings:
         return []
 
     texts = [str(p.get("content") or "")[:_CONTENT_TRUNCATE_LEN] for p in orphan_pages]
-    orphan_embeddings = await embedding_generator.generate(texts)
+    cache = embedding_cache if embedding_cache is not None else {}
+    orphan_embeddings = await _embed_texts_with_cache(texts, cache, embedding_generator)
 
     assignments: list[dict[str, Any]] = []
     for page, emb_list in zip(orphan_pages, orphan_embeddings):
@@ -233,6 +241,10 @@ async def reassemble_domains_node(
     state: dict[str, Any], config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
     """Post-wiki domain reassembly: merge similar domains + match orphans."""
+    if state.get("is_incremental") and not state.get("affected_domains"):
+        log.info("reassembly_skipped", reason="incremental_no_affected_domains")
+        return {}
+
     pipeline_config = state.get("config") or {}
 
     if pipeline_config.get("reassembly_enabled") is False:
@@ -263,11 +275,12 @@ async def reassemble_domains_node(
     domain_tree = list(state.get("domain_tree") or [])
     domain_display_names = dict(state.get("domain_display_names") or {})
     original_module_count = sum(len(v) for v in domain_mapping.values())
+    embedding_cache: dict[str, list[float]] = dict(state.get("embedding_cache") or {})
 
     # --- Step 1: Embed domain overviews ---
     try:
         generator = _get_embedding_generator()
-        domain_embeddings = await _extract_domain_embeddings(pages, generator)
+        domain_embeddings = await _extract_domain_embeddings(pages, generator, embedding_cache)
     except Exception:
         log.warning("reassembly_embedding_failed", exc_info=True)
         return {"reassembly_actions": []}
@@ -315,6 +328,7 @@ async def reassemble_domains_node(
         try:
             orphan_assignments = await _match_orphan_pages(
                 orphan_pages, domain_embeddings, generator, orphan_threshold, pinned_domains,
+                embedding_cache=embedding_cache,
             )
             for assignment in orphan_assignments:
                 actions.append({"type": "orphan_match", **assignment})
@@ -369,4 +383,5 @@ async def reassemble_domains_node(
         "domain_tree": domain_tree,
         "domain_display_names": domain_display_names,
         "reassembly_actions": actions,
+        "embedding_cache": embedding_cache,
     }

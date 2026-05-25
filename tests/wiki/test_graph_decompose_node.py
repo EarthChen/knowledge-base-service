@@ -60,3 +60,29 @@ async def test_graph_decompose_node_no_graph_store():
     config = {"configurable": {}}
     result = await graph_decompose_node(state, config)
     assert "module_tree" in result
+
+
+@pytest.mark.asyncio
+async def test_graph_decompose_incremental_empty_diff_skips_cypher():
+    """Incremental run with no affected modules should skip expensive Cypher queries."""
+    from wiki.nodes.graph_nodes import graph_decompose_node
+
+    mock_graph_store = AsyncMock()
+    state = {
+        "business_id": "test-biz",
+        "repositories": ["repo1", "repo2"],
+        "is_incremental": True,
+        "affected_modules": [],
+        "modules": {
+            "repo1": [
+                {"uid": "Module:src/a.py:ModA:0", "label": "Module", "properties": {"name": "ModA", "path": "src/a.py", "code_length": 1000}},
+            ],
+        },
+        "module_tree": [{"name": "existing", "children": []}],
+    }
+    config = {"configurable": {"graph_store": mock_graph_store}}
+
+    result = await graph_decompose_node(state, config)
+
+    mock_graph_store.execute_query.assert_not_called()
+    assert result == {}

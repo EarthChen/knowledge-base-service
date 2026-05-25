@@ -76,6 +76,13 @@ async def generate_tour_node(state: dict[str, Any]) -> dict[str, Any]:
     if not _is_tour_enabled():
         return {"guided_tour": GuidedTour(total_pages=0).to_dict()}
 
+    if state.get("reorg_type") == "light":
+        existing = state.get("guided_tour")
+        if existing is not None:
+            log.info("tour_skipped_light_reorg", total_pages=existing.get("total_pages", 0))
+            return {"guided_tour": existing}
+        return {"guided_tour": GuidedTour(total_pages=0).to_dict()}
+
     pages = state.get("pages") or []
     architecture_layers = state.get("architecture_layers") or {}
 

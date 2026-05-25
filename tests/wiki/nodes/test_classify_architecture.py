@@ -44,8 +44,8 @@ async def test_classify_arch_layers_node_basic() -> None:
 
     assert "architecture_layers" in result
     layers = result["architecture_layers"]
-    assert layers["UserController"] == {"layer": "api", "confidence": 0.85}
-    assert layers["UserService"] == {"layer": "service", "confidence": 0.85}
+    assert layers["repo1|UserController"] == {"layer": "api", "confidence": 0.85}
+    assert layers["repo1|UserService"] == {"layer": "service", "confidence": 0.85}
     assert mock_classifier.classify_module.await_count == 2
 
 
@@ -81,8 +81,8 @@ async def test_classify_arch_layers_node_error_handling() -> None:
         result = await classify_architecture_layers_node(_modules_state(), config)
 
     layers = result["architecture_layers"]
-    assert "UserController" not in layers
-    assert layers["UserService"] == {"layer": "service", "confidence": 0.7}
+    assert "repo1|UserController" not in layers
+    assert layers["repo1|UserService"] == {"layer": "service", "confidence": 0.7}
 
 
 @pytest.mark.asyncio

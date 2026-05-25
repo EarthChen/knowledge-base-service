@@ -1,5 +1,6 @@
 """Parent pages, leaf summaries, and overview synthesis nodes."""
 
+import asyncio
 import re
 from collections import Counter
 from dataclasses import asdict
@@ -9,10 +10,11 @@ from langchain_core.runnables import RunnableConfig
 
 from core.config import get_settings
 from core.log import get_logger
+from wiki.context_gap import cleanup_context_gaps
 from wiki.dependency_graph import DomainNode
 from wiki.domain_complexity import DomainComplexity
-from wiki.context_gap import cleanup_context_gaps
 from wiki.json_robust import parse_json_robust_sync
+from wiki.llm_rate_limiter import acquire_llm_quota
 from wiki.models import LeafSummary, PageType
 from wiki.nodes.utils import (
     _collect_leaf_domains,
@@ -27,12 +29,42 @@ from wiki.nodes.utils import (
     has_parent_domains,
     select_key_snippets,
 )
+from wiki.pipeline_concurrency import PipelineConcurrency
 from wiki.prompts import system_wiki_parent_overview
 from wiki.reasoning import MultiStepReasoner, ReasoningLevel, TaskType, select_reasoning_level
 from wiki.system_overview_composer import SystemOverviewComposer
 from wiki.token_budget import TokenBudgetCalculator, TokenBudgetResolver
 
 log = get_logger(__name__)
+
+
+def _parent_has_affected_children(parent_domain: dict[str, Any], affected: set[str]) -> bool:
+    """Return True when a parent overview should be regenerated incrementally."""
+    parent_name = str(parent_domain.get("name", "") or "").strip()
+    if parent_name in affected:
+        return True
+    for leaf in _collect_leaf_domains([parent_domain]):
+        if str(leaf.get("name", "") or "").strip() in affected:
+            return True
+    return False
+
+
+def _edge_module_key(edge: dict[str, Any], side: str) -> str:
+    repo = edge.get(f"{side}_repo", "")
+    name = str(edge.get(side, "") or "")
+    compound = edge.get(f"{side}_key")
+    if isinstance(compound, str) and compound:
+        return compound
+    if repo:
+        return f"{repo}|{name}"
+    return name
+
+
+def _resolve_module_subdomain(module_key: str, module_to_subdomain: dict[str, str]) -> str:
+    if module_key in module_to_subdomain:
+        return module_to_subdomain[module_key]
+    bare = module_key.split("|")[-1] if "|" in module_key else module_key
+    return module_to_subdomain.get(bare, "")
 
 
 def _compute_cross_domain_call_stats(
@@ -55,10 +87,10 @@ def _compute_cross_domain_call_stats(
 
     cross_calls: Counter[tuple[str, str]] = Counter()
     for edge in module_call_edges:
-        src = edge.get("source", "")
-        tgt = edge.get("target", "")
-        src_domain = module_to_subdomain.get(src, "")
-        tgt_domain = module_to_subdomain.get(tgt, "")
+        src_key = _edge_module_key(edge, "source")
+        tgt_key = _edge_module_key(edge, "target")
+        src_domain = _resolve_module_subdomain(src_key, module_to_subdomain)
+        tgt_domain = _resolve_module_subdomain(tgt_key, module_to_subdomain)
         if src_domain and tgt_domain and src_domain != tgt_domain:
             weight = edge.get("weight", 1)
             cross_calls[(src_domain, tgt_domain)] += weight
@@ -70,6 +102,177 @@ def _compute_cross_domain_call_stats(
     for (src, tgt), count in cross_calls.most_common(20):
         lines.append(f"- {src} → {tgt}: {count} calls")
     return "\n".join(lines)
+
+
+async def _compose_one_parent(
+    parent_domain: dict[str, Any],
+    *,
+    parent_idx: int,
+    level_idx: int,
+    total_parents: int,
+    leaf_summaries: dict[str, Any],
+    modules: dict[str, Any],
+    entity_roles: dict[str, Any],
+    module_call_edges: list[dict[str, Any]] | None,
+    llm: Any,
+    budget_resolver: TokenBudgetResolver,
+    gen_budget: int,
+    content_language: str,
+    system_prompt: str,
+    config: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Generate overview page(s) for a single parent domain."""
+    parent_name = str(parent_domain.get("name", "") or "").strip()
+    if not parent_name:
+        return [], {}
+
+    child_count = len(parent_domain.get("children", []) or [])
+    log.info(
+        "compose_parent_page_generating",
+        domain=parent_name,
+        level=level_idx,
+        progress=f"{parent_idx}/{total_parents}",
+        child_count=child_count,
+    )
+    children = parent_domain.get("children", []) or []
+    if not isinstance(children, list):
+        return [], {}
+
+    child_names: list[str] = []
+    for c in children:
+        if isinstance(c, dict):
+            cn = str(c.get("name", "") or "").strip()
+            if cn:
+                child_names.append(cn)
+
+    child_summary_lines: list[str] = []
+    for cn in child_names:
+        summary = leaf_summaries.get(cn, {})
+        if not isinstance(summary, dict):
+            summary = {}
+        raw_text = summary.get("summary_text", f"{cn} domain")
+        text = raw_text if isinstance(raw_text, str) else str(raw_text)
+        child_summary_lines.append(f"- **{cn}**: {text}")
+    child_summaries_text = "\n".join(child_summary_lines)
+
+    mod_names = _collect_module_names_in_subtree(parent_domain)
+    all_mod_dicts = _module_dicts_for_names(mod_names, modules)
+    budget_calc = TokenBudgetCalculator()
+    raw_snippet_budget = budget_calc.budget_for_snippets(len(all_mod_dicts))
+    snippet_budget = budget_resolver.claim("snippets", raw_snippet_budget)
+    snippets = select_key_snippets(
+        all_mod_dicts,
+        entity_roles,
+        budget_tokens=snippet_budget,
+    )
+    snippet_lines = [s.format_for_prompt() for s in snippets]
+    snippet_text = (
+        "\n".join(snippet_lines) if snippet_lines else "No code signatures available."
+    )
+
+    cross_domain_stats = _compute_cross_domain_call_stats(parent_domain, module_call_edges)
+
+    prompt = (
+        f'Create a domain overview page for "{parent_name}" that synthesizes '
+        "its sub-domains.\n\n"
+        "## Sub-domain Summaries\n"
+        f"{child_summaries_text}\n\n"
+        "## Key Code Interfaces\n"
+        f"{snippet_text}\n\n"
+        "## Cross-Domain Call Statistics\n"
+        f"{cross_domain_stats}\n\n"
+        'Return ONLY valid JSON (no markdown fences) with keys: "title", '
+        '"content", "executive_summary", "page_type".\n'
+        "Requirements for content:\n"
+        f"- Use {content_language} for all text including the title\n"
+        "- Explain how sub-domains relate and describe data flow between them\n"
+        "- Include at least one Mermaid sequenceDiagram or flowchart showing interactions\n"
+        "- Reference key interfaces naturally in the explanation\n"
+        "- Do NOT just list module names and summaries; explain the business story\n\n"
+        "executive_summary should be 150-300 chars capturing the domain's core purpose."
+    )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt},
+    ]
+    await acquire_llm_quota(config, estimated_tokens=gen_budget)
+    parsed: dict[str, Any] | None = None
+    if hasattr(llm, "complete_json"):
+        try:
+            result = await llm.complete_json(messages, {}, max_tokens=gen_budget)
+        except (ValueError, Exception):
+            log.warning(
+                "compose_parent_pages_complete_json_failed",
+                domain=parent_name,
+                progress=f"{parent_idx}/{total_parents}",
+                exc_info=True,
+            )
+            return [], {}
+        if isinstance(result, dict):
+            parsed = result
+        else:
+            log.warning("compose_parent_pages_bad_json", domain=parent_name)
+            return [], {}
+    else:
+        try:
+            response = await llm.generate(
+                prompt,
+                system=system_prompt,
+                max_tokens=gen_budget,
+            )
+            raw = response if isinstance(response, str) else str(response)
+            parsed = parse_json_robust_sync(raw)
+        except Exception:
+            log.warning(
+                "compose_parent_pages_failed",
+                domain=parent_name,
+                progress=f"{parent_idx}/{total_parents}",
+                exc_info=True,
+            )
+            return [], {}
+
+    try:
+        if not isinstance(parsed, dict):
+            log.warning("compose_parent_pages_bad_json", domain=parent_name)
+            return [], {}
+        title = parsed.get("title") or parent_domain.get("display_name") or parent_name
+        content = cleanup_context_gaps(parsed.get("content", ""))
+        exec_summary = parsed.get("executive_summary", "")
+        page_type_val = parsed.get("page_type") or "domain_overview"
+        page_type = str(page_type_val)
+        from wiki.path_conventions import domain_overview_path
+
+        page_dict: dict[str, Any] = {
+            "path": domain_overview_path(parent_name),
+            "title": title,
+            "content": content,
+            "page_type": page_type,
+            "domain": parent_name,
+            "business_domain": parent_name,
+            "metadata": {"executive_summary": exec_summary},
+        }
+        log.info(
+            "compose_parent_page_done",
+            domain=parent_name,
+            progress=f"{parent_idx}/{total_parents}",
+            content_len=len(content),
+        )
+        exec_str = str(exec_summary) if exec_summary is not None else ""
+        parent_ls = LeafSummary(
+            domain_name=parent_name,
+            summary_text=exec_str[:300],
+            module_count=len(mod_names),
+            key_entities=child_names,
+            source="llm",
+        )
+        return [page_dict], {parent_name: asdict(parent_ls)}
+    except Exception:
+        log.warning(
+            "compose_parent_pages_failed",
+            domain=parent_name,
+            exc_info=True,
+        )
+        return [], {}
 
 
 async def summarize_leaves_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -144,13 +347,38 @@ async def compose_parent_pages_node(
     entity_roles_raw = state.get("entity_roles", {})
     entity_roles = entity_roles_raw if isinstance(entity_roles_raw, dict) else {}
 
-    budget_resolver = TokenBudgetResolver()
+    budget_resolver = (config or {}).get("configurable", {}).get("budget_resolver") or TokenBudgetResolver()
     gen_budget = budget_resolver.budget("topic_page_generate")
-    budget_calc = TokenBudgetCalculator()
     content_language = get_settings().wiki.wiki_content_language
     system_prompt = system_wiki_parent_overview(content_language)
 
     parent_levels = _collect_parent_domains_by_level(domain_tree)
+    is_incremental = state.get("is_incremental", False)
+    affected = set(state.get("affected_domains") or [])
+
+    if is_incremental and not affected:
+        log.info("compose_parent_pages_skip", reason="incremental_no_affected_domains")
+        return {"pages": []}
+
+    if is_incremental and affected:
+        filtered_levels: list[list[dict[str, Any]]] = []
+        skipped = 0
+        for level_parents in parent_levels:
+            kept = [
+                parent for parent in level_parents
+                if _parent_has_affected_children(parent, affected)
+            ]
+            skipped += len(level_parents) - len(kept)
+            if kept:
+                filtered_levels.append(kept)
+        parent_levels = filtered_levels
+        log.info(
+            "compose_parent_pages_incremental_filter",
+            skipped_parents=skipped,
+            remaining=sum(len(lvl) for lvl in parent_levels),
+            affected_domains=sorted(affected),
+        )
+
     total_parents = sum(len(lvl) for lvl in parent_levels)
     log.info(
         "compose_parent_pages_start",
@@ -159,157 +387,48 @@ async def compose_parent_pages_node(
     )
     all_parent_pages: list[dict[str, Any]] = []
     parent_idx = 0
+    sem = PipelineConcurrency.semaphore("compose")
+
+    async def _bounded_compose_parent(
+        parent_domain: dict[str, Any],
+        idx: int,
+        level: int,
+    ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+        async with sem:
+            return await _compose_one_parent(
+                parent_domain,
+                parent_idx=idx,
+                level_idx=level,
+                total_parents=total_parents,
+                leaf_summaries=leaf_summaries,
+                modules=modules,
+                entity_roles=entity_roles,
+                module_call_edges=state.get("module_call_edges"),
+                llm=llm,
+                budget_resolver=budget_resolver,
+                gen_budget=gen_budget,
+                content_language=content_language,
+                system_prompt=system_prompt,
+                config=config,
+            )
 
     for level_idx, level_parents in enumerate(parent_levels):
+        tasks = []
         for parent_domain in level_parents:
             parent_name = str(parent_domain.get("name", "") or "").strip()
             if not parent_name:
                 continue
             parent_idx += 1
-            child_count = len(parent_domain.get("children", []) or [])
-            log.info(
-                "compose_parent_page_generating",
-                domain=parent_name,
-                level=level_idx,
-                progress=f"{parent_idx}/{total_parents}",
-                child_count=child_count,
-            )
-            children = parent_domain.get("children", []) or []
-            if not isinstance(children, list):
-                continue
-            child_names: list[str] = []
-            for c in children:
-                if isinstance(c, dict):
-                    cn = str(c.get("name", "") or "").strip()
-                    if cn:
-                        child_names.append(cn)
+            tasks.append(_bounded_compose_parent(parent_domain, parent_idx, level_idx))
 
-            child_summary_lines: list[str] = []
-            for cn in child_names:
-                summary = leaf_summaries.get(cn, {})
-                if not isinstance(summary, dict):
-                    summary = {}
-                raw_text = summary.get("summary_text", f"{cn} domain")
-                text = raw_text if isinstance(raw_text, str) else str(raw_text)
-                child_summary_lines.append(f"- **{cn}**: {text}")
-            child_summaries_text = "\n".join(child_summary_lines)
-
-            mod_names = _collect_module_names_in_subtree(parent_domain)
-            all_mod_dicts = _module_dicts_for_names(mod_names, modules)
-            snippet_budget = budget_calc.budget_for_snippets(len(all_mod_dicts))
-            snippets = select_key_snippets(
-                all_mod_dicts,
-                entity_roles,
-                budget_tokens=snippet_budget,
-            )
-            snippet_lines = [s.format_for_prompt() for s in snippets]
-            snippet_text = (
-                "\n".join(snippet_lines) if snippet_lines else "No code signatures available."
-            )
-
-            cross_domain_stats = _compute_cross_domain_call_stats(
-                parent_domain, state.get("module_call_edges")
-            )
-
-            prompt = (
-                f'Create a domain overview page for "{parent_name}" that synthesizes '
-                "its sub-domains.\n\n"
-                "## Sub-domain Summaries\n"
-                f"{child_summaries_text}\n\n"
-                "## Key Code Interfaces\n"
-                f"{snippet_text}\n\n"
-                "## Cross-Domain Call Statistics\n"
-                f"{cross_domain_stats}\n\n"
-                'Return ONLY valid JSON (no markdown fences) with keys: "title", '
-                '"content", "executive_summary", "page_type".\n'
-                "Requirements for content:\n"
-                f"- Use {content_language} for all text including the title\n"
-                "- Explain how sub-domains relate and describe data flow between them\n"
-                "- Include at least one Mermaid sequenceDiagram or flowchart showing interactions\n"
-                "- Reference key interfaces naturally in the explanation\n"
-                "- Do NOT just list module names and summaries; explain the business story\n\n"
-                "executive_summary should be 150-300 chars capturing the domain's core purpose."
-            )
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ]
-            parsed: dict[str, Any] | None = None
-            if hasattr(llm, "complete_json"):
-                try:
-                    result = await llm.complete_json(messages, {}, max_tokens=gen_budget)
-                except (ValueError, Exception):
-                    log.warning(
-                        "compose_parent_pages_complete_json_failed",
-                        domain=parent_name,
-                        progress=f"{parent_idx}/{total_parents}",
-                        exc_info=True,
-                    )
-                    continue
-                if isinstance(result, dict):
-                    parsed = result
-                else:
-                    log.warning("compose_parent_pages_bad_json", domain=parent_name)
-                    continue
-            else:
-                try:
-                    response = await llm.generate(
-                        prompt,
-                        system=system_prompt,
-                        max_tokens=gen_budget,
-                    )
-                    raw = response if isinstance(response, str) else str(response)
-                    parsed = parse_json_robust_sync(raw)
-                except Exception:
-                    log.warning(
-                        "compose_parent_pages_failed",
-                        domain=parent_name,
-                        progress=f"{parent_idx}/{total_parents}",
-                        exc_info=True,
-                    )
-                    continue
-            try:
-                if not isinstance(parsed, dict):
-                    log.warning("compose_parent_pages_bad_json", domain=parent_name)
-                    continue
-                title = parsed.get("title") or parent_domain.get("display_name") or parent_name
-                content = cleanup_context_gaps(parsed.get("content", ""))
-                exec_summary = parsed.get("executive_summary", "")
-                page_type_val = parsed.get("page_type") or "domain_overview"
-                page_type = str(page_type_val)
-                from wiki.path_conventions import domain_overview_path
-
-                page_dict: dict[str, Any] = {
-                    "path": domain_overview_path(parent_name),
-                    "title": title,
-                    "content": content,
-                    "page_type": page_type,
-                    "domain": parent_name,
-                    "business_domain": parent_name,
-                    "metadata": {"executive_summary": exec_summary},
-                }
-                all_parent_pages.append(page_dict)
-                log.info(
-                    "compose_parent_page_done",
-                    domain=parent_name,
-                    progress=f"{parent_idx}/{total_parents}",
-                    content_len=len(content),
-                )
-                exec_str = str(exec_summary) if exec_summary is not None else ""
-                parent_ls = LeafSummary(
-                    domain_name=parent_name,
-                    summary_text=exec_str[:300],
-                    module_count=len(mod_names),
-                    key_entities=child_names,
-                    source="llm",
-                )
-                leaf_summaries[parent_name] = asdict(parent_ls)
-            except Exception:
-                log.warning(
-                    "compose_parent_pages_failed",
-                    domain=parent_name,
-                    exc_info=True,
-                )
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, tuple):
+                pages, summary_updates = r
+                all_parent_pages.extend(pages)
+                leaf_summaries.update(summary_updates)
+            elif isinstance(r, BaseException):
+                log.warning("compose_parent_failed", error=str(r))
 
     log.info(
         "compose_parent_pages_complete",
@@ -530,7 +649,9 @@ async def synthesize_overviews_node(
         TaskType.OVERVIEW,
         overview_complexity,
     )
-    overview_budget = TokenBudgetResolver().budget("topic_page_generate")
+    overview_budget = (
+        (config or {}).get("configurable", {}).get("budget_resolver") or TokenBudgetResolver()
+    ).budget("topic_page_generate")
     overview_system_prompt = (
         "你是一位技术文档作者。输出带 Mermaid 的 Markdown。"
         if str(language) == "zh"

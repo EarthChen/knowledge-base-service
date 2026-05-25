@@ -36,6 +36,7 @@ def test_should_heal_respects_global_attempt_budget():
     state = {
         "pages_to_heal": ["page/a"],
         "heal_attempts": {"page/a": 10, "page/b": 1},
+        "heal_cycles": {"page/a": 10, "page/b": 1},
         "config": {},
     }
     assert should_heal(state) == "create_links"
@@ -47,6 +48,7 @@ def test_should_heal_respects_config_override():
     state = {
         "pages_to_heal": ["page/a"],
         "heal_attempts": {"page/a": 3, "page/b": 3},
+        "heal_cycles": {"page/a": 3, "page/b": 3},
         "config": {"heal_loop_max_total_attempts": 5},
     }
     assert should_heal(state) == "create_links"

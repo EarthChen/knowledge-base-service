@@ -40,14 +40,22 @@ _GLOBAL_REVIEW_PROMPT = (
     "- Only merge when business meaning clearly overlaps\n"
     "- Keep the domain with more modules as the merge target\n"
     "- Max 30% of modules can be moved\n"
-    "- IMPORTANT: new_display_name MUST be concise Chinese business terminology "
-    "(2-6 Chinese characters), NOT English or slug-like names\n\n"
+    "{display_name_rule}\n\n"
     "Return ONLY valid JSON:\n"
     '{{"merges": [{{"sources": ["slug1", "slug2"], "target": "slug1",'
     ' "new_display_name": "...", "reason": "..."}}],'
     ' "renames": [{{"slug": "...", "new_display_name": "...", "reason": "..."}}],'
     ' "moves": [{{"module": "...", "from": "...", "to": "...", "reason": "..."}}]}}\n'
     'If no changes: {{"merges": [], "renames": [], "moves": []}}'
+)
+
+_DISPLAY_NAME_RULE_ZH = (
+    "- IMPORTANT: new_display_name MUST be concise Chinese business terminology "
+    "(2-6 Chinese characters), NOT English or slug-like names"
+)
+_DISPLAY_NAME_RULE_EN = (
+    "- IMPORTANT: new_display_name MUST be a concise English business name "
+    "(2-4 words), NOT slug-like identifiers or raw code terms"
 )
 
 _MAX_MOVE_RATIO = 0.3
@@ -57,6 +65,30 @@ def _shorten_path(path: str, levels: int = 3) -> str:
     """Keep the last N directory levels of a module path."""
     parts = path.replace("\\", "/").split("/")
     return "/".join(parts[-levels:]) if len(parts) > levels else path
+
+
+def _is_chinese_language(language: str) -> bool:
+    lang = (language or "").strip().lower()
+    if lang in {"zh", "zh-cn", "zh-tw", "chinese", "cn"}:
+        return True
+    return "中文" in language
+
+
+def _display_name_rule(language: str) -> str:
+    return _DISPLAY_NAME_RULE_ZH if _is_chinese_language(language) else _DISPLAY_NAME_RULE_EN
+
+
+def build_global_review_prompt(
+    *,
+    business_id: str,
+    domain_listing: str,
+    language: str = "简体中文",
+) -> str:
+    return _GLOBAL_REVIEW_PROMPT.format(
+        business_id=business_id or "unknown",
+        domain_listing=domain_listing,
+        display_name_rule=_display_name_rule(language),
+    )
 
 
 class GraphSemanticCorrector:
@@ -118,6 +150,15 @@ class GraphSemanticCorrector:
     def _has_chinese(text: str) -> bool:
         return any("一" <= ch <= "鿿" for ch in text)
 
+    @staticmethod
+    def _accept_display_name(new_name: str, language: str) -> bool:
+        if not new_name or not isinstance(new_name, str):
+            return False
+        if _is_chinese_language(language):
+            return GraphSemanticCorrector._has_chinese(new_name)
+        slug_like = new_name == new_name.lower() and "-" in new_name and " " not in new_name
+        return not slug_like
+
     async def review_global_consistency(
         self,
         domain_mapping: dict[str, list[tuple[str, str]]],
@@ -127,6 +168,7 @@ class GraphSemanticCorrector:
         *,
         business_id: str = "",
         module_details: dict[str, dict[str, Any]] | None = None,
+        language: str = "简体中文",
     ) -> tuple[dict[str, list[tuple[str, str]]], dict[str, str]]:
         """One-shot global review: merge overlapping domains, rename, move modules."""
         if self._llm is None or len(domain_mapping) <= 1:
@@ -153,9 +195,10 @@ class GraphSemanticCorrector:
                 lines.append(f"  - {mod_name}{path_part}{summary_part}{methods_part}")
         listing = "\n".join(lines)
 
-        prompt = _GLOBAL_REVIEW_PROMPT.format(
-            business_id=business_id or "unknown",
+        prompt = build_global_review_prompt(
+            business_id=business_id,
             domain_listing=listing,
+            language=language,
         )
 
         try:
@@ -182,7 +225,7 @@ class GraphSemanticCorrector:
                 if target not in new_mapping:
                     continue
                 new_name = merge.get("new_display_name")
-                if isinstance(new_name, str) and new_name and self._has_chinese(new_name):
+                if isinstance(new_name, str) and self._accept_display_name(new_name, language):
                     new_display[target] = new_name
                 for src in sources:
                     if src == target or src not in new_mapping:
@@ -198,8 +241,13 @@ class GraphSemanticCorrector:
                 slug = rename.get("slug", "")
                 new_name = rename.get("new_display_name", "")
                 if slug in new_display and isinstance(new_name, str) and new_name:
-                    if not self._has_chinese(new_name):
-                        log.warning("global_review_rename_skipped_non_chinese", slug=slug, new_name=new_name)
+                    if not self._accept_display_name(new_name, language):
+                        log.warning(
+                            "global_review_rename_skipped_invalid_display_name",
+                            slug=slug,
+                            new_name=new_name,
+                            language=language,
+                        )
                         continue
                     new_display[slug] = new_name
                     log.info("global_review_rename", slug=slug, new_name=new_name)
@@ -210,27 +258,27 @@ class GraphSemanticCorrector:
         moves = parsed.get("moves", [])
         applied_moves = 0
         if isinstance(moves, list):
-            module_to_repo: dict[str, str] = {}
-            for pairs in new_mapping.values():
-                for repo, mod_name in pairs:
-                    module_to_repo[mod_name] = repo
             for move in moves:
                 if applied_moves >= max_moves:
                     break
                 mod_name = move.get("module", "")
                 from_d = move.get("from", "")
                 to_d = move.get("to", "")
-                repo = module_to_repo.get(mod_name)
-                if not all([mod_name, from_d, to_d, repo]):
+                if not all([mod_name, from_d, to_d]):
                     continue
                 if from_d not in new_mapping or to_d not in new_mapping:
                     continue
-                pair = (repo, mod_name)
-                if pair in new_mapping[from_d]:
-                    new_mapping[from_d].remove(pair)
-                    new_mapping[to_d].append(pair)
-                    applied_moves += 1
-                    log.info("global_review_move", module=mod_name, from_d=from_d, to_d=to_d)
+                pair = None
+                for repo, name in new_mapping[from_d]:
+                    if name == mod_name:
+                        pair = (repo, name)
+                        break
+                if pair is None:
+                    continue
+                new_mapping[from_d].remove(pair)
+                new_mapping[to_d].append(pair)
+                applied_moves += 1
+                log.info("global_review_move", module=mod_name, from_d=from_d, to_d=to_d)
 
         new_mapping = {k: v for k, v in new_mapping.items() if v}
         return new_mapping, new_display

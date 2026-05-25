@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { API_BASE, ApiError, api, authHeaders } from "../api/client";
+import { ApiError, api, apiStream } from "../api/client";
 
 export interface EditEvent {
   type: "thinking" | "tool_call" | "tool_result" | "content" | "done" | "error";
@@ -92,9 +92,9 @@ export function useWikiEditSession(pageUid: string) {
       setState((s) => ({ ...s, isStreaming: true, error: null }));
       const path = `/wiki/pages/${encodeURIComponent(pageUid)}/edit-session/${encodeURIComponent(sessionIdForStream)}/stream`;
       try {
-        const res = await fetch(API_BASE + path, {
+        const res = await apiStream(path, {
           method: "GET",
-          headers: { ...authHeaders(), Accept: "text/event-stream" },
+          headers: { Accept: "text/event-stream" },
           signal: ac.signal,
         });
         if (!res.ok) {

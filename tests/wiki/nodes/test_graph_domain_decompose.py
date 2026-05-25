@@ -138,8 +138,8 @@ class TestGraphDrivenDomainDecomposeNode:
         assert family_domain is not None
 
     @pytest.mark.asyncio
-    async def test_fallback_to_llm_when_no_graph_store(self):
-        """When graph_store is None, fall back to old classify_domains_node logic."""
+    async def test_returns_empty_when_no_graph_store(self):
+        """When graph_store is None, return empty classification (no LLM fallback)."""
         modules = {
             "repo1": [
                 _make_module_dict("repo1", "ServiceA"),
@@ -149,26 +149,11 @@ class TestGraphDrivenDomainDecomposeNode:
         state = _make_state(modules)
         config = {"configurable": {"graph_store": None, "llm": MagicMock()}}
 
-        with patch("wiki.nodes.graph_domain_decompose.classify_domains_node") as mock_classify, \
-             patch("wiki.nodes.graph_domain_decompose.decompose_hierarchy_node") as mock_decompose:
-            mock_classify.return_value = {
-                "domain_mapping": {"service-domain": [("repo1", "ServiceA"), ("repo1", "ServiceB")]},
-                "affected_domains": ["service-domain"],
-                "domain_display_names": {"service-domain": "服务域"},
-            }
-            mock_decompose.return_value = {
-                "domain_tree": [{
-                    "name": "service-domain",
-                    "display_name": "服务域",
-                    "modules": ["ServiceA", "ServiceB"],
-                    "children": [],
-                }],
-            }
+        result = await graph_driven_domain_decompose_node(state, config)
 
-            result = await graph_driven_domain_decompose_node(state, config)
-
-        assert "domain_mapping" in result
-        assert "domain_tree" in result
+        assert result["domain_mapping"] == {}
+        assert result["domain_tree"] == []
+        assert result["affected_domains"] == []
 
     @pytest.mark.asyncio
     async def test_output_domain_tree_format(self):
@@ -350,16 +335,16 @@ class TestParallelDomainNaming:
             return [[big_community], np.zeros((12, 8))]
 
         async def name_community(**kwargs):
-            used_names = kwargs.get("used_names")
-            if used_names is not None:
-                in_flight[0] += 1
-                max_in_flight[0] = max(max_in_flight[0], in_flight[0])
-                await asyncio.sleep(0.05)
-                in_flight[0] -= 1
-                mod_name = kwargs["module_infos"][0]["name"]
-                slug = mod_name.lower()
-                return {"slug": slug, "display_name": f"Domain {slug}"}
-            return {"slug": "big-domain", "display_name": "Big Domain"}
+            infos = kwargs.get("module_infos") or []
+            if len(infos) >= 10:
+                return {"slug": "big-domain", "display_name": "Big Domain"}
+            in_flight[0] += 1
+            max_in_flight[0] = max(max_in_flight[0], in_flight[0])
+            await asyncio.sleep(0.05)
+            in_flight[0] -= 1
+            mod_name = infos[0]["name"]
+            slug = mod_name.lower()
+            return {"slug": slug, "display_name": f"Domain {slug}"}
 
         modules = {
             "repo1": [
@@ -417,11 +402,11 @@ class TestParallelDomainNaming:
             return [[big_community], np.zeros((12, 8))]
 
         async def name_community(**kwargs):
-            used_names = kwargs.get("used_names")
-            if used_names is not None:
-                mod_name = kwargs["module_infos"][0]["name"]
-                return {"slug": "core", "display_name": f"Core {mod_name}"}
-            return {"slug": "big-domain", "display_name": "Big Domain"}
+            infos = kwargs.get("module_infos") or []
+            if len(infos) >= 10:
+                return {"slug": "big-domain", "display_name": "Big Domain"}
+            mod_name = infos[0]["name"]
+            return {"slug": "core", "display_name": f"Core {mod_name}"}
 
         modules = {
             "repo1": [
@@ -758,6 +743,63 @@ class TestMergeDomainsByEmbedding:
 
 class TestTfidfFallbackClustering:
     """Task 11: Verify TF-IDF fallback preserves semantic signals."""
+
+    def test_tfidf_uses_build_embedding_texts_when_summaries_provided(self):
+        """When module_summaries_raw is provided, build_embedding_texts should be used."""
+        biz_modules = [
+            ("r1", "AuthLoginService"),
+            ("r1", "AuthRegisterService"),
+            ("r1", "PaymentService"),
+        ]
+        module_paths = {
+            "AuthLoginService": "src/auth/AuthLoginService.java",
+            "AuthRegisterService": "src/auth/AuthRegisterService.java",
+            "PaymentService": "src/payment/PaymentService.java",
+        }
+        module_summaries = {
+            "AuthLoginService": {"summary_text": "Login authentication flow"},
+            "AuthRegisterService": {"summary_text": "User registration flow"},
+            "PaymentService": {"summary_text": "Payment processing"},
+        }
+        edges = []
+        with patch(
+            "wiki.nodes.graph_domain_decompose.DomainSemanticClusterer.build_embedding_texts",
+            return_value=[
+                "AuthLoginService login auth",
+                "AuthRegisterService register auth",
+                "PaymentService payment",
+            ],
+        ) as mock_build:
+            clusters = _tfidf_fallback_clustering(
+                biz_modules, module_paths, edges, module_summaries_raw=module_summaries,
+            )
+        mock_build.assert_called_once_with(biz_modules, module_summaries, module_paths)
+        assert len(clusters) >= 1
+        assert sum(len(c) for c in clusters) == 3
+
+    def test_tfidf_falls_back_to_name_path_when_build_embedding_texts_fails(self):
+        """When build_embedding_texts raises, fall back to name+path strings."""
+        biz_modules = [
+            ("r1", "ModA"),
+            ("r1", "ModB"),
+            ("r1", "ModC"),
+        ]
+        module_paths = {
+            "ModA": "src/a/ModA.java",
+            "ModB": "src/b/ModB.java",
+            "ModC": "src/c/ModC.java",
+        }
+        module_summaries = {"ModA": {"summary_text": "A"}}
+        edges = []
+        with patch(
+            "wiki.nodes.graph_domain_decompose.DomainSemanticClusterer.build_embedding_texts",
+            side_effect=RuntimeError("build failed"),
+        ):
+            clusters = _tfidf_fallback_clustering(
+                biz_modules, module_paths, edges, module_summaries_raw=module_summaries,
+            )
+        assert len(clusters) >= 1
+        assert sum(len(c) for c in clusters) == 3
 
     def test_tfidf_fallback_produces_clusters(self):
         """TF-IDF fallback should cluster modules by name/path similarity."""

@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from core.log import get_logger
 from wiki.flow_baseline import FlowBaseline, extract_flow_baseline, format_flow_baseline_for_prompt
+from wiki.nodes.domain_compose import _domain_module_pairs, _module_dict_by_name
 from wiki.pipeline_concurrency import PipelineConcurrency
 
 log = get_logger(__name__)
@@ -151,8 +152,27 @@ async def compose_flow_agents_node(
     if not leaf_domains:
         return {"flow_pages": []}
 
+    # Incremental filtering: only process affected domains
+    is_incremental = state.get("is_incremental", False)
+    affected = set(state.get("affected_domains") or [])
+    if is_incremental and affected:
+        original_count = len(leaf_domains)
+        leaf_domains = [d for d in leaf_domains if d.get("name") in affected]
+        log.info(
+            "incremental_flow_filter",
+            original=original_count,
+            filtered=len(leaf_domains),
+            affected_domains=sorted(affected),
+        )
+
+    if not leaf_domains:
+        return {"flow_pages": []}
+
     repos = state.get("repositories") or []
     repository = str(configurable.get("repository") or (repos[0] if repos else "")).strip()
+
+    module_lookup = _module_dict_by_name(state)
+    domain_mapping = state.get("domain_mapping") or {}
 
     sem = PipelineConcurrency.semaphore("flow_compose")
     all_flow_pages: list[dict[str, Any]] = []
@@ -164,7 +184,10 @@ async def compose_flow_agents_node(
             if not modules or not graph_store:
                 return []
 
-            baseline = await extract_flow_baseline(graph_store, domain_name, modules)
+            _, valid_pairs = _domain_module_pairs(domain, domain_mapping, module_lookup)
+            baseline = await extract_flow_baseline(
+                graph_store, domain_name, modules, valid_pairs=valid_pairs,
+            )
             if not baseline.entry_points:
                 log.debug("flow_skip_no_entry_points", domain=domain_name)
                 return []

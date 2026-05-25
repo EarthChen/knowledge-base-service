@@ -25,6 +25,8 @@ def test_all_queries_are_non_empty_strings():
         assert isinstance(cy, str), f"{name} should be str"
         assert len(cy) > 20, f"{name} should be non-trivial"
         assert "$names" in cy, f"{name} should use $names param"
+        if name in ("SNIPPETS_CY", "CHUNK_SNIPPETS_CY"):
+            assert "$valid_pairs" in cy, f"{name} should use $valid_pairs param"
 
 def test_call_chain_cypher_depth():
     cy = call_chain_cypher(3)

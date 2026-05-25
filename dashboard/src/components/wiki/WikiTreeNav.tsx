@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import {
   ChevronDown,
@@ -62,6 +62,27 @@ function collectAllKeys(nodes: WikiTreeNode[]): string[] {
   return out;
 }
 
+function collectVisibleItems(nodes: WikiTreeNode[], expanded: Set<string>, out: WikiTreeNode[] = []): WikiTreeNode[] {
+  for (const n of nodes) {
+    out.push(n);
+    if (n.children?.length && expanded.has(n.uid)) {
+      collectVisibleItems(n.children, expanded, out);
+    }
+  }
+  return out;
+}
+
+function findParentUid(nodes: WikiTreeNode[], uid: string, parentUid: string | null = null): string | null {
+  for (const n of nodes) {
+    if (n.uid === uid) return parentUid;
+    if (n.children?.length) {
+      const found = findParentUid(n.children, uid, n.uid);
+      if (found !== null) return found;
+    }
+  }
+  return null;
+}
+
 const TreeBranch = memo(function TreeBranch({
   nodes,
   depth,
@@ -69,6 +90,9 @@ const TreeBranch = memo(function TreeBranch({
   toggle,
   activePath,
   linkParams,
+  focusedUid,
+  onFocusItem,
+  onTreeKeyDown,
 }: {
   nodes: WikiTreeNode[];
   depth: number;
@@ -76,11 +100,15 @@ const TreeBranch = memo(function TreeBranch({
   toggle: (uid: string) => void;
   activePath: string;
   linkParams: Record<string, string>;
+  focusedUid: string | null;
+  onFocusItem: (uid: string) => void;
+  onTreeKeyDown: (event: KeyboardEvent<HTMLUListElement>) => void;
 }) {
   const { t } = useI18n();
   return (
     <ul
       role={depth === 0 ? "tree" : "group"}
+      onKeyDown={depth === 0 ? onTreeKeyDown : undefined}
       className={
         depth === 0
           ? "space-y-0.5"
@@ -92,9 +120,18 @@ const TreeBranch = memo(function TreeBranch({
         const isOpen = expanded.has(node.uid);
         const isActive = Boolean(activePath && node.path === activePath);
         const pageLink = node.path ? wikiHref(node.path, linkParams) : null;
+        const isFocused = focusedUid === node.uid;
 
         return (
-          <li key={node.uid} role="treeitem" aria-expanded={hasKids ? isOpen : undefined}>
+          <li
+            key={node.uid}
+            role="treeitem"
+            aria-expanded={hasKids ? isOpen : undefined}
+            tabIndex={isFocused ? 0 : -1}
+            data-tree-uid={node.uid}
+            onFocus={() => onFocusItem(node.uid)}
+            className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-sky-500/70"
+          >
             <div className="flex items-center gap-0.5">
               {hasKids ? (
                 <button
@@ -167,6 +204,9 @@ const TreeBranch = memo(function TreeBranch({
                 toggle={toggle}
                 activePath={activePath}
                 linkParams={linkParams}
+                focusedUid={focusedUid}
+                onFocusItem={onFocusItem}
+                onTreeKeyDown={onTreeKeyDown}
               />
             )}
           </li>
@@ -186,6 +226,7 @@ export default function WikiTreeNav({
 }: Props) {
   const { t } = useI18n();
   const treeQuery = useWikiTree(businessId, viewType, wikiTier);
+  const treeRef = useRef<HTMLDivElement>(null);
   const nodes = useMemo(
     () => treeQuery.data?.tree ?? EMPTY_TREE,
     [treeQuery.data?.tree],
@@ -202,6 +243,7 @@ export default function WikiTreeNav({
   );
 
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [focusedUid, setFocusedUid] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activePath || !nodes.length) return;
@@ -217,6 +259,24 @@ export default function WikiTreeNav({
     });
   }, [activePath, nodes]);
 
+  useEffect(() => {
+    if (!nodes.length) {
+      setFocusedUid(null);
+      return;
+    }
+    const visible = collectVisibleItems(nodes, expanded);
+    if (!visible.length) return;
+    setFocusedUid((prev) => (prev && visible.some((n) => n.uid === prev) ? prev : visible[0].uid));
+  }, [nodes, expanded]);
+
+  useEffect(() => {
+    if (!focusedUid) return;
+    const el = treeRef.current?.querySelector<HTMLElement>(`[data-tree-uid="${focusedUid}"]`);
+    if (el && document.activeElement !== el) {
+      el.focus();
+    }
+  }, [focusedUid]);
+
   const toggle = useCallback((uid: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -229,6 +289,84 @@ export default function WikiTreeNav({
   const expandAll = useCallback(() => {
     setExpanded(new Set(collectAllKeys(nodes)));
   }, [nodes]);
+
+  const selectFocusedItem = useCallback(
+    (node: WikiTreeNode) => {
+      const hasKids = Boolean(node.children?.length);
+      const pageLink = node.path ? wikiHref(node.path, linkParams) : null;
+      if (pageLink) {
+        const link = treeRef.current?.querySelector<HTMLAnchorElement>(
+          `[data-tree-uid="${node.uid}"] a[href]`,
+        );
+        link?.click();
+      } else if (hasKids) {
+        toggle(node.uid);
+      }
+    },
+    [linkParams, toggle],
+  );
+
+  const handleTreeKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLUListElement>) => {
+      if (!focusedUid || !nodes.length) return;
+
+      const visible = collectVisibleItems(nodes, expanded);
+      const idx = visible.findIndex((n) => n.uid === focusedUid);
+      if (idx < 0) return;
+
+      const current = visible[idx];
+      const hasKids = Boolean(current.children?.length);
+      const isOpen = expanded.has(current.uid);
+
+      switch (event.key) {
+        case "ArrowDown":
+          event.preventDefault();
+          if (idx < visible.length - 1) setFocusedUid(visible[idx + 1].uid);
+          break;
+        case "ArrowUp":
+          event.preventDefault();
+          if (idx > 0) setFocusedUid(visible[idx - 1].uid);
+          break;
+        case "ArrowRight":
+          event.preventDefault();
+          if (hasKids && !isOpen) {
+            setExpanded((prev) => new Set(prev).add(current.uid));
+          } else if (hasKids && isOpen && current.children?.length) {
+            setFocusedUid(current.children[0].uid);
+          }
+          break;
+        case "ArrowLeft":
+          event.preventDefault();
+          if (hasKids && isOpen) {
+            setExpanded((prev) => {
+              const next = new Set(prev);
+              next.delete(current.uid);
+              return next;
+            });
+          } else {
+            const parent = findParentUid(nodes, focusedUid);
+            if (parent) setFocusedUid(parent);
+          }
+          break;
+        case "Home":
+          event.preventDefault();
+          if (visible.length) setFocusedUid(visible[0].uid);
+          break;
+        case "End":
+          event.preventDefault();
+          if (visible.length) setFocusedUid(visible[visible.length - 1].uid);
+          break;
+        case "Enter":
+        case " ":
+          event.preventDefault();
+          selectFocusedItem(current);
+          break;
+        default:
+          break;
+      }
+    },
+    [expanded, focusedUid, nodes, selectFocusedItem],
+  );
 
   return (
     <aside className="flex w-full shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
@@ -287,7 +425,7 @@ export default function WikiTreeNav({
         </button>
       </div>
 
-      <div className="max-h-[min(70vh,560px)] overflow-y-auto p-2">
+      <div ref={treeRef} className="max-h-[min(70vh,560px)] overflow-y-auto p-2">
         {treeQuery.isLoading && (
           <p className="flex items-center gap-2 px-2 py-4 text-sm text-gray-500 dark:text-gray-400">
             <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -310,6 +448,9 @@ export default function WikiTreeNav({
             toggle={toggle}
             activePath={activePath}
             linkParams={linkParams}
+            focusedUid={focusedUid}
+            onFocusItem={setFocusedUid}
+            onTreeKeyDown={handleTreeKeyDown}
           />
         )}
       </div>

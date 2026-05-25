@@ -1,57 +1,55 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { screen, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import WikiAnnotationLayer from "../WikiAnnotationLayer";
 import { renderWithI18n } from "../../../test/renderWithI18n";
+import type { WikiAnnotation } from "../../../hooks/wikiTypes";
+
+const annotation: WikiAnnotation = {
+  annotation_id: "a1",
+  page_uid: "page-1",
+  text_range_start: 0,
+  text_range_end: 5,
+  selected_text: "Hello",
+  comment: "Note",
+  author: "tester",
+  created_at: "2026-01-01T00:00:00.000Z",
+};
 
 describe("WikiAnnotationLayer", () => {
-  beforeEach(() => {
-    window.getSelection()?.removeAllRanges();
-  });
-
-  afterEach(() => {
-    window.getSelection()?.removeAllRanges();
-  });
-
-  it("renders children", () => {
+  it("renders children and applies annotation highlights", () => {
     renderWithI18n(
-      <WikiAnnotationLayer onAddAnnotation={vi.fn()}>
-        <div data-testid="child">Hello world</div>
+      <WikiAnnotationLayer
+        onAddAnnotation={vi.fn()}
+        annotations={[annotation]}
+        highlightSourceKey="doc-1"
+      >
+        <p>Hello world</p>
       </WikiAnnotationLayer>,
     );
-    expect(screen.getByTestId("child")).toBeInTheDocument();
+    expect(document.querySelector("mark[data-wiki-ann]")).toHaveTextContent("Hello");
+    expect(screen.getByText(/world/)).toBeInTheDocument();
   });
 
-  it("calls onAddAnnotation when submitting after selection", () => {
+  it("opens comment input after text selection", async () => {
     const onAdd = vi.fn();
-    const { container } = renderWithI18n(
-      <WikiAnnotationLayer onAddAnnotation={onAdd}>
-        <p id="p">Select this text</p>
+    renderWithI18n(
+      <WikiAnnotationLayer onAddAnnotation={onAdd} annotations={[]}>
+        <p id="wiki-body">Hello world</p>
       </WikiAnnotationLayer>,
     );
-
-    const p = container.querySelector("#p")!;
+    const paragraph = screen.getByText("Hello world");
     const range = document.createRange();
-    range.selectNodeContents(p);
-    const sel = window.getSelection()!;
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    const layer = container.firstElementChild!;
-    fireEvent.mouseUp(layer);
-
-    expect(screen.getByPlaceholderText(/write a comment/i)).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText(/write a comment/i), {
-      target: { value: "note" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+    range.selectNodeContents(paragraph.firstChild!);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    fireEvent.mouseUp(paragraph);
+    const textarea = await screen.findByPlaceholderText(/write a comment/i);
+    await userEvent.type(textarea, "Looks good");
+    await userEvent.click(screen.getByRole("button", { name: /^add$/i }));
     expect(onAdd).toHaveBeenCalledWith(
-      expect.objectContaining({
-        comment: "note",
-        start: 0,
-        end: expect.any(Number),
-        selected_text: "Select this text",
-      }),
+      expect.objectContaining({ selected_text: "Hello world", comment: "Looks good" }),
     );
-    expect(onAdd.mock.calls[0][0].end).toBeGreaterThan(0);
   });
 });

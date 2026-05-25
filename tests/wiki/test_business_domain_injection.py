@@ -75,11 +75,11 @@ class TestDomainEntryPoints:
         """Verify that generate_business_wiki source code no longer has 'domain_entry_points: list[str] = []'."""
         import inspect
 
-        from wiki.service import WikiService
+        from wiki.business_pipeline_runner import BusinessPipelineRunner
 
-        source = inspect.getsource(WikiService.generate_business_wiki)
+        source = inspect.getsource(BusinessPipelineRunner.run)
         assert "all_entry_point_pairs" in source, (
-            "generate_business_wiki should reference all_entry_point_pairs"
+            "BusinessPipelineRunner.run should reference all_entry_point_pairs"
         )
 
 
@@ -207,9 +207,9 @@ class TestDomainPersistence:
         """generate_business_wiki should contain domain persistence logic."""
         import inspect
 
-        from wiki.service import WikiService
+        from wiki.business_pipeline_runner import BusinessPipelineRunner
 
-        source = inspect.getsource(WikiService.generate_business_wiki)
+        source = inspect.getsource(BusinessPipelineRunner.run)
         assert "business_domain" in source
         assert "find_descendants" in source
         assert "update_node_property" in source

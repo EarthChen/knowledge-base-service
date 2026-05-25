@@ -250,13 +250,14 @@ class SemanticQueryService:
             query_vec = query_vector
 
         try:
-            results = await self._store.vector_search(
+            results = await self._search.vector_search(
                 label, query_vec, k, repository=repository, language=language,
             )
         except Exception as exc:
             log.warning("vector_search_error", label=label, error=str(exc))
             return SemanticResult(query_text=query_text)
 
+        repo_filter = (repository or "").strip()
         matches = []
         for node, score in results:
             match: dict[str, Any] = {
@@ -265,6 +266,10 @@ class SemanticQueryService:
             }
             if hasattr(node, "properties"):
                 props = node.properties
+                if repo_filter:
+                    node_repo = str(props.get("repository", "") or "").strip()
+                    if node_repo and node_repo != repo_filter:
+                        continue
                 match["name"] = props.get("name", "")
                 match["file"] = props.get("file", "")
                 _sl = props.get("start_line") or 0

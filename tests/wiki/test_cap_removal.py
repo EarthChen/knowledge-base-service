@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -10,7 +9,6 @@ import pytest
 from store.schema import GraphNode, NodeLabel
 from wiki.business_domain_planner import BusinessDomainPlanner
 from wiki.cross_repo_domain_planner import CrossRepoBusinessDomainPlanner
-from wiki.entity_role_classifier import WikiEntityRole
 
 
 def _make_module(name: str) -> GraphNode:
@@ -26,48 +24,6 @@ def _make_module(name: str) -> GraphNode:
 
 class TestCapRemoval:
     """200-module cap removed; anchors reach each per-repo sub-batch."""
-
-    def test_no_hard_cap_constant_in_classify_node(self) -> None:
-        """classify_domains_node must not define a small fixed module ceiling."""
-        from wiki.nodes.classify import classify_domains_node
-
-        source = inspect.getsource(classify_domains_node)
-        assert "_MAX_MODULES_FOR_CLASSIFICATION" not in source
-        assert "classify_domains_capped" not in source
-
-    @pytest.mark.asyncio
-    async def test_classify_domains_passes_all_modules_over_200(self) -> None:
-        """More than 200 eligible modules should all reach CrossRepoBusinessDomainPlanner."""
-        from wiki.nodes.classify import classify_domains_node
-
-        n = 250
-        modules_list: list[dict] = []
-        entity_roles: dict[str, WikiEntityRole] = {}
-        for i in range(n):
-            uid = f"Module::Svc{i}:0"
-            entity_roles[uid] = WikiEntityRole.HAS_BUSINESS_LOGIC
-            modules_list.append({
-                "uid": uid,
-                "label": "Module",
-                "properties": {
-                    "name": f"Svc{i}",
-                    "path": f"/interfaces/Svc{i}.java",
-                },
-            })
-        state: dict = {
-            "business_id": "biz-cap",
-            "entity_roles": entity_roles,
-            "modules": {"repo1": modules_list},
-            "is_incremental": False,
-        }
-        config = {"configurable": {"llm": AsyncMock(spec=["generate"])}}
-
-        with patch("wiki.nodes.classify.CrossRepoBusinessDomainPlanner") as mock_cls:
-            instance = mock_cls.return_value
-            instance.classify = AsyncMock(return_value={})
-            await classify_domains_node(state, config)
-            planner_modules = instance.classify.call_args[0][1]
-            assert sum(len(v) for v in planner_modules.values()) == n
 
     @pytest.mark.asyncio
     async def test_multi_batch_passes_anchor_context_to_business_planner(self) -> None:

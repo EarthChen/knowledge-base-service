@@ -9,8 +9,7 @@ import { useToast } from "../Toast";
 type PhaseKey =
   | "classify_entities"
   | "detect_reorg"
-  | "classify_domains"
-  | "decompose_hierarchy"
+  | "graph_domain_decompose"
   | "set_review_status"
   | "compose_leaf_modules"
   | "plan_topic_structure"
@@ -32,7 +31,7 @@ type PhaseKey =
 
 const ORDERED_PHASES: PhaseKey[] = [
   "classify_entities",
-  "classify_domains",
+  "graph_domain_decompose",
   "compose_leaf_modules",
   "compose_leaf",
   "quality_gate",
@@ -62,7 +61,7 @@ type WikiPhaseTranslationKey =
 
 const phaseI18nKeys: Record<string, WikiPhaseTranslationKey> = {
   classify_entities: "phaseClassifyEntities",
-  classify_domains: "phaseClassifyDomains",
+  graph_domain_decompose: "phaseClassifyDomains",
   compose_leaf_modules: "phaseComposeLeafModules",
   compose_leaf: "phaseComposeLeaf",
   quality_gate: "phaseQualityGate",

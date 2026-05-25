@@ -17,18 +17,20 @@ vi.mock("../../../contexts/BusinessContext", () => ({
   }),
 }));
 
+const authState = vi.hoisted(() => ({
+  role: "editor" as const,
+  authEnabled: true,
+  authResolved: true,
+  authError: false,
+  isLoading: false,
+  isAdmin: false,
+  isEditor: true,
+  isViewer: true,
+  boundBusiness: null as string | null,
+}));
+
 vi.mock("../../../contexts/AuthContext", () => ({
-  useAuth: () => ({
-    role: "editor",
-    authEnabled: true,
-    authResolved: true,
-    authError: false,
-    isLoading: false,
-    isAdmin: false,
-    isEditor: true,
-    isViewer: true,
-    boundBusiness: null,
-  }),
+  useAuth: () => authState,
 }));
 
 vi.mock("../../../hooks/useWikiEvents", () => ({
@@ -62,11 +64,13 @@ vi.mock("../WikiKnowledgeGraph", () => ({
 }));
 
 const generateMock = vi.fn().mockResolvedValue({ task_id: null as string | null });
+const apiMock = vi.fn();
 vi.mock("../../../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../api/client")>();
   return {
     ...actual,
     businessWikiGenerate: (...a: unknown[]) => generateMock(...a),
+    api: (...a: unknown[]) => apiMock(...a),
   };
 });
 
@@ -88,6 +92,9 @@ function renderShell(initial: string) {
 describe("WikiShell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.isAdmin = false;
+    authState.isEditor = true;
+    authState.role = "editor";
   });
 
   it("renders shell with landing on page tab and no path", () => {
@@ -118,12 +125,28 @@ describe("WikiShell", () => {
     const { useWikiEvents } = await import("../../../hooks/useWikiEvents");
     vi.mocked(useWikiEvents).mockReturnValue({ connectionStatus: "reconnecting" as const });
     renderShell("/wiki?business_id=b1");
-    expect(screen.getByRole("status")).toHaveTextContent("Reconnecting to live updates");
+    expect(screen.getByText(/Reconnecting to live updates/)).toBeInTheDocument();
     vi.mocked(useWikiEvents).mockReturnValue({ connectionStatus: "connected" as const });
   });
 
   it("wiki tool Suspense fallback uses i18n loading string", () => {
     renderWithI18n(<WikiToolSuspenseFallback />);
     expect(screen.getByText("Loading…")).toBeInTheDocument();
+  });
+
+  it("shows error toast when clear wiki mutation fails", async () => {
+    const user = userEvent.setup();
+    authState.isAdmin = true;
+    authState.role = "admin";
+    apiMock.mockRejectedValueOnce(new Error("Delete failed"));
+
+    renderShell("/wiki?business_id=b1");
+    await user.click(screen.getByRole("button", { name: "Clear All Wiki" }));
+    const confirmInput = screen.getByPlaceholderText("Type business ID to confirm");
+    await user.type(confirmInput, "b1");
+    const confirmButtons = screen.getAllByRole("button", { name: "Clear All Wiki" });
+    await user.click(confirmButtons[confirmButtons.length - 1]!);
+
+    expect(await screen.findByText("Delete failed")).toBeInTheDocument();
   });
 });

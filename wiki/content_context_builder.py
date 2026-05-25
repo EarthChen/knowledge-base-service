@@ -520,10 +520,10 @@ class ContentContextBuilder:
             return []
 
         snippet_task = self._graph.execute_query(
-            _SNIPPETS_CY, {"names": module_names},
+            _SNIPPETS_CY, {"names": module_names, "valid_pairs": []},
         )
         chunk_task = self._graph.execute_query(
-            _CHUNK_SNIPPETS_CY, {"names": module_names},
+            _CHUNK_SNIPPETS_CY, {"names": module_names, "valid_pairs": []},
         )
 
         try:

@@ -12,13 +12,6 @@ def test_r1_ccb_no_method_map_bug():
     assert "caller_functions" in source
 
 
-def test_r2c_decompose_uses_real_edges():
-    """decompose_hierarchy_node should import ModuleDependencyGraph."""
-    from wiki.nodes import classify
-    source = inspect.getsource(classify.decompose_hierarchy_node)
-    assert "ModuleDependencyGraph" in source
-
-
 def test_r2a_graph_pre_grouper_exists():
     """graph_pre_grouper module should be importable with expected API."""
     from wiki.graph_pre_grouper import compute_pre_groups, PreGroup

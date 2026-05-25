@@ -15,7 +15,7 @@ async def persist_classification_node(
 ) -> dict[str, Any]:
     """Persist domain classification and tree structure immediately after decomposition.
 
-    Runs right after classify_domains_node so the domain tree is visible
+    Runs right after graph_domain_decompose so the domain tree is visible
     in the UI without waiting for the full pipeline to finish.
 
     Persists:
@@ -227,6 +227,7 @@ async def _persist_domain_labels_on_modules(
             mod_nodes = [
                 m for m in repo_modules
                 if m.get("properties", {}).get("name") == mod_name
+                and m.get("properties", {}).get("repository", repo) == repo
             ]
             if not mod_nodes:
                 continue

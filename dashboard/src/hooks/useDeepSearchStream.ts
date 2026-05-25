@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { StageEvent } from "../components/DeepResearchTimeline";
-import { API_BASE, authHeaders } from "../api/client";
+import { apiStream } from "../api/client";
 import { useI18n } from "../i18n/context";
 import { getErrorMessage } from "../utils/errorUtils";
 
@@ -58,9 +58,8 @@ export function useDeepSearchStream() {
     patchState(() => ({ stages: [], conclusion: null, isStreaming: true, error: null }));
 
     try {
-      const res = await fetch(`${API_BASE}/deep-search/stream`, {
+      const res = await apiStream("/deep-search/stream", {
         method: "POST",
-        headers: authHeaders(),
         body: JSON.stringify(params),
         signal: controller.signal,
       });

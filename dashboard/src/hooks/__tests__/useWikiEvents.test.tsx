@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
-import * as apiClient from "../../api/client";
+import { setToken } from "../../api/client";
 import { useWikiEvents } from "../useWikiEvents";
 
 describe("useWikiEvents", () => {
@@ -9,6 +9,7 @@ describe("useWikiEvents", () => {
   beforeEach(() => {
     fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
+    setToken("");
   });
 
   afterEach(() => {
@@ -24,10 +25,7 @@ describe("useWikiEvents", () => {
   });
 
   it("does not include token in the URL (uses Authorization header instead)", async () => {
-    vi.spyOn(apiClient, "authHeaders").mockReturnValue({
-      "Content-Type": "application/json",
-      Authorization: "Bearer secret-tok",
-    });
+    setToken("secret-tok");
     fetchSpy.mockImplementation(() => new Promise(() => {}));
 
     renderHook(() => useWikiEvents("biz-1", vi.fn()));
@@ -41,7 +39,6 @@ describe("useWikiEvents", () => {
   });
 
   it("sends auth via header not query param regardless of token value", async () => {
-    vi.spyOn(apiClient, "authHeaders").mockReturnValue({ "Content-Type": "application/json" });
     fetchSpy.mockImplementation(() => new Promise(() => {}));
 
     renderHook(() => useWikiEvents("biz-1", vi.fn()));

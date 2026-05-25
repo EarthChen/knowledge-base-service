@@ -68,3 +68,11 @@ def test_wiki_incremental_enabled_default() -> None:
     assert w.incremental_enabled is False
     settings = Settings(_env_file=None)
     assert settings.wiki.incremental_enabled is False
+
+
+def test_heal_l2_threshold_default() -> None:
+    """L2 heal threshold should default to 0.5 so L2 scores trigger healing."""
+    w = AppWikiFlags()
+    assert w.heal_l2_threshold == 0.5
+    settings = Settings(_env_file=None)
+    assert settings.wiki.heal_l2_threshold == 0.5

@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
   ApiError,
   api,
+  apiDownload,
+  apiStream,
   authHeaders,
   getCurrentBusiness,
   businessWikiExport,
@@ -160,6 +162,47 @@ describe("api client", () => {
       .fn()
       .mockImplementation(() => Promise.resolve(new Response("{}", { status: 200, statusText: "OK" })));
     await expect(api(`${origin}${API_BASE}/by-full-url`)).resolves.toEqual({});
+  });
+});
+
+describe("apiStream and apiDownload", () => {
+  beforeEach(() => {
+    setToken("stream-token");
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    setToken("");
+  });
+
+  it("apiStream uses API_BASE and auth headers", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response("event: ping\ndata: {}\n\n", { status: 200 }),
+    );
+    const res = await apiStream("/wiki/ask/stream", {
+      method: "POST",
+      body: "{}",
+    });
+    expect(res.ok).toBe(true);
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledWith(
+      `${API_BASE}/wiki/ask/stream`,
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer stream-token",
+        }),
+      }),
+    );
+  });
+
+  it("apiDownload throws ApiError on failed response", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      mockResponse(JSON.stringify({ detail: "forbidden" }), { status: 403 }),
+    );
+    await expect(apiDownload("/wiki/demo/offline-pack")).rejects.toMatchObject({
+      status: 403,
+      message: "forbidden",
+    });
   });
 });
 

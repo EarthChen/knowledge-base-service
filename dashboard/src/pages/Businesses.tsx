@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Building2, Plus, Trash2, X } from "lucide-react";
 import { api } from "../api/client";
@@ -8,6 +8,7 @@ import { getErrorMessage } from "../utils/errorUtils";
 import { useBusiness } from "../contexts/BusinessContext";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../components/Toast";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useBindRepositories, useBusinessRepositories } from "../hooks/useBusinessRepositories";
 
 function RepoBindingPanel({
@@ -156,6 +157,11 @@ export default function Businesses() {
 
   const [expandedBiz, setExpandedBiz] = useState<string | null>(null);
   const [newRepoInput, setNewRepoInput] = useState("");
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+
+  const formIdFieldId = useId();
+  const formNameFieldId = useId();
+  const formDescFieldId = useId();
 
   const handleCreate = async () => {
     if (!formId.trim() || !formName.trim()) return;
@@ -175,9 +181,10 @@ export default function Businesses() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    const yes = window.confirm(t.businesses.deleteConfirm.replace("{id}", id));
-    if (!yes) return;
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    const id = deleteTargetId;
+    setDeleteTargetId(null);
     try {
       await deleteMut.mutateAsync(id);
       toast("success", t.businesses.deleted.replace("{id}", id));
@@ -207,10 +214,14 @@ export default function Businesses() {
       {showForm && (
         <div className="space-y-4 rounded-xl border border-gray-300 bg-gray-50 p-5 dark:border-gray-600 dark:bg-gray-800/50">
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+            <label
+              htmlFor={formIdFieldId}
+              className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+            >
               {t.businesses.idLabel}
             </label>
             <input
+              id={formIdFieldId}
               value={formId}
               onChange={(e) => setFormId(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
               placeholder={t.businesses.idPlaceholder}
@@ -218,10 +229,14 @@ export default function Businesses() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+            <label
+              htmlFor={formNameFieldId}
+              className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+            >
               {t.businesses.nameLabel}
             </label>
             <input
+              id={formNameFieldId}
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
               placeholder={t.businesses.namePlaceholder}
@@ -229,10 +244,14 @@ export default function Businesses() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
+            <label
+              htmlFor={formDescFieldId}
+              className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400"
+            >
               {t.businesses.descLabel}
             </label>
             <input
+              id={formDescFieldId}
               value={formDesc}
               onChange={(e) => setFormDesc(e.target.value)}
               placeholder={t.businesses.descPlaceholder}
@@ -292,9 +311,10 @@ export default function Businesses() {
                 </div>
                 {isAdmin && biz.id !== "default" && (
                   <button
-                    onClick={() => handleDelete(biz.id)}
+                    type="button"
+                    onClick={() => setDeleteTargetId(biz.id)}
                     className="rounded p-1 text-gray-500 opacity-0 transition-all hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 dark:text-gray-400 dark:hover:bg-red-950/50 dark:hover:text-red-400"
-                    title={t.businesses.deleteBtn}
+                    aria-label={t.businesses.deleteBtn}
                   >
                     <Trash2 size={16} />
                   </button>
@@ -346,6 +366,17 @@ export default function Businesses() {
             </div>
           ))}
         </div>
+      )}
+
+      {deleteTargetId && (
+        <ConfirmDialog
+          title={t.businesses.deleteBtn}
+          message={t.businesses.deleteConfirm.replace("{id}", deleteTargetId)}
+          confirmLabel={t.businesses.deleteBtn}
+          variant="danger"
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setDeleteTargetId(null)}
+        />
       )}
     </div>
   );

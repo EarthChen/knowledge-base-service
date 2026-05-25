@@ -1,555 +1,74 @@
 import {
-  useState,
-  useCallback,
-  useMemo,
-  useRef,
-  useEffect,
-  type MutableRefObject,
-} from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import {
   ReactFlow,
   Background,
   Controls,
   MiniMap,
-  useNodesState,
-  useEdgesState,
-  type Node,
-  type Edge,
-  type NodeMouseHandler,
-  MarkerType,
   Panel,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import dagre from "@dagrejs/dagre";
-import { Network, Search, ZoomIn, Loader2, Eye, EyeOff, AlertTriangle, Undo2, BookOpen } from "lucide-react";
-import {
-  useGraphExplore,
-  useGraphExpand,
-  useBlastRadius,
-  useGraphCommunities,
-  useRepositories,
-} from "../api/hooks";
-import { getCurrentBusiness } from "../api/client";
-import { useWikiPathForSourceEntity } from "../hooks/useWikiPathForSourceEntity";
-import { wikiHref } from "../components/wiki/wikiRouteHelpers";
+import { Network, Search, ZoomIn, Loader2, AlertTriangle, Undo2 } from "lucide-react";
 import ErrorBoundary from "../components/ErrorBoundary";
-import { useI18n } from "../i18n/context";
-import type {
-  GraphExploreResponse,
-  GraphNode as ApiNode,
-  GraphEdge as ApiEdge,
-  CommunityInfo,
-} from "../api/types";
+import BlastRadiusPanel from "./graph/BlastRadiusPanel";
+import CommunitiesPanel from "./graph/CommunitiesPanel";
+import GraphFilterBar from "./graph/GraphFilterBar";
+import NodeDetailPanel from "./graph/NodeDetailPanel";
+import { INPUT_CLASS, normalizeGraphType, paletteForTheme } from "./graph/graphLayout";
+import { useGraphExplorerState } from "./graph/useGraphExplorerState";
 
-type NodeTypeKey = "Function" | "Class" | "Module" | "Document";
-
-const TYPE_FLOW_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  Function: { bg: "#ecfdf5", border: "#10b981", text: "#065f46" },
-  Class: { bg: "#f0f9ff", border: "#0ea5e9", text: "#0c4a6e" },
-  Module: { bg: "#faf5ff", border: "#a855f7", text: "#581c87" },
-  Document: { bg: "#fffbeb", border: "#fbbf24", text: "#92400e" },
-  Unknown: { bg: "#f1f5f9", border: "#64748b", text: "#334155" },
-};
-
-const TYPE_FLOW_COLORS_DARK: Record<string, { bg: string; border: string; text: string }> = {
-  Function: { bg: "#064e3c", border: "#34d399", text: "#d1fae5" },
-  Class: { bg: "#0c4a6e", border: "#38bdf8", text: "#e0f2fe" },
-  Module: { bg: "#581c87", border: "#c084fc", text: "#f3e8ff" },
-  Document: { bg: "#78350f", border: "#fbbf24", text: "#fef3c7" },
-  Unknown: { bg: "#1e293b", border: "#94a3b8", text: "#e2e8f0" },
-};
-
-function paletteForTheme(isDark: boolean) {
-  return isDark ? TYPE_FLOW_COLORS_DARK : TYPE_FLOW_COLORS;
-}
-
-function useHtmlClassDark(): boolean {
-  const [dark, setDark] = useState(
-    () => typeof document !== "undefined" && document.documentElement.classList.contains("dark"),
-  );
-  useEffect(() => {
-    const el = document.documentElement;
-    const sync = () => setDark(el.classList.contains("dark"));
-    sync();
-    const mo = new MutationObserver(sync);
-    mo.observe(el, { attributes: true, attributeFilter: ["class"] });
-    return () => mo.disconnect();
-  }, []);
-  return dark;
-}
-
-const EDGE_COLORS: Record<string, string> = {
-  CALLS: "#10b981",
-  INHERITS: "#0ea5e9",
-  IMPORTS: "#a855f7",
-  CONTAINS: "#fbbf24",
-  REFERENCES: "#ef4444",
-  USES_TYPE: "#ec4899",
-};
-
-const DEFAULT_VISIBILITY: Record<NodeTypeKey, boolean> = {
-  Function: true,
-  Class: true,
-  Module: true,
-  Document: true,
-};
-
-/** Initial paint cap for POST /graph/explore results (progressive expansion adds more). */
-const INITIAL_NODE_LIMIT = 50;
-/** Hard safety cap to prevent browser tab from exhausting memory. */
-const MAX_GRAPH_NODES = 500;
-const NODE_WIDTH = 160;
-const NODE_HEIGHT = 48;
-
-function mergeGraphEdges(existing: ApiEdge[], incoming: ApiEdge[]): ApiEdge[] {
-  const key = (e: ApiEdge) => `${e.source}|${e.type}|${e.target}`;
-  const out = new Map<string, ApiEdge>();
-  for (const e of existing) out.set(key(e), e);
-  for (const e of incoming) out.set(key(e), e);
-  return [...out.values()];
-}
-
-function normalizeGraphType(raw: string): keyof typeof TYPE_FLOW_COLORS {
-  const t = raw?.trim();
-  if (t === "Function" || t === "Class" || t === "Module" || t === "Document") return t;
-  return "Unknown";
-}
-
-function hasInheritsEdges(apiEdges: ApiEdge[]): boolean {
-  return apiEdges.some((e) => e.type === "INHERITS");
-}
-
-function depthRowClass(depth: number, maxDepth: number): string {
-  if (maxDepth <= 1) {
-    return "bg-amber-500/25 dark:bg-amber-400/30";
-  }
-  const step = (depth - 1) / Math.max(maxDepth - 1, 1);
-  if (step <= 0.34) return "bg-amber-500/30 dark:bg-amber-400/35";
-  if (step <= 0.67) return "bg-amber-500/18 dark:bg-amber-400/22";
-  return "bg-amber-500/10 dark:bg-amber-400/14";
-}
-
-export function computeDagrePositions(
-  apiNodes: ApiNode[],
-  apiEdges: ApiEdge[],
-): Map<string, { x: number; y: number }> {
-  const nodeIdSet = new Set(apiNodes.map((n) => n.id));
-  const g = new dagre.graphlib.Graph();
-  const rankdir = hasInheritsEdges(apiEdges) ? "TB" : "LR";
-  g.setGraph({ rankdir, nodesep: 60, ranksep: 80, marginx: 20, marginy: 20 });
-  g.setDefaultEdgeLabel(() => ({}));
-
-  for (const n of apiNodes) {
-    g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
-  }
-  for (const e of apiEdges) {
-    if (nodeIdSet.has(e.source) && nodeIdSet.has(e.target)) {
-      g.setEdge(e.source, e.target);
-    }
-  }
-  dagre.layout(g);
-
-  const positions = new Map<string, { x: number; y: number }>();
-  for (const n of apiNodes) {
-    const pos = g.node(n.id);
-    positions.set(n.id, {
-      x: (pos?.x ?? 0) - NODE_WIDTH / 2,
-      y: (pos?.y ?? 0) - NODE_HEIGHT / 2,
-    });
-  }
-  return positions;
-}
-
-export function applyNodeStyles(
-  apiNodes: ApiNode[],
-  positions: Map<string, { x: number; y: number }>,
-  isDark: boolean,
-  highlightUids?: Set<string>,
-): Node[] {
-  const PALETTE = paletteForTheme(isDark);
-  return apiNodes.map((n) => {
-    const nt = normalizeGraphType(n.type);
-    const colors = PALETTE[nt];
-    const pos = positions.get(n.id) ?? { x: 0, y: 0 };
-    const hl = highlightUids?.has(n.id);
-    const ring = hl
-      ? isDark
-        ? "0 0 0 3px #fbbf24, 0 2px 8px rgba(0,0,0,0.35)"
-        : "0 0 0 3px #d97706, 0 2px 8px rgba(0,0,0,0.12)"
-      : n.is_center
-        ? `0 0 20px ${colors.border}60`
-        : `0 2px 8px rgba(0,0,0,0.12)`;
-    return {
-      id: n.id,
-      position: pos,
-      data: {
-        label: n.name,
-        type: n.type,
-        file: n.file,
-        line: n.line,
-        end_line: n.end_line,
-        signature: n.signature,
-        docstring: n.docstring,
-        isCenter: n.is_center,
-      },
-      style: {
-        background: n.is_center ? colors.border : colors.bg,
-        color: colors.text,
-        border: `2px solid ${hl ? (isDark ? "#fbbf24" : "#d97706") : colors.border}`,
-        borderRadius: "8px",
-        padding: "8px 14px",
-        fontSize: "12px",
-        fontWeight: n.is_center ? 700 : 500,
-        boxShadow: ring,
-        minWidth: "80px",
-        textAlign: "center" as const,
-      },
-    };
-  });
-}
-
-export function buildFlowNodesWithDagre(
-  apiNodes: ApiNode[],
-  apiEdges: ApiEdge[],
-  isDark: boolean,
-  highlightUids?: Set<string>,
-): Node[] {
-  const positions = computeDagrePositions(apiNodes, apiEdges);
-  return applyNodeStyles(apiNodes, positions, isDark, highlightUids);
-}
-
-function buildFlowEdges(
-  apiEdges: ApiEdge[],
-  nodeIds: Set<string>,
-  showLabels: boolean,
-  isDark: boolean,
-): Edge[] {
-  const labelFill = isDark ? "#94a3b8" : "#64748b";
-  const labelBg = isDark ? "#1e293b" : "#f8fafc";
-  return apiEdges
-    .filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
-    .map((e) => ({
-      id: `e-${e.source}-${e.type || "rel"}-${e.target}`,
-      source: e.source,
-      target: e.target,
-      label: showLabels ? e.type : undefined,
-      animated: e.type === "CALLS",
-      style: { stroke: EDGE_COLORS[e.type] || "#64748b", strokeWidth: 1.5 },
-      labelStyle: showLabels ? { fontSize: 10, fill: labelFill } : undefined,
-      labelBgStyle: showLabels ? { fill: labelBg, fillOpacity: 0.92 } : undefined,
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: EDGE_COLORS[e.type] || "#64748b",
-        width: 16,
-        height: 16,
-      },
-    }));
-}
-
-function truncateDoc(s: string, max = 280): string {
-  const t = s.trim();
-  if (t.length <= max) return t;
-  return `${t.slice(0, max)}…`;
-}
-
-function ingestExploreResult(
-  data: GraphExploreResponse,
-  selectId: string | null,
-  opts: {
-    setInitialSliceHint: (v: boolean) => void;
-    setExpandHistory: (v: string[][]) => void;
-    setSelectedNodeId: (v: string | null) => void;
-    apiNodesRef: MutableRefObject<Map<string, ApiNode>>;
-    edgesRef: MutableRefObject<ApiEdge[]>;
-    applyGraphLayout: () => void;
-    expandReset: () => void;
-  },
-) {
-  const {
-    setInitialSliceHint,
-    setExpandHistory,
-    setSelectedNodeId,
-    apiNodesRef,
-    edgesRef,
-    applyGraphLayout,
-    expandReset,
-  } = opts;
-  expandReset();
-  setExpandHistory([]);
-  const overflow = data.nodes.length > INITIAL_NODE_LIMIT;
-  setInitialSliceHint(overflow);
-  const slice = overflow ? data.nodes.slice(0, INITIAL_NODE_LIMIT) : data.nodes;
-  apiNodesRef.current = new Map(slice.map((n) => [n.id, n]));
-  const idset = new Set(slice.map((n) => n.id));
-  edgesRef.current = data.edges.filter(
-    (e) => idset.has(e.source) && idset.has(e.target),
-  );
-  applyGraphLayout();
-  setSelectedNodeId(selectId);
-}
+// Re-export layout utilities for tests and external consumers
+export { computeDagrePositions, applyNodeStyles, buildFlowNodesWithDagre } from "./graph/graphLayout";
 
 export default function GraphExplorer() {
-  const [searchParams] = useSearchParams();
-  const [searchName, setSearchName] = useState(() => searchParams.get("q") ?? "");
-  const [depth, setDepth] = useState(2);
-  const [limit, setLimit] = useState(100);
-  const depthRef = useRef(depth);
-  const limitRef = useRef(limit);
-  depthRef.current = depth;
-  limitRef.current = limit;
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [typeVisible, setTypeVisible] = useState<Record<NodeTypeKey, boolean>>({ ...DEFAULT_VISIBILITY });
-  const [showEdgeLabels, setShowEdgeLabels] = useState(true);
-  /** True when last explore returned more nodes than INITIAL_NODE_LIMIT (only first N painted). */
-  const [initialSliceHint, setInitialSliceHint] = useState(false);
-  const [expandHistory, setExpandHistory] = useState<string[][]>([]);
-  const [blastNamesInput, setBlastNamesInput] = useState("");
-  const [blastDepth, setBlastDepth] = useState(3);
-  const [blastRepo, setBlastRepo] = useState("");
-  const [communityRepo, setCommunityRepo] = useState("");
-  const [communityMinSize, setCommunityMinSize] = useState(3);
-  const [communityHighlight, setCommunityHighlight] = useState<Set<string>>(new Set());
-  const [selectedCommunityKey, setSelectedCommunityKey] = useState<number | null>(null);
-  const [graphSnapshot, setGraphSnapshot] = useState<{ nodes: ApiNode[]; edges: ApiEdge[] }>({
-    nodes: [],
-    edges: [],
-  });
-
-  const apiNodesRef = useRef<Map<string, ApiNode>>(new Map());
-  const edgesRef = useRef<ApiEdge[]>([]);
-  const visibleNodeIdsRef = useRef<Set<string>>(new Set());
-
-  const { t } = useI18n();
-  const isDark = useHtmlClassDark();
-  const mutation = useGraphExplore();
-  const expandMutation = useGraphExpand();
-  const blastMutation = useBlastRadius();
-  const communitiesMutation = useGraphCommunities();
-  const reposQuery = useRepositories();
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const applyGraphLayout = useCallback(() => {
-    setGraphSnapshot({
-      nodes: [...apiNodesRef.current.values()],
-      edges: [...edgesRef.current],
-    });
-  }, []);
-
-  const highlightSet = useMemo(
-    () => (communityHighlight.size ? communityHighlight : undefined),
-    [communityHighlight],
-  );
-
-  const dagrePositions = useMemo(
-    () => computeDagrePositions(graphSnapshot.nodes, graphSnapshot.edges),
-    [graphSnapshot.nodes, graphSnapshot.edges],
-  );
-
-  const styledFlowNodes = useMemo(
-    () => applyNodeStyles(graphSnapshot.nodes, dagrePositions, isDark, highlightSet),
-    [graphSnapshot.nodes, dagrePositions, isDark, highlightSet],
-  );
-
-  const handleExplore = useCallback(
-    (name: string) => {
-      mutation.mutate(
-        { name: name.trim(), depth, limit },
-        {
-          onSuccess: (data) => {
-            ingestExploreResult(data, null, {
-              setInitialSliceHint,
-              setExpandHistory,
-              setSelectedNodeId,
-              apiNodesRef,
-              edgesRef,
-              applyGraphLayout,
-              expandReset: () => expandMutation.reset(),
-            });
-          },
-        },
-      );
-    },
-    [depth, limit, mutation, expandMutation, applyGraphLayout],
-  );
-
-  const nodeDeepLinkRef = useRef<string | null>(null);
-  const nodeParam = searchParams.get("node");
-  useEffect(() => {
-    const n = (nodeParam ?? "").trim();
-    if (!n) {
-      nodeDeepLinkRef.current = null;
-      return;
-    }
-    if (nodeDeepLinkRef.current === n) return;
-    nodeDeepLinkRef.current = n;
-    mutation.mutate(
-      { name: "", center_uid: n, depth: depthRef.current, limit: limitRef.current },
-      {
-        onSuccess: (data) => {
-          ingestExploreResult(data, n, {
-            setInitialSliceHint,
-            setExpandHistory,
-            setSelectedNodeId,
-            apiNodesRef,
-            edgesRef,
-            applyGraphLayout,
-            expandReset: () => expandMutation.reset(),
-          });
-        },
-      },
-    );
-  }, [nodeParam, mutation, expandMutation, applyGraphLayout]);
-
-  useEffect(() => {
-    if (graphSnapshot.nodes.length === 0) {
-      setNodes([]);
-      setEdges([]);
-      return;
-    }
-    const flowNodes = styledFlowNodes.map((n) => {
-      const nt = normalizeGraphType((n.data?.type as string) || "");
-      let vis = true;
-      if (nt !== "Unknown") vis = typeVisible[nt as NodeTypeKey];
-      return { ...n, hidden: !vis };
-    });
-    const nodeIds = new Set(styledFlowNodes.map((n) => n.id));
-    visibleNodeIdsRef.current = nodeIds;
-    setNodes(flowNodes);
-    setEdges(buildFlowEdges(graphSnapshot.edges, nodeIds, showEdgeLabels, isDark));
-  }, [graphSnapshot, styledFlowNodes, typeVisible, showEdgeLabels, isDark, setNodes, setEdges]);
-
-  const handleBlastRadius = useCallback(() => {
-    const names = blastNamesInput
-      .split(/[,，]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (!names.length) return;
-    blastMutation.mutate({
-      entity_names: names,
-      max_depth: blastDepth,
-      repository: blastRepo.trim() || null,
-    });
-  }, [blastNamesInput, blastDepth, blastRepo, blastMutation]);
-
-  const handleLoadCommunities = useCallback(() => {
-    communitiesMutation.mutate({
-      repository: communityRepo.trim() || null,
-      min_size: communityMinSize,
-    });
-  }, [communityRepo, communityMinSize, communitiesMutation]);
-
-  const handleCommunityClick = useCallback((c: CommunityInfo) => {
-    setSelectedCommunityKey(c.id);
-    setCommunityHighlight(new Set(c.members.map((m) => m.uid)));
-  }, []);
-
-  const handleExpandNeighbors = useCallback(
-    (nodeUid: string, expandLimit: number) => {
-      const uid = nodeUid.trim();
-      if (!uid) return;
-      if (apiNodesRef.current.size >= MAX_GRAPH_NODES) return;
-      const selectedNode = apiNodesRef.current.get(uid);
-      if (!selectedNode) return;
-      const existingUids = [...apiNodesRef.current.keys()];
-      expandMutation.mutate(
-        {
-          node_name: selectedNode.name,
-          center_uid: uid,
-          limit: expandLimit,
-          depth: 1,
-          exclude_uids: existingUids,
-        },
-        {
-          onSuccess: (result) => {
-            const newBatch: string[] = [];
-            for (const n of result.nodes) {
-              if (!apiNodesRef.current.has(n.id)) {
-                apiNodesRef.current.set(n.id, n);
-                newBatch.push(n.id);
-              }
-            }
-            edgesRef.current = mergeGraphEdges(edgesRef.current, result.edges);
-            if (newBatch.length) {
-              setExpandHistory((h) => [...h, newBatch]);
-            }
-            applyGraphLayout();
-          },
-        },
-      );
-    },
-    [expandMutation, applyGraphLayout],
-  );
-
-  const handleUndoExpand = useCallback(() => {
-    if (expandHistory.length === 0) return;
-    const lastBatch = expandHistory[expandHistory.length - 1];
-    for (const uid of lastBatch) {
-      apiNodesRef.current.delete(uid);
-    }
-    const idset = new Set(apiNodesRef.current.keys());
-    edgesRef.current = edgesRef.current.filter(
-      (e) => idset.has(e.source) && idset.has(e.target),
-    );
-    setExpandHistory((h) => h.slice(0, -1));
-    setSelectedNodeId((sid) => (sid && !apiNodesRef.current.has(sid) ? null : sid));
-    applyGraphLayout();
-  }, [expandHistory, applyGraphLayout]);
-
-  const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      if (searchName.trim()) handleExplore(searchName.trim());
-    },
-    [searchName, handleExplore],
-  );
-
-  const onNodeDoubleClick: NodeMouseHandler = useCallback(
-    (_event, node) => {
-      if (node.id && !expandMutation.isPending) {
-        handleExpandNeighbors(node.id, 20);
-      }
-    },
-    [handleExpandNeighbors, expandMutation.isPending],
-  );
-
-  const onNodeClick: NodeMouseHandler = useCallback((_event, node) => {
-    setSelectedNodeId(node.id);
-  }, []);
-
-  const toggleType = useCallback((key: NodeTypeKey) => {
-    setTypeVisible((prev) => ({ ...prev, [key]: !prev[key] }));
-  }, []);
-
-  const selectedApiNode = selectedNodeId ? apiNodesRef.current.get(selectedNodeId) : undefined;
-  const businessId = getCurrentBusiness();
-  const wikiForEntity = useWikiPathForSourceEntity(businessId, selectedNodeId, {
-    enabled: Boolean(selectedNodeId?.trim()),
-  });
-
-  const legend = useMemo(() => {
-    const P = paletteForTheme(isDark);
-    return [
-      { type: "Function" as const, color: P.Function.border },
-      { type: "Class" as const, color: P.Class.border },
-      { type: "Module" as const, color: P.Module.border },
-      { type: "Document" as const, color: P.Document.border },
-    ];
-  }, [isDark]);
-
-  const edgeLegend = useMemo(
-    () =>
-      Object.entries(EDGE_COLORS).map(([type, color]) => ({ type, color })),
-    [],
-  );
-
-  const inputClass =
-    "rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-sky-500 dark:focus:ring-sky-700";
-
-  const chipBase =
-    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors dark:border-gray-600";
+  const {
+    t,
+    isDark,
+    searchName,
+    setSearchName,
+    depth,
+    setDepth,
+    limit,
+    setLimit,
+    handleSubmit,
+    mutation,
+    initialSliceHint,
+    expandMutation,
+    expandHistory,
+    handleUndoExpand,
+    blastNamesInput,
+    setBlastNamesInput,
+    blastDepth,
+    setBlastDepth,
+    blastRepo,
+    setBlastRepo,
+    blastMutation,
+    handleBlastRadius,
+    communityRepo,
+    setCommunityRepo,
+    communityMinSize,
+    setCommunityMinSize,
+    communitiesMutation,
+    handleLoadCommunities,
+    handleCommunityClick,
+    selectedCommunityKey,
+    reposQuery,
+    nodes,
+    edges,
+    onNodesChange,
+    onEdgesChange,
+    onNodeClick,
+    onNodeDoubleClick,
+    containerRef,
+    typeVisible,
+    toggleType,
+    showEdgeLabels,
+    setShowEdgeLabels,
+    legend,
+    edgeLegend,
+    selectedApiNode,
+    businessId,
+    wikiForEntity,
+    handleExpandNeighbors,
+  } = useGraphExplorerState();
 
   return (
     <div className="flex h-full flex-col gap-4">
@@ -580,7 +99,7 @@ export default function GraphExplorer() {
               value={searchName}
               onChange={(e) => setSearchName(e.target.value)}
               placeholder={t.explorer.searchPlaceholder}
-              className={`w-full pl-9 ${inputClass}`}
+              className={`w-full pl-9 ${INPUT_CLASS}`}
             />
           </div>
         </label>
@@ -592,7 +111,7 @@ export default function GraphExplorer() {
             max={5}
             value={depth}
             onChange={(e) => setDepth(Number(e.target.value) || 2)}
-            className={`w-20 ${inputClass}`}
+            className={`w-20 ${INPUT_CLASS}`}
           />
         </label>
         <label>
@@ -604,7 +123,7 @@ export default function GraphExplorer() {
             step={10}
             value={limit}
             onChange={(e) => setLimit(Number(e.target.value) || 100)}
-            className={`w-24 ${inputClass}`}
+            className={`w-24 ${INPUT_CLASS}`}
           />
         </label>
         <button
@@ -670,235 +189,45 @@ export default function GraphExplorer() {
 
       <div ref={containerRef} className="flex min-h-[500px] flex-1 flex-col gap-3 lg:flex-row">
         <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-80">
-          <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-              {t.explorer.blastTitle}
-            </h3>
-            <label className="mt-3 block">
-              <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                {t.explorer.blastNamesLabel}
-              </span>
-              <textarea
-                value={blastNamesInput}
-                onChange={(e) => setBlastNamesInput(e.target.value)}
-                rows={2}
-                placeholder={t.explorer.blastNamesPlaceholder}
-                className={`w-full resize-y ${inputClass}`}
-              />
-            </label>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <label className="flex-1 min-w-[100px]">
-                <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                  {t.explorer.blastMaxDepth}
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={blastDepth}
-                  onChange={(e) => setBlastDepth(Number(e.target.value) || 3)}
-                  className={`w-full ${inputClass}`}
-                />
-              </label>
-              <label className="min-w-[140px] flex-1">
-                <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                  {t.explorer.blastRepositoryOptional}
-                </span>
-                <input
-                  type="text"
-                  value={blastRepo}
-                  onChange={(e) => setBlastRepo(e.target.value)}
-                  className={`w-full ${inputClass}`}
-                />
-              </label>
-            </div>
-            <button
-              type="button"
-              onClick={handleBlastRadius}
-              disabled={blastMutation.isPending || !blastNamesInput.trim()}
-              className="mt-3 w-full rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:opacity-50 dark:bg-amber-500 dark:hover:bg-amber-400"
-            >
-              {blastMutation.isPending ? t.explorer.blastRunning : t.explorer.blastRun}
-            </button>
-            {blastMutation.error ? (
-              <p className="mt-2 text-xs text-red-600 dark:text-red-400">{blastMutation.error.message}</p>
-            ) : null}
-            {blastMutation.data ? (
-              <div className="mt-3 space-y-2 text-xs">
-                <p className="font-medium text-gray-700 dark:text-gray-200">{t.explorer.blastAffectedTitle}</p>
-                <p className="text-[11px] text-gray-600 dark:text-gray-400">
-                  total {blastMutation.data.total_affected} · max depth {blastMutation.data.summary.max_depth_reached}
-                </p>
-                <p className="text-[11px] text-gray-600 dark:text-gray-400">
-                  {Object.entries(blastMutation.data.summary.by_type)
-                    .map(([k, v]) => `${k}: ${v}`)
-                    .join(" · ")}
-                </p>
-                <p className="text-[11px] text-gray-600 dark:text-gray-400">
-                  {Object.entries(blastMutation.data.summary.by_relation)
-                    .map(([k, v]) => `${k}: ${v}`)
-                    .join(" · ")}
-                </p>
-                {(() => {
-                  const md = Math.max(
-                    blastMutation.data.summary.max_depth_reached,
-                    ...blastMutation.data.affected.map((l) => l.depth),
-                    1,
-                  );
-                  return blastMutation.data.affected.map((layer) => (
-                    <div key={layer.depth} className="space-y-1">
-                      <p
-                        className={`text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 ${depthRowClass(layer.depth, md)} rounded px-2 py-0.5`}
-                      >
-                        {t.explorer.depth} {layer.depth}
-                      </p>
-                      <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-gray-100 dark:border-gray-700">
-                        {layer.nodes.map((node) => (
-                          <li
-                            key={node.uid}
-                            className={`break-all border-b border-gray-100 px-2 py-1.5 last:border-0 dark:border-gray-800 ${depthRowClass(layer.depth, md)}`}
-                          >
-                            <span className="font-medium text-gray-800 dark:text-gray-100">{node.name}</span>{" "}
-                            <span className="text-gray-500 dark:text-gray-400">· {node.type}</span>
-                            <br />
-                            <span className="text-[10px] text-gray-500 dark:text-gray-500">
-                              {t.explorer.blastRelation}: {node.relation} · {t.explorer.blastConfidence}:{" "}
-                              {node.confidence}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ));
-                })()}
-              </div>
-            ) : null}
-          </section>
-
-          <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-              {t.explorer.communityTitle}
-            </h3>
-            <label className="mt-3 block">
-              <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                {t.explorer.communityRepository}
-              </span>
-              <select
-                value={communityRepo}
-                onChange={(e) => setCommunityRepo(e.target.value)}
-                className={`w-full ${inputClass}`}
-              >
-                <option value="">{t.explorer.communityAllRepos}</option>
-                {(reposQuery.data?.repositories ?? []).map((r) => (
-                  <option key={r.repository} value={r.repository}>
-                    {r.repository}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="mt-2 block">
-              <span className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                {t.explorer.communityMinSize}
-              </span>
-              <input
-                type="number"
-                min={2}
-                max={50}
-                value={communityMinSize}
-                onChange={(e) => setCommunityMinSize(Number(e.target.value) || 3)}
-                className={`w-full ${inputClass}`}
-              />
-            </label>
-            <button
-              type="button"
-              onClick={handleLoadCommunities}
-              disabled={communitiesMutation.isPending}
-              className="mt-3 w-full rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-900 transition-colors hover:bg-violet-100 disabled:opacity-50 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-100 dark:hover:bg-violet-900/60"
-            >
-              {communitiesMutation.isPending ? t.explorer.communityLoading : t.explorer.communityLoad}
-            </button>
-            {communitiesMutation.error ? (
-              <p className="mt-2 text-xs text-red-600 dark:text-red-400">{communitiesMutation.error.message}</p>
-            ) : null}
-            {communitiesMutation.data ? (
-              <div className="mt-3 space-y-2 text-xs">
-                <p className="text-gray-600 dark:text-gray-300">
-                  {t.explorer.communityUnclustered}: {communitiesMutation.data.unclustered_count}
-                </p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-500">
-                  {t.explorer.communityClickHighlight}
-                </p>
-                <ul className="max-h-48 space-y-1.5 overflow-y-auto">
-                  {communitiesMutation.data.communities.map((c) => (
-                    <li key={c.id}>
-                      <button
-                        type="button"
-                        onClick={() => handleCommunityClick(c)}
-                        className={`w-full rounded-lg border px-2 py-2 text-left text-xs transition-colors ${
-                          selectedCommunityKey === c.id
-                            ? "border-violet-500 bg-violet-50 dark:border-violet-500 dark:bg-violet-950/80"
-                            : "border-gray-200 bg-gray-50 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-800 dark:hover:bg-gray-700"
-                        }`}
-                      >
-                        <span className="font-medium text-gray-900 dark:text-gray-100">{c.label}</span>
-                        <span className="ml-2 text-gray-500 dark:text-gray-400">
-                          · n={c.size} · cohesion {c.cohesion}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : (
-              <p className="mt-3 text-[11px] text-gray-500 dark:text-gray-400">{t.explorer.communityEmpty}</p>
-            )}
-          </section>
+          <BlastRadiusPanel
+            blastNamesInput={blastNamesInput}
+            setBlastNamesInput={setBlastNamesInput}
+            blastDepth={blastDepth}
+            setBlastDepth={setBlastDepth}
+            blastRepo={blastRepo}
+            setBlastRepo={setBlastRepo}
+            blastMutation={blastMutation}
+            onRun={handleBlastRadius}
+          />
+          <CommunitiesPanel
+            communityRepo={communityRepo}
+            setCommunityRepo={setCommunityRepo}
+            communityMinSize={communityMinSize}
+            setCommunityMinSize={setCommunityMinSize}
+            communitiesMutation={communitiesMutation}
+            reposQuery={reposQuery}
+            selectedCommunityKey={selectedCommunityKey}
+            onLoad={handleLoadCommunities}
+            onCommunityClick={handleCommunityClick}
+          />
         </aside>
 
         <div className="flex min-h-[500px] min-w-0 flex-1 flex-col gap-2">
           {nodes.length > 0 ? (
             <>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                  {t.explorer.filterHint}:
-                </span>
-                {(
-                  [
-                    ["Function", t.explorer.typeFunction, legend[0]!.color],
-                    ["Class", t.explorer.typeClass, legend[1]!.color],
-                    ["Module", t.explorer.typeModule, legend[2]!.color],
-                    ["Document", t.explorer.typeDocument, legend[3]!.color],
-                  ] as const
-                ).map(([key, label, color]) => {
-                  const on = typeVisible[key];
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => toggleType(key)}
-                      className={`${chipBase} ${
-                        on
-                          ? "border-gray-200 bg-white text-gray-800 shadow-sm dark:border-gray-500 dark:bg-gray-800 dark:text-gray-100"
-                          : "border-gray-100 bg-gray-100 text-gray-400 line-through dark:border-gray-700 dark:bg-gray-900/80 dark:text-gray-500"
-                      }`}
-                    >
-                      <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
-                      {label}
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  onClick={() => setShowEdgeLabels((v) => !v)}
-                  className={`${chipBase} ml-auto border-gray-200 bg-white text-gray-700 shadow-sm dark:border-gray-500 dark:bg-gray-800 dark:text-gray-200`}
-                >
-                  {showEdgeLabels ? <Eye size={14} /> : <EyeOff size={14} />}
-                  {t.explorer.edgeLabelToggle}: {showEdgeLabels ? t.explorer.edgeLabelsOn : t.explorer.edgeLabelsOff}
-                </button>
-              </div>
+              <GraphFilterBar
+                typeVisible={typeVisible}
+                toggleType={toggleType}
+                showEdgeLabels={showEdgeLabels}
+                setShowEdgeLabels={setShowEdgeLabels}
+                legend={legend}
+              />
 
-              <div className="min-h-[480px] flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-slate-900">
+              <div
+                role="img"
+                aria-label={t.explorer.canvasLabel}
+                className="min-h-[480px] flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-slate-900"
+              >
                 <ErrorBoundary fallbackLabel={t.explorer.graphRenderFailed}>
                 <ReactFlow
                   nodes={nodes}
@@ -991,95 +320,14 @@ export default function GraphExplorer() {
         </div>
 
         {selectedApiNode ? (
-          <aside className="w-full shrink-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900 lg:w-80">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-              {t.explorer.panelTitle}
-            </h3>
-            <div className="mt-3 flex items-start justify-between gap-2">
-              <p className="break-all text-sm font-semibold text-gray-900 dark:text-gray-100">{selectedApiNode.name}</p>
-              <span
-                className="shrink-0 rounded-md px-2 py-0.5 text-[10px] font-medium"
-                style={{
-                  backgroundColor:
-                    paletteForTheme(isDark)[normalizeGraphType(selectedApiNode.type)]?.bg ?? "#f1f5f9",
-                  color: paletteForTheme(isDark)[normalizeGraphType(selectedApiNode.type)]?.text ?? "#334155",
-                  border: `1px solid ${paletteForTheme(isDark)[normalizeGraphType(selectedApiNode.type)]?.border ?? "#64748b"}`,
-                }}
-              >
-                {selectedApiNode.type}
-              </span>
-            </div>
-
-            {selectedApiNode.file ? (
-              <p className="mt-2 break-all text-xs text-gray-600 dark:text-gray-400">{selectedApiNode.file}</p>
-            ) : null}
-
-            <p className="mt-2 text-xs text-gray-700 dark:text-gray-300">
-              <span className="font-medium text-gray-500 dark:text-gray-400">{t.explorer.panelLineRange}: </span>
-              {selectedApiNode.line != null
-                ? selectedApiNode.end_line != null && selectedApiNode.end_line !== selectedApiNode.line
-                  ? `${selectedApiNode.line}–${selectedApiNode.end_line}`
-                  : String(selectedApiNode.line)
-                : "—"}
-            </p>
-
-            {selectedApiNode.signature ? (
-              <div className="mt-3">
-                <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{t.explorer.panelSignature}</p>
-                <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-all rounded-md bg-gray-50 p-2 text-[11px] text-gray-800 dark:bg-gray-800 dark:text-gray-200">
-                  {selectedApiNode.signature}
-                </pre>
-              </div>
-            ) : null}
-
-            {selectedApiNode.docstring ? (
-              <div className="mt-3">
-                <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{t.explorer.panelDocstring}</p>
-                <p className="mt-1 text-xs leading-relaxed text-gray-700 dark:text-gray-300">
-                  {truncateDoc(selectedApiNode.docstring)}
-                </p>
-              </div>
-            ) : null}
-
-            <div className="mt-4 flex flex-col gap-2">
-              <button
-                type="button"
-                disabled={expandMutation.isPending}
-                onClick={() => handleExpandNeighbors(selectedApiNode.id, 100)}
-                className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-900 transition-colors hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-100 dark:hover:bg-emerald-900"
-              >
-                {t.explorer.expandAllNeighbors}
-              </button>
-              {wikiForEntity.data?.path && !wikiForEntity.isLoading && !wikiForEntity.isError ? (
-                <Link
-                  to={wikiHref(wikiForEntity.data.path, { business_id: businessId })}
-                  className="inline-flex items-center justify-center rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-medium text-violet-900 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/80 dark:text-violet-100 dark:hover:bg-violet-900/80"
-                >
-                  <BookOpen size={14} className="mr-1.5 inline shrink-0" aria-hidden />
-                  {t.graph.viewWiki}
-                </Link>
-              ) : null}
-              <Link
-                to={
-                  selectedApiNode.name
-                    ? `/search?mode=wiki&q=${encodeURIComponent(selectedApiNode.name)}`
-                    : "/search?mode=wiki"
-                }
-                className="inline-flex items-center justify-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-900 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/80 dark:text-sky-100 dark:hover:bg-sky-900"
-              >
-                {t.explorer.openInWiki}
-              </Link>
-              <Link
-                to={selectedApiNode.name ? `/search?q=${encodeURIComponent(selectedApiNode.name)}` : "/search"}
-                className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
-              >
-                <Search size={14} className="mr-1.5 inline" />
-                {t.explorer.searchRelated}
-              </Link>
-            </div>
-
-            <p className="mt-4 text-[10px] text-gray-400 dark:text-gray-500">{t.explorer.doubleClickHint}</p>
-          </aside>
+          <NodeDetailPanel
+            node={selectedApiNode}
+            isDark={isDark}
+            businessId={businessId}
+            wikiForEntity={wikiForEntity}
+            expandMutation={expandMutation}
+            onExpandNeighbors={handleExpandNeighbors}
+          />
         ) : null}
       </div>
     </div>

@@ -104,7 +104,7 @@ interface DomainNodeData {
 }
 
 function DomainNode({ data }: NodeProps) {
-  const nodeData = data as DomainNodeData;
+  const nodeData = data as unknown as DomainNodeData;
   return (
     <div
       style={{

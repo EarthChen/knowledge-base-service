@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import warnings
 from collections import Counter
 from typing import Any
 
@@ -12,6 +13,7 @@ from wiki.context_gap import CONTEXT_GAP_RE, cleanup_context_gaps
 from wiki.domain_complexity import DomainComplexityScorer
 from wiki.domain_overview_composer import DomainOverviewComposer
 from wiki.json_robust import parse_json_robust_sync
+from wiki.llm_rate_limiter import acquire_llm_quota
 from wiki.models import PageType
 from wiki.nodes.utils import (
     _build_page_data_for_semantic_diagrams,
@@ -168,10 +170,12 @@ async def _sanitize_pages(
         raw_content = page_dict.get("content", "")
         raw_content = strip_agent_artifacts(raw_content)
         page_dict["content"] = sanitize_wiki_content(raw_content, known_entities)
-        if llm is not None:
+        metadata = page_dict.setdefault("metadata", {})
+        if llm is not None and not metadata.get("mermaid_fixed"):
             page_dict["content"] = await repair_broken_mermaid_blocks(
                 page_dict["content"], llm,
             )
+            metadata["mermaid_fixed"] = True
         page_dict["content"] = cleanup_context_gaps(page_dict.get("content", ""))
         page_dict["covered_entity_uids"] = covered_entity_uids
 
@@ -323,8 +327,8 @@ async def _compose_single_leaf_domain(
         agent_cfg = AgentConfig.from_env()
         if agent_cfg.should_use_agent(len(module_names)):
             try:
-                from wiki.page_agent import WikiPageAgent
                 from wiki.harness import WikiGenerationHarness
+                from wiki.page_agent import WikiPageAgent
 
                 agent = WikiPageAgent(
                     llm, graph_store, repo_path=repo_path, search_service=search_service
@@ -502,9 +506,10 @@ async def _generate_single_module_summary(
     *,
     graph_store: Any | None = None,
     neighbor_summaries: dict[str, str] | None = None,
+    repository: str = "",
 ) -> tuple[str, dict[str, Any]]:
     """Generate a leaf summary for a single module."""
-    repo = ""
+    repo = repository
     methods_lines: list[str] = []
     calls_lines: list[str] = []
     for md in module_dicts:
@@ -533,11 +538,31 @@ async def _generate_single_module_summary(
         from wiki.cypher_queries import (
             SNIPPETS_CY as _SNIPPETS_CY,
         )
+
+        def _repo_filtered_cy(cy: str) -> str:
+            if not repo:
+                return cy
+            if "WHERE target.name IN $names" in cy:
+                return cy.replace(
+                    "WHERE target.name IN $names",
+                    "WHERE target.name IN $names AND target.repository = $repo",
+                )
+            if "WHERE m.name IN $names" in cy:
+                return cy.replace(
+                    "WHERE m.name IN $names",
+                    "WHERE m.name IN $names AND m.repository = $repo",
+                )
+            return cy
+
+        query_params: dict[str, Any] = {"names": [module_name], "valid_pairs": []}
+        if repo:
+            query_params["valid_pairs"] = [f"{repo}|{module_name}"]
+            query_params["repo"] = repo
         try:
             impls_r, callers_r, snippets_r = await asyncio.gather(
-                graph_store.execute_query(_IMPLEMENTS_CY, {"names": [module_name]}),
-                graph_store.execute_query(_CALLERS_CY, {"names": [module_name]}),
-                graph_store.execute_query(_SNIPPETS_CY, {"names": [module_name]}),
+                graph_store.execute_query(_repo_filtered_cy(_IMPLEMENTS_CY), query_params),
+                graph_store.execute_query(_repo_filtered_cy(_CALLERS_CY), query_params),
+                graph_store.execute_query(_SNIPPETS_CY, query_params),
                 return_exceptions=True,
             )
             if not isinstance(impls_r, BaseException):
@@ -644,15 +669,18 @@ async def compose_leaf_modules_node(
     entity_roles = state.get("entity_roles", {})
 
     module_index: dict[str, list[dict]] = {}
+    name_to_repos: dict[str, set[str]] = {}
     for repo_name, mod_list in modules.items():
         for mod_dict in mod_list:
             name = mod_dict.get("properties", {}).get("name", "")
             if name:
                 mod_dict["_repo"] = repo_name
-                module_index.setdefault(name, []).append(mod_dict)
+                compound = f"{repo_name}|{name}"
+                module_index.setdefault(compound, []).append(mod_dict)
+                name_to_repos.setdefault(name, set()).add(repo_name)
 
     target_modules = []
-    for name, dicts in module_index.items():
+    for compound, dicts in module_index.items():
         dominated_role = "supporting"
         for d in dicts:
             uid = d.get("uid", "")
@@ -663,35 +691,79 @@ async def compose_leaf_modules_node(
             elif role != "framework_noise":
                 dominated_role = role
         if dominated_role not in ("framework_noise", "data_model"):
-            target_modules.append(name)
+            target_modules.append(compound)
+
+    # Incremental mode: only re-summarize affected modules, reuse existing for others
+    is_incremental = state.get("is_incremental", False)
+    affected_module_names = set(state.get("affected_modules") or [])
+    existing_summaries = state.get("module_summaries") or state.get("existing_summaries") or {}
+
+    def _parse_compound(compound: str) -> tuple[str, str]:
+        if "|" in compound:
+            repo_part, name_part = compound.split("|", 1)
+            return repo_part, name_part
+        return "", compound
+
+    def _is_affected(compound: str) -> bool:
+        if compound in affected_module_names:
+            return True
+        _repo, name = _parse_compound(compound)
+        return name in affected_module_names
+
+    def _existing_summary(compound: str) -> dict[str, Any] | None:
+        if compound in existing_summaries:
+            return existing_summaries[compound]
+        _repo, bare_name = _parse_compound(compound)
+        return existing_summaries.get(bare_name)
+
+    if is_incremental and affected_module_names:
+        modules_to_summarize = [m for m in target_modules if _is_affected(m)]
+        modules_reused = [
+            m for m in target_modules
+            if not _is_affected(m) and _existing_summary(m) is not None
+        ]
+    else:
+        modules_to_summarize = target_modules
+        modules_reused = []
 
     if not target_modules:
         return {"module_summaries": {}}
 
-    sem = PipelineConcurrency.semaphore("compose")
+    sem = PipelineConcurrency.semaphore("module_compose")
 
-    async def _bounded_r1(name: str) -> tuple[str, dict[str, Any]]:
+    async def _bounded_r1(compound: str) -> tuple[str, dict[str, Any]]:
         async with sem:
+            mods = module_index.get(compound, [])
+            _repo, name = _parse_compound(compound)
+            await acquire_llm_quota(config, estimated_tokens=2000)
             return await _generate_single_module_summary(
-                name, module_index.get(name, []), entity_roles, llm,
+                name, mods, entity_roles, llm,
                 graph_store=graph_store,
+                repository=_repo,
             )
 
-    log.info("compose_leaf_modules_round1_start", module_count=len(target_modules))
+    log.info(
+        "compose_leaf_modules_round1_start",
+        module_count=len(modules_to_summarize),
+        reused_count=len(modules_reused),
+    )
     r1_results = await asyncio.gather(
-        *[_bounded_r1(m) for m in target_modules],
+        *[_bounded_r1(m) for m in modules_to_summarize],
         return_exceptions=True,
     )
 
     module_summaries: dict[str, dict[str, Any]] = {}
-    total_mod = len(target_modules)
-    for i, item in enumerate(r1_results, start=1):
+    total_mod = len(modules_to_summarize)
+    for i, (compound, item) in enumerate(zip(modules_to_summarize, r1_results, strict=True), start=1):
         if isinstance(item, BaseException):
             log.warning("compose_leaf_module_failed", exc_info=item)
             continue
-        name, summary = item
+        _name, summary = item
         if summary:
-            module_summaries[name] = summary
+            module_summaries[compound] = summary
+            _repo, bare_name = _parse_compound(compound)
+            if len(name_to_repos.get(bare_name, set())) == 1:
+                module_summaries[bare_name] = summary
         frac = i / max(total_mod, 1)
         await _maybe_pipeline_progress(
             configurable,
@@ -702,13 +774,22 @@ async def compose_leaf_modules_node(
             },
         )
 
+    # Merge existing summaries for unchanged modules
+    for compound in modules_reused:
+        summary = _existing_summary(compound)
+        if summary and compound not in module_summaries:
+            module_summaries[compound] = summary
+            _repo, bare_name = _parse_compound(compound)
+            if len(name_to_repos.get(bare_name, set())) == 1:
+                module_summaries[bare_name] = summary
+
     r1_summary_texts = {
         k: str(v.get("summary_text", ""))
         for k, v in module_summaries.items()
         if v.get("summary_text")
     }
 
-    def _needs_round2(name: str, s: dict[str, Any]) -> bool:
+    def _needs_round2(_compound: str, s: dict[str, Any]) -> bool:
         text = str(s.get("summary_text", ""))
         if "CONTEXT_GAP" in text:
             return True
@@ -719,29 +800,38 @@ async def compose_leaf_modules_node(
             return True
         return False
 
-    gaps = [name for name, s in module_summaries.items() if _needs_round2(name, s)]
+    gaps = [
+        compound for compound in target_modules
+        if compound in module_summaries and _needs_round2(compound, module_summaries[compound])
+    ]
 
     if gaps and r1_summary_texts:
         log.info("compose_leaf_modules_round2_start", gap_count=len(gaps))
 
-        async def _bounded_r2(name: str) -> tuple[str, dict[str, Any]]:
+        async def _bounded_r2(compound: str) -> tuple[str, dict[str, Any]]:
             async with sem:
+                _repo, name = _parse_compound(compound)
+                await acquire_llm_quota(config, estimated_tokens=2000)
                 return await _generate_single_module_summary(
-                    name, module_index.get(name, []), entity_roles, llm,
+                    name, module_index.get(compound, []), entity_roles, llm,
                     graph_store=graph_store,
                     neighbor_summaries=r1_summary_texts,
+                    repository=_repo,
                 )
 
         r2_results = await asyncio.gather(
             *[_bounded_r2(m) for m in gaps],
             return_exceptions=True,
         )
-        for item in r2_results:
+        for compound, item in zip(gaps, r2_results, strict=True):
             if isinstance(item, BaseException):
                 continue
-            name, summary = item
+            _name, summary = item
             if summary:
-                module_summaries[name] = summary
+                module_summaries[compound] = summary
+                _repo, bare_name = _parse_compound(compound)
+                if len(name_to_repos.get(bare_name, set())) == 1:
+                    module_summaries[bare_name] = summary
 
     await _maybe_pipeline_progress(
         configurable,
@@ -771,7 +861,15 @@ async def compose_leaf_modules_node(
 async def plan_topic_structure_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
-    """Plan topic-based wiki structure using LLM."""
+    """Plan topic-based wiki structure using LLM.
+
+    DEPRECATED: not wired in pipeline_graph.py — use compose_domain_agents_node instead.
+    """
+    warnings.warn(
+        "plan_topic_structure_node is deprecated; use compose_domain_agents_node instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     llm = (config or {}).get("configurable", {}).get("llm")
     if not llm:
         log.info("plan_topic_structure_skip", reason="no_llm")
@@ -907,11 +1005,12 @@ async def _compose_from_topic_structure(
     module_summaries: dict[str, dict[str, Any]] | None = None,
     repo_path: str | None = None,
     search_service: Any | None = None,
+    budget_resolver: TokenBudgetResolver | None = None,
 ) -> dict[str, Any]:
     """Compose pages from TopicBasedStructurePlanner output."""
     import wiki.pipeline_nodes as _pn
 
-    budget_resolver = TokenBudgetResolver()
+    budget_resolver = budget_resolver or TokenBudgetResolver()
     budget = budget_resolver.budget("topic_page_generate")
     sem = PipelineConcurrency.semaphore("compose")
 
@@ -988,7 +1087,15 @@ def _merge_small_leaves(
 async def compose_leaf_pages_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:
-    """Phase 3: generate topic pages for each leaf domain."""
+    """Phase 3: generate topic pages for each leaf domain.
+
+    DEPRECATED: not wired in pipeline_graph.py — use compose_domain_agents_node instead.
+    """
+    warnings.warn(
+        "compose_leaf_pages_node is deprecated; use compose_domain_agents_node instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     import wiki.pipeline_nodes as _pn
 
     configurable = (config or {}).get("configurable", {}) or {}
@@ -1012,6 +1119,8 @@ async def compose_leaf_pages_node(
 
     mod_summaries = state.get("module_summaries") or {}
 
+    budget_resolver = (config or {}).get("configurable", {}).get("budget_resolver") or TokenBudgetResolver()
+
     topic_structure = state.get("topic_structure")
     if topic_structure:
         all_topics = list(topic_structure)
@@ -1029,6 +1138,7 @@ async def compose_leaf_pages_node(
             module_summaries=mod_summaries,
             repo_path=repo_path,
             search_service=search_service,
+            budget_resolver=budget_resolver,
         )
         pages_out = out.get("pages") or []
 
@@ -1051,7 +1161,6 @@ async def compose_leaf_pages_node(
                     uncovered_count=len(uncovered_leaves),
                     names=[l.get("name") for l in uncovered_leaves[:10]],
                 )
-                budget_resolver = TokenBudgetResolver()
                 budget = budget_resolver.budget("topic_page_generate")
                 sem = PipelineConcurrency.semaphore("compose")
 
@@ -1089,7 +1198,6 @@ async def compose_leaf_pages_node(
         )
         return out
 
-    budget_resolver = TokenBudgetResolver()
     budget = budget_resolver.budget("topic_page_generate")
 
     all_pages: list[dict[str, Any]] = []

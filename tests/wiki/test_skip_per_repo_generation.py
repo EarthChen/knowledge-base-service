@@ -116,7 +116,7 @@ async def test_skip_repo_pages_false_still_runs_per_repo_for_changed_repos(mock_
     wiki_store.add_has_child_edge = AsyncMock()
     wiki_store.get_wiki_pages_for_business = AsyncMock(return_value=[])
     wiki_store.get_wiki_generation_version = AsyncMock(return_value=None)
-    cfg = WikiAppConfig(business_wiki_skip_repo_pages=False)
+    cfg = WikiAppConfig(business_wiki_skip_repo_pages=False, incremental_enabled=True)
 
     mock_pipeline.return_value = _stub_pipeline_result()
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
@@ -14,13 +15,44 @@ class TokenBudgetCalculator:
         return self.context_window - self.reserved_output - self.reserved_system
 
     def budget_for_snippets(self, module_count: int) -> int:
-        return min(500 + module_count * 100, 6000)
+        return min(500 + int(300 * math.log2(max(module_count, 1) + 1)), 8000)
 
     def budget_for_parent_summaries(self, child_count: int) -> int:
         return min(child_count * 300, 5000)
 
     def budget_for_system_overview(self, domain_count: int) -> int:
         return min(domain_count * 200, 8000)
+
+
+# Fallback max_tokens when no budget_resolver is injected (matches legacy hardcoded values).
+STAGE_FALLBACK_TOKENS: dict[str, int] = {
+    "topic_plan": 2000,
+    "arch_classify": 500,
+    "module_title": 200,
+    "title_generation": 200,
+    "leaf_compose": 2000,
+}
+
+STAGE_TO_COMPONENT: dict[str, str] = {
+    "topic_plan": "domain_tree_plan",
+    "arch_classify": "domain_classify",
+    "module_title": "entity_group",
+    "title_generation": "entity_group",
+    "leaf_compose": "topic_page_generate",
+}
+
+
+def resolve_max_tokens(
+    budget_resolver: TokenBudgetResolver | None,
+    stage: str,
+    *,
+    tier: str | None = None,
+    default: int = 2000,
+) -> int:
+    """Resolve max_tokens for an LLM call; fall back to legacy hardcoded values."""
+    if budget_resolver is None:
+        return STAGE_FALLBACK_TOKENS.get(stage, default)
+    return budget_resolver.resolve(stage, tier=tier)
 
 
 class TokenBudgetResolver:
@@ -89,3 +121,13 @@ class TokenBudgetResolver:
     def remaining(self, component: str) -> int:
         """Return the remaining unclaimed budget for a component."""
         return self.budget(component) - self._consumed.get(component, 0)
+
+    def resolve(self, stage: str, *, tier: str | None = None) -> int:
+        """Map a pipeline stage to a token budget, optionally scaled by importance tier."""
+        component = STAGE_TO_COMPONENT.get(stage, stage)
+        value = self.budget(component)
+        if tier == "core":
+            value = int(value * 1.1)
+        elif tier == "skeleton":
+            value = int(value * 0.8)
+        return max(value, self._FLOOR)

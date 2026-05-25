@@ -71,10 +71,10 @@ class TestFetchModuleCallEdges:
         assert len(errors) == 2
         assert all("DB down" in e for e in errors)
 
-    def test_cypher_queries_contain_repos_param(self):
-        """Both Cypher queries use $repos parameter for cross-repo support."""
-        assert "$repos" in _MODULE_CALLS_CYPHER
-        assert "$repos" in _MODULE_DEPENDS_ON_CYPHER
+    def test_cypher_queries_contain_valid_pairs_param(self):
+        """Both Cypher queries use $valid_pairs composite key filter."""
+        assert "$valid_pairs" in _MODULE_CALLS_CYPHER
+        assert "$valid_pairs" in _MODULE_DEPENDS_ON_CYPHER
         assert "CALLS" in _MODULE_CALLS_CYPHER
         assert "DEPENDS_ON" in _MODULE_DEPENDS_ON_CYPHER
 
@@ -135,21 +135,21 @@ class TestParallelQueryExecution:
 class TestCypherWherePushdown:
     """Task 13: valid_modules filtering should be pushed to Cypher WHERE clause."""
 
-    def test_cypher_contains_valid_names_param(self):
-        """Both Cypher queries should reference $valid_names for WHERE pushdown."""
-        assert "$valid_names" in _MODULE_CALLS_CYPHER
-        assert "$valid_names" in _MODULE_DEPENDS_ON_CYPHER
+    def test_cypher_contains_valid_pairs_param(self):
+        """Both Cypher queries should reference $valid_pairs for WHERE pushdown."""
+        assert "$valid_pairs" in _MODULE_CALLS_CYPHER
+        assert "$valid_pairs" in _MODULE_DEPENDS_ON_CYPHER
 
-    def test_cypher_has_where_valid_names_filter(self):
-        """Cypher queries should filter m1.name and m2.name against $valid_names."""
-        assert "m1.name IN $valid_names" in _MODULE_CALLS_CYPHER
-        assert "m2.name IN $valid_names" in _MODULE_CALLS_CYPHER
-        assert "m1.name IN $valid_names" in _MODULE_DEPENDS_ON_CYPHER
-        assert "m2.name IN $valid_names" in _MODULE_DEPENDS_ON_CYPHER
+    def test_cypher_has_where_valid_pairs_filter(self):
+        """Cypher queries should filter repo|name composite keys against $valid_pairs."""
+        assert "(m1.repository + '|' + m1.name) IN $valid_pairs" in _MODULE_CALLS_CYPHER
+        assert "(m2.repository + '|' + m2.name) IN $valid_pairs" in _MODULE_CALLS_CYPHER
+        assert "(m1.repository + '|' + m1.name) IN $valid_pairs" in _MODULE_DEPENDS_ON_CYPHER
+        assert "(m2.repository + '|' + m2.name) IN $valid_pairs" in _MODULE_DEPENDS_ON_CYPHER
 
     @pytest.mark.asyncio
-    async def test_valid_names_passed_to_execute_query(self):
-        """execute_query should receive valid_names param derived from valid_modules."""
+    async def test_valid_pairs_passed_to_execute_query(self):
+        """execute_query should receive valid_pairs param derived from valid_modules."""
         mock_store = MagicMock()
         mock_result = MagicMock()
         mock_result.data = []
@@ -160,8 +160,45 @@ class TestCypherWherePushdown:
 
         for call in mock_store.execute_query.call_args_list:
             params = call[0][1]
-            assert "valid_names" in params
-            assert set(params["valid_names"]) == {"ModA", "ModB"}
+            assert "valid_pairs" in params
+            assert set(params["valid_pairs"]) == {"repo1|ModA", "repo1|ModB"}
+
+    @pytest.mark.asyncio
+    async def test_same_name_different_repos_use_composite_keys(self):
+        """Same module name in different repos must not cross-match at DB level."""
+        mock_store = MagicMock()
+        calls_result = MagicMock()
+        # Only repo1|ModA -> repo2|ModA edge should survive Python filter
+        calls_result.data = [
+            {
+                "source_repo": "repo1",
+                "source": "ModA",
+                "target_repo": "repo2",
+                "target": "ModA",
+                "weight": 4,
+            },
+            {
+                "source_repo": "repo1",
+                "source": "ModA",
+                "target_repo": "repo3",
+                "target": "ModA",
+                "weight": 99,
+            },
+        ]
+        empty_result = MagicMock()
+        empty_result.data = []
+        mock_store.execute_query = AsyncMock(side_effect=[calls_result, empty_result])
+
+        valid = {("repo1", "ModA"), ("repo2", "ModA")}
+        edges, errors = await fetch_module_call_edges(mock_store, ["repo1", "repo2", "repo3"], valid)
+
+        assert len(errors) == 0
+        assert len(edges) == 1
+        assert edges[0] == (("repo1", "ModA"), ("repo2", "ModA"), 4)
+
+        for call in mock_store.execute_query.call_args_list:
+            params = call[0][1]
+            assert set(params["valid_pairs"]) == {"repo1|ModA", "repo2|ModA"}
 
 
 class TestErrorReporting:

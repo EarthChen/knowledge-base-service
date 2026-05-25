@@ -134,3 +134,41 @@ class TestPersistClassificationNode:
         config = {"configurable": {"wiki_store": mock_wiki_store, "graph_store": mock_graph_store}}
         result = await persist_classification_node(mock_state, config)
         assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_persist_module_labels_respects_repo_for_same_name(
+        self, mock_wiki_store, mock_graph_store,
+    ):
+        """Two modules with the same name in different repos should each get the correct domain."""
+        from wiki.nodes.persist_classification import persist_classification_node
+
+        state = {
+            "business_id": "biz1",
+            "domain_mapping": {
+                "order-domain": [("repo1", "SharedSvc")],
+                "pay-domain": [("repo2", "SharedSvc")],
+            },
+            "domain_display_names": {
+                "order-domain": "Order",
+                "pay-domain": "Pay",
+            },
+            "modules": {
+                "repo1": [
+                    {"uid": "Module:repo1:SharedSvc", "label": "Module", "properties": {"name": "SharedSvc", "repository": "repo1"}},
+                ],
+                "repo2": [
+                    {"uid": "Module:repo2:SharedSvc", "label": "Module", "properties": {"name": "SharedSvc", "repository": "repo2"}},
+                ],
+            },
+        }
+        config = {"configurable": {"wiki_store": mock_wiki_store, "graph_store": mock_graph_store}}
+        await persist_classification_node(state, config)
+
+        updates = {
+            (call.args[1], call.args[3])
+            for call in mock_graph_store.update_node_property.call_args_list
+            if call.args[2] == "business_domain"
+        }
+        assert ("Module:repo1:SharedSvc", "order-domain") in updates
+        assert ("Module:repo2:SharedSvc", "pay-domain") in updates
+        assert len(updates) == 2

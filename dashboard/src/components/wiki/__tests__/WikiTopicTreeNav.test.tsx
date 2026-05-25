@@ -41,12 +41,12 @@ describe("WikiTopicTreeNav", () => {
 
   it("sets aria-expanded on nodes with children", () => {
     render(<WikiTopicTreeNav tree={mockTree} selectedPath={null} onSelect={vi.fn()} />);
-    const paymentBtn = screen.getByText("payment").closest("button");
-    expect(paymentBtn).toHaveAttribute("aria-expanded", "true");
-    fireEvent.click(paymentBtn!);
-    expect(paymentBtn).toHaveAttribute("aria-expanded", "false");
-    const leafBtn = screen.getByText("user-management").closest("button");
-    expect(leafBtn).not.toHaveAttribute("aria-expanded");
+    const paymentItem = screen.getByText("payment").closest("[role='treeitem']");
+    expect(paymentItem).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByText("payment"));
+    expect(paymentItem).toHaveAttribute("aria-expanded", "false");
+    const leafItem = screen.getByText("user-management").closest("[role='treeitem']");
+    expect(leafItem).not.toHaveAttribute("aria-expanded");
   });
 
   it("renders domain nodes", () => {

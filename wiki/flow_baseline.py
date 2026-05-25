@@ -10,7 +10,10 @@ log = get_logger(__name__)
 
 ENTRY_POINT_CY = """
 MATCH (m:Module)-[:CONTAINS]->(f:Function)
-WHERE m.name IN $modules
+WHERE (
+    (size($valid_pairs) > 0 AND (m.repository + '|' + m.name) IN $valid_pairs)
+    OR (size($bare_names) > 0 AND m.name IN $bare_names)
+)
 AND (
     ANY(a IN coalesce(f.annotations, []) WHERE
         a CONTAINS 'RequestMapping'
@@ -39,7 +42,14 @@ LIMIT 50
 
 CROSS_DOMAIN_CY = """
 MATCH (m1:Module)-[:CONTAINS]->(f1:Function)-[:CALLS]->(f2:Function)<-[:CONTAINS]-(m2:Module)
-WHERE m1.name IN $modules AND NOT m2.name IN $modules
+WHERE (
+    (size($valid_pairs) > 0 AND (m1.repository + '|' + m1.name) IN $valid_pairs)
+    OR (size($bare_names) > 0 AND m1.name IN $bare_names)
+)
+AND NOT (
+    (size($valid_pairs) > 0 AND (m2.repository + '|' + m2.name) IN $valid_pairs)
+    OR (size($bare_names) > 0 AND m2.name IN $bare_names)
+)
 RETURN DISTINCT m1.name AS src_module, m2.name AS tgt_module
 LIMIT 20
 """
@@ -60,6 +70,13 @@ class FlowBaseline:
     call_chains: list[Any] = field(default_factory=list)
     module_count: int = 0
     cross_domain_calls: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _split_module_pairs(pairs: list[str]) -> tuple[list[str], list[str]]:
+    """Split compound repo|name keys from bare module names for query scoping."""
+    compound = [p for p in pairs if "|" in p]
+    bare = [p for p in pairs if "|" not in p]
+    return compound, bare
 
 
 def _classify_entry_type(annotations: str | list[str] | None) -> str:
@@ -87,15 +104,22 @@ def _classify_entry_type(annotations: str | list[str] | None) -> str:
 async def extract_flow_baseline(
     graph_store: Any,
     domain_name: str,
-    module_names: list[str],
+    module_names: list[str] | None = None,
+    *,
+    valid_pairs: list[str] | None = None,
 ) -> FlowBaseline:
     """Extract structural baseline from graph for FlowDocAgent pre-fill."""
     entry_points: list[EntryPointInfo] = []
     call_chains: list[Any] = []
     cross_domain_calls: list[tuple[str, str]] = []
 
+    pairs = valid_pairs if valid_pairs is not None else (module_names or [])
+    chain_modules = module_names or [p.split("|", 1)[-1] for p in pairs if "|" in p] or list(pairs)
+    compound_pairs, bare_names = _split_module_pairs(pairs)
+    query_params = {"valid_pairs": compound_pairs, "bare_names": bare_names}
+
     try:
-        result = await graph_store.execute_query(ENTRY_POINT_CY, {"modules": module_names})
+        result = await graph_store.execute_query(ENTRY_POINT_CY, query_params)
         for row in getattr(result, "data", None) or []:
             if not isinstance(row, dict):
                 continue
@@ -113,12 +137,12 @@ async def extract_flow_baseline(
         from wiki.call_chain_builder import CallChainBuilder
 
         builder = CallChainBuilder(graph_store)
-        call_chains = await builder.build_chains(module_names, max_depth=5, max_chains=15)
+        call_chains = await builder.build_chains(chain_modules, max_depth=5, max_chains=15)
     except Exception:
         log.warning("flow_baseline_call_chains_failed", domain=domain_name, exc_info=True)
 
     try:
-        result = await graph_store.execute_query(CROSS_DOMAIN_CY, {"modules": module_names})
+        result = await graph_store.execute_query(CROSS_DOMAIN_CY, query_params)
         for row in getattr(result, "data", None) or []:
             if isinstance(row, dict):
                 cross_domain_calls.append((str(row.get("src_module", "")), str(row.get("tgt_module", ""))))
@@ -129,7 +153,7 @@ async def extract_flow_baseline(
         domain_name=domain_name,
         entry_points=entry_points,
         call_chains=call_chains,
-        module_count=len(module_names),
+        module_count=len(pairs),
         cross_domain_calls=cross_domain_calls,
     )
 

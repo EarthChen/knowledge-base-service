@@ -19,9 +19,7 @@ from wiki.nodes.aggregate import (
     synthesize_overviews_node,
 )
 from wiki.nodes.classify import (
-    classify_domains_node,
     classify_entities_node,
-    decompose_hierarchy_node,
     detect_reorg_node,
     set_review_status_node,
 )
@@ -100,7 +98,6 @@ __all__ = [
     "_topic_to_domain_dict",
     "assign_canonical_keys_node",
     "classify_architecture_layers_node",
-    "classify_domains_node",
     "classify_entities_node",
     "compose_bottomup_node",
     "compose_domain_agents_node",
@@ -108,7 +105,6 @@ __all__ = [
     "compose_leaf_pages_node",
     "compose_parent_pages_node",
     "create_links_node",
-    "decompose_hierarchy_node",
     "detect_reorg_node",
     "finalize_node",
     "generate_titles_node",

@@ -198,6 +198,7 @@ class AppWikiFlags(BaseModel):
     cross_reference_min_confidence: float = 0.5
     cross_repo_domain_enabled: bool = False
     domain_classification_cache_enabled: bool = True
+    classify_include_supporting: bool = Field(default=True)
     architecture_layer_patterns: dict[str, list[str]] = Field(
         default={
             "api": ["controller/", "handler/", "routes/", "api/", "resource/", "endpoint/"],
@@ -209,9 +210,12 @@ class AppWikiFlags(BaseModel):
     # Domain reassembly (post-wiki-generation domain structure correction)
     domain_reassembly_enabled: bool = True
     reassembly_merge_threshold: float = Field(default=0.78, ge=0.5, le=1.0)
+    embedding_merge_threshold: float = Field(default=0.8, ge=0.5, le=1.0)
     reassembly_orphan_threshold: float = Field(default=0.65, ge=0.3, le=1.0)
     reassembly_max_moves_pct: float = Field(default=0.30, ge=0.0, le=1.0)
     reassembly_respect_user_modified: bool = True
+    consolidation_min_count: int = Field(default=3, ge=2)
+    consolidation_min_domains: int = Field(default=2, ge=2)
     knowledge_injection_enabled: bool = True
     snapshot_enabled: bool = True
     """When true, run compilation snapshot after wiki pages are persisted."""
@@ -267,22 +271,46 @@ class AppWikiFlags(BaseModel):
 
     #: Pipeline stage concurrency — unified control (see wiki/pipeline_concurrency.py)
     domain_agent_concurrency: int = Field(default=3, ge=1)
+    domain_agent_max_iterations_core: int = Field(default=20, ge=1)
+    domain_agent_max_iterations_standard: int = Field(default=8, ge=1)
+    domain_agent_max_iterations_skeleton: int = Field(default=3, ge=1)
+    domain_agent_timeout_sec: int = Field(default=600, ge=1)
+    domain_agent_explore_max_rounds: int = Field(default=8, ge=1)
+    domain_agent_explore_max_tool_calls: int = Field(default=30, ge=1)
+    domain_agent_early_exit_quality: float = Field(default=0.6, ge=0.0, le=1.0)
+    domain_agent_early_exit_min_chars: int = Field(default=500, ge=0)
+    use_orchestrator_template: bool = Field(
+        default=False,
+        description="When True, DomainDocAgent.generate_with_iterations delegates to DocOrchestrator.generate()",
+    )
+    topic_split_quality_check: bool = True
     wiki_generation_concurrency: int = Field(default=5, ge=1)
     heal_concurrency: int = Field(default=5, ge=1)
     bottomup_concurrency: int = Field(default=24, ge=1)
     module_compose_concurrency: int = Field(default=3, ge=1)
     domain_naming_concurrency: int = Field(default=5, ge=1)
 
+    #: Global LLM provider rate limits across all pipeline stages (0 = disabled).
+    llm_global_rpm_limit: int = Field(default=0, ge=0)
+    llm_global_tpm_limit: int = Field(default=0, ge=0)
+
     #: Heal strategy — tier-specific round limits
     heal_max_rounds_core: int = Field(default=3, ge=1)
     heal_max_rounds_standard: int = Field(default=1, ge=1)
     heal_loop_max_total_attempts: int = Field(default=10, ge=1)
+    heal_l2_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    heal_on_l3_failure: bool = Field(default=True)
+    heal_l3_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
 
     #: Skip per-repo module-level page generation in business wiki.
     #: When True, only LangGraph pipeline topic pages are generated.
     business_wiki_skip_repo_pages: bool = Field(default=True)
 
     wiki_content_language: str = Field(default="简体中文", description="Language for wiki content generation")
+    skip_llm_merge_when_corrector_enabled: bool = Field(
+        default=True,
+        description="Skip redundant LLM domain merge when GraphSemanticCorrector global review runs",
+    )
 
     #: Max concurrent repo-level wiki generation (only used when skip_repo_pages=False).
     business_repo_concurrency: int = Field(default=3, ge=1)

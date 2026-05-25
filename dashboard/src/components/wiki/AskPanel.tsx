@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import {
   Bookmark,
   ChevronDown,
@@ -65,7 +65,7 @@ function formatAskHistoryTime(
   return wiki.conversationHistoryTimeDays.replace("{n}", String(d));
 }
 
-function SourceRef({
+const SourceRef = memo(function SourceRef({
   repository,
   s,
 }: {
@@ -104,7 +104,9 @@ function SourceRef({
       </div>
     </li>
   );
-}
+});
+
+export { SourceRef as MemoizedSourceRef };
 
 type Props = {
   repository: string | undefined;
@@ -316,6 +318,7 @@ export default function AskPanel({ repository, pageContext, prefillQuestion }: P
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
         className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-gray-900 dark:text-gray-100"
       >
         <span className="inline-flex items-center gap-2">
@@ -362,6 +365,7 @@ export default function AskPanel({ repository, pageContext, prefillQuestion }: P
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   rows={2}
+                  aria-label={t.wiki.askQuestionPlaceholder}
                   placeholder={t.wiki.askQuestionPlaceholder}
                   className="min-h-[44px] flex-1 resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none ring-sky-500/30 placeholder:text-gray-400 focus:border-sky-400 focus:ring-2 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-sky-500 dark:focus:ring-sky-700"
                 />
@@ -369,6 +373,7 @@ export default function AskPanel({ repository, pageContext, prefillQuestion }: P
                   <button
                     type="submit"
                     disabled={isStreaming || !input.trim()}
+                    aria-label={t.wiki.askSubmit}
                     className="inline-flex items-center justify-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50 dark:bg-sky-600 dark:hover:bg-sky-500"
                   >
                     {isStreaming ? (
@@ -406,6 +411,7 @@ export default function AskPanel({ repository, pageContext, prefillQuestion }: P
               <div className="rounded-lg border border-gray-100 bg-gray-50/80 dark:border-gray-700 dark:bg-gray-800/50">
                 <button
                   type="button"
+                  aria-expanded={historyOpen}
                   onClick={() => setHistoryOpen(!historyOpen)}
                   className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300"
                 >
@@ -521,7 +527,13 @@ export default function AskPanel({ repository, pageContext, prefillQuestion }: P
                     </div>
                   ) : (
                     <div className="relative">
-                      <MarkdownRenderer content={answer} />
+                      {isStreaming ? (
+                        <pre className="whitespace-pre-wrap font-sans text-sm text-gray-900 dark:text-gray-100">
+                          {answer}
+                        </pre>
+                      ) : (
+                        <MarkdownRenderer content={answer} />
+                      )}
                       {isStreaming && (
                         <span
                           className="ml-0.5 inline-block h-4 w-1 animate-pulse bg-sky-500 align-middle"

@@ -14,6 +14,7 @@ import { useToast } from "../../components/Toast";
 import type { SyncSchedule, SyncScheduleRequest } from "../../api/types";
 import { useAuth } from "../../contexts/AuthContext";
 import { SkeletonLine } from "../../components/Skeleton";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { SETTINGS_INPUT_CLASS } from "./settingsInputClass";
 
 function schedulePath(repo: string) {
@@ -44,6 +45,7 @@ export default function SyncSettingsPanel() {
   const [formBranch, setFormBranch] = useState("");
   const [formInterval, setFormInterval] = useState(60);
   const [formEnabled, setFormEnabled] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   function openAdd() {
     setEditing(null);
@@ -115,9 +117,10 @@ export default function SyncSettingsPanel() {
     }
   }
 
-  async function handleDelete(repo: string) {
-    const msg = t.sync.deleteConfirm.replace("{repo}", repo);
-    if (!confirm(msg)) return;
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    const repo = deleteTarget;
+    setDeleteTarget(null);
     try {
       await del.mutateAsync(repo);
       toast("success", t.sync.deleteSuccess);
@@ -306,7 +309,7 @@ export default function SyncSettingsPanel() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDelete(row.repo_name)}
+                            onClick={() => setDeleteTarget(row.repo_name)}
                             disabled={del.isPending}
                             className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-950/60"
                           >
@@ -417,6 +420,17 @@ export default function SyncSettingsPanel() {
           </div>
           </FocusTrap>
         </div>
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title={t.sync.delete}
+          message={t.sync.deleteConfirm.replace("{repo}", deleteTarget)}
+          confirmLabel={t.sync.delete}
+          variant="danger"
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   );

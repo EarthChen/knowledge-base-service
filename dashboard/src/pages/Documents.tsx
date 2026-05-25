@@ -128,6 +128,7 @@ function TreeView({
                   if (readme) onSelect(readme.uid);
                 }
               }}
+              aria-expanded={isOpen}
               className="flex w-full items-center gap-1.5 rounded-lg py-1.5 pr-2 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-300"
               style={{ paddingLeft: pad }}
             >
@@ -397,6 +398,7 @@ export default function Documents() {
               <button
                 type="button"
                 onClick={() => setSearchQuery("")}
+                aria-label={t.common.clearSearch}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
               >
                 <X size={14} />

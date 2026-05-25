@@ -50,7 +50,7 @@ _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
     "assign_canonical_keys": ("assign_keys", 0.07),
     "generate_titles": ("generate_titles", 0.08),
     "compose_leaf_modules": ("compose_leaf_modules", 0.10),
-    "classify_domains": ("classify_domains", 0.18),
+    "graph_domain_decompose": ("graph_domain_decompose", 0.18),
     "persist_classification": ("persist_classification", 0.20),
     "set_review_status": ("set_review_status", 0.22),
     "compose_domain_agents": ("compose_domain_agents", 0.30),
@@ -148,19 +148,31 @@ def route_by_reorg_type(state: WikiPipelineState) -> str:
     reorg_type = state.get("reorg_type", "first_run")
     if reorg_type == "none":
         return "finalize"
-    return "graph_decompose"
+    return "classify_entity_roles"
 
 
 def should_heal(state: WikiPipelineState) -> str:
-    """Route to heal_pages if quality_gate_node identified pages to heal."""
+    """Route to heal_pages if quality_gate_node identified pages to heal.
+
+    Counter semantics (see also ``WikiPipelineState`` and ``quality_gate_node``):
+    - ``heal_attempts[page]``: total inner-round attempts across all cycles.
+    - ``heal_cycles[page]``: outer quality-gate → heal loop iterations.
+
+    The outer safety limit sums ``heal_cycles`` when present; ``heal_attempts`` is
+    only used as a legacy fallback when ``heal_cycles`` was never initialized.
+    """
     if state.get("pages_to_heal"):
         cfg = state.get("config") or {}
         max_total = cfg.get("heal_loop_max_total_attempts", 10)
-        total_heal_attempts = sum(state.get("heal_attempts", {}).values())
-        if total_heal_attempts > max_total:
+        heal_cycles = state.get("heal_cycles")
+        if heal_cycles is not None:
+            total_heal_cycles = sum(heal_cycles.values())
+        else:
+            total_heal_cycles = sum(state.get("heal_attempts", {}).values())
+        if total_heal_cycles > max_total:
             log.warning(
                 "heal_loop_safety_limit",
-                total_attempts=total_heal_attempts,
+                total_cycles=total_heal_cycles,
                 limit=max_total,
             )
             return "create_links"
@@ -194,7 +206,10 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("detect_reorg", _with_progress("detect_reorg", detect_reorg_node))
     graph.add_node("graph_decompose", _with_progress("graph_decompose", graph_decompose_node))
     graph.add_node("assign_canonical_keys", _with_progress("assign_canonical_keys", assign_canonical_keys_node))
-    graph.add_node("classify_domains", _with_progress("classify_domains", graph_driven_domain_decompose_node))
+    graph.add_node(
+        "graph_domain_decompose",
+        _with_progress("graph_domain_decompose", graph_driven_domain_decompose_node),
+    )
     graph.add_node(
         "persist_classification",
         _with_progress("persist_classification", persist_classification_node),
@@ -235,17 +250,17 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node("finalize", _with_progress("finalize", finalize_node))
 
     graph.add_edge("classify_entity_roles", "classify_architecture_layers")
-    graph.add_edge("classify_architecture_layers", "detect_reorg")
+    graph.add_edge("classify_architecture_layers", "graph_decompose")
     graph.add_conditional_edges(
         "detect_reorg",
         route_by_reorg_type,
-        {"graph_decompose": "graph_decompose", "finalize": "finalize"},
+        {"classify_entity_roles": "classify_entity_roles", "finalize": "finalize"},
     )
     graph.add_edge("graph_decompose", "assign_canonical_keys")
     graph.add_edge("assign_canonical_keys", "generate_titles")
     graph.add_edge("generate_titles", "compose_leaf_modules")
-    graph.add_edge("compose_leaf_modules", "classify_domains")
-    graph.add_edge("classify_domains", "persist_classification")
+    graph.add_edge("compose_leaf_modules", "graph_domain_decompose")
+    graph.add_edge("graph_domain_decompose", "persist_classification")
     graph.add_edge("persist_classification", "set_review_status")
     graph.add_edge("set_review_status", "compose_domain_agents")
     graph.add_conditional_edges(
@@ -257,7 +272,7 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_edge("create_links", "generate_tour")
     graph.add_edge("generate_tour", "finalize")
 
-    graph.set_entry_point("classify_entity_roles")
+    graph.set_entry_point("detect_reorg")
     graph.set_finish_point("finalize")
 
     if checkpointer is None:

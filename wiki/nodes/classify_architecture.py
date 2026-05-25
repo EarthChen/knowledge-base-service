@@ -23,6 +23,7 @@ async def classify_architecture_layers_node(
     configurable = (config or {}).get("configurable", {}) or {}
     graph_store = configurable.get("graph_store")
     llm = configurable.get("llm")
+    budget_resolver = configurable.get("budget_resolver")
 
     if graph_store is None:
         log.info("classify_arch_layers_skip_no_store")
@@ -33,19 +34,22 @@ async def classify_architecture_layers_node(
 
     # Get wiki flags from config or use defaults
     wiki_flags = configurable.get("wiki_flags") or AppWikiFlags()
-    classifier = ArchitectureLayerClassifier(wiki_flags, graph_store, llm)
+    classifier = ArchitectureLayerClassifier(wiki_flags, graph_store, llm, budget_resolver)
 
     all_modules = state.get("modules") or {}
     results: dict[str, dict[str, Any]] = {}
     sem = PipelineConcurrency.semaphore("arch_classify")
 
-    async def _classify_one(name: str, path: str) -> tuple[str, dict[str, Any]] | None:
+    async def _classify_one(
+        repo: str, name: str, path: str,
+    ) -> tuple[str, dict[str, Any]] | None:
         async with sem:
             try:
                 result = await classifier.classify_module(name, path)
-                return (name, {"layer": result.layer, "confidence": result.confidence})
+                compound_key = f"{repo}|{name}"
+                return (compound_key, {"layer": result.layer, "confidence": result.confidence})
             except Exception:
-                log.warning("classify_arch_layer_failed", module=name, exc_info=True)
+                log.warning("classify_arch_layer_failed", module=name, repo=repo, exc_info=True)
                 return None
 
     tasks: list = []
@@ -60,7 +64,7 @@ async def classify_architecture_layers_node(
             path = props.get("path", "") or props.get("file", "") or ""
             if not name:
                 continue
-            tasks.append(_classify_one(name, path))
+            tasks.append(_classify_one(repo, name, path))
 
     for result in await asyncio.gather(*tasks, return_exceptions=True):
         if isinstance(result, tuple):

@@ -62,6 +62,45 @@ class TestComposeFlowAgentsNode:
             )
         assert result["flow_pages"] == []
 
+    @pytest.mark.asyncio
+    async def test_incremental_only_processes_affected_domains(self):
+        """Incremental run with 2/5 affected domains should only generate those flow pages."""
+        from wiki.flow_baseline import EntryPointInfo, FlowBaseline
+
+        mock_llm = AsyncMock()
+        mock_graph = AsyncMock()
+        domain_names = [f"domain-{i}" for i in range(5)]
+        domain_tree = [{"name": name, "modules": [f"mod-{name}"]} for name in domain_names]
+        affected = {"domain-1", "domain-3"}
+        state = {
+            "domain_tree": domain_tree,
+            "is_incremental": True,
+            "affected_domains": sorted(affected),
+        }
+
+        processed_domains: list[str] = []
+
+        async def mock_agent(domain_name, *args, **kwargs):
+            processed_domains.append(domain_name)
+            return [{"path": f"{domain_name}/business-flows.md", "page_type": "business_flow", "content": "# Flow"}]
+
+        baseline = FlowBaseline(
+            "x", [EntryPointInfo("create", "Ctrl", "http", "f.py")], [], 1, [],
+        )
+
+        with (
+            patch("wiki.nodes.flow_compose._is_flow_enabled", return_value=True),
+            patch("wiki.nodes.flow_compose.extract_flow_baseline", return_value=baseline),
+            patch("wiki.nodes.flow_compose._run_flow_agent", side_effect=mock_agent),
+            patch("wiki.nodes.flow_compose._persist_flow_structure", new_callable=AsyncMock),
+        ):
+            result = await compose_flow_agents_node(
+                state, config={"configurable": {"llm": mock_llm, "graph_store": mock_graph}}
+            )
+
+        assert set(processed_domains) == affected
+        assert len(result["flow_pages"]) == 2
+
 
 class TestMergeFlowPagesNode:
     @pytest.mark.asyncio

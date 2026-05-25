@@ -14,6 +14,20 @@ import WikiGlobalSearchBar from "../components/wiki/WikiGlobalSearchBar";
 
 type SearchMode = "hybrid" | "wiki" | "deep";
 
+const SEARCH_MODES: SearchMode[] = ["hybrid", "wiki", "deep"];
+
+const TAB_IDS: Record<SearchMode, string> = {
+  hybrid: "search-tab-hybrid",
+  wiki: "search-tab-wiki",
+  deep: "search-tab-deep",
+};
+
+const PANEL_IDS: Record<SearchMode, string> = {
+  hybrid: "search-panel-hybrid",
+  wiki: "search-panel-wiki",
+  deep: "search-panel-deep",
+};
+
 const ENTITY_TYPES = ["all", "function", "class", "module", "document"] as const;
 const LANGUAGES = ["all", "python", "java", "go", "javascript", "typescript"] as const;
 
@@ -142,6 +156,67 @@ export default function SearchPage() {
     setSearchParams(params, { replace: true });
   }
 
+  function handleModeTabKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const idx = SEARCH_MODES.indexOf(mode);
+    const nextIdx =
+      event.key === "ArrowRight"
+        ? (idx + 1) % SEARCH_MODES.length
+        : (idx - 1 + SEARCH_MODES.length) % SEARCH_MODES.length;
+    const next = SEARCH_MODES[nextIdx];
+    setModeTab(next);
+    requestAnimationFrame(() => {
+      document.getElementById(TAB_IDS[next])?.focus();
+    });
+  }
+
+  const tabRow = (
+    <div
+      role="tablist"
+      aria-label={t.search.title}
+      className="flex flex-wrap gap-2"
+      onKeyDown={handleModeTabKeyDown}
+    >
+      <button
+        type="button"
+        role="tab"
+        id={TAB_IDS.hybrid}
+        aria-controls={PANEL_IDS.hybrid}
+        aria-selected={mode === "hybrid"}
+        tabIndex={mode === "hybrid" ? 0 : -1}
+        onClick={() => setModeTab("hybrid")}
+        className={tabClass(mode === "hybrid", "purple")}
+      >
+        <Zap size={14} /> {t.search.hybrid}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id={TAB_IDS.wiki}
+        aria-controls={PANEL_IDS.wiki}
+        aria-selected={mode === "wiki"}
+        tabIndex={mode === "wiki" ? 0 : -1}
+        onClick={() => setModeTab("wiki")}
+        className={tabClass(mode === "wiki", "sky")}
+      >
+        <BookOpen size={14} /> {t.search.wiki}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id={TAB_IDS.deep}
+        aria-controls={PANEL_IDS.deep}
+        aria-selected={mode === "deep"}
+        tabIndex={mode === "deep" ? 0 : -1}
+        onClick={() => setModeTab("deep")}
+        className={tabClass(mode === "deep", "amber")}
+      >
+        <Brain size={14} /> {t.search.deepResearch}
+      </button>
+    </div>
+  );
+
   function handleSearch(e: FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
@@ -247,26 +322,14 @@ export default function SearchPage() {
     [searchParams, selectedRepos, setSearchParams],
   );
 
-  const tabRow = (
-    <div className="flex flex-wrap gap-2">
-      <button type="button" onClick={() => setModeTab("hybrid")} className={tabClass(mode === "hybrid", "purple")}>
-        <Zap size={14} /> {t.search.hybrid}
-      </button>
-      <button type="button" onClick={() => setModeTab("wiki")} className={tabClass(mode === "wiki", "sky")}>
-        <BookOpen size={14} /> {t.search.wiki}
-      </button>
-      <button type="button" onClick={() => setModeTab("deep")} className={tabClass(mode === "deep", "amber")}>
-        <Brain size={14} /> {t.search.deepResearch}
-      </button>
-    </div>
-  );
-
   if (mode === "deep") {
     return (
       <div className="space-y-6">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.search.title}</h2>
         {tabRow}
-        <DeepSearchSection showTitle={false} />
+        <div role="tabpanel" id={PANEL_IDS.deep} aria-labelledby={TAB_IDS.deep}>
+          <DeepSearchSection showTitle={false} />
+        </div>
       </div>
     );
   }
@@ -277,32 +340,34 @@ export default function SearchPage() {
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.search.title}</h2>
         {tabRow}
 
-        <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
-          <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">{t.wiki.globalSearchDescription}</p>
-          <div className="mb-4 max-w-xl">
-            <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{t.search.repo}</span>
-            <RepoSelector
-              options={repoOptions}
-              selected={selectedRepos}
-              onChange={setSelectedRepos}
-              groupLabel={t.search.repo}
-              labels={{
-                allRepos: t.search.repoSelectorAllRepos,
-                addRepo: t.search.repoSelectorAdd,
-                filterPlaceholder: t.search.repoSelectorFilterPlaceholder,
-                selectedCount: t.search.repoSelectorSelectedCount,
-                removeRepo: t.search.repoSelectorRemoveRepo,
-                noMatches: t.search.repoSelectorNoMatches,
-              }}
+        <div role="tabpanel" id={PANEL_IDS.wiki} aria-labelledby={TAB_IDS.wiki}>
+          <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+            <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">{t.wiki.globalSearchDescription}</p>
+            <div className="mb-4 max-w-xl">
+              <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{t.search.repo}</span>
+              <RepoSelector
+                options={repoOptions}
+                selected={selectedRepos}
+                onChange={setSelectedRepos}
+                groupLabel={t.search.repo}
+                labels={{
+                  allRepos: t.search.repoSelectorAllRepos,
+                  addRepo: t.search.repoSelectorAdd,
+                  filterPlaceholder: t.search.repoSelectorFilterPlaceholder,
+                  selectedCount: t.search.repoSelectorSelectedCount,
+                  removeRepo: t.search.repoSelectorRemoveRepo,
+                  noMatches: t.search.repoSelectorNoMatches,
+                }}
+              />
+            </div>
+            <WikiGlobalSearchBar
+              linkedQuery={searchParams.get("q") ?? ""}
+              onLinkedSearch={onWikiLinkedSearch}
+              repositories={selectedRepos.length > 0 ? selectedRepos : null}
+              showIntro={false}
+              className="border-0 bg-transparent p-0 shadow-none dark:bg-transparent"
             />
           </div>
-          <WikiGlobalSearchBar
-            linkedQuery={searchParams.get("q") ?? ""}
-            onLinkedSearch={onWikiLinkedSearch}
-            repositories={selectedRepos.length > 0 ? selectedRepos : null}
-            showIntro={false}
-            className="border-0 bg-transparent p-0 shadow-none dark:bg-transparent"
-          />
         </div>
       </div>
     );
@@ -311,11 +376,11 @@ export default function SearchPage() {
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t.search.title}</h2>
+      {tabRow}
 
+      <div role="tabpanel" id={PANEL_IDS.hybrid} aria-labelledby={TAB_IDS.hybrid}>
       <form onSubmit={handleSearch} className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
-        {tabRow}
-
-        <div className="relative mt-4 flex gap-3">
+        <div className="relative flex gap-3">
           <div className="relative flex-1">
             <input
               type="text"
@@ -563,8 +628,15 @@ export default function SearchPage() {
               <GraphContextCards items={hybridResult.graph_context} />
             </div>
           )}
+
+          {hybridResult.total === 0 && !isLoading && query.trim() && (
+            <div className="py-12 text-center text-gray-500 dark:text-gray-400">
+              <p>{t.search.noResults}</p>
+            </div>
+          )}
         </div>
       )}
+      </div>
     </div>
   );
 }

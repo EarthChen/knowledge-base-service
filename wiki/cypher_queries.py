@@ -45,7 +45,11 @@ RETURN c.name AS name, c.file AS file, labels(c) AS labels
 
 SNIPPETS_CY = """
 MATCH (m:Module)-[:CONTAINS*1..2]->(f:Function)
-WHERE m.name IN $names AND f.code_snippet IS NOT NULL AND f.code_snippet <> ''
+WHERE (
+    (size($valid_pairs) > 0 AND (m.repository + '|' + m.name) IN $valid_pairs)
+    OR m.name IN $names
+)
+AND f.code_snippet IS NOT NULL AND f.code_snippet <> ''
 RETURN f.name AS func_name, left(f.code_snippet, 600) AS snippet,
        coalesce(f.file, '') AS file_path, coalesce(f.start_line, 0) AS start_line
 LIMIT 10
@@ -53,7 +57,11 @@ LIMIT 10
 
 CHUNK_SNIPPETS_CY = """
 MATCH (m:Module)-[:CONTAINS*1..3]->(e)<-[:PART_OF]-(c:Chunk)
-WHERE m.name IN $names AND c.text IS NOT NULL AND c.text <> ''
+WHERE (
+    (size($valid_pairs) > 0 AND (m.repository + '|' + m.name) IN $valid_pairs)
+    OR m.name IN $names
+)
+AND c.text IS NOT NULL AND c.text <> ''
 RETURN e.name AS entity_name, left(c.text, 800) AS snippet,
        coalesce(c.file, coalesce(e.file, '')) AS file_path,
        coalesce(c.start_line, coalesce(e.start_line, 0)) AS start_line,

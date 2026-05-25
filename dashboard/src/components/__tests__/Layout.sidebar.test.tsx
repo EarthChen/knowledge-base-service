@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderWithI18n } from "../../test/renderWithI18n";
 
 vi.mock("../../api/hooks", () => ({
   useHealth: () => ({ data: { status: "ok" } }),
@@ -17,23 +18,6 @@ vi.mock("../../contexts/BusinessContext", () => ({
   }),
 }));
 
-vi.mock("../../i18n/context", () => ({
-  useI18n: () => ({
-    t: new Proxy(
-      {},
-      {
-        get: () =>
-          new Proxy(
-            {},
-            {
-              get: (_, k) => String(k),
-            },
-          ),
-      },
-    ),
-  }),
-}));
-
 vi.mock("../CommandPalette", () => ({
   default: () => null,
 }));
@@ -44,7 +28,7 @@ function renderLayout() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  return renderWithI18n(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
         <Layout />

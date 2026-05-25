@@ -56,7 +56,9 @@ class TopicDocAgent(DocOrchestrator):
         try:
             from wiki.cypher_queries import SNIPPETS_CY
 
-            result = await graph.execute_query(SNIPPETS_CY, {"names": module_names})
+            result = await graph.execute_query(
+                SNIPPETS_CY, {"names": module_names, "valid_pairs": []},
+            )
             for row in (getattr(result, "data", None) or []):
                 func_name = str(row.get("func_name", ""))
                 snippet = str(row.get("snippet", "")).strip()

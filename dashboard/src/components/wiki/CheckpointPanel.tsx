@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Database, Loader2, Trash2 } from "lucide-react";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { useI18n } from "../../i18n/context";
 import { getErrorMessage } from "../../utils/errorUtils";
 import { useCheckpoint, useDeleteCheckpoint } from "../../hooks/useCheckpoint";
@@ -33,6 +34,7 @@ export default function CheckpointPanel({ businessId }: Props) {
   const { t } = useI18n();
   const checkpointQuery = useCheckpoint(businessId);
   const deleteCheckpoint = useDeleteCheckpoint(businessId);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const cp = checkpointQuery.data;
   const exists = !!cp;
@@ -46,10 +48,11 @@ export default function CheckpointPanel({ businessId }: Props) {
   );
 
   const handleDelete = () => {
-    const ok = window.confirm(
-      "Delete the wiki checkpoint for this businessID? You may need a full regeneration to recover.",
-    );
-    if (!ok) return;
+    setConfirmOpen(true);
+  };
+
+  const confirmDelete = () => {
+    setConfirmOpen(false);
     deleteCheckpoint.mutate();
   };
 
@@ -129,6 +132,17 @@ export default function CheckpointPanel({ businessId }: Props) {
           Delete checkpoint
         </button>
       </div>
+
+      {confirmOpen && (
+        <ConfirmDialog
+          title="Delete checkpoint"
+          message="Delete the wiki checkpoint for this business? You may need a full regeneration to recover."
+          confirmLabel="Delete checkpoint"
+          variant="danger"
+          onConfirm={confirmDelete}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      )}
     </div>
   );
 }

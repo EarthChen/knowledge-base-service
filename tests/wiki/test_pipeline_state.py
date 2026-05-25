@@ -12,7 +12,6 @@ def test_pipeline_state_is_typed_dict():
     assert "domain_mapping" in annotations
     assert "pages" in annotations
     assert "quality_scores" in annotations
-    assert "stage_timings" in annotations
     assert "errors" in annotations
 
 
@@ -30,8 +29,6 @@ def test_pipeline_state_can_be_instantiated():
         "quality_scores": {},
         "pages_to_heal": [],
         "heal_attempts": {},
-        "stage_timings": {},
-        "llm_call_count": 0,
         "errors": [],
     }
     assert state["business_id"] == "test-biz"

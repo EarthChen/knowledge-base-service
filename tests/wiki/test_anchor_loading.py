@@ -77,11 +77,3 @@ class TestAnchorLoading:
         assert ("repo1", "PinnedSvc") in llm_result["gift-system"]["modules"]
         assert ("repo1", "FreeSvc") in llm_result["gift-system"]["modules"]
 
-
-class TestClassifyNodeIntegration:
-    @pytest.mark.asyncio
-    async def test_classify_with_anchors_available(self):
-        """When anchors exist, they should be loaded and used."""
-        from wiki.nodes.classify import classify_domains_node
-
-        assert callable(classify_domains_node)

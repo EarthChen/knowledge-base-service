@@ -98,6 +98,7 @@ function TreeRows({
   selectedPath,
   onSelectFile,
   filterActive,
+  isRoot = false,
 }: {
   node: FileTreeNode;
   depth: number;
@@ -106,24 +107,25 @@ function TreeRows({
   selectedPath: string | null;
   onSelectFile: (path: string, repo?: string) => void;
   filterActive: boolean;
+  isRoot?: boolean;
 }) {
   const children = node.children || [];
-  return (
-    <>
-      {children.map((child) => (
-        <TreeRow
-          key={`${child.type}:${child.path}:${child.name}`}
-          node={child}
-          depth={depth}
-          expanded={expanded}
-          onToggle={onToggle}
-          selectedPath={selectedPath}
-          onSelectFile={onSelectFile}
-          filterActive={filterActive}
-        />
-      ))}
-    </>
-  );
+  const rows = children.map((child) => (
+    <TreeRow
+      key={`${child.type}:${child.path}:${child.name}`}
+      node={child}
+      depth={depth}
+      expanded={expanded}
+      onToggle={onToggle}
+      selectedPath={selectedPath}
+      onSelectFile={onSelectFile}
+      filterActive={filterActive}
+    />
+  ));
+  if (isRoot) {
+    return <ul role="tree" className="space-y-0.5">{rows}</ul>;
+  }
+  return <ul role="group" className="space-y-0.5">{rows}</ul>;
 }
 
 function compactDirChain(node: FileTreeNode): { label: string; leaf: FileTreeNode; intermediates: string[] } {
@@ -172,11 +174,12 @@ function TreeRow({
     };
 
     return (
-      <div>
+      <li role="treeitem" aria-expanded={isOpen} className="list-none">
         <button
           type="button"
           style={{ paddingLeft: pad }}
           onClick={handleToggle}
+          aria-expanded={isOpen}
           className="flex w-full items-center gap-1 rounded-md py-1 text-left text-sm text-gray-800 hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800"
         >
           <ChevronRight
@@ -201,25 +204,27 @@ function TreeRow({
             filterActive={filterActive}
           />
         )}
-      </div>
+      </li>
     );
   }
 
   return (
-    <button
-      type="button"
-      style={{ paddingLeft: pad }}
-      onClick={() => onSelectFile(node.path, node.repository)}
-      className={`flex w-full items-center gap-1 rounded-md py-1 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 ${
-        selected
-          ? "bg-sky-50 text-sky-900 dark:bg-sky-950/50 dark:text-sky-100"
-          : "text-gray-800 dark:text-gray-100"
-      }`}
-    >
-      <span className="w-3 shrink-0" aria-hidden />
-      <FileCode size={15} className={`shrink-0 ${fileIconClass(node.name)}`} />
-      <span className="min-w-0 truncate">{node.name}</span>
-    </button>
+    <li role="treeitem" className="list-none">
+      <button
+        type="button"
+        style={{ paddingLeft: pad }}
+        onClick={() => onSelectFile(node.path, node.repository)}
+        className={`flex w-full items-center gap-1 rounded-md py-1 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800 ${
+          selected
+            ? "bg-sky-50 text-sky-900 dark:bg-sky-950/50 dark:text-sky-100"
+            : "text-gray-800 dark:text-gray-100"
+        }`}
+      >
+        <span className="w-3 shrink-0" aria-hidden />
+        <FileCode size={15} className={`shrink-0 ${fileIconClass(node.name)}`} />
+        <span className="min-w-0 truncate">{node.name}</span>
+      </button>
+    </li>
   );
 }
 
@@ -387,6 +392,7 @@ export default function FileExplorer() {
                 selectedPath={selectedPath}
                 onSelectFile={onSelectFile}
                 filterActive={!!treeFilter.trim()}
+                isRoot
               />
             ) : (
               <p className="p-3 text-sm text-gray-500 dark:text-gray-400">{t.search.noResults}</p>

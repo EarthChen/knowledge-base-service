@@ -61,6 +61,87 @@ function messageFromFailedResponse(
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+function resolveApiUrl(path: string): string {
+  if (path.startsWith("http")) {
+    const parsed = new URL(path, typeof window !== "undefined" ? window.location.href : undefined);
+    if (typeof window !== "undefined" && parsed.origin !== window.location.origin) {
+      throw new ApiError("Cross-origin API calls are not allowed", 0, null);
+    }
+    return path;
+  }
+  return API_BASE + path;
+}
+
+async function fetchWithAuth(
+  path: string,
+  options: RequestInit & { timeoutMs?: number } = {},
+): Promise<Response> {
+  const url = resolveApiUrl(path);
+  const { timeoutMs, ...fetchOpts } = options;
+  const controller = new AbortController();
+  const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(), timeout);
+  const existingSignal = fetchOpts.signal;
+  const onParentAbort = () => controller.abort();
+  if (existingSignal) {
+    existingSignal.addEventListener("abort", onParentAbort);
+  }
+  try {
+    return await fetch(url, {
+      ...fetchOpts,
+      signal: controller.signal,
+      headers: { ...authHeaders(), ...(fetchOpts.headers as Record<string, string>) },
+    });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new ApiError(`Request timed out after ${timeout}ms`, 0, null);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    if (existingSignal) {
+      existingSignal.removeEventListener("abort", onParentAbort);
+    }
+  }
+}
+
+/** SSE/streaming fetch — returns raw Response with shared base URL and auth headers (no default timeout). */
+export async function apiStream(
+  path: string,
+  options: RequestInit & { timeoutMs?: number } = {},
+): Promise<Response> {
+  const url = resolveApiUrl(path);
+  const { timeoutMs, ...fetchOpts } = options;
+  if (timeoutMs != null) {
+    return fetchWithAuth(path, options);
+  }
+  return fetch(url, {
+    ...fetchOpts,
+    headers: { ...authHeaders(), ...(fetchOpts.headers as Record<string, string>) },
+  });
+}
+
+/** Binary/JSON download fetch — throws ApiError when response is not ok. */
+export async function apiDownload(
+  path: string,
+  options: RequestInit & { timeoutMs?: number } = {},
+): Promise<Response> {
+  const res = await fetchWithAuth(path, options);
+  if (!res.ok) {
+    const text = await res.text();
+    let data: unknown;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = { raw: text };
+    }
+    const d = data as Record<string, unknown> | null;
+    const msg = messageFromFailedResponse(d, res);
+    throw new ApiError(msg || "Request failed", res.status, data);
+  }
+  return res;
+}
+
 export async function api<T = unknown>(
   path: string,
   options: RequestInit & { timeoutMs?: number } = {},

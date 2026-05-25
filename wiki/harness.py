@@ -415,7 +415,7 @@ class WikiGenerationHarness:
 
             elif tool == "read_code":
                 result = await self.graph_store.execute_query(
-                    CHUNK_SNIPPETS_CY, {"names": names}
+                    CHUNK_SNIPPETS_CY, {"names": names, "valid_pairs": []}
                 )
                 rows = getattr(result, "data", None) or []
                 lines = []

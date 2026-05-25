@@ -6,9 +6,7 @@ from wiki.nodes.aggregate import (
     synthesize_overviews_node,
 )
 from wiki.nodes.classify import (
-    classify_domains_node,
     classify_entities_node,
-    decompose_hierarchy_node,
     detect_reorg_node,
     set_review_status_node,
 )
@@ -17,8 +15,6 @@ from wiki.nodes.compose import (
     _compose_single_leaf_domain,
     _topic_to_domain_dict,
     compose_leaf_modules_node,
-    compose_leaf_pages_node,
-    plan_topic_structure_node,
 )
 from wiki.nodes.domain_compose import compose_domain_agents_node
 from wiki.nodes.heal import heal_pages_node
@@ -68,18 +64,14 @@ __all__ = [
     "_normalize_domain_tree",
     "_normalize_pages_map",
     "_topic_to_domain_dict",
-    "classify_domains_node",
     "classify_entities_node",
     "compose_domain_agents_node",
     "compose_leaf_modules_node",
-    "compose_leaf_pages_node",
     "compose_parent_pages_node",
     "create_links_node",
-    "decompose_hierarchy_node",
     "detect_reorg_node",
     "has_parent_domains",
     "heal_pages_node",
-    "plan_topic_structure_node",
     "select_key_snippets",
     "set_review_status_node",
     "summarize_leaves_node",

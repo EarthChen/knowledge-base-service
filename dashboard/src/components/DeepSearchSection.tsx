@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Brain, Loader2 } from "lucide-react";
+import { Brain, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { useDeepSearch } from "../api/hooks";
 import { useI18n } from "../i18n/context";
 import JsonView from "./JsonView";
@@ -295,13 +295,18 @@ export default function DeepSearchSection({ showTitle = true }: Props) {
             <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
               <button
                 type="button"
+                aria-expanded={traceOpen}
                 onClick={() => setTraceOpen(!traceOpen)}
                 className="mb-2 flex w-full items-center justify-between text-left text-sm font-medium text-gray-700 dark:text-gray-300"
               >
                 <span>
                   {t.search.searchTrace} ({deepSearch.data.search_trace.length})
                 </span>
-                <span className="text-xs text-gray-400 dark:text-gray-500">{traceOpen ? "▼" : "▶"}</span>
+                {traceOpen ? (
+                  <ChevronDown size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
+                ) : (
+                  <ChevronRight size={16} className="text-gray-400 dark:text-gray-500" aria-hidden />
+                )}
               </button>
               <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">{t.search.searchTraceHint}</p>
               {traceOpen && <JsonView data={deepSearch.data.search_trace} />}

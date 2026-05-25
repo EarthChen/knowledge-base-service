@@ -27,6 +27,7 @@ class TestGenerateBusinessWikiIncremental:
             business_wiki_skip_repo_pages=True,
             business_repo_concurrency=2,
         )
+        svc._budget_resolver = None
 
         mock_graph = MagicMock()
         mock_graph.list_repository_modules = AsyncMock(return_value=[])
@@ -73,7 +74,7 @@ class TestGenerateBusinessWikiIncremental:
         pipeline_tree = [DomainNode(name="DomainA")]
 
         with patch(
-            "wiki.service.compute_domain_diff",
+            "wiki.incremental_diff.compute_domain_diff",
             new_callable=AsyncMock,
             return_value=mock_diff,
         ):
@@ -128,6 +129,7 @@ class TestGenerateBusinessWikiIncremental:
             business_wiki_skip_repo_pages=True,
             business_repo_concurrency=2,
         )
+        svc._budget_resolver = None
 
         mock_graph = MagicMock()
         mock_graph.list_repository_modules = AsyncMock(
@@ -171,7 +173,7 @@ class TestGenerateBusinessWikiIncremental:
         mock_diff.affected_domains = ["DomainA"]
 
         with patch(
-            "wiki.service.compute_domain_diff",
+            "wiki.incremental_diff.compute_domain_diff",
             new_callable=AsyncMock,
             return_value=mock_diff,
         ):
@@ -252,6 +254,7 @@ class TestIncrementalCleanupWiring:
             business_wiki_skip_repo_pages=True,
             business_repo_concurrency=2,
         )
+        svc._budget_resolver = None
 
         mock_graph = MagicMock()
         mock_graph.list_repository_modules = AsyncMock(return_value=[])
@@ -293,7 +296,7 @@ class TestIncrementalCleanupWiring:
         mock_page.path = "wiki/DomainA"
 
         with patch(
-            "wiki.service.compute_domain_diff",
+            "wiki.incremental_diff.compute_domain_diff",
             new_callable=AsyncMock,
             return_value=mock_diff,
         ):

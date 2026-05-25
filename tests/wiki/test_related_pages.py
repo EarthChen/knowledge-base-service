@@ -415,8 +415,8 @@ class TestRelatedPagesIntegration:
         """generate_business_wiki source should reference RelatedPagesBuilder."""
         import inspect
 
-        from wiki.service import WikiService
+        from wiki.business_pipeline_runner import BusinessPipelineRunner
 
-        source = inspect.getsource(WikiService.generate_business_wiki)
+        source = inspect.getsource(BusinessPipelineRunner.run)
         assert "RelatedPagesBuilder" in source
         assert "build_and_persist" in source

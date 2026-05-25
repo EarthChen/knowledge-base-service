@@ -4,10 +4,15 @@ import { useDeepSearchStream } from "../useDeepSearchStream";
 import { TestI18nProvider } from "../../i18n/context";
 import type { ReactNode } from "react";
 
-vi.mock("../../api/client", () => ({
-  API_BASE: "http://test",
-  authHeaders: () => ({ Authorization: "Bearer test" }),
-}));
+vi.mock("../../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/client")>();
+  return {
+    ...actual,
+    apiStream: vi.fn((path: string, options?: RequestInit) =>
+      fetch(`${actual.API_BASE}${path}`, options),
+    ),
+  };
+});
 
 function wrapper({ children }: { children: ReactNode }) {
   return <TestI18nProvider>{children}</TestI18nProvider>;

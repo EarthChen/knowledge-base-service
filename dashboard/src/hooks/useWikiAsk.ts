@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { authHeaders } from "../api/client";
+import { apiStream } from "../api/client";
 import { useI18n } from "../i18n/context";
 import { getErrorMessage } from "../utils/errorUtils";
 import type { ReasoningPathData, ReasoningStage, WikiAskSource } from "./wikiTypes";
 
-const API_BASE = "/api/v1";
-const WIKI_ASK_STREAM = `${API_BASE}/wiki/ask/stream`;
+const WIKI_ASK_STREAM = "/wiki/ask/stream";
 
 export type WikiAskBody = {
   repository: string;
@@ -203,9 +202,8 @@ export function useWikiAsk(repository: string | undefined, pageContext?: string)
 
       let res: Response;
       try {
-        res = await fetch(WIKI_ASK_STREAM, {
+        res = await apiStream(WIKI_ASK_STREAM, {
           method: "POST",
-          headers: authHeaders(),
           body: JSON.stringify(payload),
           signal: ac.signal,
         });

@@ -43,6 +43,25 @@ def _count_module_inline_refs(content: str, module_names: list[str]) -> int:
     return ref_count
 
 
+def _module_word_pattern(name: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![\w]){re.escape(name)}(?![\w])", re.IGNORECASE)
+
+
+def _is_module_covered(content: str, module_name: str) -> bool:
+    """True when *module_name* (or its short segment) appears as a standalone token."""
+    name = module_name.strip()
+    if not name:
+        return False
+    variants = [name]
+    short = name.rsplit(".", 1)[-1]
+    if short and short != name:
+        variants.append(short)
+    for variant in variants:
+        if _module_word_pattern(variant).search(content):
+            return True
+    return False
+
+
 def _calc_implementation_depth(content: str, module_names: list[str]) -> float:
     if not module_names:
         return 1.0
@@ -64,9 +83,8 @@ def evaluate_quality(content: str, module_names: list[str]) -> QualityReport:
             implementation_depth=1.0,
         )
 
-    content_lower = content.lower()
-    covered = [m for m in module_names if m.lower() in content_lower]
-    uncovered = [m for m in module_names if m.lower() not in content_lower]
+    covered = [m for m in module_names if _is_module_covered(content, m)]
+    uncovered = [m for m in module_names if m not in covered]
     coverage = len(covered) / len(module_names) if module_names else 0.0
 
     source_count = len(_SOURCE_LINK_RE.findall(content))

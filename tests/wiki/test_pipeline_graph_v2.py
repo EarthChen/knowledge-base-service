@@ -15,7 +15,7 @@ def test_pipeline_has_new_nodes():
 def test_pipeline_removed_old_nodes():
     pipeline = build_wiki_pipeline(checkpointer=False)
     node_names = set(pipeline.nodes.keys())
-    assert "classify_domains" in node_names
+    assert "graph_domain_decompose" in node_names
     assert "decompose_hierarchy" not in node_names
     assert "plan_topic_structure" not in node_names
     assert "compose_leaf_pages" not in node_names

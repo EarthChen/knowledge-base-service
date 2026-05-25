@@ -17,7 +17,12 @@ export function invalidateWikiQueriesForBusiness(
   return queryClient.invalidateQueries({
     predicate: (q) => {
       const k = q.queryKey as unknown[];
-      return k[0] === "wiki" && k.includes(b);
+      if (k[0] !== "wiki") return false;
+      if (k.includes(b)) return true;
+      if (k[1] === "navigation") return true;
+      if (k[1] === "quality" && k[2] === "documentation-summary") return true;
+      if (k[1] === "claim-history") return true;
+      return false;
     },
   });
 }

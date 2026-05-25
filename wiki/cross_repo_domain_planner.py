@@ -221,7 +221,7 @@ class CrossRepoBusinessDomainPlanner:
                 name = m.properties.get("name")
                 if not isinstance(name, str) or not name:
                     continue
-                pin_domain = pin_map.get(name)
+                pin_domain = pin_map.get(f"{repo_id}|{name}") or pin_map.get(name)
                 if isinstance(pin_domain, str) and pin_domain.strip():
                     existing.setdefault(pin_domain.strip(), []).append((repo_id, name))
                     continue
@@ -443,7 +443,11 @@ class CrossRepoBusinessDomainPlanner:
         ]
         if unassigned:
             all_known_domains = list(existing.keys()) + list(new_domains.keys())
-            remaining = await self._classify_remaining(unassigned, all_known_domains)
+            remaining = await self._classify_remaining(
+                unassigned,
+                all_known_domains,
+                enriched_signals=enriched_signals,
+            )
             for pair, domain in remaining.items():
                 assignments[pair] = domain
 
@@ -468,6 +472,8 @@ class CrossRepoBusinessDomainPlanner:
         self,
         unassigned: list[tuple[str, str]],
         known_domains: list[str],
+        *,
+        enriched_signals: dict | None = None,
     ) -> dict[tuple[str, str], str]:
         """Focused LLM call for modules that triage missed."""
         assert self._llm is not None
@@ -476,7 +482,8 @@ class CrossRepoBusinessDomainPlanner:
             {
                 "repository": clean_repo_path(repo_id),
                 "name": name,
-                "summary": self._module_summary(repo_id, name),
+                "summary": self._module_summary(repo_id, name)
+                + self._enriched_signal_suffix(repo_id, name, enriched_signals),
             }
             for repo_id, name in unassigned
         ]
@@ -638,6 +645,9 @@ class CrossRepoBusinessDomainPlanner:
         if not signals:
             return ""
         parts: list[str] = []
+        st = signals.get("summary_text")
+        if isinstance(st, str) and st.strip():
+            parts.append(f" Summary: {st[:200]}")
         km = signals.get("key_methods")
         if isinstance(km, (list, tuple)) and km:
             parts.append(f" [methods: {', '.join(str(x) for x in km[:3])}]")

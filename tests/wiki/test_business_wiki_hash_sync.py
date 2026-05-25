@@ -49,6 +49,7 @@ async def test_generate_business_wiki_bulk_sets_wiki_code_hashes_per_repo():
         business_wiki_skip_repo_pages=True,
         business_repo_concurrency=2,
     )
+    svc._budget_resolver = None
 
     mock_graph = MagicMock()
 

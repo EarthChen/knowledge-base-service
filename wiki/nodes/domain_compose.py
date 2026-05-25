@@ -1,26 +1,69 @@
 """Agent-driven domain documentation composition node."""
 import asyncio
-import os
+import re
 from collections import Counter
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
+from core.config import get_settings
 from core.log import get_logger
 from wiki.domain_doc_agent import DomainDocAgent, _build_baseline
 from wiki.flow_baseline import extract_flow_baseline, format_flow_baseline_for_prompt
+from wiki.llm_rate_limiter import acquire_llm_quota
+from wiki.models import ImportanceTier
+from wiki.nodes.tier_utils import resolve_tier, tier_for_module_count
 from wiki.nodes.utils import _collect_leaf_domains
+from wiki.path_conventions import domain_overview_path
 from wiki.pipeline_concurrency import PipelineConcurrency
 from wiki.source_ref_validator import repair_broken_mermaid_blocks, sanitize_wiki_content
 
 log = get_logger(__name__)
 
-DOMAIN_AGENT_TIMEOUT_SEC = int(os.environ.get("DOMAIN_AGENT_TIMEOUT_SEC", "600"))
+_MERMAID_FENCE_RE = re.compile(r"```\s*mermaid\b", re.IGNORECASE)
+
+
+def _inject_dependency_diagram(content: str, module_names: list[str]) -> str:
+    """Append a placeholder Architecture Mermaid diagram when agent output lacks one."""
+    if _MERMAID_FENCE_RE.search(content or ""):
+        return content
+    if len(module_names) < 2:
+        return content
+
+    nodes = module_names[:10]
+    lines = ["graph TD"]
+    for idx, mod in enumerate(nodes):
+        safe = str(mod).replace('"', "'")
+        lines.append(f'    M{idx}["{safe}"]')
+    for idx in range(len(nodes) - 1):
+        lines.append(f"    M{idx} --> M{idx + 1}")
+    diagram = "\n".join(lines)
+    return f"{content.rstrip()}\n\n## Architecture\n\n```mermaid\n{diagram}\n```\n"
+
+
+def _max_iterations_for_domain(domain: dict[str, Any], state: dict[str, Any]) -> int:
+    """Resolve tier-appropriate max_iterations for DomainDocAgent."""
+    wiki_cfg = get_settings().wiki
+    module_count = len(domain.get("modules") or [])
+    domain_path = domain_overview_path(str(domain.get("name") or ""))
+    config_tiers = (state.get("config") or {}).get("importance_tiers") or {}
+    if domain_path not in config_tiers:
+        effective_tiers = {**config_tiers, domain_path: tier_for_module_count(module_count)}
+    else:
+        effective_tiers = config_tiers
+    tier = resolve_tier(domain_path, effective_tiers)
+    if tier == ImportanceTier.CORE:
+        return wiki_cfg.domain_agent_max_iterations_core
+    if tier == ImportanceTier.STANDARD:
+        return wiki_cfg.domain_agent_max_iterations_standard
+    return wiki_cfg.domain_agent_max_iterations_skeleton
 
 
 def _build_layer_summary(
     module_names: list[str],
     architecture_layers: dict[str, dict[str, Any]],
+    *,
+    module_repo_pairs: list[tuple[str, str]] | None = None,
 ) -> str:
     """Format architecture layer info for a domain's modules.
 
@@ -32,8 +75,15 @@ def _build_layer_summary(
     from collections import defaultdict
 
     layer_modules: dict[str, list[str]] = defaultdict(list)
-    for name in module_names:
-        info = architecture_layers.get(name)
+    pairs = module_repo_pairs or []
+    for idx, name in enumerate(module_names):
+        info = None
+        if idx < len(pairs):
+            repo, pair_name = pairs[idx]
+            if pair_name == name:
+                info = architecture_layers.get(f"{repo}|{name}")
+        if info is None:
+            info = architecture_layers.get(name)
         if info:
             layer_modules[info.get("layer", "unknown")].append(name)
 
@@ -49,11 +99,12 @@ def _build_layer_summary(
 
 
 def _module_dict_by_name(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Maps module ``name`` (graph property) to module dict — same ambiguity rule as classify/decompose."""
-    lookup: dict[str, dict[str, Any]] = {}
+    """Maps module compound key ``repo|name`` to module dict; includes bare-name fallback."""
+    by_compound: dict[str, dict[str, Any]] = {}
+    by_name: dict[str, dict[str, Any]] = {}
     modules = state.get("modules") or {}
     if not isinstance(modules, dict):
-        return lookup
+        return by_compound
     for repo, mod_list in modules.items():
         if not isinstance(mod_list, list):
             continue
@@ -63,8 +114,10 @@ def _module_dict_by_name(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
             props = mod_dict.get("properties") or {}
             name = props.get("name", "")
             if name:
-                lookup[str(name)] = {**mod_dict, "_pipeline_repo_id": repo}
-    return lookup
+                mod_with_repo = {**mod_dict, "_pipeline_repo_id": repo}
+                by_compound[f"{repo}|{name}"] = mod_with_repo
+                by_name.setdefault(str(name), mod_with_repo)
+    return {**by_name, **by_compound}
 
 
 def _overview_module_sources(
@@ -102,6 +155,32 @@ def _overview_module_sources(
     return locations, uids
 
 
+def _domain_module_pairs(
+    domain: dict[str, Any],
+    domain_mapping: dict[str, list[tuple[str, str]]],
+    module_lookup: dict[str, dict[str, Any]],
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """Resolve repo|name pairs for a domain's modules."""
+    slug_pairs = domain_mapping.get(str(domain.get("name") or ""), [])
+    name_to_repos: dict[str, list[str]] = {}
+    for repo, name in slug_pairs:
+        name_to_repos.setdefault(str(name), []).append(str(repo))
+
+    module_repo_pairs: list[tuple[str, str]] = []
+    valid_pairs: list[str] = []
+    for mod_name in domain.get("modules", []):
+        name = str(mod_name)
+        repos = name_to_repos.get(name, [])
+        if len(repos) == 1:
+            repo = repos[0]
+        else:
+            info = module_lookup.get(name)
+            repo = str(info.get("_pipeline_repo_id", "") if info else (repos[0] if repos else ""))
+        module_repo_pairs.append((repo, name))
+        valid_pairs.append(f"{repo}|{name}" if repo else name)
+    return module_repo_pairs, valid_pairs
+
+
 def _attach_domain_sources(pages_out: list[dict[str, Any]], domain: dict[str, Any], state: dict[str, Any]) -> None:
     """Link domain pages (overview + topic) to constituent Module nodes."""
     locations, covered = _overview_module_sources(state, list(domain.get("modules") or []))
@@ -124,13 +203,14 @@ async def compose_domain_agents_node(
     configurable = (config or {}).get("configurable", {}) or {}
     llm = configurable.get("llm")
     graph_store = configurable.get("graph_store")
+    budget_resolver = configurable.get("budget_resolver")
     repo_paths: dict[str, str] = configurable.get("repo_paths", {})
     module_lookup = _module_dict_by_name(state)
     fallback_repo_path = next(iter(repo_paths.values()), None) if repo_paths else None
 
     domain_tree = state.get("domain_tree") or []
     module_summaries = state.get("module_summaries", {})
-    module_tree = state.get("module_tree", {})
+    module_tree = state.get("module_tree", [])
     leaf_domains = _collect_leaf_domains(domain_tree)
 
     # Incremental filtering: only process affected domains
@@ -158,6 +238,7 @@ async def compose_domain_agents_node(
     pages: list[dict[str, Any]] = []
     errors = list(state.get("errors", []))
     arch_layers = state.get("architecture_layers") or {}
+    domain_mapping = state.get("domain_mapping") or {}
 
     def _domain_repo_path(domain: dict[str, Any]) -> str | None:
         if not repo_paths:
@@ -185,10 +266,16 @@ async def compose_domain_agents_node(
                     graph_store=graph_store,
                     repo_path=_domain_repo_path(domain),
                     repo_paths=repo_paths,
+                    max_iterations=_max_iterations_for_domain(domain, state),
+                    budget_resolver=budget_resolver,
+                )
+                module_repo_pairs, valid_pairs = _domain_module_pairs(
+                    domain, domain_mapping, module_lookup,
                 )
                 layer_summary = _build_layer_summary(
                     domain.get("modules", []),
                     arch_layers,
+                    module_repo_pairs=module_repo_pairs,
                 )
                 baseline = _build_baseline(domain, module_summaries, module_tree=module_tree)
                 if layer_summary:
@@ -199,19 +286,29 @@ async def compose_domain_agents_node(
                             graph_store,
                             domain_slug,
                             domain.get("modules", []),
+                            valid_pairs=valid_pairs,
                         )
                         flow_text = format_flow_baseline_for_prompt(flow_baseline)
                         if flow_text:
                             baseline = baseline + "\n\n" + flow_text
                     except Exception:
                         log.warning("domain_flow_baseline_failed", domain=domain_slug, exc_info=True)
+                await acquire_llm_quota(config, estimated_tokens=4000)
+                outer_timeout = get_settings().wiki.domain_agent_timeout_sec
                 result = await asyncio.wait_for(
                     agent.generate_with_iterations(
                         module_names=domain.get("modules", []),
                         baseline_context=baseline,
+                        valid_pairs=valid_pairs,
                     ),
-                    timeout=DOMAIN_AGENT_TIMEOUT_SEC,
+                    timeout=outer_timeout,
                 )
+                for page in result:
+                    if page.get("metadata", {}).get("generation_mode") != "agent_error":
+                        page["content"] = _inject_dependency_diagram(
+                            page.get("content", ""),
+                            list(domain.get("modules") or []),
+                        )
                 elapsed = asyncio.get_running_loop().time() - domain_start
                 log.info(
                     "domain_agent_done",
@@ -249,14 +346,25 @@ async def compose_domain_agents_node(
                 pages.append(page)
 
     # Sanitize domain pages (Mermaid validation + repair)
-    known_entities = state.get("entities", [])
-    if not isinstance(known_entities, list):
-        known_entities = []
+    known_entities: list[dict[str, str | int]] = []
+    for repo_mods in state.get("modules", {}).values():
+        for m in repo_mods:
+            props = m.get("properties", {}) or {}
+            name = props.get("name", "")
+            if name:
+                known_entities.append({
+                    "name": name,
+                    "repository": props.get("repository", ""),
+                    "file_path": props.get("path", props.get("file_path", "")),
+                    "start_line": int(props.get("start_line") or 0),
+                })
     for page in pages:
         raw = page.get("content", "")
         page["content"] = sanitize_wiki_content(raw, known_entities)
-        if llm is not None:
+        metadata = page.setdefault("metadata", {})
+        if llm is not None and not metadata.get("mermaid_fixed"):
             page["content"] = await repair_broken_mermaid_blocks(page["content"], llm)
+            metadata["mermaid_fixed"] = True
 
     log.info(
         "domain_agents_complete",

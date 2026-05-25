@@ -3,13 +3,14 @@ from wiki.pipeline_graph import build_wiki_pipeline
 
 
 class TestDomainClassificationInPipeline:
-    def test_pipeline_contains_classify_domains_node(self):
+    def test_pipeline_contains_graph_domain_decompose_node(self):
         pipeline = build_wiki_pipeline(checkpointer=False)
         node_names = set(pipeline.get_graph().nodes.keys())
-        assert "classify_domains" in node_names
+        assert "graph_domain_decompose" in node_names
+        assert "classify_domains" not in node_names
 
     def test_pipeline_no_longer_has_decompose_hierarchy_node(self):
-        """decompose_hierarchy merged into classify_domains (graph_driven_domain_decompose)."""
+        """decompose_hierarchy merged into graph_domain_decompose."""
         pipeline = build_wiki_pipeline(checkpointer=False)
         node_names = set(pipeline.get_graph().nodes.keys())
         assert "decompose_hierarchy" not in node_names
@@ -34,7 +35,7 @@ class TestAgentPipelineIntegration:
             "detect_reorg",
             "graph_decompose",
             "assign_canonical_keys",
-            "classify_domains",
+            "graph_domain_decompose",
             "persist_classification",
             "generate_titles",
             "set_review_status",

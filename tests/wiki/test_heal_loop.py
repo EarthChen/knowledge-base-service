@@ -112,10 +112,10 @@ async def test_heal_pages_truncates_content_via_token_budget_and_passes_max_toke
             assert component == "topic_page_generate"
             return fixed_budget
 
-    monkeypatch.setattr(
-        "wiki.pipeline_nodes.TokenBudgetResolver",
-        lambda *args, **kwargs: FixedResolver(),
-    )
+        def claim(self, component: str, requested: int) -> int:
+            return self.budget(component)
+
+    fixed_resolver = FixedResolver()
 
     long_body = "Z" * 5000
     page_dict = {
@@ -143,7 +143,7 @@ async def test_heal_pages_truncates_content_via_token_budget_and_passes_max_toke
     mock_llm.generate = AsyncMock(return_value=_pass_after_heal)
     mock_llm.complete_json = AsyncMock(return_value={"patches": []})
 
-    await heal_pages_node(state, {"configurable": {"llm": mock_llm}})
+    await heal_pages_node(state, {"configurable": {"llm": mock_llm, "budget_resolver": fixed_resolver}})
 
     heal_fallback_calls = [
         c

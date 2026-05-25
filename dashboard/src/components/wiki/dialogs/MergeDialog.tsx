@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useId } from "react";
+import FocusTrap from "../../FocusTrap";
 import { useI18n } from "../../../i18n/context";
+import { TreeView, type TreeViewNode } from "../../shared/TreeView";
 
 interface TreeNode {
   uid: string;
@@ -15,59 +18,48 @@ interface MergeDialogProps {
   onCancel: () => void;
 }
 
-function TreeSelector({
-  nodes,
-  excludeUid,
-  selected,
-  onSelect,
-  depth = 0,
-}: {
-  nodes: TreeNode[];
-  excludeUid: string;
-  selected: string;
-  onSelect: (uid: string) => void;
-  depth?: number;
-}) {
-  return (
-    <ul className="space-y-0.5">
-      {nodes
-        .filter((n) => n.uid !== excludeUid)
-        .map((node) => (
-          <li key={node.uid}>
-            <button
-              type="button"
-              onClick={() => onSelect(node.uid)}
-              className={`w-full rounded px-2 py-1 text-left text-sm ${
-                selected === node.uid ? "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400" : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
-              }`}
-              style={{ paddingLeft: `${depth * 16 + 8}px` }}
-            >
-              {node.title || node.uid}
-            </button>
-            {node.children && node.children.length > 0 && (
-              <TreeSelector nodes={node.children} excludeUid={excludeUid} selected={selected} onSelect={onSelect} depth={depth + 1} />
-            )}
-          </li>
-        ))}
-    </ul>
-  );
+function toTreeViewNodes(nodes: TreeNode[]): TreeViewNode[] {
+  return nodes.map((node) => ({
+    id: node.uid,
+    label: node.title || node.uid,
+    children: node.children?.length ? toTreeViewNodes(node.children) : undefined,
+  }));
 }
 
 export default function MergeDialog({ sourceUid, sourceTitle, treeData, onConfirm, onCancel }: MergeDialogProps) {
   const { t } = useI18n();
+  const titleId = useId();
   const [selected, setSelected] = useState("");
 
+  const nodes = useMemo(() => toTreeViewNodes(treeData), [treeData]);
+  const excludeIds = useMemo(() => new Set([sourceUid]), [sourceUid]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onCancel}>
-      <div
-        className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="mb-2 text-lg font-semibold text-gray-900 dark:text-white">{t.wiki.domain_management.mergeTitle}</h3>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      onClick={onCancel}
+    >
+      <FocusTrap onEscape={onCancel}>
+        <div
+          className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 id={titleId} className="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
+            {t.wiki.domain_management.mergeTitle}
+          </h3>
         <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">{t.wiki.domain_management.mergeConfirm}</p>
         <p className="mb-3 text-sm font-medium text-gray-800 dark:text-gray-200">{sourceTitle}</p>
         <div className="mb-4 max-h-60 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-gray-600">
-          <TreeSelector nodes={treeData} excludeUid={sourceUid} selected={selected} onSelect={setSelected} />
+          <TreeView
+            nodes={nodes}
+            selectedId={selected}
+            onSelect={setSelected}
+            isExpanded={() => true}
+            excludeIds={excludeIds}
+          />
         </div>
         <div className="flex justify-end gap-2">
           <button
@@ -86,7 +78,8 @@ export default function MergeDialog({ sourceUid, sourceTitle, treeData, onConfir
             {t.wiki.domain_management.confirm}
           </button>
         </div>
-      </div>
+        </div>
+      </FocusTrap>
     </div>
   );
 }

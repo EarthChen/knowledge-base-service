@@ -7,7 +7,9 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from core.log import get_logger
+from wiki.llm_rate_limiter import acquire_llm_quota
 from wiki.models import ImportanceTier, WikiPage
+from wiki.nodes.tier_utils import resolve_tier
 from wiki.nodes.utils import _find_domain_in_tree
 from wiki.quality_evaluator import WikiQualityEvaluator
 
@@ -21,6 +23,7 @@ def _update_heal_hint(
     page_dict: dict[str, Any],
     evaluator: WikiQualityEvaluator,
     heal_hints: dict[str, str],
+    check_cache: dict[str, dict[str, Any]] | None = None,
 ) -> bool:
     """Refresh ``heal_hints`` from WikiQualityBench / structural analysis (runs even without LLM)."""
     try:
@@ -28,6 +31,16 @@ def _update_heal_hint(
         try:
             bench = evaluator.bench_score(page)
             hint = evaluator.build_heal_prompt_hint_v2(bench)
+            if check_cache is not None:
+                content_hash = hashlib.sha256(
+                    (page.content or "").encode("utf-8", errors="replace")
+                ).hexdigest()
+                structure = getattr(bench, "structure", None)
+                l1_val = structure.overall if structure is not None and hasattr(structure, "overall") else 0
+                check_cache[page_path] = {
+                    "score": {"l1_structural": l1_val},
+                    "content_hash": content_hash,
+                }
         except Exception:
             log.warning("heal_bench_score_failed", page=page_path, exc_info=True)
             score = evaluator.structural_check(page)
@@ -43,19 +56,39 @@ def _page_passes_post_heal(
     page: WikiPage,
     state: dict[str, Any],
     evaluator: WikiQualityEvaluator,
+    check_cache: dict[str, dict[str, Any]] | None = None,
 ) -> bool:
     """Align with quality_gate_node: L1 structural score vs tier threshold."""
     cfg = state.get("config") or {}
     importance_tiers: dict[str, str] = cfg.get("importance_tiers", {})
-    raw_tier = importance_tiers.get(page.path, "standard")
-    try:
-        tier = ImportanceTier(str(raw_tier).lower())
-    except ValueError:
-        tier = ImportanceTier.STANDARD
+    tier = resolve_tier(page.path, importance_tiers)
     if tier == ImportanceTier.SKELETON:
         return True
+
+    content_hash = hashlib.sha256(
+        (page.content or "").encode("utf-8", errors="replace")
+    ).hexdigest()
+
+    if check_cache is not None:
+        cached = check_cache.get(page.path)
+        if cached and cached.get("content_hash") == content_hash:
+            score = cached.get("score", {})
+            if isinstance(score, dict):
+                l1_val = score.get("l1_structural", 0)
+            else:
+                l1_val = getattr(score, "overall", 0)
+            threshold = 0.7 if tier == ImportanceTier.CORE else 0.5
+            return l1_val >= threshold
+
     l1 = evaluator.structural_check(page)
     threshold = 0.7 if tier == ImportanceTier.CORE else 0.5
+
+    if check_cache is not None:
+        check_cache[page.path] = {
+            "score": {"l1_structural": l1.overall},
+            "content_hash": content_hash,
+        }
+
     return l1.overall >= threshold
 
 
@@ -84,15 +117,19 @@ async def _heal_one_page(
     heal_hints: dict[str, str],
     heal_attempts: dict[str, int],
     graph_store: Any | None = None,
+    check_cache: dict[str, dict[str, Any]] | None = None,
+    budget_resolver: Any | None = None,
+    config: dict[str, Any] | None = None,
 ) -> bool:
-    import wiki.pipeline_nodes as pn
     from wiki.heal_strategy import HealContext
+    from wiki.token_budget import TokenBudgetResolver
 
-    if not _update_heal_hint(page_path, page_dict, evaluator, heal_hints):
+    if not _update_heal_hint(page_path, page_dict, evaluator, heal_hints, check_cache=check_cache):
         return False
 
     page = WikiPage.from_dict(page_dict)
-    heal_budget = pn.TokenBudgetResolver().budget("topic_page_generate")
+    resolver = budget_resolver or TokenBudgetResolver()
+    heal_budget = resolver.budget("topic_page_generate")
 
     ctx = HealContext(
         page=page,
@@ -108,6 +145,7 @@ async def _heal_one_page(
     )
 
     chain = _make_strategy_chain()
+    await acquire_llm_quota(config, estimated_tokens=heal_budget)
     result = await chain.execute(ctx)
 
     if result:
@@ -137,9 +175,11 @@ async def heal_pages_node(
     configurable = (config or {}).get("configurable", {})
     llm = configurable.get("llm")
     graph_store = configurable.get("graph_store")
+    budget_resolver = configurable.get("budget_resolver")
     wiki_cfg = get_settings().wiki
     evaluator = WikiQualityEvaluator()
     heal_attempts: dict[str, int] = dict(state.get("heal_attempts", {}))
+    heal_cycles: dict[str, int] = dict(state.get("heal_cycles", {}))
     heal_hints: dict[str, str] = dict(state.get("heal_hints", {}))
     check_cache: dict[str, dict[str, Any]] = dict(state.get("_structural_check_cache", {}))
 
@@ -153,7 +193,14 @@ async def heal_pages_node(
 
     if not all_paths:
         log.info("heal_pages_done", healed_count=0)
-        return {"pages_to_heal": [], "heal_attempts": heal_attempts, "heal_hints": heal_hints, "pages": [], "_structural_check_cache": check_cache}
+        return {
+            "pages_to_heal": [],
+            "heal_attempts": heal_attempts,
+            "heal_cycles": heal_cycles,
+            "heal_hints": heal_hints,
+            "pages": [],
+            "_structural_check_cache": check_cache,
+        }
 
     # Build page lookup
     page_by_path: dict[str, dict[str, Any]] = {}
@@ -162,22 +209,18 @@ async def heal_pages_node(
         if path in seen:
             page_by_path[str(path)] = dict(p)
 
-    # Phase 1: Triage by tier
-    # When importance_tiers is empty (production default), treat all pages as "core"
-    # to preserve the original 3-round healing behavior.
+    # Phase 1: Triage by tier (shared resolve_tier defaults to CORE when tiers empty)
     importance_tiers: dict[str, str] = (state.get("config") or {}).get("importance_tiers", {})
     core_pages: list[str] = []
     standard_pages: list[str] = []
-    has_tier_info = bool(importance_tiers)
 
     for path in all_paths:
-        raw_tier = str(importance_tiers.get(path, "")).lower() if has_tier_info else ""
-        if raw_tier == "skeleton":
+        tier = resolve_tier(path, importance_tiers)
+        if tier == ImportanceTier.SKELETON:
             continue
-        elif raw_tier == "standard":
+        if tier == ImportanceTier.STANDARD:
             standard_pages.append(path)
         else:
-            # "core", unknown, or empty (no tier info) → treated as core for full healing
             core_pages.append(path)
 
     log.info(
@@ -208,6 +251,9 @@ async def heal_pages_node(
                     heal_hints=heal_hints,
                     heal_attempts=heal_attempts,
                     graph_store=graph_store,
+                    check_cache=check_cache,
+                    budget_resolver=budget_resolver,
+                    config=config,
                 )
                 if ok:
                     healed_by_path[page_path] = dict(page_dict)
@@ -227,7 +273,7 @@ async def heal_pages_node(
                         log.debug("heal_cache_update_failed", page=page_path, exc_info=True)
                 return ok
             else:
-                _update_heal_hint(page_path, page_dict, evaluator, heal_hints)
+                _update_heal_hint(page_path, page_dict, evaluator, heal_hints, check_cache=check_cache)
                 return False
 
     async def _run_heal_tier(active: list[str], max_rounds: int, tier: str) -> list[str]:
@@ -249,7 +295,7 @@ async def heal_pages_node(
                 except Exception:
                     failing.append(p)
                     continue
-                if not _page_passes_post_heal(page, state, evaluator):
+                if not _page_passes_post_heal(page, state, evaluator, check_cache=check_cache):
                     failing.append(p)
             active = failing
             if active:
@@ -272,9 +318,13 @@ async def heal_pages_node(
         still_failing_core=len(active_core),
         still_failing_standard=len(active_std),
     )
+    for p in initial_paths:
+        heal_cycles[p] = heal_cycles.get(p, 0) + 1
+
     return {
         "pages_to_heal": [],
         "heal_attempts": heal_attempts,
+        "heal_cycles": heal_cycles,
         "heal_hints": heal_hints,
         "pages": healed_pages,
         "_structural_check_cache": check_cache,

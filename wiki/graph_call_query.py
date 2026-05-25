@@ -11,8 +11,9 @@ log = get_logger(__name__)
 _MODULE_CALLS_CYPHER = (
     "MATCH (m1:Module)-[:CONTAINS*1..2]->(f1)"
     "-[:CALLS]->(f2)<-[:CONTAINS*1..2]-(m2:Module) "
-    "WHERE m1.repository IN $repos AND m2.repository IN $repos AND m1 <> m2 "
-    "AND m1.name IN $valid_names AND m2.name IN $valid_names "
+    "WHERE (m1.repository + '|' + m1.name) IN $valid_pairs "
+    "AND (m2.repository + '|' + m2.name) IN $valid_pairs "
+    "AND m1 <> m2 "
     "RETURN m1.repository AS source_repo, m1.name AS source, "
     "m2.repository AS target_repo, m2.name AS target, "
     "count(*) AS weight"
@@ -21,8 +22,9 @@ _MODULE_CALLS_CYPHER = (
 _MODULE_DEPENDS_ON_CYPHER = (
     "MATCH (m1:Module)-[:CONTAINS*1..2]->(c1:Class)"
     "-[:DEPENDS_ON]->(c2:Class)<-[:CONTAINS*1..2]-(m2:Module) "
-    "WHERE m1.repository IN $repos AND m2.repository IN $repos AND m1 <> m2 "
-    "AND m1.name IN $valid_names AND m2.name IN $valid_names "
+    "WHERE (m1.repository + '|' + m1.name) IN $valid_pairs "
+    "AND (m2.repository + '|' + m2.name) IN $valid_pairs "
+    "AND m1 <> m2 "
     "RETURN m1.repository AS source_repo, m1.name AS source, "
     "m2.repository AS target_repo, m2.name AS target, "
     "count(*) AS weight"
@@ -47,13 +49,13 @@ async def fetch_module_call_edges(
     """
     edge_map: dict[tuple[tuple[str, str], tuple[str, str]], int] = {}
     errors: list[str] = []
-    valid_names = list({name for _, name in valid_modules})
+    valid_pairs = [f"{repo}|{name}" for repo, name in valid_modules]
 
     async def _run_query(cypher: str) -> None:
         query_name = _QUERY_NAMES.get(cypher, cypher[:40])
         try:
             result = await graph_store.execute_query(
-                cypher, {"repos": repositories, "valid_names": valid_names}
+                cypher, {"valid_pairs": valid_pairs}
             )
             for row in result.data:
                 source_repo = row.get("source_repo")

@@ -57,33 +57,6 @@ class TestDeduplicateDomainTree:
         assert result[0].name == "Relationship Mgmt"
 
 
-class TestDecomposeHierarchyNodeDedup:
-    @pytest.mark.asyncio
-    async def test_decompose_hierarchy_calls_dedup(self):
-        from wiki.nodes.classify import decompose_hierarchy_node
-
-        state = {
-            "domain_mapping": {"domA": [("repo", "mod1")]},
-            "domain_display_names": {"domA": "Domain A"},
-            "modules": {"repo": [{"uid": "uid1", "properties": {"name": "mod1"}, "label": "Module"}]},
-            "role_stats": {},
-        }
-        config = {"configurable": {"llm": MagicMock()}}
-
-        with patch("wiki.pipeline_nodes.HierarchicalDecomposer") as MockHierarchicalDecomposer:
-            mock_decomposer = MagicMock()
-            mock_decomposer.decompose = AsyncMock(
-                return_value=[
-                    DomainNode(name="A", slug="a"),
-                    DomainNode(name="B", slug="b", children=[DomainNode(name="A", slug="a")]),
-                ]
-            )
-            MockHierarchicalDecomposer.return_value = mock_decomposer
-
-            with patch("wiki.nodes.classify.deduplicate_domain_tree", wraps=deduplicate_domain_tree) as mock_dedup:
-                await decompose_hierarchy_node(state, config)
-                mock_dedup.assert_called_once()
-
 
 class TestLinkLayerDefensiveDedup:
     @pytest.mark.asyncio

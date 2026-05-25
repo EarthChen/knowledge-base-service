@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { BookOpen, Code, Copy, Check } from "lucide-react";
 import type { SearchMatch } from "../api/types";
@@ -17,7 +17,7 @@ const TYPE_COLORS: Record<string, string> = {
     "bg-purple-50 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300",
 };
 
-export default function SearchResultCard({
+export default memo(function SearchResultCard({
   match,
   highlightQuery,
 }: {
@@ -207,4 +207,4 @@ export default function SearchResultCard({
       )}
     </article>
   );
-}
+});

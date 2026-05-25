@@ -1,3 +1,5 @@
+import math
+
 from wiki.token_budget import TokenBudgetCalculator, TokenBudgetResolver
 
 
@@ -101,12 +103,21 @@ def test_available_input_custom_window():
 
 def test_budget_for_snippets_small_domain():
     calc = TokenBudgetCalculator()
-    assert calc.budget_for_snippets(3) == 500 + 3 * 100  # 800
+    assert calc.budget_for_snippets(3) == 500 + int(300 * math.log2(4))
 
 
 def test_budget_for_snippets_large_domain_capped():
     calc = TokenBudgetCalculator()
-    assert calc.budget_for_snippets(100) == 6000  # capped at 6000
+    assert calc.budget_for_snippets(100) < 6000  # logarithmic, below old linear cap
+
+
+def test_budget_for_snippets_logarithmic():
+    calc = TokenBudgetCalculator()
+    assert calc.budget_for_snippets(1) == 500 + int(300 * math.log2(2))  # 800
+    assert calc.budget_for_snippets(5) == 500 + int(300 * math.log2(6))  # ~1275
+    assert calc.budget_for_snippets(55) < 6000  # was 6000 with old formula
+    assert calc.budget_for_snippets(100) < calc.budget_for_snippets(200)  # still growing
+    assert calc.budget_for_snippets(50_000_000) == 8000  # cap
 
 
 def test_budget_for_parent_summaries():
@@ -184,16 +195,13 @@ class TestCrossComponentTracking:
 
 
 def test_budget_for_snippets_at_old_cap_boundary():
-    """Module count that previously hit 3000 cap should now allow more."""
+    """Logarithmic formula grows slower than old linear 100/module."""
     calc = TokenBudgetCalculator()
-    # 500 + 30 * 100 = 3500, was capped at 3000, now allows up to 6000
-    assert calc.budget_for_snippets(30) == 3500
+    assert calc.budget_for_snippets(30) < 500 + 30 * 100
 
 
 def test_budget_for_snippets_mid_range():
-    """Verify budget scales correctly in the new range."""
+    """Verify logarithmic budget stays below old linear cap for large domains."""
     calc = TokenBudgetCalculator()
-    # 500 + 55 * 100 = 6000, exactly at new cap
-    assert calc.budget_for_snippets(55) == 6000
-    # 500 + 56 * 100 = 6100, capped at 6000
-    assert calc.budget_for_snippets(56) == 6000
+    assert calc.budget_for_snippets(55) < 6000
+    assert calc.budget_for_snippets(56) < 6000

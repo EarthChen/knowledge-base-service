@@ -8,10 +8,12 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
+from core.config import get_settings
 from core.log import get_logger
 from wiki.citation_verifier import verify_citations
 from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.models import ImportanceTier, WikiPage
+from wiki.nodes.tier_utils import resolve_tier
 from wiki.pipeline_concurrency import PipelineConcurrency
 from wiki.pipeline_state import WikiPipelineState
 from wiki.quality_evaluator import WikiQualityEvaluator
@@ -62,6 +64,11 @@ async def quality_gate_node(
 
     Uses _structural_check_cache to skip re-evaluation when page content is
     unchanged between heal cycles.
+
+    Heal counters (paired with ``heal_pages_node`` and ``should_heal``):
+    - ``heal_attempts[page]``: total inner-round attempts across all cycles.
+    - ``heal_cycles[page]``: outer quality-gate → heal loop iterations; used here
+      to decide whether a page may enter another heal cycle.
     """
     cfg = state.get("config") or {}
     levels = (
@@ -71,9 +78,11 @@ async def quality_gate_node(
     )
     llm = (config or {}).get("configurable", {}).get("llm")
 
+    wiki_cfg = get_settings().wiki
     evaluator = WikiQualityEvaluator()
     importance_tiers: dict[str, str] = cfg.get("importance_tiers", {})
     heal_attempts = state.get("heal_attempts", {})
+    heal_cycles: dict[str, int] = dict(state.get("heal_cycles", {}))
 
     # Load or initialise structural check cache
     check_cache: dict[str, dict[str, Any]] = dict(state.get("_structural_check_cache", {}))
@@ -85,22 +94,35 @@ async def quality_gate_node(
     all_module_names: set[str] = set()
     for repo_mods in state.get("modules", {}).values():
         for mod in repo_mods:
-            mod_name = mod.get("properties", {}).get("name", "")
+            props = mod.get("properties", {}) or {}
+            mod_name = props.get("name", "")
+            repo = props.get("repository", "")
             if mod_name:
                 all_module_names.add(mod_name)
+                if repo:
+                    all_module_names.add(f"{repo}|{mod_name}")
 
     for page_dict in state.get("pages", []):
+        gen_mode = page_dict.get("metadata", {}).get("generation_mode", "")
+        if gen_mode == "agent_error":
+            page_path = page_dict.get("path", "")
+            quality_scores[page_path] = {
+                "l1_structural": 0.0,
+                "overall": 0.0,
+                "skipped_reason": "agent_error",
+            }
+            cycles = heal_cycles.get(page_path, 0)
+            if cycles < 1:
+                pages_to_heal.append(page_path)
+            continue
+
         try:
             page = WikiPage.from_dict(page_dict)
         except Exception:
             log.warning("quality_gate_page_parse_failed", page_data=str(page_dict)[:100])
             continue
 
-        raw_tier = importance_tiers.get(page.path, "standard")
-        try:
-            tier = ImportanceTier(str(raw_tier).lower())
-        except ValueError:
-            tier = ImportanceTier.STANDARD
+        tier = resolve_tier(page.path, importance_tiers)
 
         if tier == ImportanceTier.SKELETON:
             quality_scores[page.path] = {"l1_structural": 1.0, "overall": 1.0}
@@ -159,10 +181,16 @@ async def quality_gate_node(
 
         threshold = 0.7 if tier == ImportanceTier.CORE else 0.5
         max_retries = 2 if tier == ImportanceTier.CORE else 1
-        attempts = heal_attempts.get(page.path, 0)
+        cycles = heal_cycles.get(page.path, 0)
 
         structural_score = score_dict["l1_structural"]
-        if structural_score < threshold and attempts < max_retries:
+        l2_val = score_dict.get("l2_bench", 1.0)
+        l2_below = (
+            (l2_val < wiki_cfg.heal_l2_threshold)
+            if wiki_cfg.heal_l2_threshold > 0 and "L2" in levels
+            else False
+        )
+        if (structural_score < threshold or l2_below) and cycles < max_retries:
             pages_to_heal.append(page.path)
 
     if l3_candidates and llm:
@@ -183,6 +211,20 @@ async def quality_gate_node(
                 quality_scores[path]["overall"] = _compute_overall(quality_scores[path])
             elif isinstance(r, BaseException):
                 log.warning("l3_evaluation_failed", error=str(r))
+
+        if wiki_cfg.heal_on_l3_failure and "L3" in levels:
+            for page_path, score_dict in quality_scores.items():
+                l3_val = score_dict.get("l3_llm_judge")
+                if l3_val is None:
+                    continue
+                tier_str = resolve_tier(page_path, importance_tiers)
+                if tier_str == ImportanceTier.SKELETON:
+                    continue
+                l3_threshold = wiki_cfg.heal_l3_threshold
+                max_retries = 2 if tier_str == ImportanceTier.CORE else 1
+                cycles = heal_cycles.get(page_path, 0)
+                if l3_val < l3_threshold and cycles < max_retries and page_path not in pages_to_heal:
+                    pages_to_heal.append(page_path)
 
     if len(pages_to_heal) > 1:
         if "L2" in levels:

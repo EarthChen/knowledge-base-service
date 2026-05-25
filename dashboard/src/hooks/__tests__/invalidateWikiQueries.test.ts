@@ -21,7 +21,7 @@ describe("invalidateWikiQueriesForBusiness", () => {
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
 
-  it("uses a predicate that only matches wiki keys containing the trimmed business id", async () => {
+  it("uses a predicate that matches wiki keys containing the trimmed business id", async () => {
     await invalidateWikiQueriesForBusiness(queryClient, "  biz-a  ");
     expect(invalidateSpy).toHaveBeenCalledTimes(1);
     const predicate = invalidateSpy.mock.calls[0][0].predicate!;
@@ -37,8 +37,19 @@ describe("invalidateWikiQueriesForBusiness", () => {
     expect(
       predicate({ queryKey: ["docs", "wiki", "biz-a"] } as never),
     ).toBe(false);
+  });
+
+  it("also invalidates wiki navigation and documentation summary keys without businessId", async () => {
+    await invalidateWikiQueriesForBusiness(queryClient, "biz-a");
+    const predicate = invalidateSpy.mock.calls[0][0].predicate!;
     expect(
       predicate({ queryKey: ["wiki", "navigation", "repo", "/x"] } as never),
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      predicate({ queryKey: ["wiki", "quality", "documentation-summary", "repo"] } as never),
+    ).toBe(true);
+    expect(
+      predicate({ queryKey: ["wiki", "claim-history", "page-uid"] } as never),
+    ).toBe(true);
   });
 });

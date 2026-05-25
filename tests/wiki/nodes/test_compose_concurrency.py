@@ -40,4 +40,4 @@ async def test_compose_leaf_modules_uses_pipeline_concurrency(monkeypatch):
 
     await compose_leaf_modules_node(state, config)
 
-    assert calls == ["compose"]
+    assert calls == ["module_compose"]

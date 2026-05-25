@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { Settings, CalendarClock } from "lucide-react";
 import { useI18n } from "../i18n/context";
 import { useAuth } from "../contexts/AuthContext";
@@ -7,8 +7,11 @@ import GeneralSettingsPanel from "./panels/GeneralSettingsPanel";
 import WebhookSettingsPanel from "./panels/WebhookSettingsPanel";
 import SyncSettingsPanel from "./panels/SyncSettingsPanel";
 
+const SETTINGS_TABS = ["general", "system"] as const;
+type SettingsTab = (typeof SETTINGS_TABS)[number];
+
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<"general" | "system">("general");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
   const { t } = useI18n();
   const { isAdmin } = useAuth();
 
@@ -17,6 +20,17 @@ export default function SettingsPage() {
       setActiveTab("general");
     }
   }, [isAdmin, activeTab]);
+
+  function handleTabListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const currentIndex = SETTINGS_TABS.indexOf(activeTab);
+    const delta = e.key === "ArrowRight" ? 1 : -1;
+    const nextIndex = (currentIndex + delta + SETTINGS_TABS.length) % SETTINGS_TABS.length;
+    const nextTab = SETTINGS_TABS[nextIndex]!;
+    setActiveTab(nextTab);
+    document.getElementById(`settings-tab-${nextTab}`)?.focus();
+  }
 
   return (
     <div className="space-y-6">
@@ -29,6 +43,7 @@ export default function SettingsPage() {
           className="flex gap-1 border-b border-gray-200 dark:border-gray-700"
           role="tablist"
           aria-label={t.settings.title}
+          onKeyDown={handleTabListKeyDown}
         >
           <button
             type="button"

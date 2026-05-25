@@ -58,7 +58,7 @@ interface FlowNodeData {
 }
 
 function BusinessFlowNode({ data }: NodeProps) {
-  const nodeData = data as FlowNodeData;
+  const nodeData = data as unknown as FlowNodeData;
   return (
     <div
       style={{
@@ -82,7 +82,7 @@ function BusinessFlowNode({ data }: NodeProps) {
 }
 
 function FlowStepNode({ data }: NodeProps) {
-  const nodeData = data as FlowNodeData;
+  const nodeData = data as unknown as FlowNodeData;
   return (
     <div
       style={{

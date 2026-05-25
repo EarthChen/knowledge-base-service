@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeDagrePositions, applyNodeStyles } from "../pages/GraphExplorer";
+import { computeDagrePositions, applyNodeStyles } from "../pages/graph/graphLayout";
 
 describe("GraphExplorer layout memoization", () => {
   const sampleNodes = [

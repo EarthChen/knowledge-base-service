@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Download } from "lucide-react";
-import { API_BASE, authHeaders } from "../../api/client";
+import { apiDownload } from "../../api/client";
 import { useI18n } from "../../i18n/context";
 
 interface Props {
@@ -19,11 +19,9 @@ export function OfflinePackDownloadButton({ repository, businessId }: Props) {
     setTruncated(false);
     try {
       setError(null);
-      const resp = await fetch(
-        `${API_BASE}/wiki/${encodeURIComponent(repository)}/offline-pack?business_id=${encodeURIComponent(businessId)}`,
-        { headers: authHeaders() },
+      const resp = await apiDownload(
+        `/wiki/${encodeURIComponent(repository)}/offline-pack?business_id=${encodeURIComponent(businessId)}`,
       );
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data: unknown = await resp.json();
       const obj = data as { truncated?: boolean };
       if (obj.truncated) setTruncated(true);
@@ -34,8 +32,8 @@ export function OfflinePackDownloadButton({ repository, businessId }: Props) {
       a.download = `${repository}-wiki-offline.json`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t.wiki.offlinePackDownloadFailed);
+    } catch {
+      setError(t.wiki.offlinePackDownloadFailed);
     } finally {
       setLoading(false);
     }

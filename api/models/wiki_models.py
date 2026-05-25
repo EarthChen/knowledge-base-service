@@ -47,6 +47,10 @@ class BusinessWikiGenerateBody(BaseModel):
         pattern="^(structure|full)$",
         description="Wiki generation mode: 'structure' for fast code-only, 'full' for LLM-enriched content",
     )
+    config_overrides: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Per-run config overrides merged into pipeline config (e.g. concurrency limits, flags).",
+    )
 
 
 class WikiAskBody(BaseModel):

@@ -152,6 +152,7 @@ class BusinessPipelineRunner:
         incremental: bool = True,
         mode: str = "full",
         force_full_run: bool = False,
+        config_overrides: dict[str, Any] | None = None,
         progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """Generate cross-repo business-level wiki."""
@@ -379,7 +380,7 @@ class BusinessPipelineRunner:
                 graph_store=self._store,
                 wiki_store=self._wiki_store,
                 progress_callback=progress_callback,
-                config_overrides={"language": language},
+                config_overrides={"language": language, **(config_overrides or {})},
                 budget_resolver=self._budget_resolver,
                 llm_rate_limiter=llm_rate_limiter,
             )
@@ -715,26 +716,58 @@ class BusinessPipelineRunner:
 
         if domain_tree:
             try:
-                pages_result = await self._wiki_store.get_wiki_pages_for_business(business_id)
+                repos_list = list(all_modules.keys()) + [business_id]
+                pages_q = (
+                    "MATCH (wp:WikiPage) "
+                    "WHERE wp.repository IN $repos "
+                    "OPTIONAL MATCH (wp)-[:SOURCE_ENTITY]->(e) "
+                    "RETURN wp.uid AS uid, wp.title AS title, wp.path AS path, "
+                    "wp.content AS content, wp.page_type AS page_type, "
+                    "wp.repository AS repository, "
+                    "coalesce(e.uid, '') AS entity_uid, "
+                    "coalesce(wp.canonical_key, '') AS canonical_key "
+                    "ORDER BY wp.path"
+                )
+                pages_query_result = await self._wiki_store.execute_query(
+                    pages_q,
+                    {"repos": repos_list},
+                )
+                pages_result = getattr(pages_query_result, "data", None) or []
                 if not pages_result:
-                    pages_result = await self._wiki_store.get_wiki_pages_for_business("default")
+                    fallback_result = await self._wiki_store.execute_query(
+                        pages_q,
+                        {"repos": ["default"]},
+                    )
+                    pages_result = getattr(fallback_result, "data", None) or []
                 pages_by_entity: dict[str, dict[str, Any]] = {}
                 for page in pages_result:
-                    entity_uid = page.get("entity_uid", "")
-                    title = page.get("title", "")
-                    uid = page.get("uid", "")
+                    row = {
+                        "uid": str(page.get("uid") or ""),
+                        "title": str(page.get("title") or ""),
+                        "path": str(page.get("path") or ""),
+                        "content": str(page.get("content") or ""),
+                        "page_type": str(page.get("page_type") or ""),
+                        "repository": str(page.get("repository") or ""),
+                        "entity_uid": str(page.get("entity_uid") or ""),
+                        "canonical_key": str(page.get("canonical_key") or ""),
+                    }
+                    entity_uid = row["entity_uid"]
+                    title = row["title"]
+                    uid = row["uid"]
                     if entity_uid:
-                        pages_by_entity[str(entity_uid)] = page
+                        pages_by_entity[entity_uid] = row
                     if title:
-                        pages_by_entity[str(title)] = page
+                        pages_by_entity[title] = row
                     if uid:
-                        pages_by_entity[str(uid)] = page
+                        pages_by_entity[uid] = row
+                reassembly_succeeded = bool(pipeline_result.reassembly_actions)
                 await self._tree_linker.link_pages_to_nested_tree(
                     business_id,
                     domain_tree,
                     pages_by_entity,
                     tree_builder,
                     language=language,
+                    reassembly_succeeded=reassembly_succeeded,
                 )
             except Exception:
                 log.warning(

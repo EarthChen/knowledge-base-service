@@ -29,13 +29,13 @@ from api.routes.wiki_shared import (
 )
 from core.auth import Role, require_role
 from services.git_manager import normalize_repo_name
+from store.task_store import SqliteTaskStore, TaskRecord
 from utils.git_utils import looks_like_git_url
 from wiki.event_bus import WikiEvent, WikiEventBus
 from wiki.exporter import WikiExporter
 from wiki.service import WikiRepoNotFoundError, WikiService
 from wiki.structure_planner import WikiScopeError
 from wiki.task_registry import WikiTaskRegistry
-from store.task_store import SqliteTaskStore, TaskRecord
 
 router = APIRouter(tags=["wiki", "tasks"])
 
@@ -98,6 +98,7 @@ async def _run_business_wiki_background(
     llm_provider: str | None,
     incremental: bool,
     mode: str = "structure",
+    config_overrides: dict[str, Any] | None = None,
     svc: WikiService,
     task_store: SqliteTaskStore | None,
     event_bus: WikiEventBus | None,
@@ -128,6 +129,11 @@ async def _run_business_wiki_background(
         detail = info.get("detail")
         if detail:
             extra["detail"] = str(detail)
+        # Enrich with node-level status data from pipeline _with_progress wrapper
+        for ns_field in ("node_statuses", "node_name", "node_status", "elapsed_sec"):
+            val = info.get(ns_field)
+            if val is not None:
+                extra[ns_field] = val
         if task_store:
             await _wiki_merge_task_status(task_store, task_id, "running", **extra)
         if registry:
@@ -144,6 +150,13 @@ async def _run_business_wiki_background(
             )
 
     try:
+        # Apply per-run concurrency overrides if present
+        if config_overrides:
+            concurrency_ov = {k: v for k, v in config_overrides.items() if k.endswith("_concurrency")}
+            if concurrency_ov:
+                from wiki.pipeline_concurrency import PipelineConcurrency
+
+                PipelineConcurrency.refresh(overrides=concurrency_ov)
         if task_store:
             await _wiki_merge_task_status(task_store, task_id, "running")
         if registry:
@@ -164,6 +177,7 @@ async def _run_business_wiki_background(
             llm_provider=llm_provider,
             incremental=incremental,
             mode=mode,
+            config_overrides=config_overrides,
             progress_callback=_progress,
         )
         if task_store:
@@ -587,6 +601,7 @@ async def generate_business_wiki(
                 llp=body.llm_provider,
                 inc=body.incremental,
                 md=body.mode,
+                cov=body.config_overrides,
                 wsvc=svc,
                 ts=task_store,
                 eb=event_bus,
@@ -598,6 +613,7 @@ async def generate_business_wiki(
                     llm_provider=llp,
                     incremental=inc,
                     mode=md,
+                    config_overrides=cov or None,
                     svc=wsvc,
                     task_store=ts,
                     event_bus=eb,
@@ -616,6 +632,7 @@ async def generate_business_wiki(
                     llm_provider=body.llm_provider,
                     incremental=body.incremental,
                     mode=body.mode,
+                    config_overrides=body.config_overrides or None,
                     svc=svc,
                     task_store=task_store,
                     event_bus=event_bus,
@@ -646,14 +663,32 @@ async def business_wiki_task_status(
     task_store: SqliteTaskStore | None = getattr(
         request.app.state, "wiki_task_store", None
     )
+    result: dict[str, Any] | None = None
     if task_store:
         row = await task_store.get(task_id)
         if row is not None:
-            return _wiki_task_record_to_client_dict(row)
-    registry = getattr(request.app.state, "wiki_tasks", None)
-    if registry:
-        rec = registry.get_task(task_id)
-        if rec is not None:
-            return rec
-    raise KbNotFound("task_not_found")
+            result = _wiki_task_record_to_client_dict(row)
+    if result is None:
+        registry = getattr(request.app.state, "wiki_tasks", None)
+        if registry:
+            result = registry.get_task(task_id)
+    if result is None:
+        raise KbNotFound("task_not_found")
+    # Inject live config snapshot so clients always see current concurrency/rate-limit values
+    try:
+        from wiki.pipeline_concurrency import PipelineConcurrency
+
+        result["config_snapshot"] = {
+            "compose_concurrency": PipelineConcurrency.limit("compose_concurrency"),
+            "domain_agent_concurrency": PipelineConcurrency.limit("domain_agent_concurrency"),
+            "heal_concurrency": PipelineConcurrency.limit("heal_concurrency"),
+            "wiki_generation_concurrency": PipelineConcurrency.limit("wiki_generation_concurrency"),
+            "bottomup_concurrency": PipelineConcurrency.limit("bottomup_concurrency"),
+            "module_compose_concurrency": PipelineConcurrency.limit("module_compose_concurrency"),
+            "domain_naming_concurrency": PipelineConcurrency.limit("domain_naming_concurrency"),
+            "flow_compose_concurrency": PipelineConcurrency.limit("flow_compose_concurrency"),
+        }
+    except Exception:
+        pass
+    return result
 

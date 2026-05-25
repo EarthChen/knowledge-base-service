@@ -16,6 +16,13 @@ import SystemSection from "./sections/SystemSection";
 import WikiFeaturesSection from "./sections/WikiFeaturesSection";
 import WikiGenerationSection from "./sections/WikiGenerationSection";
 import PipelineConcurrencySection from "./sections/PipelineConcurrencySection";
+import DomainAgentSection from "./sections/DomainAgentSection";
+import CompositionSection from "./sections/CompositionSection";
+import DomainReassemblySection from "./sections/DomainReassemblySection";
+import HealingQualitySection from "./sections/HealingQualitySection";
+import DelegationEnrichmentSection from "./sections/DelegationEnrichmentSection";
+import BusinessDomainSection from "./sections/BusinessDomainSection";
+import IncrementalBudgetSection from "./sections/IncrementalBudgetSection";
 import WikiGitSection from "./sections/WikiGitSection";
 import { configFieldLabel } from "./configFieldLabels";
 import {
@@ -135,6 +142,13 @@ export default function SystemConfigPanel() {
       <WikiFeaturesSection {...sectionProps} />
       <WikiGenerationSection {...sectionProps} />
       <PipelineConcurrencySection {...sectionProps} />
+      <DomainAgentSection {...sectionProps} />
+      <CompositionSection {...sectionProps} />
+      <DomainReassemblySection {...sectionProps} />
+      <HealingQualitySection {...sectionProps} />
+      <DelegationEnrichmentSection {...sectionProps} />
+      <BusinessDomainSection {...sectionProps} />
+      <IncrementalBudgetSection {...sectionProps} />
       <WikiGitSection {...sectionProps} />
       <LLMSection
         {...sectionProps}

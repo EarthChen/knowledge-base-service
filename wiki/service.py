@@ -709,6 +709,7 @@ class WikiService:
         token_budget_multiplier: float = 1.0,
         incremental: bool = True,
         mode: str = "full",
+        config_overrides: dict[str, Any] | None = None,
         progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """Generate cross-repo business-level wiki."""
@@ -720,6 +721,7 @@ class WikiService:
             token_budget_multiplier=token_budget_multiplier,
             incremental=incremental,
             mode=mode,
+            config_overrides=config_overrides,
             progress_callback=progress_callback,
         )
 

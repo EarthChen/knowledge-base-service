@@ -62,6 +62,81 @@ export const WIKI_GENERATION_KEYS = [
   "wiki.forgetting_initial_stability",
 ] as const;
 
+export const WIKI_DOMAIN_AGENT_KEYS = [
+  "wiki.domain_agent_max_iterations_core",
+  "wiki.domain_agent_max_iterations_standard",
+  "wiki.domain_agent_max_iterations_skeleton",
+  "wiki.domain_agent_timeout_sec",
+  "wiki.domain_agent_explore_max_rounds",
+  "wiki.domain_agent_explore_max_tool_calls",
+  "wiki.domain_agent_early_exit_quality",
+  "wiki.domain_agent_early_exit_min_chars",
+] as const;
+
+export const WIKI_COMPOSITION_KEYS = [
+  "wiki.wiki_content_language",
+  "wiki.flow_compose_enabled",
+  "wiki.guided_tour_enabled",
+  "wiki.business_wiki_skip_repo_pages",
+] as const;
+
+export const WIKI_REASSEMBLY_KEYS = [
+  "wiki.domain_reassembly_enabled",
+  "wiki.reassembly_merge_threshold",
+  "wiki.embedding_merge_threshold",
+  "wiki.reassembly_orphan_threshold",
+  "wiki.reassembly_max_moves_pct",
+  "wiki.reassembly_respect_user_modified",
+  "wiki.consolidation_min_count",
+  "wiki.consolidation_min_domains",
+] as const;
+
+export const WIKI_HEALING_QUALITY_KEYS = [
+  "wiki.heal_max_rounds_core",
+  "wiki.heal_max_rounds_standard",
+  "wiki.heal_loop_max_total_attempts",
+  "wiki.heal_l2_threshold",
+  "wiki.heal_on_l3_failure",
+  "wiki.heal_l3_threshold",
+  "wiki.quality_evaluation_mode",
+  "wiki.quality_min_score",
+  "wiki.quality_auto_heal",
+  "wiki.quality_judge_model",
+  "wiki.quality_sample_size",
+] as const;
+
+export const WIKI_DELEGATION_KEYS = [
+  "wiki.delegation_enabled",
+  "wiki.delegation_max_children",
+  "wiki.delegation_max_code_lines",
+  "wiki.delegation_grouping_strategy",
+  "wiki.enrichment_enabled",
+  "wiki.enrichment_round1_enabled",
+  "wiki.enrichment_round2_enabled",
+] as const;
+
+export const WIKI_BUSINESS_DOMAIN_KEYS = [
+  "wiki.business_domain_enabled",
+  "wiki.business_domain_sub_batch_size",
+  "wiki.business_domain_classify_timeout",
+  "wiki.business_domain_max_concurrency",
+  "wiki.business_domain_cache_ttl",
+] as const;
+
+export const WIKI_INCREMENTAL_BUDGET_KEYS = [
+  "wiki.incremental_enabled",
+  "wiki.resume_from_saved",
+  "wiki.default_llm_budget",
+  "wiki.code_budget_enabled",
+  "wiki.core_code_budget",
+  "wiki.standard_code_budget",
+  "wiki.skeleton_code_budget",
+  "wiki.importance_core_percentile",
+  "wiki.importance_standard_percentile",
+  "wiki.skeleton_strategy",
+  "wiki.skeleton_light_model",
+] as const;
+
 export const WIKI_GIT_KEYS = [
   "wiki.git_publish_enabled",
   "wiki.git_publish_mode",
@@ -114,6 +189,13 @@ export const ALL_CONFIG_KEYS: string[] = [
   ...WIKI_FEATURES_KEYS,
   ...WIKI_GENERATION_KEYS,
   ...WIKI_PIPELINE_CONCURRENCY_KEYS,
+  ...WIKI_DOMAIN_AGENT_KEYS,
+  ...WIKI_COMPOSITION_KEYS,
+  ...WIKI_REASSEMBLY_KEYS,
+  ...WIKI_HEALING_QUALITY_KEYS,
+  ...WIKI_DELEGATION_KEYS,
+  ...WIKI_BUSINESS_DOMAIN_KEYS,
+  ...WIKI_INCREMENTAL_BUDGET_KEYS,
   ...WIKI_GIT_KEYS,
   ...LLM_KEYS,
   ...STORAGE_KEYS_LIST,
@@ -130,6 +212,16 @@ export const BOOL_KEYS = new Set<string>([
   "wiki.enrichment_round1_enabled",
   "wiki.enrichment_round2_enabled",
   "wiki.git_publish_enabled",
+  "wiki.flow_compose_enabled",
+  "wiki.guided_tour_enabled",
+  "wiki.business_wiki_skip_repo_pages",
+  "wiki.domain_reassembly_enabled",
+  "wiki.reassembly_respect_user_modified",
+  "wiki.heal_on_l3_failure",
+  "wiki.quality_auto_heal",
+  "wiki.delegation_enabled",
+  "wiki.incremental_enabled",
+  "wiki.resume_from_saved",
   "llm.enabled",
   "llm.concept_extraction_enabled",
   "llm.business_flow_enabled",
@@ -148,9 +240,46 @@ export const NUMBER_FIELD_CONSTRAINTS: Record<string, NumberFieldConstraint> = {
   "wiki.domain_agent_concurrency": { min: 1, max: 10 },
   "wiki.module_compose_concurrency": { min: 1, max: 10 },
   "wiki.flow_compose_concurrency": { min: 1, max: 10 },
-  "wiki.heal_max_rounds_core": { min: 0, max: 5 },
-  "wiki.heal_max_rounds_standard": { min: 0, max: 5 },
+  "wiki.heal_max_rounds_core": { min: 1, max: 10 },
+  "wiki.heal_max_rounds_standard": { min: 1, max: 5 },
   "wiki.llm_global_rpm_limit": { min: 0, max: 300 },
+  // Domain agent
+  "wiki.domain_agent_max_iterations_core": { min: 1, max: 100 },
+  "wiki.domain_agent_max_iterations_standard": { min: 1, max: 50 },
+  "wiki.domain_agent_max_iterations_skeleton": { min: 1, max: 20 },
+  "wiki.domain_agent_timeout_sec": { min: 60, max: 3600 },
+  "wiki.domain_agent_explore_max_rounds": { min: 1, max: 20 },
+  "wiki.domain_agent_explore_max_tool_calls": { min: 5, max: 100 },
+  "wiki.domain_agent_early_exit_quality": { min: 0, max: 1 },
+  "wiki.domain_agent_early_exit_min_chars": { min: 0, max: 5000 },
+  // Reassembly
+  "wiki.reassembly_merge_threshold": { min: 0.5, max: 1 },
+  "wiki.embedding_merge_threshold": { min: 0.5, max: 1 },
+  "wiki.reassembly_orphan_threshold": { min: 0.3, max: 1 },
+  "wiki.reassembly_max_moves_pct": { min: 0, max: 1 },
+  "wiki.consolidation_min_count": { min: 2, max: 20 },
+  "wiki.consolidation_min_domains": { min: 2, max: 20 },
+  // Healing & quality
+  "wiki.heal_loop_max_total_attempts": { min: 1, max: 50 },
+  "wiki.heal_l2_threshold": { min: 0, max: 1 },
+  "wiki.heal_l3_threshold": { min: 0, max: 1 },
+  "wiki.quality_min_score": { min: 0, max: 1 },
+  "wiki.quality_sample_size": { min: 1, max: 100 },
+  // Delegation
+  "wiki.delegation_max_children": { min: 5, max: 100 },
+  "wiki.delegation_max_code_lines": { min: 100, max: 50000 },
+  // Business domain
+  "wiki.business_domain_sub_batch_size": { min: 10, max: 200 },
+  "wiki.business_domain_classify_timeout": { min: 60, max: 3600 },
+  "wiki.business_domain_max_concurrency": { min: 1, max: 10 },
+  "wiki.business_domain_cache_ttl": { min: 0, max: 86400 },
+  // Incremental & budget
+  "wiki.default_llm_budget": { min: 1000, max: 100000 },
+  "wiki.core_code_budget": { min: 1000, max: 100000 },
+  "wiki.standard_code_budget": { min: 1000, max: 50000 },
+  "wiki.skeleton_code_budget": { min: 100, max: 10000 },
+  "wiki.importance_core_percentile": { min: 50, max: 99 },
+  "wiki.importance_standard_percentile": { min: 10, max: 80 },
 };
 
 export type NumberFieldValidationError =

@@ -873,3 +873,46 @@ class TestTfidfFallbackClustering:
         assert embeddings is None
         total = sum(len(c) for c in clusters)
         assert total == 4
+
+
+class TestDedupSemanticSuffix:
+    def test_collision_uses_module_suffix(self):
+        results = [
+            {"slug": "payment", "display_name": "支付", "modules": ["OrderService", "PayService"]},
+            {"slug": "payment", "display_name": "支付退款", "modules": ["RefundHandler", "ChargebackService"]},
+        ]
+        deduped = _dedup_parallel_naming_results(results, [])
+        slugs = [r["slug"] for r in deduped]
+        assert len(set(slugs)) == 2, f"Expected unique slugs, got {slugs}"
+        collision_slug = slugs[1]
+        assert "payment" in collision_slug
+        # Should NOT be a 4-char hex hash suffix
+        suffix_part = collision_slug.split("payment-", 1)[-1]
+        assert not all(c in "0123456789abcdef" for c in suffix_part if suffix_part), (
+            f"Expected semantic suffix, not hash: {collision_slug}"
+        )
+
+    def test_no_collision_unchanged(self):
+        results = [
+            {"slug": "payment", "display_name": "支付", "modules": ["PayService"]},
+            {"slug": "family", "display_name": "家族", "modules": ["FamilyService"]},
+        ]
+        deduped = _dedup_parallel_naming_results(results, [])
+        assert deduped[0]["slug"] == "payment"
+        assert deduped[1]["slug"] == "family"
+
+    def test_collision_no_modules_uses_hash(self):
+        results = [
+            {"slug": "core", "display_name": "核心", "modules": []},
+            {"slug": "core", "display_name": "核心2", "modules": []},
+        ]
+        deduped = _dedup_parallel_naming_results(results, [])
+        assert len(set(r["slug"] for r in deduped)) == 2
+
+    def test_collision_with_existing_slugs(self):
+        results = [
+            {"slug": "payment", "display_name": "支付", "modules": ["PayService", "OrderService"]},
+        ]
+        deduped = _dedup_parallel_naming_results(results, ["payment"])
+        assert deduped[0]["slug"] != "payment"
+        assert "payment" in deduped[0]["slug"]

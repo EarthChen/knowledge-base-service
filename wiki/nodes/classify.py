@@ -83,8 +83,13 @@ def _ensure_ascii_keys(
             continue
         ascii_slug = normalize_slug(key)
         if not ascii_slug or ascii_slug == "unnamed" or ascii_slug in result:
-            unnamed_counter += 1
-            ascii_slug = f"domain-{unnamed_counter:02d}"
+            module_short_names = [name.rsplit(".", 1)[-1] for _, name in pairs[:3]]
+            candidate = normalize_slug("-".join(module_short_names))
+            if candidate and candidate != "unnamed" and candidate not in result:
+                ascii_slug = candidate
+            else:
+                unnamed_counter += 1
+                ascii_slug = f"misc-{unnamed_counter:02d}"
         updated_display.setdefault(ascii_slug, key)
         result[ascii_slug] = pairs
 

@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.config import ContentLanguage
+from core.config import ContentLanguage, get_settings
 from core.log import get_logger
 from store.schema import GraphNode
 from wiki.dependency_graph import DomainNode
@@ -240,7 +240,23 @@ async def load_existing_module_summaries(
     business_id: str,
     all_modules: dict[str, list[GraphNode]] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Load persisted module summaries for incremental reuse (checkpoint, then graph fallback)."""
+    """Load persisted module summaries for incremental reuse.
+
+    Priority: graph (when prefer_graph_for_incremental=True) → checkpoint → graph fallback.
+    """
+    prefer_graph = getattr(get_settings().wiki, "prefer_graph_for_incremental", True)
+
+    if prefer_graph and all_modules:
+        summaries = _summaries_from_graph_modules(all_modules)
+        if summaries:
+            log.info(
+                "existing_summaries_loaded",
+                business_id=business_id,
+                source="graph",
+                count=len(summaries),
+            )
+            return summaries
+
     summaries = await _load_summaries_from_checkpoint(business_id)
     if summaries:
         log.info(
@@ -250,13 +266,14 @@ async def load_existing_module_summaries(
             count=len(summaries),
         )
         return summaries
-    if all_modules:
+
+    if all_modules and not prefer_graph:
         summaries = _summaries_from_graph_modules(all_modules)
         if summaries:
             log.info(
                 "existing_summaries_loaded",
                 business_id=business_id,
-                source="graph",
+                source="graph_fallback",
                 count=len(summaries),
             )
     return summaries

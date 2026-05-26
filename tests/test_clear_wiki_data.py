@@ -1,6 +1,7 @@
 """Tests for wiki-only data clearing."""
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from store.graph_queries import GraphQueryRepository
 
@@ -49,3 +50,36 @@ class TestDeleteWikiData:
         has_biz_id = any(p.get("business_id") == "my-biz-123" for p in all_params)
         has_prefix = any("my-biz-123" in str(p.get("prefix", "")) for p in all_params)
         assert has_biz_id or has_prefix, f"No call scoped to my-biz-123: {all_params}"
+
+
+class TestDeleteWikiDataClearsCheckpoint:
+    @pytest.mark.asyncio
+    async def test_delete_wiki_data_route_clears_checkpoint(self):
+        """DELETE /wiki/{business_id} should also remove LangGraph checkpoint files."""
+        from api.routes.admin_graph_mcp_routes import delete_wiki_data
+
+        mock_svc = MagicMock()
+        mock_svc.store = MagicMock()
+
+        with (
+            patch("api.routes.admin_graph_mcp_routes.GraphQueryRepository") as gq_cls,
+            patch("api.routes.admin_graph_mcp_routes.WikiPersistence") as wp_cls,
+        ):
+            mock_queries = MagicMock()
+            mock_queries.delete_wiki_data = AsyncMock(return_value=42)
+            gq_cls.return_value = mock_queries
+
+            mock_persistence = MagicMock()
+            mock_persistence.delete_checkpoint = AsyncMock()
+            wp_cls.return_value = mock_persistence
+
+            result = await delete_wiki_data("my-biz-123", svc=mock_svc)
+
+        mock_queries.delete_wiki_data.assert_called_once_with("my-biz-123")
+        wp_cls.assert_called_once_with(mock_svc.store)
+        mock_persistence.delete_checkpoint.assert_called_once_with("my-biz-123")
+        assert result == {
+            "business_id": "my-biz-123",
+            "deleted_nodes": 42,
+            "checkpoint_deleted": True,
+        }

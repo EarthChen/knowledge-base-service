@@ -109,6 +109,9 @@ class WikiPipelineState(TypedDict):
     # --- Domain display names (set by graph_domain_decompose, consumed by persist_classification + service) ---
     domain_display_names: NotRequired[dict[str, str]]  # slug → localized display name
 
+    # English slug phrases → Chinese display names for term consistency (graph_domain_decompose)
+    term_glossary: NotRequired[dict[str, str]]
+
     # Module-level architecture layer classification (classify_architecture_layers node)
     architecture_layers: NotRequired[dict[str, dict[str, Any]]]
 

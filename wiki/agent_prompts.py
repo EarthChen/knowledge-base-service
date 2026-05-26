@@ -307,3 +307,16 @@ def get_write_system_prompt(language: str = "简体中文") -> str:
         f"- Keep class names, method names, and file paths in their original form.\n"
     )
     return AGENT_WRITE_SYSTEM_EN + lang_rule
+
+
+def build_term_glossary_prompt(glossary: dict[str, str]) -> str:
+    """Build a term glossary prompt section from a glossary dict."""
+    if not glossary:
+        return ""
+    lines = [f"- {eng} → **{chn}**" for eng, chn in sorted(glossary.items())]
+    return (
+        "\n--- 术语约束 (Term Glossary) ---\n"
+        "以下术语在本项目中有确定的中文表达，请严格使用:\n"
+        + "\n".join(lines)
+        + "\n---\n"
+    )

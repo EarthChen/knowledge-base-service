@@ -42,7 +42,8 @@ def system_wiki_parent_overview(language: str = "简体中文") -> str:
         f"3. Write in {language} for all business descriptions\n"
         "4. Do NOT just list sub-domains; explain the STORY of how they work together\n"
         "5. Include at least one Mermaid diagram showing sub-domain interactions\n"
-        "6. Output valid JSON only."
+        "6. Output valid JSON only.\n\n"
+        "严禁发明代码库中不存在的组件名称、接口名称或事件名称。仅引用子域文档中已确认存在的实体。"
     )
 
 

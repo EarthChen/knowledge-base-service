@@ -376,6 +376,7 @@ async def compose_domain_agents_node(
                     explore_max_tool_calls=explore_calls,
                     budget_resolver=budget_resolver,
                     content_language=content_language.display_label,
+                    term_glossary=state.get("term_glossary", {}),
                 )
                 module_repo_pairs, valid_pairs = _domain_module_pairs(
                     domain, domain_mapping, module_lookup,
@@ -424,6 +425,9 @@ async def compose_domain_agents_node(
                             call_edges=domain_edges,
                             language=content_language,
                         )
+                for page in result:
+                    page.setdefault("content_language", content_language.value)
+
                 elapsed = asyncio.get_running_loop().time() - domain_start
                 log.info(
                     "domain_agent_done",

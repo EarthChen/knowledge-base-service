@@ -1,7 +1,7 @@
 # 待办事项与改进建议
 
 **Created:** 2026-05-24
-**Last Updated:** 2026-05-26 (Wiki 质量修复 v2 — Batch 2.5 根因分析)
+**Last Updated:** 2026-05-26 (Wiki 质量修复 v3 — Slug 命名 + DocOrchestrator 统一完成)
 
 ---
 
@@ -112,11 +112,14 @@ Batch 1-2 部署后审计发现核心质量问题被更底层 bug 掩盖。详�
 | 4 | Coverage compound key 剥离 | P1 | `quality_report.py` | [x] |
 | 5 | TreeLinker 内容保护 | P1 | `tree_linker.py` | [x] |
 
-### 1. DocOrchestrator 统一 [P2] → 规划为 Wiki 质量修复 v2 Batch 4
+### 1. Wiki 质量修复 v3 — Slug 命名 + DocOrchestrator 统一 ✅
 
-将 `use_orchestrator_template` 默认改为 `True`，统一 DomainDocAgent 的生成路径。当前 `generate_with_iterations()` 有更丰富的 guardrails/timeouts，需要将这些能力迁移到 DocOrchestrator 模板后再切换。
+详见 [`specs/2026-05-26-wiki-quality-fix-v2-design.md`](specs/2026-05-26-wiki-quality-fix-v2-design.md) 和 [`plans/2026-05-26-wiki-quality-fix-v3.md`](plans/2026-05-26-wiki-quality-fix-v3.md)。
 
-**前置条件:** Wiki 质量修复 v2 Batch 1-3 + Batch 2.5 完成并验证。详见 [`specs/2026-05-26-wiki-quality-fix-v2-design.md`](specs/2026-05-26-wiki-quality-fix-v2-design.md) § 12。
+| Batch | 内容 | 状态 |
+|-------|------|------|
+| Batch 3 | Slug 命名改革：`_ensure_ascii_keys` 模块派生 slug、碰撞语义后缀、`_fallback_name` 测试 | ✅ |
+| Batch 4 | DocOrchestrator 统一：4 个 hook 接口、`generate()` 集成 timeout/guardrails/trace、`use_orchestrator_template` 翻转为 `True` | ✅ |
 
 ### 2. Agent semantic_search 查询扩展 [P2]
 

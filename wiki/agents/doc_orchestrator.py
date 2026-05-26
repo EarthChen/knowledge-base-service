@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -52,29 +53,72 @@ class DocOrchestrator(ABC):
 
         await self.pre_fill(memory, module_names)
 
-        memory = await self._agent.run_tool_loop(
+        explore_coro = self._agent.run_tool_loop(
             self._explore_system_prompt,
             self._build_explore_prompt(module_names, baseline_context),
             memory,
         )
+        explore_timeout = self.get_phase_timeout("explore")
+        explore_complete = True
+        try:
+            if explore_timeout is not None:
+                memory = await asyncio.wait_for(explore_coro, timeout=explore_timeout)
+            else:
+                memory = await explore_coro
+        except TimeoutError:
+            has_explore_data = bool(
+                getattr(memory, "discovered_call_chains", None)
+                or getattr(memory, "discovered_implementations", None)
+                or getattr(memory, "search_findings", None)
+            )
+            explore_complete = has_explore_data
+            log.warning(
+                "orchestrator_explore_timeout",
+                name=self._name,
+                timeout=explore_timeout,
+                has_prefill=bool(getattr(memory, "code_snippets", None)),
+                has_explore_data=has_explore_data,
+            )
+
+        topic_plan = None
+        if explore_complete:
+            topic_plan = await self.plan_topics(memory, module_names)
+
+        if topic_plan is not None:
+            pages = await self._write_topics(
+                topic_plan, baseline_context, memory, module_names,
+            )
+            if pages is not None:
+                return pages
 
         content = ""
         for iteration in range(self._max_iterations):
+            write_coro = self._agent.run_generation(
+                self._write_system_prompt,
+                self._build_write_prompt(baseline_context, memory),
+            )
+            write_timeout = self.get_phase_timeout("write")
             try:
-                content = await self._agent.run_generation(
-                    self._write_system_prompt,
-                    self._build_write_prompt(baseline_context, memory),
-                )
+                if write_timeout is not None:
+                    content = await asyncio.wait_for(write_coro, timeout=write_timeout)
+                else:
+                    content = await write_coro
             except LLMGenerationError:
                 log.warning("doc_run_generation_failed", name=self._name, exc_info=True)
                 generate_skeleton = getattr(self._agent, "_generate_skeleton", None)
                 if generate_skeleton is not None:
                     content = generate_skeleton(module_names, self._name)
                 break
+            except TimeoutError:
+                log.warning("orchestrator_write_timeout", name=self._name, iteration=iteration)
+                continue
 
             content = await self._verify_code_blocks(content, memory)
 
             quality = await self.evaluate(content, module_names)
+
+            await self.run_guardrails(content, iteration, {"module_names": module_names})
+            self.build_iteration_trace(iteration, quality)
 
             if self.is_acceptable(quality, iteration):
                 break
@@ -146,6 +190,35 @@ class DocOrchestrator(ABC):
     def _build_focused_prompt(self, uncovered_modules: list[str]) -> str:
         modules_str = ", ".join(uncovered_modules)
         return f"Focus exploration on: {modules_str}"
+
+    async def plan_topics(
+        self, memory: Any, module_names: list[str],
+    ) -> list[Any] | None:
+        """Optional: plan topic splits before writing. Default: no splitting."""
+        return None
+
+    async def _write_topics(
+        self,
+        topic_plan: list[Any] | None,
+        baseline_context: str,
+        memory: Any,
+        module_names: list[str],
+    ) -> list[dict[str, Any]] | None:
+        return None
+
+    def get_phase_timeout(self, phase: str) -> float | None:
+        """Optional: per-phase timeout in seconds. Default: no timeout."""
+        return None
+
+    async def run_guardrails(
+        self, content: str, iteration: int, context: dict[str, Any],
+    ) -> Any | None:
+        """Optional: run output guardrail chain. Default: skip."""
+        return None
+
+    def build_iteration_trace(self, iteration: int, quality: Any) -> dict[str, Any] | None:
+        """Optional: collect iteration trace data. Default: skip."""
+        return None
 
     @abstractmethod
     async def pre_fill(self, memory: Any, module_names: list[str]) -> None:

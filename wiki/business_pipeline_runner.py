@@ -233,6 +233,18 @@ class BusinessPipelineRunner:
                 deleted += cnt
         return deleted
 
+    async def _post_run_cleanup(self, business_id: str) -> None:
+        """Clean up checkpoint after successful pipeline run (when configured)."""
+        if not getattr(self._wiki_cfg, "auto_cleanup_checkpoint", False):
+            return
+        if self._persistence is None:
+            return
+        try:
+            await self._persistence.delete_checkpoint(business_id)
+            log.info("post_pipeline_checkpoint_cleaned", business_id=business_id)
+        except Exception:
+            log.warning("post_pipeline_checkpoint_cleanup_failed", business_id=business_id, exc_info=True)
+
     async def run(
         self,
         business_id: str,
@@ -249,6 +261,13 @@ class BusinessPipelineRunner:
         """Generate cross-repo business-level wiki."""
         app_cfg = self._wiki_cfg
         incremental = incremental and app_cfg.incremental_enabled
+
+        if force_full_run and self._persistence is not None:
+            try:
+                await self._persistence.delete_checkpoint(business_id)
+                log.info("checkpoint_cleared_for_full_run", business_id=business_id)
+            except Exception:
+                log.warning("checkpoint_clear_failed", business_id=business_id, exc_info=True)
 
         if self._wiki_store is None:
             raise WikiScopeError("WikiStore required for business-level wiki generation")
@@ -931,6 +950,8 @@ class BusinessPipelineRunner:
                 business_id=business_id,
                 exc_info=True,
             )
+
+        await self._post_run_cleanup(business_id)
 
         return {
             "business_id": business_id,

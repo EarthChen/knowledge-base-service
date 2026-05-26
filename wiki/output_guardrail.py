@@ -94,28 +94,40 @@ class CoverageCheck:
 
 
 class LanguageConsistencyCheck:
-    """Score heading language against target content language."""
+    """Check that content language matches target language setting."""
 
     name = "language_consistency"
-    _THRESHOLD = 0.5
+
+    _CN_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
+    _CHINESE_TARGETS = frozenset({"简体中文", "繁體中文", "zh-CN", "zh-TW", "zh"})
+    _CODE_BLOCK_RE = re.compile(r"```[\s\S]*?```", re.DOTALL)
+    _BACKTICK_RE = re.compile(r"`[^`]+`")
+
+    def _compute_cn_ratio(self, text: str) -> float:
+        cleaned = self._CODE_BLOCK_RE.sub("", text)
+        cleaned = self._BACKTICK_RE.sub("", cleaned)
+        total_chars = len(cleaned.strip())
+        if total_chars == 0:
+            return 0.0
+        cn_chars = len(self._CN_CHAR_RE.findall(cleaned))
+        return cn_chars / total_chars
 
     async def check(self, page_content: str, context: dict) -> CheckResult:
-        from wiki.domain_doc_agent import _check_language_consistency
+        target = context.get("target_language", "")
+        if target not in self._CHINESE_TARGETS:
+            return CheckResult(name=self.name, passed=True, score=1.0)
 
-        target_language = context.get("content_language", "简体中文")
-        score = _check_language_consistency(page_content, target_language)
-        passed = score >= self._THRESHOLD
-        issues: list[str] = []
-        if not passed:
-            issues.append(
-                f"Language consistency score {score:.2f} below threshold {self._THRESHOLD}"
+        threshold = context.get("cn_ratio_threshold", 0.4)
+        cn_ratio = self._compute_cn_ratio(page_content)
+
+        if cn_ratio < threshold:
+            return CheckResult(
+                name=self.name,
+                passed=False,
+                score=cn_ratio,
+                issues=[f"CN ratio {cn_ratio:.2f} below threshold {threshold} for target '{target}'"],
             )
-        return CheckResult(
-            name=self.name,
-            passed=passed,
-            score=round(score, 4),
-            issues=issues,
-        )
+        return CheckResult(name=self.name, passed=True, score=min(1.0, cn_ratio * 2))
 
 
 class LengthCheck:
@@ -153,4 +165,30 @@ class OutputGuardrailChain:
         return GuardrailResult(
             passed=all(r.passed for r in results),
             details=details,
+        )
+
+
+@dataclass
+class TermCheckResult:
+    has_violations: bool = False
+    violations: list[str] = field(default_factory=list)
+
+
+class TermConsistencyCheck:
+    """Soft guardrail: check if English terms appear without their Chinese equivalents."""
+
+    async def evaluate(self, content: str, context: dict) -> TermCheckResult:
+        glossary = context.get("term_glossary", {})
+        if not glossary:
+            return TermCheckResult()
+
+        violations: list[str] = []
+        content_lower = content.lower()
+        for eng_term, chn_term in glossary.items():
+            if eng_term.lower() in content_lower and chn_term not in content:
+                violations.append(f"'{eng_term}' found without '{chn_term}'")
+
+        return TermCheckResult(
+            has_violations=len(violations) > 0,
+            violations=violations,
         )

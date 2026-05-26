@@ -302,12 +302,38 @@ class AppWikiFlags(BaseModel):
     domain_agent_early_exit_quality: float = Field(default=0.6, ge=0.0, le=1.0)
     domain_agent_early_exit_min_chars: int = Field(default=500, ge=0)
     use_orchestrator_template: bool = Field(
-        default=False,
+        default=True,
         description="When True, DomainDocAgent.generate_with_iterations delegates to DocOrchestrator.generate()",
     )
     topic_split_quality_check: bool = True
+    enable_topic_pages: bool = Field(
+        default=True, description="Enable topic page generation in Orchestrator path"
+    )
     domain_split_threshold: int = Field(default=20, description="Min modules to trigger recursive sub-domain split")
     domain_split_max_depth: int = Field(default=2, description="Max recursion depth for sub-domain splitting")
+    domain_budget_max: int = Field(
+        default=50, ge=5, le=200, description="Maximum number of top-level domains after clustering"
+    )
+    overview_min_content_chars: int = Field(
+        default=2000, ge=500, le=10000, description="Minimum content chars for overview pages"
+    )
+    infrastructure_slug_keywords: list[str] = Field(
+        default=["configuration", "typehandler", "aspect", "package-info", "wrapper"],
+        description="Slug keywords that mark a single-module domain as infrastructure (merged into nearby domain)",
+    )
+    language_guardrail_cn_ratio: float = Field(
+        default=0.4, ge=0.0, le=1.0, description="Min CN char ratio for Chinese content"
+    )
+    auto_cleanup_checkpoint: bool = Field(
+        default=False, description="Delete checkpoint after successful pipeline run"
+    )
+    term_overrides: dict[str, str] = Field(
+        default_factory=dict,
+        description="Manual term override map {english: chinese}, takes precedence over auto-extracted",
+    )
+    prefer_graph_for_incremental: bool = Field(
+        default=True, description="Prefer FalkorDB over checkpoint for incremental state"
+    )
     wiki_generation_concurrency: int = Field(default=5, ge=1)
     heal_concurrency: int = Field(default=8, ge=1)
     bottomup_concurrency: int = Field(default=24, ge=1)

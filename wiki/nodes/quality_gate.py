@@ -52,6 +52,33 @@ def _compute_overall(score_dict: dict[str, Any]) -> float:
     return round(sum(numeric_scores) / len(numeric_scores), 4) if numeric_scores else 0.0
 
 
+def _check_min_content_length(
+    page: dict[str, Any],
+    overview_min: int | None = None,
+    topic_min: int = 1000,
+) -> dict[str, Any]:
+    """Check if page content meets minimum length threshold."""
+    if overview_min is None:
+        overview_min = get_settings().wiki.overview_min_content_chars
+    content = str(page.get("content") or "")
+    page_type = str(page.get("page_type") or "")
+    content_len = len(content)
+
+    if page_type == "domain_overview":
+        threshold = overview_min
+    elif page_type == "topic":
+        threshold = topic_min
+    else:
+        threshold = 500
+
+    return {
+        "below_threshold": content_len < threshold,
+        "content_len": content_len,
+        "threshold": threshold,
+        "page_type": page_type,
+    }
+
+
 async def quality_gate_node(
     state: WikiPipelineState, config: RunnableConfig | None = None
 ) -> dict[str, Any]:
@@ -176,6 +203,15 @@ async def quality_gate_node(
             if should_l3 and not l3_cache_key and llm:
                 l3_candidates.append((page.path, page, page_dict))
 
+        is_topic_index = page_dict.get("metadata", {}).get("overview_kind") == "topic_index"
+        length_result = _check_min_content_length(page_dict)
+        below_min = length_result["below_threshold"] and not is_topic_index
+        score_dict["below_min_length"] = below_min
+        if below_min:
+            heal_hints[page.path] = (
+                f"Content too short ({length_result['content_len']} < {length_result['threshold']} chars)"
+            )
+
         score_dict["overall"] = _compute_overall(score_dict)
 
         quality_scores[page.path] = score_dict
@@ -191,7 +227,8 @@ async def quality_gate_node(
             if wiki_cfg.heal_l2_threshold > 0 and "L2" in levels
             else False
         )
-        if (structural_score < threshold or l2_below) and cycles < max_retries:
+        below_min_len = score_dict.get("below_min_length", False)
+        if (structural_score < threshold or l2_below or below_min_len) and cycles < max_retries:
             pages_to_heal.append(page.path)
 
     if l3_candidates and llm:

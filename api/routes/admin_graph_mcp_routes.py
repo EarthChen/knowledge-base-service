@@ -17,6 +17,7 @@ from api.routes import kb_routers
 from api.routes.kb_dependencies import get_effective_business_id, get_service
 from core.auth import Role, TokenInfo, require_role
 from core.config import get_settings
+from core.log import get_logger
 from api.routes.kb_schemas import (
     BlastRadiusRequest,
     GraphExpandRequest,
@@ -30,7 +31,7 @@ from api.routes.kb_schemas import (
 from services.kb_service import KnowledgeBaseService
 from store.graph_queries import GraphQueryRepository, validate_architecture_class_search
 from utils.git_utils import looks_like_git_url
-from core.log import get_logger
+from wiki.persistence import WikiPersistence
 
 log = get_logger(__name__)
 viewer_router = kb_routers.viewer_router
@@ -64,7 +65,22 @@ async def delete_wiki_data(
     """Delete all wiki data for a business, preserving code index."""
     queries = GraphQueryRepository(svc.store)
     deleted = await queries.delete_wiki_data(business_id)
-    return {"business_id": business_id, "deleted_nodes": deleted}
+    checkpoint_deleted = False
+    try:
+        persistence = WikiPersistence(svc.store)
+        await persistence.delete_checkpoint(business_id)
+        checkpoint_deleted = True
+    except Exception as exc:
+        log.warning(
+            "wiki_checkpoint_delete_failed",
+            business_id=business_id,
+            error=str(exc),
+        )
+    return {
+        "business_id": business_id,
+        "deleted_nodes": deleted,
+        "checkpoint_deleted": checkpoint_deleted,
+    }
 
 
 @admin_router.get("/index/report/{repository:path}")

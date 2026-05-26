@@ -7,6 +7,16 @@ import pytest
 from wiki.domain_doc_agent import DomainDocAgent
 
 
+@pytest.fixture(autouse=True)
+def _use_legacy_path():
+    from core.config import get_settings
+    cfg = get_settings().wiki
+    original = cfg.use_orchestrator_template
+    cfg.use_orchestrator_template = False
+    yield
+    cfg.use_orchestrator_template = original
+
+
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_prefills_code_snippets_before_explore():

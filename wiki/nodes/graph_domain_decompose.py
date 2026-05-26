@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import re
 from typing import Any
 
 import numpy as np
@@ -22,6 +23,7 @@ from wiki.nodes.classify import (
     is_module_pinned,
 )
 from wiki.nodes.domain_filters import is_data_model
+from wiki.path_conventions import normalize_slug
 from wiki.pipeline_concurrency import PipelineConcurrency
 
 log = get_logger(__name__)
@@ -140,6 +142,157 @@ def _apply_merge_map(
             new_display[d] = display
 
     return new_mapping, new_display
+
+
+_HASH_SUFFIX_RE = re.compile(r"^(.+)-([0-9a-f]{4})$")
+_NUMERIC_SUFFIX_RE = re.compile(r"^(.+)-(\d{1,2})$")
+
+
+def _cleanup_collision_slugs(
+    domain_mapping: dict[str, list],
+    domain_display_names: dict[str, str],
+) -> tuple[dict[str, list], dict[str, str]]:
+    """Merge domains with hash (-xxxx) or numeric (-N) suffixes into their base slug."""
+    merge_map: dict[str, str] = {}
+    all_slugs = set(domain_mapping.keys())
+
+    for slug in sorted(all_slugs):
+        m = _HASH_SUFFIX_RE.match(slug)
+        if m:
+            base = m.group(1)
+            if base in all_slugs or base != slug:
+                merge_map[slug] = base
+            continue
+
+        m = _NUMERIC_SUFFIX_RE.match(slug)
+        if m:
+            base = m.group(1)
+            suffix_num = int(m.group(2))
+            if suffix_num <= 20 and (
+                base in all_slugs
+                or any(
+                    _NUMERIC_SUFFIX_RE.match(s) and _NUMERIC_SUFFIX_RE.match(s).group(1) == base
+                    for s in all_slugs
+                    if s != slug
+                )
+            ):
+                merge_map[slug] = base
+
+    if not merge_map:
+        return domain_mapping, domain_display_names
+
+    log.info(
+        "collision_slug_cleanup",
+        merged_count=len(merge_map),
+        merge_map=merge_map,
+    )
+    return _apply_merge_map(merge_map, domain_mapping, domain_display_names)
+
+
+_PASCAL_CASE_RE = re.compile(r"^[A-Z][a-zA-Z0-9]+$")
+_INFRA_CLASS_SUFFIXES = (
+    "Impl",
+    "Configuration",
+    "Config",
+    "TypeHandler",
+    "Aspect",
+    "Interceptor",
+    "Filter",
+    "Wrapper",
+)
+
+
+def _filter_infrastructure_domains(
+    domain_mapping: dict[str, list[tuple[str, str]]],
+    domain_display_names: dict[str, str],
+    infrastructure_keywords: list[str],
+    edges: list[tuple[tuple[str, str], tuple[str, str], int]] | None = None,
+) -> tuple[dict[str, list[tuple[str, str]]], dict[str, str]]:
+    """Filter infrastructure domains by merging into call-graph neighbors or largest domain.
+
+    Rules:
+    1. Single-module domain where module name is PascalCase and ends with a known
+       infrastructure class suffix → infrastructure
+    2. Slug contains any infrastructure keyword AND module count ≤ 2 → infrastructure
+
+    Merge target: non-infra domain with most call edges to/from infra modules; if none,
+    fall back to the largest remaining domain.
+    """
+    if not domain_mapping:
+        return domain_mapping, domain_display_names
+
+    infra_slugs: set[str] = set()
+    for slug, modules in domain_mapping.items():
+        if len(modules) == 1:
+            _, name = modules[0]
+            if _PASCAL_CASE_RE.match(name) and name.endswith(_INFRA_CLASS_SUFFIXES):
+                infra_slugs.add(slug)
+                continue
+        if len(modules) <= 2 and infrastructure_keywords:
+            slug_lower = slug.lower()
+            if any(kw in slug_lower for kw in infrastructure_keywords):
+                infra_slugs.add(slug)
+
+    if not infra_slugs:
+        return domain_mapping, domain_display_names
+
+    remaining = {s: list(m) for s, m in domain_mapping.items() if s not in infra_slugs}
+    if not remaining:
+        return domain_mapping, domain_display_names
+
+    module_to_domain: dict[tuple[str, str], str] = {}
+    for slug, modules in remaining.items():
+        for mod in modules:
+            module_to_domain[mod] = slug
+
+    largest_slug = max(remaining, key=lambda s: len(remaining[s]))
+
+    for slug in infra_slugs:
+        infra_modules = set(domain_mapping[slug])
+        if edges:
+            domain_edge_count: dict[str, int] = {}
+            for src, tgt, weight in edges:
+                if src in infra_modules and tgt in module_to_domain:
+                    target_domain = module_to_domain[tgt]
+                    domain_edge_count[target_domain] = domain_edge_count.get(target_domain, 0) + weight
+                elif tgt in infra_modules and src in module_to_domain:
+                    source_domain = module_to_domain[src]
+                    domain_edge_count[source_domain] = domain_edge_count.get(source_domain, 0) + weight
+
+            if domain_edge_count:
+                best_domain = max(domain_edge_count, key=domain_edge_count.get)
+                remaining[best_domain].extend(domain_mapping[slug])
+                continue
+
+        remaining[largest_slug].extend(domain_mapping[slug])
+
+    remaining_names = {s: n for s, n in domain_display_names.items() if s not in infra_slugs}
+    return remaining, remaining_names
+
+
+def _enforce_domain_budget(
+    domain_mapping: dict[str, list],
+    domain_display_names: dict[str, str],
+    budget: int = 50,
+) -> tuple[dict[str, list], dict[str, str]]:
+    """Merge smallest domains until total count <= budget."""
+    if len(domain_mapping) <= budget:
+        return domain_mapping, domain_display_names
+
+    working = dict(domain_mapping)
+    display = dict(domain_display_names)
+
+    while len(working) > budget:
+        sorted_slugs = sorted(working.keys(), key=lambda s: len(working[s]))
+        smallest = sorted_slugs[0]
+        next_smallest = sorted_slugs[1] if len(sorted_slugs) > 1 else None
+        if next_smallest is None:
+            break
+        working[next_smallest] = working[next_smallest] + working.pop(smallest)
+        display.pop(smallest, None)
+
+    log.info("domain_budget_enforced", original=len(domain_mapping), final=len(working), budget=budget)
+    return working, display
 
 
 async def _merge_domains_by_embedding(
@@ -348,7 +501,13 @@ def _dedup_parallel_naming_results(
     for result in results:
         slug = result["slug"]
         if slug in seen:
-            suffix = hashlib.md5(str(result).encode()).hexdigest()[:4]
+            modules = result.get("modules", [])
+            suffix = ""
+            if modules:
+                short_names = [str(m).rsplit(".", 1)[-1][:12] for m in modules[:2]]
+                suffix = normalize_slug("-".join(short_names))
+            if not suffix or suffix == "unnamed":
+                suffix = hashlib.md5(str(result).encode()).hexdigest()[:4]
             new_slug = f"{slug}-{suffix}"
             log.warning("slug_collision_resolved", original=slug, resolved=new_slug)
             result["slug"] = new_slug
@@ -938,6 +1097,23 @@ async def graph_driven_domain_decompose_node(
         except Exception:
             log.warning("graph_domain_stabilizer_failed", exc_info=True)
 
+        # --- Step 6.5: Collision slug cleanup ---
+        domain_mapping, domain_display_names = _cleanup_collision_slugs(
+            domain_mapping, domain_display_names,
+        )
+
+        # --- Step 6.55: Infrastructure domain filtering ---
+        wiki_cfg = get_settings().wiki
+        domain_mapping, domain_display_names = _filter_infrastructure_domains(
+            domain_mapping, domain_display_names, wiki_cfg.infrastructure_slug_keywords, edges=edges,
+        )
+
+        # --- Step 6.6: Domain budget enforcement ---
+        budget = wiki_cfg.domain_budget_max
+        domain_mapping, domain_display_names = _enforce_domain_budget(
+            domain_mapping, domain_display_names, budget=budget,
+        )
+
         # Rebuild communities_named after stabilizer (slugs may have changed)
         communities_named = []
         for slug, module_list in domain_mapping.items():
@@ -1125,6 +1301,29 @@ async def graph_driven_domain_decompose_node(
         for src, dst, w in edges
     ]
 
+    # --- Build term glossary from domain names + module descriptions ---
+    from core.config import get_settings as _get_settings
+
+    wiki_cfg = _get_settings().wiki
+    term_glossary: dict[str, str] = {}
+    for slug, display_name in domain_display_names.items():
+        readable_slug = slug.replace("-", " ").replace("_", " ")
+        if readable_slug != display_name and display_name:
+            term_glossary[readable_slug] = display_name
+            if "-" in slug:
+                term_glossary[slug] = display_name
+
+    if module_summaries_raw:
+        for _mod_key, summary in module_summaries_raw.items():
+            if isinstance(summary, dict):
+                cn_name = summary.get("chinese_name") or summary.get("cn_name", "")
+                en_name = summary.get("english_name") or summary.get("en_name", "")
+                if cn_name and en_name and cn_name != en_name:
+                    term_glossary.setdefault(en_name.lower(), cn_name)
+
+    if wiki_cfg.term_overrides:
+        term_glossary.update(wiki_cfg.term_overrides)
+
     return {
         "domain_mapping": domain_mapping,
         "domain_display_names": domain_display_names,
@@ -1132,4 +1331,5 @@ async def graph_driven_domain_decompose_node(
         "affected_domains": affected_domains,
         "module_call_edges": module_call_edges,
         "embedding_cache": embedding_cache,
+        "term_glossary": term_glossary,
     }

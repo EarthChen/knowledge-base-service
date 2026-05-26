@@ -341,7 +341,7 @@ async def test_domain_doc_agent_delegates_to_generate_when_flag_enabled():
 
 
 def test_use_orchestrator_template_config_default():
-    assert AppWikiFlags().use_orchestrator_template is False
+    assert AppWikiFlags().use_orchestrator_template is True
 
 
 def test_heal_on_l3_failure_config_default():

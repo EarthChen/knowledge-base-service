@@ -177,6 +177,15 @@ class TestMaybeSplit:
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestDomainDocAgentIteration:
+    @pytest.fixture(autouse=True)
+    def _use_legacy_path(self):
+        from core.config import get_settings
+        cfg = get_settings().wiki
+        original = cfg.use_orchestrator_template
+        cfg.use_orchestrator_template = False
+        yield
+        cfg.use_orchestrator_template = original
+
     @pytest.mark.asyncio
     async def test_stops_when_quality_acceptable(self):
         mock_llm = MagicMock()
@@ -280,6 +289,15 @@ class TestDomainDocAgentIteration:
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestDomainDocAgentExploreWrite:
+    @pytest.fixture(autouse=True)
+    def _use_legacy_path(self):
+        from core.config import get_settings
+        cfg = get_settings().wiki
+        original = cfg.use_orchestrator_template
+        cfg.use_orchestrator_template = False
+        yield
+        cfg.use_orchestrator_template = original
+
     @pytest.mark.asyncio
     async def test_explore_write_flow(self):
         mock_llm = MagicMock()
@@ -369,6 +387,15 @@ class TestDomainDocAgentExploreWrite:
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestDomainDocAgentObservability:
+    @pytest.fixture(autouse=True)
+    def _use_legacy_path(self):
+        from core.config import get_settings
+        cfg = get_settings().wiki
+        original = cfg.use_orchestrator_template
+        cfg.use_orchestrator_template = False
+        yield
+        cfg.use_orchestrator_template = original
+
     @pytest.mark.asyncio
     async def test_iteration_history_populated(self):
         agent = DomainDocAgent(
@@ -414,6 +441,15 @@ class TestExploreMemorySignature:
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestElasticTimeout:
+    @pytest.fixture(autouse=True)
+    def _use_legacy_path(self):
+        from core.config import get_settings
+        cfg = get_settings().wiki
+        original = cfg.use_orchestrator_template
+        cfg.use_orchestrator_template = False
+        yield
+        cfg.use_orchestrator_template = original
+
     @pytest.mark.asyncio
     async def test_explore_timeout_preserves_partial_memory(self, monkeypatch):
         """When explore() times out, generate_with_iterations should use partial WorkingMemory."""
@@ -502,6 +538,15 @@ class TestElasticTimeout:
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestCoveredEntityUids:
+    @pytest.fixture(autouse=True)
+    def _use_legacy_path(self):
+        from core.config import get_settings
+        cfg = get_settings().wiki
+        original = cfg.use_orchestrator_template
+        cfg.use_orchestrator_template = False
+        yield
+        cfg.use_orchestrator_template = original
+
     @pytest.mark.asyncio
     async def test_pages_include_covered_entity_uids(self):
         """Generated pages should include discovered_entity_uids from WorkingMemory."""

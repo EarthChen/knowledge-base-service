@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from core.config import ContentLanguage
+from core.config import ContentLanguage, get_settings
 from core.log import get_logger
 from wiki.agents.doc_orchestrator import DocOrchestrator, QualityResult
 from wiki.output_guardrail import (
@@ -356,6 +356,7 @@ class DomainDocAgent(DocOrchestrator):
         explore_max_rounds: int | None = None,
         explore_max_tool_calls: int | None = None,
         content_language: str = "简体中文",
+        term_glossary: dict[str, str] | None = None,
     ) -> None:
         from core.config import get_settings
         from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM, get_write_system_prompt
@@ -383,6 +384,7 @@ class DomainDocAgent(DocOrchestrator):
         self.domain_name = domain_name
         self.domain_display_name = domain_display_name or domain_name
         self.content_language = content_language
+        self._term_glossary = term_glossary or {}
         self._repo_paths = repo_paths or {}
         self._page_agent = page_agent
         self._budget_resolver = budget_resolver
@@ -395,6 +397,17 @@ class DomainDocAgent(DocOrchestrator):
             LengthCheck(),
             LanguageConsistencyCheck(),
         ])
+
+    def _build_write_prompt(self, baseline_context: str, memory: Any) -> str:
+        base = super()._build_write_prompt(baseline_context, memory)
+        term_glossary = getattr(self, "_term_glossary", None)
+        if term_glossary:
+            from wiki.agent_prompts import build_term_glossary_prompt
+
+            glossary_section = build_term_glossary_prompt(term_glossary)
+            if glossary_section:
+                base += "\n" + glossary_section
+        return base
 
     def _maybe_split(
         self,
@@ -503,6 +516,118 @@ class DomainDocAgent(DocOrchestrator):
                 page["covered_entity_uids"] = entity_uids
         return pages
 
+    # --- Optional Hooks (DocOrchestrator) ---
+    async def plan_topics(self, memory: Any, module_names: list[str]) -> list[Any] | None:
+        if not get_settings().wiki.enable_topic_pages:
+            return None
+        if len(module_names) <= 5:
+            return None
+        outline = await self._plan_topics(module_names, memory)
+        if outline.should_split and len(outline.topics) > 1:
+            self._topic_split_done = True
+            self._topic_outline = outline
+            return outline.topics
+        return None
+
+    async def _write_topics(
+        self,
+        topic_plan: list[Any] | None,
+        baseline_context: str,
+        memory: Any,
+        module_names: list[str],
+    ) -> list[dict[str, Any]] | None:
+        if not get_settings().wiki.enable_topic_pages:
+            return None
+        outline = getattr(self, "_topic_outline", None)
+        if outline is None or not outline.should_split or len(outline.topics) <= 1:
+            return None
+        pages = await self._write_with_outline(outline, baseline_context, memory, module_names)
+        _inject_executive_summaries(pages)
+
+        wiki_cfg = get_settings().wiki
+        if wiki_cfg.topic_split_quality_check:
+            low_quality_count = 0
+            for page in pages:
+                content = page.get("content", "")
+                page_modules = page.get("metadata", {}).get("covered_modules", module_names)
+                quality = evaluate_quality(content, page_modules)
+                if quality.coverage < wiki_cfg.domain_agent_early_exit_quality:
+                    low_quality_count += 1
+                    log.warning(
+                        "topic_page_low_quality",
+                        domain=self.domain_name,
+                        topic=page.get("title", ""),
+                        coverage=quality.coverage,
+                    )
+            if low_quality_count == len(pages):
+                log.warning(
+                    "all_topic_pages_low_quality_fallback",
+                    domain=self.domain_name,
+                    page_count=len(pages),
+                )
+                return None
+
+        for page in pages:
+            content = page.get("content", "")
+            if content:
+                page_modules = page.get("metadata", {}).get("covered_modules", module_names)
+                await self.run_guardrails(content, 0, {"module_names": page_modules})
+
+        if hasattr(memory, "discovered_entity_uids") and memory.discovered_entity_uids:
+            entity_uids = list(memory.discovered_entity_uids)
+            for page in pages:
+                page["covered_entity_uids"] = entity_uids
+
+        return pages
+
+    def get_phase_timeout(self, phase: str) -> float | None:
+        timeouts = {"explore": float(EXPLORE_TIMEOUT_SEC), "write": float(WRITE_TIMEOUT_SEC)}
+        return timeouts.get(phase)
+
+    async def run_guardrails(self, content: str, iteration: int, context: dict[str, Any]) -> Any | None:
+        if self._output_guardrail is None:
+            return None
+        result = await self._output_guardrail.evaluate(content, {
+            "module_names": context.get("module_names", []),
+            "target_language": self.content_language,
+            "cn_ratio_threshold": get_settings().wiki.language_guardrail_cn_ratio,
+        })
+        if result and not result.passed:
+            log.warning(
+                "output_guardrail_failed",
+                domain=self.domain_name,
+                iteration=iteration,
+                total_score=result.total_score,
+                failed_checks=[n for n, c in result.details.items() if not c.passed],
+            )
+
+        term_glossary = getattr(self, "_term_glossary", None)
+        if term_glossary:
+            from wiki.output_guardrail import TermConsistencyCheck
+
+            term_check = TermConsistencyCheck()
+            term_result = await term_check.evaluate(content, {"term_glossary": term_glossary})
+            if term_result.has_violations:
+                log.warning(
+                    "term_consistency_violations",
+                    domain=self.domain_name,
+                    iteration=iteration,
+                    violations=term_result.violations[:5],
+                )
+
+        return result
+
+    def build_iteration_trace(self, iteration: int, quality: Any) -> dict[str, Any] | None:
+        trace = {
+            "iteration": iteration,
+            "coverage": getattr(quality, "coverage", 0),
+            "citation_density": getattr(quality, "citation_density", 0),
+            "context_gaps": getattr(quality, "context_gap_count", 0),
+            "uncovered_count": len(getattr(quality, "uncovered_modules", [])),
+        }
+        self.iteration_history.append(trace)
+        return trace
+
     # --- Backward-compatible internal helper (renamed from _pre_fill_snippets) ---
     async def _pre_fill_snippets(
         self,
@@ -604,6 +729,13 @@ class DomainDocAgent(DocOrchestrator):
         topic_pages: list[dict[str, Any]] = []
         topic_links: list[str] = []
 
+        glossary_section = ""
+        term_glossary = getattr(self, "_term_glossary", None)
+        if term_glossary:
+            from wiki.agent_prompts import build_term_glossary_prompt
+
+            glossary_section = build_term_glossary_prompt(term_glossary)
+
         for topic in outline.topics:
             topic_module_list = ", ".join(topic.modules)
             topic_context = (
@@ -612,6 +744,7 @@ class DomainDocAgent(DocOrchestrator):
                 f"You are writing the \"{topic.title}\" section.\n"
                 f"Focus ONLY on these modules: {topic_module_list}\n"
                 f"Description: {topic.description}\n"
+                + glossary_section
             )
             topic_content = await self._page_agent.write(
                 self.domain_name, topic_context, memory,
@@ -630,6 +763,7 @@ class DomainDocAgent(DocOrchestrator):
                     "node_count": len(topic.modules),
                     "edge_count": 0,
                     "generation_mode": "agent",
+                    "covered_modules": list(topic.modules),
                 },
                 "business_domain": self.domain_name,
             })
@@ -646,6 +780,7 @@ class DomainDocAgent(DocOrchestrator):
             + f"\n{nav_heading}\n\n" + "\n".join(topic_links)
         )
         overview_page = _make_page(overview_content, self.domain_name, self.domain_display_name)
+        overview_page["metadata"]["overview_kind"] = "topic_index"
 
         pages = [overview_page, *topic_pages]
         _inject_executive_summaries(pages)
@@ -832,7 +967,8 @@ class DomainDocAgent(DocOrchestrator):
                 content,
                 {
                     "module_names": module_names,
-                    "content_language": self.content_language,
+                    "target_language": self.content_language,
+                    "cn_ratio_threshold": get_settings().wiki.language_guardrail_cn_ratio,
                 },
             )
             lang_detail = guardrail_result.details.get("language_consistency")

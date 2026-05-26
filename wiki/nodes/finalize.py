@@ -94,6 +94,9 @@ def _sanitize_published_content(content: str) -> str:
     # 5.6. Remove CODE_REF / UNVERIFIED_CODE HTML comments
     content = _CODE_REF_COMMENT_RE.sub("", content)
 
+    # 5.7. Remove [undefined] text markers
+    content = re.sub(r"\[undefined\]", "", content)
+
     # 6. Deduplicate consecutive identical headings (keep first occurrence + content)
     lines = content.split("\n")
     result = []
@@ -140,6 +143,12 @@ def _remove_invalid_wikilinks(content: str, valid_targets: set[str]) -> str:
     return re.sub(r"\[\[([^\]]+)\]\]", replace_link, content)
 
 
+def _get_skeleton_threshold() -> int:
+    from core.config import get_settings
+
+    return get_settings().wiki.overview_min_content_chars
+
+
 async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
     pages = list(state.get("pages", []))
 
@@ -166,6 +175,25 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
         if content:
             content = _sanitize_published_content(content)
             content = _remove_invalid_wikilinks(content, valid_targets)
+
+            is_topic_index = page.get("metadata", {}).get("overview_kind") == "topic_index"
+            if (
+                page.get("page_type") == "domain_overview"
+                and len(content) < _get_skeleton_threshold()
+                and not is_topic_index
+            ):
+                lang = page.get("content_language", "")
+                if lang and lang.lower() in ("en", "english", "en-us"):
+                    banner = "> ⚠️ This domain documentation is incomplete and may contain gaps.\n\n"
+                else:
+                    banner = "> ⚠️ 本域文档待完善，内容可能不完整。\n\n"
+                log.warning(
+                    "skeleton_page_detected",
+                    page_path=page.get("path"),
+                    content_len=len(content),
+                )
+                content = banner + content
+
             class_refs = _extract_class_references(content)
             if class_refs:
                 log.warning(

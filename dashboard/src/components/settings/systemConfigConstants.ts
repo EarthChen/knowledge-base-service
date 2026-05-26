@@ -34,6 +34,8 @@ export const WIKI_PIPELINE_CONCURRENCY_KEYS = [
   "wiki.heal_max_rounds_core",
   "wiki.heal_max_rounds_standard",
   "wiki.llm_global_rpm_limit",
+  "wiki.domain_split_threshold",
+  "wiki.domain_split_max_depth",
 ] as const;
 
 export const WIKI_GENERATION_KEYS = [
@@ -243,6 +245,8 @@ export const NUMBER_FIELD_CONSTRAINTS: Record<string, NumberFieldConstraint> = {
   "wiki.heal_max_rounds_core": { min: 1, max: 10 },
   "wiki.heal_max_rounds_standard": { min: 1, max: 5 },
   "wiki.llm_global_rpm_limit": { min: 0, max: 300 },
+  "wiki.domain_split_threshold": { min: 5, max: 50 },
+  "wiki.domain_split_max_depth": { min: 1, max: 5 },
   // Domain agent
   "wiki.domain_agent_max_iterations_core": { min: 1, max: 100 },
   "wiki.domain_agent_max_iterations_standard": { min: 1, max: 50 },

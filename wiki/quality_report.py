@@ -32,12 +32,25 @@ class QualityReport:
         return self.coverage >= 0.8 and self.citation_density >= 0.5
 
 
+def _strip_compound_prefix(name: str) -> str:
+    """Strip 'repo|' prefix from compound module keys like 'ultron|ClassName'."""
+    if "|" in name:
+        return name.split("|", 1)[1]
+    return name
+
+
+def _module_short_name(name: str) -> str:
+    """Return searchable short name: strip repo prefix, then last dotted segment."""
+    base = _strip_compound_prefix(name)
+    return base.rsplit(".", 1)[-1] if "." in base else base
+
+
 def _count_module_inline_refs(content: str, module_names: list[str]) -> int:
     """Count modules referenced via inline code (e.g. `ClassName` or `ClassName.method()`)."""
     inline_codes = set(_INLINE_CODE_RE.findall(content))
     ref_count = 0
     for m in module_names:
-        short = m.rsplit(".", 1)[-1] if "." in m else m
+        short = _module_short_name(m)
         if any(short in c for c in inline_codes):
             ref_count += 1
     return ref_count
@@ -49,7 +62,7 @@ def _module_word_pattern(name: str) -> re.Pattern[str]:
 
 def _is_module_covered(content: str, module_name: str) -> bool:
     """True when *module_name* (or its short segment) appears as a standalone token."""
-    name = module_name.strip()
+    name = _strip_compound_prefix(module_name.strip())
     if not name:
         return False
     variants = [name]
@@ -70,7 +83,7 @@ def _calc_implementation_depth(content: str, module_names: list[str]) -> float:
     all_markers = h3_headings | code_refs
     detailed = 0
     for m in module_names:
-        short = m.rsplit(".", 1)[-1] if "." in m else m
+        short = _module_short_name(m)
         if any(short.lower() in marker.lower() for marker in all_markers):
             detailed += 1
     return detailed / len(module_names)

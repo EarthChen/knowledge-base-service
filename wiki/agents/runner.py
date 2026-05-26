@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from core.log import get_logger
 from wiki.agents.events import EventCallback, ThinkingEvent, ToolCallEvent, ToolResultEvent
@@ -123,8 +124,8 @@ async def run_agent_loop(
     if not agent._tool_registry.has_tools():
         result.exit_reason = "no_tools"
     else:
-        from wiki.early_stop import EarlyStopDetector
         from wiki.context_manager import ContextManager
+        from wiki.early_stop import EarlyStopDetector
 
         tracer = config.tracer
         root_span = None
@@ -174,7 +175,7 @@ async def run_agent_loop(
                     response = await asyncio.wait_for(coro, timeout=config.llm_call_timeout)
                 else:
                     response = await coro
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 log.warning("run_agent_loop_llm_timeout", round=round_num, timeout=config.llm_call_timeout)
                 result.exit_reason = "llm_timeout"
                 break
@@ -300,7 +301,7 @@ async def run_agent_loop(
                         )
                     else:
                         tool_result, result_str = await dispatch_coro
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     log.warning("tool_call_timeout", tool=tool_name, timeout=config.tool_call_timeout)
                     tool_result = {"error": f"Tool {tool_name} timed out after {config.tool_call_timeout}s"}
                     result_str = json.dumps(tool_result, ensure_ascii=False)

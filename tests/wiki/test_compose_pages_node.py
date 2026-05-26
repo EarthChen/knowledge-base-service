@@ -12,6 +12,7 @@ def _wiki_json(content: str, summary: str = "Exec summary.") -> str:
     return json.dumps({"executive_summary": summary, "content": content}, ensure_ascii=False)
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_compose_pages_generates_topic_pages():
     mock_llm = AsyncMock()
@@ -42,6 +43,7 @@ async def test_compose_pages_generates_topic_pages():
     assert "generated_topic_pages" in result
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_compose_pages_empty_tree():
     state = {

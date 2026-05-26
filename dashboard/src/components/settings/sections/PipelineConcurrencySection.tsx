@@ -21,6 +21,11 @@ const HEAL_ROUND_FIELDS: NumberField[] = [
 
 const RATE_LIMIT_FIELDS: NumberField[] = [{ key: "wiki.llm_global_rpm_limit", min: 0, max: 300 }];
 
+const DOMAIN_SPLIT_FIELDS: NumberField[] = [
+  { key: "wiki.domain_split_threshold", min: 5, max: 50 },
+  { key: "wiki.domain_split_max_depth", min: 1, max: 5 },
+];
+
 function NumberFieldGroup({
   fields,
   values,
@@ -70,6 +75,12 @@ export default function PipelineConcurrencySection({ values, meta, onChange, t }
             {t.configSettings.pipelineGroupRateLimit}
           </p>
           <NumberFieldGroup fields={RATE_LIMIT_FIELDS} values={values} meta={meta} onChange={onChange} t={t} />
+        </div>
+        <div className="space-y-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t.configSettings.pipelineGroupDomainSplit}
+          </p>
+          <NumberFieldGroup fields={DOMAIN_SPLIT_FIELDS} values={values} meta={meta} onChange={onChange} t={t} />
         </div>
       </div>
     </SettingsCard>

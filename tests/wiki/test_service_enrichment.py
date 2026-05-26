@@ -177,6 +177,7 @@ async def test_compose_all_pages_skips_enrichment_without_importance_tiers() -> 
     llm.generate.assert_not_called()
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_persist_pages_includes_enrichment_level(monkeypatch: pytest.MonkeyPatch) -> None:
     store = MagicMock()
@@ -184,8 +185,8 @@ async def test_persist_pages_includes_enrichment_level(monkeypatch: pytest.Monke
     fake_gen = MagicMock()
     fake_gen.generate_for_docs = AsyncMock(return_value=[[0.01]])
     monkeypatch.setattr("indexer.embedding_generator.EmbeddingGenerator.shared", lambda **_k: fake_gen)
-    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
-    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.set_wiki_page_confidence_scores", AsyncMock())
 
     graph = AsyncMock()
     svc = WikiService(

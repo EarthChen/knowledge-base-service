@@ -274,6 +274,7 @@ async def test_summarize_leaves_empty_content_fallback():
     assert entry.get("summary_text") == ""
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_hierarchical_tree_end_to_end():
     """Decomposer produces hierarchical tree → compose_bottomup generates all pages."""

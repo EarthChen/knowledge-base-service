@@ -9,6 +9,7 @@ import pytest
 from wiki.pipeline_nodes import compose_leaf_pages_node
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_compose_pages_biz_entities_include_calls_from_props() -> None:
     """TopicPageComposer receives biz_entities with calls from module properties (max 15)."""
@@ -64,6 +65,7 @@ async def test_compose_pages_biz_entities_include_calls_from_props() -> None:
     assert biz[0]["calls"] == ["PaymentApi", "InventoryClient", "AuditLog"]
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_compose_pages_logs_when_data_models_truncated() -> None:
     """More than 20 data_models for a domain triggers data_models_truncated log."""

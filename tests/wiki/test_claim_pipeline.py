@@ -29,6 +29,7 @@ def _page(path: str, content: str) -> WikiPage:
     )
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_supersession_creates_claim_history(monkeypatch: pytest.MonkeyPatch) -> None:
     async def exec_q(cypher: str, params: object | None = None) -> MagicMock:
@@ -81,8 +82,8 @@ async def test_supersession_creates_claim_history(monkeypatch: pytest.MonkeyPatc
     wiki_store.set_wiki_page_supersedes = AsyncMock()
     mgen = MagicMock()
     mgen.generate_for_docs = AsyncMock(return_value=[[0.0, 0.0]])
-    monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_: mgen)
-    monkeypatch.setattr("wiki.service.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
+    monkeypatch.setattr("wiki.persistence.EmbeddingGenerator.shared", lambda **_: mgen)
+    monkeypatch.setattr("wiki.persistence.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
 
     llm = MagicMock(spec=["generate"])
     llm.generate = AsyncMock(

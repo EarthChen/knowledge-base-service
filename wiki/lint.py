@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from core.config import AppWikiFlags
@@ -176,7 +176,7 @@ class WikiLintService:
         return LintReport(
             issues=issues,
             stats=stats,
-            checked_at=datetime.now(timezone.utc).isoformat(),
+            checked_at=datetime.now(UTC).isoformat(),
             scope=scope,
         )
 
@@ -531,7 +531,7 @@ class WikiLintService:
         initial_s = float(
             getattr(self._wiki_config, "forgetting_initial_stability", 7.0) or 7.0,
         )
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         pages = await self._wiki_pages_for_repo(repository)
         found: list[LintIssue] = []
         n_updates = 0
@@ -553,7 +553,7 @@ class WikiLintService:
             except ValueError:
                 continue
             if anchor.tzinfo is None:
-                anchor = anchor.replace(tzinfo=timezone.utc)
+                anchor = anchor.replace(tzinfo=UTC)
             elapsed_days = (now - anchor).total_seconds() / 86400.0
             sf_raw = p.get("stability_factor")
             try:

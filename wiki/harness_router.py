@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-
 CONTEXT_BUDGETS: dict[str, dict[str, int | None]] = {
     "simple": {
         "max_chars_per_section": 1500,

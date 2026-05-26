@@ -20,6 +20,7 @@ from wiki.pipeline_nodes import (
 from wiki.semantic_diagram_gen import SemanticDiagramGenerator
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_compose_pages_parallelizes_leaf_domains_with_bounded_concurrency() -> None:
     """Multiple leaf domains should compose concurrently (not strictly one-at-a-time)."""

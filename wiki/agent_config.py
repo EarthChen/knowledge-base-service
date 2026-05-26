@@ -64,7 +64,7 @@ class HarnessConfig:
     llm_judge_enabled: bool = True
 
     @classmethod
-    def from_env(cls) -> "HarnessConfig":
+    def from_env(cls) -> HarnessConfig:
         def _safe_int(key: str, default: int) -> int:
             raw = _get_env(key, str(default))
             try:

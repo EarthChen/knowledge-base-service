@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from functools import lru_cache
 from typing import Any
 
@@ -185,6 +186,26 @@ class RerankConfig(BaseModel):
     top_n: int = 30
 
 
+class ContentLanguage(StrEnum):
+    ZH_CN = "zh-CN"
+    EN = "en"
+
+    @classmethod
+    def from_any(cls, value: str) -> ContentLanguage:
+        normalized = (value or "").strip().lower()
+        if "中文" in (value or "") or normalized in ("zh", "zh-cn", "zh_cn", "chinese"):
+            return cls.ZH_CN
+        return cls.EN
+
+    @property
+    def display_label(self) -> str:
+        return "简体中文" if self == self.ZH_CN else "English"
+
+    @property
+    def is_chinese(self) -> bool:
+        return self == self.ZH_CN
+
+
 class AppWikiFlags(BaseModel):
     """Application-level wiki feature flags (separate from per-run ``wiki.models.WikiConfig``)."""
 
@@ -285,6 +306,8 @@ class AppWikiFlags(BaseModel):
         description="When True, DomainDocAgent.generate_with_iterations delegates to DocOrchestrator.generate()",
     )
     topic_split_quality_check: bool = True
+    domain_split_threshold: int = Field(default=20, description="Min modules to trigger recursive sub-domain split")
+    domain_split_max_depth: int = Field(default=2, description="Max recursion depth for sub-domain splitting")
     wiki_generation_concurrency: int = Field(default=5, ge=1)
     heal_concurrency: int = Field(default=8, ge=1)
     bottomup_concurrency: int = Field(default=24, ge=1)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from wiki.cypher_queries import MODULE_KEY_METHODS_CY, MODULE_CALLEES_CY, MODULE_CALLERS_CY
+from wiki.cypher_queries import MODULE_CALLEES_CY, MODULE_CALLERS_CY, MODULE_KEY_METHODS_CY
 
 
 class ModuleEnricher:

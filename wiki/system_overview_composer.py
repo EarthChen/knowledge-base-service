@@ -16,8 +16,8 @@ from wiki.models import (
 )
 
 if TYPE_CHECKING:
-    from wiki.llm_port import LLMPort
     from wiki.dependency_graph import DomainNode
+    from wiki.llm_port import LLMPort
 
 log = get_logger(__name__)
 

@@ -24,10 +24,11 @@ def _overview_page() -> WikiPage:
     )
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_generate_creates_business_flows(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
-    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.set_wiki_page_confidence_scores", AsyncMock())
     flow_inferencer = MagicMock()
     flow_inferencer._business_flow_enabled = True
     flow_inferencer.find_entry_points = AsyncMock(
@@ -99,10 +100,11 @@ async def test_generate_creates_business_flows(monkeypatch: pytest.MonkeyPatch) 
     assert json.loads(merge_params["steps"]) == flow_dict["steps"]
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_generate_skips_flows_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
-    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.set_wiki_page_confidence_scores", AsyncMock())
     flow_inferencer = MagicMock()
     flow_inferencer._business_flow_enabled = False
     flow_inferencer.find_entry_points = AsyncMock(return_value=[{"uid": "x"}])
@@ -139,10 +141,11 @@ async def test_generate_skips_flows_when_disabled(monkeypatch: pytest.MonkeyPatc
     flow_inferencer.infer_from_chain.assert_not_called()
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_generate_without_flow_inferencer(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
-    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.set_wiki_page_confidence_scores", AsyncMock())
     store = MagicMock()
     store.persist_wiki_pages = AsyncMock()
     store.execute_query = AsyncMock(return_value=MagicMock(data=[]))

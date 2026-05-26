@@ -76,6 +76,7 @@ def _wiki_cfg(**overrides: object) -> MagicMock:
     return cfg
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_topic_split_low_quality_evaluates_and_re_explores() -> None:
     """Low-quality topic pages trigger evaluate_quality and a focused re-explore."""
@@ -126,6 +127,7 @@ async def test_topic_split_low_quality_evaluates_and_re_explores() -> None:
     )
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_topic_split_quality_check_disabled_skips_eval() -> None:
     """When topic_split_quality_check=False, skip quality evaluation entirely."""
@@ -147,6 +149,7 @@ async def test_topic_split_quality_check_disabled_skips_eval() -> None:
     assert agent._page_agent.explore.call_count == 1
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_topic_split_high_quality_no_re_explore() -> None:
     """Acceptable quality on all topic pages does not trigger re-explore."""
@@ -175,6 +178,7 @@ async def test_topic_split_high_quality_no_re_explore() -> None:
     assert agent._page_agent.explore.call_count == 1
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_topic_split_insufficient_budget_skips_re_explore() -> None:
     """When remaining budget is too low, skip the focused re-explore pass."""

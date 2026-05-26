@@ -1,7 +1,7 @@
 """Build an offline JSON package of wiki content for a repository."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from core.log import get_logger
@@ -38,7 +38,7 @@ class WikiOfflinePack:
         except Exception:
             log.warning("offline_pack_snapshot_fetch_failed", repository=repository, exc_info=True)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result: dict[str, Any] = {
             "repository": repository,
             "business_id": business_id,

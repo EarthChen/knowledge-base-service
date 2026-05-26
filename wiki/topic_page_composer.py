@@ -13,8 +13,8 @@ from core.log import get_logger
 from wiki.content_context_builder import EnrichedDomainContext
 from wiki.domain_complexity import DomainComplexity, DomainComplexityScorer
 from wiki.domain_overview_composer import DomainOverviewComposer
-from wiki.llm_port import LLMPort
 from wiki.json_robust import _strip_fences, parse_json_robust_sync
+from wiki.llm_port import LLMPort
 from wiki.models import WikiPage
 from wiki.prompts import (
     SYSTEM_JSON_ONLY,

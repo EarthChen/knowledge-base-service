@@ -231,6 +231,7 @@ class TestComposeRepoWiki:
 
         in_flight = 0
         max_seen = {"n": 0}
+        concurrency_limit = 3
 
         composer = WikiComposer(llm=None, context_builder=WikiContextBuilder())
 
@@ -253,8 +254,19 @@ class TestComposeRepoWiki:
         collector = MagicMock()
         collector.collect = AsyncMock(side_effect=collect)
         rc = WikiRepoComposer(graph, composer, collector, WikiExporter(), WikiContextBuilder())
-        await rc.compose_repo_wiki("demo", wiki_config)
-        assert max_seen["n"] <= 6
+
+        from wiki.pipeline_concurrency import PipelineConcurrency
+
+        PipelineConcurrency.reset()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                PipelineConcurrency, "_resolve_limit",
+                classmethod(lambda cls, stage: concurrency_limit),
+            )
+            await rc.compose_repo_wiki("demo", wiki_config)
+        PipelineConcurrency.reset()
+
+        assert max_seen["n"] <= concurrency_limit
 
 
 class TestClassificationAndOrdering:

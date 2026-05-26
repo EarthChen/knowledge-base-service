@@ -11,10 +11,7 @@ from indexer.comment_filter import CommentFilter, CommentTier
 from store.schema import EdgeType, GraphNode, NodeLabel
 from store.wiki_store import WikiStore
 from wiki.context import WikiContextBuilder
-from wiki.llm_port import LLMPort
-from wiki.doc_wiki_fusion import create_source_doc_edges, find_related_docs, format_related_docs_for_prompt
 from wiki.data_collector import PageData
-from wiki.semantic_diagram_gen import SemanticDiagramGenerator
 from wiki.diagram_gen import (
     generate_call_flowchart,
     generate_class_diagram,
@@ -22,6 +19,8 @@ from wiki.diagram_gen import (
     generate_dependency_graph,
     generate_layered_architecture_diagram,
 )
+from wiki.doc_wiki_fusion import create_source_doc_edges, find_related_docs, format_related_docs_for_prompt
+from wiki.llm_port import LLMPort
 from wiki.memory_loop import MemoryLoop
 from wiki.models import (
     ImportanceTier,
@@ -34,6 +33,7 @@ from wiki.models import (
     WikiPageMetadata,
     WikiPageSummary,
 )
+from wiki.semantic_diagram_gen import SemanticDiagramGenerator
 from wiki.wikilink_resolver import resolve_wikilinks
 
 if TYPE_CHECKING:
@@ -195,7 +195,7 @@ class WikiComposer:
         store: Any | None = None,
         wiki_store: WikiStore | None = None,
         memory_loop: MemoryLoop | None = None,
-        wikilink_cache: "WikiLinkCache | None" = None,
+        wikilink_cache: WikiLinkCache | None = None,
     ) -> None:
         self._llm = llm
         self._ctx = context_builder

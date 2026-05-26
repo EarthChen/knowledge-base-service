@@ -8,8 +8,8 @@ from typing import Any
 
 from core.log import get_logger
 from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP
-from wiki.mermaid_validator import validate_mermaid_block
 from wiki.harness_evaluator import WikiPageEvaluator
+from wiki.mermaid_validator import validate_mermaid_block
 from wiki.models import (
     ImportanceTier,
     WikiPage,

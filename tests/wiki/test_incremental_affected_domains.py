@@ -140,6 +140,7 @@ class TestClassifyIncrementalReturnsAffected:
         assert "Payment-v2" in affected
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestComposeLeafPagesFiltering:
     """compose_leaf_pages_node should include nested leaves whose parent is affected."""
 

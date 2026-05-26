@@ -88,6 +88,29 @@ class BusinessPipelineRunner:
             paths.extend(BusinessPipelineRunner._flatten_tree_paths(n.children, p))
         return paths
 
+    @staticmethod
+    def _all_tree_slugs(nodes: list[DomainNode]) -> set[str]:
+        """Collect ALL domain slugs from the hierarchical tree (names at every level)."""
+        slugs: set[str] = set()
+        for node in nodes:
+            name = node.name.strip()
+            if name:
+                slugs.add(name)
+            slugs.update(BusinessPipelineRunner._all_tree_slugs(node.children))
+        return slugs
+
+    @staticmethod
+    def _get_container_slugs(nodes: list[DomainNode]) -> set[str]:
+        """Return slugs of domains that have children but no direct modules."""
+        slugs: set[str] = set()
+        for node in nodes:
+            if node.children and not node.modules:
+                name = node.name.strip()
+                if name:
+                    slugs.add(name)
+            slugs.update(BusinessPipelineRunner._get_container_slugs(node.children))
+        return slugs
+
     async def _persist_resolved_pipeline_wikilinks(
         self,
         business_id: str,
@@ -141,6 +164,74 @@ class BusinessPipelineRunner:
             count=wikilink_count,
             business_id=business_id,
         )
+
+    async def _cleanup_stale_domain_pages(
+        self,
+        business_id: str,
+        current_domain_slugs: set[str],
+    ) -> int:
+        """Remove WikiPage nodes for domains no longer in the current classification.
+
+        Returns count of deleted pages.
+        """
+        if self._wiki_store is None:
+            return 0
+
+        query = (
+            "MATCH (wp:WikiPage) "
+            "WHERE wp.repository = $repo AND wp.path STARTS WITH '/__domains__/' "
+            "RETURN wp.path AS path, wp.uid AS uid"
+        )
+        params = {"repo": business_id}
+        query_fn = getattr(self._wiki_store, "query", None)
+        if query_fn is not None:
+            raw = await query_fn(query, params)
+            results = raw if isinstance(raw, list) else (getattr(raw, "data", None) or [])
+        else:
+            result = await self._wiki_store.execute_query(query, params)
+            results = getattr(result, "data", None) or []
+
+        deleted = 0
+        delete_fn = getattr(self._wiki_store, "query", None) or self._wiki_store.execute_query
+        for row in results:
+            path = row.get("path", "")
+            parts = path.split("/")
+            if len(parts) >= 3:
+                slug = parts[2]
+                if slug and slug not in current_domain_slugs:
+                    await delete_fn(
+                        "MATCH (wp:WikiPage {uid: $uid}) DETACH DELETE wp",
+                        {"uid": row["uid"]},
+                    )
+                    deleted += 1
+
+        return deleted
+
+    async def _cleanup_container_domain_topics(
+        self,
+        business_id: str,
+        domain_tree: list[DomainNode],
+    ) -> int:
+        """Delete historical topic pages under container domains (have children, no modules)."""
+        container_slugs = self._get_container_slugs(domain_tree)
+        if not container_slugs or self._wiki_store is None:
+            return 0
+        query_fn = getattr(self._wiki_store, "query", None) or self._wiki_store.execute_query
+        deleted = 0
+        for slug in container_slugs:
+            result = await query_fn(
+                "MATCH (wp:WikiPage) "
+                "WHERE wp.repository = $biz "
+                "AND wp.path STARTS WITH $prefix "
+                "AND wp.page_type = 'topic' "
+                "DETACH DELETE wp "
+                "RETURN count(wp) AS cnt",
+                {"biz": business_id, "prefix": f"/__domains__/{slug}/"},
+            )
+            if isinstance(result, list) and result:
+                cnt = result[0].get("cnt", 0) if isinstance(result[0], dict) else 0
+                deleted += cnt
+        return deleted
 
     async def run(
         self,
@@ -761,6 +852,26 @@ class BusinessPipelineRunner:
                     if uid:
                         pages_by_entity[uid] = row
                 reassembly_succeeded = bool(pipeline_result.reassembly_actions)
+                all_active_slugs = set(domain_mapping.keys())
+                if domain_tree:
+                    all_active_slugs |= self._all_tree_slugs(domain_tree)
+                stale_deleted = await self._cleanup_stale_domain_pages(
+                    business_id,
+                    all_active_slugs,
+                )
+                if stale_deleted > 0:
+                    log.info(
+                        "stale_domain_tree_pages_cleaned",
+                        business_id=business_id,
+                        deleted=stale_deleted,
+                    )
+                container_deleted = await self._cleanup_container_domain_topics(business_id, domain_tree)
+                if container_deleted > 0:
+                    log.info(
+                        "container_domain_topics_cleaned",
+                        business_id=business_id,
+                        deleted=container_deleted,
+                    )
                 await self._tree_linker.link_pages_to_nested_tree(
                     business_id,
                     domain_tree,

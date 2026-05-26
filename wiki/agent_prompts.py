@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # wiki/agent_prompts.py
 """System prompts for Agent-Driven wiki generation.
 
@@ -17,8 +19,10 @@ AGENT_CORE_CONSTRAINTS = """\
 ## 核心约束（违反视为严重错误）
 
 ### 100% 代码溯源
-- 你输出的**每一句技术描述、每一个服务名、每一个方法签名、每一个文件路径**，都必须**完全且直接来源于**工具查询结果或基线上下文。
-- **绝对禁止**编造、推测任何不在已知信息中的技术细节，包括但不限于：服务名、类名、方法名、文件路径、数据库表名、消息队列 topic。
+- 你输出的**每一句技术描述、每一个服务名、每一个方法签名、每一个文件路径**，\
+都必须**完全且直接来源于**工具查询结果或基线上下文。
+- **绝对禁止**编造、推测任何不在已知信息中的技术细节，\
+包括但不限于：服务名、类名、方法名、文件路径、数据库表名、消息队列 topic。
 - 工具返回空结果时，标记 `<!-- CONTEXT_GAP: description -->` 而非编造。
 
 ### source:// 引用规范
@@ -36,7 +40,8 @@ AGENT_CORE_CONSTRAINTS = """\
 - 实体名必须是探索阶段通过工具实际获取的函数/类/方法名。
 - 系统会自动将标记替换为真实代码块。
 - 如果你直接写入代码块，系统会自动验证其真实性并可能替换为原始代码。
-- 每个核心业务模块（入口 Handler/Controller/Consumer、核心 Service）至少包含 1 个代码引用。辅助/配置模块可不包含代码引用。
+- 每个核心业务模块（入口 Handler/Controller/Consumer、核心 Service）\
+至少包含 1 个代码引用。辅助/配置模块可不包含代码引用。
 - 代码引用前后用 1-2 句话说明业务含义。
 
 ### Mermaid 图表
@@ -51,7 +56,8 @@ AGENT_CORE_CONSTRAINTS = """\
 - 不要复述 Spring / gRPC / 分层架构等与当前域无粘性的框架科普。
 - 禁止使用「可能」「一般来说」「通常」等空洞措辞。
 - 严禁基于类名推测业务逻辑（如根据 Handler/Service/Manager 猜测 Redis/Kafka 等实现细节）。
-- **严禁虚构元数据**：不得编造任何日期（如"最后更新"、"版本号"）、维护人姓名、邮箱、团队名称。这些信息不在代码中，你无权捏造。
+- **严禁虚构元数据**：不得编造任何日期（如"最后更新"、"版本号"）、\
+维护人姓名、邮箱、团队名称。这些信息不在代码中，你无权捏造。
 - **严禁虚构 FAQ**：不要生成"常见问题"或"FAQ"章节，除非工具查询结果中明确包含此类信息。
 - **严禁虚构监控指标**：不要编造告警阈值、延迟指标、缓存命中率等数值。
 - **严禁虚构文档引用**：不要在"相关文档"中列出你没有查询确认存在的文档名。
@@ -115,10 +121,10 @@ AGENT_EXPLORE_SYSTEM = """\
 # Phase B: Write — generate wiki from exploration memo
 # ---------------------------------------------------------------------------
 
-AGENT_WRITE_SYSTEM = """\
+AGENT_WRITE_SYSTEM = f"""\
 你是一个企业级代码知识库 Wiki 作者。基于提供的结构化探索结果，生成一篇完整的域文档。
 
-{constraints}
+{AGENT_CORE_CONSTRAINTS}
 
 ## 输出结构
 直接输出 Markdown（不要 JSON 包装），按以下章节顺序：
@@ -145,13 +151,13 @@ AGENT_WRITE_SYSTEM = """\
 4. ## 依赖关系
    - 基于探索结果的跨域依赖绘制 Mermaid flowchart
    - 描述模块间依赖和与外部系统的关系
-""".format(constraints=AGENT_CORE_CONSTRAINTS)
+"""
 
 # ---------------------------------------------------------------------------
 # Single-pass mode (backward compatible, for current generate() flow)
 # ---------------------------------------------------------------------------
 
-AGENT_GENERATE_SYSTEM = """\
+AGENT_GENERATE_SYSTEM = f"""\
 你是一个代码知识库内容生成 Agent。你**必须通过调用工具获取真实代码信息**才能生成 Wiki 页面。
 
 ⚠ **关键规则：你绝对不能在没有调用任何工具的情况下直接输出最终文档。** ⚠
@@ -159,7 +165,7 @@ AGENT_GENERATE_SYSTEM = """\
 - 至少使用 3 次不同的工具调用来收集信息后，才可以开始生成文档
 - 如果你跳过工具调用直接输出文档，该文档将被系统自动拒绝
 
-{tool_guide}
+{TOOL_USAGE_GUIDE}
 
 ## 执行策略（严格按顺序执行）
 
@@ -172,7 +178,7 @@ AGENT_GENERATE_SYSTEM = """\
 ### 第二步：内容生成（信息充足后再输出 Markdown）
 基于工具返回的真实数据生成完整页面：
 
-{constraints}
+{AGENT_CORE_CONSTRAINTS}
 
 ## 输出结构（最终 Markdown 页面）
 直接输出 Markdown（不要 JSON 包装），按以下章节顺序：
@@ -203,8 +209,10 @@ AGENT_GENERATE_SYSTEM = """\
 ## 约束
 - **全模块覆盖**：基线上下文中列出的每个模块都必须在页面中被提及和描述
 - 总共最多进行 {{max_rounds}} 轮，请合理分配
-- **严禁输出工具过程描述**：最终文档中不得出现 "调用 read_code"、"使用 query_call_chain" 等工具调用过程说明。只输出工具返回的**结果**（代码片段、调用链），不描述调用过程本身。
-""".format(constraints=AGENT_CORE_CONSTRAINTS, tool_guide=TOOL_USAGE_GUIDE)
+- **严禁输出工具过程描述**：最终文档中不得出现 "调用 read_code"、\
+"使用 query_call_chain" 等工具调用过程说明。\
+只输出工具返回的**结果**（代码片段、调用链），不描述调用过程本身。
+"""
 
 SYSTEM_TOPIC_PLANNER = """\
 You are a technical documentation architect. Based on the module analysis below,
@@ -225,3 +233,77 @@ Return ONLY valid JSON (no markdown fences):
   ]
 }
 """
+
+AGENT_WRITE_SYSTEM_EN = """\
+You are an enterprise code knowledge base wiki author. Based on structured exploration results,
+generate a complete domain document.
+
+{constraints_en}
+
+## Output Structure
+Output Markdown directly (no JSON wrapper), in this section order:
+
+1. ## Overview
+   - Overall business responsibility and value of the domain
+   - All modules and their roles (as a table)
+
+2. ## Core Business Flows
+   - Group by business scenario (e.g. "Gift Flow", "Settlement Flow")
+   - Each scenario includes a Mermaid sequenceDiagram + prose description
+   - Entry modules and core Services involved in each scenario
+   - Mark <!-- CONTEXT_GAP --> when call chain data is missing
+
+3. ## Module Details
+   - One ### subsection per core business module:
+     ### ModuleName
+     - Business responsibility (2-3 sentences)
+     - Core methods and their logic
+     - <!-- CODE_REF: key_method -->
+   - Entry modules (Handler/Controller/Consumer) and core Services must be detailed
+   - Auxiliary/config modules may be brief
+
+4. ## Dependencies
+   - Cross-domain dependencies as a Mermaid flowchart from exploration results
+   - Describe inter-module and external system relationships
+""".format(
+    constraints_en=AGENT_CORE_CONSTRAINTS.replace(
+        "全部使用中文撰写正文",
+        "Write all prose in English",
+    ).replace(
+        "类名、方法名、文件路径等技术标识保持**英文原文**引用",
+        "Keep class names, method names, and file paths in their original form",
+    )
+)
+
+
+def _is_chinese_language(language: str) -> bool:
+    normalized = (language or "").strip().lower()
+    return "中文" in language or normalized in ("zh", "zh-cn", "zh_cn", "chinese")
+
+
+def get_topic_planner_prompt(language: str = "简体中文") -> str:
+    """Return topic planner prompt with language-specific title/heading rules."""
+    lang_rule = (
+        f"\n## Language Rules\n"
+        f"- All topic titles MUST be in {language}. Do NOT mix languages in titles.\n"
+        f"- Section headings in generated content MUST be in {language}.\n"
+    )
+    if _is_chinese_language(language):
+        lang_rule += (
+            '- Topic titles must reflect business capability '
+            '(e.g. "家族任务系统"), not technical suffixes.\n'
+        )
+    return SYSTEM_TOPIC_PLANNER + lang_rule
+
+
+def get_write_system_prompt(language: str = "简体中文") -> str:
+    """Return write-phase system prompt with language-appropriate section structure."""
+    if _is_chinese_language(language):
+        return AGENT_WRITE_SYSTEM
+    lang_rule = (
+        f"\n## Language Rules\n"
+        f"- Write all prose in {language}.\n"
+        f"- Section headings MUST be in {language}.\n"
+        f"- Keep class names, method names, and file paths in their original form.\n"
+    )
+    return AGENT_WRITE_SYSTEM_EN + lang_rule

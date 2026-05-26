@@ -7,9 +7,15 @@ function kwargs.
 from __future__ import annotations
 
 import inspect
-from typing import Any, Awaitable, Callable, get_type_hints, get_origin, get_args
+from collections.abc import Callable
+from typing import Any, get_args, get_origin, get_type_hints
 
+from core.log import get_logger
 from wiki.agents.base_agent import ToolDef
+
+log = get_logger(__name__)
+
+_SKIP_PARAMS = frozenset({"self", "ctx", "args", "return"})
 
 
 def function_tool(
@@ -31,11 +37,13 @@ def function_tool(
 
         params_schema = _build_params_schema(fn, hints)
         has_ctx_param = _fn_accepts_ctx(fn)
+        valid_params = _valid_tool_param_names(fn)
 
         async def _handler(args: dict[str, Any], ctx: Any = None) -> dict[str, Any]:
+            filtered = _filter_tool_kwargs(args, valid_params, tool_name=tool_name)
             if has_ctx_param and ctx is not None:
-                return await fn(ctx=ctx, **args)
-            return await fn(**args)
+                return await fn(ctx=ctx, **filtered)
+            return await fn(**filtered)
 
         fn._tool_def = ToolDef(
             name=tool_name,
@@ -53,6 +61,26 @@ def _fn_accepts_ctx(fn: Callable) -> bool:
     """Check if a function has a 'ctx' parameter."""
     sig = inspect.signature(fn)
     return "ctx" in sig.parameters
+
+
+def _valid_tool_param_names(fn: Callable) -> frozenset[str]:
+    """Parameter names the tool handler may receive as kwargs."""
+    sig = inspect.signature(fn)
+    return frozenset(name for name in sig.parameters if name not in _SKIP_PARAMS)
+
+
+def _filter_tool_kwargs(
+    args: dict[str, Any],
+    valid_params: frozenset[str],
+    *,
+    tool_name: str,
+) -> dict[str, Any]:
+    """Drop unknown kwargs so LLM-hallucinated params do not cause TypeError."""
+    filtered = {k: v for k, v in args.items() if k in valid_params}
+    dropped = sorted(k for k in args if k not in valid_params)
+    if dropped:
+        log.warning("tool_unknown_kwargs_dropped", tool=tool_name, dropped_keys=dropped)
+    return filtered
 
 
 def _build_params_schema(fn: Callable, hints: dict) -> dict[str, Any]:
@@ -116,16 +144,20 @@ def collect_tools(instance: Any) -> list[ToolDef]:
         original_td: ToolDef = attr._tool_def
         bound_method = getattr(instance, attr_name)
         accepts_ctx = _fn_accepts_ctx(attr)
+        valid_params = _valid_tool_param_names(attr)
 
         async def _bound_handler(
             args: dict[str, Any],
             ctx: Any = None,
             _method=bound_method,
             _accepts_ctx=accepts_ctx,
+            _valid_params=valid_params,
+            _tool_name=original_td.name,
         ) -> dict[str, Any]:
+            filtered = _filter_tool_kwargs(args, _valid_params, tool_name=_tool_name)
             if _accepts_ctx and ctx is not None:
-                return await _method(ctx=ctx, **args)
-            return await _method(**args)
+                return await _method(ctx=ctx, **filtered)
+            return await _method(**filtered)
 
         tools.append(ToolDef(
             name=original_td.name,

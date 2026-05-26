@@ -119,6 +119,9 @@ async def test_recursive_split_sub_communities_run_in_parallel():
 
     config = {"configurable": {"graph_store": mock_graph_store, "llm": MagicMock()}}
     with patch(
+        "wiki.nodes.graph_domain_decompose._get_split_params",
+        return_value=(10, 3),
+    ), patch(
         "wiki.nodes.graph_domain_decompose._embedding_clustering",
         side_effect=mock_embedding_clustering,
     ), patch(
@@ -184,6 +187,7 @@ async def test_quality_gate_l3_failure_adds_pages_to_heal():
     assert "wiki/core-svc" in result.get("pages_to_heal", [])
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_agent_no_early_exit_on_short_content():
     """Short stub content must not trigger early exit even with high quality scores."""

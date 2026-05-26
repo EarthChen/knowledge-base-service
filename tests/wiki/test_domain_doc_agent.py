@@ -175,6 +175,7 @@ class TestMaybeSplit:
         assert len(pages) == 1
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestDomainDocAgentIteration:
     @pytest.mark.asyncio
     async def test_stops_when_quality_acceptable(self):
@@ -277,6 +278,7 @@ class TestDomainDocAgentIteration:
         assert agent._page_agent.explore.call_count <= 3
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestDomainDocAgentExploreWrite:
     @pytest.mark.asyncio
     async def test_explore_write_flow(self):
@@ -365,6 +367,7 @@ class TestDomainDocAgentExploreWrite:
         assert "focus_modules" in second_call_kwargs.kwargs
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestDomainDocAgentObservability:
     @pytest.mark.asyncio
     async def test_iteration_history_populated(self):
@@ -409,6 +412,7 @@ class TestExploreMemorySignature:
         assert params["memory"].default is None, "memory default should be None"
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestElasticTimeout:
     @pytest.mark.asyncio
     async def test_explore_timeout_preserves_partial_memory(self, monkeypatch):
@@ -496,6 +500,7 @@ class TestElasticTimeout:
         assert agent._page_agent.write.call_count >= 2
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestCoveredEntityUids:
     @pytest.mark.asyncio
     async def test_pages_include_covered_entity_uids(self):

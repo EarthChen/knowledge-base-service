@@ -6,7 +6,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
-from core.config import AppWikiFlags as AppWikiConfig, EmbeddingConfig
+from core.config import AppWikiFlags as AppWikiConfig
+from core.config import EmbeddingConfig
 from core.log import get_logger
 from store.schema import EdgeType, GraphEdge, GraphNode, NodeLabel
 from wiki.models import ChunkSnippet, CodeSnippet, ImportanceTier, SourceLocation

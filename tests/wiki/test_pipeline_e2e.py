@@ -346,6 +346,7 @@ def _build_test_modules() -> dict[str, list[dict]]:
     }
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_full_pipeline_e2e_with_mock_llm():
     """Exercise the complete pipeline: Phase 1-4 with realistic data."""

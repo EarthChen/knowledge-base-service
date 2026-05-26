@@ -127,6 +127,7 @@ async def _llm_side_effect_wiki_and_mermaid(prompt: str, system: str = "", **kwa
     return "sequenceDiagram\n    participant U as UserSvc\n    participant A as AuthSvc\n    U->>A: validate\n"
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 class TestComposePagesWithDiagrams:
     @pytest.mark.asyncio
     async def test_pages_include_diagrams(self, base_state):

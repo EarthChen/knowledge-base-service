@@ -36,6 +36,8 @@ const FIELD_KEYS: Partial<Record<string, keyof Fields>> = {
   "wiki.heal_max_rounds_core": "fieldHealMaxRoundsCore",
   "wiki.heal_max_rounds_standard": "fieldHealMaxRoundsStandard",
   "wiki.llm_global_rpm_limit": "fieldLlmGlobalRpmLimit",
+  "wiki.domain_split_threshold": "fieldDomainSplitThreshold",
+  "wiki.domain_split_max_depth": "fieldDomainSplitMaxDepth",
   "wiki.rag_enabled": "fieldRagEnabled",
   "wiki.enrichment_enabled": "fieldEnrichmentEnabled",
   "wiki.enrichment_round1_enabled": "fieldEnrichmentRound1Enabled",

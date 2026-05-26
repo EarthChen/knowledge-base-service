@@ -113,3 +113,4 @@ pnpm lint             # ESLint
 | [`docs/CODEMAPS/INDEX.md`](docs/CODEMAPS/INDEX.md) | Code map: entry points, module tree, wiki subsystem |
 | [`docs/REMAINING-WORK.md`](docs/REMAINING-WORK.md) | Unified backlog |
 | [`docs/superpowers/TODO.md`](docs/superpowers/TODO.md) | Design proposals & optimization backlog |
+| [`docs/wiki-quality-audit.md`](docs/wiki-quality-audit.md) | Wiki generation quality audit (12 issues, fix priorities) |

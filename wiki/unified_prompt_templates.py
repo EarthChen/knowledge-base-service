@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from wiki.content_context_builder import (
     CallChainStep,
-    EntityDetail,
     EnrichedDomainContext,
+    EntityDetail,
     MethodDetail,
 )
 

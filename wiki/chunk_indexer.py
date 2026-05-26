@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from core.config import EmbeddingConfig
 from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding

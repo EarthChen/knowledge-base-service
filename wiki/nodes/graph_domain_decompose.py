@@ -274,6 +274,16 @@ _SPLIT_THRESHOLD = 10
 _MAX_SPLIT_DEPTH = 3
 
 
+def _get_split_params() -> tuple[int, int]:
+    cfg = get_settings().wiki
+    threshold = getattr(cfg, "domain_split_threshold", None)
+    max_depth = getattr(cfg, "domain_split_max_depth", None)
+    return (
+        threshold if isinstance(threshold, int) else _SPLIT_THRESHOLD,
+        max_depth if isinstance(max_depth, int) else _MAX_SPLIT_DEPTH,
+    )
+
+
 def _sub_to_tree_node(sub: dict) -> dict[str, Any]:
     """Convert a recursive sub-domain dict into a domain_tree node."""
     children_raw = sub.get("children", [])
@@ -946,7 +956,8 @@ async def graph_driven_domain_decompose_node(
             parent_display: str,
             depth: int,
         ) -> list[dict]:
-            if len(community_modules) <= _SPLIT_THRESHOLD or depth >= _MAX_SPLIT_DEPTH:
+            split_threshold, max_split_depth = _get_split_params()
+            if len(community_modules) <= split_threshold or depth >= max_split_depth:
                 return []
 
             clusterer = DomainSemanticClusterer()
@@ -963,7 +974,7 @@ async def graph_driven_domain_decompose_node(
                 detector = GraphCommunityDetector(target_min=2, target_max=5, seed=42)
                 community_set = set(community_modules)
                 sub_result = detector.detect_sub_communities(
-                    community_set, edges, max_depth=2, max_leaf_size=_SPLIT_THRESHOLD,
+                    community_set, edges, max_depth=2, max_leaf_size=split_threshold,
                 )
                 sub_clusters_raw: list[set[tuple[str, str]]] = []
                 for root in sub_result:

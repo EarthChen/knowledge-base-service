@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.config import ContentLanguage
 from core.log import get_logger
 from store.schema import GraphNode
 from wiki.dependency_graph import DomainNode
@@ -30,6 +31,7 @@ class PipelineResult:
     entity_roles: dict[str, str]
     errors: list[str] = field(default_factory=list)
     domain_display_names: dict[str, str] = field(default_factory=dict)
+    reassembly_actions: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _graph_nodes_to_dicts(
@@ -330,6 +332,11 @@ async def load_cached_pipeline_result(
     )
 
 
+def _build_initial_state_language(config_overrides: dict[str, Any] | None) -> ContentLanguage:
+    language_raw = (config_overrides or {}).get("language", "zh-CN")
+    return ContentLanguage.from_any(language_raw)
+
+
 async def run_langgraph_pipeline(
     business_id: str,
     repositories: list[str],
@@ -374,7 +381,7 @@ async def run_langgraph_pipeline(
             elif isinstance(node, dict):
                 existing_tree_dicts.append(node)
 
-    language = (config_overrides or {}).get("language", "zh")
+    content_language = _build_initial_state_language(config_overrides)
 
     resolved_existing_mapping = existing_domain_mapping
     if resolved_existing_mapping is None and existing_tree_dicts:
@@ -411,7 +418,8 @@ async def run_langgraph_pipeline(
         "module_tree": [],
         "canonical_keys": {},
         "domain_cache": {},
-        "language": language,
+        "language": content_language.value,
+        "content_language": content_language,
     }
 
     if existing_summaries:
@@ -498,6 +506,7 @@ async def run_langgraph_pipeline(
     entity_roles = result.get("entity_roles", {})
     errors = result.get("errors", [])
     domain_display_names = result.get("domain_display_names", {})
+    reassembly_actions = result.get("reassembly_actions", [])
 
     log.info(
         "langgraph_pipeline_done",
@@ -517,4 +526,5 @@ async def run_langgraph_pipeline(
         entity_roles=entity_roles,
         errors=errors,
         domain_display_names=domain_display_names,
+        reassembly_actions=reassembly_actions,
     )

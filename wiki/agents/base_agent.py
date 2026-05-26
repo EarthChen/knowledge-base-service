@@ -3,12 +3,12 @@ from __future__ import annotations
 import inspect
 import json
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
-
-from wiki.agents.events import EventCallback
+from typing import Any
 
 from core.log import get_logger
+from wiki.agents.events import EventCallback
 from wiki.tool_guardrail import DefaultToolGuardrail
 
 log = get_logger(__name__)

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from indexer.enrichment import CodeSummaryEnricher, is_trivial_enrichment_entity
 from indexer.embedding_generator import EmbeddingGenerator
+from indexer.enrichment import CodeSummaryEnricher, is_trivial_enrichment_entity
 from store.falkordb_store import FalkorDBStore, QueryResultWrapper
 from store.schema import NodeLabel
 

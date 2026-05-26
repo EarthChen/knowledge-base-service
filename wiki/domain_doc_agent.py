@@ -12,18 +12,20 @@ import re
 import time
 import warnings
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
+from core.config import ContentLanguage
 from core.log import get_logger
 from wiki.agents.doc_orchestrator import DocOrchestrator, QualityResult
-from wiki.page_agent import WikiPageAgent, WorkingMemory
 from wiki.output_guardrail import (
     CoverageCheck,
     FormatCheck,
+    LanguageConsistencyCheck,
     LengthCheck,
     OutputGuardrailChain,
 )
+from wiki.page_agent import WikiPageAgent, WorkingMemory
 from wiki.quality_report import evaluate_quality
 from wiki.quality_trace import AgentTrace, TraceCollector
 
@@ -41,6 +43,50 @@ class TopicPlan:
 class DomainTopicOutline:
     should_split: bool
     topics: list[TopicPlan]
+
+
+def _extract_cjk_bigrams(title: str) -> set[str]:
+    """Extract CJK character bigrams for fuzzy matching."""
+    chars = [c for c in title if "\u4e00" <= c <= "\u9fff"]
+    if len(chars) < 2:
+        return set(chars)
+    return {chars[i] + chars[i + 1] for i in range(len(chars) - 1)}
+
+
+def _dedup_topic_titles(topics: list[TopicPlan]) -> list[TopicPlan]:
+    """Merge topics with duplicate or semantically similar titles."""
+    result: list[TopicPlan] = []
+    seen_exact: dict[str, int] = {}
+    seen_bigrams: list[set[str]] = []
+
+    for t in topics:
+        if t.title in seen_exact:
+            idx = seen_exact[t.title]
+            for m in t.modules:
+                if m not in result[idx].modules:
+                    result[idx].modules.append(m)
+            continue
+
+        bigrams = _extract_cjk_bigrams(t.title)
+        merged = False
+        if bigrams:
+            for i, existing_bg in enumerate(seen_bigrams):
+                if not existing_bg:
+                    continue
+                overlap = len(bigrams & existing_bg) / max(len(bigrams), len(existing_bg), 1)
+                if overlap >= 0.6:
+                    for m in t.modules:
+                        if m not in result[i].modules:
+                            result[i].modules.append(m)
+                    merged = True
+                    break
+
+        if not merged:
+            seen_exact[t.title] = len(result)
+            seen_bigrams.append(bigrams)
+            result.append(TopicPlan(title=t.title, modules=list(t.modules), description=t.description))
+
+    return result
 
 
 def _parse_topic_outline(raw: str) -> DomainTopicOutline | None:
@@ -69,6 +115,7 @@ def _parse_topic_outline(raw: str) -> DomainTopicOutline | None:
         ))
     if not topics:
         return None
+    topics = _dedup_topic_titles(topics)
     if len(topics) > 6:
         topics = topics[:6]
     return DomainTopicOutline(should_split=bool(should_split), topics=topics)
@@ -153,9 +200,14 @@ def _maybe_split(
     content: str,
     domain_slug: str,
     domain_display_name: str = "",
+    *,
+    topic_split_done: bool = False,
+    language: ContentLanguage = ContentLanguage.ZH_CN,
 ) -> list[dict[str, Any]]:
     """Split oversized documents by ## sections into topic sub-pages."""
     display = domain_display_name or domain_slug
+    if topic_split_done and len(content) < 30000:
+        return [_make_page(content, domain_slug, display)]
     estimated_tokens = len(content) // 4
     if estimated_tokens <= MAX_PAGE_TOKENS:
         return [_make_page(content, domain_slug, display)]
@@ -183,12 +235,18 @@ def _maybe_split(
     if buf:
         merged.append(buf)
 
+    max_split_topics = 8
+    while len(merged) > max_split_topics:
+        min_idx = min(range(len(merged) - 1), key=lambda i: len(merged[i]) + len(merged[i + 1]))
+        merged[min_idx] = merged[min_idx] + "\n" + merged.pop(min_idx + 1)
+
     child_pages: list[dict[str, Any]] = []
     child_links: list[str] = []
 
     for section in merged:
         title_match = re.match(r"^## (.+)", section)
-        section_title = title_match.group(1).strip() if title_match else "Untitled"
+        fallback = "未命名" if language.is_chinese else "Untitled"
+        section_title = title_match.group(1).strip() if title_match else fallback
         topic_path = domain_topic_path(domain_slug, section_title)
         child_pages.append({
             "page_type": "topic",
@@ -207,7 +265,8 @@ def _maybe_split(
 
     if not overview.strip():
         overview = f"# {display}\n\n"
-    parent_content = overview + "\n## 章节导航\n\n" + "\n".join(child_links)
+    nav_heading = "## 章节导航" if language.is_chinese else "## Section Navigation"
+    parent_content = overview + f"\n{nav_heading}\n\n" + "\n".join(child_links)
     parent_page = _make_page(parent_content, domain_slug, display)
 
     return [parent_page, *child_pages]
@@ -241,6 +300,24 @@ def _inject_executive_summaries(pages: list[dict[str, Any]]) -> None:
             page["metadata"]["executive_summary"] = _extract_executive_summary(
                 page.get("content", "")
             )
+
+
+def _check_language_consistency(content: str, target_language: str) -> float:
+    """Score heading language consistency. Returns 0.0-1.0."""
+    headings = re.findall(r"^#{1,3}\s+(.+)", content, re.MULTILINE)
+    if not headings:
+        return 1.0
+
+    if "中文" in target_language:
+        cn_headings = sum(
+            1 for h in headings if any("\u4e00" <= c <= "\u9fff" for c in h)
+        )
+        return cn_headings / len(headings)
+
+    en_headings = sum(
+        1 for h in headings if not any("\u4e00" <= c <= "\u9fff" for c in h)
+    )
+    return en_headings / len(headings)
 
 
 def _make_page(content: str, slug: str, display_name: str = "") -> dict[str, Any]:
@@ -278,9 +355,10 @@ class DomainDocAgent(DocOrchestrator):
         budget_resolver: Any | None = None,
         explore_max_rounds: int | None = None,
         explore_max_tool_calls: int | None = None,
+        content_language: str = "简体中文",
     ) -> None:
         from core.config import get_settings
-        from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM, AGENT_WRITE_SYSTEM
+        from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM, get_write_system_prompt
 
         wiki_cfg = get_settings().wiki
         explore_rounds = explore_max_rounds or wiki_cfg.domain_agent_explore_max_rounds
@@ -293,26 +371,47 @@ class DomainDocAgent(DocOrchestrator):
             max_tool_calls=explore_tool_calls,
             repo_path=repo_path,
             search_service=search_service,
+            content_language=content_language,
         )
         super().__init__(
             agent=page_agent,
             name=domain_name,
             max_iterations=max_iterations,
             explore_system_prompt=AGENT_EXPLORE_SYSTEM.format(max_rounds=explore_rounds),
-            write_system_prompt=AGENT_WRITE_SYSTEM,
+            write_system_prompt=get_write_system_prompt(content_language),
         )
         self.domain_name = domain_name
         self.domain_display_name = domain_display_name or domain_name
+        self.content_language = content_language
         self._repo_paths = repo_paths or {}
         self._page_agent = page_agent
         self._budget_resolver = budget_resolver
         self._valid_pairs: list[str] | None = None
+        self._topic_split_done: bool = False
         self.iteration_history: list[dict[str, Any]] = []
         self._output_guardrail = OutputGuardrailChain([
             FormatCheck(),
             CoverageCheck(),
             LengthCheck(),
+            LanguageConsistencyCheck(),
         ])
+
+    def _maybe_split(
+        self,
+        content: str,
+        domain_slug: str | None = None,
+        domain_display_name: str = "",
+    ) -> list[dict[str, Any]]:
+        slug = domain_slug or self.domain_name
+        display = domain_display_name or self.domain_display_name
+        lang = ContentLanguage.from_any(self.content_language)
+        return _maybe_split(
+            content,
+            slug,
+            display,
+            topic_split_done=self._topic_split_done,
+            language=lang,
+        )
 
     # --- Hook 1: pre_fill ---
     async def pre_fill(
@@ -391,7 +490,7 @@ class DomainDocAgent(DocOrchestrator):
         if not content:
             content = self._page_agent._generate_skeleton(module_names, self.domain_name)
 
-        pages = _maybe_split(content, self.domain_name, self.domain_display_name)
+        pages = self._maybe_split(content)
 
         if hasattr(memory, "discovered_entity_uids") and memory.discovered_entity_uids:
             entity_uids = list(memory.discovered_entity_uids)
@@ -431,10 +530,15 @@ class DomainDocAgent(DocOrchestrator):
                 )],
             )
 
-        from wiki.agent_prompts import SYSTEM_TOPIC_PLANNER
+        from wiki.agent_prompts import get_topic_planner_prompt
 
+        topic_planner_prompt = get_topic_planner_prompt(self.content_language)
         module_list = "\n".join(f"- {m}" for m in module_names)
-        call_info = "\n".join(memory.discovered_call_chains[:20]) if memory.discovered_call_chains else "No call chain data available."
+        call_info = (
+            "\n".join(memory.discovered_call_chains[:20])
+            if memory.discovered_call_chains
+            else "No call chain data available."
+        )
 
         user_prompt = (
             f"## Domain: {self.domain_display_name}\n\n"
@@ -442,7 +546,7 @@ class DomainDocAgent(DocOrchestrator):
             f"## Key Call Relationships\n{call_info}\n"
         )
         messages = [
-            {"role": "system", "content": SYSTEM_TOPIC_PLANNER},
+            {"role": "system", "content": topic_planner_prompt},
             {"role": "user", "content": user_prompt},
         ]
 
@@ -459,7 +563,7 @@ class DomainDocAgent(DocOrchestrator):
                     raw = str(result)
             else:
                 raw = await llm.generate(
-                    user_prompt, system=SYSTEM_TOPIC_PLANNER, max_tokens=plan_tokens,
+                    user_prompt, system=topic_planner_prompt, max_tokens=plan_tokens,
                 )
                 raw = str(raw)
             outline = _parse_topic_outline(raw)
@@ -491,7 +595,7 @@ class DomainDocAgent(DocOrchestrator):
                 self.domain_name, baseline_context, memory,
             )
             content = await self._verify_code_blocks(content, memory)
-            pages = _maybe_split(content, self.domain_name, self.domain_display_name)
+            pages = self._maybe_split(content)
             _inject_executive_summaries(pages)
             return pages
 
@@ -519,6 +623,7 @@ class DomainDocAgent(DocOrchestrator):
                 "title": topic.title,
                 "path": topic_path,
                 "content": topic_content,
+                "canonical_key": self.domain_name,
                 "diagrams": [],
                 "source_locations": [],
                 "metadata": {
@@ -530,13 +635,15 @@ class DomainDocAgent(DocOrchestrator):
             })
             topic_links.append(f"- [[{self.domain_name}/{topic.title}]]")
 
+        lang = ContentLanguage.from_any(self.content_language)
+        nav_heading = "## 章节导航" if lang.is_chinese else "## Section Navigation"
         overview_content = (
             f"# {self.domain_display_name}\n\n"
             + "\n".join(
                 f"## {t.title}\n{t.description}\n"
                 for t in outline.topics
             )
-            + "\n## 章节导航\n\n" + "\n".join(topic_links)
+            + f"\n{nav_heading}\n\n" + "\n".join(topic_links)
         )
         overview_page = _make_page(overview_content, self.domain_name, self.domain_display_name)
 
@@ -592,7 +699,7 @@ class DomainDocAgent(DocOrchestrator):
                 ),
                 timeout=timeout,
             )
-        except (asyncio.TimeoutError, TimeoutError):
+        except TimeoutError:
             log.warning(
                 "explore_timeout_partial",
                 domain=self.domain_name,
@@ -602,6 +709,8 @@ class DomainDocAgent(DocOrchestrator):
         # Topic planning after explore
         outline = await self._plan_topics(module_names, memory)
         memory.topic_outline = outline
+        if outline.should_split:
+            self._topic_split_done = True
 
         # Early branch: if topic planning says split, skip monolithic write loop
         if outline.should_split and len(outline.topics) > 1:
@@ -637,7 +746,7 @@ class DomainDocAgent(DocOrchestrator):
                                     ),
                                     timeout=timeout,
                                 )
-                            except (asyncio.TimeoutError, TimeoutError):
+                            except TimeoutError:
                                 pass
 
             if memory.discovered_entity_uids:
@@ -654,7 +763,7 @@ class DomainDocAgent(DocOrchestrator):
                 memory,
             )
             content = await self._verify_code_blocks(content, memory)
-            pages = _maybe_split(content, self.domain_name, self.domain_display_name)
+            pages = self._maybe_split(content)
             if memory.discovered_entity_uids:
                 entity_uids = list(memory.discovered_entity_uids)
                 for page in pages:
@@ -683,7 +792,7 @@ class DomainDocAgent(DocOrchestrator):
                 )
                 write_timeout_count = 0
                 content = await self._verify_code_blocks(content, memory)
-            except (asyncio.TimeoutError, TimeoutError):
+            except TimeoutError:
                 write_timeout_count += 1
                 log.warning(
                     "write_timeout",
@@ -720,14 +829,20 @@ class DomainDocAgent(DocOrchestrator):
                 break
 
             guardrail_result = await self._output_guardrail.evaluate(
-                content, {"module_names": module_names}
+                content,
+                {
+                    "module_names": module_names,
+                    "content_language": self.content_language,
+                },
             )
+            lang_detail = guardrail_result.details.get("language_consistency")
             log.info(
                 "output_guardrail_result",
                 domain=self.domain_name,
                 iteration=iteration,
                 passed=guardrail_result.passed,
                 score=guardrail_result.total_score,
+                language_consistency=lang_detail.score if lang_detail else None,
             )
             self.iteration_history.append({
                 "iteration": iteration,
@@ -791,7 +906,7 @@ class DomainDocAgent(DocOrchestrator):
                     ),
                     timeout=timeout,
                 )
-            except (asyncio.TimeoutError, TimeoutError):
+            except TimeoutError:
                 log.warning("reexplore_timeout", domain=self.domain_name)
             finally:
                 if supplemental_memory._total_chars() > 0:
@@ -805,7 +920,7 @@ class DomainDocAgent(DocOrchestrator):
         if not content:
             content = self._page_agent._generate_skeleton(module_names, self.domain_name)
 
-        pages = _maybe_split(content, self.domain_name, self.domain_display_name)
+        pages = self._maybe_split(content)
         if memory.discovered_entity_uids:
             entity_uids = list(memory.discovered_entity_uids)
             log.info(
@@ -823,7 +938,7 @@ class DomainDocAgent(DocOrchestrator):
             trace = AgentTrace(
                 domain=self.domain_name,
                 page_title=self.domain_display_name or self.domain_name,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 explore_rounds=len(self.iteration_history),
                 tools_called=[],
                 quality_score=quality.coverage if quality else 0.0,

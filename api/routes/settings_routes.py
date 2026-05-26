@@ -25,6 +25,7 @@ settings_router = APIRouter(
 HOT_RELOAD_KEYS = frozenset({
     "wiki.auto_update_on_index",
     "llm.providers",
+    "llm.max_concurrent",
     "llm.strategy.classification",
     "llm.strategy.generation",
     "llm.strategy.reasoning",
@@ -58,6 +59,9 @@ HOT_RELOAD_KEYS = frozenset({
     # Quality
     "wiki.quality_min_score",
     "wiki.quality_sample_size",
+    # Domain split
+    "wiki.domain_split_threshold",
+    "wiki.domain_split_max_depth",
 })
 
 

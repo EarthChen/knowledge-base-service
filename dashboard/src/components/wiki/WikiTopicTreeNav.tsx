@@ -7,7 +7,19 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import { ChevronRight, ChevronDown, Check, FileText, FolderOpen, Pencil, Trash2, X } from "lucide-react";
+import {
+  BookOpen,
+  ChevronDown,
+  ChevronRight,
+  Check,
+  Code2,
+  FileText,
+  FolderClosed,
+  FolderOpen,
+  Pencil,
+  Trash2,
+  X,
+} from "lucide-react";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { useI18n } from "../../i18n/context";
 import type { TopicTreeNode } from "../../hooks/useWikiDomainTree";
@@ -29,12 +41,42 @@ interface Props {
   onDomainContextMenu?: (event: MouseEvent, payload: DomainContextMenuPayload) => void;
 }
 
-function initialExpanded(tree: TopicTreeNode[]): Set<string> {
-  const out = new Set<string>();
-  for (const n of tree) {
-    if (n.children.length > 0) out.add(n.path);
+function nodeKey(node: TopicTreeNode): string {
+  return node.uid ?? node.path;
+}
+
+function getNodeIcon(node: TopicTreeNode, isExpanded: boolean) {
+  if (node.label === "WikiSection") {
+    return isExpanded ? FolderOpen : FolderClosed;
   }
-  return out;
+  switch (node.page_type) {
+    case "domain_overview":
+      return BookOpen;
+    case "module_overview":
+      return Code2;
+    case "topic":
+    default:
+      return FileText;
+  }
+}
+
+function initialExpanded(tree: TopicTreeNode[], selectedPath: string | null): Set<string> {
+  if (!selectedPath) return new Set<string>();
+  const ancestors = new Set<string>();
+  function walk(nodes: TopicTreeNode[], parentKeys: string[]) {
+    for (const n of nodes) {
+      const key = nodeKey(n);
+      const currentKeys = [...parentKeys, key];
+      if (n.path === selectedPath) {
+        for (const k of parentKeys) ancestors.add(k);
+      }
+      if (n.children.length > 0) {
+        walk(n.children, currentKeys);
+      }
+    }
+  }
+  walk(tree, []);
+  return ancestors;
 }
 
 function collectVisibleItems(
@@ -44,22 +86,23 @@ function collectVisibleItems(
 ): TopicTreeNode[] {
   for (const n of nodes) {
     out.push(n);
-    if (n.children.length > 0 && expanded.has(n.path)) {
+    if (n.children.length > 0 && expanded.has(nodeKey(n))) {
       collectVisibleItems(n.children, expanded, out);
     }
   }
   return out;
 }
 
-function findParentPath(
+function findParentKey(
   nodes: TopicTreeNode[],
-  path: string,
-  parentPath: string | null = null,
+  key: string,
+  parentKey: string | null = null,
 ): string | null {
   for (const n of nodes) {
-    if (n.path === path) return parentPath;
+    const k = nodeKey(n);
+    if (k === key) return parentKey;
     if (n.children.length) {
-      const found = findParentPath(n.children, path, n.path);
+      const found = findParentKey(n.children, key, k);
       if (found !== null) return found;
     }
   }
@@ -172,22 +215,24 @@ function TreeNodeRow({
   const [editValue, setEditValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const key = nodeKey(node);
   const hasChildren = node.children.length > 0;
-  const isOpen = expanded.has(node.path);
-  const isSelected = selectedPath === node.path;
+  const isOpen = expanded.has(key);
+  const NodeIcon = getNodeIcon(node, isOpen);
+  const isSelected = selectedPath === node.path && node.path !== "";
   const isDomain = node.page_type === "domain_overview" || node.label === "WikiSection";
   const domainUid = node.uid?.trim() ?? "";
   const canEdit = isDomain && !!domainUid && !!onRenameDomain;
-  const isFocused = focusedPath === node.path;
+  const isFocused = focusedPath === key;
 
   useEffect(() => {
     if (editing && inputRef.current) inputRef.current.focus();
   }, [editing]);
 
   const handleClick = useCallback(() => {
-    if (hasChildren) toggle(node.path);
-    onSelect(node.path);
-  }, [hasChildren, node.path, onSelect, toggle]);
+    if (hasChildren) toggle(key);
+    if (node.path) onSelect(node.path);
+  }, [hasChildren, key, node.path, onSelect, toggle]);
 
   const startEdit = useCallback(
     (e: MouseEvent) => {
@@ -279,8 +324,8 @@ function TreeNodeRow({
       role="treeitem"
       aria-expanded={hasChildren ? isOpen : undefined}
       tabIndex={isFocused ? 0 : -1}
-      data-tree-path={node.path}
-      onFocus={() => onFocusItem(node.path)}
+      data-tree-path={key}
+      onFocus={() => onFocusItem(key)}
       className="list-none rounded-md outline-none focus-visible:ring-2 focus-visible:ring-sky-500/70"
     >
       <div className="group relative" onContextMenu={handleContextMenu}>
@@ -307,7 +352,7 @@ function TreeNodeRow({
           ) : (
             <span className="w-3.5" />
           )}
-          {isDomain ? <FolderOpen size={14} /> : <FileText size={14} />}
+          <NodeIcon size={14} />
           <span className="truncate">{node.name}</span>
           {node.review_status === "pending_review" && (
             <span className="ml-auto rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
@@ -381,12 +426,12 @@ export default function WikiTopicTreeNav({
   const tt = t.wiki.topic_tree;
   const treeRef = useRef<HTMLDivElement>(null);
 
-  const [expanded, setExpanded] = useState(() => initialExpanded(tree));
+  const [expanded, setExpanded] = useState(() => initialExpanded(tree, selectedPath));
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
 
   useEffect(() => {
-    setExpanded(initialExpanded(tree));
-  }, [tree]);
+    setExpanded(initialExpanded(tree, selectedPath));
+  }, [tree, selectedPath]);
 
   useEffect(() => {
     if (!tree.length) {
@@ -395,7 +440,7 @@ export default function WikiTopicTreeNav({
     }
     const visible = collectVisibleItems(tree, expanded);
     if (!visible.length) return;
-    setFocusedPath((prev) => (prev && visible.some((n) => n.path === prev) ? prev : visible[0].path));
+    setFocusedPath((prev) => (prev && visible.some((n) => nodeKey(n) === prev) ? prev : nodeKey(visible[0])));
   }, [tree, expanded]);
 
   useEffect(() => {
@@ -406,11 +451,11 @@ export default function WikiTopicTreeNav({
     }
   }, [focusedPath]);
 
-  const toggle = useCallback((path: string) => {
+  const toggle = useCallback((key: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }, []);
@@ -427,28 +472,29 @@ export default function WikiTopicTreeNav({
       if (!focusedPath || !tree.length) return;
 
       const visible = collectVisibleItems(tree, expanded);
-      const idx = visible.findIndex((n) => n.path === focusedPath);
+      const idx = visible.findIndex((n) => nodeKey(n) === focusedPath);
       if (idx < 0) return;
 
       const current = visible[idx];
+      const currentKey = nodeKey(current);
       const hasKids = current.children.length > 0;
-      const isOpen = expanded.has(current.path);
+      const isOpen = expanded.has(currentKey);
 
       switch (event.key) {
         case "ArrowDown":
           event.preventDefault();
-          if (idx < visible.length - 1) setFocusedPath(visible[idx + 1].path);
+          if (idx < visible.length - 1) setFocusedPath(nodeKey(visible[idx + 1]));
           break;
         case "ArrowUp":
           event.preventDefault();
-          if (idx > 0) setFocusedPath(visible[idx - 1].path);
+          if (idx > 0) setFocusedPath(nodeKey(visible[idx - 1]));
           break;
         case "ArrowRight":
           event.preventDefault();
           if (hasKids && !isOpen) {
-            setExpanded((prev) => new Set(prev).add(current.path));
+            setExpanded((prev) => new Set(prev).add(currentKey));
           } else if (hasKids && isOpen && current.children.length) {
-            setFocusedPath(current.children[0].path);
+            setFocusedPath(nodeKey(current.children[0]));
           }
           break;
         case "ArrowLeft":
@@ -456,21 +502,21 @@ export default function WikiTopicTreeNav({
           if (hasKids && isOpen) {
             setExpanded((prev) => {
               const next = new Set(prev);
-              next.delete(current.path);
+              next.delete(currentKey);
               return next;
             });
           } else {
-            const parent = findParentPath(tree, focusedPath);
+            const parent = findParentKey(tree, focusedPath);
             if (parent) setFocusedPath(parent);
           }
           break;
         case "Home":
           event.preventDefault();
-          if (visible.length) setFocusedPath(visible[0].path);
+          if (visible.length) setFocusedPath(nodeKey(visible[0]));
           break;
         case "End":
           event.preventDefault();
-          if (visible.length) setFocusedPath(visible[visible.length - 1].path);
+          if (visible.length) setFocusedPath(nodeKey(visible[visible.length - 1]));
           break;
         case "Enter":
         case " ":

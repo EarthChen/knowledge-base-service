@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
+
 @runtime_checkable
 class _GraphPort(Protocol):
     async def execute_query(self, cypher: str, params: dict | None = None) -> Any: ...

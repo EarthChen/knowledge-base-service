@@ -192,6 +192,8 @@ class WikiPageComposerService:
         token_budget_multiplier: float = 1.0,
         progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> tuple[list[WikiPage], bool]:
+        import time as _time
+
         from wiki.helpers import (
             _build_lightweight_glossary,
             _build_lightweight_parent_context,
@@ -200,8 +202,6 @@ class WikiPageComposerService:
             _extract_summary,
             _populate_navigation_context,
         )
-
-        import time as _time
 
         pages: list[WikiPage] = []
         degraded = False

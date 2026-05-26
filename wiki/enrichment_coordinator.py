@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from core.log import get_logger
+from wiki.errors import WikiRepoNotFoundError
 from wiki.models import (
     ImportanceTier,
     PageType,
@@ -15,7 +16,6 @@ from wiki.models import (
     WikiPage,
     WikiPageMetadata,
 )
-from wiki.errors import WikiRepoNotFoundError
 from wiki.pipeline_concurrency import PipelineConcurrency
 
 log = get_logger(__name__)

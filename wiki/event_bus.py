@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator
+from datetime import UTC, datetime
+from typing import Any
 
 from core.log import get_logger
 
@@ -21,7 +22,7 @@ class WikiEvent:
     repository: str
     data: dict[str, Any] = field(default_factory=dict)
     business_id: str = "default"
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 class WikiEventBus:
@@ -61,7 +62,7 @@ class WikiEventBus:
             while True:
                 try:
                     event = await asyncio.wait_for(q.get(), timeout=_STREAM_QUEUE_GET_TIMEOUT_SEC)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield WikiEvent(
                         event_type="heartbeat",
                         repository="",

@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_verify_code_blocks_called_after_write():
     """DomainDocAgent should call _verify_code_blocks after each write iteration."""
@@ -17,6 +18,8 @@ async def test_verify_code_blocks_called_after_write():
     agent = DomainDocAgent.__new__(DomainDocAgent)
     agent.domain_name = "test-domain"
     agent.domain_display_name = "Test Domain"
+    agent.content_language = "简体中文"
+    agent._topic_split_done = False
     agent._page_agent = mock_page_agent
     agent._max_iterations = 1
     agent.iteration_history = []

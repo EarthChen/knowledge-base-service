@@ -368,6 +368,9 @@ class TestParallelDomainNaming:
 
         config = {"configurable": {"graph_store": mock_graph_store, "llm": MagicMock()}}
         with patch(
+            "wiki.nodes.graph_domain_decompose._get_split_params",
+            return_value=(10, 3),
+        ), patch(
             "wiki.nodes.graph_domain_decompose._embedding_clustering",
             side_effect=mock_embedding_clustering,
         ), patch(
@@ -430,6 +433,9 @@ class TestParallelDomainNaming:
 
         config = {"configurable": {"graph_store": mock_graph_store, "llm": MagicMock()}}
         with patch(
+            "wiki.nodes.graph_domain_decompose._get_split_params",
+            return_value=(10, 3),
+        ), patch(
             "wiki.nodes.graph_domain_decompose._embedding_clustering",
             side_effect=mock_embedding_clustering,
         ), patch(

@@ -178,6 +178,7 @@ def _make_modules():
     }
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_full_pipeline_produces_pages():
     """Smoke test: the pipeline runs end-to-end and produces pages."""

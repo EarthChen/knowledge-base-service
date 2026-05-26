@@ -338,13 +338,15 @@ class WikiTreeLinker:
         """Map canonical_key → owning domain name and → representative page row.
 
         Built from domain tree module membership so topic pages can resolve by
-        exact ``canonical_key`` instead of fuzzy path matching. First assignment
-        wins when the same key appears more than once.
+        exact ``canonical_key`` instead of fuzzy path matching. Leaf domains
+        (no children) override parent assignments so topics land in the most
+        specific domain.
         """
         canonical_key_to_domain: dict[str, str] = {}
         canonical_key_to_page: dict[str, dict[str, Any]] = {}
 
         def visit(domain: DomainNode) -> None:
+            is_leaf = not domain.children
             for mod_name in domain.modules:
                 page = pages_by_entity_uid.get(mod_name)
                 if not page or not isinstance(page, dict):
@@ -352,7 +354,7 @@ class WikiTreeLinker:
                 ck = str(page.get("canonical_key") or "").strip()
                 if not ck:
                     continue
-                if ck not in canonical_key_to_domain:
+                if ck not in canonical_key_to_domain or is_leaf:
                     canonical_key_to_domain[ck] = domain.name
                     canonical_key_to_page[ck] = page
             for child in domain.children:
@@ -370,6 +372,7 @@ class WikiTreeLinker:
         tree_builder: WikiTreeBuilder,
         *,
         language: str = "zh",
+        reassembly_succeeded: bool = False,
     ) -> None:
         """Create nested HAS_CHILD edges for WikiSection hierarchy (business_domain view).
 
@@ -551,7 +554,12 @@ class WikiTreeLinker:
                 path = str(row.get("path", ""))
                 if not uid or not path:
                     continue
-                after_wiki = path[len("wiki/"):]
+                if path.startswith("/__domains__/"):
+                    after_wiki = path[len("/__domains__/") :]
+                elif path.startswith("wiki/"):
+                    after_wiki = path[len("wiki/") :]
+                else:
+                    continue
                 slash_idx = after_wiki.find("/")
                 top_level = after_wiki[:slash_idx] if slash_idx > 0 else after_wiki
 
@@ -662,8 +670,8 @@ class WikiTreeLinker:
                                 next_h = after.find("\n## ")
                                 snippet = after[:next_h].strip() if next_h > 0 else after[:200].strip()
                                 non_heading = [
-                                    l for l in snippet.split("\n")
-                                    if l.strip() and not l.strip().startswith("#")
+                                    line for line in snippet.split("\n")
+                                    if line.strip() and not line.strip().startswith("#")
                                 ]
                                 summary = _safe_truncate(" ".join(non_heading))
                     if summary:
@@ -732,7 +740,22 @@ class WikiTreeLinker:
                 else:
                     if overview_path not in agent_overview_paths:
                         seen_overview_slugs.add(normalized_slug)
-                        overview_content = _build_domain_overview_content(domain)
+                        domain_page_uid = f"WikiPage:{business_id}:{overview_path}"
+                        existing_page = (
+                            pages_by_entity_uid.get(domain_page_uid)
+                            or pages_by_entity_uid.get(domain.name)
+                        )
+                        existing_content = ""
+                        if isinstance(existing_page, dict):
+                            existing_content = existing_page.get("content", "")
+                        elif existing_page is not None and hasattr(existing_page, "content"):
+                            existing_content = getattr(existing_page, "content", "") or ""
+
+                        _min_rich_content_length = 500
+                        if len(existing_content) > _min_rich_content_length:
+                            overview_content = existing_content
+                        else:
+                            overview_content = _build_domain_overview_content(domain)
                         from wiki.models import EnrichmentLevel, PageType, WikiPageMetadata
 
                         overview_page = WikiPage(
@@ -855,6 +878,7 @@ class WikiTreeLinker:
             domain_tree,
             domain_path_to_section_uid,
             tree_builder,
+            reassembly_succeeded=reassembly_succeeded,
         )
 
     async def _adopt_orphan_domain_pages(
@@ -864,13 +888,15 @@ class WikiTreeLinker:
         domain_path_to_section_uid: dict[str, str],
         tree_builder: WikiTreeBuilder,
         threshold: float = 0.5,
+        *,
+        reassembly_succeeded: bool = False,
     ) -> None:
         """Phase 4: discover unlinked domain overview pages and match to nearest domain node."""
-        # Skip when reassembly handles orphans
+        # Skip only when reassembly was enabled and actually succeeded
         try:
             settings = get_settings().wiki
-            if settings.domain_reassembly_enabled:
-                log.info("adopt_orphan_skipped", reason="reassembly_handles_orphans")
+            if settings.domain_reassembly_enabled and reassembly_succeeded:
+                log.info("adopt_orphan_skipped", reason="reassembly_handled_orphans_successfully")
                 return
         except Exception:
             log.debug("adopt_orphan_skipped_check_failed", exc_info=True)

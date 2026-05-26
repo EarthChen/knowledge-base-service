@@ -6,10 +6,10 @@ import re
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
+from store.wiki_store import WikiStore
 from wiki.ask import WikiAskService
 from wiki.models import PageType, WikiPage, WikiPageMetadata, parse_scope
 from wiki.search import SearchResponse, WikiSearchService
-from store.wiki_store import WikiStore
 from wiki.service import WikiService
 
 if TYPE_CHECKING:

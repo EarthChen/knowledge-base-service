@@ -240,7 +240,7 @@ def _strip_markdown_fences(raw: str) -> str:
 
 async def repair_broken_mermaid_blocks(
     content: str,
-    llm: "Any",
+    llm: Any,
 ) -> str:
     """Use LLM to repair collapsed (broken) Mermaid blocks in wiki content.
 

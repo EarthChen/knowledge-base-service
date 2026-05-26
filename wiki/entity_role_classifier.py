@@ -8,8 +8,8 @@ from __future__ import annotations
 import re
 from enum import StrEnum
 
-from store.schema import GraphNode
 from core.log import get_logger
+from store.schema import GraphNode
 
 log = get_logger(__name__)
 

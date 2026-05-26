@@ -93,6 +93,31 @@ class CoverageCheck:
         )
 
 
+class LanguageConsistencyCheck:
+    """Score heading language against target content language."""
+
+    name = "language_consistency"
+    _THRESHOLD = 0.5
+
+    async def check(self, page_content: str, context: dict) -> CheckResult:
+        from wiki.domain_doc_agent import _check_language_consistency
+
+        target_language = context.get("content_language", "简体中文")
+        score = _check_language_consistency(page_content, target_language)
+        passed = score >= self._THRESHOLD
+        issues: list[str] = []
+        if not passed:
+            issues.append(
+                f"Language consistency score {score:.2f} below threshold {self._THRESHOLD}"
+            )
+        return CheckResult(
+            name=self.name,
+            passed=passed,
+            score=round(score, 4),
+            issues=issues,
+        )
+
+
 class LengthCheck:
     """Ensure page length is within acceptable bounds."""
 

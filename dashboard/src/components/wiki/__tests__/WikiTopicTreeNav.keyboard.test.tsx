@@ -31,7 +31,7 @@ function renderTopicTree(props?: Partial<ComponentProps<typeof WikiTopicTreeNav>
   return renderWithI18n(
     <WikiTopicTreeNav
       tree={[parentNode]}
-      selectedPath={null}
+      selectedPath="wiki/parent/child-two"
       onSelect={vi.fn()}
       {...props}
     />,
@@ -74,9 +74,8 @@ describe("WikiTopicTreeNav keyboard navigation", () => {
   });
 
   it("ArrowRight expands a collapsed node", async () => {
-    renderTopicTree();
-    fireEvent.click(screen.getByText("Parent"));
-    await waitFor(() => expect(screen.queryByText("Child One")).not.toBeInTheDocument());
+    renderTopicTree({ selectedPath: null });
+    expect(screen.queryByText("Child One")).not.toBeInTheDocument();
 
     const items = treeItems();
     fireEvent.focus(items[0]);
@@ -130,7 +129,9 @@ describe("WikiTopicTreeNav keyboard navigation", () => {
 
   it("Enter selects the focused item", () => {
     const onSelect = vi.fn();
-    renderTopicTree({ onSelect });
+    renderWithI18n(
+      <WikiTopicTreeNav tree={[parentNode]} selectedPath={null} onSelect={onSelect} />,
+    );
     const items = treeItems();
     fireEvent.focus(items[0]);
     fireEvent.keyDown(screen.getByRole("tree"), { key: "Enter" });
@@ -139,7 +140,9 @@ describe("WikiTopicTreeNav keyboard navigation", () => {
 
   it("Space selects the focused item", () => {
     const onSelect = vi.fn();
-    renderTopicTree({ onSelect });
+    renderWithI18n(
+      <WikiTopicTreeNav tree={[parentNode]} selectedPath={null} onSelect={onSelect} />,
+    );
     const items = treeItems();
     fireEvent.focus(items[0]);
     fireEvent.keyDown(screen.getByRole("tree"), { key: " " });

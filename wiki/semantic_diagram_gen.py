@@ -165,7 +165,7 @@ def _display_name(uid: str) -> str:
 class SemanticDiagramGenerator:
     __slots__ = ("_llm",)
 
-    def __init__(self, llm: "LLMPort | None") -> None:
+    def __init__(self, llm: LLMPort | None) -> None:
         self._llm = llm
 
     def _should_generate(
@@ -266,7 +266,7 @@ class SemanticDiagramGenerator:
         return "Class interaction flow"
 
     async def generate_state_diagram(
-        self, name: str, entity_digest: str, llm: "LLMPort",
+        self, name: str, entity_digest: str, llm: LLMPort,
     ) -> WikiDiagram | None:
         prompt = _STATE_USER_PROMPT.replace("{name}", str(name)).replace("{entity_digest}", entity_digest)
         raw = await llm.generate(prompt, system=_SYSTEM_PROMPT)
@@ -281,7 +281,7 @@ class SemanticDiagramGenerator:
         )
 
     async def generate_dataflow_diagram(
-        self, name: str, entity_digest: str, llm: "LLMPort",
+        self, name: str, entity_digest: str, llm: LLMPort,
     ) -> WikiDiagram | None:
         prompt = _DATAFLOW_USER_PROMPT.replace("{name}", str(name)).replace("{entity_digest}", entity_digest)
         raw = await llm.generate(prompt, system=_SYSTEM_PROMPT)
@@ -296,7 +296,7 @@ class SemanticDiagramGenerator:
         )
 
     async def generate_architecture_diagram(
-        self, name: str, entity_digest: str, llm: "LLMPort",
+        self, name: str, entity_digest: str, llm: LLMPort,
     ) -> WikiDiagram | None:
         prompt = _ARCHITECTURE_USER_PROMPT.replace("{name}", str(name)).replace("{entity_digest}", entity_digest)
         raw = await llm.generate(prompt, system=_SYSTEM_PROMPT)

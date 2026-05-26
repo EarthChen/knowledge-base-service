@@ -124,11 +124,32 @@ class ArchitectureLayerClassifier:
             else:
                 results[name] = result
 
-        # LLM tiebreak for low-confidence items (still per-module, as LLM needs individual context)
-        for name, path, votes in low_confidence:
-            llm_vote = await self._vote_by_llm(name, path, votes)
-            votes.append(llm_vote)
-            results[name] = self._aggregate(votes)
+        # LLM tiebreak for low-confidence items — parallel with bounded concurrency
+        if low_confidence:
+            log.info(
+                "classify_arch_llm_tiebreak_start",
+                count=len(low_confidence),
+                total=len(modules),
+            )
+            concurrency = min(16, len(low_confidence))
+            sem = asyncio.Semaphore(concurrency)
+
+            async def _llm_classify_one(
+                name: str, path: str, votes: list[LayerVote],
+            ) -> tuple[str, LayerResult]:
+                async with sem:
+                    llm_vote = await self._vote_by_llm(name, path, votes)
+                    votes.append(llm_vote)
+                    return name, self._aggregate(votes)
+
+            tasks = [_llm_classify_one(n, p, v) for n, p, v in low_confidence]
+            gathered = await asyncio.gather(*tasks, return_exceptions=True)
+            for item in gathered:
+                if isinstance(item, BaseException):
+                    log.warning("classify_arch_llm_parallel_failed", error=str(item)[:200])
+                else:
+                    name, result = item
+                    results[name] = result
 
         return results
 

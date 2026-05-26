@@ -1,7 +1,7 @@
 # 待办事项与改进建议
 
 **Created:** 2026-05-24
-**Last Updated:** 2026-05-25 (Round 10 — 管线性能+质量优化)
+**Last Updated:** 2026-05-26 (Wiki 质量修复 v2 — Batch 2.5 根因分析)
 
 ---
 
@@ -100,9 +100,23 @@ Graph Explorer 中叠加当前工作区变更的可视化。
 
 以下优化需要更多设计或评估，建议在当前优化效果验证后再实施。
 
-### 1. DocOrchestrator 统一 [P2]
+### 0. Wiki 质量修复 v2 — Batch 2.5 关键修复 ✅
+
+Batch 1-2 部署后审计发现核心质量问题被更底层 bug 掩盖。详见 [`specs/2026-05-26-wiki-quality-fix-v2-design.md`](specs/2026-05-26-wiki-quality-fix-v2-design.md) § 11。
+
+| # | Fix | 优先级 | 文件 | 状态 |
+|---|-----|--------|------|------|
+| 1 | Stale 清理 slug 集合修复（`domain_mapping.keys()` → 全量 tree slug） | P0 | `business_pipeline_runner.py` | [x] |
+| 2 | 容器域历史 topic 清理 | P0 | `business_pipeline_runner.py` | [x] |
+| 3 | 产物泄漏补全（`source://` + `CODE_REF`） | P0 | `finalize.py` | [x] |
+| 4 | Coverage compound key 剥离 | P1 | `quality_report.py` | [x] |
+| 5 | TreeLinker 内容保护 | P1 | `tree_linker.py` | [x] |
+
+### 1. DocOrchestrator 统一 [P2] → 规划为 Wiki 质量修复 v2 Batch 4
 
 将 `use_orchestrator_template` 默认改为 `True`，统一 DomainDocAgent 的生成路径。当前 `generate_with_iterations()` 有更丰富的 guardrails/timeouts，需要将这些能力迁移到 DocOrchestrator 模板后再切换。
+
+**前置条件:** Wiki 质量修复 v2 Batch 1-3 + Batch 2.5 完成并验证。详见 [`specs/2026-05-26-wiki-quality-fix-v2-design.md`](specs/2026-05-26-wiki-quality-fix-v2-design.md) § 12。
 
 ### 2. Agent semantic_search 查询扩展 [P2]
 
@@ -119,6 +133,16 @@ Graph Explorer 中叠加当前工作区变更的可视化。
 ### 5. Graph Reviewer Node [P2]
 
 在 `finalize_node` 前加 `graph_review_node`，运行确定性 Cypher 检查（悬空引用、孤立节点），复用 `wiki/lint.py` 查询层。
+
+---
+
+---
+
+## 七、Wiki 生成质量审计
+
+详细审计报告见 [`docs/wiki-quality-audit.md`](../wiki-quality-audit.md)。
+
+关键发现：12 个问题（P0×2, P1×7, P2×3），涵盖 tree linking 失败、域碎片化、中英混排、幻觉内容、前端树交互等。
 
 ---
 

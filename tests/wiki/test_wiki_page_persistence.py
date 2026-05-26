@@ -71,6 +71,7 @@ async def test_persist_wiki_pages_unwind_merge_returns_count() -> None:
     assert batch[1]["uid"] == "WikiPage:repo1:mod.md"
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_wiki_service_generate_calls_persist_wiki_pages(monkeypatch: pytest.MonkeyPatch) -> None:
     store = MagicMock()
@@ -79,8 +80,8 @@ async def test_wiki_service_generate_calls_persist_wiki_pages(monkeypatch: pytes
     fake_gen = MagicMock()
     fake_gen.generate_for_docs = AsyncMock(return_value=[[0.01, 0.02]])
     monkeypatch.setattr("indexer.embedding_generator.EmbeddingGenerator.shared", lambda **_k: fake_gen)
-    monkeypatch.setattr("wiki.service.gather_confidence_inputs", AsyncMock())
-    monkeypatch.setattr("wiki.service.set_wiki_page_confidence_scores", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.gather_confidence_inputs", AsyncMock())
+    monkeypatch.setattr("wiki.persistence.set_wiki_page_confidence_scores", AsyncMock())
     graph = AsyncMock()
     svc = WikiService(
         graph=graph, llm=None, repository_exists=AsyncMock(return_value=True), store=store,

@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
 from core.log import get_logger
@@ -139,7 +139,7 @@ class WikiCompilationSnapshot:
         return out
 
     def _empty_doc(self, repository: str) -> str:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         return "\n".join(
             [
                 f"# Knowledge Base Snapshot \u2014 {repository}",
@@ -155,7 +155,7 @@ class WikiCompilationSnapshot:
         pages: list[_PageRow],
         by_mod: dict[str, list[_PageRow]],
     ) -> str:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         lines: list[str] = [
             f"# Knowledge Base Snapshot \u2014 {repository} (index)",
             f"Generated: {now} | Pages: {len(pages)} | Modules: {len(by_mod)}",
@@ -175,7 +175,7 @@ class WikiCompilationSnapshot:
         module_sections: dict[str, list[_PageRow]] | None,
         title_suffix: str | None = None,
     ) -> str:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         title = f"# Knowledge Base Snapshot \u2014 {repository}"
         if title_suffix:
             title += f" / {title_suffix}"

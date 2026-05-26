@@ -3,35 +3,30 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from core.config import AppWikiFlags as WikiAppConfig, EmbeddingConfig, get_settings
-from indexer.embedding_generator import EmbeddingGenerator, doc_dict_for_embedding
+from core.config import AppWikiFlags as WikiAppConfig
+from core.config import EmbeddingConfig, get_settings
+from core.log import get_logger
 from llm.base_provider import LLMPortBridge
 from llm.provider_factory import LLMProviderFactory
-from wiki.community_context import CachedCommunityService, format_communities_markdown
-from wiki.llm_port import LLMPort
-from wiki.protocols import WikiGraphStorePort
 from store.schema import GraphNode
-from wiki.backlink_builder import BacklinkBuilder
+from store.wiki_store import WikiStore
+from wiki.business_pipeline_runner import BusinessPipelineRunner
+from wiki.community_context import CachedCommunityService, format_communities_markdown
 from wiki.composer import WikiComposer
-from wiki.confidence_inputs import gather_confidence_inputs, set_wiki_page_confidence_scores
-from wiki.dependency_graph import DomainNode
-from wiki.deferred_enrichment import DeferredEnrichmentService
 from wiki.context import WikiContextBuilder
 from wiki.data_collector import DataCollectorPort, WikiDataCollector
-from wiki.delegation import evaluate_delegation, group_children_by_graph
+from wiki.deferred_enrichment import DeferredEnrichmentService
+from wiki.dependency_graph import DomainNode
 from wiki.export_service import WikiExportService
 from wiki.flow_writer import BusinessFlowWriter
-from wiki.business_pipeline_runner import BusinessPipelineRunner
-from wiki.stream_generator import WikiStreamGenerator
 from wiki.incremental_generator import IncrementalWikiGenerator
+from wiki.llm_port import LLMPort
 from wiki.memory_loop import MemoryLoop
-from wiki.page_composer_service import WikiPageComposerService
 from wiki.models import (
     EnrichmentLevel,
     ImportanceTier,
@@ -39,20 +34,17 @@ from wiki.models import (
     SkeletonStrategy,
     WikiConfig,
     WikiPage,
-    WikiPageMetadata,
-    WikiPageSummary,
     WikiStructure,
     WikiStructureNode,
     parse_scope,
 )
+from wiki.page_composer_service import WikiPageComposerService
 from wiki.persistence import WikiPagePersistence
+from wiki.protocols import WikiGraphStorePort
+from wiki.stream_generator import WikiStreamGenerator
 from wiki.structure_planner import WikiStructurePlanner
-from wiki.tree_linker import WikiTreeLinker
 from wiki.token_budget import TokenBudgetResolver
-from wiki.wikilink_cache import WikiLinkCache
-
-from core.log import get_logger
-from store.wiki_store import WikiStore
+from wiki.tree_linker import WikiTreeLinker
 
 if TYPE_CHECKING:
     from indexer.business_flow_inferencer import BusinessFlowInferencer
@@ -81,7 +73,7 @@ def _graph_query_positional_rows(result: Any) -> list[list[Any]]:
 
 def _compilation_snapshot_to_page_dicts(data: dict[str, str], repository: str, layered: bool) -> list[dict[str, Any]]:
     """Map snapshot markdown blobs to the dict shape expected by ``persist_wiki_pages``."""
-    ts = datetime.now(timezone.utc).isoformat()
+    ts = datetime.now(UTC).isoformat()
     out: list[dict[str, Any]] = []
     for key, content in data.items():
         if not layered:

@@ -521,6 +521,7 @@ export interface Translations {
     pipelineGroupConcurrency: string;
     pipelineGroupHealRounds: string;
     pipelineGroupRateLimit: string;
+    pipelineGroupDomainSplit: string;
     wikiGitTitle: string;
     domainAgentTitle: string;
     compositionTitle: string;
@@ -585,6 +586,8 @@ export interface Translations {
       fieldHealMaxRoundsCore: string;
       fieldHealMaxRoundsStandard: string;
       fieldLlmGlobalRpmLimit: string;
+      fieldDomainSplitThreshold: string;
+      fieldDomainSplitMaxDepth: string;
       fieldRagEnabled: string;
       fieldEnrichmentEnabled: string;
       fieldEnrichmentRound1Enabled: string;

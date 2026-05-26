@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -425,7 +424,7 @@ class WorkingMemory:
             if not removed:
                 break
 
-    def merge(self, other: "WorkingMemory") -> None:
+    def merge(self, other: WorkingMemory) -> None:
         """Merge supplemental exploration results, deduplicate, enforce limits."""
         incoming_prefixes: set[str] = set()
         for snippet in other.code_snippets:
@@ -535,6 +534,7 @@ class WikiPageAgent(GenericAgent):
         search_service: Any | None = None,
         max_rounds: int = 6,
         max_tool_calls: int = 30,
+        content_language: str = "简体中文",
     ) -> None:
         super().__init__(llm, max_rounds=max_rounds, max_tool_calls=max_tool_calls)
         self._graph = graph_store
@@ -543,6 +543,7 @@ class WikiPageAgent(GenericAgent):
         self._existing_pages: list[dict] | None = None
         self.max_rounds = max_rounds
         self.max_tool_calls = max_tool_calls
+        self.content_language = content_language
 
         from wiki.agents.context import WikiDeps
 
@@ -600,7 +601,7 @@ class WikiPageAgent(GenericAgent):
             quality_report=quality_report,
         )
 
-        _NUDGE_MSG = (
+        nudge_msg = (
             "你还没有使用工具查询信息。请先使用 read_code 获取关键方法实现，再输出完整页面。"
         )
 
@@ -610,7 +611,7 @@ class WikiPageAgent(GenericAgent):
                 if cleaned and (total_calls >= 1 or round_num >= 2):
                     return None
                 if cleaned and total_calls == 0 and round_num < 2:
-                    return _NUDGE_MSG
+                    return nudge_msg
                 if not cleaned:
                     log.warning("agent_output_was_pure_thinking", domain=domain_label)
             return None
@@ -734,7 +735,7 @@ class WikiPageAgent(GenericAgent):
                 other_modules.append(m)
 
         parts = [
-            f"## 任务",
+            "## 任务",
             f"为业务域「{domain_name}」收集完整的代码上下文信息。",
             "",
             f"## 域内模块清单（共 {len(module_names)} 个，必须全部探索）",
@@ -824,20 +825,30 @@ class WikiPageAgent(GenericAgent):
 
         Pure LLM.generate() — no tools, clean context.
         """
-        from wiki.agent_prompts import AGENT_WRITE_SYSTEM
+        from wiki.agent_prompts import get_write_system_prompt
 
+        write_system_prompt = get_write_system_prompt(self.content_language)
         memo_section = memory.to_prompt_section()
-        user_prompt = (
-            f"## 任务\n"
-            f"基于以下探索结果，为业务域「{domain_name}」生成一篇完整的 Wiki 页面。\n\n"
-            f"## 基线上下文\n{baseline_context[:8000]}\n\n"
-            f"## 探索结果（工作记忆）\n{memo_section}\n"
-        )
+        if "中文" in self.content_language or self.content_language in ("zh-CN", "zh"):
+            user_prompt = (
+                f"## 任务\n"
+                f"基于以下探索结果，为业务域「{domain_name}」生成一篇完整的 Wiki 页面。\n\n"
+                f"## 基线上下文\n{baseline_context[:8000]}\n\n"
+                f"## 探索结果（工作记忆）\n{memo_section}\n"
+            )
+        else:
+            user_prompt = (
+                f"## Task\n"
+                f"Based on the exploration results below, generate a complete Wiki page "
+                f"for the \"{domain_name}\" business domain.\n\n"
+                f"## Baseline Context\n{baseline_context[:8000]}\n\n"
+                f"## Exploration Findings (Working Memory)\n{memo_section}\n"
+            )
 
         # Try structured output via complete_json
         try:
             messages = [
-                {"role": "system", "content": AGENT_WRITE_SYSTEM},
+                {"role": "system", "content": write_system_prompt},
                 {"role": "user", "content": user_prompt},
             ]
             data = await self._llm.complete_json(
@@ -854,7 +865,7 @@ class WikiPageAgent(GenericAgent):
         try:
             response = await self._llm.generate(
                 prompt=user_prompt,
-                system=AGENT_WRITE_SYSTEM,
+                system=write_system_prompt,
             )
             cleaned = strip_agent_artifacts(response) if response else ""
             if cleaned and len(cleaned) > 200:
@@ -969,17 +980,17 @@ class WikiPageAgent(GenericAgent):
                 other_modules.append(m)
 
         parts = [
-            f"## 任务",
+            "## 任务",
             f"为业务域「{domain_name}」生成一篇完整的 Wiki 页面。",
             "",
             f"## 域内模块清单（共 {len(module_names)} 个，必须全部覆盖）",
         ]
         if core_modules:
-            parts.append(f"\n### 入口模块（优先查询调用链）")
+            parts.append("\n### 入口模块（优先查询调用链）")
             for i, m in enumerate(core_modules, 1):
                 parts.append(f"{i}. `{m}`")
         if other_modules:
-            parts.append(f"\n### 其他模块")
+            parts.append("\n### 其他模块")
             for i, m in enumerate(other_modules, 1):
                 parts.append(f"{i}. `{m}`")
 
@@ -1003,11 +1014,11 @@ class WikiPageAgent(GenericAgent):
         write_budget = max_rounds - explore_budget
         parts.extend([
             "",
-            f"## 执行要求",
+            "## 执行要求",
             f"- 前 {explore_budget} 轮：使用工具收集信息（每个入口模块查调用链，每个核心模块查源码）",
             f"- 后 {write_budget} 轮：基于已收集信息生成完整 Markdown 页面",
-            f"- 必须嵌入 2-4 个关键代码片段（从 read_code 结果中选取）",
-            f"- 必须包含至少 1 个 Mermaid 图表（调用链序列图或架构流程图）",
+            "- 必须嵌入 2-4 个关键代码片段（从 read_code 结果中选取）",
+            "- 必须包含至少 1 个 Mermaid 图表（调用链序列图或架构流程图）",
         ])
         return "\n".join(parts)
 
@@ -1231,6 +1242,7 @@ class WikiPageAgent(GenericAgent):
         if not keyword or not self._graph or not hasattr(self._graph, "execute_query"):
             return {"results": [], "total": 0}
         import asyncio
+
         from wiki.cypher_queries import SEARCH_ENTITY_LABELS, search_entity_cypher
 
         async def _search_label(label: str) -> list[dict[str, str]]:
@@ -1382,10 +1394,10 @@ class WikiPageAgent(GenericAgent):
             return {"error": f"not a directory: {directory}"}
 
         files: list[str] = []
-        _MAX_ENTRIES = 50
+        max_entries = 50
 
         def _walk(path: Path, depth: int) -> None:
-            if depth > max_depth or len(files) >= _MAX_ENTRIES:
+            if depth > max_depth or len(files) >= max_entries:
                 return
             try:
                 entries = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name))
@@ -1400,15 +1412,15 @@ class WikiPageAgent(GenericAgent):
                     _walk(entry, depth + 1)
                 else:
                     files.append(rel)
-                if len(files) >= _MAX_ENTRIES:
+                if len(files) >= max_entries:
                     return
 
         _walk(target, 1)
         return {
             "directory": directory,
-            "files": files[:_MAX_ENTRIES],
+            "files": files[:max_entries],
             "total": len(files),
-            "truncated": len(files) >= _MAX_ENTRIES,
+            "truncated": len(files) >= max_entries,
         }
 
     @function_tool(

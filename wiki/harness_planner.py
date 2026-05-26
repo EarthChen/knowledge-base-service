@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from wiki.harness_router import ComplexityAssessment, CONTEXT_BUDGETS
+from wiki.harness_router import CONTEXT_BUDGETS, ComplexityAssessment
 
 
 @dataclass

@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from wiki.models.module_tree import ModuleNode, ModuleTree
 
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
+
 
 async def _deterministic_llm_generate(
     prompt: str,

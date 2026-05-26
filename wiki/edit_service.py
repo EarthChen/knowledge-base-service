@@ -6,10 +6,9 @@ import asyncio
 import uuid
 from typing import Any
 
+from core.log import get_logger
 from store.session_store import Session, SessionTurn
 from wiki.agents.edit_agent import EditEventQueue, WikiEditAgent
-
-from core.log import get_logger
 
 log = get_logger(__name__)
 

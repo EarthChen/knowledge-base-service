@@ -6,7 +6,7 @@ Age windows for promotion use ``created_at`` (ISO-8601 UTC string), per Phase 3 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import IntEnum
 from typing import Any
 
@@ -18,9 +18,9 @@ def _parse_iso(s: str) -> datetime:
 
 def _iso_utc(dt: datetime) -> str:
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     else:
-        dt = dt.astimezone(timezone.utc)
+        dt = dt.astimezone(UTC)
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -101,7 +101,7 @@ class MemoryTierManager:
 
     def apply_promotion_rules(self, node: MemoryNode, *, now: datetime | None = None) -> MemoryNode:
         if now is None:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
         n = node
         created = _parse_iso(n.created_at) if n.created_at else now
         age = now - created

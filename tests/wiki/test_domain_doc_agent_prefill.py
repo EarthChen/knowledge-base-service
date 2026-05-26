@@ -7,6 +7,7 @@ import pytest
 from wiki.domain_doc_agent import DomainDocAgent
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_prefills_code_snippets_before_explore():
     query_result = MagicMock()

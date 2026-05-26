@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -18,7 +17,6 @@ from wiki.prompts import SYSTEM_JSON_ONLY
 
 if TYPE_CHECKING:
     from wiki.llm_port import LLMPort
-    from wiki.dependency_graph import DomainNode
 
 log = get_logger(__name__)
 
@@ -33,7 +31,7 @@ class _TriageResult:
     @classmethod
     def assign_all_to_infra(
         cls, pairs: list[tuple[str, str]], infra_label: str,
-    ) -> "_TriageResult":
+    ) -> _TriageResult:
         return cls(
             assignments={p: infra_label for p in pairs},
             new_domains={},
@@ -348,7 +346,7 @@ class CrossRepoBusinessDomainPlanner:
         *,
         anchor_context: str = "",
         enriched_signals: dict | None = None,
-    ) -> "_TriageResult":
+    ) -> _TriageResult:
         """Phase 1: lightweight LLM call to decide how to handle each new module."""
         assert self._llm is not None
 

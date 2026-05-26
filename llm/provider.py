@@ -33,6 +33,18 @@ class LLMProvider:
             timeout=httpx.Timeout(config.timeout),
         )
 
+    @property
+    def max_concurrent(self) -> int:
+        return self._config.max_concurrent
+
+    def update_concurrency(self, new_limit: int) -> None:
+        """Replace the HTTP concurrency semaphore (hot-reload from settings)."""
+        if new_limit < 1:
+            msg = f"max_concurrent must be >= 1, got {new_limit}"
+            raise ValueError(msg)
+        self._config = self._config.model_copy(update={"max_concurrent": new_limit})
+        self._semaphore = asyncio.Semaphore(new_limit)
+
     async def complete(
         self,
         messages: list[dict[str, str]],

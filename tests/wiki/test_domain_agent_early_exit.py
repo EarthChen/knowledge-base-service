@@ -20,6 +20,7 @@ def test_domain_agent_early_exit_quality_bounds() -> None:
     assert cfg.domain_agent_early_exit_quality == 0.85
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_agent_exits_early_on_acceptable_quality() -> None:
     """Agent should break iteration loop when coverage >= threshold."""

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
 from store.schema import EdgeType
@@ -25,8 +25,8 @@ def days_since_generated(generated_at_iso: str) -> int:
     try:
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        delta = datetime.now(timezone.utc) - dt
+            dt = dt.replace(tzinfo=UTC)
+        delta = datetime.now(UTC) - dt
         return max(0, int(delta.total_seconds() // 86400))
     except (ValueError, OSError, TypeError):
         return 90

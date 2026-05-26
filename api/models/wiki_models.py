@@ -38,7 +38,7 @@ class WikiGlobalSearchBody(BaseModel):
 
 class BusinessWikiGenerateBody(BaseModel):
     business_id: str = Field(default="default", min_length=1)
-    language: str = Field(default="en", pattern="^(en|zh)$")
+    language: str = Field(default="zh-CN", pattern="^(en|zh|zh-CN)$")
     llm_provider: str | None = None
     incremental: bool = True
     force_reclassify: bool = False

@@ -8,6 +8,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from core.log import get_logger
 from wiki.agents.base_agent import GenericAgent, ToolDef
 from wiki.agents.events import AgentEvent, ContentEvent, DoneEvent, ErrorEvent
 from wiki.agents.section_utils import (
@@ -18,8 +19,6 @@ from wiki.agents.section_utils import (
     split_page_into_sections,
 )
 from wiki.cypher_queries import METHODS_CY
-
-from core.log import get_logger
 
 log = get_logger(__name__)
 

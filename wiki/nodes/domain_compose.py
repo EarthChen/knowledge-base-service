@@ -1,4 +1,6 @@
 """Agent-driven domain documentation composition node."""
+from __future__ import annotations
+
 import asyncio
 import re
 from collections import Counter
@@ -6,15 +8,15 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from core.config import get_settings
+from core.config import ContentLanguage, get_settings
 from core.log import get_logger
 from wiki.domain_doc_agent import DomainDocAgent, _build_baseline
 from wiki.flow_baseline import extract_flow_baseline, format_flow_baseline_for_prompt
 from wiki.llm_rate_limiter import acquire_llm_quota
 from wiki.models import ImportanceTier
+from wiki.nodes.compose import _maybe_pipeline_progress
 from wiki.nodes.tier_utils import resolve_tier, tier_for_module_count
 from wiki.nodes.utils import _collect_leaf_domains
-from wiki.nodes.compose import _maybe_pipeline_progress
 from wiki.path_conventions import domain_overview_path
 from wiki.pipeline_concurrency import PipelineConcurrency
 from wiki.source_ref_validator import repair_broken_mermaid_blocks, sanitize_wiki_content
@@ -22,6 +24,28 @@ from wiki.source_ref_validator import repair_broken_mermaid_blocks, sanitize_wik
 log = get_logger(__name__)
 
 _MERMAID_FENCE_RE = re.compile(r"```\s*mermaid\b", re.IGNORECASE)
+
+
+def _resolve_content_language_for_compose(
+    state: dict[str, Any],
+    config: dict[str, Any] | RunnableConfig | None,
+) -> ContentLanguage:
+    cl = state.get("content_language")
+    if isinstance(cl, ContentLanguage):
+        return cl
+    lang = state.get("language")
+    if lang:
+        return ContentLanguage.from_any(str(lang))
+    wlang = state.get("wiki_content_language")
+    if wlang:
+        return ContentLanguage.from_any(str(wlang))
+    configurable = (config or {}).get("configurable", {}) if isinstance(config, dict) else {}
+    if not isinstance(configurable, dict):
+        configurable = {}
+    cfg_lang = configurable.get("wiki_content_language")
+    if cfg_lang:
+        return ContentLanguage.from_any(str(cfg_lang))
+    return ContentLanguage.from_any(get_settings().wiki.wiki_content_language)
 
 
 def _domain_call_edges(
@@ -52,6 +76,8 @@ def _inject_dependency_diagram(
     content: str,
     module_names: list[str],
     call_edges: list[tuple[str, str]] | None = None,
+    *,
+    language: ContentLanguage | None = None,
 ) -> str:
     """Append a placeholder Architecture Mermaid diagram when agent output lacks one."""
     if _MERMAID_FENCE_RE.search(content or ""):
@@ -84,7 +110,8 @@ def _inject_dependency_diagram(
             lines.append(f"    M{idx} --> M{idx + 1}")
 
     diagram = "\n".join(lines)
-    return f"{content.rstrip()}\n\n## Architecture\n\n```mermaid\n{diagram}\n```\n"
+    heading = "## 架构" if (language and language.is_chinese) else "## Architecture"
+    return f"{content.rstrip()}\n\n{heading}\n\n```mermaid\n{diagram}\n```\n"
 
 
 def _max_iterations_for_domain(domain: dict[str, Any], state: dict[str, Any]) -> int:
@@ -127,6 +154,7 @@ def _build_layer_summary(
     architecture_layers: dict[str, dict[str, Any]],
     *,
     module_repo_pairs: list[tuple[str, str]] | None = None,
+    language: ContentLanguage | None = None,
 ) -> str:
     """Format architecture layer info for a domain's modules.
 
@@ -153,7 +181,8 @@ def _build_layer_summary(
     if not layer_modules:
         return ""
 
-    lines = ["Architecture layers in this domain:"]
+    prefix = "本域架构层分布：" if (language and language.is_chinese) else "Architecture layers in this domain:"
+    lines = [prefix]
     for layer in ("api", "service", "data", "infrastructure"):
         modules = layer_modules.get(layer, [])
         if modules:
@@ -326,6 +355,8 @@ async def compose_domain_agents_node(
             return repo_paths.get(primary, fallback_repo_path)
         return fallback_repo_path
 
+    content_language = _resolve_content_language_for_compose(state, config)
+
     async def _run_domain(domain: dict[str, Any]) -> list[dict[str, Any]]:
         async with sem:
             domain_start = asyncio.get_running_loop().time()
@@ -344,6 +375,7 @@ async def compose_domain_agents_node(
                     explore_max_rounds=explore_rounds,
                     explore_max_tool_calls=explore_calls,
                     budget_resolver=budget_resolver,
+                    content_language=content_language.display_label,
                 )
                 module_repo_pairs, valid_pairs = _domain_module_pairs(
                     domain, domain_mapping, module_lookup,
@@ -352,6 +384,7 @@ async def compose_domain_agents_node(
                     domain.get("modules", []),
                     arch_layers,
                     module_repo_pairs=module_repo_pairs,
+                    language=content_language,
                 )
                 baseline = _build_baseline(domain, module_summaries, module_tree=module_tree)
                 if layer_summary:
@@ -389,6 +422,7 @@ async def compose_domain_agents_node(
                             page.get("content", ""),
                             list(domain.get("modules") or []),
                             call_edges=domain_edges,
+                            language=content_language,
                         )
                 elapsed = asyncio.get_running_loop().time() - domain_start
                 log.info(
@@ -409,7 +443,9 @@ async def compose_domain_agents_node(
                 )
                 return [_make_error_placeholder(domain, e)]
 
-    async def _run_domain_indexed(index: int, domain: dict[str, Any]) -> tuple[int, list[dict[str, Any]] | BaseException]:
+    async def _run_domain_indexed(
+        index: int, domain: dict[str, Any],
+    ) -> tuple[int, list[dict[str, Any]] | BaseException]:
         try:
             return index, await _run_domain(domain)
         except BaseException as exc:

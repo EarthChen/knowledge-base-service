@@ -6,7 +6,7 @@ semantics for immediate loop abort.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 
 from wiki.agents.context import RunContext
 

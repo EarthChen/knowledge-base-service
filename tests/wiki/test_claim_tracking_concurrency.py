@@ -59,6 +59,7 @@ def _app_cfg(**updates: object) -> AppWikiFlags:
     return AppWikiFlags().model_copy(update=base)
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_claim_tracking_runs_extract_claims_concurrently(monkeypatch: pytest.MonkeyPatch) -> None:
     store, wiki_store = _base_store_and_wiki_store()
@@ -77,8 +78,8 @@ async def test_claim_tracking_runs_extract_claims_concurrently(monkeypatch: pyte
     monkeypatch.setattr("wiki.claim_extractor.extract_claims", fake_extract)
     mgen = MagicMock()
     mgen.generate_for_docs = AsyncMock(return_value=[[0.0, 0.0]])
-    monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_: mgen)
-    monkeypatch.setattr("wiki.service.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
+    monkeypatch.setattr("wiki.persistence.EmbeddingGenerator.shared", lambda **_: mgen)
+    monkeypatch.setattr("wiki.persistence.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
 
     llm = MagicMock()
     svc = WikiService(
@@ -95,6 +96,7 @@ async def test_claim_tracking_runs_extract_claims_concurrently(monkeypatch: pyte
     assert state["peak"] >= 4, "sequential processing would keep peak at 1"
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_claim_tracking_respects_configured_concurrency_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     store, wiki_store = _base_store_and_wiki_store()
@@ -113,8 +115,8 @@ async def test_claim_tracking_respects_configured_concurrency_cap(monkeypatch: p
     monkeypatch.setattr("wiki.claim_extractor.extract_claims", fake_extract)
     mgen = MagicMock()
     mgen.generate_for_docs = AsyncMock(return_value=[[0.0, 0.0]])
-    monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_: mgen)
-    monkeypatch.setattr("wiki.service.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
+    monkeypatch.setattr("wiki.persistence.EmbeddingGenerator.shared", lambda **_: mgen)
+    monkeypatch.setattr("wiki.persistence.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
 
     llm = MagicMock()
     cap = 2
@@ -133,6 +135,7 @@ async def test_claim_tracking_respects_configured_concurrency_cap(monkeypatch: p
     assert state["peak"] == cap
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_supersession_disabled_skips_claim_tracking(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[None] = []
@@ -145,8 +148,8 @@ async def test_supersession_disabled_skips_claim_tracking(monkeypatch: pytest.Mo
     store, wiki_store = _base_store_and_wiki_store()
     mgen = MagicMock()
     mgen.generate_for_docs = AsyncMock(return_value=[[0.0, 0.0]])
-    monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_: mgen)
-    monkeypatch.setattr("wiki.service.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
+    monkeypatch.setattr("wiki.persistence.EmbeddingGenerator.shared", lambda **_: mgen)
+    monkeypatch.setattr("wiki.persistence.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
 
     svc = WikiService(
         graph=MagicMock(),
@@ -165,6 +168,7 @@ async def test_supersession_disabled_skips_claim_tracking(monkeypatch: pytest.Mo
     assert calls == []
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_claim_tracking_is_fail_soft_per_page(monkeypatch: pytest.MonkeyPatch) -> None:
     store, wiki_store = _base_store_and_wiki_store()
@@ -177,8 +181,8 @@ async def test_claim_tracking_is_fail_soft_per_page(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("wiki.claim_extractor.extract_claims", fake_extract)
     mgen = MagicMock()
     mgen.generate_for_docs = AsyncMock(return_value=[[0.0, 0.0]])
-    monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_: mgen)
-    monkeypatch.setattr("wiki.service.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
+    monkeypatch.setattr("wiki.persistence.EmbeddingGenerator.shared", lambda **_: mgen)
+    monkeypatch.setattr("wiki.persistence.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
 
     svc = WikiService(
         graph=MagicMock(),
@@ -198,6 +202,7 @@ async def test_claim_tracking_is_fail_soft_per_page(monkeypatch: pytest.MonkeyPa
     assert wiki_store.next_claim_version.await_count == 2
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_claim_tracking_still_persists_supersession_when_concurrent(monkeypatch: pytest.MonkeyPatch) -> None:
     async def exec_q(cypher: str, params: object | None = None) -> MagicMock:
@@ -258,8 +263,8 @@ async def test_claim_tracking_still_persists_supersession_when_concurrent(monkey
     )
     mgen = MagicMock()
     mgen.generate_for_docs = AsyncMock(return_value=[[0.0, 0.0]])
-    monkeypatch.setattr("wiki.service.EmbeddingGenerator.shared", lambda **_: mgen)
-    monkeypatch.setattr("wiki.service.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
+    monkeypatch.setattr("wiki.persistence.EmbeddingGenerator.shared", lambda **_: mgen)
+    monkeypatch.setattr("wiki.persistence.doc_dict_for_embedding", lambda _: {"title": "t", "content": "c"})
 
     svc = WikiService(
         graph=MagicMock(),

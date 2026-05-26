@@ -599,7 +599,7 @@ class WikiMCPHandler:
             from wiki.models import parse_scope
             parse_scope(scope) if scope != "all" else None
         except ValueError:
-            return self._mcp_error("invalid_params", f"Invalid scope: must be 'all', 'repo', 'module:<path>', or 'class:<fqn>'")
+            return self._mcp_error("invalid_params", "Invalid scope: must be 'all', 'repo', 'module:<path>', or 'class:<fqn>'")
         try:
             svc = WikiLintService(
                 self._store,

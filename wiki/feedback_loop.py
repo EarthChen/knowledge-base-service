@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol, runtime_checkable
 
 from core.log import get_logger
 

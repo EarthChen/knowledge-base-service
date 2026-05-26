@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from core.log import get_logger
-
 from wiki.agents.doc_orchestrator import DocOrchestrator, QualityResult
 from wiki.quality_report import evaluate_quality
 

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from wiki.agents.base_agent import ToolDef
 from wiki.agents.runner import LoopConfig, run_agent_loop

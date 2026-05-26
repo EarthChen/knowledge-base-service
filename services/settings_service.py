@@ -76,6 +76,25 @@ def _build_key_category_map() -> dict[str, str]:
     return {key: cat for key, (_, cat) in _flatten_settings(get_settings()).items()}
 
 
+def _refresh_llm_max_concurrent(new_limit: int) -> None:
+    """Apply a new LLM HTTP concurrency limit to all live gateway providers."""
+    from api import kb_state
+    from llm.provider import LLMProvider
+
+    container = kb_state._container
+    if container is None or container.registry is None:
+        log.debug("llm_concurrency_refresh_skipped", reason="container_not_ready")
+        return
+
+    updated = 0
+    for svc in container.registry._services.values():
+        provider = svc.llm_provider
+        if isinstance(provider, LLMProvider):
+            provider.update_concurrency(new_limit)
+            updated += 1
+    log.info("llm_concurrency_refreshed", new_limit=new_limit, providers_updated=updated)
+
+
 class SettingsService:
     def __init__(self, store: SettingsStore) -> None:
         self._store = store
@@ -129,6 +148,7 @@ class SettingsService:
         key_to_category = _build_key_category_map()
         items = []
         has_concurrency_change = False
+        llm_max_concurrent: int | None = None
         for u in updates:
             key = u["key"]
             if key not in valid:
@@ -140,11 +160,15 @@ class SettingsService:
             items.append({"key": key, "value": value, "category": category})
             if key.startswith("wiki.") and key.endswith("_concurrency"):
                 has_concurrency_change = True
+            if key == "llm.max_concurrent":
+                llm_max_concurrent = int(value)
         await self._store.upsert_batch(items)
         if has_concurrency_change:
             from wiki.pipeline_concurrency import PipelineConcurrency
             PipelineConcurrency.refresh()
             log.info("pipeline_concurrency_refreshed", trigger="settings_update")
+        if llm_max_concurrent is not None:
+            _refresh_llm_max_concurrent(llm_max_concurrent)
 
     async def delete_setting(self, key: str) -> bool:
         return await self._store.delete(key)

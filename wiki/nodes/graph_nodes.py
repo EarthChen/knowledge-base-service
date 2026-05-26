@@ -323,7 +323,7 @@ async def compose_bottomup_node(
                     ),
                     timeout=_LEAF_TIMEOUT_SEC,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 timeout_counter[0] += 1
                 log.warning(
                     "compose_bottomup_leaf_timeout",
@@ -425,7 +425,7 @@ async def compose_bottomup_node(
                         ),
                         timeout=_PARENT_TIMEOUT_SEC,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     log.warning(
                         "compose_bottomup_parent_timeout",
                         key=node.canonical_key,
@@ -534,8 +534,9 @@ async def compose_bottomup_node(
 
 async def _enrich_leaf_context(node: Any, graph_store: Any) -> str:
     """Batch graph queries to gather rich context for a leaf node. No LLM calls."""
-    from wiki.cypher_queries import METHODS_CY, CALLERS_CY, CHUNK_SNIPPETS_CY, call_chain_cypher
     import time as _time
+
+    from wiki.cypher_queries import CALLERS_CY, CHUNK_SNIPPETS_CY, METHODS_CY, call_chain_cypher
 
     names = list(node.entity_uids[:15])
     if not names:
@@ -577,7 +578,7 @@ async def _enrich_leaf_context(node: Any, graph_store: Any) -> str:
                     rows=len(rows),
                 )
             return rows
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.warning(
                 "enrich_context_query_timeout",
                 key=node.canonical_key,

@@ -255,6 +255,64 @@ _GLUED_SEGMENT_PREFIXES: tuple[str, ...] = (
     "default",
 )
 
+_SPLIT_DICT: frozenset[str] = frozenset(
+    w for w in _COMMON_ENGLISH_WORDS if len(w) >= 4
+) | frozenset({
+    "relation", "family", "member", "proxy", "service", "management",
+    "system", "handler", "controller", "consumer", "provider",
+    "wrapper", "factory", "builder", "adapter", "listener",
+    "filter", "interceptor", "repository", "mapper", "config",
+    "manager", "helper", "closed", "friend", "intimacy",
+    "activity", "growth", "execution", "distribution",
+    "callback", "handling", "authentication", "privilege",
+    "statistics", "account", "payment", "search",
+    "message", "notification", "session", "token",
+    "event", "queue", "cache", "store", "batch",
+    "client", "server", "gateway", "router",
+    "parser", "render", "scheduler", "worker",
+    "monitor", "report", "export",
+})
+_MIN_SPLIT_WORD = 4
+
+
+def _split_glued_segment(segment: str) -> list[str]:
+    """Split a glued lowercase segment using greedy longest-match dictionary lookup.
+
+    Only splits segments >= 8 chars that aren't already known words.
+    Uses minimum word length 4 to avoid short-word ambiguity.
+    """
+    if len(segment) < 8 or not segment.isalpha():
+        return [segment]
+    seg = segment.lower()
+    if seg in _SPLIT_DICT:
+        return [segment]
+
+    remaining = seg
+    parts: list[str] = []
+    while remaining:
+        matched = False
+        for length in range(min(len(remaining), 15), _MIN_SPLIT_WORD - 1, -1):
+            prefix = remaining[:length]
+            if prefix in _SPLIT_DICT:
+                parts.append(prefix)
+                remaining = remaining[length:]
+                matched = True
+                break
+        if not matched:
+            parts.append(remaining)
+            break
+
+    return parts if len(parts) > 1 else [segment]
+
+
+def _desegment_glued_slug(slug: str) -> str:
+    """Apply glued-segment splitting to all segments in a slug."""
+    parts: list[str] = []
+    for seg in slug.split("-"):
+        parts.extend(_split_glued_segment(seg))
+    result = "-".join(p for p in parts if p)
+    return result if result != slug else slug
+
 
 def _detect_doubled_repo_prefix(slug: str) -> str | None:
     """Return repo name when slug starts with a doubled prefix (e.g. ``foofoo-...``)."""
@@ -357,6 +415,7 @@ def resolve_topic_slug(
 ) -> str:
     """Apply F1-F4 slug pipeline fixes and optionally register in *used_slugs*."""
     resolved = normalize_slug_strict(slug) or normalize_slug(slug)
+    resolved = _desegment_glued_slug(resolved)
 
     if _is_module_path_slug(resolved):
         resolved = _sanitize_module_path_slug(

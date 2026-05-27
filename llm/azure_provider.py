@@ -86,12 +86,22 @@ class AzureOpenAIProvider:
         model: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        _ = schema
-        _ = model
+        if schema:
+            response_format = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema.get("title", "output"),
+                    "strict": True,
+                    "schema": schema,
+                },
+            }
+        else:
+            logger.warning("complete_json called without schema — falling back to json_object")
+            response_format = {"type": "json_object"}
         body: dict[str, Any] = {
             "messages": messages,
             "temperature": self._temperature,
-            "response_format": {"type": "json_object"},
+            "response_format": response_format,
             **kwargs,
         }
         data = await self._request_json(body)

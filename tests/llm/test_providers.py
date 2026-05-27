@@ -86,7 +86,9 @@ async def test_openai_complete_json(patch_openai_async_client) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         req_body = json.loads(request.content.decode())
-        assert req_body.get("response_format", {}).get("type") == "json_object"
+        rf = req_body.get("response_format", {})
+        assert rf.get("type") == "json_schema"
+        assert rf.get("json_schema", {}).get("strict") is True
         return httpx.Response(200, json=json_body)
 
     transport = httpx.MockTransport(handler)

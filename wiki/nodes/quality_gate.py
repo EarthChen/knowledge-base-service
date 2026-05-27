@@ -331,9 +331,17 @@ async def quality_gate_node(
             log.warning("quality_gate_topic_no_code", title=page_dict.get("title"))
             content_issues.append("topic_no_code: topic has no code examples")
 
-        if detect_truncated_code_blocks(page_content):
-            log.warning("quality_gate_truncated_code", title=page_dict.get("title"))
-            content_issues.append("truncated_code_block: code block appears truncated")
+        truncated = detect_truncated_code_blocks(page_content)
+        if truncated:
+            log.warning(
+                "quality_gate_truncated_code",
+                title=page_dict.get("title"),
+                count=len(truncated),
+            )
+            content_issues.append(
+                f"CODE_TRUNCATED: {len(truncated)} unclosed code block(s) detected. "
+                "Ensure all code blocks have matching closing ``` fences and are complete."
+            )
 
         if content_issues:
             existing = heal_hints.get(page.path, "")

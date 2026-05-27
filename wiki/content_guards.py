@@ -318,54 +318,6 @@ def repair_code_fences(content: str) -> str:
     return content.strip()
 
 
-_TRUNCATION_MARKER_RE = re.compile(
-    r"\[\.\.\.truncated\]|\.\.\.\s*\[truncated\]|# \.\.\. truncated|\.\.\.\s*\(truncated\)",
-    re.IGNORECASE,
-)
-_INCOMPLETE_LINE_END_RE = re.compile(r"(?:\(|\[|,|\+\s*)$")
-
-
-def _fence_body_truncated(body_lines: list[str]) -> bool:
-    if not body_lines:
-        return False
-    body = "\n".join(body_lines)
-    if _TRUNCATION_MARKER_RE.search(body):
-        return True
-    if len(body_lines) <= 2 and len(body.strip()) < 80:
-        return False
-    last = body_lines[-1].rstrip()
-    return bool(last and _INCOMPLETE_LINE_END_RE.search(last))
-
-
-def detect_truncated_code_blocks(content: str) -> bool:
-    """Return True if any fenced code block appears truncated."""
-    if not content:
-        return False
-
-    lines = content.split("\n")
-    in_fence = False
-    fence_body: list[str] = []
-
-    for line in lines:
-        stripped = line.strip()
-        if not in_fence:
-            if stripped.startswith("```") and len(stripped) >= 3:
-                in_fence = True
-                fence_body = []
-            continue
-
-        if stripped == "```":
-            if _fence_body_truncated(fence_body):
-                return True
-            in_fence = False
-            fence_body = []
-            continue
-
-        fence_body.append(line)
-
-    return in_fence
-
-
 # ---------------------------------------------------------------------------
 # H2 whitelist section cleanup
 # ---------------------------------------------------------------------------
@@ -439,3 +391,31 @@ def strip_unauthorized_sections(
             result.append(line)
 
     return "\n".join(result)
+
+
+def detect_truncated_code_blocks(content: str | None) -> list[dict]:
+    """Detect unclosed code fences indicating truncated code blocks."""
+    if not content:
+        return []
+    truncated: list[dict] = []
+    in_fence = False
+    fence_start_line = 0
+    fence_lang = ""
+
+    for i, line in enumerate(content.split("\n")):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            if not in_fence:
+                in_fence = True
+                fence_start_line = i
+                fence_lang = stripped[3:].strip()
+            else:
+                in_fence = False
+
+    if in_fence:
+        truncated.append({
+            "start_line": fence_start_line,
+            "language": fence_lang,
+            "unclosed": True,
+        })
+    return truncated

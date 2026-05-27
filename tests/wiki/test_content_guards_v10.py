@@ -187,3 +187,41 @@ class TestDoubleFenceMerge:
         content = "```java\n\n```kotlin\nfun main() {}\n```"
         result = repair_code_fences(content)
         assert "fun main()" in result
+
+
+class TestDetectTruncatedCodeBlocks:
+    """Tests for F10: code block truncation detection."""
+
+    def test_unclosed_fence_detected(self):
+        from wiki.content_guards import detect_truncated_code_blocks
+
+        content = "Some text.\n\n```java\npublic class Foo {\n    // no closing fence"
+        result = detect_truncated_code_blocks(content)
+        assert len(result) == 1
+        assert result[0]["unclosed"] is True
+        assert result[0]["language"] == "java"
+
+    def test_normal_code_no_detection(self):
+        from wiki.content_guards import detect_truncated_code_blocks
+
+        content = "```python\ndef foo():\n    pass\n```"
+        result = detect_truncated_code_blocks(content)
+        assert len(result) == 0
+
+    def test_closed_then_unclosed(self):
+        from wiki.content_guards import detect_truncated_code_blocks
+
+        content = "```java\nclass A {}\n```\n\nSome text.\n\n```kotlin\nfun b() {"
+        result = detect_truncated_code_blocks(content)
+        assert len(result) == 1
+        assert result[0]["language"] == "kotlin"
+
+    def test_empty_content(self):
+        from wiki.content_guards import detect_truncated_code_blocks
+
+        assert detect_truncated_code_blocks("") == []
+
+    def test_none_content(self):
+        from wiki.content_guards import detect_truncated_code_blocks
+
+        assert detect_truncated_code_blocks(None) == []

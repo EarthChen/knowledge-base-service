@@ -28,6 +28,12 @@ async def create_links_node(
         for p in pages
         if p.get("path")
     }
+    for p in pages:
+        bd = p.get("business_domain", "")
+        title = p.get("title", "")
+        if bd and title:
+            composite_key = f"{bd}/{title}".lower()
+            page_titles[composite_key] = p.get("path", "")
 
     link_pattern = re.compile(r"\[\[([^\]]+)\]\]")
     resolved_links: dict[str, list[dict[str, str]]] = {}

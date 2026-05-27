@@ -299,7 +299,7 @@ class TestParallelDomainNaming:
     """Verify sub-domain naming is parallelized and slugs are deduplicated."""
 
     def test_parallel_naming_slug_dedup(self):
-        """When LLM generates duplicate slugs, hash suffix should be appended."""
+        """When LLM generates duplicate slugs, numeric suffix should be appended."""
         results = [
             {"slug": "core", "display_name": "Core A"},
             {"slug": "core", "display_name": "Core B"},
@@ -310,7 +310,7 @@ class TestParallelDomainNaming:
         slugs = [r["slug"] for r in deduped]
         assert len(set(slugs)) == 3, "All slugs must be unique"
         assert "core" in slugs, "First 'core' keeps original name"
-        assert any(s.startswith("core-") and s != "core" for s in slugs), "Duplicate gets hash suffix"
+        assert "core-2" in slugs, "Duplicate gets numeric suffix"
         assert "payment" not in slugs, "Existing slugs not added"
 
     @pytest.mark.asyncio
@@ -458,6 +458,182 @@ class TestParallelDomainNaming:
         assert len(set(child_slugs)) == 3
         assert child_slugs.count("core") == 1
         assert sum(1 for s in child_slugs if s.startswith("core-")) == 2
+
+    @pytest.mark.asyncio
+    async def test_recursive_split_filters_infra_subdomain(self):
+        """Infrastructure-like sub-domain slugs are merged into the largest sibling."""
+        import numpy as np
+
+        modules_list = [(f"repo1", f"Mod{i}") for i in range(12)]
+        big_community = set(modules_list)
+        sub_clusters = [
+            set(modules_list[0:5]),
+            set(modules_list[5:10]),
+            set(modules_list[10:12]),
+        ]
+
+        async def mock_embedding_clustering(*_args, **_kwargs):
+            return [[big_community], np.zeros((12, 8))]
+
+        async def name_community(**kwargs):
+            infos = kwargs.get("module_infos") or []
+            if len(infos) >= 10:
+                return {"slug": "guild-operations", "display_name": "Guild Operations"}
+            mod_name = infos[0]["name"]
+            if mod_name in ("Mod0", "Mod1"):
+                return {"slug": "guild-core", "display_name": "Guild Core"}
+            if mod_name in ("Mod5", "Mod6"):
+                return {"slug": "guild-members", "display_name": "Guild Members"}
+            return {"slug": "debug-groovy-executor", "display_name": "Debug Executor"}
+
+        modules = {
+            "repo1": [
+                _make_module_dict("repo1", f"Mod{i}", path=f"src/Mod{i}.java")
+                for i in range(12)
+            ]
+        }
+        state = _make_state(modules)
+
+        mock_graph_store = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = [
+            _make_call_edge(f"Mod{i}", f"Mod{i + 1}", 10) for i in range(11)
+        ]
+        mock_graph_store.execute_query = AsyncMock(return_value=mock_result)
+
+        mock_namer = MagicMock()
+        mock_namer.name_community = AsyncMock(side_effect=name_community)
+        mock_clusterer = MagicMock()
+        mock_clusterer.cluster_sub_domains.return_value = sub_clusters
+
+        mock_wiki_cfg = MagicMock()
+        mock_wiki_cfg.infrastructure_slug_keywords = [
+            "configuration",
+            "executor",
+            "debug",
+            "groovy",
+        ]
+        mock_wiki_cfg.skip_llm_merge_when_corrector_enabled = False
+        mock_wiki_cfg.domain_budget_max = 50
+
+        config = {"configurable": {"graph_store": mock_graph_store, "llm": MagicMock()}}
+        with patch(
+            "wiki.nodes.graph_domain_decompose._get_split_params",
+            return_value=(10, 3),
+        ), patch(
+            "wiki.nodes.graph_domain_decompose._embedding_clustering",
+            side_effect=mock_embedding_clustering,
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.DomainSemanticClusterer",
+            return_value=mock_clusterer,
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
+            return_value=mock_namer,
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
+            return_value=_mock_corrector(),
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.get_settings",
+            return_value=MagicMock(wiki=mock_wiki_cfg, embedding=MagicMock()),
+        ):
+            result = await graph_driven_domain_decompose_node(state, config)
+
+        tree = result["domain_tree"]
+        assert len(tree) == 1
+        children = tree[0]["children"]
+        child_slugs = [c["name"] for c in children]
+        assert "debug-groovy-executor" not in child_slugs
+        assert len(children) == 2
+
+        infra_mod_keys = {f"repo1|Mod{i}" for i in (10, 11)}
+        child_module_keys = {m for c in children for m in c["modules"]}
+        assert infra_mod_keys <= child_module_keys
+
+    @pytest.mark.asyncio
+    async def test_recursive_split_does_not_recurse_beyond_max_depth_two(self):
+        """With max_split_depth=2, no splitting occurs once depth reaches 2."""
+        import numpy as np
+
+        modules_list = [("repo1", f"Mod{i}") for i in range(24)]
+        big_community = set(modules_list)
+        sub_clusters = [
+            set(modules_list[0:12]),
+            set(modules_list[12:24]),
+        ]
+        cluster_call_depths: list[int] = []
+
+        async def mock_embedding_clustering(*_args, **_kwargs):
+            return [[big_community], np.zeros((24, 8))]
+
+        async def name_community(**kwargs):
+            infos = kwargs.get("module_infos") or []
+            if len(infos) >= 20:
+                return {"slug": "root-domain", "display_name": "Root Domain"}
+            mod_name = infos[0]["name"]
+            return {"slug": f"sub-{mod_name.lower()}", "display_name": f"Sub {mod_name}"}
+
+        def cluster_sub_domains(_embeddings, _modules, _edges):
+            cluster_call_depths.append(len(cluster_call_depths))
+            return sub_clusters
+
+        modules = {
+            "repo1": [
+                _make_module_dict("repo1", f"Mod{i}", path=f"src/Mod{i}.java")
+                for i in range(24)
+            ]
+        }
+        state = _make_state(modules)
+
+        mock_graph_store = MagicMock()
+        mock_result = MagicMock()
+        mock_result.data = [
+            _make_call_edge(f"Mod{i}", f"Mod{i + 1}", 10) for i in range(23)
+        ]
+        mock_graph_store.execute_query = AsyncMock(return_value=mock_result)
+
+        mock_namer = MagicMock()
+        mock_namer.name_community = AsyncMock(side_effect=name_community)
+        mock_clusterer = MagicMock()
+        mock_clusterer.cluster_sub_domains.side_effect = cluster_sub_domains
+
+        mock_wiki_cfg = MagicMock()
+        mock_wiki_cfg.infrastructure_slug_keywords = []
+        mock_wiki_cfg.skip_llm_merge_when_corrector_enabled = False
+        mock_wiki_cfg.domain_budget_max = 50
+        mock_wiki_cfg.domain_split_threshold = 10
+        mock_wiki_cfg.domain_split_max_depth = 2
+
+        config = {"configurable": {"graph_store": mock_graph_store, "llm": MagicMock()}}
+        with patch(
+            "wiki.nodes.graph_domain_decompose._embedding_clustering",
+            side_effect=mock_embedding_clustering,
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.DomainSemanticClusterer",
+            return_value=mock_clusterer,
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
+            return_value=mock_namer,
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
+            return_value=_mock_corrector(),
+        ), patch(
+            "wiki.nodes.graph_domain_decompose.get_settings",
+            return_value=MagicMock(wiki=mock_wiki_cfg, embedding=MagicMock()),
+        ):
+            result = await graph_driven_domain_decompose_node(state, config)
+
+        assert result["domain_tree"]
+        assert mock_clusterer.cluster_sub_domains.call_count == 3
+
+        def _max_child_depth(nodes: list[dict], current: int = 0) -> int:
+            if not nodes:
+                return current
+            child_depths = [_max_child_depth(n.get("children", []), current + 1) for n in nodes]
+            return max(child_depths) if child_depths else current
+
+        tree = result["domain_tree"]
+        root_children = tree[0].get("children", [])
+        assert _max_child_depth(root_children) <= 2
 
     @pytest.mark.asyncio
     async def test_all_namer_calls_made_for_all_communities(self):
@@ -901,13 +1077,16 @@ class TestDedupSemanticSuffix:
         assert deduped[0]["slug"] == "payment"
         assert deduped[1]["slug"] == "family"
 
-    def test_collision_no_modules_uses_hash(self):
+    def test_collision_no_modules_uses_numeric(self):
         results = [
             {"slug": "core", "display_name": "核心", "modules": []},
             {"slug": "core", "display_name": "核心2", "modules": []},
         ]
         deduped = _dedup_parallel_naming_results(results, [])
-        assert len(set(r["slug"] for r in deduped)) == 2
+        slugs = [r["slug"] for r in deduped]
+        assert len(set(slugs)) == 2
+        assert "core" in slugs
+        assert "core-2" in slugs
 
     def test_collision_with_existing_slugs(self):
         results = [

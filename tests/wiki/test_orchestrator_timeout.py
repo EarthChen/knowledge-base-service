@@ -14,7 +14,7 @@ class TestExploreTimeout:
 
         class TestOrchestrator(DocOrchestrator):
             async def pre_fill(self, memory, module_names, **kwargs):
-                memory.code_snippets = ["some_snippet"]
+                pass
 
             async def evaluate(self, content, module_names):
                 from wiki.agents.doc_orchestrator import QualityResult

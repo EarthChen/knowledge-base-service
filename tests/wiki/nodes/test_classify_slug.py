@@ -13,7 +13,7 @@ class TestEnsureAsciiKeysModuleDerived:
         slug = keys[0]
         assert not slug.startswith("domain-"), f"Expected module-derived slug, got {slug}"
         assert slug.isascii()
-        assert "familypowerservice" in slug.lower() or "familyrankservice" in slug.lower()
+        assert "family-power-service" in slug.lower() or "family-rank-service" in slug.lower()
 
     def test_chinese_key_no_modules_falls_back_to_misc(self):
         mapping = {"空域": []}

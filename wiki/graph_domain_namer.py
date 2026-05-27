@@ -8,7 +8,8 @@ if TYPE_CHECKING:
 
 from core.log import get_logger
 from wiki.json_robust import parse_json_robust_sync
-from wiki.path_conventions import normalize_slug
+from wiki.nodes.domain_filters import is_denied_slug
+from wiki.path_conventions import normalize_slug, normalize_slug_strict
 from wiki.prompts import SYSTEM_JSON_ONLY
 
 log = get_logger(__name__)
@@ -56,6 +57,13 @@ def _extract_common_prefix(module_names: list[str]) -> str:
     return prefix
 
 
+def _sanitize_denied_slug(slug: str, *, display_name: str = "") -> str:
+    if is_denied_slug(slug):
+        log.warning("graph_domain_namer_denied_slug", slug=slug, display_name=display_name)
+        return f"{slug}-domain"
+    return slug
+
+
 def _fallback_name(module_names: list[str]) -> dict[str, str]:
     import re
 
@@ -68,7 +76,7 @@ def _fallback_name(module_names: list[str]) -> dict[str, str]:
 
     common = _extract_common_prefix(stripped)
     display_name = common or (stripped[0] if stripped else "unnamed")
-    slug = normalize_slug(display_name)
+    slug = _sanitize_denied_slug(normalize_slug(display_name), display_name=display_name)
     return {
         "slug": slug,
         "display_name": display_name,
@@ -147,8 +155,17 @@ class GraphDomainNamer:
                     if isinstance(slug, str) and slug and isinstance(display_name, str) and display_name:
                         if not _has_chinese(display_name):
                             log.warning("graph_domain_namer_non_chinese_display", display_name=display_name, slug=slug)
+                        validated_slug = normalize_slug_strict(slug)
+                        if not validated_slug:
+                            validated_slug = normalize_slug_strict(display_name)
+                        if not validated_slug:
+                            fallback = _fallback_name(names_for_fallback)
+                            validated_slug = normalize_slug_strict(fallback["slug"])
+                        if not validated_slug:
+                            validated_slug = f"domain-{len(names_for_fallback)}"
+                        validated_slug = _sanitize_denied_slug(validated_slug, display_name=display_name)
                         return {
-                            "slug": slug,
+                            "slug": validated_slug,
                             "display_name": display_name,
                             "description": str(description) if description is not None else "",
                         }

@@ -47,6 +47,8 @@ export type WikiPageDetail = {
     confidence_score?: string;
     /** Persisted documentation quality 0–1 when the API exposes it. */
     quality_overall?: string;
+    /** Overview variant from page metadata (e.g. topic_index). */
+    overview_kind?: string;
   };
   /** ISO timestamp from page metadata when the server provides it. */
   generated_at?: string | null;

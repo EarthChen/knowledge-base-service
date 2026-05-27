@@ -214,22 +214,62 @@ AGENT_GENERATE_SYSTEM = f"""\
 只输出工具返回的**结果**（代码片段、调用链），不描述调用过程本身。
 """
 
+AGENT_WRITE_TOPIC_SYSTEM = f"""\
+你是一个企业级代码知识库 Wiki 作者。基于提供的结构化探索结果，生成一篇聚焦特定主题的深度技术文档。
+
+{AGENT_CORE_CONSTRAINTS}
+
+## 输出结构
+直接输出 Markdown（不要 JSON 包装），按以下章节顺序：
+
+1. ## 概述
+   - 本主题解决的业务问题（2-3句）
+   - 涉及模块及其分工（以表格形式）
+
+2. ## 架构设计
+   - 模块间协作关系（Mermaid classDiagram 或 flowchart）
+   - 设计模式和关键架构决策说明
+
+3. ## 核心流程
+   - 按业务场景分组详细描述
+   - 每个场景包含 Mermaid sequenceDiagram + 步骤说明
+   - 关键分支/异常处理逻辑必须详细展开
+
+4. ## 关键实现
+   - 核心类的职责和关键方法逻辑
+   - 设计模式、并发控制、缓存策略等实现细节
+   - <!-- CODE_REF: key_method -->
+
+5. ## 相关主题
+   - 与本主题相关的其他主题链接（使用 [[topic_title]] 格式）
+   - 说明关联原因
+
+## 语言约束（强制）
+- **所有章节标题必须使用中文**（如「## 概述」而非「## Overview」）
+- **所有描述性文字必须使用中文**
+- 代码标识符（类名、方法名、文件路径）保持英文原样
+- 严禁使用英文模板短语（Overview, Components, Relationships, Key differentiator, Why this matters）
+- 严禁在正文中使用 blockquote 格式的英文摘要（如 `> **Overview**: ...`）
+- 严禁重复标题内容作为开头（如标题是「挚友关系管理」就不要再写「# 挚友关系管理」）
+"""
+
 SYSTEM_TOPIC_PLANNER = """\
 You are a technical documentation architect. Based on the module analysis below,
 plan a set of cohesive topic pages for a business domain.
 
 Rules:
 - Each topic should cover 3-8 functionally related modules
-- Topic titles must reflect business capability (e.g. "家族任务系统"), not technical suffixes
+- Topic titles must reflect business capability (e.g. "用户等级体系"), not technical suffixes
 - Every module must be assigned to exactly one topic
 - Maximum 6 topics to avoid fragmentation
 - If the domain has ≤5 modules, set should_split=false and create a single topic containing all modules
+- The "slug" field MUST be a kebab-case ASCII English identifier (e.g. "user-level-system", "gift-order-processing")
 
 Return ONLY valid JSON (no markdown fences):
 {
   "should_split": boolean,
   "topics": [
-    {"title": "...", "modules": ["ModA", "ModB"], "description": "one sentence"}
+    {"title": "...", "slug": "kebab-case-english", "modules": ["ModA", "ModB"], "description": "one sentence"}
   ]
 }
 """
@@ -291,7 +331,7 @@ def get_topic_planner_prompt(language: str = "简体中文") -> str:
     if _is_chinese_language(language):
         lang_rule += (
             '- Topic titles must reflect business capability '
-            '(e.g. "家族任务系统"), not technical suffixes.\n'
+            '(e.g. "用户等级体系"), not technical suffixes.\n'
         )
     return SYSTEM_TOPIC_PLANNER + lang_rule
 
@@ -300,6 +340,19 @@ def get_write_system_prompt(language: str = "简体中文") -> str:
     """Return write-phase system prompt with language-appropriate section structure."""
     if _is_chinese_language(language):
         return AGENT_WRITE_SYSTEM
+    lang_rule = (
+        f"\n## Language Rules\n"
+        f"- Write all prose in {language}.\n"
+        f"- Section headings MUST be in {language}.\n"
+        f"- Keep class names, method names, and file paths in their original form.\n"
+    )
+    return AGENT_WRITE_SYSTEM_EN + lang_rule
+
+
+def get_write_topic_system_prompt(language: str = "简体中文") -> str:
+    """Return topic-specific write prompt (deeper focus, strict Chinese headings)."""
+    if _is_chinese_language(language):
+        return AGENT_WRITE_TOPIC_SYSTEM
     lang_rule = (
         f"\n## Language Rules\n"
         f"- Write all prose in {language}.\n"

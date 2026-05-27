@@ -373,16 +373,24 @@ class WikiLintService:
                 LintIssue(
                     severity="warning",
                     category="orphan",
-                    message="Wiki page has no incoming WIKILINK edges in the graph",
+                    message="Wiki page has no incoming wikilink edges in the graph",
                     page_path=path,
-                    suggestion="Add WIKILINK relationships from hub pages.",
+                    suggestion="Add wikilink relationships from hub pages.",
                 ),
             )
         return issues
 
     async def _check_broken_links(self, repository: str) -> list[LintIssue]:
         pages = await self._wiki_pages_for_repo(repository)
-        titles = {str(p.get("title", "")) for p in pages if p.get("title")}
+        titles_lower: set[str] = set()
+        for page in pages:
+            t = str(page.get("title", "") or "").strip()
+            if not t:
+                continue
+            titles_lower.add(t.lower())
+            bd = str(page.get("business_domain", "") or "").strip()
+            if bd:
+                titles_lower.add(f"{bd}/{t}".lower())
         paths = {str(p.get("path", "")) for p in pages if p.get("path")}
         issues: list[LintIssue] = []
         for p in pages:
@@ -403,15 +411,15 @@ class WikiLintService:
                         ),
                     )
             for m in _WIKILINK_RE.finditer(content):
-                title = m.group(1).strip()
-                if title and title not in titles:
+                link_text = m.group(1).strip()
+                if link_text and link_text.lower() not in titles_lower:
                     issues.append(
                         LintIssue(
                             severity="error",
                             category="broken_link",
-                            message=f"Wikilink '[['{title}']]' does not match any wiki page title",
+                            message=f"Wikilink '[['{link_text}']]' does not match any wiki page title",
                             page_path=page_path,
-                            entity_name=title,
+                            entity_name=link_text,
                         ),
                     )
         return issues

@@ -306,9 +306,8 @@ class AppWikiFlags(BaseModel):
         description="When True, DomainDocAgent.generate_with_iterations delegates to DocOrchestrator.generate()",
     )
     topic_split_quality_check: bool = True
-    enable_topic_pages: bool = Field(
-        default=True, description="Enable topic page generation in Orchestrator path"
-    )
+    enable_topic_pages: bool = Field(default=True, description="Enable topic page generation in Orchestrator path")
+    topic_force_split_threshold: int = Field(default=6, description="Force topic split when module count >= this")
     domain_split_threshold: int = Field(default=20, description="Min modules to trigger recursive sub-domain split")
     domain_split_max_depth: int = Field(default=2, description="Max recursion depth for sub-domain splitting")
     domain_budget_max: int = Field(
@@ -317,16 +316,42 @@ class AppWikiFlags(BaseModel):
     overview_min_content_chars: int = Field(
         default=2000, ge=500, le=10000, description="Minimum content chars for overview pages"
     )
+    topic_min_content_chars: int = Field(
+        default=1000, ge=100, le=10000, description="Minimum content length for topic pages"
+    )
+    topic_min_publish_chars: int = Field(
+        default=1500, ge=100, le=10000, description="Topic pages shorter than this are not published"
+    )
     infrastructure_slug_keywords: list[str] = Field(
-        default=["configuration", "typehandler", "aspect", "package-info", "wrapper"],
+        default=[
+            "configuration",
+            "typehandler",
+            "aspect",
+            "package-info",
+            "wrapper",
+            "handler",
+            "executor",
+            "debug",
+            "groovy",
+            "impl",
+            "tracing",
+            "trace",
+            "aop",
+            "interceptor",
+        ],
         description="Slug keywords that mark a single-module domain as infrastructure (merged into nearby domain)",
     )
     language_guardrail_cn_ratio: float = Field(
         default=0.4, ge=0.0, le=1.0, description="Min CN char ratio for Chinese content"
     )
-    auto_cleanup_checkpoint: bool = Field(
-        default=False, description="Delete checkpoint after successful pipeline run"
+    cn_ratio_hard_min: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description="Hard minimum CN ratio for Chinese topic pages; below this heal/finalize reject topics",
     )
+    auto_cleanup_checkpoint: bool = Field(default=False, description="Delete checkpoint after successful pipeline run")
+    # Product-specific examples: core.wiki_product_defaults.HELLOGROUP_TERM_OVERRIDES
     term_overrides: dict[str, str] = Field(
         default_factory=dict,
         description="Manual term override map {english: chinese}, takes precedence over auto-extracted",
@@ -435,14 +460,14 @@ class AppWikiFlags(BaseModel):
 
     # Phase 3 (LLM Wiki v2 — Memory Evolution)
     memory_tiers_enabled: bool = True
+    # Opt-in: when True, business wiki may skip full infra filtering / module_overview cleanup on incremental runs.
     incremental_enabled: bool = Field(default=False)
     #: When True, skip composing pages whose source matches the last saved wiki baseline (full compose).
     resume_from_saved: bool = Field(default=False)
     default_llm_budget: int = Field(
         default=30_000,
         description=(
-            "Base token budget for all LLM operations. "
-            "Components derive budgets as fixed proportions of this value."
+            "Base token budget for all LLM operations. Components derive budgets as fixed proportions of this value."
         ),
     )
 
@@ -520,8 +545,15 @@ class Settings(BaseSettings):
 
     supported_languages: list[str] = Field(
         default_factory=lambda: [
-            "python", "java", "go", "javascript", "typescript",
-            "kotlin", "swift", "objc", "dart",
+            "python",
+            "java",
+            "go",
+            "javascript",
+            "typescript",
+            "kotlin",
+            "swift",
+            "objc",
+            "dart",
         ]
     )
     file_extensions: dict[str, list[str]] = Field(
@@ -540,11 +572,28 @@ class Settings(BaseSettings):
 
     exclude_dirs: list[str] = Field(
         default_factory=lambda: [
-            "node_modules", ".git", ".venv", "venv", "__pycache__",
-            "dist", "build", ".tox", ".mypy_cache", ".pytest_cache",
-            "vendor", "target",
-            ".cursor", ".agent", ".agents", ".vscode", ".idea", ".fleet",
-            ".windsurf", ".continue", ".aider", ".copilot",
+            "node_modules",
+            ".git",
+            ".venv",
+            "venv",
+            "__pycache__",
+            "dist",
+            "build",
+            ".tox",
+            ".mypy_cache",
+            ".pytest_cache",
+            "vendor",
+            "target",
+            ".cursor",
+            ".agent",
+            ".agents",
+            ".vscode",
+            ".idea",
+            ".fleet",
+            ".windsurf",
+            ".continue",
+            ".aider",
+            ".copilot",
         ]
     )
 

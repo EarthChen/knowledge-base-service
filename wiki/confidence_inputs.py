@@ -68,7 +68,8 @@ async def gather_confidence_inputs(
     source_n = _count_from_query(src_r, "cnt")
 
     q_in = (
-        "MATCH (src:WikiPage {repository: $repo})-[:WIKILINK]->(w:WikiPage {uid: $uid}) "
+        "MATCH (src:WikiPage {repository: $repo})"
+        "-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(w:WikiPage {uid: $uid}) "
         "RETURN count(DISTINCT src) AS cnt"
     )
     in_r = await store.execute_query(q_in, {"repo": repository, "uid": page_uid})

@@ -282,6 +282,8 @@ async def test_quality_gate_includes_compound_module_keys():
         with patch("wiki.nodes.quality_gate.get_settings") as mock_settings:
             mock_settings.return_value.wiki.quality_gate_levels = "L1"
             mock_settings.return_value.wiki.heal_l2_threshold = 0.0
+            mock_settings.return_value.wiki.overview_min_content_chars = 2000
+            mock_settings.return_value.wiki.topic_min_content_chars = 1000
             await quality_gate_node(state, {"configurable": {}})
 
     assert captured_names

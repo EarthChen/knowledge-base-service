@@ -23,7 +23,7 @@ from wiki.nodes.classify import (
     is_module_pinned,
 )
 from wiki.nodes.domain_filters import is_data_model
-from wiki.path_conventions import normalize_slug
+from wiki.path_conventions import normalize_slug, normalize_slug_strict
 from wiki.pipeline_concurrency import PipelineConcurrency
 
 log = get_logger(__name__)
@@ -199,7 +199,60 @@ _INFRA_CLASS_SUFFIXES = (
     "Interceptor",
     "Filter",
     "Wrapper",
+    "Handler",
+    "Executor",
 )
+
+
+def _is_infra_slug(
+    slug: str,
+    modules: list[tuple[str, str]],
+    infrastructure_keywords: list[str],
+) -> bool:
+    """Return True if slug/modules match infrastructure domain heuristics."""
+    if len(modules) == 1:
+        _, name = modules[0]
+        if _PASCAL_CASE_RE.match(name) and name.endswith(_INFRA_CLASS_SUFFIXES):
+            return True
+    if len(modules) <= 3 and infrastructure_keywords:
+        slug_lower = slug.lower()
+        if any(kw in slug_lower for kw in infrastructure_keywords):
+            return True
+    return False
+
+
+def _filter_infra_sub_domains(
+    named_subs: list[dict],
+    infrastructure_keywords: list[str],
+) -> list[dict]:
+    """Remove infrastructure sub-domains; merge their modules into the largest sibling."""
+    if not named_subs:
+        return named_subs
+
+    for sub in named_subs:
+        children = sub.get("children") or []
+        if children:
+            sub["children"] = _filter_infra_sub_domains(children, infrastructure_keywords)
+
+    infra_subs: list[dict] = []
+    remaining: list[dict] = []
+    for sub in named_subs:
+        modules = sub.get("modules", [])
+        if _is_infra_slug(sub.get("slug", ""), modules, infrastructure_keywords):
+            infra_subs.append(sub)
+        else:
+            remaining.append(sub)
+
+    if not infra_subs:
+        return named_subs
+    if not remaining:
+        return named_subs
+
+    largest = max(remaining, key=lambda s: len(s.get("modules", [])))
+    for sub in infra_subs:
+        largest["modules"].extend(sub.get("modules", []))
+
+    return remaining
 
 
 def _filter_infrastructure_domains(
@@ -213,7 +266,7 @@ def _filter_infrastructure_domains(
     Rules:
     1. Single-module domain where module name is PascalCase and ends with a known
        infrastructure class suffix → infrastructure
-    2. Slug contains any infrastructure keyword AND module count ≤ 2 → infrastructure
+    2. Slug contains any infrastructure keyword AND module count ≤ 3 → infrastructure
 
     Merge target: non-infra domain with most call edges to/from infra modules; if none,
     fall back to the largest remaining domain.
@@ -223,15 +276,8 @@ def _filter_infrastructure_domains(
 
     infra_slugs: set[str] = set()
     for slug, modules in domain_mapping.items():
-        if len(modules) == 1:
-            _, name = modules[0]
-            if _PASCAL_CASE_RE.match(name) and name.endswith(_INFRA_CLASS_SUFFIXES):
-                infra_slugs.add(slug)
-                continue
-        if len(modules) <= 2 and infrastructure_keywords:
-            slug_lower = slug.lower()
-            if any(kw in slug_lower for kw in infrastructure_keywords):
-                infra_slugs.add(slug)
+        if _is_infra_slug(slug, modules, infrastructure_keywords):
+            infra_slugs.add(slug)
 
     if not infra_slugs:
         return domain_mapping, domain_display_names
@@ -424,7 +470,7 @@ async def _merge_domains_by_llm(
 
 
 _SPLIT_THRESHOLD = 10
-_MAX_SPLIT_DEPTH = 3
+_MAX_SPLIT_DEPTH = 2
 
 
 def _get_split_params() -> tuple[int, int]:
@@ -437,20 +483,41 @@ def _get_split_params() -> tuple[int, int]:
     )
 
 
-def _sub_to_tree_node(sub: dict) -> dict[str, Any]:
+def _sub_tree_node_name(sub: dict, *, idx: int = 0) -> str:
+    """Resolve ASCII slug for a sub-domain tree node."""
+    name = (
+        normalize_slug_strict(sub.get("slug", ""))
+        or normalize_slug_strict(sub.get("display_name", ""))
+    )
+    if name:
+        return name
+    modules = sub.get("modules", [])
+    if modules:
+        short_names = [
+            (name if isinstance(name, str) else str(name)).rsplit(".", 1)[-1][:12]
+            for _repo, name in modules[:2]
+        ]
+        name = normalize_slug_strict("-".join(short_names))
+        if name:
+            return name
+    return f"sub-domain-{idx}"
+
+
+def _sub_to_tree_node(sub: dict, *, idx: int = 0) -> dict[str, Any]:
     """Convert a recursive sub-domain dict into a domain_tree node."""
     children_raw = sub.get("children", [])
-    children = [_sub_to_tree_node(c) for c in children_raw]
+    children = [_sub_to_tree_node(c, idx=i) for i, c in enumerate(children_raw)]
+    node_name = _sub_tree_node_name(sub, idx=idx)
     if children:
         return {
-            "name": sub.get("slug", ""),
+            "name": node_name,
             "display_name": sub.get("display_name", ""),
             "modules": [],
             "children": children,
         }
     mod_keys = [_compound_key(repo, name) for repo, name in sub.get("modules", [])]
     return {
-        "name": sub.get("slug", ""),
+        "name": node_name,
         "display_name": sub.get("display_name", ""),
         "modules": mod_keys,
         "children": [],
@@ -474,7 +541,7 @@ def _build_domain_tree(
 
         sub = sub_trees.get(slug, [])
         if sub and len(sub) > 1:
-            children = [_sub_to_tree_node(s) for s in sub]
+            children = [_sub_to_tree_node(s, idx=i) for i, s in enumerate(sub)]
             tree.append({
                 "name": slug,
                 "display_name": display_name,
@@ -492,6 +559,105 @@ def _build_domain_tree(
     return tree
 
 
+def _collapse_empty_shells(tree: list[dict]) -> list[dict]:
+    """Collapse empty shell domains (0 modules, 1 child) bottom-up."""
+
+    def _collapse_node(node: dict) -> dict:
+        if node.get("children"):
+            node["children"] = [_collapse_node(c) for c in node["children"]]
+
+        modules = node.get("modules") or []
+        children = node.get("children") or []
+        if not modules and len(children) == 1:
+            child = children[0]
+            collapsed_from = list(child.get("collapsed_from", []))
+            collapsed_from.append(node.get("name", ""))
+            child["collapsed_from"] = collapsed_from
+            return child
+        return node
+
+    return [_collapse_node(n) for n in tree]
+
+
+_GENERIC_DIFFERENTIATORS = frozenset({
+    "核心",
+    "模块",
+    "管理",
+    "服务",
+    "系统",
+    "core",
+    "module",
+    "management",
+    "service",
+    "system",
+})
+
+_PARENT_CHILD_SLUG_MISMATCHES: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
+    (("intimacy", "relation", "亲密"), ("user-behavior", "behavior-stat", "用户行为")),
+]
+
+
+def _extract_differentiator(description: str) -> str:
+    """Extract a short label from description for display-name disambiguation."""
+    text = description.strip()
+    if not text:
+        return ""
+    for part in re.findall(r"[\u4e00-\u9fff]{2,4}", text):
+        if part not in _GENERIC_DIFFERENTIATORS:
+            return part[:4]
+    for part in re.findall(r"[A-Za-z]{3,}", text):
+        if part.lower() not in _GENERIC_DIFFERENTIATORS:
+            return part[:12]
+    cn_parts = re.findall(r"[\u4e00-\u9fff]{2,4}", text)
+    return cn_parts[0][:4] if cn_parts else ""
+
+
+def _slug_semantically_mismatched(parent_slug: str, child_slug: str) -> bool:
+    """Heuristic: child slug themes that clash with parent slug themes."""
+    parent_l = parent_slug.lower()
+    child_l = child_slug.lower()
+    for parent_tokens, child_tokens in _PARENT_CHILD_SLUG_MISMATCHES:
+        parent_hit = any(tok in parent_l for tok in parent_tokens)
+        child_hit = any(tok in child_l for tok in child_tokens)
+        if parent_hit and child_hit:
+            return True
+    return False
+
+
+def _review_subdomain_placement(
+    domain_tree: list[dict],
+    embeddings: dict[str, list[float]] | None = None,
+) -> list[dict[str, str]]:
+    """Review sub-domain placement for semantic mismatches. Returns warnings (detection only)."""
+    del embeddings  # reserved for future embedding-based checks
+    warnings: list[dict[str, str]] = []
+
+    def _walk(nodes: list[dict]) -> None:
+        for node in nodes:
+            children = node.get("children", [])
+            if not children:
+                continue
+            parent_slug = node.get("name", "")
+            parent_display = node.get("display_name", "")
+            for child in children:
+                child_slug = child.get("name", "")
+                child_display = child.get("display_name", "")
+                if _slug_semantically_mismatched(parent_slug, child_slug):
+                    warnings.append({
+                        "child": child_slug,
+                        "parent": parent_slug,
+                        "reason": (
+                            f"'{child_display}' semantically mismatched with parent '{parent_display}'"
+                        ),
+                    })
+            _walk(children)
+
+    _walk(domain_tree)
+    for warning in warnings:
+        log.warning("subdomain_placement_mismatch", **warning)
+    return warnings
+
+
 def _dedup_parallel_naming_results(
     results: list[dict],
     existing_slugs: list[str],
@@ -507,8 +673,12 @@ def _dedup_parallel_naming_results(
                 short_names = [str(m).rsplit(".", 1)[-1][:12] for m in modules[:2]]
                 suffix = normalize_slug("-".join(short_names))
             if not suffix or suffix == "unnamed":
-                suffix = hashlib.md5(str(result).encode()).hexdigest()[:4]
-            new_slug = f"{slug}-{suffix}"
+                counter = 2
+                while f"{slug}-{counter}" in seen:
+                    counter += 1
+                new_slug = f"{slug}-{counter}"
+            else:
+                new_slug = f"{slug}-{suffix}"
             log.warning("slug_collision_resolved", original=slug, resolved=new_slug)
             result["slug"] = new_slug
         seen.add(result["slug"])
@@ -518,8 +688,9 @@ def _dedup_parallel_naming_results(
 def _dedup_sub_domains(
     named_subs: list[dict],
     parent_display_name: str,
+    ancestor_display_names: set[str] | None = None,
 ) -> list[dict]:
-    """Merge sub-domains with identical display_name, dedup slugs, avoid parent-child collision."""
+    """Merge sub-domains with identical display_name, dedup slugs, avoid parent/ancestor collision."""
     merged_by_name: dict[str, dict] = {}
     for sub in named_subs:
         key = sub["display_name"]
@@ -539,9 +710,20 @@ def _dedup_sub_domains(
             sub["slug"] = f"{slug}-{counter}"
         seen_slugs.add(sub["slug"])
 
+    ancestors = (ancestor_display_names or set()) | {parent_display_name}
     for sub in result:
-        if sub["display_name"] == parent_display_name:
-            sub["display_name"] = f"{sub['display_name']}（核心）"
+        if sub["display_name"] not in ancestors:
+            continue
+        core_name = f"{sub['display_name']}（核心）"
+        if core_name in ancestors:
+            desc = sub.get("description", "")
+            differentiator = _extract_differentiator(desc) if desc else ""
+            if differentiator:
+                sub["display_name"] = f"{sub['display_name']}（{differentiator}）"
+            else:
+                sub["display_name"] = f"{sub['display_name']}（子域）"
+        else:
+            sub["display_name"] = core_name
 
     return result
 
@@ -1131,7 +1313,9 @@ async def graph_driven_domain_decompose_node(
             parent_used_names: list[str],
             parent_display: str,
             depth: int,
+            ancestor_display_names: set[str] | None = None,
         ) -> list[dict]:
+            ancestors = (ancestor_display_names or set()) | {parent_display}
             split_threshold, max_split_depth = _get_split_params()
             if len(community_modules) <= split_threshold or depth >= max_split_depth:
                 return []
@@ -1201,6 +1385,9 @@ async def graph_driven_domain_decompose_node(
                 if isinstance(result, Exception):
                     log.warning("sub_domain_naming_failed", exc_info=result)
                 else:
+                    result["modules"] = [
+                        f"{repo_id}.{mod_name}" for repo_id, mod_name in sorted(sub_cluster)
+                    ]
                     valid_results.append(result)
                     valid_clusters.append(sub_cluster)
 
@@ -1214,11 +1401,15 @@ async def graph_driven_domain_decompose_node(
                 sub_naming: dict[str, Any],
                 sub_cluster: set[tuple[str, str]],
             ) -> dict[str, Any]:
+                child_ancestors = set(ancestors) | {sub_naming["display_name"]}
+                if sub_naming["display_name"] in ancestors:
+                    child_ancestors.add(f"{sub_naming['display_name']}（核心）")
                 children = await _recursive_split(
                     list(sub_cluster),
                     list(all_slugs),
                     sub_naming["display_name"],
                     depth + 1,
+                    ancestor_display_names=child_ancestors,
                 )
                 return {
                     "slug": sub_naming["slug"],
@@ -1243,14 +1434,24 @@ async def graph_driven_domain_decompose_node(
                 for sub_naming, sub_cluster in zip(deduped_results, valid_clusters, strict=True):
                     named_subs.append(await _build_named_sub(sub_naming, sub_cluster))
 
-            named_subs = _dedup_sub_domains(named_subs, parent_display)
-            return named_subs
+            named_subs = _dedup_sub_domains(
+                named_subs,
+                parent_display,
+                ancestor_display_names=ancestors,
+            )
+            return _filter_infra_sub_domains(named_subs, wiki_cfg.infrastructure_slug_keywords)
 
         for c in communities_named:
             slug = c["slug"]
             community_modules = list(c["modules"])
             parent_display = domain_display_names.get(slug, slug)
-            subs = await _recursive_split(community_modules, used_names, parent_display, 0)
+            subs = await _recursive_split(
+                community_modules,
+                used_names,
+                parent_display,
+                0,
+                ancestor_display_names={parent_display},
+            )
             if subs and len(subs) > 1:
                 sub_trees[slug] = subs
     else:
@@ -1267,7 +1468,10 @@ async def graph_driven_domain_decompose_node(
     if use_existing_tree and state.get("domain_tree"):
         domain_tree = state.get("domain_tree")
     else:
-        domain_tree = _build_domain_tree(communities_named, sub_trees)
+        domain_tree = _collapse_empty_shells(_build_domain_tree(communities_named, sub_trees))
+
+    if domain_tree:
+        _review_subdomain_placement(domain_tree, embeddings)
 
     # --- Step 9: Determine affected_domains ---
     if is_incremental:

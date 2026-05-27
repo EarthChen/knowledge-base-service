@@ -191,9 +191,10 @@ async def test_nested_tree_topic_falls_back_to_fuzzy_when_no_canonical_match() -
 
 @pytest.mark.asyncio
 async def test_nested_tree_topic_unknown_canonical_key_skips_fuzzy_match() -> None:
-    """Non-empty canonical_key with no domain mapping must not fall back to path fuzzy match."""
+    """Unknown canonical_key must not fuzzy-resolve via path; business_domain wins instead."""
     business_id = "biz-unknown-ck"
     tb = WikiTreeBuilder()
+    auth_section_uid = tb.generate_domain_section_uid(business_id, "Authentication")
 
     domain_tree = [
         DomainNode(name="Service", description="", modules=[], children=[]),
@@ -226,6 +227,7 @@ async def test_nested_tree_topic_unknown_canonical_key_skips_fuzzy_match() -> No
                         "uid": topic_uid,
                         "path": "wiki/Service/topic-with-unknown-canonical",
                         "canonical_key": "no-such-key-in-domains",
+                        "business_domain": "Authentication",
                     },
                 ],
             ),
@@ -251,6 +253,63 @@ async def test_nested_tree_topic_unknown_canonical_key_skips_fuzzy_match() -> No
         for c in wiki_store.add_has_child_edge.await_args_list
         if c.kwargs.get("child_uid") == topic_uid
     ]
-    assert not topic_edges, (
+    assert topic_edges, "business_domain must link topic under Authentication"
+    assert all(c.kwargs.get("parent_uid") == auth_section_uid for c in topic_edges), (
         "unknown canonical_key must not fuzzy-resolve via path segment Service"
     )
+
+
+@pytest.mark.asyncio
+async def test_nested_tree_topic_business_domain_match() -> None:
+    """business_domain exact match takes priority over path segment fuzzy match."""
+    business_id = "biz-bd-priority"
+    tb = WikiTreeBuilder()
+    auth_section_uid = tb.generate_domain_section_uid(business_id, "Authentication")
+
+    domain_tree = [
+        DomainNode(name="Service", description="", modules=[], children=[]),
+        DomainNode(name="Authentication", description="", modules=[], children=[]),
+    ]
+
+    wiki_store = MagicMock()
+    wiki_store.upsert_wiki_section = AsyncMock()
+    wiki_store.add_has_child_edge = AsyncMock()
+
+    topic_uid = "wp:topic-bd-priority"
+    wiki_store.execute_query = AsyncMock(
+        side_effect=[
+            MagicMock(data=[]),
+            MagicMock(
+                data=[
+                    {
+                        "uid": topic_uid,
+                        "path": "wiki/Service/topic-wrong-path-segment",
+                        "canonical_key": "",
+                        "business_domain": "Authentication",
+                    },
+                ],
+            ),
+            MagicMock(data=[]),
+            MagicMock(data=[]),
+        ],
+    )
+
+    persistence = MagicMock()
+    persistence.persist_pages_to_graph = AsyncMock()
+
+    linker = WikiTreeLinker(MagicMock(), wiki_store, MagicMock(), persistence)
+    await linker.link_pages_to_nested_tree(
+        business_id,
+        domain_tree,
+        {},
+        tb,
+        language="en",
+    )
+
+    topic_edges = [
+        c
+        for c in wiki_store.add_has_child_edge.await_args_list
+        if c.kwargs.get("child_uid") == topic_uid
+    ]
+    assert topic_edges
+    assert all(c.kwargs.get("parent_uid") == auth_section_uid for c in topic_edges)

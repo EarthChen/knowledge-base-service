@@ -1075,6 +1075,68 @@ class TestWrite:
         assert not result.startswith("让我")
         assert "## 概述" in result
 
+    @pytest.mark.asyncio
+    async def test_write_skips_complete_json_for_chinese(self):
+        mock_llm = MagicMock()
+        mock_graph = MagicMock()
+        mock_llm.complete_json = AsyncMock()
+        mock_llm.generate = AsyncMock(
+            return_value="## 概述\n\n中文正文内容。\n\n" * 10,
+        )
+
+        agent = WikiPageAgent(mock_llm, mock_graph, content_language="简体中文")
+        memory = WorkingMemory()
+        memory.code_snippets.append("[ModA]\ncode")
+
+        await agent.write(
+            domain_name="test-domain",
+            baseline_context="baseline",
+            memory=memory,
+        )
+
+        mock_llm.complete_json.assert_not_called()
+        mock_llm.generate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_write_uses_complete_json_for_english(self):
+        mock_llm = MagicMock()
+        mock_graph = MagicMock()
+        structured_data = {
+            "title": "Test Domain",
+            "summary": "A complete wiki page for the test domain with enough detail.",
+            "sections": [
+                {
+                    "heading": "Overview",
+                    "content": "This section describes the domain architecture and key modules "
+                    "in sufficient depth to exceed the minimum rendered length threshold.",
+                    "code_refs": [],
+                },
+                {
+                    "heading": "Core Flow",
+                    "content": "The main business flow walks through module interactions and "
+                    "documents how requests propagate across the service boundary.",
+                    "code_refs": ["ModA"],
+                },
+            ],
+            "modules_covered": ["ModA"],
+        }
+        mock_llm.complete_json = AsyncMock(return_value=structured_data)
+        mock_llm.generate = AsyncMock()
+
+        agent = WikiPageAgent(mock_llm, mock_graph, content_language="English")
+        memory = WorkingMemory()
+        memory.code_snippets.append("[ModA]\ncode")
+
+        result = await agent.write(
+            domain_name="test-domain",
+            baseline_context="baseline",
+            memory=memory,
+        )
+
+        mock_llm.complete_json.assert_called_once()
+        mock_llm.generate.assert_not_called()
+        assert "## Overview" in result
+
 
 class TestWritePrompt:
     def test_write_prompt_has_length_constraint(self):

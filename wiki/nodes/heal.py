@@ -1,7 +1,10 @@
 """Quality healing node for wiki pages."""
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
+import re
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -9,11 +12,72 @@ from langchain_core.runnables import RunnableConfig
 from core.log import get_logger
 from wiki.llm_rate_limiter import acquire_llm_quota
 from wiki.models import ImportanceTier, WikiPage
+from wiki.nodes.quality_gate import _is_chinese_lang
 from wiki.nodes.tier_utils import resolve_tier
 from wiki.nodes.utils import _find_domain_in_tree
 from wiki.quality_evaluator import WikiQualityEvaluator
 
 log = get_logger(__name__)
+
+
+def _compute_cn_ratio(content: str) -> float:
+    """Estimate Chinese character ratio, stripping fenced code blocks first."""
+    text = re.sub(r"```[\s\S]*?```", "", content)
+    if len(text) < 100:
+        return 1.0
+    cn_count = len(re.findall(r"[\u4e00-\u9fff]", text))
+    return cn_count / len(text) if text else 0.0
+
+
+def _resolve_content_language(page: WikiPage, state: dict[str, Any]) -> str:
+    """Resolve content language from explicit sources only.
+
+    Priority: page attr → page metadata → state root → pipeline config.
+    Does NOT fall back to global settings — the gate should only fire
+    when there is explicit evidence the page is Chinese.
+    """
+    raw = getattr(page, "content_language", None)
+    lang = str(raw) if isinstance(raw, str) and raw else ""
+    if not lang:
+        meta = getattr(page, "metadata", None)
+        if isinstance(meta, dict):
+            lang = str(meta.get("content_language") or "")
+    if not lang:
+        state_lang = state.get("content_language")
+        if state_lang is not None:
+            lang = str(state_lang.value if hasattr(state_lang, "value") else state_lang)
+    if not lang:
+        cfg = state.get("config") or {}
+        lang = str(cfg.get("content_language") or "")
+    return lang
+
+
+def _page_passes_cn_ratio_hard_gate(page: WikiPage, state: dict[str, Any]) -> bool:
+    """Return False when a Chinese topic page is below the hard CN ratio minimum."""
+    from core.config import get_settings as _get_settings
+
+    page_type = getattr(page, "page_type", None)
+    if hasattr(page_type, "value"):
+        page_type = page_type.value
+    if str(page_type) != "topic":
+        return True
+
+    content_language = _resolve_content_language(page, state)
+    if not _is_chinese_lang(content_language):
+        return True
+
+    min_ratio = _get_settings().wiki.cn_ratio_hard_min
+    cn_ratio = _compute_cn_ratio(page.content or "")
+    if cn_ratio >= min_ratio:
+        return True
+
+    log.warning(
+        "heal_post_check_low_cn_ratio",
+        page_path=page.path,
+        cn_ratio=round(cn_ratio, 3),
+        min_ratio=min_ratio,
+    )
+    return False
 
 _MAX_HEAL_ROUNDS = 3  # Legacy constant; actual rounds now from config (heal_max_rounds_core/standard)
 
@@ -78,7 +142,9 @@ def _page_passes_post_heal(
             else:
                 l1_val = getattr(score, "overall", 0)
             threshold = 0.7 if tier == ImportanceTier.CORE else 0.5
-            return l1_val >= threshold
+            if l1_val < threshold:
+                return False
+            return _page_passes_cn_ratio_hard_gate(page, state)
 
     l1 = evaluator.structural_check(page)
     threshold = 0.7 if tier == ImportanceTier.CORE else 0.5
@@ -89,7 +155,9 @@ def _page_passes_post_heal(
             "content_hash": content_hash,
         }
 
-    return l1.overall >= threshold
+    if l1.overall < threshold:
+        return False
+    return _page_passes_cn_ratio_hard_gate(page, state)
 
 
 def _make_strategy_chain():

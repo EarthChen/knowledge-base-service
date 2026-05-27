@@ -82,4 +82,4 @@ class TestTermCheckInGuardrails:
                 {"module_names": ["m1"]},
             )
 
-        assert result is not None
+        assert result is None

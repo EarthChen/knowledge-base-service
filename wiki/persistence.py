@@ -522,7 +522,7 @@ class WikiPagePersistence:
         result = await self._store.execute_query(
             "MATCH (w:WikiPage) "
             "WHERE w.repository = $repo "
-            "AND w.page_type IN ['topic', 'domain_overview'] "
+            "AND w.page_type IN ['topic', 'domain_overview', 'module_overview'] "
             "AND NOT w.uid IN $keep_uids "
             "DETACH DELETE w "
             "RETURN count(w) AS deleted",
@@ -567,7 +567,7 @@ class WikiPagePersistence:
         result = await self._store.execute_query(
             "MATCH (wp:WikiPage) "
             "WHERE wp.repository = $repo "
-            "AND wp.page_type IN ['topic', 'domain_overview'] "
+            "AND wp.page_type IN ['topic', 'domain_overview', 'module_overview'] "
             "AND wp.title IN $domains "
             "AND NOT wp.uid IN $keep_uids "
             "DETACH DELETE wp "

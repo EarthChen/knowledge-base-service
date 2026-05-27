@@ -161,6 +161,7 @@ export default function WikiToolPanel({
   const docQualitySummary = useWikiDocumentationQualitySummary(docQualityRepo, toolTab === "coverage");
 
   const pageType = pageQuery.data?.context?.page_type?.trim() ?? "";
+  const overviewKind = pageQuery.data?.context?.overview_kind?.trim() ?? "";
   const useTopicLayout = useMemo(
     () => ["topic", "domain_overview", "system_overview"].includes(pageType),
     [pageType],
@@ -251,6 +252,11 @@ export default function WikiToolPanel({
         <div role="tabpanel" id="wiki-panel-page" aria-labelledby="wiki-tab-page">
           {panelBoundary(
             <>
+              {overviewKind === "topic_index" && (
+                <span className="mb-3 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                  Topic Index
+                </span>
+              )}
               {useTopicLayout && pageQuery.data ? (
                 <WikiTopicContent
                   page={{

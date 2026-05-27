@@ -8,6 +8,7 @@ from core.config import get_settings
 from core.log import get_logger
 from store.schema import GraphNode, NodeLabel
 from wiki.entity_role_classifier import EntityRoleClassifier, WikiEntityRole
+from wiki.nodes.domain_filters import is_denied_slug
 from wiki.nodes.utils import _count_modules_in_domain_tree
 from wiki.path_conventions import normalize_slug
 
@@ -78,11 +79,11 @@ def _ensure_ascii_keys(
     unnamed_counter = 0
 
     for key, pairs in domain_mapping.items():
-        if key.isascii() and key.strip():
+        if key.isascii() and key.strip() and key != "unnamed" and not is_denied_slug(key):
             result[key] = pairs
             continue
         ascii_slug = normalize_slug(key)
-        if not ascii_slug or ascii_slug == "unnamed" or ascii_slug in result:
+        if not ascii_slug or ascii_slug == "unnamed" or is_denied_slug(ascii_slug) or ascii_slug in result:
             module_short_names = [name.rsplit(".", 1)[-1] for _, name in pairs[:3]]
             candidate = normalize_slug("-".join(module_short_names))
             if candidate and candidate != "unnamed" and candidate not in result:

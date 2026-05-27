@@ -820,16 +820,28 @@ class WikiPageAgent(GenericAgent):
         memory: WorkingMemory,
         *,
         module_names: list[str] | None = None,
+        page_type: str = "domain_overview",
     ) -> str:
         """Phase 2: Generate wiki page from exploration results.
 
         Pure LLM.generate() — no tools, clean context.
         """
-        from wiki.agent_prompts import get_write_system_prompt
+        from wiki.agent_prompts import get_write_system_prompt, get_write_topic_system_prompt
 
-        write_system_prompt = get_write_system_prompt(self.content_language)
+        if page_type == "topic":
+            write_system_prompt = get_write_topic_system_prompt(self.content_language)
+        else:
+            write_system_prompt = get_write_system_prompt(self.content_language)
         memo_section = memory.to_prompt_section()
-        if "中文" in self.content_language or self.content_language in ("zh-CN", "zh"):
+        is_chinese = "中文" in self.content_language or self.content_language in ("zh-CN", "zh")
+        if is_chinese and page_type == "topic":
+            user_prompt = (
+                f"## 任务\n"
+                f"基于以下探索结果，为业务域「{domain_name}」生成一篇聚焦主题的深度技术文档。\n\n"
+                f"## 基线上下文\n{baseline_context[:8000]}\n\n"
+                f"## 探索结果（工作记忆）\n{memo_section}\n"
+            )
+        elif is_chinese:
             user_prompt = (
                 f"## 任务\n"
                 f"基于以下探索结果，为业务域「{domain_name}」生成一篇完整的 Wiki 页面。\n\n"
@@ -845,21 +857,22 @@ class WikiPageAgent(GenericAgent):
                 f"## Exploration Findings (Working Memory)\n{memo_section}\n"
             )
 
-        # Try structured output via complete_json
-        try:
-            messages = [
-                {"role": "system", "content": write_system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
-            data = await self._llm.complete_json(
-                messages, WikiPageOutput.model_json_schema()
-            )
-            page_data = WikiPageOutput.model_validate(data)
-            rendered = render_wiki_page(page_data)
-            if rendered and len(rendered) > 200:
-                return rendered
-        except Exception:
-            log.info("structured_output_fallback", domain=domain_name)
+        # Try structured output via complete_json (skip for Chinese — produces English headings)
+        if not is_chinese:
+            try:
+                messages = [
+                    {"role": "system", "content": write_system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
+                data = await self._llm.complete_json(
+                    messages, WikiPageOutput.model_json_schema()
+                )
+                page_data = WikiPageOutput.model_validate(data)
+                rendered = render_wiki_page(page_data)
+                if rendered and len(rendered) > 200:
+                    return rendered
+            except Exception:
+                log.info("structured_output_fallback", domain=domain_name)
 
         # Fallback to plain text generation
         try:

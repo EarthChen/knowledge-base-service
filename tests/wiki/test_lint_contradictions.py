@@ -24,7 +24,7 @@ async def test_lint_calls_contradiction_detector_when_enabled() -> None:
             return [{"cnt": 2}]
         if "stale_uid" in cypher:
             return []
-        if "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp)" in cypher:
+        if "OPTIONAL MATCH (src:WikiPage)-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(wp)" in cypher:
             return [
                 {"path": "a.md", "in_degree": 1},
                 {"path": "b.md", "in_degree": 1},

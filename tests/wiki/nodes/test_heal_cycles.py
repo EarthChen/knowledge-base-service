@@ -32,6 +32,8 @@ async def test_quality_gate_uses_heal_cycles_not_attempts():
         wiki_cfg = MagicMock()
         wiki_cfg.quality_gate_levels = "L1"
         wiki_cfg.heal_l2_threshold = 0.0
+        wiki_cfg.overview_min_content_chars = 2000
+        wiki_cfg.topic_min_content_chars = 1000
         mock_settings.return_value = MagicMock(wiki=wiki_cfg)
 
         result = await quality_gate_node(state, {"configurable": {}})
@@ -65,6 +67,8 @@ async def test_quality_gate_blocks_heal_after_cycles_exhausted():
         wiki_cfg = MagicMock()
         wiki_cfg.quality_gate_levels = "L1"
         wiki_cfg.heal_l2_threshold = 0.0
+        wiki_cfg.overview_min_content_chars = 2000
+        wiki_cfg.topic_min_content_chars = 1000
         mock_settings.return_value = MagicMock(wiki=wiki_cfg)
 
         result = await quality_gate_node(state, {"configurable": {}})

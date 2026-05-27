@@ -242,6 +242,11 @@ class TestSkipLlmMergeWhenCorrectorEnabled:
             wiki_cfg = MagicMock()
             wiki_cfg.skip_llm_merge_when_corrector_enabled = True
             wiki_cfg.classify_include_supporting = False
+            wiki_cfg.domain_budget_max = 50
+            wiki_cfg.infrastructure_slug_keywords = [
+                "configuration", "typehandler", "aspect", "package-info", "wrapper",
+                "handler", "executor", "debug", "groovy", "impl",
+            ]
             mock_settings.return_value = MagicMock(wiki=wiki_cfg)
 
             mock_namer = MagicMock()

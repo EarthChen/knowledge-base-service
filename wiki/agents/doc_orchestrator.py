@@ -70,6 +70,7 @@ class DocOrchestrator(ABC):
                 getattr(memory, "discovered_call_chains", None)
                 or getattr(memory, "discovered_implementations", None)
                 or getattr(memory, "search_findings", None)
+                or getattr(memory, "code_snippets", None)
             )
             explore_complete = has_explore_data
             log.warning(

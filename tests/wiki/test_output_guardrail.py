@@ -3,12 +3,11 @@
 import pytest
 
 from wiki.output_guardrail import (
-    CheckResult,
     CoverageCheck,
     FormatCheck,
-    GuardrailResult,
     LengthCheck,
     OutputGuardrailChain,
+    SensitiveContentCheck,
 )
 
 
@@ -77,6 +76,29 @@ class TestLengthCheck:
         assert not result.passed
 
 
+class TestSensitiveContentCheck:
+    @pytest.mark.asyncio
+    async def test_detects_internal_url(self):
+        content = "# API\n\nConnect at http://192.168.1.10:8080/api for details."
+        result = await SensitiveContentCheck().check(content, {})
+        assert not result.passed
+        assert result.score == 0.0
+
+    @pytest.mark.asyncio
+    async def test_detects_credentials(self):
+        content = "# Config\n\nSet api_key=sk-live-abc123 in production."
+        result = await SensitiveContentCheck().check(content, {})
+        assert not result.passed
+        assert "Sensitive patterns" in result.issues[0]
+
+    @pytest.mark.asyncio
+    async def test_passes_normal_content(self):
+        content = "# Overview\n\nSee https://example.com/docs for public API reference."
+        result = await SensitiveContentCheck().check(content, {})
+        assert result.passed
+        assert result.score == 1.0
+
+
 class TestOutputGuardrailChain:
     @pytest.mark.asyncio
     async def test_all_pass(self):
@@ -92,3 +114,17 @@ class TestOutputGuardrailChain:
         result = await chain.evaluate(content, {})
         assert not result.passed
         assert len(result.details) == 2
+
+    @pytest.mark.asyncio
+    async def test_sensitive_content_check_in_chain(self):
+        chain = OutputGuardrailChain([
+            FormatCheck(),
+            SensitiveContentCheck(),
+            LengthCheck(),
+        ])
+        content = "# API\n\nConnect at http://192.168.1.10:8080/api.\n\n" + "detail " * 200
+        result = await chain.evaluate(content, {})
+        assert not result.passed
+        assert "sensitive_content" in result.details
+        assert not result.details["sensitive_content"].passed
+        assert result.details["format"].passed

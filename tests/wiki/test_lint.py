@@ -100,7 +100,7 @@ async def test_staleness_missing_entity_uid_error() -> None:
                     "referenced_entity_uids": ["uid-missing"],
                 },
             ]
-        if "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp)" in cypher:
+        if "OPTIONAL MATCH (src:WikiPage)-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(wp)" in cypher:
             return [{"path": "classes/Foo.md", "in_degree": 1}]
         if "semantic_roles" in cypher:
             return []
@@ -139,7 +139,7 @@ async def test_orphan_no_incoming_wikilink_warning_excludes_root() -> None:
                     "referenced_entity_uids": [],
                 },
             ]
-        if "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp)" in cypher:
+        if "OPTIONAL MATCH (src:WikiPage)-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(wp)" in cypher:
             return [{"path": "orphan.md", "in_degree": 0}, {"path": "index.md", "in_degree": 0}]
         if "semantic_roles" in cypher:
             return []
@@ -177,7 +177,7 @@ async def test_broken_markdown_link_error() -> None:
                     "referenced_entity_uids": [],
                 },
             ]
-        if "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp)" in cypher:
+        if "OPTIONAL MATCH (src:WikiPage)-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(wp)" in cypher:
             return [{"path": "a.md", "in_degree": 1}, {"path": "ok.md", "in_degree": 1}]
         if "semantic_roles" in cypher:
             return []
@@ -191,6 +191,60 @@ async def test_broken_markdown_link_error() -> None:
     assert "nonexistent.md" in broken[0].message
 
 
+def _broken_link_script(pages: list[dict[str, Any]]) -> Callable[[str, dict[str, Any]], list[dict[str, Any]]]:
+    """Script that serves wiki page rows for broken-link / wikilink lint checks."""
+
+    def script(cypher: str, _params: dict[str, Any]) -> list[dict[str, Any]]:
+        if "RETURN count(wp) AS cnt" in cypher:
+            return [{"cnt": max(len(pages), 1)}]
+        if "stale_uid" in cypher:
+            return []
+        if "MATCH (wp:WikiPage" in cypher and "generated_at" in cypher:
+            return pages
+        if "OPTIONAL MATCH (src:WikiPage)-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(wp)" in cypher:
+            return [{"path": p["path"], "in_degree": 1} for p in pages]
+        if "semantic_roles" in cypher:
+            return []
+        return []
+
+    return script
+
+
+@pytest.mark.asyncio
+async def test_broken_links_case_insensitive() -> None:
+    pages = [
+        {
+            "path": "billing/invoicing.md",
+            "title": "Invoicing",
+            "content": "See [[invoicing]] for details.",
+            "generated_at": "",
+            "referenced_entity_uids": [],
+        },
+    ]
+    svc = WikiLintService(ScriptedStore(_broken_link_script(pages)))
+    report = await svc.lint("myrepo", scope="all")
+    broken = [i for i in report.issues if i.category == "broken_link"]
+    assert broken == []
+
+
+@pytest.mark.asyncio
+async def test_broken_links_composite_key() -> None:
+    pages = [
+        {
+            "path": "billing/invoicing.md",
+            "title": "Invoicing",
+            "business_domain": "billing",
+            "content": "See [[billing/Invoicing]] for details.",
+            "generated_at": "",
+            "referenced_entity_uids": [],
+        },
+    ]
+    svc = WikiLintService(ScriptedStore(_broken_link_script(pages)))
+    report = await svc.lint("myrepo", scope="all")
+    broken = [i for i in report.issues if i.category == "broken_link"]
+    assert broken == []
+
+
 @pytest.mark.asyncio
 async def test_coverage_gap_class_service_role_warning() -> None:
     def script(cypher: str, _params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -200,7 +254,7 @@ async def test_coverage_gap_class_service_role_warning() -> None:
             return []
         if "MATCH (wp:WikiPage" in cypher and "generated_at" in cypher:
             return []
-        if "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp)" in cypher:
+        if "OPTIONAL MATCH (src:WikiPage)-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(wp)" in cypher:
             return []
         if "semantic_roles" in cypher:
             return [{"name": "OrderService", "fqn": "com.example.OrderService"}]
@@ -234,7 +288,7 @@ async def test_outdated_generated_at_before_last_indexed_info() -> None:
                     "referenced_entity_uids": [],
                 },
             ]
-        if "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp)" in cypher:
+        if "OPTIONAL MATCH (src:WikiPage)-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(wp)" in cypher:
             return [{"path": "old.md", "in_degree": 1}]
         if "semantic_roles" in cypher:
             return []
@@ -264,7 +318,7 @@ async def test_stats_computation() -> None:
                     "referenced_entity_uids": ["gone"],
                 },
             ]
-        if "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp)" in cypher:
+        if "OPTIONAL MATCH (src:WikiPage)-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(wp)" in cypher:
             return [{"path": "a.md", "in_degree": 0}]
         if "semantic_roles" in cypher:
             return []
@@ -302,7 +356,7 @@ async def test_scope_filtering_module_prefix() -> None:
                     "referenced_entity_uids": [],
                 },
             ]
-        if "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp)" in cypher:
+        if "OPTIONAL MATCH (src:WikiPage)-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(wp)" in cypher:
             return [{"path": "mod/foo/page.md", "in_degree": 1}, {"path": "other/x.md", "in_degree": 1}]
         if "semantic_roles" in cypher:
             return []
@@ -324,7 +378,7 @@ async def test_cache_used_when_graph_empty() -> None:
             return []
         if "MATCH (wp:WikiPage" in cypher and "generated_at" in cypher:
             return []
-        if "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp)" in cypher:
+        if "OPTIONAL MATCH (src:WikiPage)-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(wp)" in cypher:
             return []
         if "semantic_roles" in cypher:
             return []
@@ -349,7 +403,7 @@ async def test_staleness_from_cache_source_locations() -> None:
             return []
         if "MATCH (wp:WikiPage" in cypher and "generated_at" in cypher:
             return []
-        if "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp)" in cypher:
+        if "OPTIONAL MATCH (src:WikiPage)-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(wp)" in cypher:
             return []
         if "semantic_roles" in cypher:
             return []

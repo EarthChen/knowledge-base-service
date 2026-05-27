@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.config import AppWikiFlags, Settings, get_settings
+from core.config import Settings, get_settings
 
 
 class TestDomainSplitOptimization:
@@ -17,6 +17,30 @@ class TestDomainSplitOptimization:
         s = Settings(_env_file=None)
         assert hasattr(s.wiki, "domain_split_max_depth")
         assert s.wiki.domain_split_max_depth == 2
+
+    def test_get_split_params_returns_config_max_depth(self) -> None:
+        from wiki.nodes.graph_domain_decompose import _get_split_params
+
+        get_settings.cache_clear()
+        s = Settings(_env_file=None)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("wiki.nodes.graph_domain_decompose.get_settings", lambda: s)
+            threshold, max_depth = _get_split_params()
+        assert threshold == 20
+        assert max_depth == 2
+
+    def test_get_split_params_fallback_max_depth_is_two(self) -> None:
+        from wiki.nodes.graph_domain_decompose import _MAX_SPLIT_DEPTH, _get_split_params
+
+        assert _MAX_SPLIT_DEPTH == 2
+
+        mock_wiki = MagicMock()
+        mock_wiki.configure_mock(domain_split_threshold=20, domain_split_max_depth=None)
+        mock_settings = MagicMock(wiki=mock_wiki)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("wiki.nodes.graph_domain_decompose.get_settings", lambda: mock_settings)
+            _, max_depth = _get_split_params()
+        assert max_depth == 2
 
     def test_split_threshold_configurable_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("WIKI__DOMAIN_SPLIT_THRESHOLD", "25")

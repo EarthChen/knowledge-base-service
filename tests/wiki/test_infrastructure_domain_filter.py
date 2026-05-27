@@ -1,6 +1,67 @@
 from __future__ import annotations
 
-import pytest
+
+_DEFAULT_INFRA_KEYWORDS = [
+    "configuration",
+    "typehandler",
+    "aspect",
+    "package-info",
+    "wrapper",
+    "handler",
+    "executor",
+    "debug",
+    "groovy",
+    "impl",
+    "tracing",
+    "trace",
+    "aop",
+    "interceptor",
+]
+
+
+class TestIsInfraSlug:
+    def test_distributed_tracing_two_aspect_modules_filtered(self):
+        from wiki.nodes.graph_domain_decompose import _is_infra_slug
+
+        modules = [
+            ("repo", "DistributedTracingAspect"),
+            ("repo", "ExceptionInterceptor"),
+        ]
+        assert _is_infra_slug("distributed-tracing", modules, _DEFAULT_INFRA_KEYWORDS)
+
+    def test_tracing_service_single_trace_aspect_filtered(self):
+        from wiki.nodes.graph_domain_decompose import _is_infra_slug
+
+        modules = [("repo", "TraceAspect")]
+        assert _is_infra_slug("tracing-service", modules, _DEFAULT_INFRA_KEYWORDS)
+
+    def test_user_tracing_many_modules_not_filtered(self):
+        from wiki.nodes.graph_domain_decompose import _is_infra_slug
+
+        modules = [("repo", f"UserModule{i}") for i in range(5)]
+        assert not _is_infra_slug("user-tracing", modules, _DEFAULT_INFRA_KEYWORDS)
+
+    def test_trace_config_two_modules_filtered(self):
+        from wiki.nodes.graph_domain_decompose import _is_infra_slug
+
+        modules = [("repo", "TraceConfig"), ("repo", "TraceProperties")]
+        assert _is_infra_slug("trace-config", modules, _DEFAULT_INFRA_KEYWORDS)
+
+    def test_tracing_three_modules_filtered(self):
+        from wiki.nodes.graph_domain_decompose import _is_infra_slug
+
+        modules = [
+            ("repo", "TracingAspect"),
+            ("repo", "TraceInterceptor"),
+            ("repo", "TraceFilter"),
+        ]
+        assert _is_infra_slug("distributed-tracing-and-exception-handling", modules, _DEFAULT_INFRA_KEYWORDS)
+
+    def test_four_module_tracing_keyword_not_filtered(self):
+        from wiki.nodes.graph_domain_decompose import _is_infra_slug
+
+        modules = [("repo", f"TraceMod{i}") for i in range(4)]
+        assert not _is_infra_slug("distributed-tracing", modules, _DEFAULT_INFRA_KEYWORDS)
 
 
 class TestFilterInfrastructureDomains:
@@ -24,7 +85,7 @@ class TestFilterInfrastructureDomains:
         assert len(result_mapping["family-core-operations"]) == 3
 
     def test_infrastructure_keyword_filtered(self):
-        """Domain slug containing infrastructure keyword AND <=2 modules is filtered."""
+        """Domain slug containing infrastructure keyword AND <=3 modules is filtered."""
         from wiki.nodes.graph_domain_decompose import _filter_infrastructure_domains
 
         domain_mapping = {
@@ -71,11 +132,16 @@ class TestFilterInfrastructureDomains:
         assert len(result_mapping) == 2
 
     def test_multi_module_domain_not_filtered_by_keyword(self):
-        """Multi-module (>2) domain is NOT filtered even if slug matches keyword."""
+        """Multi-module (>3) domain is NOT filtered even if slug matches keyword."""
         from wiki.nodes.graph_domain_decompose import _filter_infrastructure_domains
 
         domain_mapping = {
-            "app-configuration-management": [("r", "ConfigA"), ("r", "ConfigB"), ("r", "ConfigC")],
+            "app-configuration-management": [
+                ("r", "ConfigA"),
+                ("r", "ConfigB"),
+                ("r", "ConfigC"),
+                ("r", "ConfigD"),
+            ],
         }
         display_names = {"app-configuration-management": "配置管理"}
         result_mapping, result_names = _filter_infrastructure_domains(

@@ -17,6 +17,7 @@ class CheckResult:
     passed: bool
     score: float
     issues: list[str] = field(default_factory=list)
+    should_heal: bool = False
 
 
 @dataclass
@@ -121,12 +122,16 @@ class LanguageConsistencyCheck:
         cn_ratio = self._compute_cn_ratio(page_content)
 
         if cn_ratio < threshold:
-            return CheckResult(
+            page_type = context.get("page_type", "")
+            result = CheckResult(
                 name=self.name,
                 passed=False,
                 score=cn_ratio,
                 issues=[f"CN ratio {cn_ratio:.2f} below threshold {threshold} for target '{target}'"],
             )
+            if page_type == "topic":
+                result.should_heal = True
+            return result
         return CheckResult(name=self.name, passed=True, score=min(1.0, cn_ratio * 2))
 
 
@@ -192,3 +197,29 @@ class TermConsistencyCheck:
             has_violations=len(violations) > 0,
             violations=violations,
         )
+
+
+class SensitiveContentCheck:
+    """Detect sensitive information patterns in wiki content."""
+
+    name = "sensitive_content"
+
+    _PATTERNS = [
+        re.compile(r"https?://(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|internal\.|localhost)\S*", re.IGNORECASE),
+        re.compile(r"((?:password|secret|api[_-]?key|private[_-]?key)\s*[:=]\s*)\S+", re.IGNORECASE),
+    ]
+
+    async def check(self, page_content: str, context: dict) -> CheckResult:
+        findings: list[str] = []
+        for pattern in self._PATTERNS:
+            matches = pattern.findall(page_content)
+            if matches:
+                findings.extend(str(m) for m in matches[:3])
+        if findings:
+            return CheckResult(
+                name=self.name,
+                passed=False,
+                score=0.0,
+                issues=[f"Sensitive patterns detected: {len(findings)} matches"],
+            )
+        return CheckResult(name=self.name, passed=True, score=1.0)

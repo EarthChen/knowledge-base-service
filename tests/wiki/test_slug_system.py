@@ -19,7 +19,7 @@ class TestNormalizeSlug:
         assert normalize_slug("-gift-system-") == "gift-system"
 
     def test_uppercase_to_lower(self):
-        assert normalize_slug("GiftSystem") == "giftsystem"
+        assert normalize_slug("GiftSystem") == "gift-system"
 
     def test_empty_returns_unnamed(self):
         assert normalize_slug("") == "unnamed"

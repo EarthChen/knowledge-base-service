@@ -239,6 +239,12 @@ const MarkdownPre: Components["pre"] = ({ children }) => (
   <div className="my-4 overflow-x-auto">{children}</div>
 );
 
+const MarkdownTable: Components["table"] = ({ children, ...props }) => (
+  <div className="my-4 overflow-x-auto">
+    <table {...props}>{children}</table>
+  </div>
+);
+
 type Props = {
   content: string;
   businessId?: string;
@@ -294,6 +300,7 @@ export default function MarkdownRenderer({
       )) as Components["a"],
       code: MarkdownCode,
       pre: MarkdownPre,
+      table: MarkdownTable,
       h1: H1,
       h2: H2,
       h3: H3,

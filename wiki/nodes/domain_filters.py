@@ -8,6 +8,41 @@ DATA_MODEL_NAME_SUFFIXES = (
 )
 DATA_MODEL_PATH_MARKERS = ("/dto/", "/model/", "/entity/", "/enums/", "/config/")
 
+SLUG_DENYLIST: frozenset[str] = frozenset({
+    "abs",
+    "long",
+    "int",
+    "void",
+    "null",
+    "byte",
+    "char",
+    "short",
+    "float",
+    "double",
+    "boolean",
+    "string",
+    "object",
+    "class",
+    "new",
+    "this",
+    "super",
+    "true",
+    "false",
+    "return",
+    "import",
+    "package",
+    "static",
+    "final",
+    "public",
+    "private",
+    "protected",
+})
+
+
+def is_denied_slug(slug: str) -> bool:
+    """Return True if slug matches a reserved/primitive type keyword."""
+    return slug.lower().strip() in SLUG_DENYLIST
+
 
 def is_data_model(name: str, path: str) -> bool:
     """Return True when a module looks like a data/DTO artifact rather than business logic."""

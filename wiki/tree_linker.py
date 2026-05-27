@@ -446,7 +446,8 @@ class WikiTreeLinker:
                 "WHERE wp.repository = $biz AND wp.page_type = 'topic' "
                 "AND (wp.path STARTS WITH 'wiki/' OR wp.path STARTS WITH '/__domains__/') "
                 "RETURN wp.uid AS uid, wp.path AS path, "
-                "coalesce(wp.canonical_key, '') AS canonical_key "
+                "coalesce(wp.canonical_key, '') AS canonical_key, "
+                "coalesce(wp.business_domain, '') AS business_domain "
                 "ORDER BY wp.path"
             )
             tp_result = await self._wiki_store.execute_query(tp_q, {"biz": business_id})
@@ -460,6 +461,7 @@ class WikiTreeLinker:
                 return names
 
             domain_names = _flatten_names(domain_tree)
+            domain_name_set = set(domain_names)
 
             def _stem(word: str) -> str:
                 for suffix in ("tion", "sion", "ment", "ness", "ing", "ers", "er", "ed", "es", "s"):
@@ -564,15 +566,24 @@ class WikiTreeLinker:
                 top_level = after_wiki[:slash_idx] if slash_idx > 0 else after_wiki
 
                 ck = str(row.get("canonical_key") or "").strip()
-                matched_domain = canonical_key_to_domain.get(ck) if ck else None
+                bd = str(row.get("business_domain") or "").strip()
+
+                matched_domain = None
+
+                # Priority 1: business_domain exact match
+                if bd and bd in domain_name_set:
+                    matched_domain = bd
+
+                # Priority 2: canonical_key in module mapping
                 if not matched_domain and ck:
-                    log.warning(
-                        "nested_tree_topic_canonical_key_unresolved",
-                        business_id=business_id,
-                        path=path,
-                        canonical_key=ck,
-                    )
-                elif not matched_domain:
+                    matched_domain = canonical_key_to_domain.get(ck)
+
+                # Priority 3: canonical_key is itself a domain slug
+                if not matched_domain and ck and ck in domain_name_set:
+                    matched_domain = ck
+
+                # Priority 4: path fuzzy fallback (only when all above fail)
+                if not matched_domain:
                     matched_domain = _find_best_domain(top_level)
                     if matched_domain:
                         log.info(
@@ -581,6 +592,16 @@ class WikiTreeLinker:
                             path=path,
                             matched_domain=matched_domain,
                         )
+
+                if not matched_domain:
+                    log.warning(
+                        "nested_tree_topic_unresolvable",
+                        business_id=business_id,
+                        path=path,
+                        canonical_key=ck,
+                        business_domain=bd,
+                    )
+
                 if matched_domain:
                     topic_pages_by_domain.setdefault(matched_domain, []).append(uid)
 

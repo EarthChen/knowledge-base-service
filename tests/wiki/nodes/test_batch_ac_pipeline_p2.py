@@ -181,6 +181,8 @@ async def test_quality_gate_l3_failure_adds_pages_to_heal():
             wiki_cfg.heal_l2_threshold = 0.0
             wiki_cfg.heal_on_l3_failure = True
             wiki_cfg.heal_l3_threshold = 0.7
+            wiki_cfg.overview_min_content_chars = 2000
+            wiki_cfg.topic_min_content_chars = 1000
             mock_settings.return_value = MagicMock(wiki=wiki_cfg)
             result = await quality_gate_node(state, {"configurable": {"llm": mock_llm}})
 

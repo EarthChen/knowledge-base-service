@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -52,14 +53,31 @@ def _compute_overall(score_dict: dict[str, Any]) -> float:
     return round(sum(numeric_scores) / len(numeric_scores), 4) if numeric_scores else 0.0
 
 
+def _is_chinese_lang(lang: str) -> bool:
+    normalized = lang.lower().strip()
+    return normalized in ("zh", "zh-cn", "zh-tw", "zh-hans", "chinese", "简体中文", "繁體中文") or "中文" in lang
+
+
+def _check_cn_ratio(page: dict[str, Any]) -> float:
+    """Estimate Chinese character ratio from page content (strips code fences)."""
+    content = page.get("content", "")
+    text = re.sub(r"```[\s\S]*?```", "", content)
+    if len(text) < 100:
+        return 1.0
+    cn_count = len(re.findall(r"[\u4e00-\u9fff]", text))
+    return cn_count / len(text) if text else 0.0
+
+
 def _check_min_content_length(
     page: dict[str, Any],
     overview_min: int | None = None,
-    topic_min: int = 1000,
+    topic_min: int | None = None,
 ) -> dict[str, Any]:
     """Check if page content meets minimum length threshold."""
     if overview_min is None:
         overview_min = get_settings().wiki.overview_min_content_chars
+    if topic_min is None:
+        topic_min = get_settings().wiki.topic_min_content_chars
     content = str(page.get("content") or "")
     page_type = str(page.get("page_type") or "")
     content_len = len(content)
@@ -212,6 +230,28 @@ async def quality_gate_node(
                 f"Content too short ({length_result['content_len']} < {length_result['threshold']} chars)"
             )
 
+        low_cn_ratio = False
+        page_type = str(page_dict.get("page_type") or "")
+        content_language = str(page_dict.get("content_language") or "")
+        if page_type == "topic" and content_language and _is_chinese_lang(content_language):
+            cn_ratio = _check_cn_ratio(page_dict)
+            cn_threshold = getattr(wiki_cfg, "language_guardrail_cn_ratio", 0.15)
+            score_dict["cn_ratio"] = round(cn_ratio, 3)
+            if cn_ratio < cn_threshold:
+                low_cn_ratio = True
+                score_dict["low_cn_ratio"] = True
+                log.warning(
+                    "quality_gate_low_cn_ratio",
+                    title=page_dict.get("title"),
+                    cn_ratio=round(cn_ratio, 3),
+                    threshold=cn_threshold,
+                )
+                page_dict.setdefault("metadata", {})["heal_reason"] = f"low_cn_ratio_{cn_ratio:.3f}"
+                heal_hints[page.path] = (
+                    f"Chinese content ratio too low ({cn_ratio:.1%} < {cn_threshold:.0%}); "
+                    "regenerate with stronger Chinese prompts"
+                )
+
         score_dict["overall"] = _compute_overall(score_dict)
 
         quality_scores[page.path] = score_dict
@@ -228,7 +268,10 @@ async def quality_gate_node(
             else False
         )
         below_min_len = score_dict.get("below_min_length", False)
-        if (structural_score < threshold or l2_below or below_min_len) and cycles < max_retries:
+        if (
+            (structural_score < threshold or l2_below or below_min_len or low_cn_ratio)
+            and cycles < max_retries
+        ):
             pages_to_heal.append(page.path)
 
     if l3_candidates and llm:

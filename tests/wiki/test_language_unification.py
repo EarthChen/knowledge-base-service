@@ -128,6 +128,15 @@ class TestLanguageUnification:
         assert "中文" in prompt
         assert "topic titles" in prompt.lower() or "标题" in prompt
 
+    def test_topic_planner_prompt_no_family_biased_example(self):
+        """Topic planner examples must not bias toward 家族 terminology."""
+        from wiki.agent_prompts import SYSTEM_TOPIC_PLANNER, get_topic_planner_prompt
+
+        assert "家族任务系统" not in SYSTEM_TOPIC_PLANNER
+        prompt = get_topic_planner_prompt(language="简体中文")
+        assert "家族任务系统" not in prompt
+        assert "用户等级体系" in prompt or "送礼订单处理" in prompt
+
     def test_write_system_prompt_includes_chinese_sections(self):
         from wiki.agent_prompts import get_write_system_prompt
 

@@ -37,6 +37,8 @@ async def test_l2_below_threshold_triggers_heal():
         wiki_cfg = MagicMock()
         wiki_cfg.quality_gate_levels = "L1,L2"
         wiki_cfg.heal_l2_threshold = 0.55
+        wiki_cfg.overview_min_content_chars = 2000
+        wiki_cfg.topic_min_content_chars = 1000
         mock_settings.return_value = MagicMock(wiki=wiki_cfg)
 
         result = await quality_gate_node(state, {"configurable": {}})
@@ -58,7 +60,7 @@ async def test_l2_threshold_zero_preserves_existing_behavior():
         "page_type": "topic",
         "content": (
             "## Overview\n"
-            + "x" * 250
+            + "x" * 1100
             + "\n## Key components\nCore\n## Relationships\n- [[peer]]\n"
         ),
         "diagrams": [],
@@ -77,6 +79,8 @@ async def test_l2_threshold_zero_preserves_existing_behavior():
         wiki_cfg = MagicMock()
         wiki_cfg.quality_gate_levels = "L1,L2"
         wiki_cfg.heal_l2_threshold = 0.0  # disabled
+        wiki_cfg.overview_min_content_chars = 2000
+        wiki_cfg.topic_min_content_chars = 1000
         mock_settings.return_value = MagicMock(wiki=wiki_cfg)
 
         result = await quality_gate_node(state, {"configurable": {}})

@@ -143,7 +143,7 @@ class WikiPageStoreMixin:
     async def wiki_orphan_in_degrees(self, repository: str) -> QueryResultWrapper:
         q = (
             "MATCH (wp:WikiPage {repository: $repository}) "
-            "OPTIONAL MATCH (src:WikiPage)-[:WIKILINK]->(wp) "
+            "OPTIONAL MATCH (src:WikiPage)-[:WIKI_REFERENCES {relation_type: 'wikilink'}]->(wp) "
             "WITH wp, count(src) AS in_degree "
             "RETURN wp.path AS path, in_degree"
         )
@@ -192,7 +192,8 @@ class WikiPageStoreMixin:
     async def list_wiki_pages_all(self, repo: str) -> QueryResultWrapper:
         q = (
             "MATCH (wp:WikiPage {repository: $repo}) "
-            "RETURN wp.path AS path, wp.title AS title, wp.page_type AS page_type "
+            "RETURN wp.path AS path, wp.title AS title, wp.page_type AS page_type, "
+            "wp.business_domain AS business_domain "
             "ORDER BY wp.path"
         )
         return await self._store.execute_query(q, {"repo": repo})

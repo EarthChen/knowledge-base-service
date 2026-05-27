@@ -123,6 +123,7 @@ export default function WikiContent({
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
       <header className="border-b border-gray-100 px-5 py-4 dark:border-gray-700">
+        {/* TODO: pass titleMap from topic tree / page context for segment display titles */}
         <WikiBreadcrumbs repository={repository} path={pagePath} linkParams={wikiLinkParams} />
         <div className="mt-3 flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-400">

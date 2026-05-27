@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 
@@ -48,8 +50,8 @@ class TestSkeletonBannerInjection:
         assert not page["content"].startswith(_SKELETON_BANNER)
 
     @pytest.mark.asyncio
-    async def test_topic_page_no_banner(self):
-        """Short topic pages do NOT get banner (only domain_overview)."""
+    async def test_short_topic_page_gets_banner(self):
+        """Short topic pages get the same skeleton warning banner as domain_overview."""
         from wiki.nodes.finalize import finalize_node
 
         state = {
@@ -62,9 +64,15 @@ class TestSkeletonBannerInjection:
                 }
             ]
         }
-        result = await finalize_node(state)
+        mock_settings = MagicMock()
+        mock_settings.wiki.topic_min_content_chars = 1000
+        mock_settings.wiki.topic_min_publish_chars = 0
+        mock_settings.wiki.overview_min_content_chars = 2000
+        mock_settings.wiki.cn_ratio_hard_min = 0.4
+        with patch("core.config.get_settings", return_value=mock_settings):
+            result = await finalize_node(state)
         page = result["pages"][0]
-        assert not page["content"].startswith(_SKELETON_BANNER)
+        assert page["content"].startswith(_SKELETON_BANNER)
 
     @pytest.mark.asyncio
     async def test_english_skeleton_gets_english_banner(self):

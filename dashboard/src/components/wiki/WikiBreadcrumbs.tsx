@@ -7,9 +7,20 @@ type Props = {
   repository: string;
   path: string;
   linkParams?: Record<string, string>;
+  /** Maps path segment slugs to display titles (e.g. from topic tree). */
+  titleMap?: Record<string, string>;
 };
 
-export default function WikiBreadcrumbs({ repository, path, linkParams }: Props) {
+function segmentLabel(seg: string, titleMap?: Record<string, string>): string {
+  const mapped = titleMap?.[seg]?.trim();
+  if (mapped) return mapped;
+  return decodeURIComponent(seg)
+    .replace(/-/g, " ")
+    .replace(/^_/, "")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export default function WikiBreadcrumbs({ repository, path, linkParams, titleMap }: Props) {
   const { t } = useI18n();
   const segments = path.split("/").filter(Boolean);
 
@@ -27,7 +38,7 @@ export default function WikiBreadcrumbs({ repository, path, linkParams }: Props)
       </Link>
       {segments.map((seg, i) => {
         const to = wikiHref(segments.slice(0, i + 1).join("/"), linkParams);
-        const label = decodeURIComponent(seg);
+        const label = segmentLabel(seg, titleMap);
         const last = i === segments.length - 1;
         return (
           <span key={to} className="inline-flex items-center gap-1">

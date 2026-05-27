@@ -233,7 +233,7 @@ async def test_nested_tree_skips_overview_when_agent_page_exists() -> None:
 
     # First query: agent overview check — finds agent page (slugified path)
     agent_page_result = MagicMock(data=[{
-        "path": "/__domains__/testdomain/_overview",
+        "path": "/__domains__/test-domain/_overview",
     }])
     # Second query: topic pages — empty
     empty_result = MagicMock(data=[])

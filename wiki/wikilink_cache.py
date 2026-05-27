@@ -26,12 +26,16 @@ class WikiLinkCache:
             title = row.get("title")
             path = row.get("path")
             if title and path:
-                self.register(str(title), str(path))
+                self.register(
+                    str(title),
+                    str(path),
+                    business_domain=str(row.get("business_domain") or ""),
+                )
                 count += 1
         self._loaded = True
         return count
 
-    def register(self, title: str, path: str) -> None:
+    def register(self, title: str, path: str, business_domain: str = "") -> None:
         """Register a page into the cache (called after each page is composed)."""
         t = title.strip()
         if not t:
@@ -39,6 +43,9 @@ class WikiLinkCache:
         url = f"/wiki?path={quote(path, safe='')}"
         self._title_to_url[t] = url
         self._path_to_title[path] = t
+        if business_domain:
+            composite = f"{business_domain}/{t}".lower()
+            self._title_to_url[composite] = url
 
     def get_index(self) -> dict[str, str]:
         """Return title→URL mapping for wikilink resolution."""

@@ -24,6 +24,7 @@ from wiki.output_guardrail import (
     LanguageConsistencyCheck,
     LengthCheck,
     OutputGuardrailChain,
+    SensitiveContentCheck,
 )
 from wiki.page_agent import WikiPageAgent, WorkingMemory
 from wiki.quality_report import evaluate_quality
@@ -37,6 +38,7 @@ class TopicPlan:
     title: str
     modules: list[str]
     description: str = ""
+    slug: str = ""
 
 
 @dataclass
@@ -89,9 +91,25 @@ def _dedup_topic_titles(topics: list[TopicPlan]) -> list[TopicPlan]:
     return result
 
 
+def _derive_slug_from_modules(modules: list[str]) -> str:
+    """Derive a kebab-case slug from module names when LLM doesn't provide one."""
+    import re as _re
+
+    from wiki.path_conventions import normalize_slug_strict
+
+    if not modules:
+        return ""
+    first = modules[0]
+    # CamelCase → kebab-case
+    slug_raw = _re.sub(r"(?<=[a-z0-9])([A-Z])", r"-\1", first)
+    slug_raw = _re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1-\2", slug_raw)
+    return normalize_slug_strict(slug_raw) or ""
+
+
 def _parse_topic_outline(raw: str) -> DomainTopicOutline | None:
     """Parse LLM output into a DomainTopicOutline. Returns None on failure."""
     from wiki.json_robust import parse_json_robust_sync
+    from wiki.path_conventions import normalize_slug_strict
 
     parsed = parse_json_robust_sync(raw)
     if not isinstance(parsed, dict):
@@ -108,10 +126,15 @@ def _parse_topic_outline(raw: str) -> DomainTopicOutline | None:
         modules = t.get("modules", [])
         if not title or not isinstance(modules, list):
             continue
+        slug_raw = str(t.get("slug", ""))
+        slug = normalize_slug_strict(slug_raw) if slug_raw else None
+        if not slug:
+            slug = _derive_slug_from_modules([str(m) for m in modules])
         topics.append(TopicPlan(
             title=str(title),
             modules=[str(m) for m in modules],
             description=str(t.get("description", "")),
+            slug=slug or "",
         ))
     if not topics:
         return None
@@ -396,6 +419,7 @@ class DomainDocAgent(DocOrchestrator):
             CoverageCheck(),
             LengthCheck(),
             LanguageConsistencyCheck(),
+            SensitiveContentCheck(),
         ])
 
     def _build_write_prompt(self, baseline_context: str, memory: Any) -> str:
@@ -527,7 +551,36 @@ class DomainDocAgent(DocOrchestrator):
             self._topic_split_done = True
             self._topic_outline = outline
             return outline.topics
+        wiki_cfg = get_settings().wiki
+        if len(module_names) >= wiki_cfg.topic_force_split_threshold:
+            fallback = self._build_mechanical_topic_split(module_names)
+            if fallback and len(fallback.topics) > 1:
+                log.info(
+                    "plan_topics_force_split_fallback",
+                    domain=self.domain_name,
+                    modules=len(module_names),
+                    topics=len(fallback.topics),
+                )
+                self._topic_split_done = True
+                self._topic_outline = fallback
+                return fallback.topics
         return None
+
+    def _build_mechanical_topic_split(self, module_names: list[str]) -> DomainTopicOutline | None:
+        """Mechanically split modules into topic groups when LLM declines."""
+        chunk_size = 5
+        sorted_modules = sorted(module_names)
+        chunks = [sorted_modules[i : i + chunk_size] for i in range(0, len(sorted_modules), chunk_size)]
+        if len(chunks) <= 1:
+            return None
+        if len(chunks) > 1 and len(chunks[-1]) < 3:
+            chunks[-2].extend(chunks.pop())
+        topics = []
+        for i, chunk in enumerate(chunks):
+            slug = _derive_slug_from_modules(chunk)
+            title = f"{self.domain_display_name} - Part {i + 1}"
+            topics.append(TopicPlan(title=title, modules=chunk, description="", slug=slug))
+        return DomainTopicOutline(should_split=True, topics=topics)
 
     async def _write_topics(
         self,
@@ -591,15 +644,24 @@ class DomainDocAgent(DocOrchestrator):
             "module_names": context.get("module_names", []),
             "target_language": self.content_language,
             "cn_ratio_threshold": get_settings().wiki.language_guardrail_cn_ratio,
+            "page_type": context.get("page_type", ""),
         })
         if result and not result.passed:
+            failed_checks = [n for n, c in result.details.items() if not c.passed]
+            should_heal = any(
+                getattr(c, "should_heal", False)
+                for c in result.details.values()
+            )
             log.warning(
                 "output_guardrail_failed",
                 domain=self.domain_name,
                 iteration=iteration,
                 total_score=result.total_score,
-                failed_checks=[n for n, c in result.details.items() if not c.passed],
+                failed_checks=failed_checks,
+                should_heal=should_heal,
             )
+            if should_heal:
+                return result
 
         term_glossary = getattr(self, "_term_glossary", None)
         if term_glossary:
@@ -615,7 +677,7 @@ class DomainDocAgent(DocOrchestrator):
                     violations=term_result.violations[:5],
                 )
 
-        return result
+        return None
 
     def build_iteration_trace(self, iteration: int, quality: Any) -> dict[str, Any] | None:
         trace = {
@@ -658,6 +720,14 @@ class DomainDocAgent(DocOrchestrator):
         from wiki.agent_prompts import get_topic_planner_prompt
 
         topic_planner_prompt = get_topic_planner_prompt(self.content_language)
+        term_glossary = getattr(self, "_term_glossary", None)
+        if term_glossary:
+            from wiki.agent_prompts import build_term_glossary_prompt
+
+            glossary_section = build_term_glossary_prompt(term_glossary)
+            if glossary_section:
+                topic_planner_prompt += "\n" + glossary_section
+
         module_list = "\n".join(f"- {m}" for m in module_names)
         call_info = (
             "\n".join(memory.discovered_call_chains[:20])
@@ -736,26 +806,71 @@ class DomainDocAgent(DocOrchestrator):
 
             glossary_section = build_term_glossary_prompt(term_glossary)
 
+        lang = ContentLanguage.from_any(self.content_language)
         for topic in outline.topics:
             topic_module_list = ", ".join(topic.modules)
-            topic_context = (
-                f"{baseline_context}\n\n"
-                f"--- TOPIC SCOPE ---\n"
-                f"You are writing the \"{topic.title}\" section.\n"
-                f"Focus ONLY on these modules: {topic_module_list}\n"
-                f"Description: {topic.description}\n"
-                + glossary_section
-            )
+            if lang.is_chinese:
+                scope_text = (
+                    f"--- 主题范围 ---\n"
+                    f"你正在撰写「{topic.title}」章节。\n"
+                    f"仅聚焦以下模块：{topic_module_list}\n"
+                    f"描述：{topic.description}\n"
+                )
+            else:
+                scope_text = (
+                    f"--- TOPIC SCOPE ---\n"
+                    f"You are writing the \"{topic.title}\" section.\n"
+                    f"Focus ONLY on these modules: {topic_module_list}\n"
+                    f"Description: {topic.description}\n"
+                )
+            topic_context = f"{baseline_context}\n\n{scope_text}" + glossary_section
             topic_content = await self._page_agent.write(
-                self.domain_name, topic_context, memory,
+                self.domain_name, topic_context, memory, page_type="topic",
             )
             topic_content = await self._verify_code_blocks(topic_content, memory)
-            topic_path = domain_topic_path(self.domain_name, topic.title)
+            topic_module_names = list(topic.modules)
+            guardrail_result = await self.run_guardrails(
+                topic_content,
+                0,
+                {
+                    "module_names": topic_module_names,
+                    "page_type": "topic",
+                },
+            )
+            if guardrail_result is not None:
+                log.info(
+                    "topic_guardrail_heal_retry",
+                    topic=topic.title,
+                    domain=self.domain_name,
+                )
+                heal_hint = (
+                    "\n\n--- 重要提示 ---\n"
+                    "请务必使用中文撰写全部正文内容。所有章节标题必须使用中文"
+                    "（如「## 概述」而非「## Overview」）。"
+                    "代码标识符保持英文，但描述性文字必须是中文。\n"
+                )
+                retry_context = topic_context + heal_hint
+                retry_content = await self._page_agent.write(
+                    self.domain_name, retry_context, memory, page_type="topic",
+                )
+                retry_content = await self._verify_code_blocks(retry_content, memory)
+                retry_guardrail = await self.run_guardrails(
+                    retry_content,
+                    1,
+                    {"module_names": topic_module_names, "page_type": "topic"},
+                )
+                if retry_guardrail is None:
+                    log.info("topic_guardrail_heal_success", topic=topic.title)
+                else:
+                    log.warning("topic_guardrail_heal_exhausted", topic=topic.title)
+                topic_content = retry_content
+            topic_path = domain_topic_path(self.domain_name, topic.slug or topic.title)
             topic_pages.append({
                 "page_type": "topic",
                 "title": topic.title,
                 "path": topic_path,
                 "content": topic_content,
+                "content_language": self.content_language,
                 "canonical_key": self.domain_name,
                 "diagrams": [],
                 "source_locations": [],
@@ -767,12 +882,37 @@ class DomainDocAgent(DocOrchestrator):
                 },
                 "business_domain": self.domain_name,
             })
-            topic_links.append(f"- [[{self.domain_name}/{topic.title}]]")
+            topic_links.append(f"- [[{topic.title}]]")
 
-        lang = ContentLanguage.from_any(self.content_language)
         nav_heading = "## 章节导航" if lang.is_chinese else "## Section Navigation"
+
+        topic_names = ", ".join(t.title for t in outline.topics)
+        if lang.is_chinese:
+            summary_prompt = (
+                f"为「{self.domain_display_name}」域撰写 2-3 段业务概述（200-400 字），"
+                f"概括该域的业务价值、整体架构和核心能力。"
+                f"该域包含以下子主题：{topic_names}。"
+                f"只写概述段落，不要列举子主题。"
+            )
+        else:
+            summary_prompt = (
+                f"Write a 2-3 paragraph business overview (200-400 words) for the '{self.domain_display_name}' domain. "
+                f"Summarize its business value, architecture, and key capabilities. "
+                f"Sub-topics: {topic_names}. Do not list sub-topics."
+            )
+
+        summary_text = ""
+        try:
+            summary_text = await self._page_agent.write(
+                self.domain_name, summary_prompt, memory,
+            )
+            summary_text = summary_text.strip()
+        except Exception:
+            log.warning("topic_index_overview_synthesis_failed", domain=self.domain_name, exc_info=True)
+
         overview_content = (
             f"# {self.domain_display_name}\n\n"
+            + (f"{summary_text}\n\n" if summary_text else "")
             + "\n".join(
                 f"## {t.title}\n{t.description}\n"
                 for t in outline.topics

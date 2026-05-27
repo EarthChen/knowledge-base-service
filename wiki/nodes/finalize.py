@@ -19,6 +19,8 @@ from wiki.content_guards import (
 
 log = get_logger(__name__)
 
+SHELL_DOMAIN_MIN_CHARS = 500
+
 _FAKE_SOURCE_RE = re.compile(r"com/xxx/")
 _SOURCE_PROTOCOL_RE = re.compile(r"source://[^\s)>\]]+", re.IGNORECASE)
 _CODE_REF_COMMENT_RE = re.compile(r"<!--\s*(?:CODE_REF|UNVERIFIED_CODE)\s*:?.*?-->", re.DOTALL)
@@ -427,6 +429,16 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                     content_len=len(content),
                 )
                 content = banner + content
+
+            if is_overview and not is_topic_index and len(content) < SHELL_DOMAIN_MIN_CHARS:
+                log.warning(
+                    "shell_domain_rejected",
+                    page_path=page.get("path"),
+                    content_len=len(content),
+                    threshold=SHELL_DOMAIN_MIN_CHARS,
+                )
+                updated_pages.append({**page, "content": "", "__rejected__": True})
+                continue
 
             if is_topic and not is_topic_index:
                 from core.config import get_settings

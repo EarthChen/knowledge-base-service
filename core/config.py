@@ -313,7 +313,7 @@ class AppWikiFlags(BaseModel):
     plan_topics_min_modules: int = Field(
         default=3, ge=1, description="Min module count to attempt topic planning (domains with fewer skip)"
     )
-    topic_force_split_threshold: int = Field(default=6, description="Force topic split when module count >= this")
+    topic_force_split_threshold: int = Field(default=4, description="Force topic split when module count >= this")
     max_topics_per_domain: int = Field(default=4, ge=1, description="Max topic pages per domain after planning")
     quality_l3_concurrency: int = Field(default=4, ge=1, description="Max concurrent L3 LLM-as-judge evaluations")
     domain_split_threshold: int = Field(default=20, description="Min modules to trigger recursive sub-domain split")

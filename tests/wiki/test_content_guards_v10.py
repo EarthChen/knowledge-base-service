@@ -67,3 +67,62 @@ class TestStripUnauthorizedSections:
         from wiki.content_guards import ALLOWED_OVERVIEW_H2_PREFIXES, strip_unauthorized_sections
 
         assert strip_unauthorized_sections(None, ALLOWED_OVERVIEW_H2_PREFIXES) == ""
+
+
+class TestBlockquoteEntireBlock:
+    """Tests for F2: blockquote entire-block deletion."""
+
+    def test_matching_blockquote_entire_block_removed(self):
+        from wiki.content_guards import strip_repeated_blockquotes
+
+        content = (
+            "Good content.\n"
+            "> **术语使用建议**：请使用标准术语\n"
+            "> 1. 建议使用 xxx\n"
+            "> 2. 避免使用 yyy\n"
+            "\n"
+            "More good content."
+        )
+        result = strip_repeated_blockquotes(content)
+        assert "术语使用建议" not in result
+        assert "建议使用 xxx" not in result
+        assert "Good content." in result
+        assert "More good content." in result
+
+    def test_meta_h2_wildcard_suffix(self):
+        from wiki.content_guards import has_meta_sections
+
+        assert has_meta_sections("## 中文内容增强建议")
+        assert has_meta_sections("## 术语使用建议")
+        assert has_meta_sections("## 内容增强建议")
+
+    def test_blockquote_overview_pattern(self):
+        from wiki.content_guards import strip_repeated_blockquotes
+
+        content = "> **Overview**：本页描述了系统架构\n> 包含以下模块\n\nReal content."
+        result = strip_repeated_blockquotes(content)
+        assert "**Overview**" not in result
+        assert "Real content." in result
+
+    def test_continuation_lines_removed(self):
+        from wiki.content_guards import strip_repeated_blockquotes
+
+        content = (
+            "> **说明**：以下是详细说明\n"
+            "> 第一点说明\n"
+            "> 第二点说明\n"
+            "> 第三点说明\n"
+            "\n"
+            "Normal paragraph."
+        )
+        result = strip_repeated_blockquotes(content)
+        assert "第一点说明" not in result
+        assert "第二点说明" not in result
+        assert "Normal paragraph." in result
+
+    def test_normal_blockquotes_preserved(self):
+        from wiki.content_guards import strip_repeated_blockquotes
+
+        content = "> This is a normal quote from the codebase.\n\nSome text."
+        result = strip_repeated_blockquotes(content)
+        assert "normal quote" in result

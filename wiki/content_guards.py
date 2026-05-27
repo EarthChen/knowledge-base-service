@@ -107,6 +107,12 @@ META_H2_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^##\s*中英对照"),
     re.compile(r"^##\s*术语表（中英对照）"),
     re.compile(r"^##\s*术语表$"),
+    re.compile(r"^##\s*.*(?:增强建议|使用建议|完善建议)$"),
+    re.compile(r"^##\s*中文.*建议"),
+    re.compile(r"^##\s*术语使用建议"),
+    re.compile(r"^##\s*中文内容增强"),
+    re.compile(r"^##\s*术语补充说明"),
+    re.compile(r"^##\s*内容增强建议"),
 ]
 
 
@@ -176,6 +182,13 @@ _LLM_TRACE_BLOCKQUOTE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^>\s*\*\*说明\*\*：为提升中文读者理解"),
     re.compile(r"^>\s*本页内容已强化中文表达"),
     re.compile(r"^>\s*术语说明：为提升中文读者理解"),
+    re.compile(r"^>\s*\*\*术语使用建议\*\*[：:]"),
+    re.compile(r"^>\s*\*\*建议\*\*[：:]"),
+    re.compile(r"^>\s*建议[：:]"),
+    re.compile(r"^>\s*\*\*说明\*\*[：:]"),
+    re.compile(r"^>\s*术语说明[：:]"),
+    re.compile(r"^>\s*\*\*Overview\*\*[：:]"),
+    re.compile(r"^>\s*注[：:]本页技术"),
 ]
 
 _ENGLISH_SELF_REFLECTION_PATTERNS: list[re.Pattern[str]] = [
@@ -198,17 +211,24 @@ def _is_llm_trace_blockquote(line: str) -> bool:
 
 
 def strip_repeated_blockquotes(content: str | None) -> str:
-    """Remove LLM trace blockquotes and collapse consecutive duplicate blockquote lines."""
+    """Remove LLM trace blockquotes — entire contiguous block, not just the matching line."""
     if not content:
         return ""
     lines = content.split("\n")
     result: list[str] = []
     prev_blockquote: str | None = None
+    skip_block = False
 
     for line in lines:
         if _is_llm_trace_blockquote(line):
+            skip_block = True
             prev_blockquote = None
             continue
+        if skip_block:
+            if _is_blockquote_line(line):
+                continue
+            else:
+                skip_block = False
         if _is_blockquote_line(line):
             normalized = _normalize_blockquote(line)
             if prev_blockquote is not None and normalized == prev_blockquote:

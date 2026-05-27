@@ -104,7 +104,7 @@ def _strip_fake_source_lines(content: str) -> str:
     return "\n".join(result)
 
 
-def _sanitize_published_content(content: str) -> str:
+def _sanitize_published_content(content: str, *, page_type: str = "") -> str:
     """Remove internal pipeline artifacts from published content."""
     # 1. Remove CONTEXT_GAP HTML comments
     content = re.sub(r"<!--\s*CONTEXT_GAP:.*?-->", "", content, flags=re.DOTALL)
@@ -164,6 +164,16 @@ def _sanitize_published_content(content: str) -> str:
     content = strip_english_self_reflection(content)
     # Repair code fences (remove empty blocks, empty wikilinks)
     content = repair_code_fences(content)
+
+    # H2 whitelist cleanup (after all other sanitization)
+    if page_type == "domain_overview":
+        from wiki.content_guards import ALLOWED_OVERVIEW_H2_PREFIXES, strip_unauthorized_sections
+
+        content = strip_unauthorized_sections(content, ALLOWED_OVERVIEW_H2_PREFIXES)
+    elif page_type == "topic":
+        from wiki.content_guards import ALLOWED_TOPIC_H2_PREFIXES, strip_unauthorized_sections
+
+        content = strip_unauthorized_sections(content, ALLOWED_TOPIC_H2_PREFIXES)
 
     return content.strip()
 
@@ -385,7 +395,13 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
         content = page.get("content")
         raw_content_len = len(content) if content else 0
         if content:
-            content = _sanitize_published_content(content)
+            page_path = page.get("path", "")
+            page_type = ""
+            if "/_topic" in page_path:
+                page_type = "topic"
+            elif page_path.startswith("/__domains__/"):
+                page_type = "domain_overview"
+            content = _sanitize_published_content(content, page_type=page_type)
             content = _sanitize_render_issues(content)
             content = _dedup_h2_sections(content)
             content = _sanitize_english_overview(content)

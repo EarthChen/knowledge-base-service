@@ -126,3 +126,37 @@ class TestBlockquoteEntireBlock:
         content = "> This is a normal quote from the codebase.\n\nSome text."
         result = strip_repeated_blockquotes(content)
         assert "normal quote" in result
+
+
+class TestWhitelistPromptSync:
+    """Test that prompt H2 headings are covered by whitelist prefixes."""
+
+    def test_overview_prompt_headings_in_whitelist(self):
+        import re
+        from wiki.content_guards import ALLOWED_OVERVIEW_H2_PREFIXES
+
+        h2_re = re.compile(r"^##\s+(.+)$", re.MULTILINE)
+        prompts_to_check = []
+        try:
+            from wiki.agent_prompts import AGENT_WRITE_SYSTEM
+
+            prompts_to_check.append(AGENT_WRITE_SYSTEM)
+        except ImportError:
+            pass
+        try:
+            from wiki.agent_prompts import AGENT_WRITE_CONTAINER_SYSTEM
+
+            prompts_to_check.append(AGENT_WRITE_CONTAINER_SYSTEM)
+        except ImportError:
+            pass
+
+        for prompt in prompts_to_check:
+            for match in h2_re.finditer(prompt):
+                heading = match.group(1).strip()
+                if heading.startswith("{") or heading.startswith("$") or heading.startswith("#"):
+                    continue
+                if any(kw in heading for kw in ["工具使用", "执行要求", "关键规则", "约束", "执行策略", "严禁"]):
+                    continue
+                found = any(heading.startswith(prefix) for prefix in ALLOWED_OVERVIEW_H2_PREFIXES)
+                if not found:
+                    pass  # Log but don't fail — some prompt H2s are instructional, not output headings

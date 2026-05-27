@@ -210,3 +210,137 @@ class TestDomainRecovery:
                 await persistence.list_domain_modules("biz1", slug)
 
         persistence.list_domain_modules.assert_not_called()
+
+
+class TestDomainQualityGate:
+    """Tests for F9-C4: domain decomposition quality gate."""
+
+    def test_structural_quality_fragmentation(self):
+        from wiki.nodes.graph_domain_decompose import _structural_quality_check
+
+        mapping = {f"domain-{i}": [("repo", f"mod-{i}")] for i in range(10)}
+        warnings = _structural_quality_check(mapping, 10)
+        assert any("FRAGMENTATION" in w for w in warnings)
+
+    def test_structural_quality_mega_domain(self):
+        from wiki.nodes.graph_domain_decompose import _structural_quality_check
+
+        mapping = {
+            "mega": [("repo", f"mod-{i}") for i in range(50)],
+            "small": [("repo", "x")],
+        }
+        warnings = _structural_quality_check(mapping, 51)
+        assert any("MEGA_DOMAIN" in w for w in warnings)
+
+    def test_structural_quality_good(self):
+        from wiki.nodes.graph_domain_decompose import _structural_quality_check
+
+        mapping = {
+            "auth": [("r", f"m{i}") for i in range(5)],
+            "payment": [("r", f"p{i}") for i in range(4)],
+            "family": [("r", f"f{i}") for i in range(6)],
+        }
+        warnings = _structural_quality_check(mapping, 15)
+        assert len(warnings) == 0
+
+    def test_baseline_comparison_domain_disappeared(self):
+        from wiki.nodes.graph_domain_decompose import _domain_decomposition_quality_check
+
+        baseline = {"auth": [1, 2, 3, 4, 5], "family": [6, 7, 8]}
+        new_mapping = {"auth": [1, 2, 3, 4, 5]}
+        passed, warnings = _domain_decomposition_quality_check(new_mapping, baseline)
+        assert any("DOMAIN_DISAPPEARED" in w for w in warnings)
+
+    def test_baseline_comparison_collapse(self):
+        from wiki.nodes.graph_domain_decompose import _domain_decomposition_quality_check
+
+        baseline = {"a": [1], "b": [2], "c": [3], "d": [4], "e": [5], "f": [6]}
+        new_mapping = {"merged": [1, 2, 3, 4, 5, 6]}
+        passed, warnings = _domain_decomposition_quality_check(new_mapping, baseline)
+        assert any("DOMAIN_COLLAPSE" in w for w in warnings)
+        assert not passed
+
+
+class TestAgentReview:
+    """Tests for F9-C4: agent semantic audit."""
+
+    @pytest.mark.asyncio
+    async def test_agent_review_good_quality(self):
+        from wiki.nodes.graph_domain_decompose import _agent_review_decomposition
+
+        llm = AsyncMock()
+        llm.complete_json = AsyncMock(return_value={
+            "overall_quality": "good",
+            "issues": [],
+        })
+        quality, warnings = await _agent_review_decomposition(
+            llm,
+            {"auth": [("r", "UserService")], "payment": [("r", "PayService")]},
+            {"auth": "认证", "payment": "支付"},
+            {"UserService": "User auth", "PayService": "Payment"},
+        )
+        assert quality == "good"
+        assert len(warnings) == 0
+
+    @pytest.mark.asyncio
+    async def test_agent_review_with_issues(self):
+        from wiki.nodes.graph_domain_decompose import _agent_review_decomposition
+
+        llm = AsyncMock()
+        llm.complete_json = AsyncMock(return_value={
+            "overall_quality": "needs_revision",
+            "issues": [
+                {
+                    "domain_slug": "auth",
+                    "issue_type": "misplaced_module",
+                    "description": "PayService in auth domain",
+                    "severity": "warning",
+                }
+            ],
+        })
+        quality, warnings = await _agent_review_decomposition(
+            llm, {"auth": [("r", "UserService")]}, {}, {},
+        )
+        assert quality == "needs_revision"
+        assert len(warnings) == 1
+        assert "AGENT_REVIEW" in warnings[0]
+
+    @pytest.mark.asyncio
+    async def test_agent_review_failure_graceful(self):
+        from wiki.nodes.graph_domain_decompose import _agent_review_decomposition
+
+        llm = AsyncMock()
+        llm.complete_json = AsyncMock(side_effect=Exception("LLM error"))
+        quality, warnings = await _agent_review_decomposition(
+            llm, {"a": []}, {}, {},
+        )
+        assert quality == "acceptable"
+        assert len(warnings) == 0
+
+
+class TestIncrementalAssignment:
+    """Tests for F9-C4: incremental new module assignment."""
+
+    def test_new_module_assigned_to_nearest(self):
+        from wiki.nodes.graph_domain_decompose import _assign_new_modules_to_nearest
+
+        embeddings = {
+            "UserService": [1.0, 0.0, 0.0],
+            "AuthService": [0.9, 0.1, 0.0],
+            "PayService": [0.0, 1.0, 0.0],
+            "NewAuthModule": [0.8, 0.2, 0.0],
+        }
+        domain_mapping = {
+            "auth": [("r", "UserService"), ("r", "AuthService")],
+            "payment": [("r", "PayService")],
+        }
+        new_modules = {("r", "NewAuthModule")}
+        _assign_new_modules_to_nearest(new_modules, domain_mapping, embeddings)
+        assert ("r", "NewAuthModule") in domain_mapping["auth"]
+
+    def test_empty_new_modules_noop(self):
+        from wiki.nodes.graph_domain_decompose import _assign_new_modules_to_nearest
+
+        domain_mapping = {"auth": [("r", "UserService")]}
+        _assign_new_modules_to_nearest(set(), domain_mapping, {})
+        assert domain_mapping == {"auth": [("r", "UserService")]}

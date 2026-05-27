@@ -1017,6 +1017,166 @@ async def _embedding_clustering(
     return communities, embeddings
 
 
+def _structural_quality_check(
+    domain_mapping: dict[str, list],
+    module_count_total: int,
+) -> list[str]:
+    """Check structural quality of domain decomposition.
+
+    Returns list of warning strings. Empty list means good quality.
+    """
+    warnings: list[str] = []
+    single = [s for s, m in domain_mapping.items() if len(m) == 1]
+    if len(single) > len(domain_mapping) * 0.3:
+        warnings.append(f"FRAGMENTATION: {len(single)} single-module domains out of {len(domain_mapping)}")
+    for slug, modules in domain_mapping.items():
+        if len(modules) > module_count_total * 0.4:
+            warnings.append(f"MEGA_DOMAIN: {slug} has {len(modules)}/{module_count_total} modules")
+    if len(domain_mapping) < 3 and module_count_total > 20:
+        warnings.append(f"TOO_FEW: only {len(domain_mapping)} domains for {module_count_total} modules")
+    if len(domain_mapping) > module_count_total * 0.5:
+        warnings.append(f"TOO_MANY: {len(domain_mapping)} domains for {module_count_total} modules")
+    return warnings
+
+
+def _domain_decomposition_quality_check(
+    new_mapping: dict[str, list],
+    baseline_mapping: dict[str, list],
+) -> tuple[bool, list[str]]:
+    """Compare new decomposition against baseline.
+
+    Returns (passed, warnings). Critical warnings cause failure.
+    """
+    warnings: list[str] = []
+    disappeared = set(baseline_mapping.keys()) - set(new_mapping.keys())
+    for slug in disappeared:
+        mod_count = len(baseline_mapping[slug])
+        severity = "CRITICAL" if mod_count >= 5 else "WARNING"
+        warnings.append(f"DOMAIN_DISAPPEARED({severity}): {slug} ({mod_count} modules)")
+    if len(new_mapping) < len(baseline_mapping) * 0.5:
+        warnings.append(f"DOMAIN_COLLAPSE: {len(baseline_mapping)}→{len(new_mapping)}")
+    if len(new_mapping) > len(baseline_mapping) * 2:
+        warnings.append(f"DOMAIN_EXPLOSION: {len(baseline_mapping)}→{len(new_mapping)}")
+    critical = [w for w in warnings if "CRITICAL" in w or "COLLAPSE" in w]
+    return len(critical) == 0, warnings
+
+
+async def _agent_review_decomposition(
+    llm: Any,
+    domain_mapping: dict[str, list[tuple[str, str]]],
+    domain_display_names: dict[str, str],
+    module_summaries: dict[str, str],
+) -> tuple[str, list[str]]:
+    """LLM-based semantic review of domain decomposition.
+
+    Returns (overall_quality, warning_strings).
+    Gracefully falls back to ("acceptable", []) on any failure.
+    """
+    try:
+        listing_lines: list[str] = []
+        for slug, modules in sorted(domain_mapping.items(), key=lambda x: -len(x[1])):
+            display = domain_display_names.get(slug, slug)
+            listing_lines.append(f"- {slug} ({display}) — {len(modules)} modules:")
+            for repo, mod_name in modules[:8]:
+                summary = module_summaries.get(mod_name, "")
+                listing_lines.append(f"  - {mod_name}: {summary[:80]}" if summary else f"  - {mod_name}")
+
+        prompt = (
+            "You are a software architecture reviewer. Evaluate the following domain decomposition.\n\n"
+            "Domains:\n" + "\n".join(listing_lines) + "\n\n"
+            "Evaluate quality and return JSON:\n"
+            '{"overall_quality": "good"|"acceptable"|"needs_revision", '
+            '"issues": [{"domain_slug": "...", "issue_type": "misplaced_module"|"semantic_overlap"|"naming_unclear"|"too_broad"|"too_narrow", '
+            '"description": "...", "severity": "critical"|"warning"|"info"}]}'
+        )
+
+        result = await llm.complete_json(
+            [{"role": "user", "content": prompt}],
+            {
+                "type": "object",
+                "properties": {
+                    "overall_quality": {"type": "string", "enum": ["good", "acceptable", "needs_revision"]},
+                    "issues": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "domain_slug": {"type": "string"},
+                                "issue_type": {"type": "string"},
+                                "description": {"type": "string"},
+                                "severity": {"type": "string"},
+                            },
+                        },
+                    },
+                },
+                "required": ["overall_quality", "issues"],
+                "title": "DomainReviewOutput",
+            },
+        )
+
+        quality = result.get("overall_quality", "acceptable")
+        issues = result.get("issues", [])
+        warning_strs = []
+        for issue in issues:
+            if isinstance(issue, dict):
+                warning_strs.append(
+                    f"AGENT_REVIEW({issue.get('severity', 'info')}): "
+                    f"{issue.get('domain_slug', '?')} — {issue.get('issue_type', '?')}: "
+                    f"{issue.get('description', '')}"
+                )
+        return quality, warning_strs
+    except Exception:
+        log.warning("agent_review_decomposition_failed", exc_info=True)
+        return "acceptable", []
+
+
+def _assign_new_modules_to_nearest(
+    new_modules: set[tuple[str, str]],
+    domain_mapping: dict[str, list[tuple[str, str]]],
+    embeddings: dict[str, list[float] | Any],
+) -> None:
+    """Assign new modules to the semantically nearest existing domain.
+
+    Modifies domain_mapping in place.
+    """
+    if not new_modules or not domain_mapping:
+        return
+
+    domain_centroids: dict[str, Any] = {}
+    for slug, pairs in domain_mapping.items():
+        vecs = []
+        for _, mod_name in pairs:
+            emb = embeddings.get(mod_name)
+            if emb is not None:
+                vecs.append(np.array(emb, dtype=np.float32))
+        if vecs:
+            domain_centroids[slug] = np.mean(vecs, axis=0)
+
+    if not domain_centroids:
+        return
+
+    for repo, mod_name in new_modules:
+        emb = embeddings.get(mod_name)
+        if emb is None:
+            continue
+        mod_vec = np.array(emb, dtype=np.float32)
+        best_slug = ""
+        best_sim = -1.0
+        for slug, centroid in domain_centroids.items():
+            norm_a = np.linalg.norm(mod_vec)
+            norm_b = np.linalg.norm(centroid)
+            if norm_a > 0 and norm_b > 0:
+                sim = float(np.dot(mod_vec, centroid) / (norm_a * norm_b))
+            else:
+                sim = 0.0
+            if sim > best_sim:
+                best_sim = sim
+                best_slug = slug
+        if best_slug:
+            domain_mapping[best_slug].append((repo, mod_name))
+            log.info("new_module_assigned", module=mod_name, domain=best_slug, similarity=round(best_sim, 3))
+
+
 async def graph_driven_domain_decompose_node(
     state: dict[str, Any], config: RunnableConfig | None = None
 ) -> dict[str, Any]:

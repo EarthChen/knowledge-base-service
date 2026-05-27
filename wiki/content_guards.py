@@ -340,3 +340,78 @@ def detect_truncated_code_blocks(content: str) -> bool:
         fence_body.append(line)
 
     return in_fence
+
+
+# ---------------------------------------------------------------------------
+# H2 whitelist section cleanup
+# ---------------------------------------------------------------------------
+
+ALLOWED_OVERVIEW_H2_PREFIXES: tuple[str, ...] = (
+    "概述",
+    "核心业务流程",
+    "模块详解",
+    "依赖关系",
+    "子域职责矩阵",
+    "跨子域协作",
+    "核心数据流",
+    "子域导航",
+    "Overview",
+    "Core Business",
+    "Module Detail",
+    "Dependencies",
+    "Sub-Domain",
+    "Cross Sub-Domain",
+    "Core Data Flow",
+    "重要约束",
+    "语言规范",
+)
+
+ALLOWED_TOPIC_H2_PREFIXES: tuple[str, ...] = (
+    "概述",
+    "架构设计",
+    "核心流程",
+    "关键实现",
+    "相关主题",
+    "Overview",
+    "Architecture",
+    "Core Flow",
+    "Key Implementation",
+    "Related Topic",
+    "语言约束",
+)
+
+
+def _h2_title_allowed(title: str, allowed_prefixes: tuple[str, ...]) -> bool:
+    """Check if an H2 title matches any allowed prefix."""
+    title_stripped = title.strip()
+    return any(title_stripped.startswith(prefix) for prefix in allowed_prefixes)
+
+
+def strip_unauthorized_sections(
+    content: str | None,
+    allowed_prefixes: tuple[str, ...],
+) -> str:
+    """Remove H2 sections whose title doesn't match any allowed prefix.
+
+    Content before the first H2 is always preserved. H3+ subsections
+    within allowed H2 sections are preserved.
+    """
+    if not content:
+        return ""
+    lines = content.split("\n")
+    result: list[str] = []
+    skipping = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("## ") and not stripped.startswith("### "):
+            h2_title = stripped[3:].strip()
+            if _h2_title_allowed(h2_title, allowed_prefixes):
+                skipping = False
+            else:
+                skipping = True
+                continue
+        if not skipping:
+            result.append(line)
+
+    return "\n".join(result)

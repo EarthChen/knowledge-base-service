@@ -233,6 +233,28 @@ class BusinessPipelineRunner:
             return first.get("cnt", 0) if isinstance(first, dict) else 0
         return 0
 
+    async def _load_anchors_into_state(self, business_id: str, state: dict) -> None:
+        """Load pinned modules and domain anchors into pipeline state."""
+        pinned_modules: dict[str, str] = {}
+        anchored_slugs: set[str] = set()
+        anchor_display_names: dict[str, str] = {}
+        try:
+            pinned_raw = await self._persistence.list_pinned_modules(business_id) or []
+            pinned_modules = {str(p["module_name"]): str(p["domain_slug"]) for p in pinned_raw}
+        except Exception:
+            log.warning("pinned_modules_load_failed", business_id=business_id)
+
+        try:
+            anchors = await self._persistence.list_domain_anchors(business_id) or []
+            anchored_slugs = {str(a["slug"]) for a in anchors if a.get("anchor_type") == "user"}
+            anchor_display_names = {str(a["slug"]): a.get("display_name", a["slug"]) for a in anchors}
+        except Exception:
+            log.warning("domain_anchors_load_failed", business_id=business_id)
+
+        state["pinned_modules"] = pinned_modules
+        state["anchored_slugs"] = anchored_slugs
+        state["anchor_display_names"] = anchor_display_names
+
     async def _cleanup_container_domain_topics(
         self,
         business_id: str,

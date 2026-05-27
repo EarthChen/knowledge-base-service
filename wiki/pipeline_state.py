@@ -80,6 +80,8 @@ class WikiPipelineState(TypedDict):
     affected_domains: list[str]
     existing_domain_mapping: NotRequired[dict[str, list[tuple[str, str]]]]
     pinned_modules: NotRequired[dict[str, str]]
+    anchored_slugs: NotRequired[set[str]]
+    anchor_display_names: NotRequired[dict[str, str]]
     affected_modules: NotRequired[set[str]]
 
     # --- Review tracking ---

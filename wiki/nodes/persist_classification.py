@@ -62,6 +62,15 @@ async def persist_classification_node(
         except Exception:
             log.error("persist_classification_module_labels_failed", business_id=business_id, exc_info=True)
 
+    # --- Phase 2.5: Sync domain classification to DomainAnchor (system anchor) ---
+    persistence = configurable.get("persistence") or state.get("persistence")
+    if persistence is not None and hasattr(persistence, "save_domain_classification"):
+        try:
+            await persistence.save_domain_classification(business_id, domain_mapping)
+            log.info("persist_classification_anchors_synced", business_id=business_id, domains=len(domain_mapping))
+        except Exception:
+            log.warning("persist_classification_anchor_sync_failed", business_id=business_id, exc_info=True)
+
     # --- Phase 3: Persist architecture layers on Module nodes ---
     arch_layers = state.get("architecture_layers") or {}
     all_modules = state.get("modules", {})

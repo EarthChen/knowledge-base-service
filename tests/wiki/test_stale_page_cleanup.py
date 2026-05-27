@@ -116,9 +116,9 @@ class TestStaleCleanupWithNestedTree:
             current_domain_slugs=all_active_slugs,
         )
         assert deleted == 1
-        delete_calls = [c for c in store.query.call_args_list if "DETACH DELETE" in str(c)]
-        assert len(delete_calls) == 1
-        assert delete_calls[0][0][1]["uid"] == "uid-stale"
+        stale_calls = [c for c in store.query.call_args_list if "SET wp.stale = true" in str(c)]
+        assert len(stale_calls) == 1
+        assert stale_calls[0][0][1]["uid"] == "uid-stale"
 
 
 class TestContainerDomainSlugs:

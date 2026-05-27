@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta
 from typing import Any
 
 from core.config import AppWikiFlags as WikiAppConfig
@@ -169,10 +170,13 @@ class BusinessPipelineRunner:
         self,
         business_id: str,
         current_domain_slugs: set[str],
+        *,
+        anchored_slugs: set[str] | None = None,
     ) -> int:
-        """Remove WikiPage nodes for domains no longer in the current classification.
+        """Soft-delete WikiPage nodes for domains no longer in the current classification.
 
-        Returns count of deleted pages.
+        Marks pages with stale=true instead of deleting. User-anchored slugs are protected.
+        Returns count of newly stale pages.
         """
         if self._wiki_store is None:
             return 0
@@ -191,21 +195,43 @@ class BusinessPipelineRunner:
             result = await self._wiki_store.execute_query(query, params)
             results = getattr(result, "data", None) or []
 
-        deleted = 0
-        delete_fn = getattr(self._wiki_store, "query", None) or self._wiki_store.execute_query
+        stale_count = 0
+        mark_fn = getattr(self._wiki_store, "query", None) or self._wiki_store.execute_query
+        protected = anchored_slugs or set()
+        now_iso = datetime.utcnow().isoformat()
         for row in results:
             path = row.get("path", "")
             parts = path.split("/")
             if len(parts) >= 3:
                 slug = parts[2]
-                if slug and slug not in current_domain_slugs:
-                    await delete_fn(
-                        "MATCH (wp:WikiPage {uid: $uid}) DETACH DELETE wp",
-                        {"uid": row["uid"]},
+                if slug and slug not in current_domain_slugs and slug not in protected:
+                    await mark_fn(
+                        "MATCH (wp:WikiPage {uid: $uid}) "
+                        "SET wp.stale = true, wp.stale_at = $now",
+                        {"uid": row["uid"], "now": now_iso},
                     )
-                    deleted += 1
+                    stale_count += 1
 
-        return deleted
+        return stale_count
+
+    async def _purge_stale_pages(
+        self, business_id: str, retention_days: int = 7,
+    ) -> int:
+        """Permanently delete pages that have been stale beyond the retention window."""
+        if self._wiki_store is None:
+            return 0
+        cutoff = (datetime.utcnow() - timedelta(days=retention_days)).isoformat()
+        query_fn = getattr(self._wiki_store, "query", None) or self._wiki_store.execute_query
+        result = await query_fn(
+            "MATCH (wp:WikiPage) "
+            "WHERE wp.repository = $biz AND wp.stale = true AND wp.stale_at < $cutoff "
+            "DETACH DELETE wp RETURN count(wp) AS cnt",
+            {"biz": business_id, "cutoff": cutoff},
+        )
+        if isinstance(result, list) and result:
+            first = result[0]
+            return first.get("cnt", 0) if isinstance(first, dict) else 0
+        return 0
 
     async def _cleanup_container_domain_topics(
         self,

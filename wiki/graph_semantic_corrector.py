@@ -169,6 +169,7 @@ class GraphSemanticCorrector:
         business_id: str = "",
         module_details: dict[str, dict[str, Any]] | None = None,
         language: str = "简体中文",
+        anchored_slugs: frozenset[str] = frozenset(),
     ) -> tuple[dict[str, list[tuple[str, str]]], dict[str, str]]:
         """One-shot global review: merge overlapping domains, rename, move modules."""
         if self._llm is None or len(domain_mapping) <= 1:
@@ -229,6 +230,9 @@ class GraphSemanticCorrector:
                     new_display[target] = new_name
                 for src in sources:
                     if src == target or src not in new_mapping:
+                        continue
+                    if src in anchored_slugs:
+                        log.info("global_review_merge_protected", source=src, target=target)
                         continue
                     new_mapping[target].extend(new_mapping.pop(src))
                     new_display.pop(src, None)

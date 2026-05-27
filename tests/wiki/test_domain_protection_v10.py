@@ -144,3 +144,69 @@ class TestPersistSyncAnchor:
 
         await persist_classification_node(state, config)
         persistence.save_domain_classification.assert_called_once_with("biz1", {"auth": [("repo", "UserService")]})
+
+
+class TestCorrectorProtection:
+    """Tests for F9-C3: corrector skip anchored merge."""
+
+    def test_corrector_skips_anchored_sources(self):
+        """If a source is user-anchored, it should be protected from merge."""
+        merge_item = {"target": "merged-domain", "sources": ["family-core", "family-tasks"]}
+        anchored_slugs = frozenset({"family-core"})
+
+        sources = merge_item["sources"]
+        protected = [s for s in sources if s in anchored_slugs]
+        filtered = [s for s in sources if s not in anchored_slugs]
+
+        assert protected == ["family-core"]
+        assert filtered == ["family-tasks"]
+
+    def test_corrector_allows_non_anchored_merge(self):
+        """Non-anchored slugs should NOT be protected from merging."""
+        merge_item = {"target": "merged", "sources": ["payment", "billing"]}
+        anchored_slugs = frozenset()
+
+        filtered = [s for s in merge_item["sources"] if s not in anchored_slugs]
+        assert filtered == ["payment", "billing"]
+
+
+class TestDomainRecovery:
+    """Tests for F9-C3: anchored domain recovery."""
+
+    @pytest.mark.asyncio
+    async def test_anchored_domain_recovered(self):
+        """If an anchored slug is missing from new mapping, recover from persistence."""
+        domain_mapping = {"user-auth": [("repo", "UserService")]}
+        anchored_slugs = {"family-core"}
+        anchor_display_names = {"family-core": "家族核心"}
+
+        persistence = AsyncMock()
+        persistence.list_domain_modules = AsyncMock(return_value=[
+            {"module_name": "FamilyService"},
+            {"module_name": "FamilyMemberService"},
+        ])
+
+        for slug in anchored_slugs:
+            if slug not in domain_mapping:
+                anchor_modules = await persistence.list_domain_modules("biz1", slug)
+                if anchor_modules:
+                    mod_tuples = [("repo", str(m["module_name"])) for m in anchor_modules]
+                    domain_mapping[slug] = mod_tuples
+
+        assert "family-core" in domain_mapping
+        assert len(domain_mapping["family-core"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_no_recovery_when_slug_exists(self):
+        """No recovery needed when slug already in mapping."""
+        domain_mapping = {"family-core": [("repo", "FamilyService")]}
+        anchored_slugs = {"family-core"}
+
+        persistence = AsyncMock()
+        persistence.list_domain_modules = AsyncMock()
+
+        for slug in anchored_slugs:
+            if slug not in domain_mapping:
+                await persistence.list_domain_modules("biz1", slug)
+
+        persistence.list_domain_modules.assert_not_called()

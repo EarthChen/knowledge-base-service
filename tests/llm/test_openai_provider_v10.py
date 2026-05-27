@@ -33,7 +33,11 @@ class TestCompleteJsonStrict:
 
         assert captured_body["response_format"]["type"] == "json_schema"
         assert captured_body["response_format"]["json_schema"]["strict"] is True
-        assert captured_body["response_format"]["json_schema"]["schema"] == schema
+        sent_schema = captured_body["response_format"]["json_schema"]["schema"]
+        assert sent_schema["title"] == "TestOutput"
+        assert sent_schema["type"] == "object"
+        assert sent_schema["additionalProperties"] is False
+        assert "title" in sent_schema.get("required", [])
         assert captured_body["response_format"]["json_schema"]["name"] == "TestOutput"
         assert result == {"title": "test"}
 

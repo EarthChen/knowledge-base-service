@@ -225,7 +225,9 @@ class BusinessPipelineRunner:
         result = await query_fn(
             "MATCH (wp:WikiPage) "
             "WHERE wp.repository = $biz AND wp.stale = true AND wp.stale_at < $cutoff "
-            "DETACH DELETE wp RETURN count(wp) AS cnt",
+            "WITH wp, count(wp) AS cnt "
+            "DETACH DELETE wp "
+            "RETURN cnt",
             {"biz": business_id, "cutoff": cutoff},
         )
         if isinstance(result, list) and result:

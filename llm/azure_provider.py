@@ -87,12 +87,15 @@ class AzureOpenAIProvider:
         **kwargs: Any,
     ) -> dict[str, Any]:
         if schema:
+            from llm.provider import normalize_schema_for_strict
+
+            normalized = normalize_schema_for_strict(schema)
             response_format = {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": schema.get("title", "output"),
+                    "name": normalized.get("title", "output"),
                     "strict": True,
-                    "schema": schema,
+                    "schema": normalized,
                 },
             }
         else:

@@ -160,3 +160,56 @@ class LLMProvider:
 
     async def close(self) -> None:
         await self._client.aclose()
+
+
+def normalize_schema_for_strict(schema: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a JSON Schema for OpenAI strict mode compatibility.
+
+    Resolves $ref/$defs, adds additionalProperties:false to all objects,
+    and ensures all object properties are in 'required'.
+    """
+    if not schema:
+        return schema
+
+    defs = schema.get("$defs") or schema.get("definitions") or {}
+
+    def _resolve(node: Any) -> Any:
+        if not isinstance(node, dict):
+            return node
+        if "$ref" in node:
+            ref_path = node["$ref"]
+            ref_name = ref_path.rsplit("/", 1)[-1]
+            if ref_name in defs:
+                resolved = dict(defs[ref_name])
+                for k, v in node.items():
+                    if k != "$ref":
+                        resolved[k] = v
+                return _resolve(resolved)
+            return node
+
+        result = {}
+        for k, v in node.items():
+            if k in ("$defs", "definitions"):
+                continue
+            if k == "properties" and isinstance(v, dict):
+                result[k] = {pk: _resolve(pv) for pk, pv in v.items()}
+            elif k == "items":
+                result[k] = _resolve(v)
+            elif k == "anyOf" and isinstance(v, list):
+                result[k] = [_resolve(item) for item in v]
+            else:
+                result[k] = v
+
+        if result.get("type") == "object" and "properties" in result:
+            result["additionalProperties"] = False
+            prop_keys = list(result["properties"].keys())
+            if "required" not in result:
+                result["required"] = prop_keys
+            else:
+                for pk in prop_keys:
+                    if pk not in result["required"]:
+                        result["required"].append(pk)
+
+        return result
+
+    return _resolve(schema)

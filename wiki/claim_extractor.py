@@ -64,7 +64,26 @@ async def extract_claims(llm: Any, page_markdown: str, language: str) -> list[Ex
             {"role": "user", "content": prompt},
         ]
         try:
-            parsed = await llm.complete_json(messages, {})  # type: ignore[union-attr]
+            parsed = await llm.complete_json(messages, {  # type: ignore[union-attr]
+                "title": "ClaimExtraction",
+                "type": "object",
+                "properties": {
+                    "claims": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "claim_text": {"type": "string"},
+                                "subject_entity": {"type": "string"},
+                            },
+                            "required": ["claim_text", "subject_entity"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["claims"],
+                "additionalProperties": False,
+            })
         except (ValueError, Exception):
             return []
         if not isinstance(parsed, list):

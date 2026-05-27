@@ -166,7 +166,17 @@ class ContradictionDetector:
             {"role": "user", "content": prompt},
         ]
         try:
-            data = await self._llm.complete_json(messages, {})
+            data = await self._llm.complete_json(messages, {
+                "title": "ContradictionVerdict",
+                "type": "object",
+                "properties": {
+                    "is_contradiction": {"type": "boolean"},
+                    "description": {"type": "string"},
+                    "severity": {"type": "string", "enum": ["high", "medium", "low"]},
+                },
+                "required": ["is_contradiction", "description", "severity"],
+                "additionalProperties": False,
+            })
         except (ValueError, Exception):
             return None
         try:

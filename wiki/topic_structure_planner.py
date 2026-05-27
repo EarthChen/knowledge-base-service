@@ -97,7 +97,27 @@ class TopicBasedStructurePlanner:
                     {"role": "user", "content": prompt},
                 ]
                 try:
-                    parsed = await self._llm.complete_json(messages, {})
+                    parsed = await self._llm.complete_json(messages, {
+                        "title": "TopicStructurePlan",
+                        "type": "object",
+                        "properties": {
+                            "topics": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "title": {"type": "string"},
+                                        "slug": {"type": "string"},
+                                        "module_keys": {"type": "array", "items": {"type": "string"}},
+                                    },
+                                    "required": ["title", "slug", "module_keys"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": ["topics"],
+                        "additionalProperties": False,
+                    })
                 except (ValueError, Exception) as exc:
                     log.warning("topic_planner_llm_failed", error=str(exc)[:200])
                     return self._fallback(domain_mapping)

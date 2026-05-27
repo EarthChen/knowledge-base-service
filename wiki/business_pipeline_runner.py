@@ -460,6 +460,16 @@ class BusinessPipelineRunner:
             except Exception:
                 log.warning("pinned_modules_load_failed", business_id=business_id, exc_info=True)
 
+        # Load domain anchors for F9 protection (always, not just incremental)
+        anchored_slugs: set[str] = set()
+        anchor_display_names: dict[str, str] = {}
+        try:
+            anchors = await self._persistence.list_domain_anchors(business_id) or []
+            anchored_slugs = {str(a["slug"]) for a in anchors if a.get("anchor_type") == "user"}
+            anchor_display_names = {str(a["slug"]): a.get("display_name", a["slug"]) for a in anchors}
+        except Exception:
+            log.warning("domain_anchors_load_failed", business_id=business_id, exc_info=True)
+
         if existing_domain_tree:
             from wiki.pipeline_orchestrator import domain_tree_to_mapping
 
@@ -528,6 +538,8 @@ class BusinessPipelineRunner:
                 existing_summaries=existing_summaries or None,
                 affected_modules=affected_module_names or None,
                 pinned_modules=pinned_modules or None,
+                anchored_slugs=anchored_slugs or None,
+                anchor_display_names=anchor_display_names or None,
                 is_incremental=incremental
                 and (
                     bool(skipped_repos)
@@ -925,6 +937,7 @@ class BusinessPipelineRunner:
                 stale_deleted = await self._cleanup_stale_domain_pages(
                     business_id,
                     all_active_slugs,
+                    anchored_slugs=anchored_slugs,
                 )
                 if stale_deleted > 0:
                     log.info(
@@ -938,6 +951,14 @@ class BusinessPipelineRunner:
                         "container_domain_topics_cleaned",
                         business_id=business_id,
                         deleted=container_deleted,
+                    )
+                # Purge pages that have been stale beyond retention window
+                purge_count = await self._purge_stale_pages(business_id)
+                if purge_count > 0:
+                    log.info(
+                        "stale_pages_purged",
+                        business_id=business_id,
+                        purged=purge_count,
                     )
                 await self._tree_linker.link_pages_to_nested_tree(
                     business_id,

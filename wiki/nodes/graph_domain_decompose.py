@@ -1414,6 +1414,7 @@ async def graph_driven_domain_decompose_node(
             business_id=state.get("business_id", ""),
             module_details=module_summaries_raw,
             language=_resolve_content_language(state),
+            anchored_slugs=frozenset(state.get("anchored_slugs") or set()),
         )
 
         # Rebuild communities_named after review

@@ -18,7 +18,7 @@ from core.log import get_logger
 if TYPE_CHECKING:
     from indexer.languages import LanguagePlugin, PluginRegistry
 
-    from tree_sitter import Language, Parser, Tree
+    from tree_sitter import Parser, Tree
 
 _LANGUAGE_QUERIES_CACHE: dict[str, dict[str, str]] | None = None
 

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Audit wiki data by querying FalkorDB directly.
 
-Usage (on dev machine):
-    cd ~/review-bot/knowledge-base-service
-    source .venv/bin/activate
-    python scripts/audit_wiki_data.py --business-id ultron --output /tmp/wiki-audit.json
+Usage:
+    # On dev machine (recommended)
+    ssh dev "cd ~/review-bot/knowledge-base-service && PYTHONPATH=. .venv/bin/python scripts/audit_wiki_data.py --full-content --output data/wiki-audit.json"
+    scp dev:~/review-bot/knowledge-base-service/data/wiki-audit.json data/
 
-Usage (remote via SSH):
-    ssh dev 'cd ~/review-bot/knowledge-base-service && source .venv/bin/activate && python scripts/audit_wiki_data.py --business-id ultron' > data/wiki-audit.json
+    # With repository filter (exclude stale module_overview from other repos)
+    ssh dev "cd ~/review-bot/knowledge-base-service && PYTHONPATH=. .venv/bin/python scripts/audit_wiki_data.py --full-content --repo ultron --output data/wiki-audit.json"
 """
 from __future__ import annotations
 
@@ -18,8 +18,7 @@ import re
 import sys
 from typing import Any
 
-_ENGLISH_H2_RE = re.compile(r"## [A-Z][a-z]")
-_ENGLISH_H2_ALL_RE = re.compile(r"^## [A-Z][A-Za-z ]+$", re.MULTILINE)
+_ENGLISH_H2_RE = re.compile(r"^## [A-Z][A-Za-z][\w ]*$", re.MULTILINE)
 
 
 def _compute_cn_ratio(content: str) -> float:
@@ -31,13 +30,9 @@ def _compute_cn_ratio(content: str) -> float:
     return round(cn_count / len(text), 4)
 
 
-def _has_english_h2(content: str) -> bool:
-    return bool(_ENGLISH_H2_RE.search(content or ""))
-
-
 def _extract_english_h2_list(content: str) -> list[str]:
-    """Extract all English H2 headings from content."""
-    return _ENGLISH_H2_ALL_RE.findall(content or "")
+    """Extract H2 headings that are primarily English."""
+    return _ENGLISH_H2_RE.findall(content or "")
 
 
 def _extract_h2_list(content: str) -> list[str]:
@@ -50,9 +45,13 @@ def _detect_hallucination_patterns(content: str) -> list[str]:
     patterns = []
     hallucination_res = [
         (r"\d+\.\d+%", "fabricated percentage"),
-        (r"≤\d+s", "fabricated SLA"),
+        (r"\b\d{2,3}%", "fabricated round percentage"),
+        (r"≤\d+s|≥\d+\.\d+", "fabricated SLA"),
+        (r"P\d{2}\s*[<≤]\s*\d+", "fabricated latency SLA"),
         (r"留存.*[+\-]\d+", "fabricated retention metric"),
         (r"健身|看护|儿童", "fabricated business scenario"),
+        (r"\d{4}年\d{1,2}月\d{1,2}日", "fabricated date"),
+        (r"\d{4}-\d{2}-\d{2}\s+复核", "fabricated review date"),
     ]
     text = re.sub(r"```[\s\S]*?```", "", content or "")
     for pat, desc in hallucination_res:
@@ -61,7 +60,24 @@ def _detect_hallucination_patterns(content: str) -> list[str]:
     return patterns
 
 
-async def query_wiki_data(business_id: str, graph_name: str | None = None, full_content: bool = False) -> dict[str, Any]:
+def _detect_render_issues(content: str) -> list[str]:
+    """Detect Markdown rendering problems."""
+    issues = []
+    if re.search(r"^## .+\n[a-z]", content or "", re.MULTILINE):
+        issues.append("h2_line_break")
+    if re.search(r"```\w*\n\s*```", content or ""):
+        issues.append("empty_code_block")
+    if re.search(r"\[\[\s*\]\]", content or ""):
+        issues.append("empty_wikilink")
+    return issues
+
+
+async def query_wiki_data(
+    business_id: str,
+    graph_name: str | None = None,
+    full_content: bool = False,
+    repo_filter: str | None = None,
+) -> dict[str, Any]:
     """Query all wiki data from FalkorDB for a business."""
     from falkordb import FalkorDB as FalkorDBClient
 
@@ -97,34 +113,49 @@ async def query_wiki_data(business_id: str, graph_name: str | None = None, full_
 
     results: dict[str, Any] = {"business_id": business_id, "graph_name": gname}
 
-    # 1. All WikiPage nodes
-    pages_q = (
-        "MATCH (wp:WikiPage) "
-        "RETURN wp.uid AS uid, wp.title AS title, wp.path AS path, "
-        "wp.page_type AS page_type, wp.repository AS repository, "
-        "wp.content AS content, wp.generated_at AS generated_at, "
-        "coalesce(wp.canonical_key, '') AS canonical_key, "
-        "coalesce(wp.business_domain, '') AS business_domain "
-        "ORDER BY wp.path"
-    )
-    pages_result = await store.execute_query(pages_q, {})
+    # 1. All WikiPage nodes (with optional repo filter)
+    if repo_filter:
+        pages_q = (
+            "MATCH (wp:WikiPage) "
+            "WHERE wp.repository = $repo "
+            "RETURN wp.uid AS uid, wp.title AS title, wp.path AS path, "
+            "wp.page_type AS page_type, wp.repository AS repository, "
+            "wp.content AS content, wp.generated_at AS generated_at, "
+            "coalesce(wp.canonical_key, '') AS canonical_key, "
+            "coalesce(wp.business_domain, '') AS business_domain "
+            "ORDER BY wp.path"
+        )
+        pages_result = await store.execute_query(pages_q, {"repo": repo_filter})
+    else:
+        pages_q = (
+            "MATCH (wp:WikiPage) "
+            "RETURN wp.uid AS uid, wp.title AS title, wp.path AS path, "
+            "wp.page_type AS page_type, wp.repository AS repository, "
+            "wp.content AS content, wp.generated_at AS generated_at, "
+            "coalesce(wp.canonical_key, '') AS canonical_key, "
+            "coalesce(wp.business_domain, '') AS business_domain "
+            "ORDER BY wp.path"
+        )
+        pages_result = await store.execute_query(pages_q, {})
     pages_data = getattr(pages_result, "data", None) or []
     pages = []
     for row in pages_data:
         content = str(row.get("content") or "")
+        english_h2s = _extract_english_h2_list(content)
         page_entry: dict[str, Any] = {
             "uid": str(row.get("uid") or ""),
             "title": str(row.get("title") or ""),
             "path": str(row.get("path") or ""),
             "page_type": str(row.get("page_type") or ""),
             "repository": str(row.get("repository") or ""),
-            "content_len": len(content),
+            "content_length": len(content),
             "content_preview": content[:500] if content else "",
             "cn_ratio": _compute_cn_ratio(content),
-            "has_english_h2": _has_english_h2(content),
-            "english_h2_list": _extract_english_h2_list(content),
+            "has_english_h2": len(english_h2s) > 0,
+            "english_h2_list": english_h2s,
             "h2_list": _extract_h2_list(content),
             "hallucination_flags": _detect_hallucination_patterns(content),
+            "render_issues": _detect_render_issues(content),
             "generated_at": str(row.get("generated_at") or ""),
             "canonical_key": str(row.get("canonical_key") or ""),
             "business_domain": str(row.get("business_domain") or ""),
@@ -134,6 +165,8 @@ async def query_wiki_data(business_id: str, graph_name: str | None = None, full_
         pages.append(page_entry)
     results["pages"] = pages
     results["total_pages"] = len(pages)
+    if repo_filter:
+        results["repo_filter"] = repo_filter
 
     # 2. WikiSection nodes (domains)
     sections_q = (
@@ -229,10 +262,10 @@ async def query_wiki_data(business_id: str, graph_name: str | None = None, full_
             domain_slugs.add(parts[1])
 
     # Content length stats
-    overview_lens = [p["content_len"] for p in domain_overviews]
-    topic_lens = [p["content_len"] for p in topics]
-    thin_overviews = [p for p in domain_overviews if p["content_len"] < 2000]
-    thin_topics = [p for p in topics if p["content_len"] < 1000]
+    overview_lens = [p["content_length"] for p in domain_overviews]
+    topic_lens = [p["content_length"] for p in topics]
+    thin_overviews = [p for p in domain_overviews if p["content_length"] < 2000]
+    thin_topics = [p for p in topics if p["content_length"] < 1000]
 
     # Domains with/without topics
     domains_with_topics: set[str] = set()
@@ -247,10 +280,10 @@ async def query_wiki_data(business_id: str, graph_name: str | None = None, full_
     low_cn_pages = []
     for p in pages:
         ratio = p["cn_ratio"]
-        if p["content_len"] < 50:
+        if p["content_length"] < 50:
             continue
-        if ratio < 0.15:
-            low_cn_pages.append({"path": p["path"], "title": p["title"], "cn_ratio": ratio})
+        if ratio < 0.25:
+            low_cn_pages.append({"path": p["path"], "title": p["title"], "cn_ratio": ratio, "page_type": p["page_type"]})
 
     results["stats"] = {
         "total_pages": len(pages),
@@ -273,8 +306,37 @@ async def query_wiki_data(business_id: str, graph_name: str | None = None, full_
 
     results["domain_slugs"] = sorted(domain_slugs)
     results["domains_without_topics"] = sorted(domains_without_topics)
-    results["thin_overviews"] = sorted(thin_overviews, key=lambda p: p["content_len"])[:20]
+    results["thin_overviews"] = sorted(thin_overviews, key=lambda p: p["content_length"])[:20]
     results["low_cn_pages"] = sorted(low_cn_pages, key=lambda p: p["cn_ratio"])[:20]
+
+    # Render issue summary
+    pages_with_render_issues = [
+        {"path": p["path"], "title": p["title"], "issues": p["render_issues"]}
+        for p in pages if p.get("render_issues")
+    ]
+    results["pages_with_render_issues"] = pages_with_render_issues
+    results["stats"]["pages_with_render_issues"] = len(pages_with_render_issues)
+
+    # Stub topics (< 1500 chars)
+    stub_topics = [
+        {"path": p["path"], "title": p["title"], "content_length": p["content_length"]}
+        for p in topics if p["content_length"] < 1500
+    ]
+    results["stub_topics"] = sorted(stub_topics, key=lambda p: p["content_length"])
+
+    # Duplicate H2 detection within pages
+    pages_with_dup_h2 = []
+    for p in pages:
+        h2s = p.get("h2_list", [])
+        seen: set[str] = set()
+        dups: list[str] = []
+        for h in h2s:
+            if h in seen:
+                dups.append(h)
+            seen.add(h)
+        if dups:
+            pages_with_dup_h2.append({"path": p["path"], "title": p["title"], "duplicate_h2s": dups})
+    results["pages_with_duplicate_h2"] = pages_with_dup_h2
 
     # 5. Tree depth and structure analysis
     tree_edges = results.get("tree_edges", [])
@@ -394,9 +456,10 @@ def main():
     parser.add_argument("--graph", default=None, help="FalkorDB graph name (default: kb_{business_id})")
     parser.add_argument("--output", default=None, help="Output file path (default: stdout)")
     parser.add_argument("--full-content", action="store_true", help="Include full page content in output")
+    parser.add_argument("--repo", default=None, help="Filter by repository name (e.g. 'ultron' to exclude stale module_overview from other repos)")
     args = parser.parse_args()
 
-    data = asyncio.run(query_wiki_data(args.business_id, graph_name=args.graph, full_content=args.full_content))
+    data = asyncio.run(query_wiki_data(args.business_id, graph_name=args.graph, full_content=args.full_content, repo_filter=args.repo))
 
     output = json.dumps(data, ensure_ascii=False, indent=2)
     if args.output:

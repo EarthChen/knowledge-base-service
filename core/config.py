@@ -307,7 +307,12 @@ class AppWikiFlags(BaseModel):
     )
     topic_split_quality_check: bool = True
     enable_topic_pages: bool = Field(default=True, description="Enable topic page generation in Orchestrator path")
+    min_overview_len_for_topics: int = Field(
+        default=4000, ge=0, description="Min overview chars to trigger topic planning for small domains"
+    )
     topic_force_split_threshold: int = Field(default=6, description="Force topic split when module count >= this")
+    max_topics_per_domain: int = Field(default=4, ge=1, description="Max topic pages per domain after planning")
+    quality_l3_concurrency: int = Field(default=4, ge=1, description="Max concurrent L3 LLM-as-judge evaluations")
     domain_split_threshold: int = Field(default=20, description="Min modules to trigger recursive sub-domain split")
     domain_split_max_depth: int = Field(default=2, description="Max recursion depth for sub-domain splitting")
     domain_budget_max: int = Field(

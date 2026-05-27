@@ -17,6 +17,14 @@ _INTERNAL_URL_RE = re.compile(
     re.IGNORECASE,
 )
 _CREDENTIAL_RE = re.compile(r"((?:password|secret|api[_-]?key|private[_-]?key)\s*[:=]\s*)\S+", re.IGNORECASE)
+_EMPTY_CODE_BLOCK_RE = re.compile(r"```\w*\n\s*```")
+_EMPTY_WIKILINK_RE = re.compile(r"\[\[\s*\]\]")
+_INJECTED_REF_RE = re.compile(r"<!-- __INJECTED_CODE_REF__[^>]* -->")
+_EXCESS_NEWLINES_RE = re.compile(r"\n{4,}")
+_ENGLISH_OVERVIEW_RE = re.compile(
+    r"^>\s*\*\*Overview\*\*\s*:.*?(?=\n(?!\s*>)|\n##|\Z)",
+    re.DOTALL | re.MULTILINE,
+)
 _REDACT_PATTERNS = [
     (_INTERNAL_URL_RE, "[INTERNAL_URL]"),
     (_CREDENTIAL_RE, r"\1[REDACTED]"),
@@ -136,6 +144,61 @@ def _sanitize_published_content(content: str) -> str:
     return content.strip()
 
 
+def _sanitize_render_issues(content: str) -> str:
+    """Remove empty code blocks, empty wikilinks, injection residuals."""
+    content = _EMPTY_CODE_BLOCK_RE.sub("", content)
+    content = _EMPTY_WIKILINK_RE.sub("", content)
+    content = _INJECTED_REF_RE.sub("", content)
+    content = _EXCESS_NEWLINES_RE.sub("\n\n\n", content)
+    return content.strip()
+
+
+def _dedup_h2_sections(content: str) -> str:
+    """Deduplicate H2 sections with identical titles; keep the last occurrence."""
+    lines = content.split("\n")
+    h2_indices: list[int] = []
+    for i, line in enumerate(lines):
+        if line.startswith("## "):
+            h2_indices.append(i)
+
+    if not h2_indices:
+        return content
+
+    sections: list[tuple[int, int, str]] = []
+    for idx, start in enumerate(h2_indices):
+        end = h2_indices[idx + 1] if idx + 1 < len(h2_indices) else len(lines)
+        h2_title = lines[start].strip()
+        sections.append((start, end, h2_title))
+
+    title_last: dict[str, int] = {}
+    for i, (_, _, title) in enumerate(sections):
+        title_last[title] = i
+
+    to_remove = {i for i, (_, _, title) in enumerate(sections) if title_last[title] != i}
+
+    if not to_remove:
+        return content
+
+    pre_section = lines[: h2_indices[0]] if h2_indices else []
+    new_lines = list(pre_section)
+    for i, (start, end, _) in enumerate(sections):
+        if i not in to_remove:
+            new_lines.extend(lines[start:end])
+
+    return "\n".join(new_lines)
+
+
+def _sanitize_english_overview(content: str) -> str:
+    """Remove English-dominant Overview blockquote."""
+    match = _ENGLISH_OVERVIEW_RE.search(content)
+    if match:
+        text = match.group(0)
+        cn_chars = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
+        if cn_chars / max(len(text), 1) < 0.15:
+            content = content[: match.start()] + content[match.end() :]
+    return content
+
+
 def _extract_class_references(content: str) -> set[str]:
     """Extract backtick-quoted class names from content."""
     return set(
@@ -161,6 +224,10 @@ _CODE_FENCE_RE = re.compile(r"```[\s\S]*?```")
 _FABRICATED_PERCENT_RE = re.compile(r"[↑↓+\-]\s*\d+\.?\d*\s*%")
 _FABRICATED_SLA_RE = re.compile(r"(?:SLA|P\d{2}|RTO|RPO)\s*[<≤≥>]\s*\d")
 _NARRATIVE_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_FABRICATED_TECH_ROADMAP_RE = re.compile(r"GNN|\b联邦学习|LSTM|Transformer|GDPR")
+_FABRICATED_TIMELINE_RE = re.compile(r"Phase\s+\d|\d+-\d+个月")
+_META_SELF_REFERENCE_RE = re.compile(r"中文字符占比|字符比例")
+_FABRICATED_SCENARIO_RE = re.compile(r"共同采购|节日准备|婚恋平台")
 
 
 def _strip_code_fences(content: str) -> str:
@@ -177,6 +244,14 @@ def _detect_hallucination_patterns(content: str) -> list[str]:
         flags.append("fabricated_sla")
     if _NARRATIVE_DATE_RE.search(text):
         flags.append("narrative_date")
+    if _FABRICATED_TECH_ROADMAP_RE.search(text):
+        flags.append("fabricated_tech_roadmap")
+    if _FABRICATED_TIMELINE_RE.search(text):
+        flags.append("fabricated_timeline")
+    if _META_SELF_REFERENCE_RE.search(text):
+        flags.append("meta_self_reference")
+    if _FABRICATED_SCENARIO_RE.search(text):
+        flags.append("fabricated_scenario")
     return flags
 
 
@@ -287,6 +362,9 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
         raw_content_len = len(content) if content else 0
         if content:
             content = _sanitize_published_content(content)
+            content = _sanitize_render_issues(content)
+            content = _dedup_h2_sections(content)
+            content = _sanitize_english_overview(content)
             content = _remove_invalid_wikilinks(content, valid_targets)
 
             content_language = _resolve_page_content_language(page, state)
@@ -321,6 +399,7 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                         content_len=raw_content_len,
                         threshold=min_publish,
                     )
+                    updated_pages.append({**page, "content": "", "__rejected__": True})
                     continue
 
             if is_topic and not is_topic_index:
@@ -337,6 +416,7 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                             cn_ratio=round(cn_ratio, 3),
                             min_ratio=min_ratio,
                         )
+                        updated_pages.append({**page, "content": "", "__rejected__": True})
                         continue
 
             if is_overview or is_topic:
@@ -355,6 +435,15 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                         flags=hallucination_flags,
                     )
                     if is_topic and not is_topic_index:
+                        updated_pages.append({**page, "content": "", "__rejected__": True})
+                        continue
+                    if is_overview and len(hallucination_flags) >= 3:
+                        log.warning(
+                            "hallucination_overview_rejected",
+                            page_path=page.get("path"),
+                            flags=hallucination_flags,
+                        )
+                        updated_pages.append({**page, "content": "", "__rejected__": True})
                         continue
 
             class_refs = _extract_class_references(content)
@@ -368,9 +457,14 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
             page = {**page, "content": content}
         updated_pages.append(page)
 
+    published = sum(1 for p in updated_pages if not p.get("__rejected__"))
+    rejected = sum(1 for p in updated_pages if p.get("__rejected__"))
     log.info(
         "pipeline_complete",
+        run_id=state.get("run_id"),
         total_pages=len(pages),
+        pages_published=published,
+        pages_rejected=rejected,
         error_count=len(state.get("errors", [])),
     )
     return {"pages": updated_pages} if updated_pages else {}

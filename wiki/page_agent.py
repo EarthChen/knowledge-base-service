@@ -417,7 +417,7 @@ class WorkingMemory:
             removed = False
             for lst in all_lists:
                 if lst:
-                    total -= len(lst[0])
+                    total -= max(len(lst[0]), 1)
                     del lst[0]
                     removed = True
                     break

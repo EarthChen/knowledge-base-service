@@ -41,8 +41,12 @@ class TestFinalizeStubTopicReject:
                 result = await finalize_node(state)
 
         paths = {p["path"] for p in result.get("pages", [])}
-        assert "/__domains__/test/stub-topic" not in paths
+        assert "/__domains__/test/stub-topic" in paths
+        stub = next(p for p in result["pages"] if p["path"] == "/__domains__/test/stub-topic")
+        assert stub.get("__rejected__") is True
         assert "/__domains__/test/full-topic" in paths
+        full = next(p for p in result["pages"] if p["path"] == "/__domains__/test/full-topic")
+        assert not full.get("__rejected__")
 
         warning_calls = [
             c for c in mock_log.warning.call_args_list if c[0][0] == "stub_topic_rejected"

@@ -138,7 +138,10 @@ class TestFinalizeHallucinationReject:
                 result = await finalize_node(state)
 
         paths = {p["path"] for p in result.get("pages", [])}
-        assert "/__domains__/test/hallucinated" not in paths
+        assert "/__domains__/test/hallucinated" in paths
+        rejected = next(p for p in result["pages"] if p["path"] == "/__domains__/test/hallucinated")
+        assert rejected.get("__rejected__") is True
+        assert rejected.get("content") == ""
         hallucination_calls = [c for c in mock_log.warning.call_args_list if c[0][0] == "hallucination_detected"]
         assert len(hallucination_calls) == 1
 
@@ -169,7 +172,10 @@ class TestFinalizeStubRejectThreshold:
                 result = await finalize_node(state)
 
         paths = {p["path"] for p in result.get("pages", [])}
-        assert "/__domains__/test/short-topic" not in paths
+        assert "/__domains__/test/short-topic" in paths
+        rejected = next(p for p in result["pages"] if p["path"] == "/__domains__/test/short-topic")
+        assert rejected.get("__rejected__") is True
+        assert rejected.get("content") == ""
         reject_calls = [c for c in mock_log.warning.call_args_list if c[0][0] == "stub_topic_rejected"]
         assert len(reject_calls) == 1
 
@@ -215,7 +221,10 @@ class TestFinalizeCnRatioThreshold:
                 result = await finalize_node(state)
 
         paths = {p["path"] for p in result.get("pages", [])}
-        assert "/__domains__/test/low-cn" not in paths
+        assert "/__domains__/test/low-cn" in paths
+        rejected = next(p for p in result["pages"] if p["path"] == "/__domains__/test/low-cn")
+        assert rejected.get("__rejected__") is True
+        assert rejected.get("content") == ""
         reject_calls = [c for c in mock_log.warning.call_args_list if c[0][0] == "low_cn_ratio_topic_rejected"]
         assert len(reject_calls) == 1
 

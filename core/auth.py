@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import Depends, Header, HTTPException, Request
+from fastapi import Header, HTTPException, Request
 
 from core.config import Settings, get_settings
 from core.log import get_logger

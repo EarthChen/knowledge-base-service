@@ -58,6 +58,16 @@ def _is_chinese_lang(lang: str) -> bool:
     return normalized in ("zh", "zh-cn", "zh-tw", "zh-hans", "chinese", "简体中文", "繁體中文") or "中文" in lang
 
 
+def _detect_lang_from_content(content: str) -> str:
+    """Auto-detect language from content based on Chinese character ratio."""
+    text = re.sub(r"```[\s\S]*?```", "", content or "")
+    if not text:
+        return ""
+    cn_count = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
+    ratio = cn_count / len(text)
+    return "zh" if ratio > 0.15 else "en"
+
+
 def _check_cn_ratio(page: dict[str, Any]) -> float:
     """Estimate Chinese character ratio from page content (strips code fences)."""
     content = page.get("content", "")
@@ -233,24 +243,26 @@ async def quality_gate_node(
         low_cn_ratio = False
         page_type = str(page_dict.get("page_type") or "")
         content_language = str(page_dict.get("content_language") or "")
-        if page_type == "topic" and content_language and _is_chinese_lang(content_language):
-            cn_ratio = _check_cn_ratio(page_dict)
-            cn_threshold = getattr(wiki_cfg, "language_guardrail_cn_ratio", 0.15)
-            score_dict["cn_ratio"] = round(cn_ratio, 3)
-            if cn_ratio < cn_threshold:
-                low_cn_ratio = True
-                score_dict["low_cn_ratio"] = True
-                log.warning(
-                    "quality_gate_low_cn_ratio",
-                    title=page_dict.get("title"),
-                    cn_ratio=round(cn_ratio, 3),
-                    threshold=cn_threshold,
-                )
-                page_dict.setdefault("metadata", {})["heal_reason"] = f"low_cn_ratio_{cn_ratio:.3f}"
-                heal_hints[page.path] = (
-                    f"Chinese content ratio too low ({cn_ratio:.1%} < {cn_threshold:.0%}); "
-                    "regenerate with stronger Chinese prompts"
-                )
+        if page_type == "topic":
+            effective_lang = content_language or _detect_lang_from_content(page_dict.get("content", ""))
+            if _is_chinese_lang(effective_lang):
+                cn_ratio = _check_cn_ratio(page_dict)
+                cn_threshold = getattr(wiki_cfg, "language_guardrail_cn_ratio", 0.15)
+                score_dict["cn_ratio"] = round(cn_ratio, 3)
+                if cn_ratio < cn_threshold:
+                    low_cn_ratio = True
+                    score_dict["low_cn_ratio"] = True
+                    log.warning(
+                        "quality_gate_low_cn_ratio",
+                        title=page_dict.get("title"),
+                        cn_ratio=round(cn_ratio, 3),
+                        threshold=cn_threshold,
+                    )
+                    page_dict.setdefault("metadata", {})["heal_reason"] = f"low_cn_ratio_{cn_ratio:.3f}"
+                    heal_hints[page.path] = (
+                        f"Chinese content ratio too low ({cn_ratio:.1%} < {cn_threshold:.0%}); "
+                        "regenerate with stronger Chinese prompts"
+                    )
 
         score_dict["overall"] = _compute_overall(score_dict)
 
@@ -356,12 +368,19 @@ async def quality_gate_node(
 
     log.info(
         "quality_gate_done",
+        run_id=state.get("run_id"),
         total_pages=len(state.get("pages", [])),
         evaluated=len(quality_scores),
         to_heal=len(pages_to_heal),
         levels=levels,
         context_gaps_total=total_gaps,
         pages_with_context_gaps=pages_with_gaps,
+        page_scores=[
+            {"path": p.get("path", ""), "overall": scores.get("overall", 0)}
+            for p in state.get("pages", [])
+            for scores in [quality_scores.get(p.get("path", ""), {})]
+            if scores
+        ],
     )
     return {
         "quality_scores": quality_scores,

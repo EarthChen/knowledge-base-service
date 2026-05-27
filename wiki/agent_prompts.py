@@ -55,6 +55,9 @@ AGENT_CORE_CONSTRAINTS = """\
 ### 禁止事项
 - 不要复述 Spring / gRPC / 分层架构等与当前域无粘性的框架科普。
 - 禁止使用「可能」「一般来说」「通常」等空洞措辞。
+- 禁止使用以下空洞表述：「高内聚低耦合」「核心价值在于」「分层架构设计」「显著提升」\
+「长期稳定运行」「核心业务能力」「为上层业务提供」。
+- 每个描述必须绑定具体的类名/方法名/业务规则。若某处无法提供具体信息，删除该段而非填充套话。
 - 严禁基于类名推测业务逻辑（如根据 Handler/Service/Manager 猜测 Redis/Kafka 等实现细节）。
 - **严禁虚构元数据**：不得编造任何日期（如"最后更新"、"版本号"）、\
 维护人姓名、邮箱、团队名称。这些信息不在代码中，你无权捏造。
@@ -151,6 +154,11 @@ AGENT_WRITE_SYSTEM = f"""\
 4. ## 依赖关系
    - 基于探索结果的跨域依赖绘制 Mermaid flowchart
    - 描述模块间依赖和与外部系统的关系
+
+## 语言规范
+- 所有段落（包括顶部 Overview 摘要块）必须使用中文撰写。
+- 禁止出现英文段落或英文 Overview 块。
+- 代码块内的注释使用中文。
 """
 
 # ---------------------------------------------------------------------------
@@ -329,10 +337,7 @@ def get_topic_planner_prompt(language: str = "简体中文") -> str:
         f"- Section headings in generated content MUST be in {language}.\n"
     )
     if _is_chinese_language(language):
-        lang_rule += (
-            '- Topic titles must reflect business capability '
-            '(e.g. "用户等级体系"), not technical suffixes.\n'
-        )
+        lang_rule += '- Topic titles must reflect business capability (e.g. "用户等级体系"), not technical suffixes.\n'
     return SYSTEM_TOPIC_PLANNER + lang_rule
 
 
@@ -369,7 +374,5 @@ def build_term_glossary_prompt(glossary: dict[str, str]) -> str:
     lines = [f"- {eng} → **{chn}**" for eng, chn in sorted(glossary.items())]
     return (
         "\n--- 术语约束 (Term Glossary) ---\n"
-        "以下术语在本项目中有确定的中文表达，请严格使用:\n"
-        + "\n".join(lines)
-        + "\n---\n"
+        "以下术语在本项目中有确定的中文表达，请严格使用:\n" + "\n".join(lines) + "\n---\n"
     )

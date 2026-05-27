@@ -198,6 +198,11 @@ class WikiPagePersistence:
         skip_claim_tracking: bool = False,
         skip_embedding: bool = False,
     ) -> None:
+        pages = [
+            p
+            for p in pages
+            if not (isinstance(p, dict) and p.get("__rejected__")) and not getattr(p, "__rejected__", False)
+        ]
         if self._store is None or not hasattr(self._store, "persist_wiki_pages"):
             return
         _t0 = _time.monotonic()

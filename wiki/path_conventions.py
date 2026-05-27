@@ -63,6 +63,41 @@ def _pinyin_slug(text: str) -> str:
         return ""
 
 
+_COMMON_ENGLISH_WORDS: frozenset[str] = frozenset({
+    "api", "app", "auth", "base", "bulk", "bus", "call", "cash", "chat",
+    "code", "core", "crud", "dao", "data", "docs", "enum", "exec",
+    "feed", "file", "flow", "form", "gift", "grid", "hook", "http",
+    "info", "item", "job", "kit", "lang", "link", "list", "load",
+    "lock", "log", "logs", "main", "map", "math", "menu", "mgmt",
+    "mock", "mq", "msg", "net", "node", "note", "ops", "orm",
+    "page", "path", "perm", "pool", "port", "post", "push", "rank",
+    "rate", "rest", "role", "rule", "rpc", "run", "sdk", "send",
+    "shop", "sign", "sink", "slot", "sort", "spec", "sql", "stat",
+    "step", "sync", "tag", "task", "term", "test", "text", "time",
+    "tool", "tree", "type", "unit", "url", "user", "util", "view",
+    "vote", "web", "work", "wrap",
+})
+
+
+def is_pinyin_slug(slug: str) -> bool:
+    """Detect if a slug looks like pinyin transliteration rather than English semantics.
+
+    Heuristic: 4+ segments where most are 2-4 letter tokens that are NOT common
+    English words. Common English words are excluded to avoid false positives
+    on slugs like ``user-data-api-core``.
+    """
+    if not slug or "-" not in slug:
+        return False
+    segments = slug.split("-")
+    if len(segments) < 4:
+        return False
+    pinyin_like = sum(
+        1 for s in segments
+        if re.fullmatch(r"[a-z]{2,4}", s) and s not in _COMMON_ENGLISH_WORDS
+    )
+    return pinyin_like >= 4 and pinyin_like / len(segments) >= 0.8
+
+
 def domain_topic_path(domain: str, section: str) -> str:
     slug = normalize_slug_strict(domain) or normalize_slug(domain) if domain else "unnamed"
     section_slug = normalize_slug_strict(section)

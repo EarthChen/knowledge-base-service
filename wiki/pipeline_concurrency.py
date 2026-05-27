@@ -16,6 +16,7 @@ class PipelineConcurrency:
     """Provides stage-specific semaphores from unified config."""
 
     _cache: ClassVar[dict[str, asyncio.Semaphore]] = {}
+    _cached_limits: ClassVar[dict[str, int]] = {}
     _overrides: ClassVar[dict[str, int] | None] = None
 
     _LEGACY_ENV_ALIASES: ClassVar[dict[str, str]] = {
@@ -63,21 +64,27 @@ class PipelineConcurrency:
             "module_compose": cfg.module_compose_concurrency,
             "domain_naming": cfg.domain_naming_concurrency,
             "flow_compose": cfg.flow_compose_concurrency,
-            "quality_l3": cfg.compose_concurrency,
+            "quality_l3": cfg.quality_l3_concurrency,
         }
         return mapping.get(stage, cfg.compose_concurrency)
 
     @classmethod
     def semaphore(cls, stage: str) -> asyncio.Semaphore:
         """Return cached Semaphore with the resolved concurrency limit for the given stage."""
-        if stage not in cls._cache:
-            cls._cache[stage] = asyncio.Semaphore(cls._resolve_limit(stage))
-        return cls._cache[stage]
+        limit = cls._resolve_limit(stage)
+        cached = cls._cache.get(stage)
+        if cached is not None and cls._cached_limits.get(stage) == limit:
+            return cached
+        sem = asyncio.Semaphore(limit)
+        cls._cache[stage] = sem
+        cls._cached_limits[stage] = limit
+        return sem
 
     @classmethod
     def reset(cls) -> None:
         """Clear cached semaphores (for testing)."""
         cls._cache.clear()
+        cls._cached_limits.clear()
         cls._overrides = None
 
     @classmethod
@@ -89,6 +96,7 @@ class PipelineConcurrency:
         env vars and config defaults.
         """
         cls._cache.clear()
+        cls._cached_limits.clear()
         cls._overrides = overrides
 
     @classmethod

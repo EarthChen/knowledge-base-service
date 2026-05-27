@@ -31,7 +31,10 @@ class TestFinalizeCnRatioGate:
         }
         result = await finalize_node(state)
         pages = result.get("pages", [])
-        assert not any(p.get("path") == "/__domains__/test/topic1/_topic" for p in pages)
+        rejected = [p for p in pages if p.get("path") == "/__domains__/test/topic1/_topic"]
+        assert rejected, "rejected page should still be present with __rejected__ marker"
+        assert rejected[0].get("__rejected__") is True
+        assert rejected[0].get("content") == ""
 
     @pytest.mark.asyncio
     async def test_chinese_topic_no_banner(self):

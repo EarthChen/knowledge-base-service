@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 
 from store.falkordb_store import FalkorDBStore, QueryResultWrapper
-from store.fqn_utils import FQN_RE as _FQN_RE, parse_fqn as _parse_input
+from store.fqn_utils import parse_fqn as _parse_input
 
 
 def _make_params(raw: str) -> dict[str, str]:

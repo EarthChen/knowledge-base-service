@@ -170,6 +170,8 @@ def _pages_from_state(state: dict[str, Any]) -> list[WikiPage]:
         errors = []
         state["errors"] = errors
     for p in state.get("pages", []):
+        if p.get("__rejected__"):
+            continue
         page_path = p.get("path", "?")
         try:
             wp = WikiPage.from_dict(_normalize_pipeline_page_dict(p))
@@ -404,9 +406,14 @@ async def run_langgraph_pipeline(
     if resolved_existing_mapping is None and existing_tree_dicts:
         resolved_existing_mapping = domain_tree_to_mapping(existing_tree_dicts, all_modules)
 
+    import uuid as _uuid
+
+    run_id = str(_uuid.uuid4())[:12]
+
     initial_state: dict[str, Any] = {
         "business_id": business_id,
         "repositories": repositories,
+        "run_id": run_id,
         "config": config_overrides or {},
         "modules": modules_dict,
         "domain_mapping": {},

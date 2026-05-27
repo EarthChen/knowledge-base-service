@@ -39,9 +39,21 @@ SLUG_DENYLIST: frozenset[str] = frozenset({
 })
 
 
+_JAVA_PRIMITIVE_PREFIXES: frozenset[str] = frozenset({
+    "long", "int", "byte", "short", "float", "double", "boolean", "void",
+    "char", "string", "object",
+})
+
+
 def is_denied_slug(slug: str) -> bool:
     """Return True if slug matches a reserved/primitive type keyword."""
-    return slug.lower().strip() in SLUG_DENYLIST
+    base = slug.lower().strip()
+    if base in SLUG_DENYLIST:
+        return True
+    first_segment = base.split("-")[0]
+    if first_segment in _JAVA_PRIMITIVE_PREFIXES:
+        return True
+    return False
 
 
 def is_data_model(name: str, path: str) -> bool:

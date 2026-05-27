@@ -49,6 +49,7 @@ class WikiPipelineState(TypedDict):
     business_id: str
     repositories: list[str]
     config: dict[str, Any]
+    run_id: str
 
     # --- Stage outputs (accumulated by nodes) ---
     modules: dict[str, list[Any]]

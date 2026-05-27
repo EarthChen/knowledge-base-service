@@ -3,6 +3,7 @@
 Wraps WikiPageAgent with iterative quality-driven refinement,
 Explore/Write two-phase separation, and document splitting.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -53,6 +54,16 @@ def _extract_cjk_bigrams(title: str) -> set[str]:
     if len(chars) < 2:
         return set(chars)
     return {chars[i] + chars[i + 1] for i in range(len(chars) - 1)}
+
+
+def _cap_topic_outline(outline: DomainTopicOutline, max_topics: int) -> DomainTopicOutline:
+    """Truncate topic list to configured maximum per domain."""
+    if len(outline.topics) <= max_topics:
+        return outline
+    return DomainTopicOutline(
+        should_split=outline.should_split,
+        topics=outline.topics[:max_topics],
+    )
 
 
 def _dedup_topic_titles(topics: list[TopicPlan]) -> list[TopicPlan]:
@@ -109,7 +120,7 @@ def _derive_slug_from_modules(modules: list[str]) -> str:
 def _parse_topic_outline(raw: str) -> DomainTopicOutline | None:
     """Parse LLM output into a DomainTopicOutline. Returns None on failure."""
     from wiki.json_robust import parse_json_robust_sync
-    from wiki.path_conventions import normalize_slug_strict
+    from wiki.path_conventions import is_pinyin_slug, normalize_slug_strict
 
     parsed = parse_json_robust_sync(raw)
     if not isinstance(parsed, dict):
@@ -128,14 +139,20 @@ def _parse_topic_outline(raw: str) -> DomainTopicOutline | None:
             continue
         slug_raw = str(t.get("slug", ""))
         slug = normalize_slug_strict(slug_raw) if slug_raw else None
+        # Reject pinyin slugs — fall back to module-derived slug
+        if slug and is_pinyin_slug(slug):
+            log.warning("pinyin_slug_rejected", slug=slug, title=title)
+            slug = None
         if not slug:
             slug = _derive_slug_from_modules([str(m) for m in modules])
-        topics.append(TopicPlan(
-            title=str(title),
-            modules=[str(m) for m in modules],
-            description=str(t.get("description", "")),
-            slug=slug or "",
-        ))
+        topics.append(
+            TopicPlan(
+                title=str(title),
+                modules=[str(m) for m in modules],
+                description=str(t.get("description", "")),
+                slug=slug or "",
+            )
+        )
     if not topics:
         return None
     topics = _dedup_topic_titles(topics)
@@ -172,9 +189,7 @@ def _extract_tree_edges(
         parent_key = node.get("canonical_key", "")
         for child in node.get("children", []):
             child_key = child.get("canonical_key", "")
-            if parent_key and child_key and (
-                parent_key in domain_modules or child_key in domain_modules
-            ):
+            if parent_key and child_key and (parent_key in domain_modules or child_key in domain_modules):
                 edges.append((parent_key, child_key))
             _extract_tree_edges([child], domain_modules, edges)
 
@@ -271,19 +286,21 @@ def _maybe_split(
         fallback = "未命名" if language.is_chinese else "Untitled"
         section_title = title_match.group(1).strip() if title_match else fallback
         topic_path = domain_topic_path(domain_slug, section_title)
-        child_pages.append({
-            "page_type": "topic",
-            "title": section_title,
-            "path": topic_path,
-            "content": section,
-            "diagrams": [],
-            "source_locations": [],
-            "metadata": {
-                "node_count": 0,
-                "edge_count": 0,
-                "generation_mode": "agent",
-            },
-        })
+        child_pages.append(
+            {
+                "page_type": "topic",
+                "title": section_title,
+                "path": topic_path,
+                "content": section,
+                "diagrams": [],
+                "source_locations": [],
+                "metadata": {
+                    "node_count": 0,
+                    "edge_count": 0,
+                    "generation_mode": "agent",
+                },
+            }
+        )
         child_links.append(f"- [[{domain_slug}/{section_title}]]")
 
     if not overview.strip():
@@ -320,9 +337,7 @@ def _inject_executive_summaries(pages: list[dict[str, Any]]) -> None:
         if "metadata" not in page:
             page["metadata"] = {}
         if not page["metadata"].get("executive_summary"):
-            page["metadata"]["executive_summary"] = _extract_executive_summary(
-                page.get("content", "")
-            )
+            page["metadata"]["executive_summary"] = _extract_executive_summary(page.get("content", ""))
 
 
 def _check_language_consistency(content: str, target_language: str) -> float:
@@ -332,14 +347,10 @@ def _check_language_consistency(content: str, target_language: str) -> float:
         return 1.0
 
     if "中文" in target_language:
-        cn_headings = sum(
-            1 for h in headings if any("\u4e00" <= c <= "\u9fff" for c in h)
-        )
+        cn_headings = sum(1 for h in headings if any("\u4e00" <= c <= "\u9fff" for c in h))
         return cn_headings / len(headings)
 
-    en_headings = sum(
-        1 for h in headings if not any("\u4e00" <= c <= "\u9fff" for c in h)
-    )
+    en_headings = sum(1 for h in headings if not any("\u4e00" <= c <= "\u9fff" for c in h))
     return en_headings / len(headings)
 
 
@@ -414,13 +425,15 @@ class DomainDocAgent(DocOrchestrator):
         self._valid_pairs: list[str] | None = None
         self._topic_split_done: bool = False
         self.iteration_history: list[dict[str, Any]] = []
-        self._output_guardrail = OutputGuardrailChain([
-            FormatCheck(),
-            CoverageCheck(),
-            LengthCheck(),
-            LanguageConsistencyCheck(),
-            SensitiveContentCheck(),
-        ])
+        self._output_guardrail = OutputGuardrailChain(
+            [
+                FormatCheck(),
+                CoverageCheck(),
+                LengthCheck(),
+                LanguageConsistencyCheck(),
+                SensitiveContentCheck(),
+            ]
+        )
 
     def _build_write_prompt(self, baseline_context: str, memory: Any) -> str:
         base = super()._build_write_prompt(baseline_context, memory)
@@ -450,6 +463,17 @@ class DomainDocAgent(DocOrchestrator):
             language=lang,
         )
 
+    async def generate(
+        self,
+        module_names: list[str],
+        baseline_context: str,
+    ) -> list[dict[str, Any]]:
+        """Skip shell domains with no modules before orchestration."""
+        if not module_names:
+            log.info("skip_shell_domain_no_modules", domain=self.domain_name)
+            return []
+        return await super().generate(module_names, baseline_context)
+
     # --- Hook 1: pre_fill ---
     async def pre_fill(
         self,
@@ -474,7 +498,7 @@ class DomainDocAgent(DocOrchestrator):
             query_params = {"names": bare_names or [str(n) for n in module_names], "valid_pairs": pairs}
 
             result = await graph.execute_query(SNIPPETS_CY, query_params)
-            for row in (getattr(result, "data", None) or []):
+            for row in getattr(result, "data", None) or []:
                 func_name = str(row.get("func_name", ""))
                 snippet = str(row.get("snippet", "")).strip()
                 file_path = str(row.get("file_path", ""))
@@ -482,7 +506,7 @@ class DomainDocAgent(DocOrchestrator):
                     memory.code_snippets.append(f"[{func_name} @ {file_path}]\n{snippet}")
             if hasattr(memory, "code_snippets") and not memory.code_snippets:
                 result = await graph.execute_query(CHUNK_SNIPPETS_CY, query_params)
-                for row in (getattr(result, "data", None) or []):
+                for row in getattr(result, "data", None) or []:
                     entity_name = str(row.get("entity_name", ""))
                     snippet = str(row.get("snippet", "")).strip()
                     if snippet:
@@ -507,11 +531,7 @@ class DomainDocAgent(DocOrchestrator):
     # --- Hook 3: is_acceptable ---
     def is_acceptable(self, quality: QualityResult, iteration: int) -> bool:
         """Determine if quality is good enough to stop iterating."""
-        if (
-            quality.coverage >= 0.95
-            and quality.citation_density >= 0.5
-            and quality.context_gap_count == 0
-        ):
+        if quality.coverage >= 0.95 and quality.citation_density >= 0.5 and quality.context_gap_count == 0:
             return True
         if iteration >= 2 and quality.coverage >= 0.9 and quality.citation_density >= 0.3:
             return True
@@ -520,9 +540,7 @@ class DomainDocAgent(DocOrchestrator):
         return False
 
     # --- Hook 4: post_process ---
-    def post_process(
-        self, content: str, module_names: list[str], memory: Any
-    ) -> list[dict[str, Any]]:
+    def post_process(self, content: str, module_names: list[str], memory: Any) -> list[dict[str, Any]]:
         """Structure output into page dicts with optional splitting."""
         if not content:
             content = self._page_agent._generate_skeleton(module_names, self.domain_name)
@@ -544,17 +562,28 @@ class DomainDocAgent(DocOrchestrator):
     async def plan_topics(self, memory: Any, module_names: list[str]) -> list[Any] | None:
         if not get_settings().wiki.enable_topic_pages:
             return None
-        if len(module_names) <= 5:
+
+        overview_content = getattr(memory, "final_overview", None) or ""
+        overview_len = len(overview_content)
+        min_overview_for_topics = get_settings().wiki.min_overview_len_for_topics
+
+        should_plan = len(module_names) > 4 or overview_len >= min_overview_for_topics
+        if not should_plan:
             return None
+
+        wiki_cfg = get_settings().wiki
+        max_topics = wiki_cfg.max_topics_per_domain
+
         outline = await self._plan_topics(module_names, memory)
+        outline = _cap_topic_outline(outline, max_topics)
         if outline.should_split and len(outline.topics) > 1:
             self._topic_split_done = True
             self._topic_outline = outline
             return outline.topics
-        wiki_cfg = get_settings().wiki
         if len(module_names) >= wiki_cfg.topic_force_split_threshold:
             fallback = self._build_mechanical_topic_split(module_names)
             if fallback and len(fallback.topics) > 1:
+                fallback = _cap_topic_outline(fallback, max_topics)
                 log.info(
                     "plan_topics_force_split_fallback",
                     domain=self.domain_name,
@@ -640,18 +669,18 @@ class DomainDocAgent(DocOrchestrator):
     async def run_guardrails(self, content: str, iteration: int, context: dict[str, Any]) -> Any | None:
         if self._output_guardrail is None:
             return None
-        result = await self._output_guardrail.evaluate(content, {
-            "module_names": context.get("module_names", []),
-            "target_language": self.content_language,
-            "cn_ratio_threshold": get_settings().wiki.language_guardrail_cn_ratio,
-            "page_type": context.get("page_type", ""),
-        })
+        result = await self._output_guardrail.evaluate(
+            content,
+            {
+                "module_names": context.get("module_names", []),
+                "target_language": self.content_language,
+                "cn_ratio_threshold": get_settings().wiki.language_guardrail_cn_ratio,
+                "page_type": context.get("page_type", ""),
+            },
+        )
         if result and not result.passed:
             failed_checks = [n for n, c in result.details.items() if not c.passed]
-            should_heal = any(
-                getattr(c, "should_heal", False)
-                for c in result.details.values()
-            )
+            should_heal = any(getattr(c, "should_heal", False) for c in result.details.values())
             log.warning(
                 "output_guardrail_failed",
                 domain=self.domain_name,
@@ -710,11 +739,13 @@ class DomainDocAgent(DocOrchestrator):
         if len(module_names) <= 5:
             return DomainTopicOutline(
                 should_split=False,
-                topics=[TopicPlan(
-                    title=self.domain_display_name,
-                    modules=list(module_names),
-                    description=f"{self.domain_display_name} overview",
-                )],
+                topics=[
+                    TopicPlan(
+                        title=self.domain_display_name,
+                        modules=list(module_names),
+                        description=f"{self.domain_display_name} overview",
+                    )
+                ],
             )
 
         from wiki.agent_prompts import get_topic_planner_prompt
@@ -758,7 +789,9 @@ class DomainDocAgent(DocOrchestrator):
                     raw = str(result)
             else:
                 raw = await llm.generate(
-                    user_prompt, system=topic_planner_prompt, max_tokens=plan_tokens,
+                    user_prompt,
+                    system=topic_planner_prompt,
+                    max_tokens=plan_tokens,
                 )
                 raw = str(raw)
             outline = _parse_topic_outline(raw)
@@ -770,11 +803,13 @@ class DomainDocAgent(DocOrchestrator):
 
         return DomainTopicOutline(
             should_split=False,
-            topics=[TopicPlan(
-                title=self.domain_display_name,
-                modules=list(module_names),
-                description=f"{self.domain_display_name} overview",
-            )],
+            topics=[
+                TopicPlan(
+                    title=self.domain_display_name,
+                    modules=list(module_names),
+                    description=f"{self.domain_display_name} overview",
+                )
+            ],
         )
 
     async def _write_with_outline(
@@ -787,7 +822,9 @@ class DomainDocAgent(DocOrchestrator):
         """Write pages according to topic outline."""
         if not outline.should_split or len(outline.topics) <= 1:
             content = await self._page_agent.write(
-                self.domain_name, baseline_context, memory,
+                self.domain_name,
+                baseline_context,
+                memory,
             )
             content = await self._verify_code_blocks(content, memory)
             pages = self._maybe_split(content)
@@ -819,13 +856,16 @@ class DomainDocAgent(DocOrchestrator):
             else:
                 scope_text = (
                     f"--- TOPIC SCOPE ---\n"
-                    f"You are writing the \"{topic.title}\" section.\n"
+                    f'You are writing the "{topic.title}" section.\n'
                     f"Focus ONLY on these modules: {topic_module_list}\n"
                     f"Description: {topic.description}\n"
                 )
             topic_context = f"{baseline_context}\n\n{scope_text}" + glossary_section
             topic_content = await self._page_agent.write(
-                self.domain_name, topic_context, memory, page_type="topic",
+                self.domain_name,
+                topic_context,
+                memory,
+                page_type="topic",
             )
             topic_content = await self._verify_code_blocks(topic_content, memory)
             topic_module_names = list(topic.modules)
@@ -851,7 +891,10 @@ class DomainDocAgent(DocOrchestrator):
                 )
                 retry_context = topic_context + heal_hint
                 retry_content = await self._page_agent.write(
-                    self.domain_name, retry_context, memory, page_type="topic",
+                    self.domain_name,
+                    retry_context,
+                    memory,
+                    page_type="topic",
                 )
                 retry_content = await self._verify_code_blocks(retry_content, memory)
                 retry_guardrail = await self.run_guardrails(
@@ -865,23 +908,25 @@ class DomainDocAgent(DocOrchestrator):
                     log.warning("topic_guardrail_heal_exhausted", topic=topic.title)
                 topic_content = retry_content
             topic_path = domain_topic_path(self.domain_name, topic.slug or topic.title)
-            topic_pages.append({
-                "page_type": "topic",
-                "title": topic.title,
-                "path": topic_path,
-                "content": topic_content,
-                "content_language": self.content_language,
-                "canonical_key": self.domain_name,
-                "diagrams": [],
-                "source_locations": [],
-                "metadata": {
-                    "node_count": len(topic.modules),
-                    "edge_count": 0,
-                    "generation_mode": "agent",
-                    "covered_modules": list(topic.modules),
-                },
-                "business_domain": self.domain_name,
-            })
+            topic_pages.append(
+                {
+                    "page_type": "topic",
+                    "title": topic.title,
+                    "path": topic_path,
+                    "content": topic_content,
+                    "content_language": self.content_language,
+                    "canonical_key": self.domain_name,
+                    "diagrams": [],
+                    "source_locations": [],
+                    "metadata": {
+                        "node_count": len(topic.modules),
+                        "edge_count": 0,
+                        "generation_mode": "agent",
+                        "covered_modules": list(topic.modules),
+                    },
+                    "business_domain": self.domain_name,
+                }
+            )
             topic_links.append(f"- [[{topic.title}]]")
 
         nav_heading = "## 章节导航" if lang.is_chinese else "## Section Navigation"
@@ -904,7 +949,9 @@ class DomainDocAgent(DocOrchestrator):
         summary_text = ""
         try:
             summary_text = await self._page_agent.write(
-                self.domain_name, summary_prompt, memory,
+                self.domain_name,
+                summary_prompt,
+                memory,
             )
             summary_text = summary_text.strip()
         except Exception:
@@ -913,11 +960,9 @@ class DomainDocAgent(DocOrchestrator):
         overview_content = (
             f"# {self.domain_display_name}\n\n"
             + (f"{summary_text}\n\n" if summary_text else "")
-            + "\n".join(
-                f"## {t.title}\n{t.description}\n"
-                for t in outline.topics
-            )
-            + f"\n{nav_heading}\n\n" + "\n".join(topic_links)
+            + "\n".join(f"## {t.title}\n{t.description}\n" for t in outline.topics)
+            + f"\n{nav_heading}\n\n"
+            + "\n".join(topic_links)
         )
         overview_page = _make_page(overview_content, self.domain_name, self.domain_display_name)
         overview_page["metadata"]["overview_kind"] = "topic_index"
@@ -990,7 +1035,10 @@ class DomainDocAgent(DocOrchestrator):
         # Early branch: if topic planning says split, skip monolithic write loop
         if outline.should_split and len(outline.topics) > 1:
             pages = await self._write_with_outline(
-                outline, baseline_context, memory, module_names,
+                outline,
+                baseline_context,
+                memory,
+                module_names,
             )
 
             from core.config import get_settings
@@ -1083,18 +1131,16 @@ class DomainDocAgent(DocOrchestrator):
 
             early_exit = get_settings().wiki.domain_agent_early_exit_quality
             min_chars = get_settings().wiki.domain_agent_early_exit_min_chars
-            if (
-                quality.coverage >= early_exit
-                and quality.citation_density >= 0.3
-                and len(content or "") >= min_chars
-            ):
-                self.iteration_history.append({
-                    "iteration": iteration,
-                    "coverage": quality.coverage,
-                    "citation_density": quality.citation_density,
-                    "context_gaps": quality.context_gap_count,
-                    "uncovered_count": len(quality.uncovered_modules),
-                })
+            if quality.coverage >= early_exit and quality.citation_density >= 0.3 and len(content or "") >= min_chars:
+                self.iteration_history.append(
+                    {
+                        "iteration": iteration,
+                        "coverage": quality.coverage,
+                        "citation_density": quality.citation_density,
+                        "context_gaps": quality.context_gap_count,
+                        "uncovered_count": len(quality.uncovered_modules),
+                    }
+                )
                 log.info(
                     "agent_early_exit",
                     domain=self.domain_name,
@@ -1120,13 +1166,15 @@ class DomainDocAgent(DocOrchestrator):
                 score=guardrail_result.total_score,
                 language_consistency=lang_detail.score if lang_detail else None,
             )
-            self.iteration_history.append({
-                "iteration": iteration,
-                "coverage": quality.coverage,
-                "citation_density": quality.citation_density,
-                "context_gaps": quality.context_gap_count,
-                "uncovered_count": len(quality.uncovered_modules),
-            })
+            self.iteration_history.append(
+                {
+                    "iteration": iteration,
+                    "coverage": quality.coverage,
+                    "citation_density": quality.citation_density,
+                    "context_gaps": quality.context_gap_count,
+                    "uncovered_count": len(quality.uncovered_modules),
+                }
+            )
 
             log.info(
                 "domain_agent_iteration",

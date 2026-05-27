@@ -73,7 +73,10 @@ class TestFinalizeCnRatioReject:
                 result = await finalize_node(state)
 
         paths = {p["path"] for p in result.get("pages", [])}
-        assert "/__domains__/test/low-cn" not in paths
+        assert "/__domains__/test/low-cn" in paths
+        rejected = next(p for p in result["pages"] if p["path"] == "/__domains__/test/low-cn")
+        assert rejected.get("__rejected__") is True
+        assert rejected.get("content") == ""
         reject_calls = [
             c for c in mock_log.warning.call_args_list if c[0][0] == "low_cn_ratio_topic_rejected"
         ]

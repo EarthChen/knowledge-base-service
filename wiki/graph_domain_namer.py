@@ -27,6 +27,10 @@ _NAMING_PROMPT_V2 = (
     "- Prefer terms that appear in the code's own comments or class-level documentation\n"
     "- The slug should be kebab-case ASCII describing the business capability\n"
     "- Do NOT name based on technical patterns (Handler, Service, Dao, etc.)\n"
+    "- slug must semantically match display_name (e.g. if display_name is '好友关系', "
+    "slug should be 'friend-relation' or 'friendship', NOT unrelated words)\n"
+    "- Each domain must contain at least 3 core modules; "
+    "do NOT name a domain after a single utility or helper module\n"
     "{used_names_block}\n"
     'Return ONLY valid JSON: {{"slug": "...", "display_name": "...", "description": "..."}}'
 )

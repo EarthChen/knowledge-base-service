@@ -421,7 +421,10 @@ async def _merge_domains_by_llm(
         "identify which domains should be merged because they represent "
         "the same business concept from different angles.\n\n"
         + "\n".join(domain_infos)
-        + "\n\nReturn JSON: {\"merge_groups\": [[\"slugA\", \"slugB\"], ...]}. "
+        + f"\n\nCurrent domain count: {len(domain_mapping)}. "
+        "Target 8-15 domains total. If the count is significantly above 15, "
+        "be more aggressive with merging. Each merged domain should have >= 3 modules.\n\n"
+        "Return JSON: {\"merge_groups\": [[\"slugA\", \"slugB\"], ...]}. "
         "Only include groups that should definitely be merged. "
         "Return {\"merge_groups\": []} if no merges are needed."
     )

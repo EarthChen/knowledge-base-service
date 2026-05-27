@@ -74,10 +74,15 @@ class AgentTracer:
             span.metadata["error"] = error
         for proc in self._processors:
             proc.on_span_end(span)
-        # Pop from stack (find and remove)
+        # Pop from stack — only remove the target span, don't truncate
         if span in self._span_stack:
-            idx = self._span_stack.index(span)
-            self._span_stack = self._span_stack[:idx]
+            self._span_stack.remove(span)
+
+
+def _write_trace_line(path: str, line: str) -> None:
+    """Synchronous helper for writing a single JSONL trace line (called from executor)."""
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(line)
 
 
 class JsonlTraceProcessor:
@@ -87,6 +92,7 @@ class JsonlTraceProcessor:
         self._output_path = output_path
 
     def on_span_end(self, span: Span) -> None:
+        import asyncio
         import json
         from pathlib import Path
 
@@ -105,5 +111,10 @@ class JsonlTraceProcessor:
             "metadata": span.metadata,
         }
 
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        line = json.dumps(record, ensure_ascii=False, default=str) + "\n"
+        try:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, _write_trace_line, str(path), line)
+        except RuntimeError:
+            # No running loop — fall back to synchronous write
+            _write_trace_line(str(path), line)

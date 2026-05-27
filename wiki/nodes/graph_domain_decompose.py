@@ -1426,6 +1426,99 @@ async def graph_driven_domain_decompose_node(
                 "modules": module_list,
             })
 
+        # --- Step 5.6: F9 Domain Protection — Recovery + Quality Gate ---
+        anchored_slugs = state.get("anchored_slugs") or set()
+        anchor_display_names_state = state.get("anchor_display_names") or {}
+        domain_baseline = state.get("domain_baseline") or {}
+
+        # P3: Recover anchored domains that disappeared
+        persistence = configurable.get("persistence")
+        if anchored_slugs and persistence:
+            for slug in anchored_slugs:
+                if slug not in domain_mapping:
+                    try:
+                        anchor_modules = await persistence.list_domain_modules(
+                            state.get("business_id", ""), slug,
+                        )
+                        if anchor_modules:
+                            mod_tuples = [
+                                (str(m.get("repository", "")), str(m["module_name"])) for m in anchor_modules
+                            ]
+                            for other_slug in list(domain_mapping.keys()):
+                                domain_mapping[other_slug] = [
+                                    m for m in domain_mapping[other_slug] if m not in mod_tuples
+                                ]
+                            domain_mapping[slug] = mod_tuples
+                            domain_display_names[slug] = anchor_display_names_state.get(slug, slug)
+                            log.warning("anchored_domain_recovered", slug=slug, modules=len(mod_tuples))
+                    except Exception:
+                        log.warning("anchored_domain_recovery_failed", slug=slug, exc_info=True)
+
+        # S3a: Structural quality check
+        struct_warnings = _structural_quality_check(
+            domain_mapping, sum(len(v) for v in domain_mapping.values()),
+        )
+        for w in struct_warnings:
+            log.warning("decompose_structural_warning", warning=w)
+
+        # S3b: Agent semantic review (only when LLM available)
+        quality_level = "acceptable"
+        semantic_warnings: list[str] = []
+        if llm:
+            module_summaries_flat_for_review = _build_module_summaries_flat_for_corrector(
+                biz_modules, module_summaries_raw,
+            )
+            quality_level, semantic_warnings = await _agent_review_decomposition(
+                llm, domain_mapping, domain_display_names, module_summaries_flat_for_review,
+            )
+            for w in semantic_warnings:
+                log.warning("decompose_semantic_warning", warning=w)
+
+        # S3: Combined quality gate
+        all_quality_warnings = struct_warnings + semantic_warnings
+        has_critical = any("CRITICAL" in w for w in all_quality_warnings)
+        needs_revision = quality_level == "needs_revision"
+
+        if domain_baseline:
+            baseline_passed, baseline_warnings = _domain_decomposition_quality_check(
+                domain_mapping, domain_baseline,
+            )
+            all_quality_warnings.extend(baseline_warnings)
+            for w in baseline_warnings:
+                log.warning("decompose_baseline_warning", warning=w)
+
+            if has_critical or needs_revision or not baseline_passed:
+                log.error(
+                    "decompose_quality_gate_failed",
+                    quality=quality_level,
+                    warnings=all_quality_warnings,
+                )
+                # Fall back to baseline + assign new modules incrementally
+                domain_mapping = {slug: list(pairs) for slug, pairs in domain_baseline.items()}
+                domain_display_names = {
+                    slug: anchor_display_names_state.get(slug, slug)
+                    for slug in domain_mapping
+                }
+                # Find new modules not in baseline
+                baseline_mods = {m for pairs in domain_baseline.values() for m in pairs}
+                new_mods = set(biz_modules) - baseline_mods
+                if new_mods and embedding_cache:
+                    _assign_new_modules_to_nearest(new_mods, domain_mapping, embedding_cache)
+        elif all_quality_warnings:
+            log.warning("decompose_quality_warnings", quality=quality_level, count=len(all_quality_warnings))
+
+        # Store warnings in state for downstream visibility
+        state["decomposition_warnings"] = all_quality_warnings
+
+        # Rebuild communities_named after quality gate (mapping may have changed)
+        communities_named = []
+        for slug, module_list in domain_mapping.items():
+            communities_named.append({
+                "slug": slug,
+                "display_name": domain_display_names.get(slug, slug),
+                "modules": module_list,
+            })
+
         # --- Step 6: Domain stabilizer ---
         try:
             from wiki.domain_stabilizer import DomainStabilizer

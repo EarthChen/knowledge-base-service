@@ -148,7 +148,7 @@ def _sanitize_published_content(content: str, *, page_type: str = "") -> str:
         result.append(line)
     content = "\n".join(result)
 
-    # 7. Close unclosed code blocks
+    # 7. Close unclosed code blocks (safety net after quality_gate heal cycles)
     if content.count("```") % 2 == 1:
         content += "\n```"
 

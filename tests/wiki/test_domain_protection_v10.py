@@ -143,7 +143,10 @@ class TestPersistSyncAnchor:
         }
 
         await persist_classification_node(state, config)
-        persistence.save_domain_classification.assert_called_once_with("biz1", {"auth": [("repo", "UserService")]})
+        persistence.save_domain_classification.assert_called_once_with(
+            "biz1",
+            {"auth": {"display_name": "认证", "modules": [("repo", "UserService")]}},
+        )
 
 
 class TestCorrectorProtection:

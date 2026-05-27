@@ -66,7 +66,14 @@ async def persist_classification_node(
     persistence = configurable.get("persistence") or state.get("persistence")
     if persistence is not None and hasattr(persistence, "save_domain_classification"):
         try:
-            await persistence.save_domain_classification(business_id, domain_mapping)
+            adapted_mapping = {
+                slug: {
+                    "display_name": domain_display_names.get(slug, slug),
+                    "modules": pairs,
+                }
+                for slug, pairs in domain_mapping.items()
+            }
+            await persistence.save_domain_classification(business_id, adapted_mapping)
             log.info("persist_classification_anchors_synced", business_id=business_id, domains=len(domain_mapping))
         except Exception:
             log.warning("persist_classification_anchor_sync_failed", business_id=business_id, exc_info=True)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from core.config import AppWikiFlags as WikiAppConfig
@@ -198,7 +198,7 @@ class BusinessPipelineRunner:
         stale_count = 0
         mark_fn = getattr(self._wiki_store, "query", None) or self._wiki_store.execute_query
         protected = anchored_slugs or set()
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat()
         for row in results:
             path = row.get("path", "")
             parts = path.split("/")
@@ -220,7 +220,7 @@ class BusinessPipelineRunner:
         """Permanently delete pages that have been stale beyond the retention window."""
         if self._wiki_store is None:
             return 0
-        cutoff = (datetime.utcnow() - timedelta(days=retention_days)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
         query_fn = getattr(self._wiki_store, "query", None) or self._wiki_store.execute_query
         result = await query_fn(
             "MATCH (wp:WikiPage) "
@@ -461,14 +461,10 @@ class BusinessPipelineRunner:
                 log.warning("pinned_modules_load_failed", business_id=business_id, exc_info=True)
 
         # Load domain anchors for F9 protection (always, not just incremental)
-        anchored_slugs: set[str] = set()
-        anchor_display_names: dict[str, str] = {}
-        try:
-            anchors = await self._persistence.list_domain_anchors(business_id) or []
-            anchored_slugs = {str(a["slug"]) for a in anchors if a.get("anchor_type") == "user"}
-            anchor_display_names = {str(a["slug"]): a.get("display_name", a["slug"]) for a in anchors}
-        except Exception:
-            log.warning("domain_anchors_load_failed", business_id=business_id, exc_info=True)
+        _anchor_state: dict[str, Any] = {}
+        await self._load_anchors_into_state(business_id, _anchor_state)
+        anchored_slugs: set[str] = _anchor_state.get("anchored_slugs", set())
+        anchor_display_names: dict[str, str] = _anchor_state.get("anchor_display_names", {})
 
         if existing_domain_tree:
             from wiki.pipeline_orchestrator import domain_tree_to_mapping

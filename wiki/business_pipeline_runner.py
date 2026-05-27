@@ -448,21 +448,10 @@ class BusinessPipelineRunner:
             except Exception:
                 log.warning("compute_domain_diff_failed", business_id=business_id, exc_info=True)
 
-        pinned_modules: dict[str, str] = {}
-        if incremental:
-            try:
-                pinned_raw = await self._persistence.list_pinned_modules(business_id) or []
-                pinned_modules = {
-                    str(p["module_name"]): str(p["domain_slug"])
-                    for p in pinned_raw
-                    if p.get("module_name") and p.get("domain_slug")
-                }
-            except Exception:
-                log.warning("pinned_modules_load_failed", business_id=business_id, exc_info=True)
-
-        # Load domain anchors for F9 protection (always, not just incremental)
+        # Load all domain anchors + pinned modules in one call
         _anchor_state: dict[str, Any] = {}
         await self._load_anchors_into_state(business_id, _anchor_state)
+        pinned_modules: dict[str, str] = _anchor_state.get("pinned_modules", {})
         anchored_slugs: set[str] = _anchor_state.get("anchored_slugs", set())
         anchor_display_names: dict[str, str] = _anchor_state.get("anchor_display_names", {})
 

@@ -29,6 +29,7 @@ async def test_plan_topics_force_split_fallback_when_llm_declines():
         mock_settings.return_value.wiki.enable_topic_pages = True
         mock_settings.return_value.wiki.topic_force_split_threshold = 10
         mock_settings.return_value.wiki.max_topics_per_domain = 4
+        mock_settings.return_value.wiki.plan_topics_min_modules = 3
         result = await agent.plan_topics(MagicMock(), module_names)
 
     assert result is not None
@@ -65,6 +66,7 @@ async def test_plan_topics_force_split_at_default_threshold_six():
         mock_settings.return_value.wiki.enable_topic_pages = True
         mock_settings.return_value.wiki.topic_force_split_threshold = 6
         mock_settings.return_value.wiki.max_topics_per_domain = 4
+        mock_settings.return_value.wiki.plan_topics_min_modules = 3
         result = await agent.plan_topics(MagicMock(), module_names)
 
     assert result is not None

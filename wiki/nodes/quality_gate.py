@@ -12,6 +12,12 @@ from langchain_core.runnables import RunnableConfig
 from core.config import get_settings
 from core.log import get_logger
 from wiki.citation_verifier import verify_citations
+from wiki.content_guards import (
+    count_boilerplate_hits,
+    detect_hallucination_flags,
+    detect_truncated_code_blocks,
+    has_meta_sections,
+)
 from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.models import ImportanceTier, WikiPage
 from wiki.nodes.tier_utils import resolve_tier
@@ -76,6 +82,35 @@ def _check_cn_ratio(page: dict[str, Any]) -> float:
         return 1.0
     cn_count = len(re.findall(r"[\u4e00-\u9fff]", text))
     return cn_count / len(text) if text else 0.0
+
+
+def _extract_h2_headings(content: str) -> list[str]:
+    return [line.strip() for line in (content or "").split("\n") if line.startswith("## ")]
+
+
+_DIAGRAM_ONLY_LANGS = frozenset({"mermaid", "plantuml"})
+
+
+def _has_non_mermaid_code_block(content: str) -> bool:
+    """Return True if content has a fenced code block that is not mermaid/plantuml."""
+    lines = (content or "").split("\n")
+    in_fence = False
+    fence_lang = ""
+    for line in lines:
+        stripped = line.strip()
+        if not in_fence:
+            if stripped.startswith("```") and len(stripped) >= 3:
+                in_fence = True
+                lang = stripped[3:].strip().lower()
+                fence_lang = lang.split()[0] if lang else ""
+            continue
+        if stripped == "```":
+            if fence_lang not in _DIAGRAM_ONLY_LANGS:
+                return True
+            in_fence = False
+            fence_lang = ""
+            continue
+    return False
 
 
 def _check_min_content_length(
@@ -264,6 +299,47 @@ async def quality_gate_node(
                         "regenerate with stronger Chinese prompts"
                     )
 
+        content_issues: list[str] = []
+        page_content = page_dict.get("content", "")
+
+        hallucination_flags = detect_hallucination_flags(page_content)
+        if hallucination_flags:
+            log.warning("quality_gate_hallucination", title=page_dict.get("title"), flags=hallucination_flags)
+            content_issues.append(f"hallucination: {hallucination_flags}")
+
+        bp_count = count_boilerplate_hits(page_content)
+        if bp_count >= 2:
+            log.warning("quality_gate_boilerplate", title=page_dict.get("title"), count=bp_count)
+            content_issues.append(f"boilerplate: {bp_count} hits")
+
+        if has_meta_sections(page_content):
+            log.warning("quality_gate_meta_section", title=page_dict.get("title"))
+            content_issues.append("meta_section_leak")
+
+        if page_type == "domain_overview":
+            h2_headings = _extract_h2_headings(page_content)
+            if len(page_content) < 500 and len(h2_headings) == 1:
+                log.warning(
+                    "quality_gate_shell_domain",
+                    title=page_dict.get("title"),
+                    content_len=len(page_content),
+                    h2=h2_headings[0],
+                )
+                content_issues.append("shell_domain_overview: content too thin, only 1 section")
+
+        if page_type == "topic" and not is_topic_index and not _has_non_mermaid_code_block(page_content):
+            log.warning("quality_gate_topic_no_code", title=page_dict.get("title"))
+            content_issues.append("topic_no_code: topic has no code examples")
+
+        if detect_truncated_code_blocks(page_content):
+            log.warning("quality_gate_truncated_code", title=page_dict.get("title"))
+            content_issues.append("truncated_code_block: code block appears truncated")
+
+        if content_issues:
+            existing = heal_hints.get(page.path, "")
+            combined = "; ".join(filter(None, [existing, *content_issues]))
+            heal_hints[page.path] = combined
+
         score_dict["overall"] = _compute_overall(score_dict)
 
         quality_scores[page.path] = score_dict
@@ -280,9 +356,11 @@ async def quality_gate_node(
             else False
         )
         below_min_len = score_dict.get("below_min_length", False)
+        has_content_issues = bool(content_issues)
         if (
-            (structural_score < threshold or l2_below or below_min_len or low_cn_ratio)
+            (structural_score < threshold or l2_below or below_min_len or low_cn_ratio or has_content_issues)
             and cycles < max_retries
+            and page.path not in pages_to_heal
         ):
             pages_to_heal.append(page.path)
 

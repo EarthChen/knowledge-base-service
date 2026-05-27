@@ -33,6 +33,7 @@ def _passing_structure_content(*, english_body: str) -> str:
         f"{english_body}\n"
         "## Key components\n"
         "Core module handles requests.\n"
+        "```java\npublic class AuthService {}\n```\n"
         "## Relationships\n"
         "- [[peer-module]]\n"
     )
@@ -136,6 +137,7 @@ async def test_quality_gate_cn_ratio_auto_detect():
         f"{chinese_body}\n{english_body}\n"
         "## 关键组件\n"
         "Core module handles requests.\n"
+        "```java\npublic class AuthService {}\n```\n"
         "## 关联关系\n"
         "- [[peer-module]]\n"
     )

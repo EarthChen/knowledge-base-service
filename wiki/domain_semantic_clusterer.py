@@ -41,12 +41,39 @@ class DomainSemanticClusterer:
         self._max_k = max_clusters
 
     @staticmethod
+    def _compute_infra_set(
+        modules: list[tuple[str, str]],
+        summaries: dict[str, dict[str, Any]],
+    ) -> set[str]:
+        """Count dep/caller frequency across modules; return set of infra names (>= threshold)."""
+        import math
+
+        threshold = max(3, math.ceil(len(modules) * 0.1))
+        dep_count: dict[str, int] = {}
+        for _repo, name in modules:
+            compound_key = f"{_repo}|{name}"
+            summary_data = summaries.get(compound_key, summaries.get(name))
+            if not isinstance(summary_data, dict):
+                continue
+            seen: set[str] = set()
+            for field in ("dependencies", "callers"):
+                items = summary_data.get(field, [])
+                if isinstance(items, list):
+                    for item in items:
+                        key = str(item)
+                        if key not in seen:
+                            seen.add(key)
+                            dep_count[key] = dep_count.get(key, 0) + 1
+        return {name for name, count in dep_count.items() if count >= threshold}
+
+    @staticmethod
     def build_embedding_texts(
         modules: list[tuple[str, str]],
         summaries: dict[str, dict[str, Any]],
         paths: dict[str, str],
     ) -> list[str]:
         """Build text for each module to be embedded."""
+        infra = DomainSemanticClusterer._compute_infra_set(modules, summaries)
         texts: list[str] = []
         for repo, name in modules:
             compound_key = f"{repo}|{name}"
@@ -77,9 +104,13 @@ class DomainSemanticClusterer:
             deps = summary_data.get("dependencies", []) if isinstance(summary_data, dict) else []
             callers_list = summary_data.get("callers", []) if isinstance(summary_data, dict) else []
             if deps and isinstance(deps, list):
-                enrichment_parts.append(f"depends: {', '.join(str(d) for d in deps[:8])}")
+                filtered_deps = [d for d in deps if str(d) not in infra]
+                if filtered_deps:
+                    enrichment_parts.append(f"depends: {', '.join(str(d) for d in filtered_deps[:8])}")
             if callers_list and isinstance(callers_list, list):
-                enrichment_parts.append(f"callers: {', '.join(str(c) for c in callers_list[:8])}")
+                filtered_callers = [c for c in callers_list if str(c) not in infra]
+                if filtered_callers:
+                    enrichment_parts.append(f"callers: {', '.join(str(c) for c in filtered_callers[:8])}")
 
             # If no enrichment at all, use method names as fallback
             if not enrichment_parts and isinstance(summary_data, dict):

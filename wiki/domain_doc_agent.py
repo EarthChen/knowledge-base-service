@@ -48,6 +48,29 @@ class DomainTopicOutline:
     topics: list[TopicPlan]
 
 
+def domain_has_subdomains(domain: dict[str, Any]) -> bool:
+    """Return True when a domain dict has child sub-domains."""
+    children = domain.get("children") or domain.get("subdomains") or []
+    return bool(children)
+
+
+def _format_subdomain_baseline(subdomains: list[dict[str, Any]]) -> str:
+    """Build baseline subsection listing child sub-domains for container overview prompts."""
+    if not subdomains:
+        return ""
+    lines = ["### 子域列表"]
+    for sub in subdomains:
+        name = str(sub.get("display_name") or sub.get("name") or "")
+        if not name:
+            continue
+        slug = str(sub.get("name") or name)
+        desc = str(sub.get("description") or "").strip()
+        mod_count = len(sub.get("modules") or [])
+        meta = f"（{mod_count} 个模块）" if mod_count else ""
+        lines.append(f"- **{name}** (`{slug}`){meta}" + (f": {desc}" if desc else ""))
+    return "\n".join(lines)
+
+
 def _extract_cjk_bigrams(title: str) -> set[str]:
     """Extract CJK character bigrams for fuzzy matching."""
     chars = [c for c in title if "\u4e00" <= c <= "\u9fff"]
@@ -117,10 +140,46 @@ def _derive_slug_from_modules(modules: list[str]) -> str:
     return normalize_slug_strict(slug_raw) or ""
 
 
-def _parse_topic_outline(raw: str) -> DomainTopicOutline | None:
+def _resolve_topic_slugs(
+    topics: list[TopicPlan],
+    domain_slug: str,
+    used_slugs: set[str] | None = None,
+) -> list[TopicPlan]:
+    """Apply V9 slug pipeline (F1-F4) and collision detection (F3) to topic plans."""
+    from wiki.path_conventions import resolve_topic_slug
+
+    seen = used_slugs if used_slugs is not None else set()
+    resolved: list[TopicPlan] = []
+    for index, topic in enumerate(topics):
+        raw_slug = topic.slug or _derive_slug_from_modules(list(topic.modules)) or topic.title
+        slug = resolve_topic_slug(
+            raw_slug,
+            topic.title,
+            domain_slug=domain_slug,
+            used_slugs=seen,
+            part_index=index + 1,
+            topic_index=index + 1,
+        )
+        resolved.append(
+            TopicPlan(
+                title=topic.title,
+                modules=list(topic.modules),
+                description=topic.description,
+                slug=slug,
+            )
+        )
+    return resolved
+
+
+def _parse_topic_outline(
+    raw: str,
+    *,
+    domain_slug: str = "",
+    used_slugs: set[str] | None = None,
+) -> DomainTopicOutline | None:
     """Parse LLM output into a DomainTopicOutline. Returns None on failure."""
     from wiki.json_robust import parse_json_robust_sync
-    from wiki.path_conventions import is_pinyin_slug, normalize_slug_strict
+    from wiki.path_conventions import normalize_slug_strict
 
     parsed = parse_json_robust_sync(raw)
     if not isinstance(parsed, dict):
@@ -138,11 +197,7 @@ def _parse_topic_outline(raw: str) -> DomainTopicOutline | None:
         if not title or not isinstance(modules, list):
             continue
         slug_raw = str(t.get("slug", ""))
-        slug = normalize_slug_strict(slug_raw) if slug_raw else None
-        # Reject pinyin slugs — fall back to module-derived slug
-        if slug and is_pinyin_slug(slug):
-            log.warning("pinyin_slug_rejected", slug=slug, title=title)
-            slug = None
+        slug = normalize_slug_strict(slug_raw) if slug_raw else ""
         if not slug:
             slug = _derive_slug_from_modules([str(m) for m in modules])
         topics.append(
@@ -158,6 +213,8 @@ def _parse_topic_outline(raw: str) -> DomainTopicOutline | None:
     topics = _dedup_topic_titles(topics)
     if len(topics) > 6:
         topics = topics[:6]
+    if domain_slug:
+        topics = _resolve_topic_slugs(topics, domain_slug, used_slugs)
     return DomainTopicOutline(should_split=bool(should_split), topics=topics)
 
 
@@ -362,6 +419,7 @@ def _make_page(content: str, slug: str, display_name: str = "") -> dict[str, Any
         "title": display_name or slug,
         "path": domain_overview_path(slug),
         "content": content,
+        "business_domain": slug,
         "diagrams": [],
         "source_locations": [],
         "metadata": {
@@ -391,6 +449,7 @@ class DomainDocAgent(DocOrchestrator):
         explore_max_tool_calls: int | None = None,
         content_language: str = "简体中文",
         term_glossary: dict[str, str] | None = None,
+        subdomains: list[dict[str, Any]] | None = None,
     ) -> None:
         from core.config import get_settings
         from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM, get_write_system_prompt
@@ -398,6 +457,9 @@ class DomainDocAgent(DocOrchestrator):
         wiki_cfg = get_settings().wiki
         explore_rounds = explore_max_rounds or wiki_cfg.domain_agent_explore_max_rounds
         explore_tool_calls = explore_max_tool_calls or wiki_cfg.domain_agent_explore_max_tool_calls
+
+        self._subdomains = list(subdomains or [])
+        is_container = bool(self._subdomains)
 
         page_agent = WikiPageAgent(
             llm,
@@ -413,11 +475,12 @@ class DomainDocAgent(DocOrchestrator):
             name=domain_name,
             max_iterations=max_iterations,
             explore_system_prompt=AGENT_EXPLORE_SYSTEM.format(max_rounds=explore_rounds),
-            write_system_prompt=get_write_system_prompt(content_language),
+            write_system_prompt=get_write_system_prompt(content_language, is_container=is_container),
         )
         self.domain_name = domain_name
         self.domain_display_name = domain_display_name or domain_name
         self.content_language = content_language
+        self._is_container_domain = is_container
         self._term_glossary = term_glossary or {}
         self._repo_paths = repo_paths or {}
         self._page_agent = page_agent
@@ -437,6 +500,10 @@ class DomainDocAgent(DocOrchestrator):
 
     def _build_write_prompt(self, baseline_context: str, memory: Any) -> str:
         base = super()._build_write_prompt(baseline_context, memory)
+        if self._subdomains:
+            subdomain_section = _format_subdomain_baseline(self._subdomains)
+            if subdomain_section:
+                base = base + "\n\n" + subdomain_section
         term_glossary = getattr(self, "_term_glossary", None)
         if term_glossary:
             from wiki.agent_prompts import build_term_glossary_prompt
@@ -469,7 +536,7 @@ class DomainDocAgent(DocOrchestrator):
         baseline_context: str,
     ) -> list[dict[str, Any]]:
         """Skip shell domains with no modules before orchestration."""
-        if not module_names:
+        if not module_names and not self._subdomains:
             log.info("skip_shell_domain_no_modules", domain=self.domain_name)
             return []
         return await super().generate(module_names, baseline_context)
@@ -567,7 +634,8 @@ class DomainDocAgent(DocOrchestrator):
         overview_len = len(overview_content)
         min_overview_for_topics = get_settings().wiki.min_overview_len_for_topics
 
-        should_plan = len(module_names) > 4 or overview_len >= min_overview_for_topics
+        min_modules = get_settings().wiki.plan_topics_min_modules
+        should_plan = len(module_names) >= min_modules or overview_len >= min_overview_for_topics
         if not should_plan:
             return None
 
@@ -609,6 +677,11 @@ class DomainDocAgent(DocOrchestrator):
             slug = _derive_slug_from_modules(chunk)
             title = f"{self.domain_display_name} - Part {i + 1}"
             topics.append(TopicPlan(title=title, modules=chunk, description="", slug=slug))
+        topics = _resolve_topic_slugs(
+            topics,
+            self.domain_name,
+            getattr(self, "_global_topic_slugs", None),
+        )
         return DomainTopicOutline(should_split=True, topics=topics)
 
     async def _write_topics(
@@ -736,7 +809,8 @@ class DomainDocAgent(DocOrchestrator):
         memory: WorkingMemory,
     ) -> DomainTopicOutline:
         """Plan topic structure via single LLM call after explore phase."""
-        if len(module_names) <= 5:
+        min_modules = get_settings().wiki.plan_topics_min_modules
+        if len(module_names) < min_modules:
             return DomainTopicOutline(
                 should_split=False,
                 topics=[
@@ -794,7 +868,11 @@ class DomainDocAgent(DocOrchestrator):
                     max_tokens=plan_tokens,
                 )
                 raw = str(raw)
-            outline = _parse_topic_outline(raw)
+            outline = _parse_topic_outline(
+                raw,
+                domain_slug=self.domain_name,
+                used_slugs=getattr(self, "_global_topic_slugs", None),
+            )
             if outline:
                 log.info("plan_topics_success", domain=self.domain_name, topics=len(outline.topics))
                 return outline

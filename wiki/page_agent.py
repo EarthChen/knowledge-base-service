@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from wiki.domain_doc_agent import DomainTopicOutline
 from wiki.agents.base_agent import GenericAgent
 from wiki.agents.tool_decorator import function_tool
+from wiki.content_guards import strip_meta_sections as _cg_strip_meta
 from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP_RE
 from wiki.structured_output import WikiPageOutput, render_wiki_page
 
@@ -62,6 +63,8 @@ def strip_agent_artifacts(text: str) -> str:
         return ""
     stripped = _TOOL_JSON_BLOCK_RE.sub("", text)
     stripped = stripped.strip()
+    # Strip LLM meta sections early
+    stripped = _cg_strip_meta(stripped)
 
     # Strip outer ```markdown ... ``` fence wrapping the entire content
     m = _MARKDOWN_FENCE_WRAP_RE.match(stripped)

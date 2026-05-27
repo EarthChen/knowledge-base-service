@@ -10,13 +10,13 @@ from langchain_core.runnables import RunnableConfig
 
 from core.config import ContentLanguage, get_settings
 from core.log import get_logger
-from wiki.domain_doc_agent import DomainDocAgent, _build_baseline
+from wiki.domain_doc_agent import DomainDocAgent, _build_baseline, domain_has_subdomains
 from wiki.flow_baseline import extract_flow_baseline, format_flow_baseline_for_prompt
 from wiki.llm_rate_limiter import acquire_llm_quota
 from wiki.models import ImportanceTier
 from wiki.nodes.compose import _maybe_pipeline_progress
 from wiki.nodes.tier_utils import resolve_tier, tier_for_module_count
-from wiki.nodes.utils import _collect_leaf_domains
+from wiki.nodes.utils import _collect_container_domains, _collect_leaf_domains, _collect_module_names_in_subtree
 from wiki.path_conventions import domain_overview_path
 from wiki.pipeline_concurrency import PipelineConcurrency
 from wiki.source_ref_validator import repair_broken_mermaid_blocks, sanitize_wiki_content
@@ -304,29 +304,31 @@ async def compose_domain_agents_node(
     module_summaries = state.get("module_summaries", {})
     module_tree = state.get("module_tree", [])
     leaf_domains = _collect_leaf_domains(domain_tree)
+    container_domains = _collect_container_domains(domain_tree)
+    compose_domains = container_domains + leaf_domains
 
     # Incremental filtering: only process affected domains
     is_incremental = state.get("is_incremental", False)
     affected = set(state.get("affected_domains") or [])
 
     if is_incremental and affected:
-        original_count = len(leaf_domains)
-        leaf_domains = [
-            d for d in leaf_domains
+        original_count = len(compose_domains)
+        compose_domains = [
+            d for d in compose_domains
             if d["name"] in affected or d.get("parent") in affected
         ]
         log.info(
             "incremental_domain_filter",
             original=original_count,
-            filtered=len(leaf_domains),
+            filtered=len(compose_domains),
             affected_domains=sorted(affected),
         )
 
-    if not leaf_domains:
+    if not compose_domains:
         log.info("no_leaf_domains_found")
         return {"pages": [], "errors": list(state.get("errors", []))}
 
-    total_domains = len(leaf_domains)
+    total_domains = len(compose_domains)
     await _maybe_pipeline_progress(
         configurable,
         {
@@ -364,6 +366,12 @@ async def compose_domain_agents_node(
             domain_display = domain.get("display_name", domain_slug)
             try:
                 explore_rounds, explore_calls = _explore_limits_for_domain(domain, state)
+                subdomains = list(domain.get("children") or domain.get("subdomains") or [])
+                if not domain_has_subdomains(domain):
+                    subdomains = []
+                module_names = list(domain.get("modules") or [])
+                if domain_has_subdomains(domain) and not module_names:
+                    module_names = _collect_module_names_in_subtree(domain)
                 agent = DomainDocAgent(
                     domain_name=domain_slug,
                     domain_display_name=domain_display,
@@ -377,12 +385,13 @@ async def compose_domain_agents_node(
                     budget_resolver=budget_resolver,
                     content_language=content_language.display_label,
                     term_glossary=state.get("term_glossary", {}),
+                    subdomains=subdomains,
                 )
                 module_repo_pairs, valid_pairs = _domain_module_pairs(
                     domain, domain_mapping, module_lookup,
                 )
                 layer_summary = _build_layer_summary(
-                    domain.get("modules", []),
+                    module_names,
                     arch_layers,
                     module_repo_pairs=module_repo_pairs,
                     language=content_language,
@@ -395,7 +404,7 @@ async def compose_domain_agents_node(
                         flow_baseline = await extract_flow_baseline(
                             graph_store,
                             domain_slug,
-                            domain.get("modules", []),
+                            module_names,
                             valid_pairs=valid_pairs,
                         )
                         flow_text = format_flow_baseline_for_prompt(flow_baseline)
@@ -407,21 +416,21 @@ async def compose_domain_agents_node(
                 outer_timeout = get_settings().wiki.domain_agent_timeout_sec
                 result = await asyncio.wait_for(
                     agent.generate_with_iterations(
-                        module_names=domain.get("modules", []),
+                        module_names=module_names,
                         baseline_context=baseline,
                         valid_pairs=valid_pairs,
                     ),
                     timeout=outer_timeout,
                 )
                 domain_edges = _domain_call_edges(
-                    list(domain.get("modules") or []),
+                    module_names,
                     state.get("module_call_edges"),
                 )
                 for page in result:
                     if page.get("metadata", {}).get("generation_mode") != "agent_error":
                         page["content"] = _inject_dependency_diagram(
                             page.get("content", ""),
-                            list(domain.get("modules") or []),
+                            module_names,
                             call_edges=domain_edges,
                             language=content_language,
                         )
@@ -455,14 +464,14 @@ async def compose_domain_agents_node(
         except BaseException as exc:
             return index, exc
 
-    wrapped = [_run_domain_indexed(i, d) for i, d in enumerate(leaf_domains)]
+    wrapped = [_run_domain_indexed(i, d) for i, d in enumerate(compose_domains)]
     results: list[list[dict[str, Any]] | BaseException | None] = [None] * total_domains
     completed = 0
     for item in asyncio.as_completed(wrapped):
         index, result = await item
         results[index] = result
         completed += 1
-        domain_name = leaf_domains[index]["name"]
+        domain_name = compose_domains[index]["name"]
         await _maybe_pipeline_progress(
             configurable,
             {
@@ -474,12 +483,12 @@ async def compose_domain_agents_node(
 
     for i, result in enumerate(results):
         if isinstance(result, BaseException):
-            errors.append({"domain": leaf_domains[i]["name"], "error": str(result)})
-            ph = _make_error_placeholder(leaf_domains[i], result)
-            _attach_domain_sources([ph], leaf_domains[i], state)
+            errors.append({"domain": compose_domains[i]["name"], "error": str(result)})
+            ph = _make_error_placeholder(compose_domains[i], result)
+            _attach_domain_sources([ph], compose_domains[i], state)
             pages.append(ph)
         elif isinstance(result, list):
-            _attach_domain_sources(result, leaf_domains[i], state)
+            _attach_domain_sources(result, compose_domains[i], state)
             for page in result:
                 err = page.pop("_error", None)
                 if err:
@@ -509,7 +518,7 @@ async def compose_domain_agents_node(
 
     log.info(
         "domain_agents_complete",
-        total_domains=len(leaf_domains),
+        total_domains=len(compose_domains),
         total_pages=len(pages),
         error_count=len(errors) - len(state.get("errors", [])),
     )

@@ -310,6 +310,9 @@ class AppWikiFlags(BaseModel):
     min_overview_len_for_topics: int = Field(
         default=4000, ge=0, description="Min overview chars to trigger topic planning for small domains"
     )
+    plan_topics_min_modules: int = Field(
+        default=3, ge=1, description="Min module count to attempt topic planning (domains with fewer skip)"
+    )
     topic_force_split_threshold: int = Field(default=6, description="Force topic split when module count >= this")
     max_topics_per_domain: int = Field(default=4, ge=1, description="Max topic pages per domain after planning")
     quality_l3_concurrency: int = Field(default=4, ge=1, description="Max concurrent L3 LLM-as-judge evaluations")
@@ -343,6 +346,14 @@ class AppWikiFlags(BaseModel):
             "trace",
             "aop",
             "interceptor",
+            "log-trace",
+            "exception-handling",
+            "error-handler",
+            "health-check",
+            "graceful-shutdown",
+            "circuit-breaker",
+            "rate-limit",
+            "retry-policy",
         ],
         description="Slug keywords that mark a single-module domain as infrastructure (merged into nearby domain)",
     )

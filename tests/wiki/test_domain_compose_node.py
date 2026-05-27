@@ -288,5 +288,41 @@ class TestIncrementalDomainFiltering:
 
             result = await compose_domain_agents_node(state, config)
 
-        # Both children should be processed since ParentDomain is affected
+        # Parent container plus both children should be processed since ParentDomain is affected
+        assert len(result["pages"]) == 3
+
+
+class TestF15SubdomainsWiring:
+    @pytest.mark.asyncio
+    async def test_compose_passes_subdomains_for_container_domain(self):
+        child = {"name": "child-a", "display_name": "子域A", "modules": ["Mod1"], "children": []}
+        state = {
+            "domain_tree": [
+                {
+                    "name": "parent-domain",
+                    "display_name": "父域",
+                    "modules": [],
+                    "children": [child],
+                },
+            ],
+            "module_summaries": {"Mod1": "summary"},
+            "errors": [],
+        }
+        config = {"configurable": {"llm": MagicMock(), "graph_store": MagicMock()}}
+
+        with patch("wiki.nodes.domain_compose.DomainDocAgent") as MockAgent:
+            instance = AsyncMock()
+            instance.generate_with_iterations = AsyncMock(
+                return_value=[{"page_type": "domain_overview", "title": "父域", "content": "overview"}]
+            )
+            instance.iteration_history = []
+            MockAgent.return_value = instance
+
+            result = await compose_domain_agents_node(state, config)
+
         assert len(result["pages"]) == 2
+        calls = MockAgent.call_args_list
+        container_call = next(c for c in calls if c.kwargs.get("domain_name") == "parent-domain")
+        assert container_call.kwargs["subdomains"] == [child]
+        leaf_call = next(c for c in calls if c.kwargs.get("domain_name") == "child-a")
+        assert leaf_call.kwargs["subdomains"] == []

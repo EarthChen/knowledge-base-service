@@ -31,7 +31,7 @@ async def test_l3_evaluations_run_in_parallel(monkeypatch):
         pages.append({
             "path": f"wiki/page_{i}",
             "title": f"Page {i}",
-            "content": f"## Overview\nContent for page {i}.\n\n## Details\nMore content here.\n" + "x" * 200,
+            "content": f"## Overview\nContent for page {i}.\n\n```java\npublic class Page{i} {{}}\n```\n\n## Details\nMore content here.\n" + "x" * 200,
             "page_type": "topic",
             "diagrams": [{"type": "flowchart", "content": "graph TD\nA-->B"}],
             "source_locations": [],

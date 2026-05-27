@@ -74,6 +74,60 @@ def test_make_page_preserves_content():
     assert page["title"] == "TestDomain"
 
 
+def test_overview_business_domain_set():
+    """F12: overview pages from _make_page must carry business_domain."""
+    page = _make_page("# 概述\n\n内容。", "family-tasks", "家族任务")
+    assert page.get("business_domain") == "family-tasks"
+    assert page["business_domain"]
+
+
+def test_maybe_split_overview_business_domain_set():
+    """F12: split overview parent page must carry business_domain."""
+    content = "## 概述\n\n短文档内容。"
+    pages = _maybe_split(content, "friend-management", "挚友关系管理")
+    assert pages[0].get("business_domain") == "friend-management"
+
+
+@pytest.mark.asyncio
+async def test_topic_business_domain_set():
+    """F12: topic pages from _write_with_outline must carry business_domain."""
+    from wiki.domain_doc_agent import DomainTopicOutline, TopicPlan
+    from wiki.page_agent import WorkingMemory
+
+    agent = DomainDocAgent(
+        domain_name="family-tasks",
+        domain_display_name="家族任务",
+        llm=MagicMock(),
+        graph_store=MagicMock(),
+        content_language="简体中文",
+    )
+    agent._page_agent = AsyncMock()
+    agent._page_agent.write = AsyncMock(
+        side_effect=[
+            "# 任务创建\n\n创建任务内容。",
+            "# 任务奖励\n\n奖励内容。",
+            "家族任务域负责家族内任务创建与奖励发放。",
+        ],
+    )
+    agent._verify_code_blocks = AsyncMock(side_effect=lambda c, _m: c)
+
+    outline = DomainTopicOutline(
+        should_split=True,
+        topics=[
+            TopicPlan(title="任务创建", modules=["TaskCreate"], description="创建任务"),
+            TopicPlan(title="任务奖励", modules=["RewardService"], description="奖励发放"),
+        ],
+    )
+    pages = await agent._write_with_outline(
+        outline, "baseline context", WorkingMemory(), ["TaskCreate"],
+    )
+
+    overview = next(p for p in pages if p.get("page_type") == "domain_overview")
+    topic = next(p for p in pages if p.get("page_type") == "topic")
+    assert overview.get("business_domain") == "family-tasks"
+    assert topic.get("business_domain") == "family-tasks"
+
+
 class TestBuildBaseline:
     def test_basic_domain_with_description(self):
         domain = {
@@ -818,7 +872,9 @@ class TestPlanTopicsGlossaryInjection:
 
         module_names = [f"Mod{i}" for i in "ABCDEF"]
         memory = WorkingMemory()
-        await agent._plan_topics(module_names, memory)
+        with patch("wiki.domain_doc_agent.get_settings") as mock_settings:
+            mock_settings.return_value.wiki.plan_topics_min_modules = 3
+            await agent._plan_topics(module_names, memory)
 
         mock_llm.complete_json.assert_awaited_once()
         messages = mock_llm.complete_json.call_args[0][0]
@@ -855,8 +911,44 @@ class TestPlanTopicsGlossaryInjection:
 
         module_names = [f"Mod{i}" for i in "ABCDEF"]
         memory = WorkingMemory()
-        await agent._plan_topics(module_names, memory)
+        with patch("wiki.domain_doc_agent.get_settings") as mock_settings:
+            mock_settings.return_value.wiki.plan_topics_min_modules = 3
+            await agent._plan_topics(module_names, memory)
 
         messages = mock_llm.complete_json.call_args[0][0]
         system_content = next(m["content"] for m in messages if m["role"] == "system")
         assert "术语约束" not in system_content
+
+
+class TestF15ContainerDomainPrompt:
+    def test_f15_container_domain_prompt_used(self) -> None:
+        subdomains = [
+            {"name": "child-a", "display_name": "子域A", "modules": ["ModA"]},
+            {"name": "child-b", "display_name": "子域B", "modules": ["ModB"]},
+        ]
+        agent = DomainDocAgent(
+            domain_name="parent-domain",
+            domain_display_name="父域",
+            llm=MagicMock(),
+            graph_store=MagicMock(),
+            subdomains=subdomains,
+        )
+
+        assert agent._is_container_domain is True
+        assert "父级容器" in agent._write_system_prompt
+        prompt = agent._build_write_prompt("baseline", MagicMock())
+        assert "### 子域列表" in prompt
+        assert "子域A" in prompt
+
+    def test_f15_leaf_domain_no_container_prompt(self) -> None:
+        agent = DomainDocAgent(
+            domain_name="leaf-domain",
+            domain_display_name="叶子域",
+            llm=MagicMock(),
+            graph_store=MagicMock(),
+        )
+
+        assert agent._is_container_domain is False
+        assert "父级容器" not in agent._write_system_prompt
+        prompt = agent._build_write_prompt("baseline", MagicMock())
+        assert "### 子域列表" not in prompt

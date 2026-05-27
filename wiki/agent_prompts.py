@@ -150,6 +150,8 @@ AGENT_WRITE_SYSTEM = f"""\
      - <!-- CODE_REF: key_method -->
    - 入口模块（Handler/Controller/Consumer）和核心 Service 必须详细描述
    - 辅助/配置模块可简要描述职责即可
+   - 模块详解节仅描述本域直接拥有的核心模块。对于被本域调用但归属于其他域的模块，\
+仅在依赖关系节简要标注为外部依赖，不要详细展开其实现
 
 4. ## 依赖关系
    - 基于探索结果的跨域依赖绘制 Mermaid flowchart
@@ -159,6 +161,42 @@ AGENT_WRITE_SYSTEM = f"""\
 - 所有段落（包括顶部 Overview 摘要块）必须使用中文撰写。
 - 禁止出现英文段落或英文 Overview 块。
 - 代码块内的注释使用中文。
+"""
+
+AGENT_WRITE_CONTAINER_SYSTEM = f"""\
+你是一个企业级代码知识库 Wiki 作者。基于提供的结构化探索结果，为父级容器域生成架构概览文档。
+
+{AGENT_CORE_CONSTRAINTS}
+
+## 输出结构
+直接输出 Markdown（不要 JSON 包装）。本域是多个子域的父级容器。请生成以下内容：
+
+1. ## 概述
+   - 容器域的整体业务职责和在系统中的定位（2-3 段）
+
+2. ## 子域职责矩阵
+   - 以表格列出每个子域的核心职责和边界
+   - 说明各子域之间的职责划分原则
+
+3. ## 跨子域协作架构
+   - 绘制 Mermaid flowchart 展示子域之间的数据流和调用关系
+   - 用文字说明关键协作模式
+
+4. ## 核心数据流
+   - 描述主要业务场景下数据如何在子域间流转
+   - 至少包含一个 Mermaid sequenceDiagram
+
+5. ## 子域导航
+   - 为每个子域提供简要描述和 wikilink 链接（格式：[[子域名称]]）
+
+## 重要约束
+- 不要列举具体模块的代码实现，聚焦于架构层面的描述
+- 模块详解节仅描述本域直接拥有的核心模块。对于被本域调用但归属于其他域的模块，\
+仅在依赖关系节简要标注为外部依赖，不要详细展开其实现
+
+## 语言规范
+- 所有段落（包括顶部 Overview 摘要块）必须使用中文撰写。
+- 禁止出现英文段落或英文 Overview 块。
 """
 
 # ---------------------------------------------------------------------------
@@ -209,6 +247,8 @@ AGENT_GENERATE_SYSTEM = f"""\
      - <!-- CODE_REF: key_method -->
    - 入口模块（Handler/Controller/Consumer）和核心 Service 必须详细描述
    - 辅助/配置模块可简要描述职责即可
+   - 模块详解节仅描述本域直接拥有的核心模块。对于被本域调用但归属于其他域的模块，\
+仅在依赖关系节简要标注为外部依赖，不要详细展开其实现
 
 4. ## 依赖关系
    - 基于探索结果的跨域依赖绘制 Mermaid flowchart
@@ -247,6 +287,8 @@ AGENT_WRITE_TOPIC_SYSTEM = f"""\
    - 核心类的职责和关键方法逻辑
    - 设计模式、并发控制、缓存策略等实现细节
    - <!-- CODE_REF: key_method -->
+   - 每个 topic 必须至少包含 1 个来自检索到的源码的真实代码片段。\
+不要虚构或推测代码。如果检索结果中没有找到相关代码，请用文字描述实现思路而非编造代码
 
 5. ## 相关主题
    - 与本主题相关的其他主题链接（使用 [[topic_title]] 格式）
@@ -282,6 +324,59 @@ Return ONLY valid JSON (no markdown fences):
 }
 """
 
+AGENT_WRITE_CONTAINER_SYSTEM_EN = """\
+You are an enterprise code knowledge base wiki author. Based on structured exploration results,
+generate an architecture overview for a parent container domain.
+
+{constraints_en}
+
+## Output Structure
+Output Markdown directly (no JSON wrapper). This domain is a parent container for multiple \
+sub-domains. Generate the following:
+
+1. ## Overview
+   - Overall business responsibility and system positioning of the container domain (2-3 paragraphs)
+
+2. ## Sub-Domain Responsibility Matrix
+   - Table listing each sub-domain's core responsibilities and boundaries
+   - Explain the responsibility partitioning principles between sub-domains
+
+3. ## Cross Sub-Domain Collaboration Architecture
+   - Mermaid flowchart showing data flows and call relationships between sub-domains
+   - Prose explaining key collaboration patterns
+
+4. ## Core Data Flows
+   - Describe how data flows between sub-domains in main business scenarios
+   - Include at least one Mermaid sequenceDiagram
+
+5. ## Sub-Domain Navigation
+   - Brief description and wikilink for each sub-domain (format: [[sub-domain-name]])
+
+## Important Constraints
+- Do not enumerate concrete module code implementations; focus on architecture-level description
+- The Module Details section (if modules are mentioned) must only describe core modules directly \
+owned by this domain. For modules invoked by this domain but belonging to other domains, \
+briefly note them as external dependencies in the Dependencies section only
+
+## Language Rules
+- Write all prose in English.
+- Section headings MUST be in English.
+""".format(
+    constraints_en=AGENT_CORE_CONSTRAINTS.replace(
+        "全部使用中文撰写正文",
+        "Write all prose in English",
+    ).replace(
+        "类名、方法名、文件路径等技术标识保持**英文原文**引用",
+        "Keep class names, method names, and file paths in their original form",
+    )
+)
+
+_TOPIC_CODE_REQUIREMENT_EN = (
+    "- Each topic MUST include at least one real code snippet from retrieved source code. "
+    "Do not fabricate or speculate code. If no relevant code is found in retrieval results, "
+    "describe the implementation approach in prose instead of inventing code.\n"
+)
+
 AGENT_WRITE_SYSTEM_EN = """\
 You are an enterprise code knowledge base wiki author. Based on structured exploration results,
 generate a complete domain document.
@@ -309,6 +404,9 @@ Output Markdown directly (no JSON wrapper), in this section order:
      - <!-- CODE_REF: key_method -->
    - Entry modules (Handler/Controller/Consumer) and core Services must be detailed
    - Auxiliary/config modules may be brief
+   - The Module Details section must only describe core modules directly owned by this domain. \
+For modules invoked by this domain but belonging to other domains, briefly note them as external \
+dependencies in the Dependencies section only — do not elaborate on their implementation
 
 4. ## Dependencies
    - Cross-domain dependencies as a Mermaid flowchart from exploration results
@@ -341,8 +439,18 @@ def get_topic_planner_prompt(language: str = "简体中文") -> str:
     return SYSTEM_TOPIC_PLANNER + lang_rule
 
 
-def get_write_system_prompt(language: str = "简体中文") -> str:
+def get_write_system_prompt(language: str = "简体中文", *, is_container: bool = False) -> str:
     """Return write-phase system prompt with language-appropriate section structure."""
+    if is_container:
+        if _is_chinese_language(language):
+            return AGENT_WRITE_CONTAINER_SYSTEM
+        lang_rule = (
+            f"\n## Language Rules\n"
+            f"- Write all prose in {language}.\n"
+            f"- Section headings MUST be in {language}.\n"
+            f"- Keep class names, method names, and file paths in their original form.\n"
+        )
+        return AGENT_WRITE_CONTAINER_SYSTEM_EN + lang_rule
     if _is_chinese_language(language):
         return AGENT_WRITE_SYSTEM
     lang_rule = (
@@ -363,6 +471,8 @@ def get_write_topic_system_prompt(language: str = "简体中文") -> str:
         f"- Write all prose in {language}.\n"
         f"- Section headings MUST be in {language}.\n"
         f"- Keep class names, method names, and file paths in their original form.\n"
+        f"\n## Code Snippet Requirements\n"
+        f"{_TOPIC_CODE_REQUIREMENT_EN}"
     )
     return AGENT_WRITE_SYSTEM_EN + lang_rule
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from wiki.page_agent import WorkingMemory
 from wiki.domain_doc_agent import (
@@ -63,19 +63,21 @@ def test_parse_topic_outline_small_domain_skip():
 
 @pytest.mark.asyncio
 async def test_plan_topics_small_domain_skips_llm():
-    """Domains with ≤5 modules skip the LLM call entirely."""
+    """Domains with ≤2 modules skip the LLM call entirely."""
     llm = AsyncMock()
     agent = DomainDocAgent(
         domain_name="small-domain",
         llm=llm,
         graph_store=MagicMock(),
     )
-    module_names = ["ModA", "ModB", "ModC"]
+    module_names = ["ModA", "ModB"]
     memory = WorkingMemory()
-    outline = await agent._plan_topics(module_names, memory)
+    with patch("wiki.domain_doc_agent.get_settings") as mock_settings:
+        mock_settings.return_value.wiki.plan_topics_min_modules = 3
+        outline = await agent._plan_topics(module_names, memory)
     assert outline.should_split is False
     assert len(outline.topics) == 1
-    assert set(outline.topics[0].modules) == {"ModA", "ModB", "ModC"}
+    assert set(outline.topics[0].modules) == {"ModA", "ModB"}
     # LLM should NOT have been called
     if hasattr(llm, "complete_json"):
         llm.complete_json.assert_not_called()

@@ -224,8 +224,15 @@ class TestBuildEmbeddingTexts:
         assert "refundOrder" in texts[0]
 
     def test_build_embedding_texts_includes_dependencies_and_callers(self):
-        """dependencies and callers from compose summaries should enrich embedding text."""
-        modules = [("repo", "PaymentGateway")]
+        """dependencies and callers from compose summaries should enrich embedding text.
+        With 1 module, infra threshold=max(3, ceil(1*0.1))=3 → all deps/callers count=1 < 3,
+        but threshold is >= (appears in >= threshold modules is infra), so 1 < 3 means NOT infra.
+        Wait — test needs update: with 1 module, threshold=3, each dep appears in 1 module,
+        1 < 3 → NOT infra → deps should be kept.
+        """
+        # Need more modules so deps aren't all filtered.
+        # Use 10 modules where target deps appear in only 1 → kept.
+        modules = [("repo", "PaymentGateway")] + [("repo", f"Other{i}") for i in range(9)]
         summaries = {
             "PaymentGateway": {
                 "summary_text": "支付网关",
@@ -233,11 +240,152 @@ class TestBuildEmbeddingTexts:
                 "callers": ["CheckoutController", "RefundHandler"],
             }
         }
+        for i in range(9):
+            summaries[f"Other{i}"] = {"summary_text": f"其他模块{i}"}
         paths = {"PaymentGateway": "payment/gateway/PaymentGateway.java"}
+        paths.update({f"Other{i}": f"other{i}/Other{i}.java" for i in range(9)})
+        texts = DomainSemanticClusterer.build_embedding_texts(modules, summaries, paths)
+        assert len(texts) == 10
+        pg_text = texts[0]
+        assert "depends: OrderService, UserService, ConfigLoader" in pg_text
+        assert "callers: CheckoutController, RefundHandler" in pg_text
+
+
+class TestInfraFiltering:
+    """Frequency-based filtering of shared infrastructure from depends/callers."""
+
+    def test_high_frequency_dep_filtered(self):
+        """Dependencies appearing in >= threshold modules should be filtered as infra."""
+        # 15 modules: threshold = max(3, ceil(15*0.1)) = 3
+        # RedisSelectDao appears in 5 modules' depends → infra → filtered
+        # FamilyMemberService appears in 2 modules' depends → kept
+        modules = [("repo", f"Mod{i}") for i in range(15)]
+        summaries = {}
+        for i in range(5):
+            summaries[f"Mod{i}"] = {
+                "summary_text": f"模块{i}",
+                "dependencies": ["RedisSelectDao", "FamilyMemberService"] if i < 2 else ["RedisSelectDao"],
+            }
+        for i in range(5, 15):
+            summaries[f"Mod{i}"] = {
+                "summary_text": f"模块{i}",
+                "dependencies": ["SomeOtherDep"],
+            }
+        paths = {f"Mod{i}": f"mod{i}/Mod{i}.java" for i in range(15)}
+        texts = DomainSemanticClusterer.build_embedding_texts(modules, summaries, paths)
+        # RedisSelectDao (5 >= 3) → filtered
+        for text in texts:
+            assert "RedisSelectDao" not in text
+        # FamilyMemberService (2 < 3) → kept in Mod0-1
+        for i in range(2):
+            assert "FamilyMemberService" in texts[i]
+
+    def test_high_frequency_caller_filtered(self):
+        """Callers appearing in >= threshold modules should be filtered as infra."""
+        # 20 modules: threshold = max(3, ceil(20*0.1)) = 3
+        # DataResponse appears as caller in 6 modules → infra → filtered
+        # IntimacyController appears in 2 modules → kept
+        modules = [("repo", f"Mod{i}") for i in range(20)]
+        summaries = {}
+        for i in range(6):
+            summaries[f"Mod{i}"] = {
+                "summary_text": f"模块{i}",
+                "callers": ["DataResponse", "IntimacyController"] if i < 2 else ["DataResponse"],
+            }
+        for i in range(6, 20):
+            summaries[f"Mod{i}"] = {
+                "summary_text": f"模块{i}",
+                "callers": ["OtherCaller"],
+            }
+        paths = {f"Mod{i}": f"mod{i}/Mod{i}.java" for i in range(20)}
+        texts = DomainSemanticClusterer.build_embedding_texts(modules, summaries, paths)
+        # DataResponse (6 >= 3) → filtered
+        for text in texts:
+            assert "DataResponse" not in text
+        # IntimacyController (2 < 3) → kept in Mod0-1
+        for i in range(2):
+            assert "IntimacyController" in texts[i]
+
+    def test_all_deps_unique_no_filtering(self):
+        """When all deps are unique (each appears once), nothing should be filtered."""
+        # 20 modules, each with unique deps → threshold=3, each dep count=1 < 3
+        modules = [("repo", f"Mod{i}") for i in range(20)]
+        summaries = {
+            f"Mod{i}": {
+                "summary_text": f"模块{i}",
+                "dependencies": [f"UniqueDep{i}A", f"UniqueDep{i}B"],
+            }
+            for i in range(20)
+        }
+        paths = {f"Mod{i}": f"mod{i}/Mod{i}.java" for i in range(20)}
+        texts = DomainSemanticClusterer.build_embedding_texts(modules, summaries, paths)
+        for i in range(20):
+            assert f"UniqueDep{i}A" in texts[i]
+            assert f"UniqueDep{i}B" in texts[i]
+
+    def test_single_module_filters_everything(self):
+        """With 1 module, threshold=max(3,1)=3, all deps/callers count=1 < 3 → kept (not infra)."""
+        modules = [("repo", "OnlyModule")]
+        summaries = {
+            "OnlyModule": {
+                "summary_text": "唯一的模块",
+                "dependencies": ["DepA", "DepB", "DepC"],
+                "callers": ["CallerX"],
+            }
+        }
+        paths = {"OnlyModule": "only/OnlyModule.java"}
         texts = DomainSemanticClusterer.build_embedding_texts(modules, summaries, paths)
         assert len(texts) == 1
-        assert "depends: OrderService, UserService, ConfigLoader" in texts[0]
-        assert "callers: CheckoutController, RefundHandler" in texts[0]
+        # With 1 module each dep/caller appears once, threshold=3, 1 < 3 → NOT infra → kept
+        assert "DepA" in texts[0]
+        assert "DepC" in texts[0]
+        assert "CallerX" in texts[0]
+        assert "唯一的模块" in texts[0]
+
+    def test_mixed_dep_frequencies(self):
+        """Only deps exceeding threshold are filtered; others preserved."""
+        # 30 modules: threshold = max(3, ceil(30*0.1)) = 3
+        # MultiLangProxy in 8 modules → filtered
+        # GiftOrderService in 2 modules → kept
+        # ChatMessageRouter in 1 module → kept
+        modules = [("repo", f"Mod{i}") for i in range(30)]
+        summaries = {}
+        for i in range(8):
+            dep = ["MultiLangProxy", "GiftOrderService"] if i < 2 else ["MultiLangProxy"]
+            summaries[f"Mod{i}"] = {
+                "summary_text": f"模块{i}",
+                "dependencies": dep,
+            }
+        for i in range(8, 10):
+            summaries[f"Mod{i}"] = {
+                "summary_text": f"模块{i}",
+                "dependencies": ["ChatMessageRouter"] if i == 8 else ["RandomDep"],
+            }
+        for i in range(10, 30):
+            summaries[f"Mod{i}"] = {
+                "summary_text": f"模块{i}",
+                "dependencies": ["RandomDep"],
+            }
+        paths = {f"Mod{i}": f"mod{i}/Mod{i}.java" for i in range(30)}
+        texts = DomainSemanticClusterer.build_embedding_texts(modules, summaries, paths)
+        # MultiLangProxy (8 >= 3) → filtered everywhere
+        for text in texts:
+            assert "MultiLangProxy" not in text
+        # GiftOrderService (2 < 3) → kept in Mod0-1
+        for i in range(2):
+            assert "GiftOrderService" in texts[i]
+        # ChatMessageRouter (1 < 3) → kept in Mod8
+        assert "ChatMessageRouter" in texts[8]
+
+    def test_no_summary_data_still_works(self):
+        """Modules without summary data should not crash infra filtering."""
+        modules = [("repo", "ModA"), ("repo", "ModB")]
+        summaries = {}
+        paths = {"ModA": "a/ModA.java", "ModB": "b/ModB.java"}
+        texts = DomainSemanticClusterer.build_embedding_texts(modules, summaries, paths)
+        assert len(texts) == 2
+        assert "ModA" in texts[0]
+        assert "ModB" in texts[1]
 
 
 class TestShortenPath:

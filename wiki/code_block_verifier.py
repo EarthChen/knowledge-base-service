@@ -10,7 +10,7 @@ from core.log import get_logger
 
 log = get_logger(__name__)
 
-MAX_CODE_LINES = 20
+MAX_CODE_LINES = 80
 
 _INJECT_SENTINEL = "<!-- __INJECTED_CODE_REF__ -->\n"
 

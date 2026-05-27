@@ -30,6 +30,7 @@ async def test_plan_topics_max_limit():
         mock_settings.return_value.wiki.enable_topic_pages = True
         mock_settings.return_value.wiki.min_overview_len_for_topics = 4000
         mock_settings.return_value.wiki.max_topics_per_domain = 4
+        mock_settings.return_value.wiki.plan_topics_min_modules = 3
         result = await agent.plan_topics(memory, module_names)
 
     assert result is not None
@@ -62,6 +63,7 @@ async def test_plan_topics_max_limit_force_split_path():
         mock_settings.return_value.wiki.min_overview_len_for_topics = 4000
         mock_settings.return_value.wiki.topic_force_split_threshold = 6
         mock_settings.return_value.wiki.max_topics_per_domain = 4
+        mock_settings.return_value.wiki.plan_topics_min_modules = 3
         result = await agent.plan_topics(MagicMock(), module_names)
 
     assert result is not None

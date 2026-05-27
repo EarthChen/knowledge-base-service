@@ -6,6 +6,16 @@ import re
 from typing import Any
 
 from core.log import get_logger
+from wiki.content_guards import (
+    compute_cn_ratio,
+    dedup_code_fences,
+    detect_hallucination_flags,
+    repair_code_fences,
+    strip_english_self_reflection,
+    strip_h1_title,
+    strip_meta_sections,
+    strip_repeated_blockquotes,
+)
 
 log = get_logger(__name__)
 
@@ -67,16 +77,21 @@ def _strip_fake_source_lines(content: str) -> str:
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("```"):
-            if not in_code_block:
+            if in_code_block:
+                if stripped == "```":
+                    code_buf.append(line)
+                    in_code_block = False
+                    if not code_block_has_fake:
+                        result.extend(code_buf)
+                    code_buf = []
+                else:
+                    code_buf.append(line)
+                    if _FAKE_SOURCE_RE.search(line):
+                        code_block_has_fake = True
+            else:
                 in_code_block = True
                 code_block_has_fake = False
                 code_buf = [line]
-                continue
-            code_buf.append(line)
-            in_code_block = False
-            if not code_block_has_fake:
-                result.extend(code_buf)
-            code_buf = []
             continue
         if in_code_block:
             code_buf.append(line)
@@ -140,6 +155,15 @@ def _sanitize_published_content(content: str) -> str:
 
     for pattern, replacement in _REDACT_PATTERNS:
         content = pattern.sub(replacement, content)
+
+    # V9 content guards (F10): ordered sanitize pipeline
+    content = strip_h1_title(content)
+    content = strip_meta_sections(content)
+    content = strip_repeated_blockquotes(content)
+    content = dedup_code_fences(content)
+    content = strip_english_self_reflection(content)
+    # Repair code fences (remove empty blocks, empty wikilinks)
+    content = repair_code_fences(content)
 
     return content.strip()
 
@@ -408,7 +432,7 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                 content_language = _resolve_page_content_language(page, state)
                 if _is_chinese_lang(content_language):
                     min_ratio = get_settings().wiki.cn_ratio_hard_min
-                    cn_ratio = _compute_cn_ratio(content)
+                    cn_ratio = compute_cn_ratio(content)
                     if cn_ratio < min_ratio:
                         log.warning(
                             "low_cn_ratio_topic_rejected",
@@ -420,7 +444,7 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                         continue
 
             if is_overview or is_topic:
-                hallucination_flags = _detect_hallucination_patterns(content)
+                hallucination_flags = detect_hallucination_flags(content)
                 if hallucination_flags:
                     lang = page.get("content_language", "")
                     if lang and lang.lower() in ("en", "english", "en-us"):

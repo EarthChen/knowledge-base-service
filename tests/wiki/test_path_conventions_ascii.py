@@ -16,11 +16,11 @@ class TestDomainTopicPathAscii:
     def test_ascii_section_passes_through(self):
         assert domain_topic_path("user-auth", "login-flow") == "/__domains__/user-auth/login-flow/_topic"
 
-    def test_cjk_section_produces_pinyin_slug(self):
+    def test_cjk_section_produces_english_slug(self):
         section = "挚友任务系统"
         path = domain_topic_path("closed-friend-system", section)
-        assert path == "/__domains__/closed-friend-system/zhi-you-ren-wu-xi-tong/_topic"
         assert re.fullmatch(r"/__domains__/closed-friend-system/[a-z0-9-]+/_topic", path)
+        assert "zhi-you" not in path  # should NOT be pinyin anymore
 
     def test_cjk_section_is_deterministic(self):
         section = "挚友任务系统"

@@ -37,6 +37,7 @@ class TestWritePromptGlossaryInjection:
         agent = DomainDocAgent.__new__(DomainDocAgent)
         agent._name = "test"
         agent._term_glossary = {"family": "家族", "intimacy": "亲密度"}
+        agent._subdomains = []
         agent._agent = MagicMock()
         agent._agent.memory_to_prompt = MagicMock(return_value="findings")
 
@@ -52,6 +53,7 @@ class TestWritePromptGlossaryInjection:
         agent = DomainDocAgent.__new__(DomainDocAgent)
         agent._name = "test"
         agent._term_glossary = {}
+        agent._subdomains = []
         agent._agent = MagicMock()
         agent._agent.memory_to_prompt = MagicMock(return_value="findings")
 

@@ -81,6 +81,18 @@ def _collect_leaf_domains(tree: list[dict[str, Any]], parent: str = "root") -> l
     return leaves
 
 
+def _collect_container_domains(tree: list[dict[str, Any]], parent: str = "root") -> list[dict[str, Any]]:
+    """Recursively collect container domains (nodes with non-empty children)."""
+    containers: list[dict[str, Any]] = []
+    for node in tree:
+        children = node.get("children") or node.get("subdomains") or []
+        node_with_parent = {**node, "parent": parent}
+        if children:
+            containers.append(node_with_parent)
+            containers.extend(_collect_container_domains(children, parent=node.get("name", "unknown")))
+    return containers
+
+
 _OVERVIEW_SECTION_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^##\s*业务概述\s*$", re.MULTILINE),
     re.compile(r"^##\s*Overview\s*$", re.MULTILINE),

@@ -19,10 +19,10 @@ class TestPinyinSlug:
     def test_ascii_only_returns_empty(self) -> None:
         assert _pinyin_slug("abc") == ""
 
-    def test_domain_topic_path_uses_pinyin_not_hash(self) -> None:
+    def test_domain_topic_path_uses_semantic_english_slug(self) -> None:
         path = domain_topic_path("family-events", "家族任务系统")
         assert "topic-" not in path.split("/")[-2]
-        assert "jia" in path or "ren-wu" in path
+        assert path == "/__domains__/family-events/family-task-system/_topic"
 
     def test_domain_topic_path_ascii_section_unchanged(self) -> None:
         path = domain_topic_path("family-events", "task-system")

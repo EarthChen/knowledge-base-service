@@ -35,6 +35,7 @@ async def test_plan_topics_overview_len_trigger():
         mock_settings.return_value.wiki.enable_topic_pages = True
         mock_settings.return_value.wiki.min_overview_len_for_topics = 4000
         mock_settings.return_value.wiki.max_topics_per_domain = 4
+        mock_settings.return_value.wiki.plan_topics_min_modules = 3
         result = await agent.plan_topics(memory, module_names)
 
     assert result is not None
@@ -43,7 +44,7 @@ async def test_plan_topics_overview_len_trigger():
 
 @pytest.mark.asyncio
 async def test_plan_topics_skip_small_domain():
-    """Small module count and short overview skips topic planning."""
+    """≤2 modules and short overview skips topic planning."""
     llm = AsyncMock()
     agent = DomainDocAgent(
         domain_name="small-domain",
@@ -52,7 +53,7 @@ async def test_plan_topics_skip_small_domain():
         graph_store=MagicMock(),
     )
 
-    module_names = ["ModA", "ModB", "ModC"]
+    module_names = ["ModA", "ModB"]
     memory = MagicMock()
     memory.final_overview = "x" * 2000
 
@@ -61,6 +62,7 @@ async def test_plan_topics_skip_small_domain():
     with patch("wiki.domain_doc_agent.get_settings") as mock_settings:
         mock_settings.return_value.wiki.enable_topic_pages = True
         mock_settings.return_value.wiki.min_overview_len_for_topics = 4000
+        mock_settings.return_value.wiki.plan_topics_min_modules = 3
         result = await agent.plan_topics(memory, module_names)
 
     assert result is None

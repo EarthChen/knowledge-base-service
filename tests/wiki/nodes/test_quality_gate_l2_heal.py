@@ -19,7 +19,7 @@ async def test_l2_below_threshold_triggers_heal():
         "content": (
             "## Overview\n"
             + "x" * 250
-            + "\n## Key components\nCore\n## Relationships\n- [[peer]]\n"
+            + "\n## Key components\nCore\n```java\npublic class Shallow {}\n```\n## Relationships\n- [[peer]]\n"
         ),
         "diagrams": [],
         "source_locations": [],
@@ -61,7 +61,7 @@ async def test_l2_threshold_zero_preserves_existing_behavior():
         "content": (
             "## Overview\n"
             + "x" * 1100
-            + "\n## Key components\nCore\n## Relationships\n- [[peer]]\n"
+            + "\n## Key components\nCore\n```java\npublic class OkPage {}\n```\n## Relationships\n- [[peer]]\n"
         ),
         "diagrams": [],
         "source_locations": [],

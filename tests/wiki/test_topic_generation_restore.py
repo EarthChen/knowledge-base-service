@@ -146,7 +146,12 @@ class TestDomainDocAgentWriteTopics:
         outline.topics = [MagicMock(), MagicMock(), MagicMock()]
         agent._plan_topics = AsyncMock(return_value=outline)
 
-        result = await agent.plan_topics(MagicMock(), ["A", "B", "C", "D", "E", "F"])
+        with patch("wiki.domain_doc_agent.get_settings") as mock_settings:
+            mock_settings.return_value.wiki.enable_topic_pages = True
+            mock_settings.return_value.wiki.min_overview_len_for_topics = 4000
+            mock_settings.return_value.wiki.max_topics_per_domain = 4
+            mock_settings.return_value.wiki.plan_topics_min_modules = 3
+            result = await agent.plan_topics(MagicMock(), ["A", "B", "C", "D", "E", "F"])
 
         assert result is not None
         assert agent._topic_outline is outline

@@ -20,48 +20,52 @@ from typing import Any
 
 _ENGLISH_H2_RE = re.compile(r"^## [A-Z][A-Za-z][\w ]*$", re.MULTILINE)
 
+try:
+    from wiki.content_guards import (
+        compute_cn_ratio as _cg_cn_ratio,
+    )
+    from wiki.content_guards import (
+        detect_hallucination_flags,
+    )
 
-def _compute_cn_ratio(content: str) -> float:
-    """Compute Chinese character ratio, stripping code fences."""
-    text = re.sub(r"```[\s\S]*?```", "", content or "")
-    if not text:
-        return 0.0
-    cn_count = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
-    return round(cn_count / len(text), 4)
+    def _compute_cn_ratio(content: str) -> float:
+        return round(_cg_cn_ratio(content or ""), 4)
+
+    def _detect_hallucination_patterns(content: str) -> list[str]:
+        return detect_hallucination_flags(content or "")
+
+except ImportError:
+    def _compute_cn_ratio(content: str) -> float:
+        text = re.sub(r"```[\s\S]*?```", "", content or "")
+        if not text:
+            return 0.0
+        cn_count = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
+        return round(cn_count / len(text), 4)
+
+    def _detect_hallucination_patterns(content: str) -> list[str]:
+        patterns = []
+        hallucination_res = [
+            (r"\d+\.\d+%", "fabricated percentage"),
+            (r"\b\d{2,3}%", "fabricated round percentage"),
+            (r"≤\d+s|≥\d+\.\d+", "fabricated SLA"),
+            (r"P\d{2}\s*[<≤]\s*\d+", "fabricated latency SLA"),
+        ]
+        text = re.sub(r"```[\s\S]*?```", "", content or "")
+        for pat, desc in hallucination_res:
+            if re.search(pat, text):
+                patterns.append(desc)
+        return patterns
 
 
 def _extract_english_h2_list(content: str) -> list[str]:
-    """Extract H2 headings that are primarily English."""
     return _ENGLISH_H2_RE.findall(content or "")
 
 
 def _extract_h2_list(content: str) -> list[str]:
-    """Extract all H2 headings from content."""
     return re.findall(r"^## .+$", content or "", re.MULTILINE)
 
 
-def _detect_hallucination_patterns(content: str) -> list[str]:
-    """Detect common LLM hallucination patterns in wiki content."""
-    patterns = []
-    hallucination_res = [
-        (r"\d+\.\d+%", "fabricated percentage"),
-        (r"\b\d{2,3}%", "fabricated round percentage"),
-        (r"≤\d+s|≥\d+\.\d+", "fabricated SLA"),
-        (r"P\d{2}\s*[<≤]\s*\d+", "fabricated latency SLA"),
-        (r"留存.*[+\-]\d+", "fabricated retention metric"),
-        (r"健身|看护|儿童", "fabricated business scenario"),
-        (r"\d{4}年\d{1,2}月\d{1,2}日", "fabricated date"),
-        (r"\d{4}-\d{2}-\d{2}\s+复核", "fabricated review date"),
-    ]
-    text = re.sub(r"```[\s\S]*?```", "", content or "")
-    for pat, desc in hallucination_res:
-        if re.search(pat, text):
-            patterns.append(desc)
-    return patterns
-
-
 def _detect_render_issues(content: str) -> list[str]:
-    """Detect Markdown rendering problems."""
     issues = []
     if re.search(r"^## .+\n[a-z]", content or "", re.MULTILINE):
         issues.append("h2_line_break")

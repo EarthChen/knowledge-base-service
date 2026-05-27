@@ -14,6 +14,23 @@ _(当前无进行中任务)_
 
 ## 积压项
 
+### P2 — F4 Structured Output 剩余迁移
+
+V10 已将 3 个 LLM provider 升级为 `json_schema + strict`，已迁移 P0/P1 调用方，以下 8 个灵活格式调用方仍降级为 `json_object`（功能正常，有 deprecation warning）。待各调用方输出格式稳定后逐步迁移：
+
+| 文件 | 行 | 当前状态 | 备注 |
+|------|-----|----------|------|
+| `wiki/nodes/compose.py` | ~238 | `{}` fallback | wiki content 格式过于灵活 |
+| `wiki/nodes/compose.py` | ~629 | `{}` fallback | 同上 |
+| `wiki/targeted_healer.py` | ~98 | `{}` fallback | diagnosis 格式多变 |
+| `wiki/cross_repo_domain_planner.py` | ~396, ~503, ~582, ~701, ~758 | `{}` fallback (5处) | 多种域映射格式，已有 robust parsing |
+| `wiki/business_domain_planner.py` | ~228 | `{}` fallback | 灵活映射格式 |
+| `wiki/rag/engine.py` | ~87 | `{}` fallback | reflection 格式任意 |
+| `wiki/context.py` | ~46 | `{}` fallback | 上下文分析格式任意 |
+| `wiki/nodes/aggregate.py` | ~202 | `{}` fallback | 内容聚合格式任意 |
+| `wiki/reasoning.py` | ~188 | `{}` fallback | 推理计划格式任意 |
+
+
 ### P2 — Agent 框架渐进迁移
 
 - [x] **Migrate 14 WikiPageAgent tools to `@function_tool`** — 全部 14 个工具已迁移完成 (2026-05-20)。手写 JSON Schema (`AGENT_TOOLS`) 已删除，工具通过 `@function_tool` 装饰器 + `collect_tools()` 自动注册。

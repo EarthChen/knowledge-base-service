@@ -856,7 +856,11 @@ class DomainDocAgent(DocOrchestrator):
 
             plan_tokens = resolve_max_tokens(self._budget_resolver, "topic_plan")
             if hasattr(llm, "complete_json"):
-                result = await llm.complete_json(messages, {}, max_tokens=plan_tokens)
+                from wiki.llm_schemas import TopicPlanOutput
+
+                result = await llm.complete_json(
+                    messages, TopicPlanOutput.model_json_schema(), max_tokens=plan_tokens,
+                )
                 if isinstance(result, dict):
                     raw = json.dumps(result, ensure_ascii=False)
                 else:

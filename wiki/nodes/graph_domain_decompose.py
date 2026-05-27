@@ -440,7 +440,9 @@ async def _merge_domains_by_llm(
             return domain_mapping, domain_display_names
 
     try:
-        result = await llm.complete_json(messages, {})
+        from wiki.llm_schemas import DomainMergeOutput
+
+        result = await llm.complete_json(messages, DomainMergeOutput.model_json_schema())
         if isinstance(result, dict):
             raw_groups = result.get("merge_groups", [])
             if isinstance(raw_groups, list):

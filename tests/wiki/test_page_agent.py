@@ -1076,10 +1076,10 @@ class TestWrite:
         assert "## 概述" in result
 
     @pytest.mark.asyncio
-    async def test_write_skips_complete_json_for_chinese(self):
+    async def test_write_tries_complete_json_for_chinese_with_fallback(self):
         mock_llm = MagicMock()
         mock_graph = MagicMock()
-        mock_llm.complete_json = AsyncMock()
+        mock_llm.complete_json = AsyncMock(side_effect=Exception("structured output unavailable"))
         mock_llm.generate = AsyncMock(
             return_value="## 概述\n\n中文正文内容。\n\n" * 10,
         )
@@ -1094,7 +1094,7 @@ class TestWrite:
             memory=memory,
         )
 
-        mock_llm.complete_json.assert_not_called()
+        mock_llm.complete_json.assert_called_once()
         mock_llm.generate.assert_called_once()
 
     @pytest.mark.asyncio

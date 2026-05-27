@@ -860,22 +860,21 @@ class WikiPageAgent(GenericAgent):
                 f"## Exploration Findings (Working Memory)\n{memo_section}\n"
             )
 
-        # Try structured output via complete_json (skip for Chinese — produces English headings)
-        if not is_chinese:
-            try:
-                messages = [
-                    {"role": "system", "content": write_system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ]
-                data = await self._llm.complete_json(
-                    messages, WikiPageOutput.model_json_schema()
-                )
-                page_data = WikiPageOutput.model_validate(data)
-                rendered = render_wiki_page(page_data)
-                if rendered and len(rendered) > 200:
-                    return rendered
-            except Exception:
-                log.info("structured_output_fallback", domain=domain_name)
+        # Try structured output via complete_json (all languages)
+        try:
+            messages = [
+                {"role": "system", "content": write_system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            data = await self._llm.complete_json(
+                messages, WikiPageOutput.model_json_schema()
+            )
+            page_data = WikiPageOutput.model_validate(data)
+            rendered = render_wiki_page(page_data)
+            if rendered and len(rendered) > 200:
+                return rendered
+        except Exception:
+            log.info("structured_output_fallback", domain=domain_name)
 
         # Fallback to plain text generation
         try:

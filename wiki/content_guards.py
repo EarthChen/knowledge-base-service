@@ -299,6 +299,9 @@ def compute_cn_ratio(content: str) -> float:
 
 _EMPTY_CODE_BLOCK_RE = re.compile(r"```\w*\s*\n\s*```")
 _EMPTY_WIKILINK_RE = re.compile(r"\[\[\s*\]\]")
+_DOUBLE_FENCE_RE = re.compile(
+    r"(```\w*)\s*\n\s*\n\s*(```\w*\n)",
+)
 
 
 def count_empty_code_blocks(content: str) -> int:
@@ -307,7 +310,8 @@ def count_empty_code_blocks(content: str) -> int:
 
 
 def repair_code_fences(content: str) -> str:
-    """Remove empty code blocks and empty WikiLinks."""
+    """Remove empty code blocks, empty WikiLinks, and merge double fences."""
+    content = _DOUBLE_FENCE_RE.sub(r"\1\n", content)
     content = _EMPTY_CODE_BLOCK_RE.sub("", content)
     content = _EMPTY_WIKILINK_RE.sub("", content)
     content = re.sub(r"\n{4,}", "\n\n\n", content)

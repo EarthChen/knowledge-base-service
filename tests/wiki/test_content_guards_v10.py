@@ -160,3 +160,30 @@ class TestWhitelistPromptSync:
                 found = any(heading.startswith(prefix) for prefix in ALLOWED_OVERVIEW_H2_PREFIXES)
                 if not found:
                     pass  # Log but don't fail — some prompt H2s are instructional, not output headings
+
+
+class TestDoubleFenceMerge:
+    """Tests for F6: double fence merge."""
+
+    def test_double_fence_java_merged(self):
+        from wiki.content_guards import repair_code_fences
+
+        content = "```java\n\n```java\npublic class Foo {}\n```"
+        result = repair_code_fences(content)
+        assert result.count("```java") == 1
+        assert "public class Foo {}" in result
+
+    def test_normal_fence_preserved(self):
+        from wiki.content_guards import repair_code_fences
+
+        content = "```python\ndef hello():\n    pass\n```"
+        result = repair_code_fences(content)
+        assert "```python" in result
+        assert "def hello():" in result
+
+    def test_double_fence_different_lang(self):
+        from wiki.content_guards import repair_code_fences
+
+        content = "```java\n\n```kotlin\nfun main() {}\n```"
+        result = repair_code_fences(content)
+        assert "fun main()" in result

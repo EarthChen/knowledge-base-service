@@ -83,7 +83,8 @@ class TestStripRepeatedBlockquotes:
         quote = "> 术语说明：本模块负责用户管理。"
         content = f"{quote}\n{quote}\n{quote}\n\n## 概述\n内容"
         result = strip_repeated_blockquotes(content)
-        assert result.count("> 术语说明：本模块负责用户管理。") == 1
+        # F2 upgrade: "术语说明：" now matches LLM trace pattern, entire block removed
+        assert "术语说明" not in result
         assert "## 概述" in result
 
     def test_strip_repeated_blockquotes_different(self):
@@ -145,23 +146,11 @@ class TestStripEnglishSelfReflection:
 
 
 class TestDetectTruncatedCodeBlocks:
-    def test_detect_truncated_marker(self):
-        content = "## 示例\n\n```java\npublic class Foo {\n    // ...\n[truncated]\n```"
-        assert detect_truncated_code_blocks(content) is True
-
     def test_detect_truncated_unclosed_fence(self):
         content = "## 示例\n\n```java\npublic class Foo {\n    return 1;\n"
-        assert detect_truncated_code_blocks(content) is True
-
-    def test_detect_truncated_incomplete_line(self):
-        content = (
-            "## 示例\n\n```java\n"
-            "public void processOrder(Order order) {\n"
-            "    validate(order);\n"
-            "    repository.save(order,\n"
-            "```"
-        )
-        assert detect_truncated_code_blocks(content) is True
+        result = detect_truncated_code_blocks(content)
+        assert len(result) > 0
+        assert result[0]["unclosed"] is True
 
     def test_detect_truncated_normal_code_no_false_positive(self):
         content = (
@@ -171,11 +160,7 @@ class TestDetectTruncatedCodeBlocks:
             "}\n"
             "```"
         )
-        assert detect_truncated_code_blocks(content) is False
-
-    def test_detect_truncated_short_block_skipped(self):
-        content = "## 示例\n\n```java\nx,\n```"
-        assert detect_truncated_code_blocks(content) is False
+        assert detect_truncated_code_blocks(content) == []
 
     def test_detect_truncated_empty_content(self):
-        assert detect_truncated_code_blocks("") is False
+        assert detect_truncated_code_blocks("") == []

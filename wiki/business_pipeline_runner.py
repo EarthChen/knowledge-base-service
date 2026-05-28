@@ -253,9 +253,24 @@ class BusinessPipelineRunner:
         except Exception:
             log.warning("domain_anchors_load_failed", business_id=business_id)
 
+        # Load domain baseline (S1) for quality gate comparison
+        domain_baseline: dict[str, list[tuple[str, str]]] = {}
+        try:
+            all_anchors = await self._persistence.list_domain_anchors(business_id) or []
+            for anchor in all_anchors:
+                slug = str(anchor["slug"])
+                mods = await self._persistence.list_domain_modules(business_id, slug) or []
+                if mods:
+                    domain_baseline[slug] = [
+                        (str(m.get("repository", "")), str(m["module_name"])) for m in mods
+                    ]
+        except Exception:
+            log.warning("domain_baseline_load_failed", business_id=business_id, exc_info=True)
+
         state["pinned_modules"] = pinned_modules
         state["anchored_slugs"] = anchored_slugs
         state["anchor_display_names"] = anchor_display_names
+        state["domain_baseline"] = domain_baseline
 
     async def _cleanup_container_domain_topics(
         self,
@@ -456,6 +471,7 @@ class BusinessPipelineRunner:
         pinned_modules: dict[str, str] = _anchor_state.get("pinned_modules", {})
         anchored_slugs: set[str] = _anchor_state.get("anchored_slugs", set())
         anchor_display_names: dict[str, str] = _anchor_state.get("anchor_display_names", {})
+        domain_baseline: dict[str, list[tuple[str, str]]] = _anchor_state.get("domain_baseline", {})
 
         if existing_domain_tree:
             from wiki.pipeline_orchestrator import domain_tree_to_mapping
@@ -540,6 +556,8 @@ class BusinessPipelineRunner:
                 config_overrides={"language": language, **(config_overrides or {})},
                 budget_resolver=self._budget_resolver,
                 llm_rate_limiter=llm_rate_limiter,
+                domain_baseline=domain_baseline or None,
+                persistence=self._persistence,
             )
 
         if progress_callback:

@@ -169,6 +169,11 @@ AGENT_WRITE_SYSTEM = f"""\
 - 所有段落（包括顶部 Overview 摘要块）必须使用中文撰写。
 - 禁止出现英文段落或英文 Overview 块。
 - 代码块内的注释使用中文。
+
+## 代码块约束
+- 代码块总数不超过 5 个，每个代码块不超过 20 行。
+- 代码仅用于辅助说明核心逻辑，必须有中文说明包裹。
+- 禁止将方法签名列表作为代码块输出。
 """
 
 AGENT_WRITE_CONTAINER_SYSTEM = f"""\
@@ -205,6 +210,11 @@ AGENT_WRITE_CONTAINER_SYSTEM = f"""\
 ## 语言规范
 - 所有段落（包括顶部 Overview 摘要块）必须使用中文撰写。
 - 禁止出现英文段落或英文 Overview 块。
+
+## 代码块约束
+- 代码块总数不超过 5 个，每个代码块不超过 20 行。
+- 代码仅用于辅助说明核心逻辑，必须有中文说明包裹。
+- 禁止将方法签名列表作为代码块输出。
 """
 
 # ---------------------------------------------------------------------------
@@ -320,7 +330,7 @@ Rules:
 - Topic titles must reflect business capability (e.g. "用户等级体系"), not technical suffixes
 - Every module must be assigned to exactly one topic
 - Maximum 6 topics to avoid fragmentation
-- If the domain has ≤5 modules, set should_split=false and create a single topic containing all modules
+- If the domain has ≤2 modules, set should_split=false and create a single topic containing all modules
 - The "slug" field MUST be a kebab-case ASCII English identifier (e.g. "user-level-system", "gift-order-processing")
 
 Return ONLY valid JSON (no markdown fences):

@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 
 from core.log import get_logger
 from wiki.json_robust import parse_json_robust_sync
+from wiki.llm_schemas import CorrectorReviewOutput
 from wiki.prompts import SYSTEM_JSON_ONLY
 
 log = get_logger(__name__)
@@ -83,12 +84,31 @@ def build_global_review_prompt(
     business_id: str,
     domain_listing: str,
     language: str = "简体中文",
+    package_tree_str: str = "",
+    cross_domain_edges_str: str = "",
 ) -> str:
-    return _GLOBAL_REVIEW_PROMPT.format(
+    prompt = _GLOBAL_REVIEW_PROMPT.format(
         business_id=business_id or "unknown",
         domain_listing=domain_listing,
         display_name_rule=_display_name_rule(language),
     )
+    if not package_tree_str and not cross_domain_edges_str:
+        return prompt
+    enhanced_context = f"""
+
+## 包层次结构 (帮助判断模块的组织归属):
+{package_tree_str or "  (无路径信息)"}
+
+## 高频跨域调用 (被多域调用的模块可能是基础设施):
+{cross_domain_edges_str or "  (无显著跨域调用)"}
+
+## 审查指引:
+1. 检查每个域内的模块是否业务上相关。如果某模块的包路径与同域其他模块明显不同，考虑移出。
+2. 如果某模块被 3 个以上域频繁调用，它可能是基础设施/工具类，应独立为 infra 域。
+3. 明确业务归属的模块(如包路径含 family/intimacy/relation 等)不应与其他业务线混淆。
+4. converter/mapper/handler 类型模块，如果仅服务于特定业务则保留，如果跨域共用则归 infra。
+"""
+    return prompt + enhanced_context
 
 
 class GraphSemanticCorrector:
@@ -170,6 +190,8 @@ class GraphSemanticCorrector:
         module_details: dict[str, dict[str, Any]] | None = None,
         language: str = "简体中文",
         anchored_slugs: frozenset[str] = frozenset(),
+        package_tree_str: str = "",
+        cross_domain_edges_str: str = "",
     ) -> tuple[dict[str, list[tuple[str, str]]], dict[str, str]]:
         """One-shot global review: merge overlapping domains, rename, move modules."""
         if self._llm is None or len(domain_mapping) <= 1:
@@ -200,11 +222,25 @@ class GraphSemanticCorrector:
             business_id=business_id,
             domain_listing=listing,
             language=language,
+            package_tree_str=package_tree_str,
+            cross_domain_edges_str=cross_domain_edges_str,
         )
+        if anchored_slugs:
+            constraint = (
+                "\nCRITICAL: The following domains are protected and MUST NOT be merged or removed: "
+                f"{', '.join(sorted(anchored_slugs))}"
+            )
+            prompt += constraint
 
         try:
-            raw = (await self._llm.generate(prompt, system=SYSTEM_JSON_ONLY)).strip()
-            parsed = parse_json_robust_sync(raw)
+            messages = [
+                {"role": "system", "content": SYSTEM_JSON_ONLY},
+                {"role": "user", "content": prompt},
+            ]
+            parsed = await self._llm.complete_json(
+                messages,
+                CorrectorReviewOutput.model_json_schema(),
+            )
         except Exception:
             log.warning("global_review_llm_failed", exc_info=True)
             return domain_mapping, domain_display_names

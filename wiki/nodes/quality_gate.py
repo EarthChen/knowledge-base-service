@@ -16,7 +16,9 @@ from wiki.content_guards import (
     count_boilerplate_hits,
     detect_hallucination_flags,
     detect_truncated_code_blocks,
+    detect_unclosed_code_blocks,
     has_meta_sections,
+    has_topic_overview_section,
 )
 from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.models import ImportanceTier, WikiPage
@@ -27,6 +29,7 @@ from wiki.quality_evaluator import WikiQualityEvaluator
 
 log = get_logger(__name__)
 
+_PART_N_RE = re.compile(r"- Part \d+$")
 _SCORE_KEYS = frozenset({"l1_structural", "l2_bench", "l3_llm_judge"})
 
 
@@ -302,6 +305,17 @@ async def quality_gate_node(
         content_issues: list[str] = []
         page_content = page_dict.get("content", "")
 
+        if _PART_N_RE.search(page_dict.get("title", "")):
+            content_issues.append(
+                "part_n_title: Title uses mechanical 'Part N' naming, should use semantic title"
+            )
+
+        min_chars = 500 if page_type == "topic" else 1000
+        if len(page_content.strip()) < min_chars:
+            content_issues.append(
+                f"content_too_short: Page only has {len(page_content.strip())} chars (min: {min_chars})"
+            )
+
         hallucination_flags = detect_hallucination_flags(page_content)
         if hallucination_flags:
             log.warning("quality_gate_hallucination", title=page_dict.get("title"), flags=hallucination_flags)
@@ -317,6 +331,29 @@ async def quality_gate_node(
             content_issues.append("meta_section_leak")
 
         if page_type == "domain_overview":
+            effective_lang = content_language or _detect_lang_from_content(page_content)
+            cn_ratio_val: float | None = None
+            if _is_chinese_lang(effective_lang):
+                cn_ratio_val = _check_cn_ratio(page_dict)
+                if cn_ratio_val < 0.20:
+                    log.warning(
+                        "quality_gate_overview_low_cn_ratio",
+                        title=page_dict.get("title"),
+                        cn_ratio=round(cn_ratio_val, 3),
+                        threshold=0.20,
+                    )
+                    content_issues.append(f"overview_low_cn_ratio: cn={cn_ratio_val:.3f} < 0.20")
+
+            code_fences = re.findall(r"^```", page_content, re.MULTILINE)
+            code_block_count = len(code_fences) // 2
+            if code_block_count > 5:
+                if cn_ratio_val is None:
+                    cn_ratio_val = _check_cn_ratio(page_dict) if _is_chinese_lang(effective_lang) else 1.0
+                if cn_ratio_val < 0.20:
+                    content_issues.append(
+                        f"overview_code_overload: {code_block_count} code blocks with cn_ratio={cn_ratio_val:.3f}"
+                    )
+
             h2_headings = _extract_h2_headings(page_content)
             if len(page_content) < 500 and len(h2_headings) == 1:
                 log.warning(
@@ -331,15 +368,23 @@ async def quality_gate_node(
             log.warning("quality_gate_topic_no_code", title=page_dict.get("title"))
             content_issues.append("topic_no_code: topic has no code examples")
 
+        if page_type == "topic" and not is_topic_index and not has_topic_overview_section(page_content):
+            log.warning("quality_gate_missing_overview", title=page_dict.get("title"))
+            content_issues.append(
+                "missing_overview: topic lacks ## 概述 section; add overview before other sections"
+            )
+
         truncated = detect_truncated_code_blocks(page_content)
-        if truncated:
+        unclosed_blocks = detect_unclosed_code_blocks(page_content)
+        if truncated or unclosed_blocks:
+            block_count = len(truncated) if truncated else 1
             log.warning(
                 "quality_gate_truncated_code",
                 title=page_dict.get("title"),
-                count=len(truncated),
+                count=block_count,
             )
             content_issues.append(
-                f"CODE_TRUNCATED: {len(truncated)} unclosed code block(s) detected. "
+                f"CODE_TRUNCATED: {block_count} unclosed code block(s) detected. "
                 "Ensure all code blocks have matching closing ``` fences and are complete."
             )
 
@@ -404,6 +449,24 @@ async def quality_gate_node(
                 cycles = heal_cycles.get(page_path, 0)
                 if l3_val < l3_threshold and cycles < max_retries and page_path not in pages_to_heal:
                     pages_to_heal.append(page_path)
+
+    domains_with_overview: set[str] = set()
+    domains_with_topics: set[str] = set()
+    for page_dict in state.get("pages", []):
+        bd = str(page_dict.get("business_domain") or "").strip()
+        if not bd:
+            continue
+        page_type = str(page_dict.get("page_type") or "")
+        if page_type == "domain_overview":
+            domains_with_overview.add(bd)
+        elif page_type == "topic":
+            domains_with_topics.add(bd)
+    for domain_slug in domains_with_overview - domains_with_topics:
+        log.warning(
+            "quality_gate_domain_no_topics",
+            domain=domain_slug,
+            reason="domain has overview but no topic pages",
+        )
 
     if len(pages_to_heal) > 1:
         if "L2" in levels:

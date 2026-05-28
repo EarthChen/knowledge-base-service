@@ -27,7 +27,12 @@ async def test_finalize_node_sanitizes_content():
         "pages": [
             {
                 "path": "wiki/test",
-                "content": "# Title\n<!-- CONTEXT_GAP: gap -->\nBody",
+                "content": (
+                    "# Title\n<!-- CONTEXT_GAP: gap -->\nBody\n\n"
+                    "This page documents finalize sanitization behavior for wiki publishing. "
+                    "Extra narrative padding ensures the content passes the minimum length gate "
+                    "introduced for low-quality stub pages during pipeline finalize."
+                ),
             }
         ],
         "errors": [],

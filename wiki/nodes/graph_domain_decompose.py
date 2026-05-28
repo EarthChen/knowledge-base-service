@@ -81,6 +81,81 @@ def _build_paths_for_corrector(
     return paths_for_corrector
 
 
+def _extract_package_from_path(path: str) -> list[str]:
+    """Extract package/directory segments from a module file path."""
+    if not path:
+        return []
+    normalized = path.replace("\\", "/").strip()
+    if not normalized:
+        return []
+    parts = normalized.split("/")
+    if len(parts) <= 1:
+        return parts
+    return parts[:-1]
+
+
+_MAX_PACKAGE_PREFIXES = 50
+
+
+def _build_package_tree(module_paths: dict[str, str]) -> str:
+    """Build a human-readable package tree for LLM context."""
+    from collections import defaultdict
+
+    tree: dict[str, list[str]] = defaultdict(list)
+    seen_modules: set[str] = set()
+    for compound_key, path in module_paths.items():
+        pkg_parts = _extract_package_from_path(path)
+        prefix = ".".join(pkg_parts[:4]) if len(pkg_parts) >= 4 else ".".join(pkg_parts)
+        if not prefix:
+            continue
+        module_name = compound_key.split("|", 1)[-1] if "|" in compound_key else compound_key
+        key = (prefix, module_name)
+        if key not in seen_modules:
+            seen_modules.add(key)
+            tree[prefix].append(module_name)
+
+    lines: list[str] = []
+    sorted_pkgs = sorted(tree.items())
+    for pkg, modules in sorted_pkgs[:_MAX_PACKAGE_PREFIXES]:
+        lines.append(f"  {pkg}/ ({len(modules)} modules)")
+        for mod in modules[:5]:
+            lines.append(f"    - {mod}")
+        if len(modules) > 5:
+            lines.append(f"    ... +{len(modules) - 5} more")
+    if len(sorted_pkgs) > _MAX_PACKAGE_PREFIXES:
+        lines.append(f"  ... +{len(sorted_pkgs) - _MAX_PACKAGE_PREFIXES} more packages")
+    return "\n".join(lines)
+
+
+def _build_cross_domain_edges_summary(
+    edges: list[tuple[tuple[str, str], tuple[str, str], int]],
+    domain_mapping: dict[str, list[tuple[str, str]]],
+    top_n: int = 15,
+) -> str:
+    """Summarize top cross-domain call relationships."""
+    mod_to_domain: dict[tuple[str, str], str] = {}
+    for slug, pairs in domain_mapping.items():
+        for repo, mod_name in pairs:
+            mod_to_domain[(repo, mod_name)] = slug
+
+    cross_edges: list[tuple[str, str, str, str, int]] = []
+    edge_weights: dict[tuple[str, str, str, str], int] = {}
+    for (r1, m1), (r2, m2), weight in edges:
+        d1 = mod_to_domain.get((r1, m1))
+        d2 = mod_to_domain.get((r2, m2))
+        if d1 and d2 and d1 != d2:
+            key = (m1, m2, d1, d2)
+            edge_weights[key] = edge_weights.get(key, 0) + weight
+    cross_edges = [(m1, m2, d1, d2, w) for (m1, m2, d1, d2), w in edge_weights.items()]
+    cross_edges.sort(key=lambda x: -x[4])
+
+    lines = [
+        f"  {caller}({dom_a}) → {callee}({dom_b}) [{w}次]"
+        for caller, callee, dom_a, dom_b, w in cross_edges[:top_n]
+    ]
+    return "\n".join(lines) if lines else "  (无显著跨域调用)"
+
+
 def _resolve_content_language(state: dict[str, Any]) -> str:
     cfg = state.get("config") or {}
     nested = cfg.get("config") or {}
@@ -564,24 +639,79 @@ def _build_domain_tree(
     return tree
 
 
+def _is_shell_section(node: dict) -> bool:
+    """True when node is a container shell: no modules, no overview, only subsection children."""
+    if node.get("has_overview"):
+        return False
+    modules = node.get("modules") or []
+    children = node.get("children") or []
+    return not modules and bool(children)
+
+
 def _collapse_empty_shells(tree: list[dict]) -> list[dict]:
-    """Collapse empty shell domains (0 modules, 1 child) bottom-up."""
+    """Collapse shell domains (0 modules, no overview) by promoting children to parent."""
 
-    def _collapse_node(node: dict) -> dict:
-        if node.get("children"):
-            node["children"] = [_collapse_node(c) for c in node["children"]]
-
-        modules = node.get("modules") or []
+    def _collapse_node(node: dict) -> list[dict]:
         children = node.get("children") or []
-        if not modules and len(children) == 1:
-            child = children[0]
-            collapsed_from = list(child.get("collapsed_from", []))
-            collapsed_from.append(node.get("name", ""))
-            child["collapsed_from"] = collapsed_from
-            return child
-        return node
+        if children:
+            expanded: list[dict] = []
+            for child in children:
+                expanded.extend(_collapse_node(child))
+            node = {**node, "children": expanded}
 
-    return [_collapse_node(n) for n in tree]
+        if _is_shell_section(node):
+            shell_name = node.get("name", "")
+            promoted: list[dict] = []
+            for child in node.get("children") or []:
+                collapsed_from = list(child.get("collapsed_from", []))
+                if shell_name:
+                    collapsed_from.append(shell_name)
+                child["collapsed_from"] = collapsed_from
+                promoted.append(child)
+            return promoted
+        return [node]
+
+    result: list[dict] = []
+    for n in tree:
+        result.extend(_collapse_node(n))
+    return result
+
+
+_MAX_SLUG_SEGMENTS = 5
+_MAX_SLUG_LENGTH = 40
+
+
+def _is_low_quality_slug(slug: str) -> bool:
+    """Detect garbage slugs: too long, truncated, or lacking business semantics."""
+    parts = slug.split("-")
+    if len(parts) > _MAX_SLUG_SEGMENTS:
+        return True
+    if len(slug) > _MAX_SLUG_LENGTH:
+        return True
+    if any(len(p) > 15 for p in parts):
+        return True
+    if re.search(r"[a-z]{3,}[A-Z]", slug):
+        return True
+    return False
+
+
+def _fix_low_quality_slug(result: dict) -> dict:
+    """Replace garbage slugs with display-name-based sanitized slug."""
+    slug = result.get("slug", "")
+    if not slug or not _is_low_quality_slug(slug):
+        return result
+    display_name = result.get("display_name", "")
+    log.warning("low_quality_slug_detected", slug=slug, display_name=display_name)
+    sanitized = normalize_slug(display_name) if display_name else ""
+    if sanitized and sanitized != "unnamed" and not _is_low_quality_slug(sanitized):
+        result["slug"] = sanitized
+        log.info("low_quality_slug_sanitized", original=slug, sanitized=sanitized)
+        return result
+    parts = slug.split("-")[:_MAX_SLUG_SEGMENTS]
+    trimmed = "-".join(p[:15] for p in parts)[:_MAX_SLUG_LENGTH].strip("-")
+    result["slug"] = trimmed or "unnamed-domain"
+    log.info("low_quality_slug_trimmed", original=slug, trimmed=result["slug"])
+    return result
 
 
 _GENERIC_DIFFERENTIATORS = frozenset({
@@ -629,12 +759,63 @@ def _slug_semantically_mismatched(parent_slug: str, child_slug: str) -> bool:
     return False
 
 
+def _reparent_infra_misplaced_to_root(
+    domain_tree: list[dict],
+    infrastructure_keywords: list[str],
+) -> list[dict[str, str]]:
+    """Promote infra slugs nested under business domains to tree root."""
+    reparented: list[dict[str, str]] = []
+
+    def _walk(nodes: list[dict]) -> None:
+        for node in nodes:
+            children = list(node.get("children") or [])
+            if not children:
+                continue
+            parent_slug = node.get("name", "")
+            parent_is_business = not _is_infra_slug(
+                parent_slug, node.get("modules") or [], infrastructure_keywords,
+            )
+            kept: list[dict] = []
+            for child in children:
+                child_slug = child.get("name", "")
+                if parent_is_business and _is_infra_slug(
+                    child_slug, child.get("modules") or [], infrastructure_keywords,
+                ):
+                    reparented.append({
+                        "child": child_slug,
+                        "parent": parent_slug,
+                        "reason": "infrastructure domain nested under business domain",
+                    })
+                    domain_tree.append(child)
+                    log.warning(
+                        "infra_misplaced_reparent",
+                        child=child_slug,
+                        parent=parent_slug,
+                    )
+                else:
+                    kept.append(child)
+            node["children"] = kept
+            _walk(kept)
+
+    _walk(domain_tree)
+    return reparented
+
+
 def _review_subdomain_placement(
     domain_tree: list[dict],
     embeddings: dict[str, list[float]] | None = None,
+    *,
+    infrastructure_keywords: list[str] | None = None,
 ) -> list[dict[str, str]]:
-    """Review sub-domain placement for semantic mismatches. Returns warnings (detection only)."""
+    """Review sub-domain placement; reparent infra misplacements and log semantic mismatches."""
     del embeddings  # reserved for future embedding-based checks
+    keywords = infrastructure_keywords
+    if keywords is None:
+        keywords = get_settings().wiki.infrastructure_slug_keywords
+
+    if keywords:
+        _reparent_infra_misplaced_to_root(domain_tree, keywords)
+
     warnings: list[dict[str, str]] = []
 
     def _walk(nodes: list[dict]) -> None:
@@ -663,6 +844,24 @@ def _review_subdomain_placement(
     return warnings
 
 
+def _dedupe_slug_segments(slug: str) -> str:
+    """Remove consecutive repeated multi-word segments: a-b-b → a-b, x-y-z-y-z → x-y-z."""
+    parts = slug.split("-")
+    if not parts:
+        return slug
+    result = [parts[0]]
+    i = 1
+    while i < len(parts):
+        for seg_len in range(1, len(parts) - i + 1):
+            if i + seg_len <= len(parts) and parts[i : i + seg_len] == result[-seg_len:]:
+                i += seg_len
+                break
+        else:
+            result.append(parts[i])
+            i += 1
+    return "-".join(result)
+
+
 def _dedup_parallel_naming_results(
     results: list[dict],
     existing_slugs: list[str],
@@ -684,9 +883,17 @@ def _dedup_parallel_naming_results(
                 new_slug = f"{slug}-{counter}"
             else:
                 new_slug = f"{slug}-{suffix}"
+                counter = 0
+                base = new_slug
+                while new_slug in seen:
+                    counter += 1
+                    new_slug = f"{base}-{counter}"
             log.warning("slug_collision_resolved", original=slug, resolved=new_slug)
             result["slug"] = new_slug
         seen.add(result["slug"])
+    for result in results:
+        result["slug"] = _dedupe_slug_segments(result["slug"])
+        _fix_low_quality_slug(result)
     return results
 
 
@@ -1132,13 +1339,35 @@ async def _agent_review_decomposition(
         return "acceptable", []
 
 
+def _build_module_embedding_lookup(
+    biz_modules: list[tuple[str, str]],
+    embedding_cache: dict[str, list[float]],
+    module_summaries_raw: dict[str, dict[str, Any]],
+    module_paths: dict[str, str],
+) -> dict[tuple[str, str], list[float]]:
+    """Build (repo, mod_name) -> embedding vector lookup from the SHA-256-keyed cache."""
+    from wiki.domain_semantic_clusterer import DomainSemanticClusterer
+
+    texts = DomainSemanticClusterer.build_embedding_texts(
+        biz_modules, module_summaries_raw or {}, module_paths,
+    )
+    lookup: dict[tuple[str, str], list[float]] = {}
+    for mod_key, text in zip(biz_modules, texts, strict=True):
+        cache_key = _embedding_text_hash(text)
+        emb = embedding_cache.get(cache_key)
+        if emb is not None:
+            lookup[mod_key] = emb
+    return lookup
+
+
 def _assign_new_modules_to_nearest(
     new_modules: set[tuple[str, str]],
     domain_mapping: dict[str, list[tuple[str, str]]],
-    embeddings: dict[str, list[float] | Any],
+    mod_embeddings: dict[tuple[str, str], list[float]],
 ) -> None:
     """Assign new modules to the semantically nearest existing domain.
 
+    ``mod_embeddings`` maps ``(repo, mod_name)`` to embedding vectors.
     Modifies domain_mapping in place.
     """
     if not new_modules or not domain_mapping:
@@ -1147,8 +1376,8 @@ def _assign_new_modules_to_nearest(
     domain_centroids: dict[str, Any] = {}
     for slug, pairs in domain_mapping.items():
         vecs = []
-        for _, mod_name in pairs:
-            emb = embeddings.get(mod_name)
+        for pair in pairs:
+            emb = mod_embeddings.get(pair)
             if emb is not None:
                 vecs.append(np.array(emb, dtype=np.float32))
         if vecs:
@@ -1157,8 +1386,8 @@ def _assign_new_modules_to_nearest(
     if not domain_centroids:
         return
 
-    for repo, mod_name in new_modules:
-        emb = embeddings.get(mod_name)
+    for mod_key in new_modules:
+        emb = mod_embeddings.get(mod_key)
         if emb is None:
             continue
         mod_vec = np.array(emb, dtype=np.float32)
@@ -1175,8 +1404,8 @@ def _assign_new_modules_to_nearest(
                 best_sim = sim
                 best_slug = slug
         if best_slug:
-            domain_mapping[best_slug].append((repo, mod_name))
-            log.info("new_module_assigned", module=mod_name, domain=best_slug, similarity=round(best_sim, 3))
+            domain_mapping[best_slug].append(mod_key)
+            log.info("new_module_assigned", module=mod_key, domain=best_slug, similarity=round(best_sim, 3))
 
 
 async def graph_driven_domain_decompose_node(
@@ -1386,6 +1615,23 @@ async def graph_driven_domain_decompose_node(
     _route_supporting_modules(supporting_excluded, edges, domain_mapping)
 
     if not skip_full_clustering:
+        # Load anchors if available (incremental protection only)
+        anchor_service = state.get("anchor_service")
+        anchored_slugs: frozenset[str] = frozenset(state.get("anchored_slugs") or set())
+        if anchor_service:
+            try:
+                anchors = await anchor_service.get_anchors(state.get("business_id", ""))
+                anchored_slugs = anchored_slugs | frozenset(a.slug for a in anchors)
+            except Exception:
+                log.warning("anchor_load_failed", exc_info=True)
+
+        # After clustering and naming, verify anchored domains survived
+        if anchored_slugs and communities_named:
+            result_slugs = {r["slug"] for r in communities_named}
+            missing = anchored_slugs - result_slugs
+            for slug in missing:
+                log.warning("anchored_domain_missing_after_cluster", slug=slug)
+
         # --- Step 5: Post-processing (safety nets) ---
         domain_mapping, domain_display_names = _ensure_ascii_keys(domain_mapping, domain_display_names)
         domain_mapping, domain_display_names = _consolidate_split_entities(domain_mapping, domain_display_names)
@@ -1409,12 +1655,16 @@ async def graph_driven_domain_decompose_node(
 
         corrector = GraphSemanticCorrector(llm)
         paths_for_corrector = _build_paths_for_corrector(biz_modules, module_paths)
+        package_tree_str = _build_package_tree(paths_for_corrector)
+        cross_domain_edges_str = _build_cross_domain_edges_summary(edges, domain_mapping)
         domain_mapping, domain_display_names = await corrector.review_global_consistency(
             domain_mapping, domain_display_names, paths_for_corrector, module_summaries_flat,
             business_id=state.get("business_id", ""),
             module_details=module_summaries_raw,
             language=_resolve_content_language(state),
-            anchored_slugs=frozenset(state.get("anchored_slugs") or set()),
+            anchored_slugs=anchored_slugs,
+            package_tree_str=package_tree_str,
+            cross_domain_edges_str=cross_domain_edges_str,
         )
 
         # Rebuild communities_named after review
@@ -1427,7 +1677,6 @@ async def graph_driven_domain_decompose_node(
             })
 
         # --- Step 5.6: F9 Domain Protection — Recovery + Quality Gate ---
-        anchored_slugs = state.get("anchored_slugs") or set()
         anchor_display_names_state = state.get("anchor_display_names") or {}
         domain_baseline = state.get("domain_baseline") or {}
 
@@ -1503,7 +1752,10 @@ async def graph_driven_domain_decompose_node(
                 baseline_mods = {m for pairs in domain_baseline.values() for m in pairs}
                 new_mods = set(biz_modules) - baseline_mods
                 if new_mods and embedding_cache:
-                    _assign_new_modules_to_nearest(new_mods, domain_mapping, embedding_cache)
+                    mod_emb_lookup = _build_module_embedding_lookup(
+                        biz_modules, embedding_cache, module_summaries_raw, module_paths,
+                    )
+                    _assign_new_modules_to_nearest(new_mods, domain_mapping, mod_emb_lookup)
         elif all_quality_warnings:
             log.warning("decompose_quality_warnings", quality=quality_level, count=len(all_quality_warnings))
 
@@ -1732,6 +1984,18 @@ async def graph_driven_domain_decompose_node(
     if domain_tree:
         _review_subdomain_placement(domain_tree, embeddings)
 
+    # --- Step 8.5: Theme aggregation (F10) ---
+    wiki_cfg = get_settings().wiki
+    if llm and domain_tree and len(domain_tree) > wiki_cfg.theme_aggregation_min_domains:
+        from wiki.domain_merger import aggregate_domains_recursive
+
+        domain_tree = await aggregate_domains_recursive(
+            domain_tree,
+            llm,
+            min_siblings=2,
+        )
+        log.info("theme_aggregation_applied", l1_count=len(domain_tree))
+
     # --- Step 9: Determine affected_domains ---
     if is_incremental:
         affected_domains = list({
@@ -1787,7 +2051,7 @@ async def graph_driven_domain_decompose_node(
     if wiki_cfg.term_overrides:
         term_glossary.update(wiki_cfg.term_overrides)
 
-    return {
+    result: dict[str, Any] = {
         "domain_mapping": domain_mapping,
         "domain_display_names": domain_display_names,
         "domain_tree": domain_tree,
@@ -1796,3 +2060,6 @@ async def graph_driven_domain_decompose_node(
         "embedding_cache": embedding_cache,
         "term_glossary": term_glossary,
     }
+    if state.get("decomposition_warnings"):
+        result["decomposition_warnings"] = state["decomposition_warnings"]
+    return result

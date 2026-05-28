@@ -199,5 +199,6 @@ class TestDomainAgentExploreLimits:
 
             await compose_domain_agents_node(state, config)
 
-        assert set(captured_rounds) == {None, 2, 5}
-        assert set(captured_calls) == {None, 8, 20}
+        # Core tier returns None; F11d fills scaled defaults (8 rounds / 30 calls) for 15 modules.
+        assert set(captured_rounds) == {8, 2, 5}
+        assert set(captured_calls) == {30, 8, 20}

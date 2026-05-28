@@ -13,10 +13,10 @@ def test_finalize_strips_h1():
 
 
 def test_finalize_strips_repeated_blockquotes():
-    quote = "> 术语说明：本模块负责用户管理。"
+    quote = "> 本模块采用事件驱动架构实现异步处理。"
     content = f"{quote}\n{quote}\n{quote}\n\n## 概述\n内容"
     result = _sanitize_published_content(content)
-    assert result.count("> 术语说明：本模块负责用户管理。") == 1
+    assert result.count("> 本模块采用事件驱动架构实现异步处理。") == 1
     assert "## 概述" in result
 
 
@@ -38,7 +38,7 @@ def test_finalize_strips_english_self_reflection():
 
 def test_finalize_integration_all_v9():
     block = "```java\npublic class Foo {}\n```"
-    quote = "> 术语说明：本模块负责用户管理。"
+    quote = "> 本模块采用事件驱动架构实现异步处理。"
     content = (
         f"# 泄漏标题\n"
         f"{quote}\n{quote}\n"
@@ -49,7 +49,7 @@ def test_finalize_integration_all_v9():
     )
     result = _sanitize_published_content(content)
     assert not result.startswith("# 泄漏标题")
-    assert result.count("> 术语说明：本模块负责用户管理。") == 1
+    assert result.count("> 本模块采用事件驱动架构实现异步处理。") == 1
     assert "**Note**: The headings" not in result
     assert result.count("public class Foo") == 1
     assert "章节导航" not in result

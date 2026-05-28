@@ -119,7 +119,7 @@ class TestFinalizeCnRatioReject:
         assert "/__domains__/test/en-lang" in paths
 
     @pytest.mark.asyncio
-    async def test_low_cn_ratio_overview_not_rejected(
+    async def test_low_cn_ratio_overview_rejected_below_015(
         self, mock_wiki_settings: MagicMock
     ) -> None:
         state = {
@@ -130,7 +130,37 @@ class TestFinalizeCnRatioReject:
             "errors": [],
         }
         with patch("core.config.get_settings", return_value=mock_wiki_settings):
+            with patch("wiki.nodes.finalize.log") as mock_log:
+                result = await finalize_node(state)
+
+        rejected = next(p for p in result["pages"] if p["path"] == "/__domains__/test/_overview")
+        assert rejected.get("__rejected__") is True
+        assert rejected.get("content") == ""
+        reject_calls = [
+            c for c in mock_log.warning.call_args_list if c[0][0] == "overview_cn_ratio_rejected"
+        ]
+        assert len(reject_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_overview_cn_ratio_018_published(
+        self, mock_wiki_settings: MagicMock
+    ) -> None:
+        """Overview with cn=0.18 passes finalize (reject threshold is 0.15)."""
+        from wiki.content_guards import compute_cn_ratio
+
+        cn_text = "中" * 360
+        en_text = "a" * 1640
+        content = f"## 概述\n\n{cn_text}{en_text}\n## 模块详解\n\n补充说明段落。" * 2
+        assert compute_cn_ratio(content) >= 0.15
+
+        state = {
+            "pages": [_overview_page("/__domains__/test/_overview", content)],
+            "config": {"content_language": "zh"},
+            "errors": [],
+        }
+        with patch("core.config.get_settings", return_value=mock_wiki_settings):
             result = await finalize_node(state)
 
-        paths = {p["path"] for p in result.get("pages", [])}
-        assert "/__domains__/test/_overview" in paths
+        page = next(p for p in result["pages"] if p["path"] == "/__domains__/test/_overview")
+        assert page.get("__rejected__") is not True
+        assert page.get("content")

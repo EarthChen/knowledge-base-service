@@ -99,7 +99,9 @@ async def test_e2e_finalize_redacts_sensitive_content(mock_wiki_settings):
     sensitive = (
         "# Deploy\n\n"
         "Health check at http://10.0.0.5:3000/health before release.\n"
-        "Configure password: supersecret and secret=mytoken here.\n"
+        "Configure password: supersecret and secret=mytoken here.\n\n"
+        "Operations teams follow this runbook during staged rollouts, verifying metrics, "
+        "log drains, and rollback paths before promoting artifacts to production clusters."
     )
     state = {
         "pages": [
@@ -129,14 +131,24 @@ async def test_e2e_finalize_preserves_case_insensitive_wikilinks(mock_wiki_setti
             "path": "/__domains__/billing/topics/Invoicing.md",
             "business_domain": "billing",
             "page_type": "topic",
-            "content": "# Invoicing\n\nCore billing flow.",
+            "content": (
+                "# Invoicing\n\nCore billing flow. "
+                "The invoicing module handles billing workflows, payment capture, "
+                "and reconciliation against ledger entries for enterprise customers. "
+                "Operators use it to issue invoices, apply credits, and export audit trails."
+            ),
         },
         {
             "title": "Payments",
             "path": "/__domains__/billing/topics/Payments.md",
             "business_domain": "billing",
             "page_type": "topic",
-            "content": "See [[invoicing]] and [[billing/INVOICING]] for details.",
+                "content": (
+                    "See [[invoicing]] and [[billing/INVOICING]] for details. "
+                    "Payment processing coordinates settlement, refunds, and chargeback "
+                    "handling across payment gateways with auditable transaction logs. "
+                    "Finance teams reconcile daily batches against bank statements."
+                ),
         },
     ]
     result = await finalize_node({"pages": pages})

@@ -11,10 +11,11 @@ _SKELETON_BANNER = "> ⚠️ 本域文档待完善，内容可能不完整。"
 class TestSkeletonBannerInjection:
     @pytest.mark.asyncio
     async def test_skeleton_page_gets_banner(self):
-        """Page < 2000 chars of type domain_overview gets warning banner prepended."""
+        """Page < 2000 chars but > 500 chars (after banner) gets warning banner prepended."""
         from wiki.nodes.finalize import finalize_node
 
-        short_content = "# Test Domain\n\n## 概述\n\nShort.\n\n## 核心业务流程\n\n## 依赖关系\n"
+        filler = "该模块负责处理用户之间的社交关系操作与关系数据服务，是平台社交能力的核心支撑。" * 6
+        short_content = f"## 概述\n\n{filler}\n\n## 核心业务流程\n\n{filler}"
         state = {
             "pages": [
                 {
@@ -60,7 +61,10 @@ class TestSkeletonBannerInjection:
                     "title": "Topic",
                     "path": "/__domains__/test/topic-a",
                     "page_type": "topic",
-                    "content": "# Short Topic\n\nBrief.",
+                    "content": (
+                        "# Short Topic\n\n"
+                        + ("该模块负责处理用户之间的社交关系操作与关系数据服务，是平台社交能力的核心支撑。" * 5)
+                    ),
                 }
             ]
         }
@@ -76,9 +80,10 @@ class TestSkeletonBannerInjection:
 
     @pytest.mark.asyncio
     async def test_english_skeleton_gets_english_banner(self):
-        """English domain_overview skeleton gets English banner."""
+        """English domain_overview skeleton gets English banner (content > 500 chars after banner)."""
         from wiki.nodes.finalize import finalize_node
 
+        filler = "The billing module handles all subscription and payment business logic for users including order creation and payment verification. " * 5
         state = {
             "pages": [
                 {
@@ -86,7 +91,7 @@ class TestSkeletonBannerInjection:
                     "path": "/__domains__/test/_overview",
                     "page_type": "domain_overview",
                     "content_language": "en",
-                    "content": "# Test Domain\n\nShort.",
+                    "content": f"## Overview\n\n{filler}\n\n## Dependencies\n\n{filler}",
                 }
             ]
         }

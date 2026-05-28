@@ -37,7 +37,7 @@ class TestLLMSchemas:
         data = {
             "should_split": True,
             "topics": [
-                {"title": "Auth", "slug": "auth", "module_keys": ["UserService"]},
+                {"title": "Auth", "slug": "auth", "modules": ["UserService"], "description": "Auth flow"},
             ],
             "reasoning": "Large domain",
         }

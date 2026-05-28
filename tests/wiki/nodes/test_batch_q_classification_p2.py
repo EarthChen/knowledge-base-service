@@ -59,11 +59,12 @@ class TestGlobalReviewLanguagePrompt:
 
     @pytest.mark.asyncio
     async def test_english_rename_accepted(self):
-        llm = AsyncMock()
-        llm.generate.return_value = json.dumps({
+        llm = AsyncMock(spec=["complete_json"])
+        llm.complete_json = AsyncMock(return_value={
             "merges": [],
             "renames": [{"slug": "auth-login", "new_display_name": "User Authentication", "reason": "clearer"}],
             "moves": [],
+            "summary": "",
         })
         corrector = GraphSemanticCorrector(llm)
         domain_mapping = {
@@ -229,7 +230,13 @@ class TestSkipLlmMergeWhenCorrectorEnabled:
         mock_llm = MagicMock()
         config = {"configurable": {"graph_store": mock_graph_store, "llm": mock_llm}}
 
+        async def _identity_aggregate(tree, _llm, **_kw):
+            return tree
+
         with patch(
+            "wiki.domain_merger.aggregate_domains_recursive",
+            new=AsyncMock(side_effect=_identity_aggregate),
+        ), patch(
             "wiki.nodes.graph_domain_decompose._merge_domains_by_llm",
             new=AsyncMock(),
         ) as mock_llm_merge, patch(
@@ -247,6 +254,7 @@ class TestSkipLlmMergeWhenCorrectorEnabled:
                 "configuration", "typehandler", "aspect", "package-info", "wrapper",
                 "handler", "executor", "debug", "groovy", "impl",
             ]
+            wiki_cfg.theme_aggregation_min_domains = 999
             mock_settings.return_value = MagicMock(wiki=wiki_cfg)
 
             mock_namer = MagicMock()

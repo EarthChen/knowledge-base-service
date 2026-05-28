@@ -2,8 +2,8 @@
 
 **Created:** 2026-05-25
 **Audit Target:** `business_id=ultron` (dev 环境)
-**Status:** Active — V22 全量审计完成 (V9 实施后)
-**最新审计:** V22 (2026-05-27 14:11) — V9 修复实施后 3 专项 subagent 多维深度审计
+**Status:** Active — V26 全量审计完成（V11 部署后首次）
+**最新审计:** V26 (2026-05-28 12:57) — V11 部署后 4 subagent 多维审计（内容/Topic/域拆分/树结构）
 
 ---
 
@@ -15,181 +15,245 @@
 | V5/V6 | 05-26 | 55 | 35 | 0 | 域预算 50, 语言检查 | Topic 致命缺失 |
 | V10 | 05-26 | 84 | 27 | 37 | 树挂载 100%, stub 消除 | 命名碰撞, 40% topic 英文 |
 | V16 | 05-27 | 36 | 18 | 18 | 幻觉门禁, camelCase slug | 78% 域无 topic |
-| V18 | 05-27 14:00 | 34 | 20 | 14 | stub 清零, 壳域清零 | Topic 覆盖 25%, 幻觉 7 页 |
-| V19 | 05-27 15:40 | 50 | 28 | 22 | 幻觉清零, 域覆盖扩展 | Topic 覆盖 39%, slug 质量 |
-| V20 | 05-27 16:15 | 50 | 28 | 22 | 深度三维审计 | slug 50%, 代码截断, 域碎片化 |
-| V21 | 05-27 14:15 | 50 | 28 | 22 | 域分解原则纠正：业务独立性>模块数量 | 模块交叉、H1 泄漏、伪代码 |
-| **V22** | **05-27 14:11** | **50** | **28** | **22** | **V9 代码修复 F1-F16 已实施** | **H1 泄漏 54%、壳域、68% topic 无源码** |
+| V19 | 05-27 | 50 | 28 | 22 | 幻觉清零, 域覆盖扩展 | Topic 覆盖 39%, slug 质量 |
+| V23 | 05-27 | 23 | 17 | 6 | wiki 重新生成、域聚合 28→17 | meta 残留、slug bug、挚友域消失 |
+| V24 | 05-27 | 23 | 17 | 6 | 第二轮根因分析 | 正则盲区、camelCase 拆分失效 |
+| V25 | 05-28 | 30 | 22 | 8 | 域数回升 22、代码级根因追踪 | 覆盖率 9%、壳域 4、slug 重复、错挂 |
+| **V26** | **05-28** | **50** | **17** | **33** | **V11全量部署：覆盖率9%→76.5%，cn_ratio/slug修复** | **Part N命名66.7%、stub 2、错挂2、壳域3** |
 
-### V8 已部署修复
+### V8/V9 已部署修复效果
 
-| Fix | 修复项 | 状态 |
-|-----|--------|------|
-| F1 | `content_guards.py` SSoT 统一规则源 | ✅ |
-| F2 | `audit_wiki_data.py` 重构使用 content_guards | ✅ |
-| F3 | `plan_topics_min_modules` 配置化 (默认 3) | ✅ |
-| F5 | `MAX_CODE_LINES` 20→80 | ✅ |
-| F7 | `quality_gate` 集成 content_guards (heal_hints 累加) | ✅ |
-| F8 | `finalize` 集成 content_guards (meta 清洗, 代码修复) | ✅ |
-| F9 | `page_agent.strip_agent_artifacts` 集成 meta 清洗 | ✅ |
-| F10 | `_is_infra_slug` 扩展关键词 | ✅ |
-| F11 | Topic slug 英文强制 (`_TOPIC_SLUG_MAPPINGS`) | ⚠ 部分生效 |
-| F13 | 嵌入文本 infra 频率过滤 | ❌ 未实现 |
+| Fix | 修复项 | 状态 | V25 效果 |
+|-----|--------|------|----------|
+| F1 | `content_guards.py` SSoT 统一规则源 | ✅ | 有效 |
+| F5 | `strip_h1_title` | ✅ | H1 泄漏 54%→6%（壳域回潮 18%） |
+| F6 | `META_H2_PATTERNS` | ✅ | 元章节 H2 39%→0% |
+| F7 | `quality_gate` 集成 content_guards | ✅ | 有效 |
+| F8 | `finalize` 集成 content_guards | ✅ | 有效（被 tree_linker 绕过） |
+| F11 | Topic slug 英文强制 | ⚠ | 域 slug 全规范；topic slug 仍为模块名 |
+| F13 | 嵌入文本 infra 频率过滤 | ❌ | 未实现 |
 
 ---
 
-## V22 审计（2026-05-27 14:11）— V9 修复后三维深度审计
+## V25 审计（2026-05-28）— 全量多维审计 + 代码级根因追踪
 
-**数据源:** 开发机 FalkorDB `kb_ultron` 图 (`--repo ultron`, 383KB 审计数据)
-**审计方法:** 3 专项 subagent 多维审计（Overview 质量 / Topic 质量 / 域分解与结构）
-**背景:** V9 修复 (F1-F16) 已实施，本次审计评估代码修复效果 + 发现剩余问题
+**数据源:** 开发机 FalkorDB `kb_ultron` 图 (`--repo ultron --full-content`, 247KB)
+**审计方法:** 3 专项 subagent 多维审计 + 4 专项 subagent 代码级根因追踪
+**数据文件:** `data/wiki-audit-v25.json`
 
-### V9 修复实施状态（全部已完成，待部署验证）
+### V25 核心指标
 
-| Batch | 内容 | Fix 编号 | 状态 |
-|-------|------|---------|------|
-| A | Slug Pipeline Fix | F1-F4 | ✅ 代码+测试完成 |
-| B | Content Guards 扩展 | F5-F9 | ✅ 代码+测试完成 |
-| C | Finalize 集成 | F10-F11 | ✅ 代码+测试完成 |
-| D | 元数据修复 | F12-F13 | ✅ 代码+测试完成 |
-| E | Prompt 优化 | F14-F16 | ✅ 代码+测试完成 |
-| — | 全量测试 | 3583 passed | ✅ |
+| 指标 | V23 | V25 (当前) | 变化 | 说明 |
+|------|-----|------------|------|------|
+| 有效页面数 | 23 | **30** | +30% | 域数回升 |
+| domain_overview | 17 | **22** | +29% | |
+| topic 页面 | 6 | **8** | +33% | |
+| 域数 | 17 | **22** | +29% | |
+| 有 topic 的域 | 3 (18%) | **2 (9%)** | ❌ -9pp | 覆盖率继续下降 |
+| 无 topic 的域 | 14 (82%) | **20 (91%)** | ❌ | |
+| 幻觉内容 | 0 | **1 页** | ⚠ | data-type-conversion (fabricated_sla) |
+| 壳域(< 200 字) | 1 | **4** | ❌ 恶化 | intimacy-system/relations, user-profile/basic-info |
+| H1 标题泄漏 | 1/17 (6%) | **4/22 (18%)** | ❌ 壳域回潮 | tree_linker 模板硬编码 `# {slug}` |
+| 低 cn 页(<0.25) | 4 | **6** | ⚠ | relation-service cn=0.10 极端 |
+| 空代码块 | 4/17 (24%) | **3/22 (14%)** | ✅ 略降 | im-message-send, member-statistics, relation-service |
+| 重复标题 | 0 | **1** | 🆕 | 「用户资料与权益」跨 overview/topic |
+| 重复 segment slug | 0 | **2** | 🆕 P0 | `ultronult-ultronult` + `closed-friend-closed-friend` |
+| 错误挂载 | 1 | **2** | 🆕 | family-task→intimacy, data-type→intimacy |
 
-**注意：** V9 代码已实施但尚未部署到开发机重新生成 wiki，V22 数据仍为 V21 同批内容。本次审计建立 V22 精确基线，用于部署后对比。
+### V25 多维评分
 
-### V22 核心指标（部署前基线）
-
-| 指标 | V21 | V22 (当前) | 变化 | V9 修复预期 |
-|------|-----|------------|------|------------|
-| 有效页面数 | 50 | **50** | — | |
-| domain_overview | 28 | **28** | — | |
-| topic 页面 | 22 | **22** | — | |
-| 域数（L1 + L2） | 28 | **28** | — | L1=15, L2=13 |
-| 有 topic 的域 | 11 (39%) | **11 (39%)** | — | |
-| 无 topic 的域 | 17 (61%) | **17 (61%)** | — | |
-| 幻觉内容 | 0 页 | **0 页** | ✅ | 持续清零 |
-| 壳域(< 500 字) | 2 | **1** | ✅ | F11 壳域检测 → heal |
-| H1 标题泄漏 | 15/28 (54%) | **15/28 (54%)** | — | F5 `strip_h1_title()` 将清除 |
-| 元章节残留 | 13 overview | **11/28 (39%)** | ✅ | F6 扩展 META_H2_PATTERNS 将清除 |
-| 虚构代码/伪代码 | 2 页 | **1 页** | ✅ | |
-| 重复代码块 | 2 页 | **1 页** | ✅ | F8 `dedup_code_fences()` 将清除 |
-| 代码截断(overview) | 8 | **1** | ✅ 大幅改善 | F11 截断检测 → heal |
-| 代码截断(topic) | — | **3** | 🆕 | F11 截断检测 → heal |
-| Mermaid 截断 | ≥10 处 | **2 处** | ✅ 大幅改善 | |
-| Mermaid-only topic (零 Java) | 13/22 (59%) | **15/22 (68%)** | ⚠ | F16 topic 代码约束 + F11 检测 |
-| 断裂 wikilink | 12 | **11** (8 overview) | ✅ | F13 `_remove_invalid_wikilinks()` 将清除 |
-| Overview slug 质量 | — | **28/28 (100%)** | ✅ | 域级 slug 已全部规范 |
-| Topic slug 损坏 | — | **9/22 (41%)** | 🆕 | F1 `_sanitize_module_path_slug()` 将修复 |
-| Topic slug 拼音 | — | **3/22 (14%)** | 🆕 | F2 `_is_pinyin_slug()` 将检测 |
-| Topic slug 碰撞 | — | **1 组** | 🆕 | F3 `resolve_slug_collision()` 将修复 |
-| Topic slug 过泛 | — | **1** | 🆕 | F4 `is_slug_too_generic()` 将检测 |
-
-### V22 多维评分
-
-| 维度 | V21 | V22 | 变化 | 说明 |
+| 维度 | V23 | V25 | 变化 | 说明 |
 |------|-----|-----|------|------|
-| Overview 页面质量 | 7.8/10 | **7.8/10** | — | 代码截断改善，但 H1/元章节/伪代码仍存(待部署 V9) |
-| Topic 内容质量 | 8.0/10 | **7.5/10** | -0.5 | 精细化审计：68% 零源码、3 处截断发现 |
-| 域分解合理性 | 6.5/10 | **7.0/10** | +0.5 | 边界分析更清晰，明确了容器 vs 叶子 |
-| 内容真实性 | 9.0/10 | **9.0/10** | — | 1 页虚构伪代码仍存 |
-| 语言一致性 | 8.0/10 | **8.0/10** | — | cn_ratio 平均 0.39/0.425 |
-| Slug/Path 规范性 | 5.0/10 | **5.0/10** | — | 59% topic slug 有问题(待部署 V9) |
-| 代码块完整性 | 4.5/10 | **5.5/10** | +1.0 ✅ | 截断大幅改善 |
-| 导航完整性 | 5.5/10 | **5.5/10** | — | |
-| **综合** | **6.8/10** | **6.9/10** | **+0.1** | 部署 V9 后预期提升至 7.5+ |
+| Overview 页面质量 | 8.0/10 | **6.2/10** | -1.8 ❌ | 壳域 4 页、代码堆叠(cn=10%)、双重fence |
+| Topic 内容质量 | 5.5/10 | **5.8/10** | +0.3 | 单页质量尚可；空 Mermaid 1 页 |
+| 域分解合理性 | 6.5/10 | **5.2/10** | -1.3 ❌ | slug 重复、错挂 2 处、挚友未独立表达 |
+| 内容真实性 | 9.5/10 | **8.5/10** | -1.0 | 1 页 SLA 幻觉 |
+| 语言一致性 | 7.5/10 | **6.0/10** | -1.5 ❌ | 6 页 cn<0.25；overview 无门禁 |
+| Slug/Path 规范性 | 7.0/10 | **5.0/10** | -2.0 ❌ | 2 域 slug 重复段；topic slug 全为模块名 |
+| 代码块完整性 | 5.0/10 | **5.5/10** | +0.5 | 比例下降但仍存在 |
+| 导航完整性(Topic覆盖) | 4.5/10 | **2.5/10** | -2.0 ❌ | 91% 域无 topic |
+| **综合** | **6.7/10** | **5.6/10** | **-1.1** | 域数回升但结构质量全面恶化 |
 
-### V22 Top 问题（P0/P1 分级）
+### V25 P0 问题清单（含代码级根因）
 
-#### P0 — 需立即处理（V9 部署可解决）
+| # | 问题 | 根因代码位置 | 机制 |
+|---|------|-------------|------|
+| **1** | **Topic 覆盖率 9%** | `agent_prompts.py:314` prompt "≤5→不拆分" + `domain_doc_agent.py:666` mechanical chunk_size=5 需 ≥8 模块 | 三重门槛叠加：min_modules=3 + LLM ≤5 拒绝 + force_split 实际需 ≥8 |
+| **2** | **4 壳域绕过 finalize** | `tree_linker.py:775-814` 在管线结束后用静态模板覆写并直接 persist | finalize reject 后 tree_linker 二次写入"复活" |
+| **3** | **slug 重复段** | `graph_domain_decompose.py:678-688` 语义 suffix 无 uniqueness 检查 | dedup suffix 盲 append，不检查 `new_slug in seen` |
+| **4** | **family-task 错挂 intimacy** | HAC 聚类语义接近 + `_review_subdomain_placement` 仅 1 条规则 | 无 DomainAnchor 保护 + placement 仅 warning |
+| **5** | **data-type-conversion 错挂** | `infrastructure_slug_keywords` 不含 conversion/type + 4 模块越过 ≤3 阈值 | infra 过滤条件过窄 |
+| **6** | **Overview 无 cn_ratio 门禁** | `quality_gate.py:281` / `finalize.py:457` / `heal.py:62` 均 `if page_type=="topic"` | 设计性缺失，非遗漏 |
+| **7** | **relation-service 代码堆叠** | 13846字 cn=10%，无 overview 代码量上限 | Agent "过度引用"代码 + 无防护 |
+| **8** | **DomainAnchor 未接入** | V24 P0-4 遗留 | 全量重聚类无业务线保护 |
 
-| # | 类别 | 问题 | V9 对应修复 |
-|---|------|------|------------|
-| 1 | Slug | 9 个 topic `ultronultron-*` 损坏 slug | F1 `_sanitize_module_path_slug()` |
-| 2 | Slug | 3 个 topic 拼音 slug | F2 `_is_pinyin_slug()` |
-| 3 | 泄漏 | 15/28 overview H1 标题泄漏 | F5 `strip_h1_title()` |
-| 4 | 结构 | family-system 壳域 214 字 | F11 壳域检测 → heal |
-| 5 | 真实性 | closed-friend-market-space 虚构 `@KafkaListener` | 需 heal 重新生成 |
-| 6 | 代码 | 1 个 topic 零代码块 (挚友配置与扩展) | F11 + F16 零代码检测 + prompt 约束 |
+### V25 根因深度分析
 
-#### P1 — 部署后需关注
+#### 根因 1：tree_linker 壳域 bypass（P0-2）
 
-| # | 类别 | 问题 | 说明 |
-|---|------|------|------|
-| 7 | 代码 | 68% topic 仅 Mermaid 无 Java 源码 | F16 prompt 要求真实代码示例 |
-| 8 | 泄漏 | 11/28 overview 元章节残留 | F6 扩展模式 + F10 finalize 集成 |
-| 9 | 覆盖 | 17 域零 topic (61%) | 需调整 plan_topics 触发阈值 |
-| 10 | 导航 | 11 个断裂 wikilink (8 overview) | F13 `_remove_invalid_wikilinks()` |
-| 11 | 结构 | 模块交叉：FamilyTaskService 3 域重复 | F14 overview 模块归属约束 |
-| 12 | 结构 | user-profile overview 包含跨域类 | F14 overview 内容边界约束 |
-| 13 | 代码 | 4 处代码截断 (1 overview + 3 topic) | F11 截断检测 → heal |
-| 14 | 结构 | 7 overview 含 topic 化冗余 H2 | F14/F15 prompt 结构约束 |
-| 15 | Slug | 1 组碰撞 (`family-task`) + 1 过泛 (`family`) | F3 碰撞检测 + F4 过泛检测 |
+**时序问题 — tree_linker 在 finalize 之后执行：**
+```
+LangGraph pipeline: compose → quality_gate → heal → finalize → [结束]
+  ↓ 管线结束后
+business_pipeline_runner.py:728 → _persist_pages (仅管线内页面)
+  ↓
+business_pipeline_runner.py:884 → link_pages_to_nested_tree()
+  ↓
+tree_linker.py:762 → 检测无 Agent overview（因 finalize 已 reject）
+tree_linker.py:775-779 → existing_content ≤500 → _build_domain_overview_content()
+tree_linker.py:647-712 → 静态模板："# {slug}\n## 子域概览\n- **child** (N模块)"
+tree_linker.py:810-814 → persist_pages_to_graph() ← 绕过 finalize/quality_gate
+```
 
-### V22 域分解分析（延续 V21 原则）
+**双重 bypass 循环：** finalize reject 壳域 → tree_linker 认为"无 Agent overview" → 重新生成并落库
 
-**核心原则不变：业务独立性 > 模块数量。28 域数量合理，不存在过度拆分。**
+#### 根因 2：slug 重复 segment（P0-3）
 
-#### 容器域质量对比
+**`_dedup_parallel_naming_results` (graph_domain_decompose.py:666-690) 逻辑缺陷：**
+- 数字 suffix 分支有 `while f"{slug}-{counter}" in seen` 循环 ✅
+- 语义 suffix 分支**直接 append，无 uniqueness 检查** ❌
+- 当 suffix 与 slug 尾部相同时（如 slug=`...-closed-friend`, suffix=`closed-friend`）→ 重复
 
-| 容器 | 字符 | 架构图 | 子域导航 | 评级 |
-|------|------|--------|---------|------|
-| relation-service | 3,098 | ✅ mermaid 四层架构 | ✅ 8 子域分层描述 | **标杆** |
-| family-system | 214 | ❌ 无 | ⚠ 仅模块列表 | **需重写** |
+**`ultronult` 来源：** 模块名 `ultronult*`（repo `ultron` + 包名 `ult` 粘连）经 `str(module).rsplit(".",1)[-1][:12]` 截取后保留
 
-#### 域边界问题（P0 — 文档归属错误）
+#### 根因 3：Topic 覆盖率三重门槛（P0-1）
 
-| 域 | 问题 | 建议 |
-|----|------|------|
-| user-profile-service | 21 个模块中约半数跨域（挚友/亲密度/VIP 类） | overview 只描述 Profile 读写，跨域模块改「依赖引用」 |
-| closed-friend-task | overview 含邀请流程，与 closed-friend-system 重叠 | 邀请 API 移回 system 域，task 域聚焦 Handler 链 |
-
-#### 模块交叉热力（需明确 primary owner）
-
-| 模块 | 出现域 | 建议主域 |
-|------|--------|---------|
-| FamilyTaskService | level-and-task, operation, power-rank | family-level-and-task |
-| FamilyPowerService | core-operations, operation, power-rank | family-power-rank |
-| ClosedFriendBizService | closed-friend-system, relation-rank-service | closed-friend-system |
-| UserRelationHandlerService | closed-friend-system | → 应移至 relation-service |
-
-#### 覆盖率分布
-
-- 零 topic 域 17/28（61%），其中 8 域 overview > 5000 字但缺结构化 topic
-- Topic 集中在家族(9) + 挚友(5) + 关系(2)，基础设施域几乎全空白
-- 13 个域无 wikilink 入/出引用（孤立域），需在容器/子域间补导航
-
-### V22 Slug 问题明细（与 V21 一致，待 V9 部署修复）
-
-| 类型 | 数量 | 示例 |
+| 门槛 | 位置 | 效果 |
 |------|------|------|
-| 模块路径损坏 | 9 | `ultronultron-basic-user*` → `closed-friend-task-part-1` |
-| 拼音 slug | 3 | `zhi-you-pei-zhi-*` → `closed-friend-config` |
-| 碰撞 | 1 组 | `family-task` × 2 → `family-treasure-task` / `family-scheduled-task` |
-| 过泛 | 1 | `family` → `family-rank-display` |
+| `plan_topics_min_modules=3` | `domain_doc_agent.py:629` | <3 模块直接跳过规划 |
+| LLM prompt "≤5 不拆分" | `agent_prompts.py:314-332` | 4-5 模块被 LLM 拒绝 |
+| `topic_force_split_threshold=4` + chunk_size=5 | `domain_doc_agent.py:645-672` | mechanical 需 ≥8 模块才能产出 2 topic |
 
-### V22 综合结论
+**关键矛盾：** 配置 threshold=4 看似激进，但 `chunk_size=5` + `末chunk<3合并` 使其**对 4-7 模块域完全无效**。
 
-> **V9 修复已全部实施（F1-F16, 5 Batch），3583 测试通过，待部署验证。**
->
-> **V22 审计确认的改善趋势（已自然发生）：**
-> - 代码截断 overview: 8→1（-87.5%）
-> - Mermaid 截断: ≥10→2（-80%）
-> - 壳域: 2→1（relation-service 已修复）
-> - 虚构代码: 2→1
->
-> **V9 部署后预期解决的问题：**
-> - H1 泄漏 54%→0%（F5 strip_h1_title）
-> - 元章节 39%→0%（F6 扩展 + F10 finalize）
-> - Slug 损坏 59%→0%（F1-F4 slug pipeline）
-> - 壳域/零代码 topic → heal 触发（F11 quality_gate 新检测）
-> - 断裂 wikilink → 自动清除（F13）
-> - 跨域内容溢出 → prompt 约束（F14-F16）
->
-> **V9 不解决、需后续处理的问题：**
-> 1. Topic 覆盖率低（39%）— 需调整 plan_topics 触发配额或手动补充
-> 2. family-system 容器 overview 需内容重写（非代码修复可解决）
-> 3. 部分域 topic 化 H2 冗余（overview/topic 内容边界模糊）
-> 4. 虚构代码需 heal 重新生成（代码仅检测，不能自动修正内容）
+#### 根因 4：Overview cn_ratio 无门禁（P0-6）
+
+三处代码**设计性排除** overview：
+- `quality_gate.py:281` — `if page_type == "topic":` (cn heal)
+- `finalize.py:457` — `if is_topic:` (cn hard-reject)
+- `heal.py:62` — `if str(page_type) != "topic": return True`
+- 测试 `test_low_cn_ratio_overview_not_rejected` 明确验证不拒
+
+### V25 域结构分析
+
+**22 域树结构（4 层深度）：**
+```
+__root__ (13 L1)
+├── 评分弹窗 [6814字] ✅
+├── 经销商资质 [6478字] ✅
+├── ES搜索客户端 [3312字]
+├── 家族ES同步 [12831字] ✅
+├── 家族系统 [6490字, 4 topics] ✅ 标杆
+├── 送礼回调 [5706字]
+├── IM消息推送 [4484字, cn=0.15] ⚠
+├── 亲密关系系统 [118字] ❌ 壳域
+│   ├── 家族任务执行 [3833字] ← 错挂！应属 family-system
+│   └── 亲密度关系 [149字] ❌ 壳域
+│       ├── 数据类型转换 [3464字] ← 错挂！应属 infrastructure
+│       └── 亲密度关系核心 [7828字]
+├── 快捷消息 [5871字]
+├── 关系管理 [13846字, cn=0.10] ⚠ 代码堆叠
+├── 用户资产服务 [5429字]
+├── 等级配置 [4560字]
+└── 用户资料与权益 [119字] ❌ 壳域
+    ├── 用户基础资料 [157字] ❌ 壳域
+    │   ├── 用户基础数据 [5638字, 4 topics] ✅
+    │   ├── 会员统计账户 [4879字]
+    │   └── 用户扩展数据查询 [6992字]
+    └── 用户行为与VIP状态 [6980字]
+```
+
+**问题 slug:**
+- `family-system-ultronult-ultronult` → 应为 `family-system`
+- `intimacy-relations-closed-friend-closed-friend` → 应为 `closed-friend-system`（挚友 60 模块）
+
+---
+
+## 修复优先级总表（V25）
+
+| 优先级 | 修复项 | 代码位置 | 预期改善 | 难度 |
+|--------|--------|----------|----------|------|
+| **P0-1** | Prompt ≤5→≤2 + chunk_size 5→3 | `agent_prompts.py:314` + `domain_doc_agent.py:666` | Topic 覆盖 9%→30%+ | 低 |
+| **P0-2** | tree_linker persist 前加 finalize 门禁 | `tree_linker.py:810` | 壳域 4→0 | 中 |
+| **P0-3** | dedup 语义 suffix 加 while 循环 | `graph_domain_decompose.py:678` | slug 重复 2→0 | 低 |
+| **P0-4** | placement 规则扩展 + infra keyword 补全 | `graph_domain_decompose.py:600` + `config.py:333` | 错挂 2→0 | 中 |
+| **P0-5** | DomainAnchor 接入分解管线 | `graph_domain_decompose.py` | 防止业务线消失 | 高 |
+| **P1-1** | Overview cn_ratio heal (≥0.20) | `quality_gate.py:281` + `finalize.py:457` | 低 cn 6→0 | 低 |
+| **P1-2** | Topic slug 语义化 | `domain_doc_agent.py` resolve | slug 8/8 模块名→业务名 | 中 |
+| **P1-3** | 树深度限制 max=3 | `graph_domain_decompose.py` | 4 层→3 层 | 中 |
+| **P2-1** | 重复标题校验 | `finalize.py` | 跨页标题唯一 | 低 |
+| **P2-2** | 代码量上限(overview) | `quality_gate.py` | 防代码堆叠 | 低 |
+
+> **V11 修复提案:** [`docs/superpowers/specs/2026-05-28-wiki-quality-fix-v11-design.md`](superpowers/specs/2026-05-28-wiki-quality-fix-v11-design.md) (✅ 已执行)
+
+---
+
+## V26 审计（2026-05-28）— V11 部署后多维审计
+
+**数据源:** 开发机 FalkorDB `kb_ultron` 图 (`--repo ultron --full-content`, 383KB)
+**审计方法:** 4 专项 subagent 并行审计（Overview质量 / Topic质量 / 域拆分 / 树结构）
+**数据文件:** `data/wiki-audit-latest.json`
+
+### V11 修复效果验证
+
+| V11 Fix | V25→V26 效果 | 判定 |
+|---------|-------------|------|
+| F1 Topic Coverage (prompt≤2+chunk=3+force_override) | 覆盖率 9%→**76.5%** | ✅ 重大突破 |
+| F2 Slug Repeated Segment | 重复段 2→**0** | ✅ 彻底修复 |
+| F3 Overview cn_ratio Gate | 低cn页 6→**0** | ✅ 彻底修复 |
+| F4 tree_linker Shell Gate | 壳域 4→**3** | ⚠ 部分修复 |
+| F5-R Enhanced Corrector | 错挂域 2→**2** | ❌ 未见效 |
+| F6 Code Overload Detection | 代码堆叠→**0** | ✅ 修复 |
+| F7-R DomainAnchor | N/A（首次无anchor） | — |
+
+### V26 核心指标
+
+| 指标 | V25 | V26 (当前) | 变化 | 说明 |
+|------|-----|------------|------|------|
+| 有效页面数 | 30 | **50** | +67% | V11 topic 生成大幅增加 |
+| domain_overview | 22 | **17** | -23% | 域合并 22→17 |
+| topic 页面 | 8 | **33** | +313% | F1 效果显著 |
+| 有 topic 的域 | 2 (9%) | **13 (76.5%)** | ✅ +67pp | |
+| 无 topic 的域 | 20 (91%) | **4 (23.5%)** | ✅ | es-user-search/im-system-message/prize-distribution/user-relation-management |
+| 幻觉内容 | 1 | **0** | ✅ | |
+| 壳域 | 4 | **3** | ⚠ | 挚友关系/家族关系/家族广场 |
+| 低 cn 页(<0.25) | 6 | **0** | ✅ | F3 完全生效 |
+| 重复标题 | 1 | **2 组** | ❌ | "挚友关系管理"×2 + "用户资料与状态" overlap |
+| 重复 segment slug | 2 | **0** | ✅ | F2 完全生效 |
+| 错误挂载(infra) | 2 | **2** | ❌ | data-type-mapping→family-task, task-execution-framework→family-square |
+| **Part N 命名** | N/A | **22/33 (66.7%)** | 🆕 P0 | 机械拆分 Part 1/2/3 |
+| **Stub topics** | 0 | **2 (23 chars)** | 🆕 P0 | placeholder 未拦截 |
+| **H2 尾随空格** | 0 | **3 topics** | 🆕 P1 | "## 概述  " |
+| **代码截断** | 3/22 | **≥6/50** | 🆕 P1 | 未闭合代码块 |
+| **缺少 ## 概述** | 0 | **4 topics** | 🆕 P1 | |
+
+### V26 多维评分
+
+| 维度 | V25 | V26 | 变化 | 说明 |
+|------|-----|-----|------|------|
+| 正文质量/门禁 | 5.5/10 | **8.5/10** | +3.0 ✅ | 长度、语言、幻觉控制良好 |
+| 内容深度/区分度 | N/A | **4.0/10** | 🆕 | 模板化、万能句式、缺业务洞察 |
+| 域分解合理性 | 5.2/10 | **5.5/10** | +0.3 | 壳域减少但infra错挂未修 |
+| 命名/导航 | 5.0/10 | **4.0/10** | -1.0 ❌ | Part N 66.7%, 重复标题, slug |
+| 覆盖率/完整性 | 2.5/10 | **6.0/10** | +3.5 ✅ | 76.5% 域有topic，仍有4域空 |
+| Slug/Path 规范性 | 5.0/10 | **6.5/10** | +1.5 ✅ | 重复段消除，垃圾slug仍存1个 |
+| 代码块完整性 | 5.5/10 | **5.0/10** | -0.5 | 截断比例上升(页面增多) |
+| **综合** | **5.6/10** | **5.5/10** | **-0.1** | 门禁/覆盖率大幅改善，被命名/导航问题拉低 |
+
+### V26 P0 问题清单
+
+| # | 问题 | 影响 | 对应 V12 Fix |
+|---|------|------|-------------|
+| **1** | **66.7% Part N 命名** — 22/33 topic 使用无语义"域名 - Part N"标题 | 目录不可扫读，导航无效 | **F1** |
+| **2** | **2 个 Stub topic** — 仅 23 字符 placeholder | 文档黑洞 | **F2** |
+| **3** | **2 组重复标题** — "挚友关系管理"×2, "用户资料与状态" overlap | 导航混淆 | **F3** |
+| **4** | **Infra 域错挂** — data-type-mapping→family-task, task-execution-framework→family-square | 架构误导 | **F6** |
+| **5** | **垃圾 slug** — `family-square-back-door-serv-family-at-grou` | 不可读 | **F7** |
+| **6** | **4 域无 topic** — es-user-search/im-system-message/prize-distribution/user-relation-management | 覆盖率缺口 | **F8** |
+| **7** | **代码截断** — ≥6 页未闭合代码块 | 可信度损害 | **F5** |
+| **8** | **H2 格式** — 3 topic 尾随空格 + 4 topic 缺概述节 | 渲染/结构 | **F4** |
+
+> **V12 修复提案:** [`docs/superpowers/specs/2026-05-28-wiki-quality-fix-v12-design.md`](superpowers/specs/2026-05-28-wiki-quality-fix-v12-design.md)
 
 ---
 
@@ -197,13 +261,15 @@
 
 > **V1-V10** (05-25~05-26): 从 702 页碎片化逐步压缩到 84 页，树挂载 100%，但 topic 反复波动。
 >
-> **V13-V18** (05-26~05-27): 域压缩至 18-20，CJK path 清零，幻觉门禁初建→恶化→修复。
+> **V13-V19** (05-26~05-27): 域压缩至 18-20，CJK path 清零，幻觉门禁初建→修复。V8 部署后幻觉 20.6%→0%。
 >
-> **V19** (05-27 15:40): V8 fixes 部署后首次全量审计，幻觉 20.6%→0%，页面 34→50，topic 14→22。
+> **V20-V22** (05-27): 三维深度审计 → 域分解原则纠正 → V9 代码修复 F1-F16 部署。
 >
-> **V20** (05-27 16:15): 三维深度审计，发现代码截断 ≥20 处、Mermaid 损坏 ≥10 处、域碎片化（后被 V21 纠正）。
+> **V23-V24** (05-27): wiki 重新生成后审计 + 根因分析。发现挚友消失、meta 残留、slug 粘连三类新问题。
 >
-> 详细记录见 `docs/superpowers/specs/` 目录下的 V6/V7/V8 设计文档。
+> **V25** (05-28 上午): V11 设计前全量审计。覆盖率 9%、壳域 4、slug 重复段 2、错挂 2。
+>
+> **V26** (05-28 下午): V11 全量部署后审计。覆盖率 76.5%、cn_ratio/slug 修复彻底。新发现 Part N 命名 66.7%、stub 2、代码截断等问题。
 
 ---
 

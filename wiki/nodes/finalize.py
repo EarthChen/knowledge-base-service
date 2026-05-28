@@ -20,6 +20,7 @@ from wiki.content_guards import (
 log = get_logger(__name__)
 
 SHELL_DOMAIN_MIN_CHARS = 500
+_MIN_PAGE_CHARS = 200
 
 _FAKE_SOURCE_RE = re.compile(r"com/xxx/")
 _SOURCE_PROTOCOL_RE = re.compile(r"source://[^\s)>\]]+", re.IGNORECASE)
@@ -245,13 +246,29 @@ def _extract_class_references(content: str) -> set[str]:
     )
 
 
+def _wikilink_target_is_valid(target: str, valid_lower: set[str]) -> bool:
+    """True when target exactly matches or is a known short-title variant of a page title."""
+    t = target.strip().lower()
+    if not t or not valid_lower:
+        return False
+    if t in valid_lower:
+        return True
+    min_suffix_len = 4
+    for v in valid_lower:
+        if v.endswith(t) and len(t) >= min_suffix_len:
+            return True
+        if "/" in v and v.split("/")[-1] == t:
+            return True
+    return False
+
+
 def _remove_invalid_wikilinks(content: str, valid_targets: set[str]) -> str:
     """Remove wikilinks pointing to non-existent pages."""
     valid_lower = {t.lower() for t in valid_targets if t}
 
     def replace_link(m: re.Match[str]) -> str:
         target = m.group(1).strip()
-        return m.group(0) if target.lower() in valid_lower else target
+        return m.group(0) if _wikilink_target_is_valid(target, valid_lower) else target
 
     return re.sub(r"\[\[([^\]]+)\]\]", replace_link, content)
 
@@ -364,12 +381,61 @@ def _resolve_page_content_language(page: dict[str, Any], state: dict[str, Any]) 
     return lang
 
 
+def _rewrite_part_n_title(title: str, content: str) -> str:
+    """Rewrite 'DomainName - Part N' titles with content-based semantic title."""
+    if not re.search(r"- Part \d+$", title):
+        return title
+    h2_match = re.search(r"^## (.+)", content, re.MULTILINE)
+    if h2_match:
+        h2_title = h2_match.group(1).strip()
+        if h2_title and h2_title not in ("概述", "Overview"):
+            domain_prefix = title.rsplit(" - Part", 1)[0]
+            return f"{domain_prefix} - {h2_title}"
+    return title
+
+
 def _get_skeleton_threshold(page_type: str = "domain_overview") -> int:
     from core.config import get_settings
 
     if page_type == "topic":
         return get_settings().wiki.topic_min_content_chars
     return get_settings().wiki.overview_min_content_chars
+
+
+def _extract_domain_from_path(path: str) -> str:
+    """Extract domain slug from a wiki page path."""
+    if not path:
+        return ""
+    parts = path.strip("/").split("/")
+    if parts and parts[0] == "__domains__" and len(parts) >= 2:
+        return parts[1]
+    if parts and parts[0] == "wiki" and len(parts) >= 3:
+        return parts[2]
+    return ""
+
+
+def _deduplicate_titles(pages: list[dict]) -> list[dict]:
+    """Ensure all page titles within a business are unique.
+
+    For duplicate titles, append the domain display name as suffix: 'Title（Domain）'
+    """
+    title_count: dict[str, list[int]] = {}
+    for i, p in enumerate(pages):
+        title = p.get("title", "")
+        title_count.setdefault(title, []).append(i)
+
+    for title, indices in title_count.items():
+        if len(indices) <= 1:
+            continue
+        for idx in indices:
+            p = pages[idx]
+            domain = p.get("business_domain", "") or _extract_domain_from_path(p.get("path", ""))
+            if domain:
+                new_title = f"{title}（{domain}）"
+                if len(new_title) > 50:
+                    new_title = new_title[:47] + "…）"
+                pages[idx] = {**p, "title": new_title}
+    return pages
 
 
 async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -396,8 +462,18 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
     for page in pages:
         content = page.get("content")
         raw_content_len = len(content) if content else 0
+        page_path = page.get("path", "")
         if content:
-            page_path = page.get("path", "")
+            content_stripped = content.strip()
+            if len(content_stripped) < _MIN_PAGE_CHARS:
+                log.warning(
+                    "page_too_short_rejected",
+                    path=page_path,
+                    chars=len(content_stripped),
+                )
+                updated_pages.append({**page, "content": "", "__rejected__": True})
+                continue
+        if content:
             page_type = ""
             if "/_topic" in page_path:
                 page_type = "topic"
@@ -471,6 +547,17 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                         updated_pages.append({**page, "content": "", "__rejected__": True})
                         continue
 
+            if is_overview and not is_topic_index and _is_chinese_lang(content_language):
+                cn_ratio = compute_cn_ratio(content)
+                if cn_ratio < 0.15:
+                    log.warning(
+                        "overview_cn_ratio_rejected",
+                        path=page.get("path"),
+                        cn_ratio=cn_ratio,
+                    )
+                    updated_pages.append({**page, "content": "", "__rejected__": True})
+                    continue
+
             if is_overview or is_topic:
                 hallucination_flags = detect_hallucination_flags(content)
                 if hallucination_flags:
@@ -506,8 +593,18 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                     page_path=page.get("path"),
                     references=sorted(class_refs),
                 )
-            page = {**page, "content": content}
+            title = page.get("title", "")
+            if title:
+                new_title = _rewrite_part_n_title(str(title), content)
+                if new_title != title:
+                    page = {**page, "title": new_title, "content": content}
+                else:
+                    page = {**page, "content": content}
+            else:
+                page = {**page, "content": content}
         updated_pages.append(page)
+
+    updated_pages = _deduplicate_titles(updated_pages)
 
     published = sum(1 for p in updated_pages if not p.get("__rejected__"))
     rejected = sum(1 for p in updated_pages if p.get("__rejected__"))

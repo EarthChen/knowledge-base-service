@@ -29,18 +29,20 @@ class TestCollapseEmptyShells:
         assert len(result[0]["modules"]) == 5
         assert result[0].get("children") == []
 
-    def test_multi_child_does_not_collapse(self):
+    def test_multi_child_shell_collapses_at_root(self):
         parent = _node(
             "parent-shell",
             children=[
-                _node("child-one", modules=["a"]),
-                _node("child-two", modules=["b"]),
+                _node("child-one", modules=["a", "b", "c"]),
+                _node("child-two", modules=["d", "e", "f"]),
             ],
         )
         result = _collapse_empty_shells([parent])
-        assert len(result) == 1
-        assert result[0]["name"] == "parent-shell"
-        assert len(result[0]["children"]) == 2
+        assert len(result) == 2
+        names = {n["name"] for n in result}
+        assert names == {"child-one", "child-two"}
+        for n in result:
+            assert "parent-shell" in n.get("collapsed_from", [])
 
     def test_deep_chain_collapses(self):
         inner = _node("real-c", modules=["m1", "m2", "m3", "m4", "m5"])
@@ -84,17 +86,17 @@ class TestCollapseEmptyShells:
             _node("parent-with-mods", modules=["p"], children=[_node("child", modules=["c"])]),
         ]
         result = _collapse_empty_shells(tree)
-        assert len(result) == 4
+        assert len(result) == 5
         names = [n["name"] for n in result]
         assert "real-domain" in names
-        assert "branching-shell" in names
+        assert "branch-a" in names
+        assert "branch-b" in names
         assert "leaf-overview" in names
         assert "parent-with-mods" in names
         assert "collapsible-shell" not in names
+        assert "branching-shell" not in names
         real = next(n for n in result if n["name"] == "real-domain")
         assert real["modules"] == ["x", "y"]
-        branching = next(n for n in result if n["name"] == "branching-shell")
-        assert len(branching["children"]) == 2
 
     def test_collapsed_from_metadata(self):
         parent = _node("intimacy-relationship", display_name="亲密关系", children=[

@@ -12,7 +12,7 @@ from wiki.nodes.finalize import _remove_invalid_wikilinks, finalize_node
 def _long_overview_content(*links: str) -> str:
     body = "本域负责家族数据管理与缓存策略，涵盖持久化、读写分离与失效处理等核心能力。" * 80
     link_lines = "\n".join(links)
-    return f"# 家族系统\n\n{body}\n\n## 相关主题\n\n{link_lines}"
+    return f"## 概述\n\n{body}\n\n## 子域导航\n\n{link_lines}"
 
 
 def _topic_page(title: str, path: str) -> dict:

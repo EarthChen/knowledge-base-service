@@ -274,8 +274,13 @@ async def test_domain_compose_injects_mermaid_when_missing():
         with patch("wiki.nodes.domain_compose.PipelineConcurrency") as mock_pc:
             mock_pc.semaphore.return_value = MagicMock(__aenter__=AsyncMock(), __aexit__=AsyncMock())
             with patch("wiki.nodes.domain_compose.get_settings") as mock_settings:
-                mock_settings.return_value.wiki.domain_agent_timeout_sec = 600
-                mock_settings.return_value.wiki.use_orchestrator_template = False
+                wiki_cfg = mock_settings.return_value.wiki
+                wiki_cfg.domain_agent_timeout_sec = 600
+                wiki_cfg.use_orchestrator_template = False
+                wiki_cfg.explore_scale_threshold_medium = 20
+                wiki_cfg.explore_scale_threshold_large = 40
+                wiki_cfg.domain_agent_explore_max_rounds = 8
+                wiki_cfg.domain_agent_explore_max_tool_calls = 25
                 result = await compose_domain_agents_node(state, {"configurable": {"llm": AsyncMock()}})
 
     content = result["pages"][0]["content"]

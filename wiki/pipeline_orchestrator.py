@@ -378,6 +378,8 @@ async def run_langgraph_pipeline(
     progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     budget_resolver: Any | None = None,
     llm_rate_limiter: Any | None = None,
+    domain_baseline: dict[str, list[tuple[str, str]]] | None = None,
+    persistence: Any | None = None,
 ) -> PipelineResult:
     """Execute the LangGraph wiki pipeline and return production-ready results.
 
@@ -448,6 +450,7 @@ async def run_langgraph_pipeline(
         "domain_cache": {},
         "language": content_language.value,
         "content_language": content_language,
+        "domain_baseline": domain_baseline or {},
     }
 
     if existing_summaries:
@@ -475,6 +478,8 @@ async def run_langgraph_pipeline(
         configurable["budget_resolver"] = budget_resolver
     if llm_rate_limiter is not None:
         configurable["llm_rate_limiter"] = llm_rate_limiter
+    if persistence is not None:
+        configurable["persistence"] = persistence
 
     try:
         from core.config import get_settings

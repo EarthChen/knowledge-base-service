@@ -41,7 +41,8 @@ class TestNormalizeHeadingsToChinese:
 class TestFinalizeHeadingNormalizationIntegration:
     @pytest.mark.asyncio
     async def test_chinese_page_headings_normalized_in_pipeline(self):
-        content = "## Overview\n\nBody text here with enough Chinese 中文内容填充.\n\n## Key components"
+        para = "计费模块负责处理所有用户的订阅和支付相关业务逻辑" * 15
+        content = f"## Overview\n\n{para}\n\n## Dependencies\n\n{para}"
         state = {
             "pages": [
                 {
@@ -59,13 +60,14 @@ class TestFinalizeHeadingNormalizationIntegration:
         result = await finalize_node(state)
         out = result["pages"][0]["content"]
         assert "## 概述" in out
-        assert "## 核心组件" in out
+        assert "## 依赖关系" in out
         assert "## Overview" not in out
-        assert "## Key components" not in out
+        assert "## Dependencies" not in out
 
     @pytest.mark.asyncio
     async def test_english_language_page_not_modified(self):
-        content = "## Overview\n\nEnglish only content for the whole page body text."
+        body = "The billing module handles all subscription and payment business logic for users including order creation, payment verification, notification dispatch, and reconciliation. It uses an event-driven architecture with message queues for async decoupling to ensure system stability under high concurrency. Core components include the order service, payment gateway adapter, invoice generator and notification scheduler."
+        content = f"## Overview\n\n{body}\n\n## Dependencies\n\n{body}"
         state = {
             "pages": [
                 {
@@ -87,7 +89,8 @@ class TestFinalizeHeadingNormalizationIntegration:
 
     @pytest.mark.asyncio
     async def test_module_overview_gets_normalization(self):
-        content = "## Architecture\n\n模块说明中文内容."
+        body = "该模块采用分层架构设计，包含控制器层、服务层和数据访问层。控制器负责请求路由和参数校验，服务层封装核心业务逻辑，数据访问层通过仓库模式抽象数据库操作。各层之间通过接口解耦，支持灵活替换实现。"
+        content = f"## Overview\n\n{body}\n\n## Dependencies\n\n{body}"
         state = {
             "pages": [
                 {
@@ -104,4 +107,5 @@ class TestFinalizeHeadingNormalizationIntegration:
         }
         result = await finalize_node(state)
         out = result["pages"][0]["content"]
-        assert "## 架构设计" in out
+        assert "## 概述" in out
+        assert "## 依赖关系" in out

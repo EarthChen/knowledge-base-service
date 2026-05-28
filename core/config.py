@@ -238,6 +238,11 @@ class AppWikiFlags(BaseModel):
     reassembly_respect_user_modified: bool = True
     consolidation_min_count: int = Field(default=3, ge=2)
     consolidation_min_domains: int = Field(default=2, ge=2)
+    theme_aggregation_min_domains: int = Field(
+        default=5,
+        ge=1,
+        description="Min L1 domain count before LLM theme aggregation runs in decompose pipeline",
+    )
     knowledge_injection_enabled: bool = True
     snapshot_enabled: bool = True
     """When true, run compilation snapshot after wiki pages are persisted."""
@@ -299,6 +304,8 @@ class AppWikiFlags(BaseModel):
     domain_agent_timeout_sec: int = Field(default=600, ge=1)
     domain_agent_explore_max_rounds: int = Field(default=8, ge=1)
     domain_agent_explore_max_tool_calls: int = Field(default=30, ge=1)
+    explore_scale_threshold_medium: int = Field(default=20, ge=1)
+    explore_scale_threshold_large: int = Field(default=40, ge=1)
     domain_agent_early_exit_quality: float = Field(default=0.6, ge=0.0, le=1.0)
     domain_agent_early_exit_min_chars: int = Field(default=500, ge=0)
     use_orchestrator_template: bool = Field(
@@ -311,7 +318,7 @@ class AppWikiFlags(BaseModel):
         default=4000, ge=0, description="Min overview chars to trigger topic planning for small domains"
     )
     plan_topics_min_modules: int = Field(
-        default=3, ge=1, description="Min module count to attempt topic planning (domains with fewer skip)"
+        default=2, ge=1, description="Min module count to attempt topic planning (domains with fewer skip)"
     )
     topic_force_split_threshold: int = Field(default=4, description="Force topic split when module count >= this")
     max_topics_per_domain: int = Field(default=4, ge=1, description="Max topic pages per domain after planning")
@@ -354,6 +361,16 @@ class AppWikiFlags(BaseModel):
             "circuit-breaker",
             "rate-limit",
             "retry-policy",
+            "conversion",
+            "mapping",
+            "type-mapping",
+            "type-handler",
+            "type-conversion",
+            "datasource",
+            "data-source",
+            "serializer",
+            "deserializer",
+            "mybatis",
         ],
         description="Slug keywords that mark a single-module domain as infrastructure (merged into nearby domain)",
     )

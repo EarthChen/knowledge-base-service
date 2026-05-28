@@ -132,6 +132,20 @@ def _max_iterations_for_domain(domain: dict[str, Any], state: dict[str, Any]) ->
     return wiki_cfg.domain_agent_max_iterations_skeleton
 
 
+def _scale_explore_params(module_count: int, wiki_cfg: Any) -> tuple[int, int]:
+    """Scale explore rounds and tool calls for large domains."""
+    base_rounds = wiki_cfg.domain_agent_explore_max_rounds
+    base_calls = wiki_cfg.domain_agent_explore_max_tool_calls
+    threshold_m = getattr(wiki_cfg, "explore_scale_threshold_medium", 20)
+    threshold_l = getattr(wiki_cfg, "explore_scale_threshold_large", 40)
+
+    if module_count > threshold_l:
+        return min(base_rounds + 4, 16), min(base_calls + 15, 50)
+    if module_count > threshold_m:
+        return min(base_rounds + 2, 12), min(base_calls + 10, 40)
+    return base_rounds, base_calls
+
+
 def _explore_limits_for_domain(domain: dict[str, Any], state: dict[str, Any]) -> tuple[int | None, int | None]:
     """Resolve tier-appropriate explore limits for DomainDocAgent."""
     module_count = len(domain.get("modules") or [])
@@ -365,13 +379,19 @@ async def compose_domain_agents_node(
             domain_slug = domain["name"]
             domain_display = domain.get("display_name", domain_slug)
             try:
-                explore_rounds, explore_calls = _explore_limits_for_domain(domain, state)
-                subdomains = list(domain.get("children") or domain.get("subdomains") or [])
-                if not domain_has_subdomains(domain):
-                    subdomains = []
                 module_names = list(domain.get("modules") or [])
                 if domain_has_subdomains(domain) and not module_names:
                     module_names = _collect_module_names_in_subtree(domain)
+                explore_rounds, explore_calls = _explore_limits_for_domain(domain, state)
+                wiki_cfg = get_settings().wiki
+                scaled_rounds, scaled_calls = _scale_explore_params(len(module_names), wiki_cfg)
+                if explore_rounds is None:
+                    explore_rounds = scaled_rounds
+                if explore_calls is None:
+                    explore_calls = scaled_calls
+                subdomains = list(domain.get("children") or domain.get("subdomains") or [])
+                if not domain_has_subdomains(domain):
+                    subdomains = []
                 agent = DomainDocAgent(
                     domain_name=domain_slug,
                     domain_display_name=domain_display,

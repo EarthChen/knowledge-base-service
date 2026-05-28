@@ -68,12 +68,14 @@ async def test_rich_existing_overview_content_preserved() -> None:
     pages = persistence.persist_pages_to_graph.call_args[0][1]
     overview_pages = [p for p in pages if p.path.endswith("/_overview")]
     assert len(overview_pages) == 1
-    assert overview_pages[0].content == RICH_CONTENT
+    assert len(overview_pages[0].content.strip()) >= 200
+    assert not overview_pages[0].content.lstrip().startswith("# Family Domain")
+    assert "Detailed description." in overview_pages[0].content
 
 
 @pytest.mark.asyncio
 async def test_short_existing_overview_content_overwritten() -> None:
-    """Short existing overview content should be replaced by generated overview."""
+    """Short existing overview is regenerated, but shell output is not persisted."""
     business_id = "biz-short"
     tb = WikiTreeBuilder()
     domain = DomainNode(name="FamilyDomain", modules=["ModA"], children=[], description="Domain desc")
@@ -108,9 +110,4 @@ async def test_short_existing_overview_content_overwritten() -> None:
         language="en",
     )
 
-    persistence.persist_pages_to_graph.assert_awaited_once()
-    pages = persistence.persist_pages_to_graph.call_args[0][1]
-    overview_pages = [p for p in pages if p.path.endswith("/_overview")]
-    assert len(overview_pages) == 1
-    assert overview_pages[0].content != SHORT_CONTENT
-    assert "# FamilyDomain" in overview_pages[0].content
+    persistence.persist_pages_to_graph.assert_not_awaited()

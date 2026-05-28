@@ -222,3 +222,58 @@ class TestCodeBlockIntegrity:
         content = "```java\npublic class Foo {}\n```"
         result = repair_code_fences(content)
         assert "public class Foo" in result
+
+
+class TestStripH2TrailingWhitespace:
+    def test_strip_h2_trailing_whitespace(self):
+        from wiki.content_guards import strip_h2_trailing_whitespace
+
+        content = "## 概述  \n\n正文。\n## 架构设计  \n\n更多内容。"
+        result = strip_h2_trailing_whitespace(content)
+        assert "## 概述  " not in result
+        assert "## 概述\n" in result
+        assert "## 架构设计\n" in result
+
+    def test_strip_h2_trailing_whitespace_no_change(self):
+        from wiki.content_guards import strip_h2_trailing_whitespace
+
+        content = "## 概述\n\n正文。\n## 架构设计\n\n更多内容。"
+        assert strip_h2_trailing_whitespace(content) == content
+
+
+class TestSanitizeContentH2Strip:
+    def test_sanitize_content_strips_h2_trailing_whitespace(self):
+        from wiki.content_guards import sanitize_content
+
+        content = "## 概述  \n\n正文。"
+        result = sanitize_content(content)
+        assert "## 概述  " not in result
+        assert "## 概述\n" in result
+
+
+class TestUnclosedCodeBlocks:
+    def test_detect_unclosed_code_blocks(self):
+        from wiki.content_guards import detect_unclosed_code_blocks
+
+        content = "## 概述\n\n```java\npublic class Foo {\n"
+        assert detect_unclosed_code_blocks(content) is True
+
+    def test_detect_closed_code_blocks_returns_false(self):
+        from wiki.content_guards import detect_unclosed_code_blocks
+
+        content = "## 概述\n\n```java\npublic class Foo {}\n```"
+        assert detect_unclosed_code_blocks(content) is False
+
+    def test_repair_unclosed_code_blocks(self):
+        from wiki.content_guards import repair_unclosed_code_blocks
+
+        content = "## 概述\n\n```java\npublic class Foo {\n"
+        result = repair_unclosed_code_blocks(content)
+        assert result.endswith("```\n")
+        assert result.count("```") % 2 == 0
+
+    def test_repair_closed_code_blocks_no_change(self):
+        from wiki.content_guards import repair_unclosed_code_blocks
+
+        content = "```java\npublic class Foo {}\n```"
+        assert repair_unclosed_code_blocks(content) == content

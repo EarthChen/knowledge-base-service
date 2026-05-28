@@ -19,6 +19,8 @@ from wiki.quality_evaluator import WikiQualityEvaluator
 
 log = get_logger(__name__)
 
+_OVERVIEW_CN_RATIO_HARD_MIN = 0.15
+
 
 def _compute_cn_ratio(content: str) -> float:
     """Estimate Chinese character ratio, stripping fenced code blocks first."""
@@ -53,20 +55,25 @@ def _resolve_content_language(page: WikiPage, state: dict[str, Any]) -> str:
 
 
 def _page_passes_cn_ratio_hard_gate(page: WikiPage, state: dict[str, Any]) -> bool:
-    """Return False when a Chinese topic page is below the hard CN ratio minimum."""
+    """Return False when a Chinese topic/overview page is below the hard CN ratio minimum."""
     from core.config import get_settings as _get_settings
 
     page_type = getattr(page, "page_type", None)
     if hasattr(page_type, "value"):
         page_type = page_type.value
-    if str(page_type) != "topic":
+    page_type_str = str(page_type)
+    if page_type_str not in ("topic", "domain_overview"):
         return True
 
     content_language = _resolve_content_language(page, state)
     if not _is_chinese_lang(content_language):
         return True
 
-    min_ratio = _get_settings().wiki.cn_ratio_hard_min
+    min_ratio = (
+        _OVERVIEW_CN_RATIO_HARD_MIN
+        if page_type_str == "domain_overview"
+        else _get_settings().wiki.cn_ratio_hard_min
+    )
     cn_ratio = _compute_cn_ratio(page.content or "")
     if cn_ratio >= min_ratio:
         return True
@@ -74,6 +81,7 @@ def _page_passes_cn_ratio_hard_gate(page: WikiPage, state: dict[str, Any]) -> bo
     log.warning(
         "heal_post_check_low_cn_ratio",
         page_path=page.path,
+        page_type=page_type_str,
         cn_ratio=round(cn_ratio, 3),
         min_ratio=min_ratio,
     )

@@ -19,8 +19,8 @@ class TestCorrectorMoveHomonyms:
 
     @pytest.mark.asyncio
     async def test_move_homonym_uses_source_domain_pair(self):
-        llm = AsyncMock()
-        llm.generate.return_value = json.dumps({
+        llm = AsyncMock(spec=["complete_json"])
+        llm.complete_json = AsyncMock(return_value={
             "merges": [],
             "renames": [],
             "moves": [{
@@ -29,6 +29,7 @@ class TestCorrectorMoveHomonyms:
                 "to": "domain-b",
                 "reason": "misplaced",
             }],
+            "summary": "",
         })
         corrector = GraphSemanticCorrector(llm)
         domain_mapping = {
@@ -48,8 +49,8 @@ class TestCorrectorMoveHomonyms:
 
     @pytest.mark.asyncio
     async def test_move_unique_name_works_as_before(self):
-        llm = AsyncMock()
-        llm.generate.return_value = json.dumps({
+        llm = AsyncMock(spec=["complete_json"])
+        llm.complete_json = AsyncMock(return_value={
             "merges": [],
             "renames": [],
             "moves": [{
@@ -58,6 +59,7 @@ class TestCorrectorMoveHomonyms:
                 "to": "domain-b",
                 "reason": "misplaced",
             }],
+            "summary": "",
         })
         corrector = GraphSemanticCorrector(llm)
         domain_mapping = {

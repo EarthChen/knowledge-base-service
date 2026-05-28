@@ -12,7 +12,8 @@ class TopicItem(BaseModel):
 
     title: str
     slug: str
-    module_keys: list[str] = Field(default_factory=list)
+    modules: list[str] = Field(default_factory=list)
+    description: str = ""
 
 
 class TopicPlanOutput(BaseModel):
@@ -49,3 +50,22 @@ class DomainReviewOutput(BaseModel):
 
     overall_quality: Literal["good", "acceptable", "needs_revision"]
     issues: list[DomainIssue] = Field(default_factory=list)
+
+
+
+class CorrectorReviewOutput(BaseModel):
+    """Structured output for GraphSemanticCorrector global review."""
+
+    merges: list[dict] = Field(
+        default_factory=list,
+        description="Each: {sources: [...], target: str, new_display_name: str}",
+    )
+    renames: list[dict] = Field(
+        default_factory=list,
+        description="Each: {slug: str, new_display_name: str}",
+    )
+    moves: list[dict] = Field(
+        default_factory=list,
+        description="Each: {module: str, from: str, to: str}",
+    )
+    summary: str = ""

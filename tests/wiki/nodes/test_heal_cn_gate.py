@@ -62,9 +62,27 @@ class TestPagePassesPostHealCnRatio:
         result = _page_passes_post_heal(page, state, evaluator)
         assert result is True
 
-    def test_overview_not_checked(self):
-        """Overview pages should not be subject to cn_ratio hard gate."""
-        page = self._make_page("## Overview\n\nEnglish content only." * 10, page_type="domain_overview")
+    def test_overview_low_cn_rejected(self):
+        """Overview with low CN ratio should fail post-heal check when language is Chinese."""
+        page = self._make_page(
+            "## Overview\n\nEnglish content only." * 10,
+            page_type="domain_overview",
+            path="/__domains__/test/_overview",
+        )
+        state = self._make_state("zh")
+        evaluator = MagicMock()
+        evaluator.structural_check.return_value = MagicMock(overall=0.8)
+
+        result = _page_passes_post_heal(page, state, evaluator)
+        assert result is False
+
+    def test_overview_sufficient_cn_passes(self):
+        """Overview with sufficient Chinese content should pass post-heal check."""
+        page = self._make_page(
+            "## 概述\n\n本模块负责用户认证和会话管理。系统采用 Redis 存储会话数据。" * 10,
+            page_type="domain_overview",
+            path="/__domains__/test/_overview",
+        )
         state = self._make_state("zh")
         evaluator = MagicMock()
         evaluator.structural_check.return_value = MagicMock(overall=0.8)

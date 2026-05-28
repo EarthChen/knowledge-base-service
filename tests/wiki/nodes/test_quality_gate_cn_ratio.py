@@ -220,3 +220,177 @@ async def test_quality_gate_cn_ratio_skip_english_page():
 
     heal_reason = (page.get("metadata") or {}).get("heal_reason", "")
     assert "low_cn_ratio" not in heal_reason
+
+
+def _overview_page(
+    *,
+    path: str = "/__domains__/test/_overview",
+    content: str,
+    content_language: str = "简体中文",
+) -> dict:
+    return {
+        "path": path,
+        "title": "Test Overview",
+        "page_type": "domain_overview",
+        "content_language": content_language,
+        "content": content,
+        "diagrams": [],
+        "source_locations": [],
+        "metadata": {"node_count": 0, "edge_count": 0},
+    }
+
+
+def _mixed_cn_content(*, cn_ratio: float, min_len: int = 2500) -> str:
+    """Build overview-length content with approximate Chinese character ratio."""
+    total = min_len
+    cn_count = int(total * cn_ratio)
+    en_count = total - cn_count
+    body = ("中" * cn_count) + ("a" * en_count)
+    return (
+        "## 概述\n"
+        f"{body}\n"
+        "## 核心业务流程\n"
+        "流程说明段落。\n"
+        "## 模块详解\n"
+        "### ModuleA\n"
+        "模块职责说明。\n"
+        "## 依赖关系\n"
+        "- [[peer-module]]\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_overview_cn_ratio_heal_triggered():
+    """Overview with cn=0.18 should enter heal pipeline (threshold 0.20)."""
+    from wiki.content_guards import compute_cn_ratio
+
+    content = _mixed_cn_content(cn_ratio=0.18)
+    assert 0.15 <= compute_cn_ratio(content) < 0.20
+
+    page = _overview_page(content=content)
+    state = {
+        "pages": [page],
+        "heal_attempts": {},
+        "heal_cycles": {},
+        "config": {"importance_tiers": {}, "quality_levels": ["L1", "L2"]},
+        "_structural_check_cache": {},
+    }
+
+    mock_eval = MagicMock()
+    mock_eval.structural_check.return_value = MagicMock(overall=0.9, issues=[])
+    mock_eval.bench_score.return_value = MagicMock(overall=0.85)
+
+    with (
+        patch("wiki.nodes.quality_gate.get_settings") as mock_settings,
+        patch("wiki.nodes.quality_gate.WikiQualityEvaluator", lambda: mock_eval),
+        patch(
+            "wiki.nodes.quality_gate.verify_citations",
+            lambda content, names: MagicMock(invalid_count=0),
+        ),
+    ):
+        wiki_cfg = MagicMock()
+        wiki_cfg.heal_l2_threshold = 0.0
+        wiki_cfg.heal_on_l3_failure = False
+        wiki_cfg.heal_l3_threshold = 0.5
+        wiki_cfg.overview_min_content_chars = 2000
+        wiki_cfg.topic_min_content_chars = 500
+        wiki_cfg.language_guardrail_cn_ratio = 0.15
+        mock_settings.return_value = MagicMock(wiki=wiki_cfg)
+
+        result = await quality_gate_node(state, {"configurable": {}})
+
+    assert page["path"] in result.get("pages_to_heal", [])
+    hint = result["heal_hints"].get(page["path"], "")
+    assert "overview_low_cn_ratio" in hint
+
+
+@pytest.mark.asyncio
+async def test_overview_cn_ratio_above_020_passes():
+    """Overview with cn=0.25 should not heal for language ratio."""
+    from wiki.content_guards import compute_cn_ratio
+
+    content = _mixed_cn_content(cn_ratio=0.25)
+    assert compute_cn_ratio(content) >= 0.20
+
+    page = _overview_page(content=content)
+    state = {
+        "pages": [page],
+        "heal_attempts": {},
+        "heal_cycles": {},
+        "config": {"importance_tiers": {}, "quality_levels": ["L1", "L2"]},
+        "_structural_check_cache": {},
+    }
+
+    mock_eval = MagicMock()
+    mock_eval.structural_check.return_value = MagicMock(overall=0.9, issues=[])
+    mock_eval.bench_score.return_value = MagicMock(overall=0.85)
+
+    with (
+        patch("wiki.nodes.quality_gate.get_settings") as mock_settings,
+        patch("wiki.nodes.quality_gate.WikiQualityEvaluator", lambda: mock_eval),
+        patch(
+            "wiki.nodes.quality_gate.verify_citations",
+            lambda content, names: MagicMock(invalid_count=0),
+        ),
+    ):
+        wiki_cfg = MagicMock()
+        wiki_cfg.heal_l2_threshold = 0.0
+        wiki_cfg.heal_on_l3_failure = False
+        wiki_cfg.heal_l3_threshold = 0.5
+        wiki_cfg.overview_min_content_chars = 2000
+        wiki_cfg.topic_min_content_chars = 500
+        wiki_cfg.language_guardrail_cn_ratio = 0.15
+        mock_settings.return_value = MagicMock(wiki=wiki_cfg)
+
+        result = await quality_gate_node(state, {"configurable": {}})
+
+    hint = result["heal_hints"].get(page["path"], "")
+    assert "overview_low_cn_ratio" not in hint
+
+
+@pytest.mark.asyncio
+async def test_missing_overview_section_detected():
+    """Topic without ## 概述 should get heal hint and enter heal pipeline."""
+    content = (
+        "## 架构设计\n"
+        "架构说明段落。\n"
+        "## 关键实现\n"
+        "```java\npublic class AuthService {}\n```\n"
+        "## 相关主题\n"
+        "- [[peer-module]]\n"
+    )
+    page = _topic_page(content=content)
+    state = {
+        "pages": [page],
+        "heal_attempts": {},
+        "heal_cycles": {},
+        "config": {"importance_tiers": {}, "quality_levels": ["L1", "L2"]},
+        "_structural_check_cache": {},
+    }
+
+    mock_eval = MagicMock()
+    mock_eval.structural_check.return_value = MagicMock(overall=0.9, issues=[])
+    mock_eval.bench_score.return_value = MagicMock(overall=0.85)
+
+    with (
+        patch("wiki.nodes.quality_gate.get_settings") as mock_settings,
+        patch("wiki.nodes.quality_gate.WikiQualityEvaluator", lambda: mock_eval),
+        patch(
+            "wiki.nodes.quality_gate.verify_citations",
+            lambda content, names: MagicMock(invalid_count=0),
+        ),
+    ):
+        wiki_cfg = MagicMock()
+        wiki_cfg.heal_l2_threshold = 0.0
+        wiki_cfg.heal_on_l3_failure = False
+        wiki_cfg.heal_l3_threshold = 0.5
+        wiki_cfg.overview_min_content_chars = 2000
+        wiki_cfg.topic_min_content_chars = 500
+        wiki_cfg.language_guardrail_cn_ratio = 0.15
+        mock_settings.return_value = MagicMock(wiki=wiki_cfg)
+
+        result = await quality_gate_node(state, {"configurable": {}})
+
+    assert page["path"] in result.get("pages_to_heal", [])
+    hint = result["heal_hints"].get(page["path"], "")
+    assert "missing_overview" in hint

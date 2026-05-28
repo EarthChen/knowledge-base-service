@@ -415,7 +415,6 @@ def resolve_topic_slug(
 ) -> str:
     """Apply F1-F4 slug pipeline fixes and optionally register in *used_slugs*."""
     resolved = normalize_slug_strict(slug) or normalize_slug(slug)
-    resolved = _desegment_glued_slug(resolved)
 
     if _is_module_path_slug(resolved):
         resolved = _sanitize_module_path_slug(
@@ -424,6 +423,8 @@ def resolve_topic_slug(
             title=title,
             part_index=part_index,
         )
+    else:
+        resolved = _desegment_glued_slug(resolved)
 
     if is_pinyin_slug(resolved):
         mapped = _title_to_slug(title, fallback="")

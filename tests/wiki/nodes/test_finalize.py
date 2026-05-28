@@ -36,7 +36,12 @@ async def test_remove_invalid_wikilinks_case_insensitive() -> None:
             "title": "Invoicing",
             "path": "/__domains__/billing/topics/Invoicing.md",
             "business_domain": "billing",
-            "content": "Content with [[invoicing]] link",
+            "content": (
+                "Content with [[invoicing]] link. "
+                "The invoicing module handles billing workflows, payment capture, "
+                "and reconciliation against ledger entries for enterprise customers. "
+                "Operators use it to issue invoices, apply credits, and export audit trails."
+            ),
         },
     ]
     state = {"pages": pages}
@@ -52,7 +57,12 @@ async def test_remove_invalid_wikilinks_composite_case_insensitive() -> None:
             "title": "Invoicing",
             "path": "/__domains__/billing/topics/Invoicing.md",
             "business_domain": "billing",
-            "content": "See [[billing/invoicing]] details",
+            "content": (
+                "See [[billing/invoicing]] details. "
+                "Billing domains coordinate subscription lifecycle, dunning, "
+                "and tax reporting across regions with auditable settlement trails. "
+                "Finance teams rely on these pages for month-end close and compliance reviews."
+            ),
         },
     ]
     state = {"pages": pages}

@@ -116,17 +116,18 @@ async def test_overview_title_fallback_to_slug() -> None:
         name="user-profile",
         slug="user-profile",
         display_name="",
-        modules=["UserService"],
+        modules=["UserService", "UserDao", "UserController", "UserConfig", "UserMapper"],
         description="User domain",
     )
 
-    await linker.link_pages_to_nested_tree(
-        business_id="biz",
-        domain_tree=[domain],
-        pages_by_entity_uid={},
-        tree_builder=WikiTreeBuilder(),
-        language="zh",
-    )
+    with patch("wiki.tree_linker._filter_overview_pages_for_persist", side_effect=lambda pages, **_kw: pages):
+        await linker.link_pages_to_nested_tree(
+            business_id="biz",
+            domain_tree=[domain],
+            pages_by_entity_uid={},
+            tree_builder=WikiTreeBuilder(),
+            language="zh",
+        )
 
     persistence.persist_pages_to_graph.assert_awaited_once()
     pages = persistence.persist_pages_to_graph.call_args[0][1]

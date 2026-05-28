@@ -41,7 +41,7 @@ async def test_plan_topics_force_split_fallback_when_llm_declines():
     module_counts = sorted(len(t.modules) for t in result)
     assert sum(module_counts) == len(module_names)
     assert len(module_counts) >= 2
-    assert module_counts == [5, 7]
+    assert module_counts == [3, 3, 3, 3]
 
 
 @pytest.mark.asyncio

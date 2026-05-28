@@ -319,12 +319,39 @@ def repair_code_fences(content: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# H2 trailing whitespace
+# ---------------------------------------------------------------------------
+
+
+def strip_h2_trailing_whitespace(content: str) -> str:
+    """Remove trailing whitespace from H2 headings: '## 概述  ' → '## 概述'."""
+    if not content:
+        return ""
+    return re.sub(r"^(## .+?)[ \t]+$", r"\1", content, flags=re.MULTILINE)
+
+
+# ---------------------------------------------------------------------------
+# Topic overview section detection
+# ---------------------------------------------------------------------------
+
+_TOPIC_OVERVIEW_H2_RE = re.compile(r"^##\s*(?:概述|Overview|业务概述)\s*$", re.MULTILINE)
+
+
+def has_topic_overview_section(content: str) -> bool:
+    """Return True if content has a topic overview H2 (## 概述 / ## Overview / ## 业务概述)."""
+    if not content:
+        return False
+    return _TOPIC_OVERVIEW_H2_RE.search(content) is not None
+
+
+# ---------------------------------------------------------------------------
 # H2 whitelist section cleanup
 # ---------------------------------------------------------------------------
 
 ALLOWED_OVERVIEW_H2_PREFIXES: tuple[str, ...] = (
     "概述",
     "核心业务流程",
+    "核心模块",
     "模块详解",
     "依赖关系",
     "子域职责矩阵",
@@ -333,6 +360,7 @@ ALLOWED_OVERVIEW_H2_PREFIXES: tuple[str, ...] = (
     "子域导航",
     "Overview",
     "Core Business",
+    "Core Modules",
     "Module Detail",
     "Dependencies",
     "Sub-Domain",
@@ -419,3 +447,25 @@ def detect_truncated_code_blocks(content: str | None) -> list[dict]:
             "unclosed": True,
         })
     return truncated
+
+
+def detect_unclosed_code_blocks(content: str) -> bool:
+    """Detect if content has unclosed fenced code blocks (odd ``` fence count)."""
+    if not content:
+        return False
+    fence_count = len(re.findall(r"^```", content, re.MULTILINE))
+    return fence_count % 2 != 0
+
+
+def repair_unclosed_code_blocks(content: str) -> str:
+    """Close unclosed fenced code blocks by appending a closing fence."""
+    if not content or not detect_unclosed_code_blocks(content):
+        return content
+    return content.rstrip() + "\n```\n"
+
+
+def sanitize_content(content: str | None) -> str:
+    """Run standard content sanitization (H2 whitespace, etc.)."""
+    if not content:
+        return ""
+    return strip_h2_trailing_whitespace(content)

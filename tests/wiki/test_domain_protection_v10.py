@@ -327,18 +327,18 @@ class TestIncrementalAssignment:
     def test_new_module_assigned_to_nearest(self):
         from wiki.nodes.graph_domain_decompose import _assign_new_modules_to_nearest
 
-        embeddings = {
-            "UserService": [1.0, 0.0, 0.0],
-            "AuthService": [0.9, 0.1, 0.0],
-            "PayService": [0.0, 1.0, 0.0],
-            "NewAuthModule": [0.8, 0.2, 0.0],
+        mod_embeddings = {
+            ("r", "UserService"): [1.0, 0.0, 0.0],
+            ("r", "AuthService"): [0.9, 0.1, 0.0],
+            ("r", "PayService"): [0.0, 1.0, 0.0],
+            ("r", "NewAuthModule"): [0.8, 0.2, 0.0],
         }
         domain_mapping = {
             "auth": [("r", "UserService"), ("r", "AuthService")],
             "payment": [("r", "PayService")],
         }
         new_modules = {("r", "NewAuthModule")}
-        _assign_new_modules_to_nearest(new_modules, domain_mapping, embeddings)
+        _assign_new_modules_to_nearest(new_modules, domain_mapping, mod_embeddings)
         assert ("r", "NewAuthModule") in domain_mapping["auth"]
 
     def test_empty_new_modules_noop(self):
@@ -347,3 +347,104 @@ class TestIncrementalAssignment:
         domain_mapping = {"auth": [("r", "UserService")]}
         _assign_new_modules_to_nearest(set(), domain_mapping, {})
         assert domain_mapping == {"auth": [("r", "UserService")]}
+
+
+class TestTopicCoverageRecovery:
+    """Tests for F1: topic coverage recovery (prompt threshold + force override)."""
+
+    @pytest.mark.asyncio
+    async def test_topic_force_override_when_modules_gte_3(self):
+        """4-module domain with LLM should_split=false gets force-overridden to split."""
+        from unittest.mock import MagicMock, patch
+
+        from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, TopicPlan
+
+        llm = AsyncMock()
+        agent = DomainDocAgent(
+            domain_name="mid-domain",
+            domain_display_name="Mid Domain",
+            llm=llm,
+            graph_store=MagicMock(),
+        )
+
+        module_names = ["ModA", "ModB", "ModC", "ModD"]
+        llm_declined = DomainTopicOutline(
+            should_split=False,
+            topics=[TopicPlan(title="All", modules=module_names, description="single topic")],
+        )
+        agent._plan_topics = AsyncMock(return_value=llm_declined)
+
+        with patch("wiki.domain_doc_agent.get_settings") as mock_settings:
+            mock_settings.return_value.wiki.enable_topic_pages = True
+            mock_settings.return_value.wiki.topic_force_split_threshold = 6
+            mock_settings.return_value.wiki.max_topics_per_domain = 6
+            mock_settings.return_value.wiki.plan_topics_min_modules = 3
+            mock_settings.return_value.wiki.min_overview_len_for_topics = 99999
+            result = await agent.plan_topics(MagicMock(), module_names)
+
+        assert result is not None
+        assert len(result) > 1
+        assert agent._topic_split_done is True
+        assert agent._topic_outline is not None
+        assert agent._topic_outline.should_split is True
+
+    @pytest.mark.asyncio
+    async def test_no_override_when_modules_lt_2(self):
+        """1-module domain with should_split=false is NOT force-overridden."""
+        from unittest.mock import MagicMock, patch
+
+        from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, TopicPlan
+
+        llm = AsyncMock()
+        agent = DomainDocAgent(
+            domain_name="tiny-domain",
+            domain_display_name="Tiny Domain",
+            llm=llm,
+            graph_store=MagicMock(),
+        )
+
+        module_names = ["ModA"]
+        llm_declined = DomainTopicOutline(
+            should_split=False,
+            topics=[TopicPlan(title="All", modules=module_names, description="single topic")],
+        )
+        agent._plan_topics = AsyncMock(return_value=llm_declined)
+
+        with patch("wiki.domain_doc_agent.get_settings") as mock_settings:
+            mock_settings.return_value.wiki.enable_topic_pages = True
+            mock_settings.return_value.wiki.topic_force_split_threshold = 4
+            mock_settings.return_value.wiki.max_topics_per_domain = 6
+            mock_settings.return_value.wiki.plan_topics_min_modules = 2
+            mock_settings.return_value.wiki.min_overview_len_for_topics = 99999
+            result = await agent.plan_topics(MagicMock(), module_names)
+
+        assert result is None
+        assert not getattr(agent, "_topic_split_done", False)
+
+    def test_mechanical_split_4_modules_chunk_size_3(self):
+        """4-module domain with chunk_size=3 produces 2 topics via mechanical split."""
+        from unittest.mock import MagicMock
+
+        from wiki.domain_doc_agent import DomainDocAgent
+
+        agent = DomainDocAgent(
+            domain_name="four-mod",
+            domain_display_name="Four Mod",
+            llm=MagicMock(),
+            graph_store=MagicMock(),
+        )
+
+        module_names = ["ModA", "ModB", "ModC", "ModD"]
+        outline = agent._build_mechanical_topic_split(module_names)
+
+        assert outline is not None
+        assert outline.should_split is True
+        assert len(outline.topics) == 2
+        assert sum(len(t.modules) for t in outline.topics) == 4
+
+    def test_topic_planner_prompt_threshold_is_2(self):
+        """SYSTEM_TOPIC_PLANNER should refuse split only for ≤2 modules."""
+        from wiki.agent_prompts import SYSTEM_TOPIC_PLANNER
+
+        assert "≤2 modules" in SYSTEM_TOPIC_PLANNER
+        assert "≤5 modules" not in SYSTEM_TOPIC_PLANNER

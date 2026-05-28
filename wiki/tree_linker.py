@@ -2,16 +2,76 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from core.config import get_settings
 from core.log import get_logger
 from store.wiki_store import WikiStore
+from wiki.content_guards import strip_h1_title
 from wiki.dependency_graph import DomainNode
 from wiki.models import WikiPage
+from wiki.nodes.finalize import _sanitize_published_content
 from wiki.tree_builder import WikiTreeBuilder
 
 log = get_logger(__name__)
+
+_TREE_LINKER_MIN_OVERVIEW_CHARS = 200
+
+
+_TREE_LINKER_CN_RATIO_MIN = 0.15
+
+
+def _warn_duplicate_titles_before_persist(pages: list[WikiPage], *, repository: str) -> None:
+    """Log a warning when duplicate page titles are about to be persisted (non-blocking)."""
+    title_to_paths: dict[str, list[str]] = {}
+    for page in pages:
+        title = (page.title or "").strip()
+        if not title:
+            continue
+        title_to_paths.setdefault(title, []).append(page.path)
+
+    for title, paths in title_to_paths.items():
+        if len(paths) > 1:
+            log.warning(
+                "duplicate_wiki_page_titles_before_persist",
+                repository=repository,
+                title=title,
+                paths=paths,
+                count=len(paths),
+            )
+
+
+def _filter_overview_pages_for_persist(
+    overview_pages: list[WikiPage],
+    *,
+    language: str = "zh",
+) -> list[WikiPage]:
+    """Run overview pages through the finalize sanitize pipeline and drop shell pages.
+
+    Thresholds:
+    - _TREE_LINKER_MIN_OVERVIEW_CHARS (200): tree_linker-specific floor (finalize uses 500)
+    - _TREE_LINKER_CN_RATIO_MIN (0.15): aligned with finalize hard-reject (Chinese only)
+    """
+    from wiki.content_guards import compute_cn_ratio
+
+    is_chinese = language.startswith("zh")
+    filtered_overview_pages: list[WikiPage] = []
+    for page in overview_pages:
+        content = page.content
+        content = strip_h1_title(content)
+        content = _sanitize_published_content(content, page_type="domain_overview")
+        stripped = content.strip()
+        if len(stripped) < _TREE_LINKER_MIN_OVERVIEW_CHARS:
+            log.info("tree_linker_shell_filtered", slug=page.path, chars=len(stripped))
+            continue
+        if is_chinese:
+            cn_ratio = compute_cn_ratio(stripped)
+            if cn_ratio < _TREE_LINKER_CN_RATIO_MIN:
+                log.info("tree_linker_cn_ratio_filtered", slug=page.path, cn_ratio=f"{cn_ratio:.3f}")
+                continue
+        filtered_overview_pages.append(replace(page, content=stripped))
+    return filtered_overview_pages
 
 
 def _attach_architecture_layers(
@@ -808,7 +868,9 @@ class WikiTreeLinker:
             await _create_sections(root_uid, domain, i)
 
         # Phase 2: Persist overview pages so WikiPage nodes exist in graph
+        overview_pages = _filter_overview_pages_for_persist(overview_pages, language=language)
         if overview_pages:
+            _warn_duplicate_titles_before_persist(overview_pages, repository=business_id)
             await self._persistence.persist_pages_to_graph(
                 business_id, overview_pages, language=language,
             )

@@ -451,13 +451,13 @@ class TestParallelDomainNaming:
             result = await graph_driven_domain_decompose_node(state, config)
 
         tree = result["domain_tree"]
-        assert len(tree) == 1
-        children = tree[0]["children"]
-        assert len(children) == 3
-        child_slugs = [c["name"] for c in children]
+        # Parent shell (big-domain, 0 modules) collapses; sub-domains promoted to root.
+        assert len(tree) == 3
+        child_slugs = [n["name"] for n in tree]
         assert len(set(child_slugs)) == 3
         assert child_slugs.count("core") == 1
         assert sum(1 for s in child_slugs if s.startswith("core-")) == 2
+        assert all(n.get("collapsed_from") for n in tree)
 
     @pytest.mark.asyncio
     async def test_recursive_split_filters_infra_subdomain(self):
@@ -515,9 +515,17 @@ class TestParallelDomainNaming:
         ]
         mock_wiki_cfg.skip_llm_merge_when_corrector_enabled = False
         mock_wiki_cfg.domain_budget_max = 50
+        mock_wiki_cfg.theme_aggregation_min_domains = 999
 
         config = {"configurable": {"graph_store": mock_graph_store, "llm": MagicMock()}}
+
+        async def _identity_aggregate(tree, _llm, **_kw):
+            return tree
+
         with patch(
+            "wiki.domain_merger.aggregate_domains_recursive",
+            new=AsyncMock(side_effect=_identity_aggregate),
+        ), patch(
             "wiki.nodes.graph_domain_decompose._get_split_params",
             return_value=(10, 3),
         ), patch(
@@ -539,14 +547,14 @@ class TestParallelDomainNaming:
             result = await graph_driven_domain_decompose_node(state, config)
 
         tree = result["domain_tree"]
-        assert len(tree) == 1
-        children = tree[0]["children"]
-        child_slugs = [c["name"] for c in children]
+        # Parent shell collapses; business sub-domains promoted to root.
+        assert len(tree) == 2
+        child_slugs = [n["name"] for n in tree]
         assert "debug-groovy-executor" not in child_slugs
-        assert len(children) == 2
+        assert "guild-operations" not in child_slugs
 
         infra_mod_keys = {f"repo1|Mod{i}" for i in (10, 11)}
-        child_module_keys = {m for c in children for m in c["modules"]}
+        child_module_keys = {m for n in tree for m in n["modules"]}
         assert infra_mod_keys <= child_module_keys
 
     @pytest.mark.asyncio
@@ -602,9 +610,17 @@ class TestParallelDomainNaming:
         mock_wiki_cfg.domain_budget_max = 50
         mock_wiki_cfg.domain_split_threshold = 10
         mock_wiki_cfg.domain_split_max_depth = 2
+        mock_wiki_cfg.theme_aggregation_min_domains = 999
 
         config = {"configurable": {"graph_store": mock_graph_store, "llm": MagicMock()}}
+
+        async def _identity_aggregate(tree, _llm, **_kw):
+            return tree
+
         with patch(
+            "wiki.domain_merger.aggregate_domains_recursive",
+            new=AsyncMock(side_effect=_identity_aggregate),
+        ), patch(
             "wiki.nodes.graph_domain_decompose._embedding_clustering",
             side_effect=mock_embedding_clustering,
         ), patch(

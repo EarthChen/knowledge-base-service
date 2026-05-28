@@ -125,6 +125,19 @@ def _dedup_topic_titles(topics: list[TopicPlan]) -> list[TopicPlan]:
     return result
 
 
+def _extract_chunk_title(modules: list[dict], display_name: str, idx: int) -> str:
+    """Extract a semantic title from a module chunk."""
+    if len(modules) == 1:
+        mod_name = modules[0].get("display_name", modules[0].get("name", ""))
+        if mod_name and mod_name != display_name:
+            return mod_name
+    best = max(modules, key=lambda m: len(m.get("display_name", m.get("name", ""))))
+    candidate = best.get("display_name", best.get("name", ""))
+    if candidate and candidate != display_name:
+        return candidate
+    return f"{display_name} - Part {idx + 1}"
+
+
 def _derive_slug_from_modules(modules: list[str]) -> str:
     """Derive a kebab-case slug from module names when LLM doesn't provide one."""
     import re as _re
@@ -193,7 +206,7 @@ def _parse_topic_outline(
         if not isinstance(t, dict):
             continue
         title = t.get("title", "")
-        modules = t.get("modules", [])
+        modules = t.get("modules") or t.get("module_keys") or []
         if not title or not isinstance(modules, list):
             continue
         slug_raw = str(t.get("slug", ""))
@@ -218,6 +231,28 @@ def _parse_topic_outline(
     return DomainTopicOutline(should_split=bool(should_split), topics=topics)
 
 
+def _format_full_plan_context(outline: DomainTopicOutline, current_topic: TopicPlan) -> str:
+    """Format complete topic plan for injection into each topic's writing context."""
+    lines = ["--- 域主题规划（全局蓝图）---"]
+    for i, t in enumerate(outline.topics, 1):
+        marker = " ← 当前撰写" if t.title == current_topic.title else ""
+        mods = ", ".join(t.modules[:5])
+        desc = t.description or "(无描述)"
+        lines.append(f"{i}. **{t.title}**{marker}")
+        lines.append(f"   模块: {mods}")
+        lines.append(f"   描述: {desc}")
+
+    sibling_titles = [t.title for t in outline.topics if t.title != current_topic.title]
+    if sibling_titles:
+        lines.append("")
+        lines.append("「## 相关主题」节只允许引用以下已确认的同域主题标题，")
+        lines.append("并根据上方模块列表如实描述（禁止引用或编造其他不存在的主题）：")
+        for title in sibling_titles:
+            lines.append(f"- {title}")
+
+    return "\n".join(lines)
+
+
 MAX_PAGE_TOKENS = 5000
 
 EXPLORE_TIMEOUT_SEC = int(os.environ.get("EXPLORE_TIMEOUT_SEC", "240"))
@@ -234,6 +269,52 @@ def _domain_agent_total_budget_sec() -> int:
     if not isinstance(outer_timeout, int):
         outer_timeout = _DEFAULT_DOMAIN_AGENT_TIMEOUT_SEC
     return max(1, outer_timeout - _DOMAIN_AGENT_INNER_MARGIN_SEC)
+
+
+def _filter_baseline_for_topic(baseline: str, topic_modules: set[str]) -> str:
+    """Filter baseline to only include topic-relevant modules and edges."""
+    lines = baseline.split("\n")
+    result: list[str] = []
+    in_module_list = False
+    in_topology = False
+
+    for line in lines:
+        if line.startswith("### 模块列表"):
+            in_module_list = True
+            in_topology = False
+            result.append(line)
+            continue
+        if line.startswith("### 模块依赖拓扑"):
+            in_module_list = False
+            in_topology = True
+            result.append(line)
+            continue
+        if line.startswith("### ") or line.startswith("## "):
+            in_module_list = False
+            in_topology = False
+            result.append(line)
+            continue
+
+        if in_module_list:
+            if line.startswith("- **"):
+                mod_name = line.split("**")[1] if "**" in line else ""
+                if mod_name in topic_modules:
+                    result.append(line)
+            else:
+                result.append(line)
+        elif in_topology:
+            if line.startswith("- ") and "→" in line:
+                parts = line[2:].split("→")
+                src = parts[0].strip()
+                tgt = parts[1].strip() if len(parts) > 1 else ""
+                if src in topic_modules or tgt in topic_modules:
+                    result.append(line)
+            else:
+                result.append(line)
+        else:
+            result.append(line)
+
+    return "\n".join(result)
 
 
 def _extract_tree_edges(
@@ -648,7 +729,18 @@ class DomainDocAgent(DocOrchestrator):
             self._topic_split_done = True
             self._topic_outline = outline
             return outline.topics
-        if len(module_names) >= wiki_cfg.topic_force_split_threshold:
+        needs_mechanical_split = (
+            (not outline.should_split and len(module_names) >= 2)
+            or len(module_names) >= wiki_cfg.topic_force_split_threshold
+        )
+        if needs_mechanical_split:
+            if not outline.should_split and len(module_names) >= 2:
+                log.info(
+                    "topic_force_override",
+                    domain=self.domain_name,
+                    modules=len(module_names),
+                    reason="modules>=2 requires topic split",
+                )
             fallback = self._build_mechanical_topic_split(module_names)
             if fallback and len(fallback.topics) > 1:
                 fallback = _cap_topic_outline(fallback, max_topics)
@@ -665,17 +757,23 @@ class DomainDocAgent(DocOrchestrator):
 
     def _build_mechanical_topic_split(self, module_names: list[str]) -> DomainTopicOutline | None:
         """Mechanically split modules into topic groups when LLM declines."""
-        chunk_size = 5
+        chunk_size = 3
         sorted_modules = sorted(module_names)
-        chunks = [sorted_modules[i : i + chunk_size] for i in range(0, len(sorted_modules), chunk_size)]
+        if len(sorted_modules) == 2:
+            chunks = [[sorted_modules[0]], [sorted_modules[1]]]
+        elif len(sorted_modules) == 3:
+            chunks = [sorted_modules[:2], sorted_modules[2:]]
+        else:
+            chunks = [sorted_modules[i : i + chunk_size] for i in range(0, len(sorted_modules), chunk_size)]
         if len(chunks) <= 1:
             return None
-        if len(chunks) > 1 and len(chunks[-1]) < 3:
+        if len(chunks) > 2 and len(chunks[-1]) < 3:
             chunks[-2].extend(chunks.pop())
         topics = []
         for i, chunk in enumerate(chunks):
             slug = _derive_slug_from_modules(chunk)
-            title = f"{self.domain_display_name} - Part {i + 1}"
+            module_dicts = [{"name": m, "display_name": m} for m in chunk]
+            title = _extract_chunk_title(module_dicts, self.domain_display_name, i)
             topics.append(TopicPlan(title=title, modules=chunk, description="", slug=slug))
         topics = _resolve_topic_slugs(
             topics,
@@ -942,14 +1040,18 @@ class DomainDocAgent(DocOrchestrator):
                     f"Focus ONLY on these modules: {topic_module_list}\n"
                     f"Description: {topic.description}\n"
                 )
-            topic_context = f"{baseline_context}\n\n{scope_text}" + glossary_section
+            plan_context = _format_full_plan_context(outline, topic)
+            topic_modules = set(topic.modules)
+            topic_baseline = _filter_baseline_for_topic(baseline_context, topic_modules)
+            topic_memory = memory.slice_for_modules(topic_modules)
+            topic_context = f"{topic_baseline}\n\n{scope_text}\n\n{plan_context}" + glossary_section
             topic_content = await self._page_agent.write(
                 self.domain_name,
                 topic_context,
-                memory,
+                topic_memory,
                 page_type="topic",
             )
-            topic_content = await self._verify_code_blocks(topic_content, memory)
+            topic_content = await self._verify_code_blocks(topic_content, topic_memory)
             topic_module_names = list(topic.modules)
             guardrail_result = await self.run_guardrails(
                 topic_content,
@@ -975,10 +1077,10 @@ class DomainDocAgent(DocOrchestrator):
                 retry_content = await self._page_agent.write(
                     self.domain_name,
                     retry_context,
-                    memory,
+                    topic_memory,
                     page_type="topic",
                 )
-                retry_content = await self._verify_code_blocks(retry_content, memory)
+                retry_content = await self._verify_code_blocks(retry_content, topic_memory)
                 retry_guardrail = await self.run_guardrails(
                     retry_content,
                     1,

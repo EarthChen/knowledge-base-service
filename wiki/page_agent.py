@@ -459,6 +459,38 @@ class WorkingMemory:
 
         self._enforce_limit()
 
+    def slice_for_modules(self, modules: set[str]) -> WorkingMemory:
+        """Create a filtered copy containing only entries relevant to given modules."""
+        module_lower = {m.lower() for m in modules}
+
+        def _matches(entry: str) -> bool:
+            m = _MODULE_PREFIX_RE.match(entry)
+            if m:
+                prefix = m.group(1).strip()
+                name = prefix.split(" @ ")[0].strip() if " @ " in prefix else prefix
+                return name.lower() in module_lower
+            entry_lower = entry.lower()
+            return any(mod in entry_lower for mod in module_lower)
+
+        sliced = WorkingMemory()
+        sliced.code_snippets = [s for s in self.code_snippets if _matches(s)]
+        sliced.discovered_call_chains = [
+            c for c in self.discovered_call_chains
+            if any(m.lower() in c.lower() for m in modules)
+        ]
+        sliced.discovered_implementations = [
+            i for i in self.discovered_implementations
+            if any(m.lower() in i.lower() for m in modules)
+        ]
+        sliced.discovered_callers = [
+            c for c in self.discovered_callers
+            if any(m.lower() in c.lower() for m in modules)
+        ]
+        sliced.search_findings = list(self.search_findings)
+        sliced.wiki_references = list(self.wiki_references)
+        sliced.relevant_modules = modules
+        return sliced
+
     def _total_chars(self) -> int:
         total = 0
         for lst in [
@@ -837,18 +869,20 @@ class WikiPageAgent(GenericAgent):
             write_system_prompt = get_write_system_prompt(self.content_language)
         memo_section = memory.to_prompt_section()
         is_chinese = "中文" in self.content_language or self.content_language in ("zh-CN", "zh")
+        baseline_limit = 8000 if page_type == "topic" else 16000
+        truncated_baseline = baseline_context[:baseline_limit]
         if is_chinese and page_type == "topic":
             user_prompt = (
                 f"## 任务\n"
                 f"基于以下探索结果，为业务域「{domain_name}」生成一篇聚焦主题的深度技术文档。\n\n"
-                f"## 基线上下文\n{baseline_context[:8000]}\n\n"
+                f"## 基线上下文\n{truncated_baseline}\n\n"
                 f"## 探索结果（工作记忆）\n{memo_section}\n"
             )
         elif is_chinese:
             user_prompt = (
                 f"## 任务\n"
                 f"基于以下探索结果，为业务域「{domain_name}」生成一篇完整的 Wiki 页面。\n\n"
-                f"## 基线上下文\n{baseline_context[:8000]}\n\n"
+                f"## 基线上下文\n{truncated_baseline}\n\n"
                 f"## 探索结果（工作记忆）\n{memo_section}\n"
             )
         else:
@@ -856,7 +890,7 @@ class WikiPageAgent(GenericAgent):
                 f"## Task\n"
                 f"Based on the exploration results below, generate a complete Wiki page "
                 f"for the \"{domain_name}\" business domain.\n\n"
-                f"## Baseline Context\n{baseline_context[:8000]}\n\n"
+                f"## Baseline Context\n{truncated_baseline}\n\n"
                 f"## Exploration Findings (Working Memory)\n{memo_section}\n"
             )
 

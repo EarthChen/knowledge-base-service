@@ -70,24 +70,35 @@ async def test_merge_llm_failure_returns_empty(corrector, mock_llm):
 
 def _make_review_llm():
     """Create an LLM mock suitable for review_global_consistency tests."""
-    llm = AsyncMock()
-    llm.generate.return_value = '{"merges": [], "renames": [], "moves": []}'
+    llm = AsyncMock(spec=["complete_json"])
+    llm.complete_json = AsyncMock(return_value={"merges": [], "renames": [], "moves": [], "summary": ""})
     return llm
 
 
 def _get_prompt(llm):
-    """Extract the prompt string passed to llm.generate."""
-    return llm.generate.call_args[0][0]
+    """Extract the user prompt string passed to llm.complete_json."""
+    messages = llm.complete_json.call_args[0][0]
+    return next(m["content"] for m in messages if m["role"] == "user")
 
 
 class TestReviewGlobalConsistency:
     @pytest.mark.asyncio
     async def test_merge_overlapping_domains(self):
         llm = _make_review_llm()
-        llm.generate.return_value = (
-            '{"merges": [{"sources": ["intimacy-rel", "private-friends"], '
-            '"target": "intimacy-rel", "new_display_name": "亲密关系", "reason": "same business"}], '
-            '"renames": [], "moves": []}'
+        llm.complete_json = AsyncMock(
+            return_value={
+                "merges": [
+                    {
+                        "sources": ["intimacy-rel", "private-friends"],
+                        "target": "intimacy-rel",
+                        "new_display_name": "亲密关系",
+                        "reason": "same business",
+                    }
+                ],
+                "renames": [],
+                "moves": [],
+                "summary": "",
+            },
         )
         corrector = GraphSemanticCorrector(llm)
         domain_mapping = {

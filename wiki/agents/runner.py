@@ -8,7 +8,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.log import get_logger
+from wiki.agents.context_compactor import ExploreCompactor, micro_compact, snip_compact
 from wiki.agents.events import EventCallback, ThinkingEvent, ToolCallEvent, ToolResultEvent
+from wiki.agents.token_budget import TokenBudgetManager
 
 log = get_logger(__name__)
 
@@ -57,6 +59,15 @@ class LoopConfig:
     context_trim_max_chars: int = 60000
     context_trim_keep_recent: int = 3
 
+    # Context compression
+    enable_compaction: bool = False
+    compaction_model: str | None = None
+    compaction_interval: int = 10
+    compaction_keep_recent: int = 3
+    compaction_trigger_ratio: float = 0.75
+    micro_compact_tool_threshold: int = 20_000
+    micro_compact_keep_recent_tools: int = 3
+
     # Repeated call detection
     detect_repeated_calls: bool = True
     max_consecutive_repeats: int = 2
@@ -89,6 +100,61 @@ class AgentLoopResult:
     total_tool_calls: int = 0
     repeated_calls_detected: int = 0
     exit_reason: str = "max_rounds"
+
+
+async def _apply_context_compression(
+    messages: list[dict],
+    *,
+    budget_mgr: TokenBudgetManager,
+    compactor: ExploreCompactor | None,
+    memory: Any,
+    config: LoopConfig,
+    _last_compact_round: list[int],
+    round_num: int,
+) -> list[dict]:
+    """Apply progressive context compression (L0-L4)."""
+    snap = budget_mgr.snapshot(messages)
+    level = snap.recommended_level
+
+    # L1 needs sufficient clearable content
+    if level == 1 and snap.clearable_tool_chars < config.micro_compact_tool_threshold:
+        level = 0
+
+    if level == 0:
+        return messages
+    if level == 1:
+        return micro_compact(messages, keep_recent_n=config.micro_compact_keep_recent_tools)
+    if level == 2:
+        return snip_compact(messages, max_tool_chars=getattr(config, "result_truncate_chars", 2000))
+    if level == 3 and compactor:
+        # Rate limit: at most 1 compact per interval
+        if _last_compact_round and (round_num - _last_compact_round[0]) < config.compaction_interval:
+            return snip_compact(messages, max_tool_chars=getattr(config, "result_truncate_chars", 2000))
+        try:
+            from wiki.context_manager import ContextManager
+
+            boundary = ContextManager._find_recent_boundary(
+                ContextManager(keep_recent_rounds=config.compaction_keep_recent),
+                messages,
+            )
+            result = await compactor.compact(messages, 1, boundary)
+            if memory and hasattr(memory, "inject_findings"):
+                memory.inject_findings(result.key_findings)
+            _last_compact_round.clear()
+            _last_compact_round.append(round_num)
+            return [messages[0], {"role": "user", "content": f"[探索摘要]\n{result.summary}"}] + messages[boundary:]
+        except Exception as e:
+            log.warning("compaction_l3_failed", error=str(e))
+            return snip_compact(messages, max_tool_chars=getattr(config, "result_truncate_chars", 2000))
+    if level >= 4 and memory and hasattr(memory, "to_prompt"):
+        mem_prompt = (
+            memory.to_prompt(max_chars=40_000)
+            if callable(getattr(memory, "to_prompt", None))
+            else str(memory)[:40_000]
+        )
+        return [messages[0], {"role": "user", "content": f"[WorkingMemory 兜底]\n{mem_prompt}"}]
+
+    return messages
 
 
 async def run_agent_loop(
@@ -152,6 +218,13 @@ async def run_agent_loop(
         ]
         has_nonempty_result = False
         _recent_signatures: list[str] = []
+        budget_mgr = TokenBudgetManager() if config.enable_compaction else None
+        compactor = (
+            ExploreCompactor(llm_port=agent._llm, model=config.compaction_model)
+            if config.enable_compaction
+            else None
+        )
+        _last_compact_round: list[int] = []
 
         for round_num in range(config.max_rounds):
             result.total_rounds = round_num + 1
@@ -342,7 +415,17 @@ async def run_agent_loop(
                 result.exit_reason = "early_stop"
                 break
 
-            if ctx_mgr:
+            if config.enable_compaction and budget_mgr is not None:
+                messages = await _apply_context_compression(
+                    messages,
+                    budget_mgr=budget_mgr,
+                    compactor=compactor,
+                    memory=memory,
+                    config=config,
+                    _last_compact_round=_last_compact_round,
+                    round_num=round_num,
+                )
+            elif ctx_mgr:
                 messages = ctx_mgr.trim(messages)
             elif len(messages) > config.max_history_messages:
                 messages = [

@@ -46,12 +46,12 @@ class ContextManager:
         return trimmed
 
     def _find_recent_boundary(self, messages: list[dict]) -> int:
-        """Find the index where 'recent' rounds begin (counting from end)."""
-        user_count = 0
+        """Find boundary index: count by assistant messages (= one reasoning round)."""
+        round_count = 0
         for i in range(len(messages) - 1, 0, -1):
-            if messages[i].get("role") == "user":
-                user_count += 1
-                if user_count >= self._keep_recent:
+            if messages[i].get("role") == "assistant":
+                round_count += 1
+                if round_count >= self._keep_recent:
                     return i
         return 1
 

@@ -44,6 +44,9 @@ class TierPromoter:
             new_tier = 2
 
         if new_tier > current_tier and uid and store:
+            if not hasattr(store, "update_memory_tier"):
+                log.warning("store_missing_update_memory_tier", uid=uid)
+                return {"promoted": False, "reason": "store_not_supported"}
             try:
                 await store.update_memory_tier(uid=uid, tier=new_tier)
                 log.info(

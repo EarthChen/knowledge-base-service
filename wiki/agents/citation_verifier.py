@@ -56,12 +56,23 @@ class CitationVerifier:
 
         for ref in refs:
             try:
-                # Query graph store for the file path
-                query_result = await graph_store.query(
-                    f"MATCH (n) WHERE n.path CONTAINS '{ref['path']}' "
+                query = (
+                    "MATCH (n) WHERE n.path = $path "
                     "RETURN n.path AS path, n.end_line AS lines LIMIT 1"
                 )
-                if query_result and query_result[0]:
+                params = {"path": ref["path"]}
+                rows: list | None = None
+                if hasattr(graph_store, "execute_query"):
+                    query_result = await graph_store.execute_query(query, params=params)
+                    data = getattr(query_result, "data", None)
+                    if isinstance(data, list):
+                        rows = data
+                    elif isinstance(query_result, list):
+                        rows = query_result
+                if rows is None and hasattr(graph_store, "query"):
+                    query_result = await graph_store.query(query, params=params)
+                    rows = query_result if isinstance(query_result, list) else None
+                if rows and rows[0]:
                     result.valid_count += 1
                 else:
                     result.invalid_count += 1

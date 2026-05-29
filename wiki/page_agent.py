@@ -1194,6 +1194,7 @@ class WikiPageAgent(GenericAgent):
                 max_rounds=self.max_rounds,
                 max_tool_calls=self.max_tool_calls,
             )
+            agent._deps = child_deps
             agent._existing_pages = self._existing_pages
             return agent
 

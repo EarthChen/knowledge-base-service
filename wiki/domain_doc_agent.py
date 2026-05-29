@@ -173,7 +173,7 @@ def _extract_chunk_title(modules: list[dict], display_name: str, idx: int) -> st
     candidate = best.get("display_name", best.get("name", ""))
     if candidate and candidate != display_name:
         return candidate
-    return f"{display_name} - Part {idx + 1}"
+    return f"{display_name} - Section {idx + 1}"
 
 
 def _derive_slug_from_modules(modules: list[str]) -> str:

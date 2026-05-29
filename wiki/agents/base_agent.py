@@ -186,7 +186,10 @@ class GenericAgent(ABC):
         return Memory()
 
     async def remember(self, question: str, answer: str, confidence: float = 0.7) -> dict:
-        """Store important findings to long-term memory."""
+        """Store important findings to long-term memory.
+
+        NOTE: Register via @function_tool when ready for production.
+        """
         if not getattr(self, "_memory_backend", None):
             return {"error": "memory_backend_not_configured", "stored": False}
         if confidence < 0.5:

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, TopicPlan
+from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, OutlineTopicItem
 
 
 @pytest.mark.asyncio
@@ -22,7 +22,7 @@ async def test_plan_topics_max_limit():
     memory = MagicMock()
     memory.final_overview = ""
 
-    topics = [TopicPlan(title=f"Topic {i}", modules=[f"Mod{i}"], description=f"desc {i}") for i in range(6)]
+    topics = [OutlineTopicItem(title=f"Topic {i}", modules=[f"Mod{i}"], description=f"desc {i}") for i in range(6)]
     outline = DomainTopicOutline(should_split=True, topics=topics)
     agent._plan_topics = AsyncMock(return_value=outline)
 
@@ -54,7 +54,7 @@ async def test_plan_topics_max_limit_force_split_path():
     module_names = [f"Mod{i}" for i in range(30)]
     llm_declined = DomainTopicOutline(
         should_split=False,
-        topics=[TopicPlan(title="All", modules=module_names, description="single topic")],
+        topics=[OutlineTopicItem(title="All", modules=module_names, description="single topic")],
     )
     agent._plan_topics = AsyncMock(return_value=llm_declined)
 

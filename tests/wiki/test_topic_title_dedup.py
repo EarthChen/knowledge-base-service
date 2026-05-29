@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from wiki.domain_doc_agent import TopicPlan, _dedup_topic_titles, _extract_cjk_bigrams
+from wiki.domain_doc_agent import OutlineTopicItem, _dedup_topic_titles, _extract_cjk_bigrams
 
 
 class TestExtractCjkBigrams:
@@ -24,8 +24,8 @@ class TestExtractCjkBigrams:
 class TestSemanticDedup:
     def test_exact_match_dedup(self):
         topics = [
-            TopicPlan(title="核心模块", modules=["A"]),
-            TopicPlan(title="核心模块", modules=["B"]),
+            OutlineTopicItem(title="核心模块", modules=["A"]),
+            OutlineTopicItem(title="核心模块", modules=["B"]),
         ]
         result = _dedup_topic_titles(topics)
         assert len(result) == 1
@@ -33,8 +33,8 @@ class TestSemanticDedup:
 
     def test_cjk_bigram_overlap_dedup(self):
         topics = [
-            TopicPlan(title="核心模块管理", modules=["A"]),
-            TopicPlan(title="核心模块配置", modules=["B"]),
+            OutlineTopicItem(title="核心模块管理", modules=["A"]),
+            OutlineTopicItem(title="核心模块配置", modules=["B"]),
         ]
         result = _dedup_topic_titles(topics)
         assert len(result) == 1
@@ -42,24 +42,24 @@ class TestSemanticDedup:
 
     def test_no_false_positive(self):
         topics = [
-            TopicPlan(title="用户认证服务", modules=["A"]),
-            TopicPlan(title="数据存储层", modules=["B"]),
+            OutlineTopicItem(title="用户认证服务", modules=["A"]),
+            OutlineTopicItem(title="数据存储层", modules=["B"]),
         ]
         result = _dedup_topic_titles(topics)
         assert len(result) == 2
 
     def test_english_titles_no_bigram_dedup(self):
         topics = [
-            TopicPlan(title="Authentication", modules=["A"]),
-            TopicPlan(title="Authorization", modules=["B"]),
+            OutlineTopicItem(title="Authentication", modules=["A"]),
+            OutlineTopicItem(title="Authorization", modules=["B"]),
         ]
         result = _dedup_topic_titles(topics)
         assert len(result) == 2
 
     def test_preserves_first_title(self):
         topics = [
-            TopicPlan(title="核心模块管理", modules=["A"], description="desc1"),
-            TopicPlan(title="核心模块配置", modules=["B"], description="desc2"),
+            OutlineTopicItem(title="核心模块管理", modules=["A"], description="desc1"),
+            OutlineTopicItem(title="核心模块配置", modules=["B"], description="desc2"),
         ]
         result = _dedup_topic_titles(topics)
         assert result[0].title == "核心模块管理"
@@ -89,7 +89,7 @@ class TestTopicCanonicalKey:
     async def test_topic_page_has_canonical_key(self):
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, TopicPlan
+        from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, OutlineTopicItem
         from wiki.page_agent import WorkingMemory
 
         mock_llm = MagicMock()
@@ -109,8 +109,8 @@ class TestTopicCanonicalKey:
         outline = DomainTopicOutline(
             should_split=True,
             topics=[
-                TopicPlan(title="TopicA", modules=["mod1"], description="desc"),
-                TopicPlan(title="TopicB", modules=["mod2"], description="desc"),
+                OutlineTopicItem(title="TopicA", modules=["mod1"], description="desc"),
+                OutlineTopicItem(title="TopicB", modules=["mod2"], description="desc"),
             ],
         )
         pages = await agent._write_with_outline(outline, "baseline", memory, ["mod1", "mod2"])

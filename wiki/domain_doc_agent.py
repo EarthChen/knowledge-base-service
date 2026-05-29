@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import BaseModel, field_validator
+
 from core.config import ContentLanguage, get_settings
 from core.log import get_logger
 from wiki.agents.base_agent import RunConfig
@@ -43,8 +45,35 @@ _DOMAIN_EXPLORE_LOOP_CONFIG = RunConfig(
 )
 
 
+class TopicPlanItem(BaseModel):
+    """Structured topic plan item with Part N rejection."""
+
+    title: str
+    slug: str
+    module_names: list[str]
+    description: str = ""
+
+    @field_validator("title")
+    @classmethod
+    def reject_part_n_naming(cls, v: str) -> str:
+        """Reject mechanical Part N / 第N部分 naming patterns."""
+        if re.search(r"(?i)^(part\s*\d+|第\s*\d+\s*部分)", v.strip()):
+            raise ValueError(
+                f"Part N naming pattern detected: '{v}'. "
+                "Use descriptive topic names instead (e.g., 'Authentication Architecture')."
+            )
+        return v
+
+
+class TopicPlan(BaseModel):
+    """Structured topic plan for domain documentation."""
+
+    domain: str
+    items: list[TopicPlanItem] = []
+
+
 @dataclass
-class TopicPlan:
+class OutlineTopicItem:
     title: str
     modules: list[str]
     description: str = ""
@@ -54,7 +83,7 @@ class TopicPlan:
 @dataclass
 class DomainTopicOutline:
     should_split: bool
-    topics: list[TopicPlan]
+    topics: list[OutlineTopicItem]
 
 
 def domain_has_subdomains(domain: dict[str, Any]) -> bool:
@@ -98,9 +127,9 @@ def _cap_topic_outline(outline: DomainTopicOutline, max_topics: int) -> DomainTo
     )
 
 
-def _dedup_topic_titles(topics: list[TopicPlan]) -> list[TopicPlan]:
+def _dedup_topic_titles(topics: list[OutlineTopicItem]) -> list[OutlineTopicItem]:
     """Merge topics with duplicate or semantically similar titles."""
-    result: list[TopicPlan] = []
+    result: list[OutlineTopicItem] = []
     seen_exact: dict[str, int] = {}
     seen_bigrams: list[set[str]] = []
 
@@ -129,7 +158,7 @@ def _dedup_topic_titles(topics: list[TopicPlan]) -> list[TopicPlan]:
         if not merged:
             seen_exact[t.title] = len(result)
             seen_bigrams.append(bigrams)
-            result.append(TopicPlan(title=t.title, modules=list(t.modules), description=t.description))
+            result.append(OutlineTopicItem(title=t.title, modules=list(t.modules), description=t.description))
 
     return result
 
@@ -163,15 +192,15 @@ def _derive_slug_from_modules(modules: list[str]) -> str:
 
 
 def _resolve_topic_slugs(
-    topics: list[TopicPlan],
+    topics: list[OutlineTopicItem],
     domain_slug: str,
     used_slugs: set[str] | None = None,
-) -> list[TopicPlan]:
+) -> list[OutlineTopicItem]:
     """Apply V9 slug pipeline (F1-F4) and collision detection (F3) to topic plans."""
     from wiki.path_conventions import resolve_topic_slug
 
     seen = used_slugs if used_slugs is not None else set()
-    resolved: list[TopicPlan] = []
+    resolved: list[OutlineTopicItem] = []
     for index, topic in enumerate(topics):
         raw_slug = topic.slug or _derive_slug_from_modules(list(topic.modules)) or topic.title
         slug = resolve_topic_slug(
@@ -183,7 +212,7 @@ def _resolve_topic_slugs(
             topic_index=index + 1,
         )
         resolved.append(
-            TopicPlan(
+            OutlineTopicItem(
                 title=topic.title,
                 modules=list(topic.modules),
                 description=topic.description,
@@ -223,7 +252,7 @@ def _parse_topic_outline(
         if not slug:
             slug = _derive_slug_from_modules([str(m) for m in modules])
         topics.append(
-            TopicPlan(
+            OutlineTopicItem(
                 title=str(title),
                 modules=[str(m) for m in modules],
                 description=str(t.get("description", "")),
@@ -240,7 +269,7 @@ def _parse_topic_outline(
     return DomainTopicOutline(should_split=bool(should_split), topics=topics)
 
 
-def _format_full_plan_context(outline: DomainTopicOutline, current_topic: TopicPlan) -> str:
+def _format_full_plan_context(outline: DomainTopicOutline, current_topic: OutlineTopicItem) -> str:
     """Format complete topic plan for injection into each topic's writing context."""
     lines = ["--- 域主题规划（全局蓝图）---"]
     for i, t in enumerate(outline.topics, 1):
@@ -792,7 +821,7 @@ class DomainDocAgent(DocOrchestrator):
             slug = _derive_slug_from_modules(chunk)
             module_dicts = [{"name": m, "display_name": m} for m in chunk]
             title = _extract_chunk_title(module_dicts, self.domain_display_name, i)
-            topics.append(TopicPlan(title=title, modules=chunk, description="", slug=slug))
+            topics.append(OutlineTopicItem(title=title, modules=chunk, description="", slug=slug))
         topics = _resolve_topic_slugs(
             topics,
             self.domain_name,
@@ -930,7 +959,7 @@ class DomainDocAgent(DocOrchestrator):
             return DomainTopicOutline(
                 should_split=False,
                 topics=[
-                    TopicPlan(
+                    OutlineTopicItem(
                         title=self.domain_display_name,
                         modules=list(module_names),
                         description=f"{self.domain_display_name} overview",
@@ -1002,7 +1031,7 @@ class DomainDocAgent(DocOrchestrator):
         return DomainTopicOutline(
             should_split=False,
             topics=[
-                TopicPlan(
+                OutlineTopicItem(
                     title=self.domain_display_name,
                     modules=list(module_names),
                     description=f"{self.domain_display_name} overview",

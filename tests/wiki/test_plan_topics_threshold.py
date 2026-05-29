@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, TopicPlan
+from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, OutlineTopicItem
 from wiki.page_agent import WorkingMemory
 
 
@@ -83,8 +83,8 @@ async def test_plan_topics_trigger_with_3_modules():
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="Topic A", modules=["ModA"], description="a"),
-            TopicPlan(title="Topic B", modules=["ModB", "ModC"], description="b"),
+            OutlineTopicItem(title="Topic A", modules=["ModA"], description="a"),
+            OutlineTopicItem(title="Topic B", modules=["ModB", "ModC"], description="b"),
         ],
     )
     agent._plan_topics = AsyncMock(return_value=outline)
@@ -118,8 +118,8 @@ async def test_plan_topics_trigger_with_long_overview():
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="Topic A", modules=["ModA"], description="a"),
-            TopicPlan(title="Topic B", modules=["ModB"], description="b"),
+            OutlineTopicItem(title="Topic A", modules=["ModA"], description="a"),
+            OutlineTopicItem(title="Topic B", modules=["ModB"], description="b"),
         ],
     )
     agent._plan_topics = AsyncMock(return_value=outline)

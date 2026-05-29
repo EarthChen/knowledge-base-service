@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from core.config import AppWikiFlags
-from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, TopicPlan
+from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, OutlineTopicItem
 from wiki.quality_report import QualityReport
 
 
@@ -14,8 +14,8 @@ def _split_outline() -> DomainTopicOutline:
     return DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="Topic A", modules=["ModA"], description="desc A"),
-            TopicPlan(title="Topic B", modules=["ModB"], description="desc B"),
+            OutlineTopicItem(title="Topic A", modules=["ModA"], description="desc A"),
+            OutlineTopicItem(title="Topic B", modules=["ModB"], description="desc B"),
         ],
     )
 

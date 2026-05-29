@@ -357,7 +357,7 @@ class TestTopicCoverageRecovery:
         """4-module domain with LLM should_split=false gets force-overridden to split."""
         from unittest.mock import MagicMock, patch
 
-        from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, TopicPlan
+        from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, OutlineTopicItem
 
         llm = AsyncMock()
         agent = DomainDocAgent(
@@ -370,7 +370,7 @@ class TestTopicCoverageRecovery:
         module_names = ["ModA", "ModB", "ModC", "ModD"]
         llm_declined = DomainTopicOutline(
             should_split=False,
-            topics=[TopicPlan(title="All", modules=module_names, description="single topic")],
+            topics=[OutlineTopicItem(title="All", modules=module_names, description="single topic")],
         )
         agent._plan_topics = AsyncMock(return_value=llm_declined)
 
@@ -393,7 +393,7 @@ class TestTopicCoverageRecovery:
         """1-module domain with should_split=false is NOT force-overridden."""
         from unittest.mock import MagicMock, patch
 
-        from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, TopicPlan
+        from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, OutlineTopicItem
 
         llm = AsyncMock()
         agent = DomainDocAgent(
@@ -406,7 +406,7 @@ class TestTopicCoverageRecovery:
         module_names = ["ModA"]
         llm_declined = DomainTopicOutline(
             should_split=False,
-            topics=[TopicPlan(title="All", modules=module_names, description="single topic")],
+            topics=[OutlineTopicItem(title="All", modules=module_names, description="single topic")],
         )
         agent._plan_topics = AsyncMock(return_value=llm_declined)
 

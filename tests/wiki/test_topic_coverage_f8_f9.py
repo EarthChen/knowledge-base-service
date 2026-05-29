@@ -9,7 +9,7 @@ import pytest
 from wiki.domain_doc_agent import (
     DomainDocAgent,
     DomainTopicOutline,
-    TopicPlan,
+    OutlineTopicItem,
     _format_full_plan_context,
     _parse_topic_outline,
 )
@@ -34,8 +34,8 @@ def test_format_full_plan_context_marks_current() -> None:
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="Topic A", modules=["a"], description="desc a"),
-            TopicPlan(title="Topic B", modules=["b"], description="desc b"),
+            OutlineTopicItem(title="Topic A", modules=["a"], description="desc a"),
+            OutlineTopicItem(title="Topic B", modules=["b"], description="desc b"),
         ],
     )
     result = _format_full_plan_context(outline, outline.topics[1])
@@ -48,8 +48,8 @@ def test_format_full_plan_context_includes_siblings() -> None:
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="Topic A", modules=["a"], description=""),
-            TopicPlan(title="Topic B", modules=["b"], description=""),
+            OutlineTopicItem(title="Topic A", modules=["a"], description=""),
+            OutlineTopicItem(title="Topic B", modules=["b"], description=""),
         ],
     )
     result = _format_full_plan_context(outline, outline.topics[0])
@@ -72,7 +72,7 @@ async def test_2_module_domain_gets_topic() -> None:
     module_names = ["ModA", "ModB"]
     llm_declined = DomainTopicOutline(
         should_split=False,
-        topics=[TopicPlan(title="All", modules=module_names, description="single topic")],
+        topics=[OutlineTopicItem(title="All", modules=module_names, description="single topic")],
     )
     agent._plan_topics = AsyncMock(return_value=llm_declined)
 
@@ -103,8 +103,8 @@ async def test_write_with_outline_injects_full_plan() -> None:
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="Topic A", modules=["ModA"], description="desc a", slug="a"),
-            TopicPlan(title="Topic B", modules=["ModB"], description="desc b", slug="b"),
+            OutlineTopicItem(title="Topic A", modules=["ModA"], description="desc a", slug="a"),
+            OutlineTopicItem(title="Topic B", modules=["ModB"], description="desc b", slug="b"),
         ],
     )
     captured_contexts: list[str] = []

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, TopicPlan
+from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, OutlineTopicItem
 
 
 @pytest.mark.asyncio
@@ -21,7 +21,7 @@ async def test_plan_topics_force_split_fallback_when_llm_declines():
     module_names = [f"Mod{i}" for i in range(12)]
     llm_declined = DomainTopicOutline(
         should_split=False,
-        topics=[TopicPlan(title="All", modules=module_names, description="single topic")],
+        topics=[OutlineTopicItem(title="All", modules=module_names, description="single topic")],
     )
     agent._plan_topics = AsyncMock(return_value=llm_declined)
 
@@ -58,7 +58,7 @@ async def test_plan_topics_force_split_at_default_threshold_six():
     module_names = [f"Mod{i}" for i in range(8)]
     llm_declined = DomainTopicOutline(
         should_split=False,
-        topics=[TopicPlan(title="All", modules=module_names, description="single topic")],
+        topics=[OutlineTopicItem(title="All", modules=module_names, description="single topic")],
     )
     agent._plan_topics = AsyncMock(return_value=llm_declined)
 

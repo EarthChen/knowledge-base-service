@@ -91,7 +91,7 @@ def test_maybe_split_overview_business_domain_set():
 @pytest.mark.asyncio
 async def test_topic_business_domain_set():
     """F12: topic pages from _write_with_outline must carry business_domain."""
-    from wiki.domain_doc_agent import DomainTopicOutline, TopicPlan
+    from wiki.domain_doc_agent import DomainTopicOutline, OutlineTopicItem
     from wiki.page_agent import WorkingMemory
 
     agent = DomainDocAgent(
@@ -114,8 +114,8 @@ async def test_topic_business_domain_set():
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="任务创建", modules=["TaskCreate"], description="创建任务"),
-            TopicPlan(title="任务奖励", modules=["RewardService"], description="奖励发放"),
+            OutlineTopicItem(title="任务创建", modules=["TaskCreate"], description="创建任务"),
+            OutlineTopicItem(title="任务奖励", modules=["RewardService"], description="奖励发放"),
         ],
     )
     pages = await agent._write_with_outline(
@@ -483,7 +483,7 @@ class TestDomainDocAgentObservability:
 @pytest.mark.asyncio
 async def test_write_with_outline_topic_index_includes_synthesized_summary():
     """Topic-index overview should include LLM-synthesized business summary before topic list."""
-    from wiki.domain_doc_agent import DomainTopicOutline, TopicPlan
+    from wiki.domain_doc_agent import DomainTopicOutline, OutlineTopicItem
     from wiki.page_agent import WorkingMemory
 
     agent = DomainDocAgent(
@@ -507,8 +507,8 @@ async def test_write_with_outline_topic_index_includes_synthesized_summary():
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="任务创建", modules=["TaskCreate"], description="创建任务"),
-            TopicPlan(title="任务奖励", modules=["RewardService"], description="奖励发放"),
+            OutlineTopicItem(title="任务创建", modules=["TaskCreate"], description="创建任务"),
+            OutlineTopicItem(title="任务奖励", modules=["RewardService"], description="奖励发放"),
         ],
     )
     memory = WorkingMemory()
@@ -530,7 +530,7 @@ async def test_write_with_outline_topic_index_includes_synthesized_summary():
 @pytest.mark.asyncio
 async def test_write_with_outline_topic_index_summary_failure_fallback():
     """When overview synthesis fails, topic-index overview still builds without summary."""
-    from wiki.domain_doc_agent import DomainTopicOutline, TopicPlan
+    from wiki.domain_doc_agent import DomainTopicOutline, OutlineTopicItem
     from wiki.page_agent import WorkingMemory
 
     agent = DomainDocAgent(
@@ -553,8 +553,8 @@ async def test_write_with_outline_topic_index_summary_failure_fallback():
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="任务创建", modules=["TaskCreate"], description="创建任务"),
-            TopicPlan(title="任务奖励", modules=["RewardService"], description="奖励发放"),
+            OutlineTopicItem(title="任务创建", modules=["TaskCreate"], description="创建任务"),
+            OutlineTopicItem(title="任务奖励", modules=["RewardService"], description="奖励发放"),
         ],
     )
     pages = await agent._write_with_outline(
@@ -570,7 +570,7 @@ async def test_write_with_outline_topic_index_summary_failure_fallback():
 @pytest.mark.asyncio
 async def test_write_with_outline_runs_guardrails_on_topic_pages():
     """Split path runs output guardrails on each topic page with page_type=topic."""
-    from wiki.domain_doc_agent import DomainTopicOutline, TopicPlan
+    from wiki.domain_doc_agent import DomainTopicOutline, OutlineTopicItem
     from wiki.page_agent import WorkingMemory
 
     agent = DomainDocAgent(
@@ -599,8 +599,8 @@ async def test_write_with_outline_runs_guardrails_on_topic_pages():
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="任务创建", modules=["TaskCreate"], description="创建任务"),
-            TopicPlan(title="任务奖励", modules=["RewardService"], description="奖励发放"),
+            OutlineTopicItem(title="任务创建", modules=["TaskCreate"], description="创建任务"),
+            OutlineTopicItem(title="任务奖励", modules=["RewardService"], description="奖励发放"),
         ],
     )
     with patch("wiki.domain_doc_agent.get_settings") as mock_settings:
@@ -620,7 +620,7 @@ async def test_write_with_outline_runs_guardrails_on_topic_pages():
 @pytest.mark.asyncio
 async def test_write_with_outline_retries_on_guardrail_failure():
     """When topic guardrail fails with should_heal, retry write and use healed content."""
-    from wiki.domain_doc_agent import DomainTopicOutline, TopicPlan
+    from wiki.domain_doc_agent import DomainTopicOutline, OutlineTopicItem
     from wiki.output_guardrail import CheckResult, GuardrailResult
     from wiki.page_agent import WorkingMemory
 
@@ -658,8 +658,8 @@ async def test_write_with_outline_retries_on_guardrail_failure():
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="任务创建", modules=["TaskCreate"], description="创建任务"),
-            TopicPlan(title="任务奖励", modules=["RewardService"], description="奖励发放"),
+            OutlineTopicItem(title="任务创建", modules=["TaskCreate"], description="创建任务"),
+            OutlineTopicItem(title="任务奖励", modules=["RewardService"], description="奖励发放"),
         ],
     )
     with patch("wiki.domain_doc_agent.get_settings") as mock_settings:

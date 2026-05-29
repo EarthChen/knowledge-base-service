@@ -7,7 +7,7 @@ from wiki.page_agent import WorkingMemory
 from wiki.domain_doc_agent import (
     DomainDocAgent,
     DomainTopicOutline,
-    TopicPlan,
+    OutlineTopicItem,
     _maybe_split,
     _parse_topic_outline,
 )
@@ -22,8 +22,8 @@ def test_working_memory_topic_outline_assignment():
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="任务系统", modules=["TaskService", "RewardHandler"], description="任务管理"),
-            TopicPlan(title="成员管理", modules=["MemberService"], description="成员管理"),
+            OutlineTopicItem(title="任务系统", modules=["TaskService", "RewardHandler"], description="任务管理"),
+            OutlineTopicItem(title="成员管理", modules=["MemberService"], description="成员管理"),
         ],
     )
     wm = WorkingMemory()
@@ -97,8 +97,8 @@ async def test_write_with_outline_produces_topic_pages():
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="任务创建", modules=["TaskCreate"], description="创建任务"),
-            TopicPlan(title="任务奖励", modules=["RewardService"], description="奖励发放"),
+            OutlineTopicItem(title="任务创建", modules=["TaskCreate"], description="创建任务"),
+            OutlineTopicItem(title="任务奖励", modules=["RewardService"], description="奖励发放"),
         ],
     )
     memory = WorkingMemory()
@@ -122,7 +122,7 @@ async def test_write_with_outline_single_topic_no_split():
     )
     outline = DomainTopicOutline(
         should_split=False,
-        topics=[TopicPlan(title="小域", modules=["A", "B"], description="all")],
+        topics=[OutlineTopicItem(title="小域", modules=["A", "B"], description="all")],
     )
     memory = WorkingMemory()
     pages = await agent._write_with_outline(outline, "context", memory, ["A", "B"])

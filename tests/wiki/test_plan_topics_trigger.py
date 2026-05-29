@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, TopicPlan
+from wiki.domain_doc_agent import DomainDocAgent, DomainTopicOutline, OutlineTopicItem
 
 
 @pytest.mark.asyncio
@@ -25,8 +25,8 @@ async def test_plan_topics_overview_len_trigger():
     outline = DomainTopicOutline(
         should_split=True,
         topics=[
-            TopicPlan(title="Topic A", modules=["ModA"], description="a"),
-            TopicPlan(title="Topic B", modules=["ModB", "ModC"], description="b"),
+            OutlineTopicItem(title="Topic A", modules=["ModA"], description="a"),
+            OutlineTopicItem(title="Topic B", modules=["ModB", "ModC"], description="b"),
         ],
     )
     agent._plan_topics = AsyncMock(return_value=outline)

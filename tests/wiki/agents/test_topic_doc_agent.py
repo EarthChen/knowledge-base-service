@@ -89,7 +89,7 @@ class TestTopicDocAgentAcceptable:
         )
         assert agent.is_acceptable(q_bad, iteration=2) is False
 
-        assert agent.is_acceptable(q_bad, iteration=3) is True
+        assert agent.is_acceptable(q_bad, iteration=3) is False
 
 
 class TestTopicDocAgentPostProcess:

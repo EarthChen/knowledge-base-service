@@ -122,7 +122,7 @@ class TestFlowDocAgentIsAcceptable:
             uncovered_modules=["a"],
         )
         assert flow.is_acceptable(q_bad, iteration=2) is False
-        assert flow.is_acceptable(q_bad, iteration=3) is True
+        assert flow.is_acceptable(q_bad, iteration=3) is False
 
 
 class TestFlowDocAgentGenerate:

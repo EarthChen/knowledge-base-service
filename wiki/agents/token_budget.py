@@ -40,7 +40,7 @@ class TokenBudgetManager:
 
         level = 0
         for lvl in sorted(self.LEVEL_THRESHOLDS):
-            if usage_ratio > self.LEVEL_THRESHOLDS[lvl]:
+            if usage_ratio >= self.LEVEL_THRESHOLDS[lvl]:
                 level = lvl
 
         return BudgetSnapshot(

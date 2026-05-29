@@ -115,6 +115,7 @@ async def _apply_context_compression(
     """Apply progressive context compression (L0-L4)."""
     snap = budget_mgr.snapshot(messages)
     level = snap.recommended_level
+    snip_threshold = config.result_truncate_chars if config.result_truncate_chars > 0 else 2000
 
     # L1 needs sufficient clearable content
     if level == 1 and snap.clearable_tool_chars < config.micro_compact_tool_threshold:
@@ -125,11 +126,13 @@ async def _apply_context_compression(
     if level == 1:
         return micro_compact(messages, keep_recent_n=config.micro_compact_keep_recent_tools)
     if level == 2:
-        return snip_compact(messages, max_tool_chars=getattr(config, "result_truncate_chars", 2000))
+        return snip_compact(messages, max_tool_chars=snip_threshold)
+    if level == 3 and not compactor:
+        return snip_compact(messages, max_tool_chars=snip_threshold)
     if level == 3 and compactor:
         # Rate limit: at most 1 compact per interval
         if _last_compact_round and (round_num - _last_compact_round[0]) < config.compaction_interval:
-            return snip_compact(messages, max_tool_chars=getattr(config, "result_truncate_chars", 2000))
+            return snip_compact(messages, max_tool_chars=snip_threshold)
         try:
             from wiki.context_manager import ContextManager
 
@@ -145,14 +148,17 @@ async def _apply_context_compression(
             return [messages[0], {"role": "user", "content": f"[探索摘要]\n{result.summary}"}] + messages[boundary:]
         except Exception as e:
             log.warning("compaction_l3_failed", error=str(e))
-            return snip_compact(messages, max_tool_chars=getattr(config, "result_truncate_chars", 2000))
-    if level >= 4 and memory and hasattr(memory, "to_prompt"):
-        mem_prompt = (
-            memory.to_prompt(max_chars=40_000)
-            if callable(getattr(memory, "to_prompt", None))
-            else str(memory)[:40_000]
-        )
-        return [messages[0], {"role": "user", "content": f"[WorkingMemory 兜底]\n{mem_prompt}"}]
+            return snip_compact(messages, max_tool_chars=snip_threshold)
+    if level >= 4:
+        if memory and hasattr(memory, "to_prompt"):
+            mem_prompt = (
+                memory.to_prompt(max_chars=40_000)
+                if callable(getattr(memory, "to_prompt", None))
+                else str(memory)[:40_000]
+            )
+            return [messages[0], {"role": "user", "content": f"[WorkingMemory 兜底]\n{mem_prompt}"}]
+        log.warning("compaction_l4_no_memory_fallback")
+        return snip_compact(messages, max_tool_chars=500)
 
     return messages
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 COMPACTION_SYSTEM_PROMPT = """你是一个代码知识库的上下文管理器。你的任务是将工具调用历史浓缩为结构化摘要。
@@ -42,6 +43,8 @@ _SECTION_NAMES = [
     "Errors & Solutions",
     "Next Action",
 ]
+
+_SECTION_HEADER = re.compile(r"^##\s*\d+\.\s*(.+)", re.MULTILINE)
 
 
 @dataclass
@@ -115,22 +118,18 @@ class ExploreCompactor:
 
     def _parse_sections(self, summary: str) -> dict[str, str]:
         sections: dict[str, str] = {}
-        current_name = None
-        current_lines: list[str] = []
-        for line in summary.split("\n"):
-            matched = False
-            for name in _SECTION_NAMES:
-                if name.lower() in line.lower():
-                    if current_name:
-                        sections[current_name] = "\n".join(current_lines).strip()
-                    current_name = name
-                    current_lines = []
-                    matched = True
-                    break
-            if not matched and current_name:
-                current_lines.append(line)
-        if current_name:
-            sections[current_name] = "\n".join(current_lines).strip()
+        matches = list(_SECTION_HEADER.finditer(summary))
+        for i, match in enumerate(matches):
+            header_title = match.group(1).strip()
+            canonical = next(
+                (name for name in _SECTION_NAMES if name.lower() == header_title.lower()),
+                None,
+            )
+            if not canonical:
+                continue
+            start = match.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(summary)
+            sections[canonical] = summary[start:end].strip()
         return sections
 
     @staticmethod

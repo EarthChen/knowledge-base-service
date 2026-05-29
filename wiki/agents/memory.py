@@ -1,6 +1,36 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import Any, Protocol, runtime_checkable
+
+
+class AgentMemory(ABC):
+    """Framework-level agent memory interface."""
+
+    @abstractmethod
+    def incorporate(self, tool_name: str, result: dict) -> None: ...
+
+    @abstractmethod
+    def to_prompt(self, max_chars: int | None = None) -> str: ...
+
+    @abstractmethod
+    def merge(self, other: AgentMemory) -> None: ...
+
+    @abstractmethod
+    def slice(self, keys: set[str]) -> AgentMemory: ...
+
+    @abstractmethod
+    def inject_findings(self, findings: list[str]) -> None: ...
+
+
+@runtime_checkable
+class MemoryBackend(Protocol):
+    async def store(self, question: str, answer: str, **kwargs: Any) -> str: ...
+
+    async def retrieve(self, topic: str, limit: int = 5) -> list: ...
+
+    async def record_access(self, uid: str) -> None: ...
 
 
 @dataclass

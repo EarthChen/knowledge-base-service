@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -11,6 +12,7 @@ from core.log import get_logger
 if TYPE_CHECKING:
     from wiki.domain_doc_agent import DomainTopicOutline
 from wiki.agents.base_agent import GenericAgent
+from wiki.agents.memory import AgentMemory
 from wiki.agents.tool_decorator import function_tool
 from wiki.content_guards import strip_meta_sections as _cg_strip_meta
 from wiki.context_gap import CONTEXT_GAP_DETECT_RE as _CONTEXT_GAP_RE
@@ -204,7 +206,8 @@ _MODULE_PREFIX_RE = re.compile(r"^\[([^\]]+)\]")
 
 
 @dataclass
-class WorkingMemory:
+class WorkingMemory(AgentMemory):
+    facts: list[str] = field(default_factory=list)
     discovered_call_chains: list[str] = field(default_factory=list)
     discovered_implementations: list[str] = field(default_factory=list)
     discovered_callers: list[str] = field(default_factory=list)
@@ -427,8 +430,11 @@ class WorkingMemory:
             if not removed:
                 break
 
-    def merge(self, other: WorkingMemory) -> None:
+    def merge(self, other: AgentMemory) -> None:
         """Merge supplemental exploration results, deduplicate, enforce limits."""
+        if not isinstance(other, WorkingMemory):
+            return
+
         incoming_prefixes: set[str] = set()
         for snippet in other.code_snippets:
             m = _MODULE_PREFIX_RE.match(snippet)
@@ -453,11 +459,36 @@ class WorkingMemory:
         self.wiki_references.extend(other.wiki_references)
         self.search_findings.extend(other.search_findings)
 
+        for field_name in [
+            "facts",
+            "structural_patterns",
+            "topic_findings",
+        ]:
+            existing = getattr(self, field_name, [])
+            incoming = getattr(other, field_name, [])
+            for item in incoming:
+                if item not in existing:
+                    existing.append(item)
+
         self.discovered_entity_uids |= other.discovered_entity_uids
 
         self._tool_contributed_chars += other._tool_contributed_chars
 
         self._enforce_limit()
+
+    def slice(self, keys: set[str]) -> AgentMemory:
+        """Return a new WorkingMemory with only the specified fields populated."""
+        new = WorkingMemory()
+        for key in keys:
+            if hasattr(self, key) and hasattr(new, key):
+                setattr(new, key, copy.deepcopy(getattr(self, key)))
+        return new
+
+    def inject_findings(self, findings: list[str]) -> None:
+        """Inject findings from L3 compression into facts, deduplicating."""
+        for finding in findings:
+            if finding not in self.facts:
+                self.facts.append(finding)
 
     def slice_for_modules(self, modules: set[str]) -> WorkingMemory:
         """Create a filtered copy containing only entries relevant to given modules."""
@@ -505,8 +536,17 @@ class WorkingMemory:
             total += sum(len(s) for s in lst)
         return total
 
+    def to_prompt(self, max_chars: int | None = None) -> str:
+        text = self.to_prompt_section()
+        if max_chars is not None and len(text) > max_chars:
+            return text[:max_chars]
+        return text
+
     def to_prompt_section(self) -> str:
         sections: list[str] = []
+        if self.facts:
+            sections.append("### 关键发现")
+            sections.extend(f"- {f}" for f in self.facts)
         if self.discovered_call_chains:
             sections.append("### 已发现的调用链和模块信息")
             sections.extend(f"- {c}" for c in self.discovered_call_chains)

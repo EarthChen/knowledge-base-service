@@ -45,6 +45,9 @@ class DocOrchestrator(ABC):
         write_system_prompt: str = "",
         enable_review_agent: bool = False,
         review_block_on_fail: bool = True,
+        enable_crag_gate: bool = False,
+        crag_coverage_threshold: float = 0.6,
+        crag_max_re_explore: int = 1,
     ) -> None:
         self._agent = agent
         self._name = name
@@ -54,6 +57,9 @@ class DocOrchestrator(ABC):
         self._enable_review_agent = enable_review_agent
         self._review_block_on_fail = review_block_on_fail
         self._review_agent: ReviewAgent | None = ReviewAgent() if enable_review_agent else None
+        self._enable_crag_gate = enable_crag_gate
+        self._crag_coverage_threshold = crag_coverage_threshold
+        self._crag_max_re_explore = crag_max_re_explore
 
     async def generate(
         self,
@@ -93,6 +99,16 @@ class DocOrchestrator(ABC):
                 has_prefill=bool(getattr(memory, "code_snippets", None)),
                 has_explore_data=has_explore_data,
             )
+
+        if self._enable_crag_gate and memory:
+            crag_result = self._check_crag_coverage(memory, module_names)
+            if not crag_result["pass"]:
+                log.warning(
+                    "crag_gate_failed",
+                    name=self._name,
+                    coverage=crag_result["coverage"],
+                    missing=crag_result["missing"],
+                )
 
         topic_plan = None
         if explore_complete:
@@ -252,6 +268,41 @@ class DocOrchestrator(ABC):
     def _build_focused_prompt(self, uncovered_modules: list[str]) -> str:
         modules_str = ", ".join(uncovered_modules)
         return f"Focus exploration on: {modules_str}"
+
+    def _check_crag_coverage(self, memory: Any, target_modules: list[str]) -> dict:
+        """Check if WorkingMemory covers target modules sufficiently."""
+        if not getattr(self, "_enable_crag_gate", False):
+            return {"pass": True, "coverage": 1.0, "missing": []}
+
+        if not target_modules:
+            return {"pass": True, "coverage": 1.0, "missing": []}
+
+        covered: set[str] = set()
+        memory_modules: set[str] = set()
+
+        if hasattr(memory, "relevant_modules"):
+            raw_modules = getattr(memory, "relevant_modules", []) or []
+            memory_modules = set(raw_modules)
+
+        for target in target_modules:
+            target_lower = target.lower()
+            for mem_mod in memory_modules:
+                mem_lower = mem_mod.lower()
+                if target_lower in mem_lower or mem_lower in target_lower:
+                    covered.add(target)
+                    break
+
+        coverage = len(covered) / len(target_modules) if target_modules else 1.0
+        missing = [t for t in target_modules if t not in covered]
+        threshold = getattr(self, "_crag_coverage_threshold", 0.6)
+
+        return {
+            "pass": coverage >= threshold,
+            "coverage": round(coverage, 2),
+            "missing": missing,
+            "covered_count": len(covered),
+            "total_count": len(target_modules),
+        }
 
     async def plan_topics(
         self, memory: Any, module_names: list[str],

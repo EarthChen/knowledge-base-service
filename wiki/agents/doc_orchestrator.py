@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.log import get_logger
-from wiki.agents.base_agent import LLMGenerationError
+from wiki.agents.base_agent import LLMGenerationError, RunConfig
 
 log = get_logger(__name__)
+
+_EXPLORE_LOOP_CONFIG = RunConfig(enable_context_trim=True)
 
 
 @dataclass
@@ -57,6 +59,7 @@ class DocOrchestrator(ABC):
             self._explore_system_prompt,
             self._build_explore_prompt(module_names, baseline_context),
             memory,
+            config=_EXPLORE_LOOP_CONFIG,
         )
         explore_timeout = self.get_phase_timeout("explore")
         explore_complete = True
@@ -129,6 +132,7 @@ class DocOrchestrator(ABC):
                 self._explore_system_prompt,
                 self._build_focused_prompt(quality.uncovered_modules),
                 supplemental,
+                config=_EXPLORE_LOOP_CONFIG,
             )
             memory.merge(supplemental)
 

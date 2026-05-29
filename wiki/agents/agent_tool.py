@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -18,11 +19,18 @@ def agent_tool(
     config: LoopConfig | None = None,
     tier: int = 2,
 ) -> ToolDef:
-    """Register another agent as a tool on the parent agent.
+    """Deprecated: use execute_delegation from wiki.agents.delegation instead.
+
+    Register another agent as a tool on the parent agent.
 
     The sub-agent runs its own tool loop as a bounded subtask and returns
     a structured result to the parent agent's context.
     """
+    warnings.warn(
+        "agent_tool from wiki.agents.agent_tool is deprecated. Use wiki.agents.delegation instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     async def _handler(args: dict[str, Any], ctx: Any = None) -> dict[str, Any]:
         sub_agent = agent_factory()

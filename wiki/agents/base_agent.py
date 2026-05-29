@@ -178,6 +178,25 @@ class GenericAgent(ABC):
 
         return Memory()
 
+    async def remember(self, question: str, answer: str, confidence: float = 0.7) -> dict:
+        """Store important findings to long-term memory."""
+        if not getattr(self, "_memory_backend", None):
+            return {"error": "memory_backend_not_configured", "stored": False}
+        if confidence < 0.5:
+            return {"error": "confidence_too_low", "stored": False}
+        count = getattr(self, "_remember_call_count", 0)
+        if count >= 5:
+            return {"error": "remember_rate_limit_exceeded", "limit": 5, "stored": False}
+        self._remember_call_count = count + 1
+        uid = await self._memory_backend.store(
+            question=question.strip(), answer=answer.strip(), confidence=confidence
+        )
+        return {"stored": True, "uid": uid, "confidence": confidence}
+
+    def restrict_tools(self, allowed: list[str]) -> None:
+        """Restrict available tools to the given allowlist (intersects with tier)."""
+        self._tool_allowlist = frozenset(allowed)
+
     async def run_tool_loop(
         self,
         system_prompt: str,

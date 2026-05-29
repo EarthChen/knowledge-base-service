@@ -7,10 +7,15 @@ from typing import Any
 
 from core.log import get_logger
 from wiki.agents.base_agent import LLMGenerationError, RunConfig
+from wiki.agents.review_agent import QualityVerdict, ReviewAgent
 
 log = get_logger(__name__)
 
-_EXPLORE_LOOP_CONFIG = RunConfig(enable_context_trim=True)
+_EXPLORE_LOOP_CONFIG = RunConfig(
+    enable_context_trim=True,
+    enable_compaction=True,
+    compaction_interval=10,
+)
 
 
 @dataclass
@@ -38,12 +43,17 @@ class DocOrchestrator(ABC):
         max_iterations: int = 3,
         explore_system_prompt: str = "",
         write_system_prompt: str = "",
+        enable_review_agent: bool = False,
+        review_block_on_fail: bool = True,
     ) -> None:
         self._agent = agent
         self._name = name
         self._max_iterations = max_iterations
         self._explore_system_prompt = explore_system_prompt
         self._write_system_prompt = write_system_prompt
+        self._enable_review_agent = enable_review_agent
+        self._review_block_on_fail = review_block_on_fail
+        self._review_agent: ReviewAgent | None = ReviewAgent() if enable_review_agent else None
 
     async def generate(
         self,
@@ -59,7 +69,7 @@ class DocOrchestrator(ABC):
             self._explore_system_prompt,
             self._build_explore_prompt(module_names, baseline_context),
             memory,
-            config=_EXPLORE_LOOP_CONFIG,
+            config=self._get_explore_config(),
         )
         explore_timeout = self.get_phase_timeout("explore")
         explore_complete = True
@@ -96,6 +106,7 @@ class DocOrchestrator(ABC):
                 return pages
 
         content = ""
+        review_quality_flags: list[str] = []
         for iteration in range(self._max_iterations):
             write_coro = self._agent.run_generation(
                 self._write_system_prompt,
@@ -119,6 +130,26 @@ class DocOrchestrator(ABC):
 
             content = await self._verify_code_blocks(content, memory)
 
+            if self._enable_review_agent:
+                review_metadata = {"expected_sections": len(module_names)}
+                verdict = await self._run_review(content, review_metadata)
+                if verdict and verdict.status == "fail" and self._review_block_on_fail:
+                    log.warning(
+                        "review_agent_fail",
+                        name=self._name,
+                        issues=len(verdict.issues),
+                        heal_instructions=verdict.heal_instructions,
+                    )
+                    if verdict.heal_instructions:
+                        content = await self._heal_content(content, verdict.heal_instructions)
+                        content = await self._verify_code_blocks(content, memory)
+                        verdict2 = await self._run_review(content, review_metadata)
+                        if verdict2 and verdict2.status in ("fail", "warn"):
+                            review_quality_flags.append("QUALITY_WARNING")
+                elif verdict and verdict.status == "warn":
+                    log.info("review_agent_warn", name=self._name, issues=len(verdict.issues))
+                    review_quality_flags.append("QUALITY_WARNING")
+
             quality = await self.evaluate(content, module_names)
 
             await self.run_guardrails(content, iteration, {"module_names": module_names})
@@ -132,11 +163,37 @@ class DocOrchestrator(ABC):
                 self._explore_system_prompt,
                 self._build_focused_prompt(quality.uncovered_modules),
                 supplemental,
-                config=_EXPLORE_LOOP_CONFIG,
+                config=self._get_explore_config(),
             )
             memory.merge(supplemental)
 
-        return self.post_process(content, module_names, memory)
+        pages = self.post_process(content, module_names, memory)
+        if review_quality_flags:
+            for page in pages:
+                page.setdefault("quality_flags", []).extend(review_quality_flags)
+        return pages
+
+    async def _run_review(self, content: str, metadata: dict) -> QualityVerdict | None:
+        """Run ReviewAgent checks on generated content."""
+        if not self._enable_review_agent or not self._review_agent:
+            return None
+        return await self._review_agent.review(content, metadata)
+
+    async def _heal_content(self, content: str, heal_instructions: str) -> str:
+        """Re-generate content applying review heal instructions."""
+        heal_prompt = (
+            f"Revise the following documentation to address these quality issues:\n\n"
+            f"{heal_instructions}\n\n"
+            f"--- Original content ---\n{content}"
+        )
+        try:
+            return await self._agent.run_generation(
+                self._write_system_prompt,
+                heal_prompt,
+            )
+        except (LLMGenerationError, TimeoutError):
+            log.warning("review_heal_failed", name=self._name, exc_info=True)
+            return content
 
     async def _verify_code_blocks(self, content: str, memory: Any) -> str:
         """Verify and inject real code blocks. All subclasses benefit automatically."""
@@ -214,6 +271,10 @@ class DocOrchestrator(ABC):
     def get_phase_timeout(self, phase: str) -> float | None:
         """Optional: per-phase timeout in seconds. Default: no timeout."""
         return None
+
+    def _get_explore_config(self) -> RunConfig:
+        """Explore-phase RunConfig. Subclasses may override for domain-specific tuning."""
+        return _EXPLORE_LOOP_CONFIG
 
     async def run_guardrails(
         self, content: str, iteration: int, context: dict[str, Any],

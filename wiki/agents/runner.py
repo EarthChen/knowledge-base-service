@@ -246,7 +246,7 @@ async def run_agent_loop(
             )
             if allowlist := getattr(agent, "_tool_allowlist", None):
                 if isinstance(allowlist, (frozenset, set, list, tuple)):
-                    round_tools = [t for t in round_tools if t.name in allowlist]
+                    round_tools = [t for t in round_tools if t.get("function", {}).get("name") in allowlist]
             if not round_tools:
                 result.exit_reason = "no_tools"
                 break

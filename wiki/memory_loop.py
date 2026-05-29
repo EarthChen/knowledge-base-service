@@ -7,7 +7,10 @@ import time
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from core.log import get_logger
 from store.wiki_store import WikiStore
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -140,22 +143,34 @@ class MemoryLoop:
                 )
             )
         if not self._memory_tiers_enabled:
-            return out
-        active: list[MemoryEntry] = []
-        for m in out:
-            if m.memory_status == "expired":
-                continue
-            active.append(m)
-        faded: list[MemoryEntry] = []
-        sharp: list[MemoryEntry] = []
-        for m in active:
-            (faded if m.memory_status == "faded" else sharp).append(m)
-        def sort_key(m: MemoryEntry) -> float:
-            return _tier_rank_score(m.similarity, m.tier)
-        sharp.sort(key=sort_key, reverse=True)
-        faded.sort(key=sort_key, reverse=True)
-        ranked = sharp + faded
-        return ranked[:limit]
+            entries = out
+        else:
+            active: list[MemoryEntry] = []
+            for m in out:
+                if m.memory_status == "expired":
+                    continue
+                active.append(m)
+            faded: list[MemoryEntry] = []
+            sharp: list[MemoryEntry] = []
+            for m in active:
+                (faded if m.memory_status == "faded" else sharp).append(m)
+
+            def sort_key(m: MemoryEntry) -> float:
+                return _tier_rank_score(m.similarity, m.tier)
+
+            sharp.sort(key=sort_key, reverse=True)
+            faded.sort(key=sort_key, reverse=True)
+            ranked = sharp + faded
+            entries = ranked[:limit]
+
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        for entry in entries:
+            if hasattr(entry, "uid") and entry.uid:
+                try:
+                    await self._store.increment_wiki_qa_access(uid=entry.uid, at_iso=ts)
+                except Exception:
+                    log.warning("memory_access_tracking_failed", uid=entry.uid)
+        return entries
 
     async def inject_into_generation(self, entity_name: str, repository: str) -> str:
         """Retrieve relevant Q&A memories and format for wiki generation context."""

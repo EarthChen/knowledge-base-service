@@ -75,7 +75,7 @@ async def execute_handoff(
     child_deps = dataclasses.replace(
         deps,
         delegation_depth=deps.delegation_depth + 1,
-        delegation_count=0,
+        delegation_count=deps.delegation_count + 1,  # D-06: increment, not reset
     )
 
     try:

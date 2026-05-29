@@ -30,7 +30,7 @@ def test_extract_chunk_title_fallback_part_n() -> None:
         {"name": "x", "display_name": "My Domain"},
         {"name": "y", "display_name": "My Domain"},
     ]
-    assert _extract_chunk_title(modules, "My Domain", 2) == "My Domain - Part 3"
+    assert _extract_chunk_title(modules, "My Domain", 2) == "My Domain - Section 3"
 
 
 def test_rewrite_part_n_title_with_h2() -> None:

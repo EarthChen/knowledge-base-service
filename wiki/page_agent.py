@@ -775,6 +775,9 @@ class WikiPageAgent(GenericAgent):
             enable_context_trim=True,
             context_trim_max_chars=60000,
             context_trim_keep_recent=3,
+            enable_compaction=True,
+            compaction_model=None,
+            compaction_interval=8,
             enable_post_call_guardrail=True,
             result_truncate_chars=0,
             input_guardrails=[PromptLengthGuardrail(max_chars=150_000)],
@@ -1174,7 +1177,7 @@ class WikiPageAgent(GenericAgent):
     async def delegate_submodule(
         self, entity_names: list[str], focus: str = ""
     ) -> dict[str, Any]:
-        from wiki.agents.handoff import HandoffConfig, execute_handoff
+        from wiki.agents.delegation import DelegationConfig, DelegationMode, execute_delegation
 
         entity_names = entity_names or []
         focus = focus or ""
@@ -1194,19 +1197,32 @@ class WikiPageAgent(GenericAgent):
             agent._existing_pages = self._existing_pages
             return agent
 
-        config = HandoffConfig(
-            target_factory=_factory,
-            tool_name="delegate_submodule",
-            description="Delegate submodule documentation to child agent",
+        domain = focus or ", ".join(entity_names[:3])
+
+        config = DelegationConfig(
+            mode=DelegationMode.SEEDED,
             max_depth=self._MAX_DELEGATION_DEPTH,
             max_count=self._MAX_DELEGATIONS_PER_AGENT,
+            max_rounds=3,
+            seed_memory_fields=["facts", "relevant_modules", "discovered_call_chains"],
         )
 
-        result = await execute_handoff(
-            config, self._deps, entity_names=entity_names, focus=focus
+        result = await execute_delegation(
+            config,
+            factory=_factory,
+            deps=self._deps,
+            task_input={
+                "module_names": entity_names,
+                "domain_name": domain,
+                "max_rounds": 3,
+            },
+            parent_memory=getattr(self, "_current_memory", None),
         )
 
         self._delegation_count = self._deps.delegation_count + 1
+
+        if result.child_memory and hasattr(self, "_current_memory") and self._current_memory:
+            self._current_memory.merge(result.child_memory)
 
         if "error" in result.metadata:
             return {"error": result.metadata["error"]}

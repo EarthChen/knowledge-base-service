@@ -52,6 +52,13 @@ class RunConfig:
     enable_context_trim: bool = False
     context_trim_max_chars: int = 60000
     context_trim_keep_recent: int = 3
+    enable_compaction: bool = False
+    compaction_model: str | None = None
+    compaction_interval: int = 10
+    compaction_keep_recent: int = 3
+    compaction_trigger_ratio: float = 0.75
+    micro_compact_tool_threshold: int = 20_000
+    micro_compact_keep_recent_tools: int = 3
     enable_post_call_guardrail: bool = False
     result_truncate_chars: int = 6000
     event_callback: EventCallback = None
@@ -244,6 +251,13 @@ class GenericAgent(ABC):
             enable_context_trim=config.enable_context_trim,
             context_trim_max_chars=config.context_trim_max_chars,
             context_trim_keep_recent=config.context_trim_keep_recent,
+            enable_compaction=config.enable_compaction,
+            compaction_model=config.compaction_model,
+            compaction_interval=config.compaction_interval,
+            compaction_keep_recent=config.compaction_keep_recent,
+            compaction_trigger_ratio=config.compaction_trigger_ratio,
+            micro_compact_tool_threshold=config.micro_compact_tool_threshold,
+            micro_compact_keep_recent_tools=config.micro_compact_keep_recent_tools,
             enable_post_call_guardrail=config.enable_post_call_guardrail,
             result_truncate_chars=config.result_truncate_chars,
             input_guardrails=config.input_guardrails,

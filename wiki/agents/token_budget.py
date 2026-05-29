@@ -33,7 +33,7 @@ class TokenBudgetManager:
         self._cpt = chars_per_token
 
     def snapshot(self, messages: list[dict]) -> BudgetSnapshot:
-        total_chars = sum(len(m.get("content", "")) for m in messages)
+        total_chars = sum(len(m.get("content") or "") for m in messages)
         estimated_tokens = int(total_chars / self._cpt) if self._cpt > 0 else 0
         usage_ratio = estimated_tokens / self._limit if self._limit > 0 else 0.0
         clearable = self.count_clearable_tool_chars(messages, keep_recent_n=3)
@@ -57,4 +57,4 @@ class TokenBudgetManager:
         if len(tool_indices) <= keep_recent_n:
             return 0
         clearable_indices = tool_indices[:-keep_recent_n]
-        return sum(len(messages[i].get("content", "")) for i in clearable_indices)
+        return sum(len(messages[i].get("content") or "") for i in clearable_indices)

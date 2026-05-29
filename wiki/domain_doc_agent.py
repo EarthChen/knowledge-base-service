@@ -18,6 +18,7 @@ from typing import Any
 
 from core.config import ContentLanguage, get_settings
 from core.log import get_logger
+from wiki.agents.base_agent import RunConfig
 from wiki.agents.doc_orchestrator import DocOrchestrator, QualityResult
 from wiki.output_guardrail import (
     CoverageCheck,
@@ -32,6 +33,14 @@ from wiki.quality_report import evaluate_quality
 from wiki.quality_trace import AgentTrace, TraceCollector
 
 log = get_logger(__name__)
+
+_DOMAIN_EXPLORE_LOOP_CONFIG = RunConfig(
+    enable_context_trim=True,
+    enable_compaction=True,
+    compaction_interval=8,
+    compaction_keep_recent=4,
+    micro_compact_tool_threshold=15_000,
+)
 
 
 @dataclass
@@ -578,6 +587,9 @@ class DomainDocAgent(DocOrchestrator):
                 SensitiveContentCheck(),
             ]
         )
+
+    def _get_explore_config(self) -> RunConfig:
+        return _DOMAIN_EXPLORE_LOOP_CONFIG
 
     def _build_write_prompt(self, baseline_context: str, memory: Any) -> str:
         base = super()._build_write_prompt(baseline_context, memory)

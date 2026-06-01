@@ -51,9 +51,9 @@ def _quality_gate_state(page: dict) -> dict:
 
 @pytest.mark.asyncio
 async def test_quality_gate_detects_hallucination():
-    """Page with fabricated percentages should enter heal pipeline."""
+    """Page with fabricated SLA should enter heal pipeline via hard reject."""
     body = (
-        "该模块负责用户认证。缓存命中率达到 99.7%，显著提升了查询性能。"
+        "该模块负责用户认证。系统响应时间 SLA < 200ms，P99 < 500ms，可用性 99.999%。"
         * 20
     )
     page = _topic_page(
@@ -86,7 +86,7 @@ async def test_quality_gate_detects_hallucination():
 
     assert page["path"] in result.get("pages_to_heal", [])
     hint = result.get("heal_hints", {}).get(page["path"], "")
-    assert "hallucination" in hint
+    assert "SLA" in hint or "hallucination" in hint.lower()
 
 
 @pytest.mark.asyncio

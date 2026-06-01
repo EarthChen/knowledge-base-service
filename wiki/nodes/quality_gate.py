@@ -31,6 +31,14 @@ from wiki.quality_evaluator import WikiQualityEvaluator
 
 log = get_logger(__name__)
 
+HARD_REJECT_HALLUCINATION_FLAGS = frozenset(
+    {
+        "fabricated_latency_sla",
+        "fabricated_sla",
+        "fabricated_availability",
+    }
+)
+
 _PART_N_RE = re.compile(r"- Part \d+$")
 _SCORE_KEYS = frozenset({"l1_structural", "l2_bench", "l3_llm_judge"})
 
@@ -57,9 +65,7 @@ async def _evaluate_l3(
 
 def _compute_overall(score_dict: dict[str, Any]) -> float:
     numeric_scores = [
-        v
-        for k, v in score_dict.items()
-        if k in _SCORE_KEYS and isinstance(v, (int, float)) and v is not None
+        v for k, v in score_dict.items() if k in _SCORE_KEYS and isinstance(v, (int, float)) and v is not None
     ]
     return round(sum(numeric_scores) / len(numeric_scores), 4) if numeric_scores else 0.0
 
@@ -182,9 +188,7 @@ def _check_min_content_length(
     }
 
 
-async def quality_gate_node(
-    state: WikiPipelineState, config: RunnableConfig | None = None
-) -> dict[str, Any]:
+async def quality_gate_node(state: WikiPipelineState, config: RunnableConfig | None = None) -> dict[str, Any]:
     """Evaluate page quality with configurable L1/L2/L3 layers.
 
     Configuration (priority high→low):
@@ -201,11 +205,7 @@ async def quality_gate_node(
       to decide whether a page may enter another heal cycle.
     """
     cfg = state.get("config") or {}
-    levels = (
-        cfg.get("quality_levels")
-        or (config or {}).get("configurable", {}).get("quality_levels")
-        or ["L1", "L2"]
-    )
+    levels = cfg.get("quality_levels") or (config or {}).get("configurable", {}).get("quality_levels") or ["L1", "L2"]
     llm = (config or {}).get("configurable", {}).get("llm")
 
     wiki_cfg = get_settings().wiki
@@ -344,23 +344,19 @@ async def quality_gate_node(
 
         page_title = page_dict.get("title", "")
         if _PART_N_RE.search(page_title):
-            content_issues.append(
-                "part_n_title: Title uses mechanical 'Part N' naming, should use semantic title"
-            )
+            content_issues.append("part_n_title: Title uses mechanical 'Part N' naming, should use semantic title")
 
         if is_compound_module_title(page_title):
             log.warning("quality_gate_compound_module_title", title=page_title)
             content_issues.append(
-                "compound_module_title: title uses repo/path|ClassName compound key, "
-                "should use semantic title"
+                "compound_module_title: title uses repo/path|ClassName compound key, should use semantic title"
             )
             page_dict.setdefault("metadata", {})["heal_reason"] = "compound_module_title"
             score_dict["compound_module_title"] = True
             l1_val = score_dict.get("l1_structural", 1.0)
             score_dict["l1_structural"] = round(min(l1_val, 0.4), 4)
             heal_hints[page.path] = (
-                "Compound module title detected; regenerate page with semantic title "
-                f"(current: {page_title})"
+                f"Compound module title detected; regenerate page with semantic title (current: {page_title})"
             )
 
         min_chars = 500 if page_type == "topic" else 1000
@@ -370,9 +366,30 @@ async def quality_gate_node(
             )
 
         hallucination_flags = detect_hallucination_flags(page_content)
-        if hallucination_flags:
-            log.warning("quality_gate_hallucination", title=page_dict.get("title"), flags=hallucination_flags)
-            content_issues.append(f"hallucination: {hallucination_flags}")
+        hard_hallucination_flags = [f for f in hallucination_flags if f in HARD_REJECT_HALLUCINATION_FLAGS]
+        soft_hallucination_flags = [f for f in hallucination_flags if f not in HARD_REJECT_HALLUCINATION_FLAGS]
+        if soft_hallucination_flags:
+            log.warning(
+                "quality_gate_hallucination",
+                title=page_dict.get("title"),
+                flags=soft_hallucination_flags,
+            )
+        if hard_hallucination_flags:
+            log.warning(
+                "quality_gate_hallucination_hard",
+                title=page_dict.get("title"),
+                flags=hard_hallucination_flags,
+            )
+            content_issues.append(f"hallucination_hard: {hard_hallucination_flags}")
+            heal_hints[page.path] = "; ".join(
+                filter(
+                    None,
+                    [
+                        heal_hints.get(page.path, ""),
+                        "Remove fabricated SLA/performance metrics",
+                    ],
+                )
+            )
 
         bp_count = count_boilerplate_hits(page_content)
         if bp_count >= 2:
@@ -382,6 +399,23 @@ async def quality_gate_node(
         if has_meta_sections(page_content):
             log.warning("quality_gate_meta_section", title=page_dict.get("title"))
             content_issues.append("meta_section_leak")
+
+        if page_type == "module_overview":
+            if "_No nested graph children_" in page_content and len(page_content) > 2000:
+                content_issues.append("sparse_module_over_inflated")
+
+            effective_lang = content_language or _detect_lang_from_content(page_content)
+            if _is_chinese_lang(effective_lang):
+                module_cn_ratio = _check_cn_ratio(page_dict)
+                score_dict["cn_ratio"] = round(module_cn_ratio, 3)
+                if module_cn_ratio < 0.35:
+                    log.warning(
+                        "quality_gate_module_overview_low_cn_ratio",
+                        title=page_dict.get("title"),
+                        cn_ratio=round(module_cn_ratio, 3),
+                        threshold=0.35,
+                    )
+                    content_issues.append(f"module_overview_low_cn: cn={module_cn_ratio:.3f} < 0.35")
 
         if page_type == "domain_overview":
             effective_lang = content_language or _detect_lang_from_content(page_content)
@@ -423,9 +457,7 @@ async def quality_gate_node(
 
         if page_type == "topic" and not is_topic_index and not has_topic_overview_section(page_content):
             log.warning("quality_gate_missing_overview", title=page_dict.get("title"))
-            content_issues.append(
-                "missing_overview: topic lacks ## 概述 section; add overview before other sections"
-            )
+            content_issues.append("missing_overview: topic lacks ## 概述 section; add overview before other sections")
 
         h2_issue = _check_h2_structure(page_content, page_type or "topic")
         if h2_issue:
@@ -447,9 +479,7 @@ async def quality_gate_node(
 
         page_quality_flags = page_dict.get("quality_flags") or []
         if "FORCED_ACCEPT" in page_quality_flags:
-            content_issues.append(
-                "agent_forced_accept: documentation accepted at minimum agent quality threshold"
-            )
+            content_issues.append("agent_forced_accept: documentation accepted at minimum agent quality threshold")
 
         if content_issues:
             existing = heal_hints.get(page.path, "")
@@ -466,15 +496,9 @@ async def quality_gate_node(
 
         structural_score = score_dict["l1_structural"]
         l2_val = score_dict.get("l2_bench", 1.0)
-        l2_below = (
-            (l2_val < wiki_cfg.heal_l2_threshold)
-            if wiki_cfg.heal_l2_threshold > 0 and "L2" in levels
-            else False
-        )
+        l2_below = (l2_val < wiki_cfg.heal_l2_threshold) if wiki_cfg.heal_l2_threshold > 0 and "L2" in levels else False
         below_min_len = score_dict.get("below_min_length", False)
-        has_content_issues = any(
-            i for i in content_issues if not i.startswith("agent_forced_accept:")
-        )
+        has_content_issues = any(i for i in content_issues if not i.startswith("agent_forced_accept:"))
         forced_low_quality = "FORCED_LOW_QUALITY" in page_quality_flags
         if forced_low_quality and cycles < max_retries and page.path not in pages_to_heal:
             pages_to_heal.append(page.path)
@@ -542,9 +566,7 @@ async def quality_gate_node(
         else:
             pages_to_heal.sort(key=lambda p: quality_scores.get(p, {}).get("l1_structural", 0.0))
 
-    page_by_path = {
-        str(p.get("path")): p for p in state.get("pages", []) if p.get("path")
-    }
+    page_by_path = {str(p.get("path")): p for p in state.get("pages", []) if p.get("path")}
     for page_path in pages_to_heal:
         if heal_hints.get(page_path):
             continue
@@ -563,25 +585,15 @@ async def quality_gate_node(
             hint = evaluator.build_heal_prompt_hint_v2(bench)
             l3_dims = quality_scores.get(page_path, {}).get("l3_dimensions")
             if isinstance(l3_dims, dict) and l3_dims:
-                low_dims = [
-                    dim
-                    for dim, val in l3_dims.items()
-                    if isinstance(val, (int, float)) and val < 3.0
-                ]
+                low_dims = [dim for dim, val in l3_dims.items() if isinstance(val, (int, float)) and val < 3.0]
                 if low_dims:
-                    hint += "\n\n## L3 judge improvement hints\n" + "\n".join(
-                        f"- Improve {dim}." for dim in low_dims
-                    )
+                    hint += "\n\n## L3 judge improvement hints\n" + "\n".join(f"- Improve {dim}." for dim in low_dims)
             heal_hints[page_path] = hint
         except Exception:
             log.warning("quality_gate_heal_hint_failed", page=page_path, exc_info=True)
 
-    total_gaps = sum(
-        v.get("context_gap_count", 0) for v in quality_scores.values()
-    )
-    pages_with_gaps = sum(
-        1 for v in quality_scores.values() if v.get("context_gap_count", 0) > 0
-    )
+    total_gaps = sum(v.get("context_gap_count", 0) for v in quality_scores.values())
+    pages_with_gaps = sum(1 for v in quality_scores.values() if v.get("context_gap_count", 0) > 0)
 
     log.info(
         "quality_gate_done",

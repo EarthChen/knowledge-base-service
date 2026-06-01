@@ -14,6 +14,8 @@ MAX_CODE_LINES = 80
 
 _INJECT_SENTINEL = "<!-- __INJECTED_CODE_REF__ -->\n"
 
+_UNVERIFIED_PLACEHOLDER = "> ⚠️ 源码引用未验证，已省略。请通过 read_code 工具获取真实代码。\n"
+
 _CODE_REF_RE = re.compile(
     r"<!--\s*CODE_REF:\s*([^\s@>]+)\s*(?:@\s*([^>]+?))?\s*-->",
     re.IGNORECASE,
@@ -64,6 +66,7 @@ class VerificationStats:
     replaced: int = 0
     verified: int = 0
     unverified: int = 0
+    stripped: int = 0
 
 
 def parse_code_ref(marker: str) -> tuple[str | None, str | None]:
@@ -279,6 +282,7 @@ async def verify_and_inject(
     content: str,
     code_snippets: list[str],
     graph_store: Any | None = None,
+    strip_unverified: bool = True,
 ) -> tuple[str, VerificationStats]:
     stats = VerificationStats()
     if not content:
@@ -328,11 +332,14 @@ async def verify_and_inject(
             replacements.append((block.start, block.end, new_block))
             stats.replaced += 1
         else:
-            unverified_positions.append(block.start)
             stats.unverified += 1
+            if strip_unverified:
+                replacements.append((block.start, block.end, _UNVERIFIED_PLACEHOLDER))
+                stats.stripped += 1
+            else:
+                unverified_positions.append(block.start)
 
-    for start, end, new_block in sorted(replacements, key=lambda t: t[0], reverse=True):
-        content = content[:start] + new_block + content[end:]
+    content = _apply_replacements(content, replacements)
 
     warn = "<!-- UNVERIFIED_CODE -->\n"
     for pos in sorted(unverified_positions, reverse=True):

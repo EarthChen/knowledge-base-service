@@ -268,6 +268,7 @@ class WikiConfig:
     language: str = "en"
     comment_injection_tier: int = 2
     comment_max_chars: int = 500
+    sparse_module_graph_threshold: int = 5
 
     def __post_init__(self) -> None:
         if self.mode not in ("full", "structure"):

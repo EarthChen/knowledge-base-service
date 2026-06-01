@@ -233,6 +233,92 @@ def _apply_merge_map(
 
 _HASH_SUFFIX_RE = re.compile(r"^(.+)-([0-9a-f]{4})$")
 _NUMERIC_SUFFIX_RE = re.compile(r"^(.+)-(\d{1,2})$")
+_STEM_MERGE_SUFFIXES = frozenset(
+    {"service", "system", "core", "handler", "impl", "wrapper", "client"},
+)
+_DISAMBIGUATION_SUFFIX_RE = re.compile(r"^\d+$")
+
+
+def _is_semantic_stem_pair(base: str, longer: str) -> bool:
+    """True when *longer* is ``{base}-{suffix}`` with a known semantic suffix."""
+    if not longer.startswith(f"{base}-"):
+        return False
+    suffix = longer[len(base) + 1 :]
+    if _DISAMBIGUATION_SUFFIX_RE.match(suffix):
+        return False
+    return suffix in _STEM_MERGE_SUFFIXES
+
+
+def _merge_global_stem_suffix_domains(
+    domain_mapping: dict[str, list],
+    domain_display_names: dict[str, str],
+) -> tuple[dict[str, list], dict[str, str]]:
+    """Merge ``{base}`` / ``{base}-{suffix}`` pairs across all current domains."""
+    if len(domain_mapping) <= 1:
+        return domain_mapping, domain_display_names
+
+    slugs = sorted(domain_mapping.keys(), key=len)
+    merge_map: dict[str, str] = {}
+    for i, shorter in enumerate(slugs):
+        for longer in slugs[i + 1 :]:
+            if longer in merge_map:
+                continue
+            if _is_semantic_stem_pair(shorter, longer):
+                merge_map[longer] = shorter
+
+    if not merge_map:
+        return domain_mapping, domain_display_names
+
+    preferred_display = dict(domain_display_names)
+    for absorbed, target in merge_map.items():
+        target_count = len(domain_mapping.get(target, []))
+        absorbed_count = len(domain_mapping.get(absorbed, []))
+        if absorbed_count > target_count:
+            preferred_display[target] = domain_display_names.get(
+                absorbed, domain_display_names.get(target, target),
+            )
+
+    merged_mapping, merged_display = _apply_merge_map(merge_map, domain_mapping, preferred_display)
+    log.info(
+        "global_stem_suffix_merge",
+        merged_count=len(merge_map),
+        merge_map=merge_map,
+    )
+    return merged_mapping, merged_display
+
+
+def _cleanup_existing_slug_stems(
+    domain_mapping: dict[str, list],
+    existing_slugs: list[str],
+) -> dict[str, list]:
+    """Merge new slugs into existing slugs when they share a semantic stem."""
+    if not existing_slugs or not domain_mapping:
+        return domain_mapping
+
+    existing_set = set(existing_slugs)
+    merge_map: dict[str, str] = {}
+    for slug in domain_mapping:
+        if slug in existing_set:
+            continue
+        for existing in existing_slugs:
+            if _is_semantic_stem_pair(existing, slug) or _is_semantic_stem_pair(slug, existing):
+                merge_map[slug] = existing
+                break
+
+    if not merge_map:
+        return domain_mapping
+
+    new_mapping: dict[str, list] = {}
+    for slug, modules in domain_mapping.items():
+        target = merge_map.get(slug, slug)
+        new_mapping.setdefault(target, []).extend(modules)
+
+    log.info(
+        "existing_slug_stem_cleanup",
+        merged_count=len(merge_map),
+        merge_map=merge_map,
+    )
+    return new_mapping
 
 
 def _cleanup_collision_slugs(
@@ -2106,6 +2192,15 @@ async def graph_driven_domain_decompose_node(
         domain_mapping, domain_display_names = _cleanup_collision_slugs(
             domain_mapping, domain_display_names,
         )
+
+        # --- Step 6.52: Global stem-suffix merge (cross-batch / cross-level) ---
+        domain_mapping, domain_display_names = _merge_global_stem_suffix_domains(
+            domain_mapping, domain_display_names,
+        )
+        if is_incremental and existing_domain_mapping:
+            domain_mapping = _cleanup_existing_slug_stems(
+                domain_mapping, list(existing_domain_mapping.keys()),
+            )
 
         # --- Step 6.54: Per-module infrastructure reassignment ---
         wiki_cfg = get_settings().wiki

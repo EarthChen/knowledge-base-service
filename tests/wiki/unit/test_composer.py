@@ -335,11 +335,13 @@ class TestComposerCoverageGaps:
             uid="mod:api",
             properties={"name": "api", "path": "projects/api"},
         )
-        child = _class_node("class:C.java:C:1", "C", "f.java", 1, 2, "p.C")
+        children = [
+            _class_node(f"class:C{i}.java:C{i}:1", f"C{i}", f"f{i}.java", 1, 2, f"p.C{i}") for i in range(5)
+        ]
         pd = PageData(
             node=mod,
             edges=[_edge(EdgeType.IMPORTS, mod.uid, "mod:dep")],
-            children=[child],
+            children=children,
             source_location=_loc("api/__init__.py", 1, 1, "api"),
             method_locations=[],
             business_summary=None,
@@ -352,7 +354,7 @@ class TestComposerCoverageGaps:
         await composer.compose_page(pd, PageType.MODULE_OVERVIEW, cfg)
         prompt = llm.generate.call_args[0][0]
         assert "- Path: projects/api" in prompt
-        assert "Child classes/modules: 1" in prompt
+        assert "Child classes/modules: 5" in prompt
 
     async def test_tier2_entity_digest_class_includes_fqn_and_methods_count(self) -> None:
         cls = GraphNode(

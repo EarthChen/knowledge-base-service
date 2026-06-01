@@ -198,9 +198,54 @@ class TestVerifyAndInject:
     async def test_phase2_marks_unverified(self) -> None:
         snippet = "[Real @ r.py]\nclass Real: pass"
         content = "```python\nclass Fake999:\n    pass\n```"
-        new_c, stats = await verify_and_inject(content, [snippet], graph_store=None)
+        new_c, stats = await verify_and_inject(
+            content, [snippet], graph_store=None, strip_unverified=False
+        )
         assert "<!-- UNVERIFIED_CODE -->" in new_c
         assert stats.unverified >= 1
+
+    async def test_unverified_blocks_stripped_by_default(self) -> None:
+        snippet = "[Real @ r.py]\nclass Real: pass"
+        content = "```python\nclass Fake999:\n    pass\n```"
+        new_c, stats = await verify_and_inject(content, [snippet], graph_store=None)
+        assert "```python" not in new_c
+        assert "class Fake999" not in new_c
+        assert "源码引用未验证，已省略" in new_c
+        assert "read_code" in new_c
+        assert stats.unverified >= 1
+        assert stats.stripped >= 1
+
+    async def test_unverified_blocks_preserved_when_strip_disabled(self) -> None:
+        snippet = "[Real @ r.py]\nclass Real: pass"
+        content = "```python\nclass Fake999:\n    pass\n```"
+        new_c, stats = await verify_and_inject(
+            content, [snippet], graph_store=None, strip_unverified=False
+        )
+        assert "```python" in new_c
+        assert "class Fake999" in new_c
+        assert "<!-- UNVERIFIED_CODE -->" in new_c
+        assert stats.stripped == 0
+
+    async def test_verified_blocks_not_affected(self) -> None:
+        body = "def ok_fn():\n    return 1\n"
+        snippet = f"[ok_fn @ ok.py]\n{body}"
+        content = f"```python\n{body}\n```"
+        new_c, stats = await verify_and_inject(content, [snippet], graph_store=None)
+        assert "```python" in new_c
+        assert "def ok_fn()" in new_c
+        assert "源码引用未验证" not in new_c
+        assert stats.verified >= 1
+        assert stats.stripped == 0
+
+    async def test_stats_track_stripped_count(self) -> None:
+        snippet = "[Real @ r.py]\nclass Real: pass"
+        content = (
+            "```python\nclass Fake1:\n    pass\n```\n\n"
+            "```python\nclass Fake2:\n    pass\n```"
+        )
+        _, stats = await verify_and_inject(content, [snippet], graph_store=None)
+        assert stats.unverified == 2
+        assert stats.stripped == 2
 
     async def test_multiple_refs(self) -> None:
         s1 = "[A @ a.py]\ncode_a = 1\n"

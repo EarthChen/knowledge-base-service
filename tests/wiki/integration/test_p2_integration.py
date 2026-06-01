@@ -78,9 +78,13 @@ def _function(uid: str, name: str, file_path: str, module_uid: str, fqn: str) ->
 
 def _page_data(repo: str, node: GraphNode) -> PageData:
     fp = str(node.properties.get("file") or node.properties.get("path") or "")
+    mock_edges = [
+        GraphEdge(edge_type=EdgeType.CALLS, source_uid=node.uid, target_uid=f"dep_{i}")
+        for i in range(5)
+    ]
     return PageData(
         node=node,
-        edges=[],
+        edges=mock_edges,
         children=[],
         source_location=SourceLocation(
             file_path=fp or "x.py",
@@ -244,8 +248,12 @@ async def test_provider_factory_with_wiki_service() -> None:
     factory = LLMProviderFactory(ProviderConfig(default_provider="gateway"), gateway_provider=gw)
 
     m_a = _module("mod_a", "pkg/a")
+    mock_edges = [
+        GraphEdge(edge_type=EdgeType.CALLS, source_uid="mod_a", target_uid=f"dep_{i}")
+        for i in range(5)
+    ]
     graph = AsyncMock()
-    graph.find_edges = AsyncMock(return_value=[])
+    graph.find_edges = AsyncMock(return_value=mock_edges)
     graph.find_node_by_uid = AsyncMock(return_value=None)
     graph.find_node_by_path = AsyncMock(return_value=m_a)
     graph.find_node_by_fqn = AsyncMock(return_value=None)

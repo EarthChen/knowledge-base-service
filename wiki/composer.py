@@ -306,17 +306,34 @@ class WikiComposer:
             description = self._tier3_structural(page_data, page_type, eff_lang)
             log.debug("compose_page_tier_decision", entity=title, tier=3, reason="structure_mode")
         elif self._llm is not None:
-            tier = 2
-            description = await self._tier2_llm(
-                page_data,
-                page_type,
-                parent_context,
-                glossary,
-                config,
-                related_docs_block=related_docs_block,
-                memory_block=memory_block,
-            )
-            if self._wiki_store is not None and not _has_summary:
+            graph_score = len(page_data.children) + len(page_data.edges) + len(page_data.methods)
+            sparse_threshold = config.sparse_module_graph_threshold
+            if page_type == PageType.MODULE_OVERVIEW and graph_score == 0:
+                tier = 3
+                description = self._tier3_structural(page_data, page_type, eff_lang)
+                log.info("compose_page_sparse_module", entity=title, graph_score=0, forced_tier=3)
+            elif page_type == PageType.MODULE_OVERVIEW and graph_score < sparse_threshold:
+                tier = 1
+                summary = (page_data.business_summary or "").strip()
+                description = summary[:800]
+                log.info(
+                    "compose_page_sparse_module",
+                    entity=title,
+                    graph_score=graph_score,
+                    forced_tier=1,
+                )
+            else:
+                tier = 2
+                description = await self._tier2_llm(
+                    page_data,
+                    page_type,
+                    parent_context,
+                    glossary,
+                    config,
+                    related_docs_block=related_docs_block,
+                    memory_block=memory_block,
+                )
+            if tier == 2 and self._wiki_store is not None and not _has_summary:
                 short_summary = description[:100].split("\n")[0].strip()
                 if short_summary and page_data.node.uid:
                     try:
@@ -1107,7 +1124,20 @@ class WikiComposer:
         return " ".join(parts)
 
     def _markdown_body(self, title: str, page_data: PageData, page_type: PageType, overview: str) -> str:
-        lines: list[str] = [
+        if page_type == PageType.MODULE_OVERVIEW and not page_data.children:
+            lines: list[str] = [
+                f"# {title}",
+                "",
+                "## 概述",
+                "",
+                overview,
+            ]
+            if page_data.edges:
+                lines.extend(["", "## 已知关系", ""])
+                lines.append(self._relationships_section(page_data))
+            return "\n".join(lines)
+
+        lines = [
             f"# {title}",
             "",
             "## Overview",

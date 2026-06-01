@@ -10,11 +10,13 @@ from langchain_core.runnables import RunnableConfig
 
 from core.config import get_settings
 from core.log import get_logger
+from wiki.agents.domain_review_agent import DomainReviewAgent
+from wiki.cluster_validation import validate_cluster_topology
+from wiki.domain_doc_agent import compute_module_pagerank
 from wiki.domain_semantic_clusterer import DomainSemanticClusterer
 from wiki.entity_role_classifier import DOMAIN_CLASSIFICATION_ENTITY_ROLES, WikiEntityRole
 from wiki.graph_call_query import fetch_module_call_edges
-from wiki.graph_domain_namer import GraphDomainNamer
-from wiki.agents.domain_review_agent import DomainReviewAgent
+from wiki.graph_domain_namer import GraphDomainNamer, fetch_module_outlines
 from wiki.llm_rate_limiter import acquire_llm_quota
 from wiki.nodes.classify import (
     _consolidate_split_entities,
@@ -31,6 +33,16 @@ log = get_logger(__name__)
 
 def _compound_key(repo: str, name: str) -> str:
     return f"{repo}|{name}"
+
+
+def _edges_to_pagerank_input(
+    edges: list[tuple[tuple[str, str], tuple[str, str], int | float]],
+) -> list[dict[str, Any]]:
+    """Convert pipeline edge tuples to PageRank call-edge dicts."""
+    return [
+        {"source": src_name, "target": dst_name, "weight": weight}
+        for (_, src_name), (_, dst_name), weight in edges
+    ]
 
 
 def _lookup_module_value(mapping: dict[str, Any], repo: str, name: str) -> Any:
@@ -1818,9 +1830,47 @@ async def graph_driven_domain_decompose_node(
             pinned_domains=pinned_domains,
         )
 
+        scatter_reports = validate_cluster_topology(communities, module_paths)
+        if scatter_reports:
+            for report in scatter_reports:
+                log.warning(
+                    "cluster_topology_scattered",
+                    domain=report.domain_slug,
+                    scatter_ratio=report.scatter_ratio,
+                    unique_dirs=report.unique_top_dirs,
+                    modules=report.module_count,
+                )
+            state["cluster_scatter_reports"] = [
+                {
+                    "domain_slug": report.domain_slug,
+                    "module_count": report.module_count,
+                    "unique_top_dirs": report.unique_top_dirs,
+                    "scatter_ratio": report.scatter_ratio,
+                    "top_dirs": report.top_dirs,
+                    "is_scattered": report.is_scattered,
+                }
+                for report in scatter_reports
+            ]
+
         # --- Step 3: LLM Naming with module_infos (parallelized) ---
         project_docs = configurable.get("project_docs", [])
-        namer = GraphDomainNamer(llm, project_docs=project_docs, naming_cache=naming_cache)
+        biz_module_names = [mod_name for _, mod_name in biz_modules]
+        module_ranks = compute_module_pagerank(
+            biz_module_names,
+            _edges_to_pagerank_input(edges),
+        )
+        module_outlines = await fetch_module_outlines(
+            graph_store,
+            biz_module_names,
+            module_ranks=module_ranks,
+        )
+        namer = GraphDomainNamer(
+            llm,
+            project_docs=project_docs,
+            naming_cache=naming_cache,
+            module_outlines=module_outlines,
+            module_ranks=module_ranks,
+        )
         shared_used_names: list[str] = []
 
         async def _name_community(community: set[tuple[str, str]]) -> dict[str, Any]:
@@ -2405,4 +2455,6 @@ async def graph_driven_domain_decompose_node(
     }
     if state.get("decomposition_warnings"):
         result["decomposition_warnings"] = state["decomposition_warnings"]
+    if state.get("cluster_scatter_reports"):
+        result["cluster_scatter_reports"] = state["cluster_scatter_reports"]
     return result

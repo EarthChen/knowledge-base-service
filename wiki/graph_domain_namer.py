@@ -1,12 +1,14 @@
 """LLM-based domain naming for graph communities."""
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from wiki.llm_port import LLMPort
 
 from core.log import get_logger
+from wiki.cypher_queries import METHODS_CY
 from wiki.json_robust import parse_json_robust_sync
 from wiki.nodes.domain_filters import is_denied_slug
 from wiki.path_conventions import normalize_slug, normalize_slug_strict
@@ -86,9 +88,206 @@ def _module_tuples_for_signature(
     return []
 
 
-def _fallback_name(module_names: list[str]) -> dict[str, str]:
-    import re
+def _method_display(func_name: str, signature: str) -> str:
+    """Format a concise method label for code-outline context."""
+    name = (func_name or "").strip()
+    sig = (signature or "").strip()
+    if not name:
+        return ""
+    if not sig:
+        return name
+    if len(sig) <= 50 and "(" in sig:
+        compact = re.sub(r"\s+", "", sig.split("(", 1)[0] + "(" + sig.split("(", 1)[1])
+        if compact.startswith(name):
+            return compact
+        paren = sig.find("(")
+        if paren >= 0:
+            return name + sig[paren:].replace(" ", "")
+    return name
 
+
+def _methods_budget_for_rank(rank: float | None, *, max_methods: int = 5) -> int:
+    """Allocate method slots by PageRank tier (top 30% / mid / low)."""
+    if rank is None:
+        return max_methods
+    if rank >= 0.7:
+        return max_methods
+    if rank >= 0.35:
+        return min(3, max_methods)
+    return 1
+
+
+def format_code_outline(
+    module_outlines: dict[str, list[str]],
+    *,
+    module_names: list[str] | None = None,
+    max_methods_per_module: int = 5,
+    max_total_lines: int = 30,
+    module_ranks: dict[str, float] | None = None,
+) -> str:
+    """Format module method lists as a concise code-outline block."""
+    if not module_outlines:
+        return ""
+
+    ordered_names = list(module_names) if module_names else sorted(module_outlines)
+    outline_lines: list[str] = []
+    for name in ordered_names:
+        methods = module_outlines.get(name) or []
+        if not methods:
+            continue
+        budget = _methods_budget_for_rank(
+            module_ranks.get(name) if module_ranks else None,
+            max_methods=max_methods_per_module,
+        )
+        shown = methods[:budget]
+        if not shown:
+            outline_lines.append(f"  {name}")
+            continue
+        outline_lines.append(f"  {name}: {', '.join(shown)}")
+
+    if not outline_lines:
+        return ""
+
+    max_module_lines = max(1, max_total_lines - 1)
+    trimmed = outline_lines[:max_module_lines]
+    return "Code outline:\n" + "\n".join(trimmed)
+
+
+async def fetch_module_outlines(
+    graph_store: Any,
+    module_names: list[str],
+    *,
+    max_methods_per_module: int = 5,
+    module_ranks: dict[str, float] | None = None,
+) -> dict[str, list[str]]:
+    """Fetch top function signatures grouped by module name."""
+    if not module_names or graph_store is None or not hasattr(graph_store, "execute_query"):
+        return {}
+
+    unique_names = list(dict.fromkeys(name for name in module_names if name))
+    if not unique_names:
+        return {}
+
+    try:
+        result = await graph_store.execute_query(METHODS_CY, {"names": unique_names})
+    except Exception:
+        log.warning("namer_methods_query_failed", module_count=len(unique_names), exc_info=True)
+        return {}
+
+    rows = getattr(result, "data", None) or []
+    grouped: dict[str, list[str]] = {}
+    seen: dict[str, set[str]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        mod_name = str(row.get("module_name", "") or "")
+        func_name = str(row.get("func_name", "") or "")
+        if not mod_name or not func_name:
+            continue
+        display = _method_display(func_name, str(row.get("signature", "") or ""))
+        if not display:
+            continue
+        seen.setdefault(mod_name, set())
+        if display in seen[mod_name]:
+            continue
+        seen[mod_name].add(display)
+        grouped.setdefault(mod_name, []).append(display)
+
+    for mod_name in grouped:
+        grouped[mod_name] = grouped[mod_name][:max_methods_per_module]
+
+    log.debug(
+        "namer_module_outlines_fetched",
+        modules=len(grouped),
+        methods=sum(len(v) for v in grouped.values()),
+    )
+    return grouped
+
+
+async def fetch_code_outline_for_namer(
+    graph_store: Any,
+    module_names: list[str],
+    *,
+    max_methods_per_module: int = 5,
+    max_total_lines: int = 30,
+    module_ranks: dict[str, float] | None = None,
+) -> str:
+    """Fetch top function signatures and format as concise code outline."""
+    outlines = await fetch_module_outlines(
+        graph_store,
+        module_names,
+        max_methods_per_module=max_methods_per_module,
+        module_ranks=module_ranks,
+    )
+    return format_code_outline(
+        outlines,
+        module_names=module_names,
+        max_methods_per_module=max_methods_per_module,
+        max_total_lines=max_total_lines,
+        module_ranks=module_ranks,
+    )
+
+
+def budget_module_details(
+    module_infos: list[dict],
+    *,
+    module_ranks: dict[str, float] | None = None,
+    max_lines: int = 40,
+    full_ratio: float = 0.3,
+    names_ratio: float = 0.3,
+) -> list[str]:
+    """Aider-style tiered context: full details → names only → omitted.
+
+    Args:
+        module_infos: list of module info dicts with name, path, summary
+        module_ranks: PageRank scores; if None, all modules treated equally
+        max_lines: hard cap on output lines
+        full_ratio: top X% get full detail lines
+        names_ratio: next X% get name-only lines
+
+    Returns:
+        list of formatted detail lines within budget
+    """
+    if not module_infos:
+        return []
+
+    if module_ranks:
+        sorted_infos = sorted(
+            module_infos,
+            key=lambda m: module_ranks.get(m.get("name", ""), 0),
+            reverse=True,
+        )
+    else:
+        sorted_infos = list(module_infos)
+
+    n = len(sorted_infos)
+    full_count = max(1, int(n * full_ratio))
+    names_count = max(0, int(n * names_ratio))
+
+    lines: list[str] = []
+    for i, info in enumerate(sorted_infos):
+        if len(lines) >= max_lines:
+            break
+        name = info.get("name", "")
+        if i < full_count:
+            path = info.get("path", "")
+            summary = info.get("summary", "")[:80]
+            line = f"- {name}"
+            if path:
+                line += f" ({path})"
+            if summary:
+                line += f": {summary}"
+            lines.append(line)
+        elif i < full_count + names_count:
+            lines.append(f"- {name}")
+
+    if n > full_count + names_count:
+        lines.append(f"  ... and {n - full_count - names_count} more modules")
+
+    return lines
+
+
+def _fallback_name(module_names: list[str]) -> dict[str, str]:
     stripped = []
     for name in module_names:
         words = re.findall(r"[A-Z][a-z]+", name)
@@ -115,10 +314,14 @@ class GraphDomainNamer:
         *,
         project_docs: list[dict] | None = None,
         naming_cache: dict[str, dict[str, str]] | None = None,
+        module_outlines: dict[str, list[str]] | None = None,
+        module_ranks: dict[str, float] | None = None,
     ):
         self._llm = llm
         self._project_docs = project_docs or []
         self._naming_cache = naming_cache if naming_cache is not None else {}
+        self._module_outlines = module_outlines
+        self._module_ranks = module_ranks
 
     async def name_community(
         self,
@@ -127,6 +330,7 @@ class GraphDomainNamer:
         module_infos: list[dict[str, str]] | None = None,
         used_names: list[str] | None = None,
         business_id: str = "",
+        module_ranks: dict[str, float] | None = None,
     ) -> dict[str, str]:
         """Name a community based on module names or detailed infos.
 
@@ -134,17 +338,12 @@ class GraphDomainNamer:
         Falls back to first module name based slug if LLM fails after retry.
         """
         if module_infos:
-            detail_lines = []
-            for info in module_infos:
-                name = info.get("name", "")
-                path = info.get("path", "")
-                summary = info.get("summary", "")
-                if summary:
-                    detail_lines.append(f"- {name} [{path}] — {summary}")
-                elif path:
-                    detail_lines.append(f"- {name} [{path}]")
-                else:
-                    detail_lines.append(f"- {name}")
+            ranks = module_ranks if module_ranks is not None else self._module_ranks
+            detail_lines = budget_module_details(
+                module_infos,
+                module_ranks=ranks,
+                max_lines=40,
+            )
             names_for_fallback = [info.get("name", "") for info in module_infos]
         elif module_names:
             detail_lines = [f"- {n}" for n in module_names]
@@ -202,6 +401,17 @@ class GraphDomainNamer:
             proj_ctx = format_for_namer(self._project_docs)
             if proj_ctx:
                 biz_parts.append(proj_ctx)
+
+        # G6: Code outline from function signatures
+        if self._module_outlines:
+            outline_names = names_for_fallback
+            outline = format_code_outline(
+                self._module_outlines,
+                module_names=outline_names,
+                module_ranks=self._module_ranks,
+            )
+            if outline:
+                biz_parts.append(outline)
 
         biz_block = "\n".join(biz_parts) if biz_parts else ""
         if biz_block:

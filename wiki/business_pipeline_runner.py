@@ -21,6 +21,7 @@ from wiki.memory_loop import MemoryLoop
 from wiki.models import WikiPage
 from wiki.persistence import WikiPagePersistence
 from wiki.protocols import WikiGraphStorePort
+from wiki.section_gc import prune_empty_domain_sections
 from wiki.structure_planner import WikiScopeError
 from wiki.token_budget import TokenBudgetResolver
 from wiki.tree_builder import WikiTreeBuilder
@@ -626,15 +627,15 @@ class BusinessPipelineRunner:
         for domain_name, repo_module_pairs in domain_mapping.items():
             section_uid = tree_builder.generate_domain_section_uid(business_id, domain_name)
             section_title = domain_display_names.get(domain_name, domain_name)
-            await self._wiki_store.upsert_wiki_section(
-                uid=section_uid,
-                title=section_title,
-                description=f"Business domain: {section_title}",
-                section_type="business_domain",
-                sort_order=sort_idx,
-                auto_generated=True,
-            )
             if not has_nested_tree:
+                await self._wiki_store.upsert_wiki_section(
+                    uid=section_uid,
+                    title=section_title,
+                    description=f"Business domain: {section_title}",
+                    section_type="business_domain",
+                    sort_order=sort_idx,
+                    auto_generated=True,
+                )
                 await self._wiki_store.add_has_child_edge(
                     parent_uid=space_uid,
                     parent_label="WikiSpace",
@@ -867,10 +868,11 @@ class BusinessPipelineRunner:
                 reason="no repos need generation (skip_repo_pages=True, no new repos)",
             )
 
-        all_section_names = list(domain_names)
         if domain_tree:
-            all_section_names.extend(self._flatten_tree_paths(domain_tree))
+            all_section_names = self._flatten_tree_paths(domain_tree)
             all_section_names.append("__root__")
+        else:
+            all_section_names = list(domain_names)
 
         await self._persistence.cleanup_stale_domain_edges(
             business_id,
@@ -979,6 +981,18 @@ class BusinessPipelineRunner:
                     business_id=business_id,
                     exc_info=True,
                 )
+
+        # Always run section GC after tree linking
+        try:
+            pruned = await prune_empty_domain_sections(
+                self._wiki_store,
+                business_id=business_id,
+                space_uid=space_uid,
+            )
+            if pruned:
+                log.info("section_gc_pruned", count=pruned)
+        except Exception:
+            log.warning("section_gc_failed", exc_info=True)
 
         # Build cross-page references (RELATED_TO edges)
         # Scope: Only modules that are part of domain_mapping (have assigned domains).

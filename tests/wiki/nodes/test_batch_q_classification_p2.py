@@ -124,8 +124,8 @@ class TestModuleCallEdgesRepoRetention:
         ), patch(
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
         ) as mock_namer_cls, patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-        ) as mock_corrector_cls:
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+        ) as mock_reviewer_cls:
             mock_namer = MagicMock()
             mock_namer.name_community = AsyncMock(return_value={
                 "slug": "commerce",
@@ -133,11 +133,11 @@ class TestModuleCallEdgesRepoRetention:
                 "description": "",
             })
             mock_namer_cls.return_value = mock_namer
-            mock_corrector = MagicMock()
-            mock_corrector.review_global_consistency = AsyncMock(
+            mock_reviewer = MagicMock()
+            mock_reviewer.review = AsyncMock(
                 side_effect=lambda dm, dn, *_a, **_k: (dm, dn),
             )
-            mock_corrector_cls.return_value = mock_corrector
+            mock_reviewer_cls.return_value = mock_reviewer
 
             result = await graph_driven_domain_decompose_node(state, config)
 
@@ -242,8 +242,8 @@ class TestSkipLlmMergeWhenCorrectorEnabled:
         ) as mock_llm_merge, patch(
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
         ) as mock_namer_cls, patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-        ) as mock_corrector_cls, patch(
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+        ) as mock_reviewer_cls, patch(
             "wiki.nodes.graph_domain_decompose.get_settings",
         ) as mock_settings:
             wiki_cfg = MagicMock()
@@ -264,13 +264,13 @@ class TestSkipLlmMergeWhenCorrectorEnabled:
                 "description": "",
             })
             mock_namer_cls.return_value = mock_namer
-            mock_corrector = MagicMock()
-            mock_corrector.review_global_consistency = AsyncMock(
+            mock_reviewer = MagicMock()
+            mock_reviewer.review = AsyncMock(
                 side_effect=lambda dm, dn, *_a, **_k: (dm, dn),
             )
-            mock_corrector_cls.return_value = mock_corrector
+            mock_reviewer_cls.return_value = mock_reviewer
 
             await graph_driven_domain_decompose_node(state, config)
 
         mock_llm_merge.assert_not_awaited()
-        mock_corrector.review_global_consistency.assert_awaited_once()
+        mock_reviewer.review.assert_awaited_once()

@@ -244,6 +244,10 @@ class AppWikiFlags(BaseModel):
         ge=1,
         description="Min L1 domain count before LLM theme aggregation runs in decompose pipeline",
     )
+    enable_domain_tree_review: bool = Field(
+        default=True,
+        description="Enable LLM-based tree hierarchy review after prefix grouping",
+    )
     knowledge_injection_enabled: bool = True
     snapshot_enabled: bool = True
     """When true, run compilation snapshot after wiki pages are persisted."""
@@ -308,7 +312,7 @@ class AppWikiFlags(BaseModel):
     explore_scale_threshold_medium: int = Field(default=20, ge=1)
     explore_scale_threshold_large: int = Field(default=40, ge=1)
     domain_agent_early_exit_quality: float = Field(default=0.6, ge=0.0, le=1.0)
-    domain_agent_early_exit_min_chars: int = Field(default=500, ge=0)
+    domain_agent_early_exit_min_chars: int = Field(default=1500, ge=0)
     use_orchestrator_template: bool = Field(
         default=True,
         description="When True, DomainDocAgent.generate_with_iterations delegates to DocOrchestrator.generate()",
@@ -319,7 +323,7 @@ class AppWikiFlags(BaseModel):
         default=4000, ge=0, description="Min overview chars to trigger topic planning for small domains"
     )
     plan_topics_min_modules: int = Field(
-        default=2, ge=1, description="Min module count to attempt topic planning (domains with fewer skip)"
+        default=1, ge=1, description="Min module count to attempt topic planning (domains with fewer skip)"
     )
     topic_force_split_threshold: int = Field(default=4, description="Force topic split when module count >= this")
     max_topics_per_domain: int = Field(default=4, ge=1, description="Max topic pages per domain after planning")
@@ -328,6 +332,15 @@ class AppWikiFlags(BaseModel):
     domain_split_max_depth: int = Field(default=2, description="Max recursion depth for sub-domain splitting")
     domain_budget_max: int = Field(
         default=50, ge=5, le=200, description="Maximum number of top-level domains after clustering"
+    )
+    enable_anchor_cluster_constraints: bool = Field(
+        default=True, description="Apply DomainAnchor cannot-link in HAC"
+    )
+    enable_prefix_cannot_link: bool = Field(
+        default=True, description="Apply prefix-based cannot-link in HAC (stronger than penalty)"
+    )
+    cluster_prefix_penalty_factor: float = Field(
+        default=2.0, ge=1.0, description="Multiplier for cross-prefix distance (used when cannot-link disabled)"
     )
     overview_min_content_chars: int = Field(
         default=2000, ge=500, le=10000, description="Minimum content chars for overview pages"

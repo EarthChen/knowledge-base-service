@@ -277,3 +277,130 @@ class TestUnclosedCodeBlocks:
 
         content = "```java\npublic class Foo {}\n```"
         assert repair_unclosed_code_blocks(content) == content
+
+
+class TestIsCompoundModuleTitle:
+    def test_detects_pipe_separator(self):
+        from wiki.content_guards import is_compound_module_title
+
+        assert is_compound_module_title("ultron/ultron-relation|FamilyChestService") is True
+
+    def test_passes_normal_chinese_title(self):
+        from wiki.content_guards import is_compound_module_title
+
+        assert is_compound_module_title("家族宝箱奖励核心逻辑") is False
+
+    def test_passes_english_title(self):
+        from wiki.content_guards import is_compound_module_title
+
+        assert is_compound_module_title("Family Chest Reward") is False
+
+    def test_detects_slash_repo_prefix(self):
+        from wiki.content_guards import is_compound_module_title
+
+        assert is_compound_module_title("ultron/ultron-basic-user|LongListStringTypeHandler") is True
+
+    def test_simple_name_with_pipe_no_path(self):
+        from wiki.content_guards import is_compound_module_title
+
+        # Just a pipe without path prefix should NOT match
+        assert is_compound_module_title("hello|world") is False
+
+    def test_detects_repo_pipe_without_slash(self):
+        from wiki.content_guards import is_compound_module_title
+
+        assert is_compound_module_title("ultron|FamilyChestService") is True
+
+    def test_compound_detection_all_audit_patterns(self):
+        from wiki.content_guards import is_compound_module_title
+
+        titles = [
+            "ultron/ultron-basic-user|AppStoreStarPopWindowMoaService",
+            "ultron/ultron-relation|FamilyChestService",
+            "ultron/ultron-relation|FamilyChestWebService",
+            "ultron/ultron-relation|FamilySquareRedisDao",
+            "ultron/ultron-relation|FamilyTaskRedisDao",
+            "ultron/ultron-basic-user|QuickMessageRemoteService",
+            "ultron/ultron-relation|RelationRankService",
+            "ultron/ultron-relation|RelationRankWebMoaService",
+            "ultron/ultron-basic-user|LongListStringTypeHandler",
+            "ultron/ultron-basic-user|LongTimestampTypeHandler",
+            "ultron/ultron-basic-user|BasicUserPrivilegeDomainRepoV2",
+        ]
+        for title in titles:
+            assert is_compound_module_title(title), f"Failed to detect: {title}"
+
+
+class TestRewriteCompoundTitle:
+    def test_rewrite_compound_title_produces_readable(self):
+        from wiki.nodes.finalize import _rewrite_compound_title
+
+        page = {
+            "title": "ultron/ultron-relation|FamilyChestService",
+            "business_domain": "family-chest-reward",
+            "path": "/__domains__/family-chest-reward/relation-family-chest-service/_topic",
+        }
+        content = "## 概述\n\n家族宝箱奖励服务..."
+        result = _rewrite_compound_title(page["title"], page, content)
+        assert "|" not in result
+        assert "/" not in result or result.startswith("http")
+        assert len(result) > 2
+
+
+class TestDeriveSemanticTitle:
+    def test_uses_summary_first_sentence(self):
+        from wiki.content_guards import derive_semantic_title
+
+        result = derive_semantic_title(
+            modules=["FamilyChestService"],
+            domain_display_name="家族宝箱奖励",
+            summaries={"FamilyChestService": {"summary_text": "家族宝箱奖励核心逻辑。负责发放和校验宝箱奖励。"}},
+            content=None,
+        )
+        assert result == "家族宝箱奖励核心逻辑"
+
+    def test_falls_back_to_h2_extraction(self):
+        from wiki.content_guards import derive_semantic_title
+
+        content = "## 概述\n\n关系榜单计算与排名服务，提供全局排行和好友排行。\n\n## 架构"
+        result = derive_semantic_title(
+            modules=["RelationRankService"],
+            domain_display_name="关系榜单",
+            summaries={},
+            content=content,
+        )
+        # Should extract first non-empty line after ## heading
+        assert "关系榜单" in result or "排名" in result
+
+    def test_falls_back_to_domain_plus_role(self):
+        from wiki.content_guards import derive_semantic_title
+
+        result = derive_semantic_title(
+            modules=["FamilyChestWebService"],
+            domain_display_name="家族宝箱奖励",
+            summaries={},
+            content=None,
+        )
+        assert "家族宝箱奖励" in result
+
+    def test_strips_repo_pipe_from_module(self):
+        from wiki.content_guards import derive_semantic_title
+
+        result = derive_semantic_title(
+            modules=["ultron/ultron-relation|FamilyChestService"],
+            domain_display_name="家族宝箱奖励",
+            summaries={"FamilyChestService": {"summary_text": "家族宝箱核心服务"}},
+            content=None,
+        )
+        assert "|" not in result
+
+    def test_empty_modules_returns_empty_domain(self):
+        from wiki.content_guards import derive_semantic_title
+
+        result = derive_semantic_title(
+            modules=[],
+            domain_display_name="测试域",
+            summaries={},
+            content=None,
+        )
+        assert "测试域" in result

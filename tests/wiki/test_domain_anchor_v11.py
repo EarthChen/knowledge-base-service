@@ -48,12 +48,12 @@ def _make_state(
     return state
 
 
-def _mock_corrector():
-    corrector = MagicMock()
-    corrector.review_global_consistency = AsyncMock(
+def _mock_reviewer():
+    reviewer = MagicMock()
+    reviewer.review = AsyncMock(
         side_effect=lambda dm, dn, *_args, **_kw: (dm, dn),
     )
-    return corrector
+    return reviewer
 
 
 def _mock_namer(slug: str = "auth-domain", display: str = "认证"):
@@ -88,8 +88,8 @@ def _full_clustering_mocks(*, communities=None, namer=None):
             return_value=namer,
         ),
         patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ),
         patch("wiki.domain_stabilizer.DomainStabilizer"),
     ]
@@ -154,13 +154,13 @@ class TestNoAnchorFreshGeneration:
         }
         state = _make_state(modules, anchor_service=anchor_service)
         config = {"configurable": {"graph_store": MagicMock(), "llm": MagicMock()}}
-        corrector_instance = _mock_corrector()
+        reviewer_instance = _mock_reviewer()
 
         with (
             _full_clustering_mocks(),
             patch(
-                "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-                return_value=corrector_instance,
+                "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+                return_value=reviewer_instance,
             ),
             patch(
                 "wiki.nodes.graph_domain_decompose._structural_quality_check",
@@ -169,7 +169,7 @@ class TestNoAnchorFreshGeneration:
         ):
             await graph_driven_domain_decompose_node(state, config)
 
-        _, kwargs = corrector_instance.review_global_consistency.call_args
+        _, kwargs = reviewer_instance.review.call_args
         assert kwargs.get("anchored_slugs") == frozenset()
 
 

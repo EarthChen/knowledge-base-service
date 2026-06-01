@@ -22,6 +22,7 @@ from core.config import ContentLanguage, get_settings
 from core.log import get_logger
 from wiki.agents.base_agent import RunConfig
 from wiki.agents.doc_orchestrator import DocOrchestrator, QualityResult
+from wiki.content_guards import derive_semantic_title, is_compound_module_title
 from wiki.output_guardrail import (
     CoverageCheck,
     FormatCheck,
@@ -64,6 +65,17 @@ class TopicPlanItem(BaseModel):
             )
         return v
 
+    @field_validator("title")
+    @classmethod
+    def reject_compound_module_title(cls, v: str) -> str:
+        """Reject repo/path|ClassName compound keys used as display titles."""
+        if is_compound_module_title(v.strip()):
+            raise ValueError(
+                f"Compound module title detected: '{v}'. "
+                "Use a human-readable semantic title instead."
+            )
+        return v
+
 
 class TopicPlan(BaseModel):
     """Structured topic plan for domain documentation."""
@@ -81,15 +93,25 @@ def _is_mechanical_topic_name(title: str) -> bool:
     return bool(_MECHANICAL_TOPIC_TITLE_RE.match(title.strip()))
 
 
-def _rename_mechanical_topic_title(title: str, modules: list[str]) -> str:
+def _rename_mechanical_topic_title(
+    title: str,
+    modules: list[str],
+    *,
+    domain_display_name: str = "",
+    summaries: dict[str, dict] | None = None,
+) -> str:
     """Replace bare Part N titles with module-based descriptive names."""
     if not _is_mechanical_topic_name(title):
         return title
     if not modules:
         return title
     if len(modules) == 1:
-        return modules[0]
-    return f"{modules[0]} & {modules[1]}"
+        result = modules[0]
+    else:
+        result = f"{modules[0]} & {modules[1]}"
+    if is_compound_module_title(result):
+        result = derive_semantic_title(modules, domain_display_name, summaries or {}, None)
+    return result
 
 
 def _strip_part_n_title(title: str) -> str:
@@ -120,6 +142,8 @@ def _validate_topic_plan_outline(outline: DomainTopicOutline) -> DomainTopicOutl
             new_title = _strip_part_n_title(topic.title)
             if _is_mechanical_topic_name(new_title):
                 new_title = _rename_mechanical_topic_title(new_title, list(topic.modules))
+            elif is_compound_module_title(new_title):
+                new_title = derive_semantic_title(list(topic.modules), "", {}, None)
             log.warning(
                 "topic_plan_part_n_renamed",
                 original=topic.title,
@@ -228,15 +252,29 @@ def _dedup_topic_titles(topics: list[OutlineTopicItem]) -> list[OutlineTopicItem
     return result
 
 
-def _extract_chunk_title(modules: list[dict], display_name: str, idx: int) -> str:
+def _extract_chunk_title(
+    modules: list[dict],
+    display_name: str,
+    idx: int,
+    *,
+    summaries: dict[str, dict] | None = None,
+) -> str:
     """Extract a semantic title from a module chunk."""
+    module_names = [str(m.get("name") or m.get("display_name") or "") for m in modules]
+    module_names = [name for name in module_names if name]
+
     if len(modules) == 1:
         mod_name = modules[0].get("display_name", modules[0].get("name", ""))
         if mod_name and mod_name != display_name:
-            return mod_name
+            candidate = mod_name
+            if is_compound_module_title(candidate):
+                candidate = derive_semantic_title(module_names, display_name, summaries or {}, None)
+            return candidate
     best = max(modules, key=lambda m: len(m.get("display_name", m.get("name", ""))))
     candidate = best.get("display_name", best.get("name", ""))
     if candidate and candidate != display_name:
+        if is_compound_module_title(candidate):
+            candidate = derive_semantic_title(module_names, display_name, summaries or {}, None)
         return candidate
     return f"{display_name} - Section {idx + 1}"
 
@@ -475,6 +513,35 @@ def _build_baseline(
     return "\n\n".join(parts)
 
 
+def _fence_aware_h2_split(content: str) -> list[str]:
+    """Split content on ## headings, but only those outside code fences."""
+    lines = content.split("\n")
+    in_fence = False
+    section_starts: list[int] = []
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence and line.startswith("## "):
+            section_starts.append(i)
+
+    if not section_starts:
+        return [content]
+
+    sections: list[str] = []
+    # Content before first ## heading
+    if section_starts[0] > 0:
+        sections.append("\n".join(lines[: section_starts[0]]))
+
+    for idx, start in enumerate(section_starts):
+        end = section_starts[idx + 1] if idx + 1 < len(section_starts) else len(lines)
+        sections.append("\n".join(lines[start:end]))
+
+    return [s for s in sections if s.strip()]
+
+
 def _maybe_split(
     content: str,
     domain_slug: str,
@@ -491,8 +558,7 @@ def _maybe_split(
     if estimated_tokens <= MAX_PAGE_TOKENS:
         return [_make_page(content, domain_slug, display)]
 
-    sections = re.split(r"(?=^## )", content, flags=re.MULTILINE)
-    sections = [s for s in sections if s]
+    sections = _fence_aware_h2_split(content)
     if len(sections) <= 1:
         return [_make_page(content, domain_slug, display)]
 

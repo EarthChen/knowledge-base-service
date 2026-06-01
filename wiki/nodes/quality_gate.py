@@ -19,6 +19,7 @@ from wiki.content_guards import (
     detect_unclosed_code_blocks,
     has_meta_sections,
     has_topic_overview_section,
+    is_compound_module_title,
 )
 from wiki.harness_evaluator import WikiPageEvaluator
 from wiki.models import ImportanceTier, WikiPage
@@ -305,9 +306,25 @@ async def quality_gate_node(
         content_issues: list[str] = []
         page_content = page_dict.get("content", "")
 
-        if _PART_N_RE.search(page_dict.get("title", "")):
+        page_title = page_dict.get("title", "")
+        if _PART_N_RE.search(page_title):
             content_issues.append(
                 "part_n_title: Title uses mechanical 'Part N' naming, should use semantic title"
+            )
+
+        if is_compound_module_title(page_title):
+            log.warning("quality_gate_compound_module_title", title=page_title)
+            content_issues.append(
+                "compound_module_title: title uses repo/path|ClassName compound key, "
+                "should use semantic title"
+            )
+            page_dict.setdefault("metadata", {})["heal_reason"] = "compound_module_title"
+            score_dict["compound_module_title"] = True
+            l1_val = score_dict.get("l1_structural", 1.0)
+            score_dict["l1_structural"] = round(min(l1_val, 0.4), 4)
+            heal_hints[page.path] = (
+                "Compound module title detected; regenerate page with semantic title "
+                f"(current: {page_title})"
             )
 
         min_chars = 500 if page_type == "topic" else 1000

@@ -563,3 +563,124 @@ def cjk_bigram_similarity(a: str, b: str) -> float:
     if not bigrams_a or not bigrams_b:
         return 0.0
     return len(bigrams_a & bigrams_b) / max(len(bigrams_a), len(bigrams_b), 1)
+
+
+# ---------------------------------------------------------------------------
+# Compound title detection and semantic title derivation
+# ---------------------------------------------------------------------------
+
+_COMPOUND_TITLE_RE = re.compile(
+    r"(?:[/\\][\w.-]+\||\w+/[\w.-]+\||[\w.-]+\|[A-Z]\w*)"
+)
+
+_ROLE_SUFFIXES: list[tuple[str, str]] = [
+    ("WebService", "Web接口"),
+    ("Service", "核心服务"),
+    ("Dao", "数据存储"),
+    ("Handler", "事件处理"),
+    ("Consumer", "消息消费"),
+]
+
+
+def is_compound_module_title(title: str) -> bool:
+    """Return True when *title* looks like a ``repo/path|ClassName`` compound key."""
+    if not title:
+        return False
+    return "|" in title and bool(_COMPOUND_TITLE_RE.search(title))
+
+
+def _strip_compound_key(module_name: str) -> str:
+    """Remove ``repo|`` prefix from a compound module key."""
+    if "|" in module_name:
+        return module_name.split("|", 1)[1]
+    return module_name
+
+
+def _sentence_max_chars(text: str) -> int:
+    """Use a longer limit for predominantly ASCII summary text."""
+    if not text:
+        return 20
+    ascii_ratio = sum(1 for ch in text if ord(ch) < 128) / len(text)
+    return 40 if ascii_ratio >= 0.8 else 20
+
+
+def _extract_first_sentence(text: str, max_chars: int | None = None) -> str | None:
+    """Extract the first short sentence ending with ``。`` or ``.``."""
+    if not text:
+        return None
+    stripped = text.strip()
+    if not stripped:
+        return None
+    limit = max_chars if max_chars is not None else _sentence_max_chars(stripped)
+    for sep in ("。", ". "):
+        idx = stripped.find(sep)
+        if 0 < idx <= limit:
+            return stripped[:idx]
+    dot_idx = stripped.find(".")
+    if 0 < dot_idx <= limit:
+        return stripped[:dot_idx]
+    if len(stripped) <= limit:
+        return stripped
+    return None
+
+
+def _camel_to_words(class_name: str) -> str:
+    """Split CamelCase into space-separated words."""
+    words = re.findall(r"[A-Z][a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\b)", class_name)
+    return " ".join(words) if words else class_name
+
+
+def derive_semantic_title(
+    modules: list[str],
+    domain_display_name: str,
+    summaries: dict[str, dict],
+    content: str | None,
+) -> str:
+    """Derive a human-readable title via a five-level fallback chain."""
+    primary_module = modules[0] if modules else ""
+    clean_name = _strip_compound_key(primary_module)
+
+    summary_data = summaries.get(clean_name) or summaries.get(primary_module)
+    if isinstance(summary_data, dict):
+        summary_text = summary_data.get("summary_text", "")
+        if summary_text:
+            sentence = _extract_first_sentence(summary_text)
+            if sentence:
+                return sentence
+
+    if content:
+        found_h2 = False
+        for line in content.split("\n"):
+            if line.startswith("## "):
+                found_h2 = True
+                continue
+            if found_h2 and line.strip():
+                sentence = _extract_first_sentence(line.strip())
+                if sentence:
+                    return sentence
+                break
+
+    if domain_display_name:
+        for suffix, role in _ROLE_SUFFIXES:
+            if clean_name.endswith(suffix):
+                return f"{domain_display_name}{role}"
+        return f"{domain_display_name}服务"
+
+    if clean_name and any(c.isupper() for c in clean_name[1:]):
+        return _camel_to_words(clean_name)
+
+    return clean_name
+
+
+def apply_compound_title_fallback(clean_name: str, domain_display_name: str) -> str:
+    """Last-resort readable title when semantic derivation still looks like a module key."""
+    if not clean_name:
+        return domain_display_name or ""
+    for suffix, role in _ROLE_SUFFIXES:
+        if clean_name.endswith(suffix):
+            if domain_display_name:
+                return f"{domain_display_name}{role}"
+            return _camel_to_words(clean_name)
+    if domain_display_name:
+        return f"{domain_display_name}服务"
+    return _camel_to_words(clean_name)

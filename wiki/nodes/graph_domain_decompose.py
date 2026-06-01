@@ -14,7 +14,7 @@ from wiki.domain_semantic_clusterer import DomainSemanticClusterer
 from wiki.entity_role_classifier import DOMAIN_CLASSIFICATION_ENTITY_ROLES, WikiEntityRole
 from wiki.graph_call_query import fetch_module_call_edges
 from wiki.graph_domain_namer import GraphDomainNamer
-from wiki.graph_semantic_corrector import GraphSemanticCorrector
+from wiki.agents.domain_review_agent import DomainReviewAgent
 from wiki.llm_rate_limiter import acquire_llm_quota
 from wiki.nodes.classify import (
     _consolidate_split_entities,
@@ -276,10 +276,30 @@ _INFRA_CLASS_SUFFIXES = (
     "Interceptor",
     "Filter",
     "Wrapper",
-    "Handler",
     "Executor",
+    "RemoteService",
+)
+_BUSINESS_HANDLER_PREFIXES = (
+    "Family",
+    "Intimacy",
+    "Relation",
+    "ClosedFriend",
+    "Guild",
+    "User",
+    "Member",
+    "Rank",
 )
 _ABSTRACT_MODULE_SUFFIXES = ("Base", "Abstract", "Interface", "Mixin")
+
+
+def _is_infra_handler(name: str) -> bool:
+    """Return True only for infrastructure-level handlers (not business event handlers)."""
+    if not name.endswith("Handler"):
+        return False
+    for prefix in _BUSINESS_HANDLER_PREFIXES:
+        if name.startswith(prefix):
+            return False
+    return True
 
 
 def _is_infra_module_path(path: str, patterns: list[str]) -> bool:
@@ -350,7 +370,9 @@ def _detect_infra_modules(
         if _is_abstract_module_name(name):
             infra.add((repo, name))
             continue
-        if _PASCAL_CASE_RE.match(name) and name.endswith(_INFRA_CLASS_SUFFIXES):
+        if _PASCAL_CASE_RE.match(name) and (
+            name.endswith(_INFRA_CLASS_SUFFIXES) or _is_infra_handler(name)
+        ):
             infra.add((repo, name))
 
     return infra
@@ -396,7 +418,9 @@ def _is_infra_slug(
     """Return True if slug/modules match infrastructure domain heuristics."""
     if len(modules) == 1:
         _, name = modules[0]
-        if _PASCAL_CASE_RE.match(name) and name.endswith(_INFRA_CLASS_SUFFIXES):
+        if _PASCAL_CASE_RE.match(name) and (
+            name.endswith(_INFRA_CLASS_SUFFIXES) or _is_infra_handler(name)
+        ):
             return True
     if len(modules) <= 3 and infrastructure_keywords:
         slug_lower = slug.lower()
@@ -409,7 +433,7 @@ def _filter_infra_sub_domains(
     named_subs: list[dict],
     infrastructure_keywords: list[str],
 ) -> list[dict]:
-    """Remove infrastructure sub-domains; merge their modules into the largest sibling."""
+    """Remove infrastructure sub-domains without merging into siblings."""
     if not named_subs:
         return named_subs
 
@@ -432,10 +456,8 @@ def _filter_infra_sub_domains(
     if not remaining:
         return named_subs
 
-    largest = max(remaining, key=lambda s: len(s.get("modules", [])))
-    for sub in infra_subs:
-        largest["modules"].extend(sub.get("modules", []))
-
+    # Don't merge infra modules into business siblings - just drop them.
+    # They will be handled by Step 6.54's per-module infrastructure reassignment.
     return remaining
 
 
@@ -713,6 +735,35 @@ def _sub_to_tree_node(sub: dict, *, idx: int = 0) -> dict[str, Any]:
     }
 
 
+def _build_tree_review_prompt(tree: list[dict]) -> str:
+    """Build a prompt for LLM to review tree structure and propose reparents."""
+    lines = ["Review this domain tree for hierarchy consistency issues.", ""]
+    lines.append("Current tree structure:")
+
+    def _format_node(node: dict, indent: int = 0) -> None:
+        prefix = "  " * indent
+        name = node.get("name", "?")
+        display = node.get("display_name", "")
+        modules_count = len(node.get("modules") or [])
+        lines.append(f"{prefix}- {name} ({display}) [{modules_count} modules]")
+        for child in node.get("children") or []:
+            _format_node(child, indent + 1)
+
+    for node in tree:
+        _format_node(node)
+
+    lines.append("")
+    lines.append("Rules:")
+    lines.append("- Domains with the same business prefix (e.g. intimacy-*, family-*) should be in the same subtree")
+    lines.append("- L1 nodes that share a prefix with nested children of a shell node should be reparented")
+    lines.append("- Only propose moves that improve hierarchy consistency")
+    lines.append("")
+    lines.append('Respond in JSON: {"reparents": [{"child": "slug", "new_parent": "slug or null for L1", "reason": "..."}]}')
+    lines.append('If no reparent needed, respond: {"reparents": []}')
+
+    return "\n".join(lines)
+
+
 def _build_domain_tree(
     communities_named: list[dict],
     sub_trees: dict[str, list[dict]],
@@ -837,7 +888,11 @@ _GENERIC_DIFFERENTIATORS = frozenset({
 })
 
 _PARENT_CHILD_SLUG_MISMATCHES: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
-    (("intimacy", "relation", "亲密"), ("user-behavior", "behavior-stat", "用户行为")),
+    (("intimacy", "亲密"), ("user-behavior", "behavior-stat", "用户行为")),
+    (("intimacy", "亲密"), ("family", "家族", "guild")),
+    (("family", "家族"), ("intimacy", "亲密")),
+    (("user-growth", "用户成长"), ("family", "家族")),
+    (("user-growth", "用户成长"), ("relation", "关系")),
 ]
 
 
@@ -916,7 +971,7 @@ def _review_subdomain_placement(
     *,
     infrastructure_keywords: list[str] | None = None,
 ) -> list[dict[str, str]]:
-    """Review sub-domain placement; reparent infra misplacements and log semantic mismatches."""
+    """Review sub-domain placement; reparent mismatched nodes to tree root."""
     del embeddings  # reserved for future embedding-based checks
     keywords = infrastructure_keywords
     if keywords is None:
@@ -925,32 +980,43 @@ def _review_subdomain_placement(
     if keywords:
         _reparent_infra_misplaced_to_root(domain_tree, keywords)
 
-    warnings: list[dict[str, str]] = []
+    reparented: list[dict[str, str]] = []
 
     def _walk(nodes: list[dict]) -> None:
         for node in nodes:
-            children = node.get("children", [])
+            children = list(node.get("children") or [])
             if not children:
                 continue
             parent_slug = node.get("name", "")
             parent_display = node.get("display_name", "")
+            kept: list[dict] = []
             for child in children:
                 child_slug = child.get("name", "")
                 child_display = child.get("display_name", "")
+                if child.get("user_modified"):
+                    kept.append(child)
+                    continue
                 if _slug_semantically_mismatched(parent_slug, child_slug):
-                    warnings.append({
+                    reparented.append({
                         "child": child_slug,
                         "parent": parent_slug,
                         "reason": (
                             f"'{child_display}' semantically mismatched with parent '{parent_display}'"
                         ),
                     })
-            _walk(children)
+                    domain_tree.append(child)
+                    log.warning(
+                        "subdomain_placement_reparent",
+                        child=child_slug,
+                        parent=parent_slug,
+                    )
+                else:
+                    kept.append(child)
+            node["children"] = kept
+            _walk(kept)
 
     _walk(domain_tree)
-    for warning in warnings:
-        log.warning("subdomain_placement_mismatch", **warning)
-    return warnings
+    return reparented
 
 
 def _dedupe_slug_segments(slug: str) -> str:
@@ -1006,6 +1072,14 @@ def _dedup_parallel_naming_results(
     return results
 
 
+def _merge_sub_domain_entries(primary: dict, secondary: dict) -> None:
+    """Combine modules and children from secondary into primary."""
+    primary["modules"] = list(primary.get("modules", [])) + list(secondary.get("modules", []))
+    sec_children = secondary.get("children") or []
+    if sec_children:
+        primary.setdefault("children", []).extend(sec_children)
+
+
 def _dedup_sub_domains(
     named_subs: list[dict],
     parent_display_name: str,
@@ -1014,9 +1088,16 @@ def _dedup_sub_domains(
     """Merge sub-domains with identical display_name, dedup slugs, avoid parent/ancestor collision."""
     merged_by_name: dict[str, dict] = {}
     for sub in named_subs:
-        key = sub["display_name"]
+        display = sub.get("display_name", "").strip()
+        key = display or sub.get("slug", f"unnamed-{len(merged_by_name)}")
         if key in merged_by_name:
-            merged_by_name[key]["modules"].extend(sub.get("modules", []))
+            existing = merged_by_name[key]
+            if len(sub.get("modules", [])) > len(existing.get("modules", [])):
+                merged = dict(sub)
+                _merge_sub_domain_entries(merged, existing)
+                merged_by_name[key] = merged
+            else:
+                _merge_sub_domain_entries(existing, sub)
         else:
             merged_by_name[key] = dict(sub)
     result = list(merged_by_name.values())
@@ -1299,12 +1380,32 @@ def _assign_pinned_modules(
                 break
 
 
+def _build_pinned_domains_for_clustering(
+    pinned_modules: dict[str, str],
+    biz_modules: list[tuple[str, str]],
+) -> dict[tuple[str, str], str] | None:
+    """Convert state pinned_modules (repo|name or bare name → slug) to clusterer tuple keys."""
+    if not pinned_modules:
+        return None
+    pinned_domains: dict[tuple[str, str], str] = {}
+    for key, domain_slug in pinned_modules.items():
+        pin_repo, mod_name = _split_pinned_module_key(key)
+        if pin_repo:
+            pinned_domains[(pin_repo, mod_name)] = domain_slug
+            continue
+        for repo, name in biz_modules:
+            if name == mod_name:
+                pinned_domains[(repo, name)] = domain_slug
+    return pinned_domains or None
+
+
 async def _embedding_clustering(
     biz_modules: list[tuple[str, str]],
     edges: list[tuple[tuple[str, str], tuple[str, str], int | float]],
     module_paths: dict[str, str],
     module_summaries_raw: dict[str, dict[str, Any]],
     embedding_cache: dict[str, list[float]] | None = None,
+    pinned_domains: dict[tuple[str, str], str] | None = None,
 ) -> tuple[list[set[tuple[str, str]]], np.ndarray | None]:
     """Primary: semantic embedding clustering. Returns (clusters, embeddings_array)."""
     from core.config import get_settings
@@ -1330,8 +1431,17 @@ async def _embedding_clustering(
             log.warning("tfidf_fallback_failed_fallback_louvain", exc_info=True)
             return await _louvain_fallback_clustering(biz_modules, edges), None
 
+    wiki_cfg = get_settings().wiki
     clusterer = DomainSemanticClusterer()
-    communities = clusterer.cluster(embeddings, biz_modules, edges)
+    communities = clusterer.cluster(
+        embeddings,
+        biz_modules,
+        edges,
+        paths=module_paths,
+        pinned_domains=pinned_domains,
+        enable_prefix_cannot_link=wiki_cfg.enable_prefix_cannot_link,
+        prefix_penalty_factor=wiki_cfg.cluster_prefix_penalty_factor,
+    )
     return communities, embeddings
 
 
@@ -1662,9 +1772,14 @@ async def graph_driven_domain_decompose_node(
             )
 
         # --- Step 2: Semantic embedding clustering (fallback: Louvain) ---
+        pinned_domains = None
+        wiki_cfg = get_settings().wiki
+        if wiki_cfg.enable_anchor_cluster_constraints and pinned_modules:
+            pinned_domains = _build_pinned_domains_for_clustering(pinned_modules, biz_modules)
         communities, embeddings = await _embedding_clustering(
             biz_modules, edges, module_paths, module_summaries_raw,
             embedding_cache=embedding_cache,
+            pinned_domains=pinned_domains,
         )
 
         # --- Step 3: LLM Naming with module_infos (parallelized) ---
@@ -1762,11 +1877,11 @@ async def graph_driven_domain_decompose_node(
             biz_modules, module_summaries_raw,
         )
 
-        corrector = GraphSemanticCorrector(llm)
         paths_for_corrector = _build_paths_for_corrector(biz_modules, module_paths)
         package_tree_str = _build_package_tree(paths_for_corrector)
         cross_domain_edges_str = _build_cross_domain_edges_summary(edges, domain_mapping)
-        domain_mapping, domain_display_names = await corrector.review_global_consistency(
+        reviewer = DomainReviewAgent(llm=llm, max_move_ratio=0.5)
+        domain_mapping, domain_display_names = await reviewer.review(
             domain_mapping, domain_display_names, paths_for_corrector, module_summaries_flat,
             business_id=state.get("business_id", ""),
             module_details=module_summaries_raw,
@@ -1967,7 +2082,10 @@ async def graph_driven_domain_decompose_node(
                     return []
                 sub_embeddings = embeddings[indices]
                 sub_modules = [biz_modules[i] for i in indices]
-                sub_clusters = clusterer.cluster_sub_domains(sub_embeddings, sub_modules, edges)
+                sub_paths = _build_paths_for_corrector(sub_modules, module_paths)
+                sub_clusters = clusterer.cluster_sub_domains(
+                    sub_embeddings, sub_modules, edges, paths=sub_paths
+                )
             else:
                 from wiki.graph_community_detector import GraphCommunityDetector
                 detector = GraphCommunityDetector(target_min=2, target_max=5, seed=42)
@@ -2123,6 +2241,57 @@ async def graph_driven_domain_decompose_node(
             min_siblings=2,
         )
         log.info("theme_aggregation_applied", l1_count=len(domain_tree))
+
+    if domain_tree:
+        from wiki.prefix_family_grouper import enforce_prefix_family_grouping
+
+        domain_tree = enforce_prefix_family_grouping(domain_tree)
+
+    # --- Step 8.6: DomainReviewAgent tree-level review ---
+    if wiki_cfg.enable_domain_tree_review and domain_tree and llm:
+        try:
+            from wiki.json_robust import parse_json_robust_sync
+            from wiki.prompts import SYSTEM_JSON_ONLY
+
+            module_summaries_flat = _build_module_summaries_flat_for_corrector(
+                biz_modules, module_summaries_raw,
+            )
+            tree_reviewer = DomainReviewAgent(llm=llm)
+            tree_reviewer.set_tree_data(
+                domain_tree,
+                domain_display_names,
+                module_summaries_flat,
+            )
+
+            tree_prompt = _build_tree_review_prompt(domain_tree)
+            await acquire_llm_quota(config, estimated_tokens=2000)
+            raw_content = await llm.generate(tree_prompt, system=SYSTEM_JSON_ONLY)
+            decisions = parse_json_robust_sync(raw_content)
+
+            _MAX_TREE_REPARENTS = 3
+            if isinstance(decisions, dict):
+                proposed = 0
+                for reparent in decisions.get("reparents", []):
+                    if proposed >= _MAX_TREE_REPARENTS:
+                        break
+                    child = reparent.get("child")
+                    new_parent = reparent.get("new_parent")
+                    reason = reparent.get("reason", "")
+                    if not child:
+                        continue
+                    # Skip if child was placed by C3 deterministic grouping (user_modified)
+                    child_node = tree_reviewer._find_node_in_tree(child)
+                    if child_node and child_node.get("user_modified"):
+                        continue
+                    tree_reviewer._propose_reparent_domain(child, new_parent, reason)
+                    proposed += 1
+
+                if tree_reviewer.pending_tree_reparents:
+                    reparent_count = len(tree_reviewer.pending_tree_reparents)
+                    domain_tree = tree_reviewer.apply_tree_decisions()
+                    log.info("domain_review_tree_reparent", count=reparent_count)
+        except Exception as e:
+            log.warning("domain_review_tree_failed", error=str(e))
 
     # --- Step 9: Determine affected_domains ---
     if is_incremental:

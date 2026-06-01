@@ -7,10 +7,13 @@ from typing import Any
 
 from core.log import get_logger
 from wiki.content_guards import (
+    apply_compound_title_fallback,
     cjk_bigram_similarity,
     compute_cn_ratio,
     dedup_code_fences,
+    derive_semantic_title,
     detect_hallucination_flags,
+    is_compound_module_title,
     repair_code_fences,
     repair_truncated_code_blocks,
     repair_unclosed_code_blocks,
@@ -22,8 +25,14 @@ from wiki.content_guards import (
 
 log = get_logger(__name__)
 
-SHELL_DOMAIN_MIN_CHARS = 500
 _MIN_PAGE_CHARS = 200
+
+
+def _get_overview_reject_threshold() -> int:
+    """Get minimum chars threshold for domain overview rejection."""
+    from core.config import get_settings
+
+    return get_settings().wiki.overview_min_content_chars
 
 _FAKE_SOURCE_RE = re.compile(r"com/xxx/")
 _SOURCE_PROTOCOL_RE = re.compile(r"source://[^\s)>\]]+", re.IGNORECASE)
@@ -431,6 +440,35 @@ def _rewrite_part_n_title(title: str, content: str) -> str:
     return title
 
 
+def _rewrite_compound_title(
+    title: str,
+    page: dict,
+    content: str,
+    state: dict | None = None,
+) -> str:
+    """Rewrite repo/path|ClassName compound keys into human-readable titles."""
+    if not is_compound_module_title(title):
+        return title
+    meta = page.get("metadata") or {}
+    covered = meta.get("covered_modules") or []
+    modules = [str(m) for m in covered if m] if covered else [title]
+    state = state or {}
+    domain_slug = str(page.get("business_domain") or _extract_domain_from_path(page.get("path", "")))
+    display_names = state.get("domain_display_names") or {}
+    domain_display = str(
+        page.get("domain_display_name")
+        or display_names.get(domain_slug, "")
+        or domain_slug
+    )
+    summaries = state.get("module_summaries") or {}
+    result = derive_semantic_title(modules, domain_display, summaries, content)
+    primary = modules[0] if modules else title
+    clean_name = primary.split("|", 1)[1] if "|" in primary else primary
+    if is_compound_module_title(result) or "|" in result:
+        result = apply_compound_title_fallback(clean_name, domain_display)
+    return result or apply_compound_title_fallback(clean_name, domain_display)
+
+
 def _get_skeleton_threshold(page_type: str = "domain_overview") -> int:
     from core.config import get_settings
 
@@ -612,6 +650,34 @@ def _ensure_title_uniqueness(pages: list[dict]) -> list[dict]:
     return result
 
 
+_DISAMBIG_SUFFIX_RE = re.compile(r"^(.+?)（([a-z0-9][a-z0-9-]*)）$")
+
+
+def _strip_disambiguation_suffixes(pages: list[dict]) -> list[dict]:
+    """Remove domain-slug disambiguation suffixes when safe.
+
+    Pattern: "标题（domain-slug）" → "标题" if unique after strip.
+    """
+    result = [dict(p) for p in pages]
+    bases: dict[str, list[int]] = {}
+    for i, page in enumerate(result):
+        title = str(page.get("title", ""))
+        m = _DISAMBIG_SUFFIX_RE.match(title)
+        if m:
+            bases.setdefault(m.group(1), []).append(i)
+
+    for base, indices in bases.items():
+        if len(indices) != 1:
+            continue
+        other_titles = [str(result[i].get("title", "")) for i in range(len(result)) if i not in set(indices)]
+        if base in other_titles:
+            continue
+        idx = indices[0]
+        result[idx] = {**result[idx], "title": base}
+
+    return result
+
+
 def _deduplicate_titles(pages: list[dict]) -> list[dict]:
     """Ensure all page titles within a business are unique.
 
@@ -730,12 +796,13 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                 )
                 content = banner + content
 
-            if is_overview and not is_topic_index and len(content) < SHELL_DOMAIN_MIN_CHARS:
+            reject_threshold = _get_overview_reject_threshold()
+            if is_overview and not is_topic_index and len(content) < reject_threshold:
                 log.warning(
                     "shell_domain_rejected",
                     page_path=page.get("path"),
                     content_len=len(content),
-                    threshold=SHELL_DOMAIN_MIN_CHARS,
+                    threshold=reject_threshold,
                 )
                 updated_pages.append({**page, "content": "", "__rejected__": True})
                 continue
@@ -803,9 +870,11 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                     page_path=page.get("path"),
                     references=sorted(class_refs),
                 )
+            content = repair_unclosed_code_blocks(content)
             title = page.get("title", "")
             if title:
                 new_title = _rewrite_part_n_title(str(title), content)
+                new_title = _rewrite_compound_title(new_title, page, content, state)
                 if new_title != title:
                     page = {**page, "title": new_title, "content": content}
                 else:
@@ -815,6 +884,7 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
         updated_pages.append(page)
 
     updated_pages = _deduplicate_titles(updated_pages)
+    updated_pages = _strip_disambiguation_suffixes(updated_pages)
 
     published = sum(1 for p in updated_pages if not p.get("__rejected__"))
     rejected = sum(1 for p in updated_pages if p.get("__rejected__"))

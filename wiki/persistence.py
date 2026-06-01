@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import json
 import os
@@ -21,6 +22,20 @@ from wiki.models import WikiPage
 log = get_logger(__name__)
 
 _SECTION_MAX_CHARS = 6000
+
+
+def compute_domain_module_signature(modules: list[tuple[str, str]]) -> str:
+    """Compute SHA256 hash of sorted module keys for stable domain fingerprinting.
+
+    Args:
+        modules: List of (repo, module_name) tuples
+
+    Returns:
+        Hex digest of SHA256 hash
+    """
+    keys = sorted(f"{repo}|{name}" for repo, name in modules)
+    payload = "\n".join(keys).encode()
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _split_content_for_embedding(content: str, max_chars: int = _SECTION_MAX_CHARS) -> list[str]:
@@ -724,16 +739,28 @@ class WikiPersistence:
         return result.data if result.data else []
 
     async def upsert_domain_anchor(
-        self, business_id: str, slug: str, display_name: str
+        self,
+        business_id: str,
+        slug: str,
+        display_name: str,
+        *,
+        module_signature: str | None = None,
     ) -> None:
         """Create or update a DomainAnchor node."""
+        set_parts = ["d.display_name = $display_name"]
+        params: dict[str, Any] = {
+            "bid": business_id,
+            "slug": slug,
+            "display_name": display_name,
+        }
+        if module_signature is not None:
+            set_parts.append("d.module_signature = $sig")
+            params["sig"] = module_signature
         cypher = (
-            "MERGE (d:DomainAnchor {business_id: $bid, slug: $slug}) "
-            "SET d.display_name = $display_name"
+            f"MERGE (d:DomainAnchor {{business_id: $bid, slug: $slug}}) "
+            f"SET {', '.join(set_parts)}"
         )
-        await self._store.execute_query(
-            cypher, {"bid": business_id, "slug": slug, "display_name": display_name}
-        )
+        await self._store.execute_query(cypher, params)
 
     async def delete_domain_anchor(self, business_id: str, slug: str) -> None:
         """Remove a DomainAnchor and its relationships."""
@@ -863,8 +890,11 @@ class WikiPersistence:
 
         for slug, info in mapping.items():
             display_name = info.get("display_name", slug)
-            await self.upsert_domain_anchor(business_id, slug, display_name)
             modules = info.get("modules", [])
+            sig = compute_domain_module_signature(modules)
+            await self.upsert_domain_anchor(
+                business_id, slug, display_name, module_signature=sig
+            )
             for repo, mod_name in modules:
                 cypher = (
                     "MATCH (m:Module {name: $name, repository: $repo}) "

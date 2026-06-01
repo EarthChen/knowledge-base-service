@@ -124,9 +124,9 @@ class TestParallelCommunityNamingDedup:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=namer,
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
             return_value=MagicMock(
-                review_global_consistency=AsyncMock(
+                review=AsyncMock(
                     side_effect=lambda dm, dn, *_a, **_k: (dm, dn),
                 ),
             ),
@@ -261,9 +261,9 @@ class TestPinnedModulesCompoundKeys:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=namer,
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
             return_value=MagicMock(
-                review_global_consistency=AsyncMock(
+                review=AsyncMock(
                     side_effect=lambda dm, dn, *_a, **_k: (dm, dn),
                 ),
             ),

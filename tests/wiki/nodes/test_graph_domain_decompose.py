@@ -56,13 +56,13 @@ def _make_state(modules: dict, entity_roles: dict | None = None):
     }
 
 
-def _mock_corrector():
-    """Return a mock corrector that does no-ops."""
-    corrector = MagicMock()
-    corrector.review_global_consistency = AsyncMock(
+def _mock_reviewer():
+    """Return a mock domain reviewer that does no-ops."""
+    reviewer = MagicMock()
+    reviewer.review = AsyncMock(
         side_effect=lambda dm, dn, *_args, **_kw: (dm, dn),
     )
-    return corrector
+    return reviewer
 
 
 def _mock_namer():
@@ -116,8 +116,8 @@ class TestGraphDrivenDomainDecomposeNode:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=_mock_namer(),
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ):
             result = await graph_driven_domain_decompose_node(state, config)
 
@@ -182,8 +182,8 @@ class TestGraphDrivenDomainDecomposeNode:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=_mock_namer(),
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ):
             result = await graph_driven_domain_decompose_node(state, config)
 
@@ -220,8 +220,8 @@ class TestGraphDrivenDomainDecomposeNode:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=_mock_namer(),
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ):
             result = await graph_driven_domain_decompose_node(state, config)
 
@@ -252,8 +252,8 @@ class TestGraphDrivenDomainDecomposeNode:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=_mock_namer(),
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ):
             result = await graph_driven_domain_decompose_node(state, config)
 
@@ -264,6 +264,16 @@ class TestGraphDrivenDomainDecomposeNode:
 
 
 class TestDedupSubDomains:
+    def test_dedup_sub_domains_merges_same_display_name(self):
+        """Sub-domains with identical display_name should be merged."""
+        subs = [
+            {"slug": "relation-mgmt-a", "display_name": "关系管理", "modules": [("r", "SvcA")]},
+            {"slug": "relation-mgmt-b", "display_name": "关系管理", "modules": [("r", "SvcB")]},
+        ]
+        result = _dedup_sub_domains(subs, parent_display_name="关系")
+        assert len(result) == 1
+        assert len(result[0]["modules"]) == 2
+
     def test_merges_duplicate_display_names(self):
         subs = [
             {"slug": "friend-mgmt", "display_name": "好友管理", "modules": [("r1", "A")]},
@@ -275,6 +285,40 @@ class TestDedupSubDomains:
         assert len(display_names) == len(set(display_names))
         merged = next(s for s in result if s["display_name"] == "好友管理")
         assert len(merged["modules"]) == 2
+
+    def test_merges_same_display_name_keeps_more_modules_as_primary(self):
+        subs = [
+            {"slug": "small-slug", "display_name": "用户权益", "modules": [("r", "A")]},
+            {
+                "slug": "large-slug",
+                "display_name": "用户权益",
+                "modules": [("r", "B"), ("r", "C"), ("r", "D")],
+            },
+        ]
+        result = _dedup_sub_domains(subs, "父域")
+        assert len(result) == 1
+        assert result[0]["slug"] == "large-slug"
+        assert len(result[0]["modules"]) == 4
+
+    def test_merges_same_display_name_combines_children(self):
+        subs = [
+            {
+                "slug": "rel-a",
+                "display_name": "关系管理",
+                "modules": [("r", "A")],
+                "children": [{"slug": "child-a", "display_name": "子A", "modules": []}],
+            },
+            {
+                "slug": "rel-b",
+                "display_name": "关系管理",
+                "modules": [("r", "B")],
+                "children": [{"slug": "child-b", "display_name": "子B", "modules": []}],
+            },
+        ]
+        result = _dedup_sub_domains(subs, "父域")
+        assert len(result) == 1
+        assert len(result[0]["modules"]) == 2
+        assert len(result[0]["children"]) == 2
 
     def test_avoids_parent_child_name_collision(self):
         subs = [
@@ -380,8 +424,8 @@ class TestParallelDomainNaming:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=mock_namer,
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ):
             result = await graph_driven_domain_decompose_node(state, config)
 
@@ -445,8 +489,8 @@ class TestParallelDomainNaming:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=mock_namer,
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ):
             result = await graph_driven_domain_decompose_node(state, config)
 
@@ -461,7 +505,7 @@ class TestParallelDomainNaming:
 
     @pytest.mark.asyncio
     async def test_recursive_split_filters_infra_subdomain(self):
-        """Infrastructure-like sub-domain slugs are merged into the largest sibling."""
+        """Infrastructure-like sub-domain slugs are removed without merging into siblings."""
         import numpy as np
 
         modules_list = [(f"repo1", f"Mod{i}") for i in range(12)]
@@ -538,8 +582,8 @@ class TestParallelDomainNaming:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=mock_namer,
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ), patch(
             "wiki.nodes.graph_domain_decompose.get_settings",
             return_value=MagicMock(wiki=mock_wiki_cfg, embedding=MagicMock()),
@@ -548,14 +592,17 @@ class TestParallelDomainNaming:
 
         tree = result["domain_tree"]
         # Parent shell collapses; business sub-domains promoted to root.
-        assert len(tree) == 2
-        child_slugs = [n["name"] for n in tree]
+        # Same-prefix L1 domains are wrapped under a synthetic family parent.
+        assert len(tree) == 1
+        assert tree[0]["name"] == "guild-family"
+        assert len(tree[0].get("children", [])) == 2
+        child_slugs = [n["name"] for n in tree[0]["children"]]
         assert "debug-groovy-executor" not in child_slugs
         assert "guild-operations" not in child_slugs
 
         infra_mod_keys = {f"repo1|Mod{i}" for i in (10, 11)}
-        child_module_keys = {m for n in tree for m in n["modules"]}
-        assert infra_mod_keys <= child_module_keys
+        child_module_keys = {m for c in tree[0]["children"] for m in c["modules"]}
+        assert not infra_mod_keys & child_module_keys
 
     @pytest.mark.asyncio
     async def test_recursive_split_does_not_recurse_beyond_max_depth_two(self):
@@ -580,7 +627,7 @@ class TestParallelDomainNaming:
             mod_name = infos[0]["name"]
             return {"slug": f"sub-{mod_name.lower()}", "display_name": f"Sub {mod_name}"}
 
-        def cluster_sub_domains(_embeddings, _modules, _edges):
+        def cluster_sub_domains(_embeddings, _modules, _edges, **_kwargs):
             cluster_call_depths.append(len(cluster_call_depths))
             return sub_clusters
 
@@ -630,8 +677,8 @@ class TestParallelDomainNaming:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=mock_namer,
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ), patch(
             "wiki.nodes.graph_domain_decompose.get_settings",
             return_value=MagicMock(wiki=mock_wiki_cfg, embedding=MagicMock()),
@@ -680,8 +727,8 @@ class TestParallelDomainNaming:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=_mock_namer(),
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ) as MockCorrector:
             mock_namer = _mock_namer()
             # Patch at the call site
@@ -717,8 +764,8 @@ class TestParallelDomainNaming:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=_mock_namer(),
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ):
             result = await graph_driven_domain_decompose_node(state, config)
 

@@ -20,12 +20,12 @@ def _make_module_dict(repo_id: str, name: str) -> dict:
     }
 
 
-def _mock_corrector():
-    corrector = MagicMock()
-    corrector.review_global_consistency = AsyncMock(
+def _mock_reviewer():
+    reviewer = MagicMock()
+    reviewer.review = AsyncMock(
         side_effect=lambda dm, dn, *_args, **_kw: (dm, dn),
     )
-    return corrector
+    return reviewer
 
 
 def _mock_namer():
@@ -118,8 +118,8 @@ class TestLLMPathRemoval:
             "wiki.nodes.graph_domain_decompose.GraphDomainNamer",
             return_value=_mock_namer(),
         ), patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ):
             result = await graph_driven_domain_decompose_node(state, config)
 

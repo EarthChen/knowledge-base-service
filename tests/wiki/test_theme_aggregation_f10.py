@@ -38,12 +38,12 @@ def _make_state(modules: dict) -> dict:
     }
 
 
-def _mock_corrector():
-    corrector = MagicMock()
-    corrector.review_global_consistency = AsyncMock(
+def _mock_reviewer():
+    reviewer = MagicMock()
+    reviewer.review = AsyncMock(
         side_effect=lambda dm, dn, *_args, **_kw: (dm, dn),
     )
-    return corrector
+    return reviewer
 
 
 def _sequential_namer(slug_pairs: list[tuple[str, str]]):
@@ -112,8 +112,8 @@ def _pipeline_mocks(*, communities, slug_pairs):
             return_value=_sequential_namer(slug_pairs),
         ),
         patch(
-            "wiki.nodes.graph_domain_decompose.GraphSemanticCorrector",
-            return_value=_mock_corrector(),
+            "wiki.nodes.graph_domain_decompose.DomainReviewAgent",
+            return_value=_mock_reviewer(),
         ),
         patch("wiki.domain_stabilizer.DomainStabilizer"),
         patch(

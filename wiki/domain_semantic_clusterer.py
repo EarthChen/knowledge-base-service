@@ -1,6 +1,8 @@
 """Semantic embedding clustering for domain classification."""
 from __future__ import annotations
 
+import re
+from collections import Counter
 from typing import Any
 
 import numpy as np
@@ -25,6 +27,59 @@ def _shorten_path(path: str, levels: int = 4) -> str:
     if len(dir_parts) <= levels:
         return "/".join(dir_parts)
     return "/".join(dir_parts[-levels:])
+
+
+_COMMON_PREFIXES = frozenset({"relation", "user", "ultron", "basic", "common", "core", "base"})
+_SKIP_CAMEL_PREFIXES = frozenset({"i", "abstract", "base", "default", "mock", "test"})
+_GENERIC_NAMES = frozenset({"service", "dao", "handler", "consumer", "producer", "controller", "manager"})
+
+
+def _prefix_from_kebab(slug: str) -> str | None:
+    """Extract first business segment from kebab-case slug."""
+    parts = slug.split("-")
+    for part in parts:
+        if part and part not in _COMMON_PREFIXES and part not in _GENERIC_NAMES:
+            return part.lower()
+    return None
+
+
+def _prefix_from_camel(name: str) -> str | None:
+    """Extract first business word from CamelCase name."""
+    words = re.findall(r"[A-Z][a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\b)", name)
+    for word in words:
+        lower = word.lower()
+        if lower not in _SKIP_CAMEL_PREFIXES and lower not in _GENERIC_NAMES and len(lower) > 2:
+            return lower
+    return None
+
+
+def _extract_business_prefix(module_name: str, path: str | None) -> str | None:
+    """Extract business prefix token from module name or path.
+
+    Tries path-based slug first (kebab-case), falls back to CamelCase parsing.
+    Returns None if no meaningful business prefix can be extracted.
+    """
+    if not module_name:
+        return None
+
+    if path:
+        slug = path.replace("\\", "/").split("/")[-1] if "/" in path else ""
+        if slug and "-" in slug:
+            prefix = _prefix_from_kebab(slug)
+            if prefix:
+                return prefix
+
+    if "-" in module_name:
+        prefix = _prefix_from_kebab(module_name)
+        if prefix:
+            return prefix
+
+    if any(c.isupper() for c in module_name[1:]):
+        prefix = _prefix_from_camel(module_name)
+        if prefix:
+            return prefix
+
+    return None
 
 
 class DomainSemanticClusterer:
@@ -132,28 +187,181 @@ class DomainSemanticClusterer:
         np.clip(similarity, -1.0, 1.0, out=similarity)
         return 1.0 - similarity
 
+    def _apply_prefix_penalty(
+        self,
+        dist: np.ndarray,
+        modules: list[tuple[str, str]],
+        paths: dict[str, str],
+        penalty_factor: float = 1.3,
+    ) -> np.ndarray:
+        prefixes: list[str | None] = []
+        for repo, name in modules:
+            compound_key = f"{repo}|{name}"
+            path = paths.get(compound_key, paths.get(name))
+            prefixes.append(_extract_business_prefix(name, path))
+
+        n = len(modules)
+        for i in range(n):
+            pi = prefixes[i]
+            if pi is None:
+                continue
+            for j in range(i + 1, n):
+                pj = prefixes[j]
+                if pj is None or pi == pj:
+                    continue
+                dist[i, j] *= penalty_factor
+                dist[j, i] *= penalty_factor
+        return dist
+
+    def _apply_prefix_cannot_link(
+        self,
+        dist_matrix: np.ndarray,
+        modules: list[tuple[str, str]],
+        paths: dict[str, str] | None = None,
+    ) -> np.ndarray:
+        """Apply cannot-link constraints for modules with different business prefixes.
+
+        This is stronger than prefix_penalty — it makes cross-prefix merging impossible
+        by setting distance to 2.0 (maximum).
+        """
+        if not paths:
+            return dist_matrix
+
+        n = len(modules)
+        prefix_map: dict[int, str | None] = {}
+        for i, mod in enumerate(modules):
+            compound_key = f"{mod[0]}|{mod[1]}"
+            path = paths.get(compound_key, paths.get(mod[1]))
+            prefix_map[i] = _extract_business_prefix(mod[1], path)
+
+        for i in range(n):
+            pi = prefix_map[i]
+            if pi is None:
+                continue
+            for j in range(i + 1, n):
+                pj = prefix_map[j]
+                if pj is None:
+                    continue
+                if pi != pj:
+                    dist_matrix[i, j] = 2.0
+                    dist_matrix[j, i] = 2.0
+
+        return dist_matrix
+
+    def _apply_anchor_constraints(
+        self,
+        dist_matrix: np.ndarray,
+        modules: list[tuple[str, str]],
+        pinned_domains: dict[tuple[str, str], str],
+    ) -> np.ndarray:
+        """Apply cannot-link constraints for modules pinned to different domains.
+
+        If module A is pinned to domain X and module B is pinned to domain Y (X≠Y),
+        set dist[i,j] = dist[j,i] = 2.0 (maximum distance, cannot link).
+        Same domain → no change.
+        """
+        if not pinned_domains:
+            return dist_matrix
+
+        n = len(modules)
+        for i in range(n):
+            domain_i = pinned_domains.get(modules[i])
+            if domain_i is None:
+                continue
+            for j in range(i + 1, n):
+                domain_j = pinned_domains.get(modules[j])
+                if domain_j is None:
+                    continue
+                if domain_i != domain_j:
+                    dist_matrix[i, j] = 2.0
+                    dist_matrix[j, i] = 2.0
+
+        return dist_matrix
+
+    def _review_cluster_placement(
+        self,
+        clusters: list[set[tuple[str, str]]],
+        modules: list[tuple[str, str]],
+        paths: dict[str, str],
+    ) -> list[set[tuple[str, str]]]:
+        if len(clusters) <= 1:
+            return clusters
+
+        prefix_map: dict[tuple[str, str], str | None] = {}
+        for repo, name in modules:
+            compound_key = f"{repo}|{name}"
+            path = paths.get(compound_key, paths.get(name))
+            prefix_map[(repo, name)] = _extract_business_prefix(name, path)
+
+        cluster_list = [set(c) for c in clusters]
+
+        def dominant_prefix(cluster: set[tuple[str, str]]) -> str | None:
+            prefixes = [prefix_map[m] for m in cluster if prefix_map.get(m) is not None]
+            if not prefixes:
+                return None
+            top_prefix, count = Counter(prefixes).most_common(1)[0]
+            if count / len(prefixes) > 0.5:
+                return top_prefix
+            return None
+
+        dominants = [dominant_prefix(c) for c in cluster_list]
+        reparents: list[tuple[tuple[str, str], int, int]] = []
+
+        for ci, cluster in enumerate(cluster_list):
+            cluster_dom = dominants[ci]
+            if cluster_dom is None:
+                continue
+            for module in list(cluster):
+                mod_prefix = prefix_map.get(module)
+                if mod_prefix is None or mod_prefix == cluster_dom:
+                    continue
+                target_idx = next(
+                    (tj for tj, target_dom in enumerate(dominants) if target_dom == mod_prefix),
+                    None,
+                )
+                if target_idx is not None:
+                    reparents.append((module, ci, target_idx))
+
+        for module, from_idx, to_idx in reparents:
+            cluster_list[from_idx].discard(module)
+            cluster_list[to_idx].add(module)
+            log.info(
+                "prefix_review_reparent",
+                module=f"{module[0]}|{module[1]}",
+                from_cluster=from_idx,
+                to_cluster=to_idx,
+                module_prefix=prefix_map[module],
+            )
+
+        return [c for c in cluster_list if c]
+
     def _compute_distance_matrix(
         self,
         embeddings: np.ndarray,
         modules: list[tuple[str, str]],
         edges: list[tuple[tuple[str, str], tuple[str, str], int | float]],
+        paths: dict[str, str] | None = None,
+        prefix_penalty_factor: float = 2.0,
     ) -> np.ndarray:
         dist = self._compute_cosine_distance(embeddings)
-        if not edges:
-            return dist
-        mod_idx = {mod: i for i, mod in enumerate(modules)}
-        max_w = max((abs(w) for _, _, w in edges), default=1)
-        max_w = max(max_w, 1)
-        for src, dst, w in edges:
-            i = mod_idx.get(src)
-            j = mod_idx.get(dst)
-            if i is not None and j is not None and i != j:
-                # Weight-aware: higher weight → stronger discount (smaller distance)
-                ratio = min(abs(w) / max_w, 1.0)
-                max_discount = 1.0 - self._discount
-                discount = 1.0 - max_discount * ratio
-                dist[i, j] *= discount
-                dist[j, i] *= discount
+        if edges:
+            mod_idx = {mod: i for i, mod in enumerate(modules)}
+            max_w = max((abs(w) for _, _, w in edges), default=1)
+            max_w = max(max_w, 1)
+            for src, dst, w in edges:
+                i = mod_idx.get(src)
+                j = mod_idx.get(dst)
+                if i is not None and j is not None and i != j:
+                    # Weight-aware: higher weight → stronger discount (smaller distance)
+                    ratio = min(abs(w) / max_w, 1.0)
+                    max_discount = 1.0 - self._discount
+                    discount = 1.0 - max_discount * ratio
+                    dist[i, j] *= discount
+                    dist[j, i] *= discount
+        if prefix_penalty_factor > 1.0 and paths is not None:
+            dist = self._apply_prefix_penalty(
+                dist, modules, paths, penalty_factor=prefix_penalty_factor
+            )
         return dist
 
     def _find_best_k(self, dist: np.ndarray, n: int) -> int:
@@ -185,11 +393,21 @@ class DomainSemanticClusterer:
         embeddings: np.ndarray,
         modules: list[tuple[str, str]],
         edges: list[tuple[tuple[str, str], tuple[str, str], int | float]],
+        paths: dict[str, str] | None = None,
+        prefix_penalty_factor: float = 2.0,
+        pinned_domains: dict[tuple[str, str], str] | None = None,
+        enable_prefix_cannot_link: bool = True,
     ) -> list[set[tuple[str, str]]]:
         n = len(modules)
         if n < _SMALL_N_THRESHOLD:
             return [set(modules)]
-        dist = self._compute_distance_matrix(embeddings, modules, edges)
+        dist = self._compute_distance_matrix(
+            embeddings, modules, edges, paths=paths, prefix_penalty_factor=prefix_penalty_factor
+        )
+        if pinned_domains:
+            dist = self._apply_anchor_constraints(dist, modules, pinned_domains)
+        if enable_prefix_cannot_link and paths is not None:
+            dist = self._apply_prefix_cannot_link(dist, modules, paths)
         best_k = self._find_best_k(dist, n)
         model = AgglomerativeClustering(
             n_clusters=best_k, metric="precomputed", linkage="average"
@@ -198,13 +416,16 @@ class DomainSemanticClusterer:
         clusters: dict[int, set[tuple[str, str]]] = {}
         for i, label in enumerate(labels):
             clusters.setdefault(int(label), set()).add(modules[i])
+        cluster_list = list(clusters.values())
+        if paths:
+            cluster_list = self._review_cluster_placement(cluster_list, modules, paths)
         log.info(
             "domain_semantic_cluster_done",
             n_modules=n,
-            n_clusters=len(clusters),
-            sizes=[len(c) for c in clusters.values()],
+            n_clusters=len(cluster_list),
+            sizes=[len(c) for c in cluster_list],
         )
-        return list(clusters.values())
+        return cluster_list
 
     def cluster_sub_domains(
         self,
@@ -212,12 +433,19 @@ class DomainSemanticClusterer:
         modules: list[tuple[str, str]],
         edges: list[tuple[tuple[str, str], tuple[str, str], int | float]],
         max_sub: int = 5,
+        paths: dict[str, str] | None = None,
+        prefix_penalty_factor: float = 2.0,
+        enable_prefix_cannot_link: bool = True,
     ) -> list[set[tuple[str, str]]]:
         """Cluster within a domain to create sub-domains."""
         n = len(modules)
         if n <= 5:
             return [set(modules)]
-        dist = self._compute_distance_matrix(embeddings, modules, edges)
+        dist = self._compute_distance_matrix(
+            embeddings, modules, edges, paths=paths, prefix_penalty_factor=prefix_penalty_factor
+        )
+        if enable_prefix_cannot_link and paths:
+            dist = self._apply_prefix_cannot_link(dist, modules, paths)
         best_k = 2
         best_score = -1.0
         for k in range(2, min(max_sub + 1, n // 2 + 1)):
@@ -241,4 +469,7 @@ class DomainSemanticClusterer:
         clusters: dict[int, set[tuple[str, str]]] = {}
         for i, label in enumerate(labels):
             clusters.setdefault(int(label), set()).add(modules[i])
-        return list(clusters.values())
+        cluster_list = list(clusters.values())
+        if paths:
+            cluster_list = self._review_cluster_placement(cluster_list, modules, paths)
+        return cluster_list

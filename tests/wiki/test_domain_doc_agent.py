@@ -236,9 +236,12 @@ class TestDomainDocAgentIteration:
         from core.config import get_settings
         cfg = get_settings().wiki
         original = cfg.use_orchestrator_template
+        original_min = cfg.plan_topics_min_modules
         cfg.use_orchestrator_template = False
+        cfg.plan_topics_min_modules = 99
         yield
         cfg.use_orchestrator_template = original
+        cfg.plan_topics_min_modules = original_min
 
     @pytest.mark.asyncio
     async def test_stops_when_quality_acceptable(self):
@@ -348,9 +351,12 @@ class TestDomainDocAgentExploreWrite:
         from core.config import get_settings
         cfg = get_settings().wiki
         original = cfg.use_orchestrator_template
+        original_min = cfg.plan_topics_min_modules
         cfg.use_orchestrator_template = False
+        cfg.plan_topics_min_modules = 99
         yield
         cfg.use_orchestrator_template = original
+        cfg.plan_topics_min_modules = original_min
 
     @pytest.mark.asyncio
     async def test_explore_write_flow(self):
@@ -446,9 +452,12 @@ class TestDomainDocAgentObservability:
         from core.config import get_settings
         cfg = get_settings().wiki
         original = cfg.use_orchestrator_template
+        original_min = cfg.plan_topics_min_modules
         cfg.use_orchestrator_template = False
+        cfg.plan_topics_min_modules = 99
         yield
         cfg.use_orchestrator_template = original
+        cfg.plan_topics_min_modules = original_min
 
     @pytest.mark.asyncio
     async def test_iteration_history_populated(self):
@@ -699,9 +708,12 @@ class TestElasticTimeout:
         from core.config import get_settings
         cfg = get_settings().wiki
         original = cfg.use_orchestrator_template
+        original_min = cfg.plan_topics_min_modules
         cfg.use_orchestrator_template = False
+        cfg.plan_topics_min_modules = 99
         yield
         cfg.use_orchestrator_template = original
+        cfg.plan_topics_min_modules = original_min
 
     @pytest.mark.asyncio
     async def test_explore_timeout_preserves_partial_memory(self, monkeypatch):
@@ -796,9 +808,12 @@ class TestCoveredEntityUids:
         from core.config import get_settings
         cfg = get_settings().wiki
         original = cfg.use_orchestrator_template
+        original_min = cfg.plan_topics_min_modules
         cfg.use_orchestrator_template = False
+        cfg.plan_topics_min_modules = 99
         yield
         cfg.use_orchestrator_template = original
+        cfg.plan_topics_min_modules = original_min
 
     @pytest.mark.asyncio
     async def test_pages_include_covered_entity_uids(self):

@@ -186,10 +186,7 @@ class GenericAgent(ABC):
         return Memory()
 
     async def remember(self, question: str, answer: str, confidence: float = 0.7) -> dict:
-        """Store important findings to long-term memory.
-
-        NOTE: Register via @function_tool when ready for production.
-        """
+        """Store important findings to long-term memory. Use when you discover key facts, call chains, or architectural patterns worth preserving across sessions."""
         if not getattr(self, "_memory_backend", None):
             return {"error": "memory_backend_not_configured", "stored": False}
         if confidence < 0.5:
@@ -331,3 +328,13 @@ class GenericAgent(ABC):
                     guardrail=type(guard).__name__,
                     info=result.output_info,
                 )
+
+
+# Register after class body to avoid circular import with tool_decorator → base_agent.
+from wiki.agents.tool_decorator import function_tool as _function_tool
+
+GenericAgent.remember = _function_tool(
+    name="remember",
+    tier=2,
+    description="Store important findings to long-term memory. Use when you discover key facts, call chains, or architectural patterns worth preserving across sessions.",
+)(GenericAgent.remember)

@@ -64,3 +64,50 @@ class TestReviewAgent:
         assert verdict.status == "pass"
         assert verdict.confidence == 0.95
         assert verdict.heal_instructions is None
+
+    @pytest.mark.asyncio
+    async def test_detects_hallucination_flags(self):
+        ra = ReviewAgent()
+        content = (
+            "# Module Overview\n\n"
+            "The cache hit rate reached 99.7%, significantly improving query performance.\n\n"
+            "## Architecture\n\n"
+            "Uses JWT tokens. Source: `source://auth/jwt.py#L10-L20`\n"
+        )
+        verdict = await ra.review(content, {})
+        halluc_issues = [i for i in verdict.issues if i.category == "hallucination"]
+        assert len(halluc_issues) > 0
+        assert all(i.severity == "error" for i in halluc_issues)
+        assert verdict.status == "fail"
+
+    @pytest.mark.asyncio
+    async def test_hallucination_flags_ignored_inside_code_blocks(self):
+        ra = ReviewAgent()
+        content = (
+            "# Module Overview\n\n"
+            "Normal prose without fabricated metrics.\n\n"
+            "```java\nif (ratio > 99.7%) { return; }\n```\n"
+        )
+        verdict = await ra.review(content, {})
+        halluc_issues = [i for i in verdict.issues if i.category == "hallucination"]
+        assert halluc_issues == []
+
+    @pytest.mark.asyncio
+    async def test_detects_low_citation_density(self):
+        ra = ReviewAgent()
+        words = " ".join(["word"] * 600)
+        content = f"# Module Overview\n\n{words}\n\nOnly one cite: `source://auth/jwt.py#L10`\n"
+        verdict = await ra.review(content, {})
+        citation_issues = [i for i in verdict.issues if i.category == "citation"]
+        assert len(citation_issues) > 0
+        assert all(i.severity == "warning" for i in citation_issues)
+        assert verdict.status == "warn"
+
+    @pytest.mark.asyncio
+    async def test_citation_density_passes_with_enough_refs(self):
+        ra = ReviewAgent()
+        words = " ".join(["word"] * 400)
+        content = f"# Module Overview\n\n{words}\n\nRefs: `source://auth/a.py#L1` and `source://auth/b.py#L2`.\n"
+        verdict = await ra.review(content, {})
+        citation_issues = [i for i in verdict.issues if i.category == "citation"]
+        assert citation_issues == []

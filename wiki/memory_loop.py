@@ -9,6 +9,7 @@ from typing import Protocol, runtime_checkable
 
 from core.log import get_logger
 from store.wiki_store import WikiStore
+from wiki.agents.memory_promotion import TierPromoter
 
 log = get_logger(__name__)
 
@@ -23,6 +24,8 @@ class MemoryEntry:
     uid: str = ""
     memory_status: str = "active"
     tier: int = 1
+    access_count: int = 0
+    confirmed: bool = False
     confidence: float = 0.0
     similarity: float = 0.0
 
@@ -54,12 +57,14 @@ class MemoryLoop:
         business_id: str = "default",
         vector_index_top_k: int = 30,
         memory_tiers_enabled: bool = False,
+        tier_promoter: TierPromoter | None = None,
     ) -> None:
         self._store = wiki_store
         self._embed = embed
         self._business_id = business_id
         self._vector_index_top_k = vector_index_top_k
         self._memory_tiers_enabled = memory_tiers_enabled
+        self._tier_promoter = tier_promoter
 
     @property
     def business_id(self) -> str:
@@ -72,6 +77,7 @@ class MemoryLoop:
             business_id=business_id,
             vector_index_top_k=self._vector_index_top_k,
             memory_tiers_enabled=self._memory_tiers_enabled,
+            tier_promoter=self._tier_promoter,
         )
 
     async def record(
@@ -127,6 +133,16 @@ class MemoryLoop:
                 tier = int(tier_raw) if tier_raw is not None else 1
             except (TypeError, ValueError):
                 tier = 1
+            access_raw = row.get("access_count")
+            try:
+                access_count = int(access_raw) if access_raw is not None else 0
+            except (TypeError, ValueError):
+                access_count = 0
+            confirm_raw = row.get("confirmation_count")
+            try:
+                confirmation_count = int(confirm_raw) if confirm_raw is not None else 0
+            except (TypeError, ValueError):
+                confirmation_count = 0
             mem_st = str(row.get("memory_status") or "active")
             out.append(
                 MemoryEntry(
@@ -138,6 +154,8 @@ class MemoryLoop:
                     uid=str(row.get("uid") or ""),
                     memory_status=mem_st,
                     tier=tier,
+                    access_count=access_count,
+                    confirmed=confirmation_count > 0,
                     confidence=float(row.get("confidence") or 0.0),
                     similarity=float(row.get("similarity") or 0.0),
                 )
@@ -168,8 +186,16 @@ class MemoryLoop:
             if hasattr(entry, "uid") and entry.uid:
                 try:
                     await self._store.increment_wiki_qa_access(uid=entry.uid, at_iso=ts)
+                    entry.access_count += 1
                 except Exception:
                     log.warning("memory_access_tracking_failed", uid=entry.uid)
+                if self._tier_promoter is not None:
+                    try:
+                        promo = await self._tier_promoter.check_and_promote(entry, self._store)
+                        if promo.get("promoted"):
+                            entry.tier = promo["new_tier"]
+                    except Exception:
+                        log.warning("memory_tier_promotion_failed", uid=entry.uid, exc_info=True)
         return entries
 
     async def inject_into_generation(self, entity_name: str, repository: str) -> str:

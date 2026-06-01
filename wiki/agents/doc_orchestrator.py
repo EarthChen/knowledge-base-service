@@ -7,6 +7,7 @@ from typing import Any
 
 from core.log import get_logger
 from wiki.agents.base_agent import LLMGenerationError, RunConfig
+from wiki.agents.citation_verifier import CitationResult, CitationVerifier
 from wiki.agents.review_agent import QualityVerdict, ReviewAgent
 
 log = get_logger(__name__)
@@ -45,6 +46,8 @@ class DocOrchestrator(ABC):
         write_system_prompt: str = "",
         enable_review_agent: bool = False,
         review_block_on_fail: bool = True,
+        enable_citation_verifier: bool = False,
+        citation_verifier: CitationVerifier | None = None,
         enable_crag_gate: bool = False,
         crag_coverage_threshold: float = 0.6,
         crag_max_re_explore: int = 1,
@@ -57,6 +60,11 @@ class DocOrchestrator(ABC):
         self._enable_review_agent = enable_review_agent
         self._review_block_on_fail = review_block_on_fail
         self._review_agent: ReviewAgent | None = ReviewAgent() if enable_review_agent else None
+        self._enable_citation_verifier = enable_citation_verifier
+        self._citation_verifier = (
+            citation_verifier if citation_verifier is not None
+            else (CitationVerifier() if enable_citation_verifier else None)
+        )
         self._enable_crag_gate = enable_crag_gate
         self._crag_coverage_threshold = crag_coverage_threshold
         self._crag_max_re_explore = crag_max_re_explore
@@ -100,6 +108,8 @@ class DocOrchestrator(ABC):
                 has_explore_data=has_explore_data,
             )
 
+        self._pending_quality_flags: list[str] = []
+
         if self._enable_crag_gate and memory:
             crag_result = self._check_crag_coverage(memory, module_names)
             if not crag_result["pass"]:
@@ -109,6 +119,27 @@ class DocOrchestrator(ABC):
                     coverage=crag_result["coverage"],
                     missing=crag_result["missing"],
                 )
+                for _ in range(self._crag_max_re_explore):
+                    gap_modules = self._identify_crag_gap_modules(memory, module_names)
+                    if not gap_modules:
+                        gap_modules = list(crag_result["missing"])
+                    memory = await self._crag_re_explore(memory, gap_modules)
+                    crag_result = self._check_crag_coverage(memory, module_names)
+                    if crag_result["pass"]:
+                        log.info(
+                            "crag_gate_recovered",
+                            name=self._name,
+                            coverage=crag_result["coverage"],
+                        )
+                        break
+                if not crag_result["pass"]:
+                    log.warning(
+                        "crag_gate_still_insufficient",
+                        name=self._name,
+                        coverage=crag_result["coverage"],
+                        missing=crag_result["missing"],
+                    )
+                    self._pending_quality_flags.append("CRAG_WARNING")
 
         topic_plan = None
         if explore_complete:
@@ -119,6 +150,7 @@ class DocOrchestrator(ABC):
                 topic_plan, baseline_context, memory, module_names,
             )
             if pages is not None:
+                self._attach_quality_flags(pages)
                 return pages
 
         content = ""
@@ -145,6 +177,18 @@ class DocOrchestrator(ABC):
                 continue
 
             content = await self._verify_code_blocks(content, memory)
+
+            if self._enable_citation_verifier and self._citation_verifier:
+                citation_result = await self._run_citation_verify(content)
+                heal_instructions = self._citation_heal_instructions(citation_result)
+                if heal_instructions:
+                    log.warning(
+                        "citation_verify_invalid",
+                        name=self._name,
+                        invalid_count=citation_result.invalid_count,
+                    )
+                    content = await self._heal_content(content, heal_instructions)
+                    content = await self._verify_code_blocks(content, memory)
 
             if self._enable_review_agent:
                 review_metadata = {"expected_sections": len(module_names)}
@@ -187,7 +231,25 @@ class DocOrchestrator(ABC):
         if review_quality_flags:
             for page in pages:
                 page.setdefault("quality_flags", []).extend(review_quality_flags)
+        self._attach_quality_flags(pages)
         return pages
+
+    async def _run_citation_verify(self, content: str) -> CitationResult:
+        """Verify source:// citations against the agent graph store."""
+        graph = getattr(self._agent, "_graph", None)
+        assert self._citation_verifier is not None
+        return await self._citation_verifier.verify(content, graph_store=graph)
+
+    @staticmethod
+    def _citation_heal_instructions(result: CitationResult) -> str:
+        if not result.invalid_refs:
+            return ""
+        lines = ["Fix or remove invalid source:// citations:"]
+        for ref in result.invalid_refs:
+            raw = ref.get("raw") or ref.get("path", "")
+            reason = ref.get("reason", "invalid")
+            lines.append(f"- {raw}: {reason}")
+        return "\n".join(lines)
 
     async def _run_review(self, content: str, metadata: dict) -> QualityVerdict | None:
         """Run ReviewAgent checks on generated content."""
@@ -268,6 +330,39 @@ class DocOrchestrator(ABC):
     def _build_focused_prompt(self, uncovered_modules: list[str]) -> str:
         modules_str = ", ".join(uncovered_modules)
         return f"Focus exploration on: {modules_str}"
+
+    def _attach_quality_flags(self, pages: list[dict[str, Any]]) -> None:
+        flags = getattr(self, "_pending_quality_flags", None) or []
+        if not flags:
+            return
+        for page in pages:
+            existing = page.setdefault("quality_flags", [])
+            for flag in flags:
+                if flag not in existing:
+                    existing.append(flag)
+
+    @staticmethod
+    def _identify_crag_gap_modules(memory: Any, module_names: list[str]) -> list[str]:
+        """Modules targeted for generation but absent from memory.relevant_modules."""
+        raw = getattr(memory, "relevant_modules", None) or []
+        memory_modules = set(raw) if not isinstance(raw, set) else raw
+        return [m for m in module_names if m not in memory_modules]
+
+    async def _crag_re_explore(self, memory: Any, gap_modules: list[str]) -> Any:
+        """Focused re-explore for up to 3 gap modules; merge supplemental findings."""
+        focus = gap_modules[:3]
+        if not focus:
+            return memory
+        log.info("crag_re_explore", name=self._name, gap_modules=focus)
+        supplemental = self._agent.create_memory()
+        supplemental = await self._agent.run_tool_loop(
+            self._explore_system_prompt,
+            self._build_focused_prompt(focus),
+            supplemental,
+            config=self._get_explore_config(),
+        )
+        memory.merge(supplemental)
+        return memory
 
     def _check_crag_coverage(self, memory: Any, target_modules: list[str]) -> dict:
         """Check if WorkingMemory covers target modules sufficiently."""

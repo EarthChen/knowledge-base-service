@@ -52,9 +52,13 @@ async def test_agent_exits_early_on_acceptable_quality() -> None:
 
     with (
         patch("core.config.get_settings") as mock_settings,
+        patch("wiki.domain_doc_agent.get_settings") as mock_settings_local,
         patch("wiki.domain_doc_agent.evaluate_quality", return_value=mock_quality) as mock_eval,
     ):
+        wiki_cfg.plan_topics_min_modules = 99
+        wiki_cfg.enable_topic_pages = False
         mock_settings.return_value = MagicMock(wiki=wiki_cfg)
+        mock_settings_local.return_value = MagicMock(wiki=wiki_cfg)
 
         pages = await agent.generate_with_iterations(
             module_names=["ModA", "ModB"],

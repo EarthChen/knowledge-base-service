@@ -1,7 +1,7 @@
 # 待办事项与改进建议
 
 **Created:** 2026-05-24
-**Last Updated:** 2026-05-26 (Wiki 质量修复 v3 — Slug 命名 + DocOrchestrator 统一完成)
+**Last Updated:** 2026-06-01 (Agent 架构改进 Phase 0-4 全部完成)
 
 ---
 
@@ -102,7 +102,7 @@ Graph Explorer 中叠加当前工作区变更的可视化。
 
 ### 0. Wiki 质量修复 v2 — Batch 2.5 关键修复 ✅
 
-Batch 1-2 部署后审计发现核心质量问题被更底层 bug 掩盖。详见 [`specs/2026-05-26-wiki-quality-fix-v2-design.md`](specs/2026-05-26-wiki-quality-fix-v2-design.md) § 11。
+Batch 1-2 部署后审计发现核心质量问题被更底层 bug 掩盖。原 spec 文件已归档。
 
 | # | Fix | 优先级 | 文件 | 状态 |
 |---|-----|--------|------|------|
@@ -114,7 +114,7 @@ Batch 1-2 部署后审计发现核心质量问题被更底层 bug 掩盖。详�
 
 ### 1. Wiki 质量修复 v3 — Slug 命名 + DocOrchestrator 统一 ✅
 
-详见 [`specs/2026-05-26-wiki-quality-fix-v2-design.md`](specs/2026-05-26-wiki-quality-fix-v2-design.md) 和 [`plans/2026-05-26-wiki-quality-fix-v3.md`](plans/2026-05-26-wiki-quality-fix-v3.md)。
+原 spec/plan 文件已归档（已实施并删除）。
 
 | Batch | 内容 | 状态 |
 |-------|------|------|
@@ -145,7 +145,15 @@ Batch 1-2 部署后审计发现核心质量问题被更底层 bug 掩盖。详�
 
 详细审计报告见 [`docs/wiki-quality-audit.md`](../wiki-quality-audit.md)。
 
-关键发现：12 个问题（P0×2, P1×7, P2×3），涵盖 tree linking 失败、域碎片化、中英混排、幻觉内容、前端树交互等。
+- V26 审计完成（V11 部署后），详见 `wiki-quality-audit.md`
+- V12 修复已实施，待 V27 审计验证效果
+- ~~V10/V11 spec~~ 已清理
+
+---
+
+## 八、Agent 架构改进（2026-05-29）— ✅ 全部完成
+
+Phase 0-4 全部完成 (2026-06-01)。相关 spec 和 plan 已清理，完成记录见 [`REMAINING-WORK.md`](../REMAINING-WORK.md) 已完成归档区。
 
 ---
 

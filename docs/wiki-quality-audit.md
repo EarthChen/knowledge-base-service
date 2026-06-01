@@ -253,7 +253,7 @@ __root__ (13 L1)
 | **7** | **代码截断** — ≥6 页未闭合代码块 | 可信度损害 | **F5** |
 | **8** | **H2 格式** — 3 topic 尾随空格 + 4 topic 缺概述节 | 渲染/结构 | **F4** |
 
-> **V12 修复提案:** [`docs/superpowers/specs/2026-05-28-wiki-quality-fix-v12-design.md`](superpowers/specs/2026-05-28-wiki-quality-fix-v12-design.md)
+> **V12 修复提案:** 已实施并归档清理 (2026-06-01)
 
 ---
 

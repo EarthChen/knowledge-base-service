@@ -59,6 +59,18 @@ async def test_remember_low_confidence_rejected():
     assert "confidence" in result.get("error", "")
 
 
+def test_remember_in_collect_tools():
+    from wiki.agents.tool_decorator import collect_tools
+
+    agent = _StubAgent.__new__(_StubAgent)
+    tools = collect_tools(agent)
+    names = {t.name for t in tools}
+    assert "remember" in names
+    remember_tool = next(t for t in tools if t.name == "remember")
+    assert remember_tool.tier == 2
+    assert "long-term memory" in remember_tool.description.lower()
+
+
 def test_restrict_tools():
     agent = _StubAgent.__new__(_StubAgent)
     agent.restrict_tools(["search_entities", "read_code"])

@@ -31,8 +31,8 @@ class TestToolDefinitions:
             assert "Use " in desc, f"{name} description lacks usage guidance"
 
     def test_expected_tool_count(self):
-        """Should have exactly 14 tools (includes delegate_submodule and graph/wiki query tools)."""
-        assert len(_get_tool_schemas()) == 14
+        """Should have exactly 15 tools (includes delegate_submodule, remember, and graph/wiki query tools)."""
+        assert len(_get_tool_schemas()) == 15
 
     def test_tool_names_are_unique(self):
         schemas = _get_tool_schemas()

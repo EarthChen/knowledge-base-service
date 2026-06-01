@@ -32,7 +32,7 @@ Essential context for AI coding agents. Detailed docs live in `docs/`.
 ```bash
 uv sync --extra dev --group dev          # Install dependencies
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8100  # Run server
-uv run pytest                            # Full suite (~3775 tests, -n auto)
+uv run pytest                            # Full suite (~3865 tests, -n auto)
 uv run pytest tests/wiki/agents/ -x      # Specific module
 uv run pytest -k "test_runner" -x        # By keyword
 uv run ruff check .                      # Lint
@@ -85,8 +85,8 @@ pnpm lint             # ESLint
 - **DI container:** `core/container.py` (AppContainer)
 - **API routes:** `api/routes/` (26 route modules)
 - **MCP tools:** `api/mcp_server.py` (22 core) + `api/mcp_wiki_server.py` (6 optional wiki)
-- **Agent framework:** `wiki/agents/` (19 files: GenericAgent, run_agent_loop, @function_tool, guardrails, tracing)
-- **Main agent:** `wiki/page_agent.py` (WikiPageAgent — 14 @function_tool methods)
+- **Agent framework:** `wiki/agents/` (25+ files: GenericAgent, run_agent_loop, @function_tool, guardrails, tracing, token_budget, context_compactor, delegation, review_agent, citation_verifier, memory_promotion)
+- **Main agent:** `wiki/page_agent.py` (WikiPageAgent — 15 @function_tool methods)
 - **Wiki pipeline:** `wiki/pipeline_graph.py` (LangGraph StateGraph definition)
 - **Pipeline nodes:** `wiki/nodes/` (17 files: classify, compose, heal, quality_gate, tour, finalize, etc.)
 - **Pipeline concurrency:** `wiki/pipeline_concurrency.py` (PipelineConcurrency — unified semaphore management)
@@ -114,3 +114,5 @@ pnpm lint             # ESLint
 | [`docs/REMAINING-WORK.md`](docs/REMAINING-WORK.md) | Unified backlog |
 | [`docs/superpowers/TODO.md`](docs/superpowers/TODO.md) | Design proposals & optimization backlog |
 | [`docs/wiki-quality-audit.md`](docs/wiki-quality-audit.md) | Wiki generation quality audit (12 issues, fix priorities) |
+| [`docs/agent-architecture-improvement.md`](docs/agent-architecture-improvement.md) | Agent subsystem: delegation, memory, context management improvement proposals |
+| [`docs/knowledge-base-system-analysis.md`](docs/knowledge-base-system-analysis.md) | Full system analysis: multi-role perspectives, competitor comparison, roadmap |

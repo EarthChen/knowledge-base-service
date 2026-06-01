@@ -28,9 +28,13 @@ class TokenBudgetManager:
         model_context_limit: int = 128_000,
         chars_per_token: float = 3.5,
         reserve_for_output: int = 4_000,
+        compaction_trigger_ratio: float | None = None,
     ):
         self._limit = model_context_limit - reserve_for_output
         self._cpt = chars_per_token
+        self._level_thresholds = dict(self.LEVEL_THRESHOLDS)
+        if compaction_trigger_ratio is not None:
+            self._level_thresholds[3] = compaction_trigger_ratio
 
     def snapshot(self, messages: list[dict]) -> BudgetSnapshot:
         total_chars = sum(len(m.get("content") or "") for m in messages)
@@ -39,8 +43,8 @@ class TokenBudgetManager:
         clearable = self.count_clearable_tool_chars(messages, keep_recent_n=3)
 
         level = 0
-        for lvl in sorted(self.LEVEL_THRESHOLDS):
-            if usage_ratio >= self.LEVEL_THRESHOLDS[lvl]:
+        for lvl in sorted(self._level_thresholds):
+            if usage_ratio >= self._level_thresholds[lvl]:
                 level = lvl
 
         return BudgetSnapshot(

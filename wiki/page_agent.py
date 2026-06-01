@@ -472,6 +472,17 @@ class WorkingMemory(AgentMemory):
 
         self.discovered_entity_uids |= other.discovered_entity_uids
 
+        other_modules = getattr(other, "relevant_modules", None) or set()
+        if other_modules:
+            if isinstance(self.relevant_modules, set):
+                self.relevant_modules |= (
+                    other_modules if isinstance(other_modules, set) else set(other_modules)
+                )
+            else:
+                for mod in other_modules:
+                    if mod not in self.relevant_modules:
+                        self.relevant_modules.append(mod)
+
         self._tool_contributed_chars += other._tool_contributed_chars
 
         self._enforce_limit()

@@ -115,6 +115,8 @@ async def _apply_context_compression(
     """Apply progressive context compression (L0-L4)."""
     snap = budget_mgr.snapshot(messages)
     level = snap.recommended_level
+    if snap.usage_ratio >= config.compaction_trigger_ratio and level < 3:
+        level = 3
     snip_threshold = config.result_truncate_chars if config.result_truncate_chars > 0 else 2000
 
     # L1 needs sufficient clearable content
@@ -224,7 +226,11 @@ async def run_agent_loop(
         ]
         has_nonempty_result = False
         _recent_signatures: list[str] = []
-        budget_mgr = TokenBudgetManager() if config.enable_compaction else None
+        budget_mgr = (
+            TokenBudgetManager(compaction_trigger_ratio=config.compaction_trigger_ratio)
+            if config.enable_compaction
+            else None
+        )
         compactor = (
             ExploreCompactor(llm_port=agent._llm, model=config.compaction_model)
             if config.enable_compaction

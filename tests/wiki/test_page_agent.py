@@ -1199,21 +1199,21 @@ class TestToolTiering:
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
         tools = agent._get_tools_for_round(3, has_empty_results=False)
-        assert len(tools) == 9  # 5 tier-1 + 4 tier-2
+        assert len(tools) == 10  # 5 tier-1 + 5 tier-2
 
     def test_get_tools_round_5_returns_all(self):
         from wiki.page_agent import WikiPageAgent
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
         tools = agent._get_tools_for_round(5, has_empty_results=False)
-        assert len(tools) == 14  # all 14 tools
+        assert len(tools) == 15  # all 15 tools
 
     def test_get_tools_empty_results_unlocks_all(self):
         from wiki.page_agent import WikiPageAgent
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
         tools = agent._get_tools_for_round(1, has_empty_results=True)
-        assert len(tools) == 14  # all 14 tools
+        assert len(tools) == 15  # all 15 tools
 
     def test_get_tools_empty_results_with_prefilled_memory(self):
         """Pre-filled memory should NOT prevent empty-results tool unlock."""
@@ -1228,7 +1228,7 @@ class TestToolTiering:
 
         has_empty = True and memory._tool_contributed_chars == 0
         tools = agent._get_tools_for_round(1, has_empty)
-        assert len(tools) == 14  # all 14 tools
+        assert len(tools) == 15  # all 15 tools
 
 
 class TestExploreGuardrails:

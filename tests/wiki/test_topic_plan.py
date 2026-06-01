@@ -78,3 +78,55 @@ def test_topic_plan_item_slug_auto_generated():
     # Slug should either be empty (accepted) or auto-generated
     # This depends on implementation choice
     assert isinstance(item.slug, str)
+
+
+def test_validate_topic_plan_renames_part_n_title():
+    """Part N titles from LLM output are sanitized before writing."""
+    from wiki.domain_doc_agent import (
+        DomainTopicOutline,
+        OutlineTopicItem,
+        _validate_topic_plan_outline,
+    )
+
+    outline = DomainTopicOutline(
+        should_split=True,
+        topics=[
+            OutlineTopicItem(
+                title="Part 2: Payment Flow",
+                modules=["PaymentService"],
+                description="payments",
+                slug="payment-flow",
+            ),
+        ],
+    )
+    result = _validate_topic_plan_outline(outline)
+    assert result.topics[0].title == "Payment Flow"
+
+
+@pytest.mark.asyncio
+async def test_plan_topics_parse_failure_uses_mechanical_fallback_and_flag():
+    """Unparseable LLM plan falls back to mechanical split with PLAN_PARSE_FAILED."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from wiki.domain_doc_agent import DomainDocAgent
+    from wiki.page_agent import WorkingMemory
+
+    llm = AsyncMock()
+    llm.complete_json = AsyncMock(return_value={"garbage": True})
+    agent = DomainDocAgent(
+        domain_name="big-domain",
+        domain_display_name="Big Domain",
+        llm=llm,
+        graph_store=MagicMock(),
+    )
+    module_names = [f"Mod{i}" for i in range(6)]
+    memory = WorkingMemory()
+
+    with patch("wiki.domain_doc_agent.get_settings") as mock_settings:
+        mock_settings.return_value.wiki.plan_topics_min_modules = 3
+        agent._pending_quality_flags = []
+        outline = await agent._plan_topics(module_names, memory)
+
+    assert outline.should_split is True
+    assert len(outline.topics) > 1
+    assert "PLAN_PARSE_FAILED" in agent._pending_quality_flags

@@ -71,3 +71,17 @@ class TestTokenBudgetManager:
         assert snap.total_chars == 5
         assert snap.estimated_tokens > 0
         assert snap.model_limit > 0
+
+    def test_custom_compaction_trigger_ratio_triggers_l3_earlier(self):
+        mgr = TokenBudgetManager(
+            model_context_limit=10_000,
+            chars_per_token=1.0,
+            reserve_for_output=0,
+            compaction_trigger_ratio=0.60,
+        )
+        # ~65% usage: default L3 (0.75) would be L2; custom 0.60 should reach L3
+        msgs = [{"role": "system", "content": "s"}, {"role": "user", "content": "x" * 6500}]
+        snap = mgr.snapshot(msgs)
+        assert snap.usage_ratio >= 0.60
+        assert snap.usage_ratio < 0.75
+        assert snap.recommended_level >= 3

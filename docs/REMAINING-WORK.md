@@ -1,7 +1,7 @@
 # Remaining Work (Unified Backlog)
 
 **Created:** 2026-05-09  
-**Last Updated:** 2026-05-24  
+**Last Updated:** 2026-06-01  
 **Status:** Active — items checked off when merged
 
 ---
@@ -152,6 +152,11 @@ V10 已将 3 个 LLM provider 升级为 `json_schema + strict`，已迁移 P0/P1
 - [x] Batch AL: P2 安全+性能+前端 ✅ (2026-05-25) — LLM rate limiter 释放锁后 sleep (消除串行化)、/wiki/quick 增加 EDITOR 角色检查、domain 路由 business 绑定校验、pipeline ainvoke 顶层错误边界、前端 useWikiEditSession pageUid 切换重置、test_domain_agent_tier_cap 并发顺序断言修复 (4375+536 tests)
 - [x] Batch AM: 管线性能优化 ✅ (2026-05-25) — 探索轮次 tier-aware (SKELETON 8→2, STANDARD 8→5)、module_compose_concurrency 3→6、FalkorDB thread_pool_size 4→8 并暴露配置 (4379 tests)
 - [x] Batch AN: 管线质量优化 ✅ (2026-05-25) — Mermaid 图基于 module_call_edges 真实调用关系替代线性链、quality_gate → heal_hints 传递至 heal 策略 (4389 tests)
+- [x] Agent 架构 Phase 0 止血 ✅ (2026-06-01) — `is_acceptable` iteration≥3 改为最低 coverage 0.7 + `QUALITY_WARNING`（O-01, O-05）；`_find_recent_boundary` 按 assistant 轮次计数（C-01）；`DocOrchestrator` 默认 `enable_context_trim=True`（C-02, C-05）；`delegation_count` 累加传播（D-03, D-06）；`MemoryLoop.get_relevant_memories` 后 `increment_wiki_qa_access`（M-02, M-06）
+- [x] Agent 架构 Phase 1 上下文压缩 ✅ (2026-06-01) — `TokenBudgetManager` 五档阈值、`ExploreCompactor` L0–L4、`run_agent_loop` compaction 集成、`ContextManager` 边界修复
+- [x] Agent 架构 Phase 2 委托与记忆 ✅ (2026-06-01) — `DelegationConfig`/`execute_delegation` 统一委托；`AgentMemory` ABC + `MemoryBackend` 协议；`GenericAgent.remember()` 方法；`delegate_submodule` 迁移至 `execute_delegation`；`handoff.py`/`agent_tool.py` 弃用并转发至 delegation
+- [x] Agent 架构 Phase 3 质量闭环 ✅ (2026-06-01) — `ReviewAgent` 补齐 `_check_hallucination_flags` + `_check_citation_density`（Q-01）；CRAG gate 接入 focused re-explore（Q-02）；`TopicPlan` 接入 `_validate_topic_plan_outline` 管线校验（Q-03）；`CitationVerifier` 接入 DocOrchestrator write 路径（Q-04）
+- [x] Agent 架构 Phase 4 高级功能 ✅ (2026-06-01) — `handoff.py`/`agent_tool.py` 删除完成代码清理（Q-05）；`TierPromoter` 实时晋升接入 `get_relevant_memories`（Q-06）；`remember` 注册为 `@function_tool`（Q-07）；`compaction_trigger_ratio` 接入 `TokenBudgetManager` 和 `run_agent_loop`（Q-08）
 
 ---
 

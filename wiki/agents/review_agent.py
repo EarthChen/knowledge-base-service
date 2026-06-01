@@ -5,8 +5,11 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from core.log import get_logger
+from wiki.content_guards import detect_hallucination_flags
 
 log = get_logger(__name__)
+
+_SOURCE_REF_RE = re.compile(r"source://")
 
 
 @dataclass
@@ -36,6 +39,8 @@ class ReviewAgent:
             self._check_structure(content, metadata),
             self._check_topic_naming(content),
             self._check_code_blocks(content),
+            self._check_hallucination_flags(content),
+            self._check_citation_density(content, metadata),
         ]
         all_issues = []
         for result in checks:
@@ -109,6 +114,36 @@ class ReviewAgent:
                 )
             )
         return issues
+
+    def _check_hallucination_flags(self, content: str) -> list[QualityIssue]:
+        flags = detect_hallucination_flags(content)
+        return [
+            QualityIssue(
+                category="hallucination",
+                severity="error",
+                description=f"Hallucination flag detected: {flag}",
+            )
+            for flag in flags
+        ]
+
+    def _check_citation_density(self, content: str, _metadata: dict) -> list[QualityIssue]:
+        word_count = len(content.split())
+        if word_count == 0:
+            return []
+        ref_count = len(_SOURCE_REF_RE.findall(content))
+        required = (word_count + 499) // 500
+        if ref_count >= required:
+            return []
+        return [
+            QualityIssue(
+                category="citation",
+                severity="warning",
+                description=(
+                    f"Insufficient source:// citations: {ref_count} found, "
+                    f"{required} required for {word_count} words (1 per 500 words)"
+                ),
+            )
+        ]
 
     def _aggregate(self, issues: list[QualityIssue]) -> QualityVerdict:
         has_error = any(i.severity == "error" for i in issues)

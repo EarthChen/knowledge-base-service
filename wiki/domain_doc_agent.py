@@ -72,6 +72,48 @@ class TopicPlan(BaseModel):
     items: list[TopicPlanItem] = []
 
 
+_PART_N_TITLE_PREFIX = re.compile(r"(?i)^(?:part\s*\d+\s*[:：\-]?\s*|第\s*\d+\s*部分\s*[:：\-]?\s*)")
+
+
+def _strip_part_n_title(title: str) -> str:
+    """Remove mechanical Part N / 第N部分 prefix from a topic title."""
+    stripped = _PART_N_TITLE_PREFIX.sub("", title.strip()).strip()
+    return stripped or title
+
+
+def _validate_topic_plan_outline(outline: DomainTopicOutline) -> DomainTopicOutline:
+    """Validate topic titles via TopicPlanItem; rename Part N patterns in-place."""
+    from pydantic import ValidationError
+
+    sanitized: list[OutlineTopicItem] = []
+    for topic in outline.topics:
+        slug = topic.slug or _derive_slug_from_modules(topic.modules)
+        try:
+            TopicPlanItem(
+                title=topic.title,
+                slug=slug,
+                module_names=topic.modules,
+                description=topic.description,
+            )
+            sanitized.append(topic)
+        except ValidationError:
+            new_title = _strip_part_n_title(topic.title)
+            log.warning(
+                "topic_plan_part_n_renamed",
+                original=topic.title,
+                renamed=new_title,
+            )
+            sanitized.append(
+                OutlineTopicItem(
+                    title=new_title,
+                    modules=list(topic.modules),
+                    description=topic.description,
+                    slug=topic.slug,
+                )
+            )
+    return DomainTopicOutline(should_split=outline.should_split, topics=sanitized)
+
+
 @dataclass
 class OutlineTopicItem:
     title: str
@@ -878,6 +920,7 @@ class DomainDocAgent(DocOrchestrator):
             for page in pages:
                 page["covered_entity_uids"] = entity_uids
 
+        self._attach_quality_flags(pages)
         return pages
 
     def get_phase_timeout(self, phase: str) -> float | None:
@@ -1023,8 +1066,18 @@ class DomainDocAgent(DocOrchestrator):
                 used_slugs=getattr(self, "_global_topic_slugs", None),
             )
             if outline:
+                outline = _validate_topic_plan_outline(outline)
                 log.info("plan_topics_success", domain=self.domain_name, topics=len(outline.topics))
                 return outline
+            log.warning("plan_topics_parse_failed", domain=self.domain_name)
+            fallback = self._build_mechanical_topic_split(module_names)
+            if fallback:
+                flags = getattr(self, "_pending_quality_flags", None)
+                if flags is None:
+                    self._pending_quality_flags = []
+                    flags = self._pending_quality_flags
+                flags.append("PLAN_PARSE_FAILED")
+                return fallback
         except Exception:
             log.warning("plan_topics_failed", domain=self.domain_name, exc_info=True)
 

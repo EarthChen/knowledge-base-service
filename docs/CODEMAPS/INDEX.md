@@ -1,6 +1,6 @@
 # 代码地图索引（Code Map）
 
-**最后更新：** 2026-05-20  
+**最后更新：** 2026-06-01  
 **仓库：** `knowledge-base-service`（FastAPI + React/Vite + FalkorDB）
 
 本页是后端与仪表盘的**结构性入口索引**：按分层列出启动点、目录树要点、Wiki 子系统、前端区域、阶段性能力模块与相关文档链接。实现细节仍以源码与专题文档为准。
@@ -125,21 +125,28 @@ utils/                        # 通用工具（含 git 等）
 
 ## Agent 框架（`wiki/agents/` 包）
 
-Agent 框架采用 **OpenAI Agents SDK 启发** 的分层设计：Agent 身份（工具、提示词）与执行控制（LoopConfig、Hooks）分离。
+Agent 框架采用 **OpenAI Agents SDK 启发** 的分层设计：Agent 身份（工具、提示词）与执行控制（LoopConfig、Hooks）分离。2026-05 下旬起新增上下文压缩（L0–L4）、委托执行、ReviewAgent 质量门与记忆 tier 提升等模块。
 
 ### 核心组件
 
 | 文件 | 类/函数 | 职责 |
 |------|---------|------|
-| **`base_agent.py`** | `GenericAgent`、`ToolRegistry`、`ToolDef`、`RunConfig` | Agent 基类：LLM + 工具注册表 + 内存管理 |
-| **`runner.py`** | `run_agent_loop()`、`LoopConfig`、`LoopHooks`、`AgentLoopResult` | **统一执行引擎**：所有 tool loop 最终委托至此函数 |
+| **`base_agent.py`** | `GenericAgent`、`ToolRegistry`、`ToolDef`、`RunConfig` | Agent 基类：LLM + 工具注册表 + 内存；`remember()` 写入工作记忆；`restrict_tools()` 限制子轮次可用工具 |
+| **`runner.py`** | `run_agent_loop()`、`LoopConfig`、`LoopHooks`、`AgentLoopResult` | **统一执行引擎**：含 `_apply_context_compression()` 渐进压缩管线（L0–L4）；`LoopConfig` 扩展 compaction/trim 等字段 |
+| **`token_budget.py`** | `TokenBudgetManager`、`BudgetSnapshot` | 五档压缩阈值评估，驱动 L1–L4 压缩级别选择 |
+| **`context_compactor.py`** | `ExploreCompactor`、`micro_compact`、`snip_compact` | L1 micro-compact、L2 snip-compact、L3 九段 LLM 摘要压缩 |
+| **`delegation.py`** | `DelegationMode`、`DelegationConfig`、`DelegationResult`、`execute_delegation()` | 子 Agent 委托执行（深度/工具限制；替代 handoff/agent_tool） |
+| **`review_agent.py`** | `ReviewAgent`、`QualityVerdict`、`QualityIssue` | 生成内容结构质量检查 |
+| **`citation_verifier.py`** | `CitationVerifier` | `source://` 引用溯源校验 |
+| **`memory_promotion.py`** | `TierPromoter` | 工作记忆实时 tier 提升（部分接入流水线） |
+| **`doc_orchestrator.py`** | `DocOrchestrator`、`QualityResult` | Template Method 文档编排：集成 `ReviewAgent`、可选 CRAG 覆盖率门、`enable_context_trim=True` 默认探索配置 |
 | **`tool_decorator.py`** | `@function_tool` | 从函数签名自动生成 ToolDef 并注册 |
-| **`agent_tool.py`** | `agent_tool()` | 将子 Agent 包装为 ToolDef（Agent-as-Tool 组合模式） |
+| **`agent_tool.py`** | `agent_tool()` | **已弃用**：转发至 `delegation.execute_delegation`（原 Agent-as-Tool 包装） |
 | **`context.py`** | `RunContext`、`WikiDeps` | 每次运行的类型化 DI 上下文 |
 | **`guardrails.py`** | `InputGuardrail`、`OutputGuardrail`、`PromptLengthGuardrail` | LLM 调用前后的护栏检查 |
 | **`tracing.py`** | `AgentTracer`、`Span`、`JsonlTraceProcessor` | 可观测性 Span 记录 |
-| **`handoff.py`** | `HandoffConfig`、`execute_handoff()` | 子 Agent 委托（深度/数量限制） |
-| **`memory.py`** | `Memory` | Agent 工作内存基类 |
+| **`handoff.py`** | `HandoffConfig`、`execute_handoff()` | **已弃用**：转发至 `delegation.execute_delegation` |
+| **`memory.py`** | `AgentMemory`、`MemoryBackend` | Agent 工作内存抽象（ABC + Protocol），替代旧 `Memory` 基类 |
 | **`events.py`** | `ToolCallEvent`、`ContentEvent`、`DoneEvent` 等 | SSE/流式事件类型 |
 
 ### Agent 类继承关系
@@ -159,6 +166,15 @@ DocOrchestrator (ABC, Template Method)
 └── ResearchOrchestrator   — 分解 → N×探索 → 综合
 ```
 
+### 关联 Wiki Agent 模块（`wiki/` 根目录）
+
+| 文件 | 要点 |
+|------|------|
+| **`page_agent.py`** | `WikiPageAgent`：`WorkingMemory` 实现 `AgentMemory`；`delegate_submodule` 经 `execute_delegation` 委托子模块探索 |
+| **`domain_doc_agent.py`** | `DomainDocAgent`：`is_acceptable` 阈值 0.7；`TopicPlan` / `TopicPlanItem` Pydantic 模型 |
+| **`context_manager.py`** | 对话历史裁剪：`_find_recent_boundary` 按 assistant 轮次计数保留近期消息 |
+| **`memory_loop.py`** | Q&A 记忆闭环：调用 `increment_wiki_qa_access` 跟踪访问以驱动 tier 提升 |
+
 ### 执行流程
 
 ```
@@ -171,9 +187,13 @@ DocOrchestrator (ABC, Template Method)
         │   ├─ Repeated call detection (hash-based)
         │   ├─ Tool dispatch + incorporate
         │   ├─ Early stop check
-        │   └─ Context trim (if enabled)
+        │   ├─ _apply_context_compression() (L0–L4, if enable_compaction)
+        │   └─ Context trim (if enable_context_trim)
         ├─ LoopHooks.on_loop_complete()
         └─ Output guardrails
+
+DocOrchestrator.generate()
+  └─ explore (run_tool_loop + compaction/trim) → write → ReviewAgent → CRAG gate (optional) → evaluate
 ```
 
 ### 工具层级激活

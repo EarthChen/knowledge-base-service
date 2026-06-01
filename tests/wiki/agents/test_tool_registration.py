@@ -15,6 +15,7 @@ class TestWikiPageAgentToolRegistration:
             "query_domain_dependencies", "read_code", "read_file",
             "search_entities", "read_wiki_page", "semantic_search",
             "list_files", "grep_code", "delegate_submodule",
+            "remember",
         }
         assert names == expected_tools
 

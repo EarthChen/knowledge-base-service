@@ -49,6 +49,10 @@ class WikiMemoryStoreMixin:
         q = f"MATCH (q:WikiQA {{uid: $uid}}) SET {', '.join(sets)}"
         await self._store.execute_query(q, params)
 
+    async def update_memory_tier(self, *, uid: str, tier: int) -> None:
+        """Set tier on a WikiQA node (used by TierPromoter)."""
+        await self.update_wiki_qa_memory(uid=uid, tier=tier)
+
     async def increment_wiki_qa_access(self, *, uid: str, at_iso: str) -> None:
         """Increment ``access_count`` and set ``last_accessed`` (ISO UTC)."""
         cypher = (

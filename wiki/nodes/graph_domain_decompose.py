@@ -1041,35 +1041,66 @@ def _dedup_parallel_naming_results(
     results: list[dict],
     existing_slugs: list[str],
 ) -> list[dict]:
-    """Deduplicate slugs after parallel LLM naming."""
-    seen: set[str] = set(existing_slugs)
+    """Deduplicate slugs after parallel LLM naming — merge-first strategy."""
+    if not results:
+        return results
+
+    # Pass 1: Merge exact slug duplicates
+    by_slug: dict[str, dict] = {}
     for result in results:
         slug = result["slug"]
-        if slug in seen:
-            modules = result.get("modules", [])
-            suffix = ""
-            if modules:
-                short_names = [str(m).rsplit(".", 1)[-1][:12] for m in modules[:2]]
-                suffix = normalize_slug("-".join(short_names))
-            if not suffix or suffix == "unnamed":
-                counter = 2
-                while f"{slug}-{counter}" in seen:
-                    counter += 1
-                new_slug = f"{slug}-{counter}"
+        if slug in by_slug:
+            by_slug[slug]["modules"] = list(by_slug[slug].get("modules", [])) + list(result.get("modules", []))
+        else:
+            by_slug[slug] = dict(result)
+    merged = list(by_slug.values())
+
+    # Pass 2: Merge stem-suffix pairs (e.g., "foo" absorbs "foo-service", "foo-system")
+    # Skip numeric suffixes (-2, -3) which are disambiguation markers, not semantic extensions
+    _NUMERIC_SUFFIX_RE = re.compile(r"-\d+$")
+    slugs_sorted = sorted(by_slug.keys(), key=len)
+    merge_map: dict[str, str] = {}
+    for i, shorter in enumerate(slugs_sorted):
+        for longer in slugs_sorted[i + 1 :]:
+            if longer.startswith(shorter + "-") and longer not in merge_map:
+                suffix = longer[len(shorter) + 1 :]
+                if _NUMERIC_SUFFIX_RE.match("-" + suffix):
+                    continue
+                merge_map[longer] = shorter
+
+    if merge_map:
+        final_merged: dict[str, dict] = {}
+        for entry in merged:
+            slug = entry["slug"]
+            target = merge_map.get(slug, slug)
+            if target in final_merged:
+                final_merged[target]["modules"] = list(final_merged[target].get("modules", [])) + list(
+                    entry.get("modules", [])
+                )
             else:
-                new_slug = f"{slug}-{suffix}"
-                counter = 0
-                base = new_slug
-                while new_slug in seen:
-                    counter += 1
-                    new_slug = f"{base}-{counter}"
+                if target != slug:
+                    entry["slug"] = target
+                final_merged[target] = entry
+        merged = list(final_merged.values())
+
+    # Pass 3: Resolve collisions with existing_slugs
+    seen: set[str] = set(existing_slugs)
+    for entry in merged:
+        slug = entry["slug"]
+        if slug in seen:
+            counter = 2
+            while f"{slug}-{counter}" in seen:
+                counter += 1
+            new_slug = f"{slug}-{counter}"
             log.warning("slug_collision_resolved", original=slug, resolved=new_slug)
-            result["slug"] = new_slug
-        seen.add(result["slug"])
-    for result in results:
-        result["slug"] = _dedupe_slug_segments(result["slug"])
-        _fix_low_quality_slug(result)
-    return results
+            entry["slug"] = new_slug
+        seen.add(entry["slug"])
+
+    # Final cleanup
+    for entry in merged:
+        entry["slug"] = _dedupe_slug_segments(entry["slug"])
+        _fix_low_quality_slug(entry)
+    return merged
 
 
 def _merge_sub_domain_entries(primary: dict, secondary: dict) -> None:
@@ -1783,7 +1814,8 @@ async def graph_driven_domain_decompose_node(
         )
 
         # --- Step 3: LLM Naming with module_infos (parallelized) ---
-        namer = GraphDomainNamer(llm)
+        project_docs = configurable.get("project_docs", [])
+        namer = GraphDomainNamer(llm, project_docs=project_docs)
         shared_used_names: list[str] = []
 
         async def _name_community(community: set[tuple[str, str]]) -> dict[str, Any]:
@@ -2175,21 +2207,27 @@ async def graph_driven_domain_decompose_node(
                     "children": children,
                 }
 
+            def _cluster_from_module_keys(module_keys: list[str]) -> set[tuple[str, str]]:
+                cluster: set[tuple[str, str]] = set()
+                for key in module_keys:
+                    repo_id, mod_name = key.split(".", 1)
+                    cluster.add((repo_id, mod_name))
+                return cluster
+
             named_subs: list[dict] = []
-            if len(deduped_results) > 1:
-                sub_tasks = [
-                    _build_named_sub(sub_naming, sub_cluster)
-                    for sub_naming, sub_cluster in zip(deduped_results, valid_clusters, strict=True)
-                ]
+            sub_tasks = [
+                _build_named_sub(sub_naming, _cluster_from_module_keys(sub_naming.get("modules", [])))
+                for sub_naming in deduped_results
+            ]
+            if len(sub_tasks) > 1:
                 sub_results = await asyncio.gather(*sub_tasks, return_exceptions=True)
                 for sub_result in sub_results:
                     if isinstance(sub_result, dict):
                         named_subs.append(sub_result)
                     elif isinstance(sub_result, BaseException):
                         log.warning("sub_domain_recursive_split_failed", exc_info=sub_result)
-            else:
-                for sub_naming, sub_cluster in zip(deduped_results, valid_clusters, strict=True):
-                    named_subs.append(await _build_named_sub(sub_naming, sub_cluster))
+            elif sub_tasks:
+                named_subs.append(await sub_tasks[0])
 
             named_subs = _dedup_sub_domains(
                 named_subs,

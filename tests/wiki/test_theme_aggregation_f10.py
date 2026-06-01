@@ -142,6 +142,7 @@ def _mock_wiki_settings(*, theme_aggregation_min_domains: int = 5):
     wiki.infrastructure_slug_keywords = []
     wiki.domain_budget_max = 50
     wiki.term_overrides = {}
+    wiki.enable_domain_tree_review = False
     settings = MagicMock()
     settings.wiki = wiki
     return settings

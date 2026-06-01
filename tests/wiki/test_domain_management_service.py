@@ -21,6 +21,7 @@ def mock_wiki_store():
     store.add_has_child_edge = AsyncMock()
     store.upsert_wiki_section = AsyncMock()
     store.update_module_business_domain = AsyncMock(return_value=True)
+    store.update_descendant_pages_business_domain = AsyncMock(return_value=3)
     store.execute_query = AsyncMock(return_value=MagicMock(data=[]))
     return store
 
@@ -136,6 +137,9 @@ class TestMergeDomains:
         mock_wiki_store.reparent_children.assert_called_once()
         mock_wiki_store.delete_wiki_section_cascade.assert_called_once_with(
             _sec("source"), "business_domain",
+        )
+        mock_wiki_store.update_descendant_pages_business_domain.assert_called_once_with(
+            _sec("target"), "target", "business_domain",
         )
 
     @pytest.mark.asyncio

@@ -245,6 +245,21 @@ class WikiTreeStoreMixin:
         rows = getattr(result, "data", None) or []
         return bool(rows)
 
+    async def update_descendant_pages_business_domain(
+        self, section_uid: str, new_domain: str, view_type: str = "business_domain",
+    ) -> int:
+        """Update business_domain on all WikiPage nodes under a section."""
+        q = (
+            "MATCH (s {uid: $uid})-[:HAS_CHILD*1.. {view_type: $vt}]->(wp:WikiPage) "
+            "SET wp.business_domain = $domain "
+            "RETURN count(wp) AS cnt"
+        )
+        result = await self._store.execute_query(
+            q, {"uid": section_uid, "domain": new_domain, "vt": view_type},
+        )
+        rows = getattr(result, "data", None) or []
+        return int(rows[0].get("cnt", 0)) if rows else 0
+
     async def add_wiki_reference_edge(
         self,
         source_uid: str,

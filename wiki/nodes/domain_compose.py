@@ -432,6 +432,12 @@ async def compose_domain_agents_node(
                             baseline = baseline + "\n\n" + flow_text
                     except Exception:
                         log.warning("domain_flow_baseline_failed", domain=domain_slug, exc_info=True)
+                project_docs = configurable.get("project_docs")
+                if project_docs:
+                    from wiki.project_doc_provider import format_for_page_agent
+
+                    baseline = format_for_page_agent(project_docs) + "\n\n" + baseline
+
                 await acquire_llm_quota(config, estimated_tokens=4000)
                 outer_timeout = get_settings().wiki.domain_agent_timeout_sec
                 result = await asyncio.wait_for(

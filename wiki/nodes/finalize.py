@@ -532,18 +532,42 @@ def _title_with_suffix(base: str, *parts: str) -> str:
     return _truncate_title(f"{base}（{'·'.join(suffix_parts)}）")
 
 
+_GENERIC_H2_TITLES = frozenset({
+    "概述", "总结", "简介", "背景", "参考", "引用",
+    "Overview", "Summary", "Introduction", "Background", "References",
+})
+
+
+def _extract_first_h2_theme(page: dict) -> str:
+    """Extract the first non-generic H2 heading as a thematic label."""
+    content = page.get("content", "")
+    if not content:
+        return ""
+
+    in_fence = False
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if line.startswith("## "):
+            title = line[3:].strip()
+            if title and title not in _GENERIC_H2_TITLES:
+                return title
+
+    return ""
+
+
 def _disambiguation_parts(page: dict, *, level: int, seq: int) -> tuple[str, ...]:
-    domain = _page_domain(page)
-    page_type = _page_type_label(page)
+    h2_theme = _extract_first_h2_theme(page)
     if level == 0:
-        return (domain,) if domain else ()
+        return (h2_theme,) if h2_theme else ()
     if level == 1:
-        parts = [part for part in (domain, page_type) if part]
-        return tuple(parts)
-    numbered = [part for part in (domain, page_type, str(seq)) if part]
-    if numbered:
-        return tuple(numbered)
-    return (str(seq),)
+        return (str(seq),)
+    parts = [part for part in (h2_theme, str(seq)) if part]
+    return tuple(parts) if parts else (str(seq),)
 
 
 def _candidate_titles_for_group(pages: list[dict], base_title: str, *, level: int) -> list[str]:
@@ -782,6 +806,18 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                     quality_flags=page_quality_flags,
                 )
 
+            reject_threshold = _get_overview_reject_threshold()
+            reject_hard_min = reject_threshold // 4
+            if is_overview and not is_topic_index and len(content) < reject_hard_min:
+                log.warning(
+                    "shell_domain_rejected",
+                    page_path=page.get("path"),
+                    content_len=len(content),
+                    threshold=reject_hard_min,
+                )
+                updated_pages.append({**page, "content": "", "__rejected__": True})
+                continue
+
             threshold = _get_skeleton_threshold(page.get("page_type", ""))
             if (is_overview or is_topic) and len(content) < threshold and not is_topic_index:
                 lang = page.get("content_language", "")
@@ -795,17 +831,6 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                     content_len=len(content),
                 )
                 content = banner + content
-
-            reject_threshold = _get_overview_reject_threshold()
-            if is_overview and not is_topic_index and len(content) < reject_threshold:
-                log.warning(
-                    "shell_domain_rejected",
-                    page_path=page.get("path"),
-                    content_len=len(content),
-                    threshold=reject_threshold,
-                )
-                updated_pages.append({**page, "content": "", "__rejected__": True})
-                continue
 
             if is_topic and not is_topic_index:
                 from core.config import get_settings

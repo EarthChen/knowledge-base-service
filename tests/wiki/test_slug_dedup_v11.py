@@ -70,8 +70,8 @@ class TestDedupParallelNamingSemanticSuffix:
         )
         assert deduped[0]["slug"] != "closed-friend-closed-friend"
 
-    def test_ultronult_repeated_segment_fixed(self) -> None:
-        """Real-world: ultronult slug with ultronult module suffix."""
+    def test_ultronult_collision_with_existing_uses_numeric(self) -> None:
+        """Real-world: slug colliding with existing_slugs gets numeric suffix."""
         results = [
             {
                 "slug": "ultronult",
@@ -83,4 +83,4 @@ class TestDedupParallelNamingSemanticSuffix:
             results,
             existing_slugs=["ultronult"],
         )
-        assert deduped[0]["slug"] == "ultronult"
+        assert deduped[0]["slug"] == "ultronult-2"

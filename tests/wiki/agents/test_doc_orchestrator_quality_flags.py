@@ -93,7 +93,11 @@ class TestQualityGateForcedLowQuality:
 
         long_content = (
             "## 概述\n\n"
-            + ("这是一段足够长的中文内容。" * 200)
+            + ("这是一段足够长的中文内容。" * 80)
+            + "\n\n## 核心逻辑\n\n"
+            + ("这是第二部分的中文内容。" * 80)
+            + "\n\n## 使用示例\n\n"
+            + ("这是第三部分的中文内容。" * 40)
             + "\n\n```java\npublic class Example {}\n```\n"
         )
         state = {

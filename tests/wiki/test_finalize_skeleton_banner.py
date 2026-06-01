@@ -14,7 +14,7 @@ class TestSkeletonBannerInjection:
         """Page < 2000 chars but > 500 chars (after banner) gets warning banner prepended."""
         from wiki.nodes.finalize import finalize_node
 
-        filler = "该模块负责处理用户之间的社交关系操作与关系数据服务，是平台社交能力的核心支撑。" * 6
+        filler = "该模块负责处理用户之间的社交关系操作与关系数据服务，是平台社交能力的核心支撑。" * 12
         short_content = f"## 概述\n\n{filler}\n\n## 核心业务流程\n\n{filler}"
         state = {
             "pages": [

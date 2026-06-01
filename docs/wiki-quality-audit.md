@@ -21,240 +21,16 @@
 | V25 | 05-28 | 30 | 22 | 8 | 域数回升 22、代码级根因追踪 | 覆盖率 9%、壳域 4、slug 重复、错挂 |
 | **V26** | **05-28** | **50** | **17** | **33** | **V11全量部署：覆盖率9%→76.5%，cn_ratio/slug修复** | **Part N命名66.7%、stub 2、错挂2、壳域3** |
 | **V27** | **06-01** | **50** | **19** | **31** | **V12部署：Part N 66.7%→9.7%，stub清零，重复标题清零** | **compound title 35.5%、5域无topic、跨域错挂2+4** |
+| **V28** | **06-01** | **73** | **28** | **45** | **V13部署：Part N清零，compound key清零，幻觉/stub/thin清零** | **compound serial 40%、11域无topic(60.7%)、域重复×2、跨域错挂2** |
 
-### V8/V9 已部署修复效果
+### 已部署修复累积效果 (V8→V13)
 
-| Fix | 修复项 | 状态 | V25 效果 |
-|-----|--------|------|----------|
-| F1 | `content_guards.py` SSoT 统一规则源 | ✅ | 有效 |
-| F5 | `strip_h1_title` | ✅ | H1 泄漏 54%→6%（壳域回潮 18%） |
-| F6 | `META_H2_PATTERNS` | ✅ | 元章节 H2 39%→0% |
-| F7 | `quality_gate` 集成 content_guards | ✅ | 有效 |
-| F8 | `finalize` 集成 content_guards | ✅ | 有效（被 tree_linker 绕过） |
-| F11 | Topic slug 英文强制 | ⚠ | 域 slug 全规范；topic slug 仍为模块名 |
-| F13 | 嵌入文本 infra 频率过滤 | ❌ | 未实现 |
-
----
-
-## V25 审计（2026-05-28）— 全量多维审计 + 代码级根因追踪
-
-**数据源:** 开发机 FalkorDB `kb_ultron` 图 (`--repo ultron --full-content`, 247KB)
-**审计方法:** 3 专项 subagent 多维审计 + 4 专项 subagent 代码级根因追踪
-**数据文件:** `data/wiki-audit-v25.json`
-
-### V25 核心指标
-
-| 指标 | V23 | V25 (当前) | 变化 | 说明 |
-|------|-----|------------|------|------|
-| 有效页面数 | 23 | **30** | +30% | 域数回升 |
-| domain_overview | 17 | **22** | +29% | |
-| topic 页面 | 6 | **8** | +33% | |
-| 域数 | 17 | **22** | +29% | |
-| 有 topic 的域 | 3 (18%) | **2 (9%)** | ❌ -9pp | 覆盖率继续下降 |
-| 无 topic 的域 | 14 (82%) | **20 (91%)** | ❌ | |
-| 幻觉内容 | 0 | **1 页** | ⚠ | data-type-conversion (fabricated_sla) |
-| 壳域(< 200 字) | 1 | **4** | ❌ 恶化 | intimacy-system/relations, user-profile/basic-info |
-| H1 标题泄漏 | 1/17 (6%) | **4/22 (18%)** | ❌ 壳域回潮 | tree_linker 模板硬编码 `# {slug}` |
-| 低 cn 页(<0.25) | 4 | **6** | ⚠ | relation-service cn=0.10 极端 |
-| 空代码块 | 4/17 (24%) | **3/22 (14%)** | ✅ 略降 | im-message-send, member-statistics, relation-service |
-| 重复标题 | 0 | **1** | 🆕 | 「用户资料与权益」跨 overview/topic |
-| 重复 segment slug | 0 | **2** | 🆕 P0 | `ultronult-ultronult` + `closed-friend-closed-friend` |
-| 错误挂载 | 1 | **2** | 🆕 | family-task→intimacy, data-type→intimacy |
-
-### V25 多维评分
-
-| 维度 | V23 | V25 | 变化 | 说明 |
-|------|-----|-----|------|------|
-| Overview 页面质量 | 8.0/10 | **6.2/10** | -1.8 ❌ | 壳域 4 页、代码堆叠(cn=10%)、双重fence |
-| Topic 内容质量 | 5.5/10 | **5.8/10** | +0.3 | 单页质量尚可；空 Mermaid 1 页 |
-| 域分解合理性 | 6.5/10 | **5.2/10** | -1.3 ❌ | slug 重复、错挂 2 处、挚友未独立表达 |
-| 内容真实性 | 9.5/10 | **8.5/10** | -1.0 | 1 页 SLA 幻觉 |
-| 语言一致性 | 7.5/10 | **6.0/10** | -1.5 ❌ | 6 页 cn<0.25；overview 无门禁 |
-| Slug/Path 规范性 | 7.0/10 | **5.0/10** | -2.0 ❌ | 2 域 slug 重复段；topic slug 全为模块名 |
-| 代码块完整性 | 5.0/10 | **5.5/10** | +0.5 | 比例下降但仍存在 |
-| 导航完整性(Topic覆盖) | 4.5/10 | **2.5/10** | -2.0 ❌ | 91% 域无 topic |
-| **综合** | **6.7/10** | **5.6/10** | **-1.1** | 域数回升但结构质量全面恶化 |
-
-### V25 P0 问题清单（含代码级根因）
-
-| # | 问题 | 根因代码位置 | 机制 |
-|---|------|-------------|------|
-| **1** | **Topic 覆盖率 9%** | `agent_prompts.py:314` prompt "≤5→不拆分" + `domain_doc_agent.py:666` mechanical chunk_size=5 需 ≥8 模块 | 三重门槛叠加：min_modules=3 + LLM ≤5 拒绝 + force_split 实际需 ≥8 |
-| **2** | **4 壳域绕过 finalize** | `tree_linker.py:775-814` 在管线结束后用静态模板覆写并直接 persist | finalize reject 后 tree_linker 二次写入"复活" |
-| **3** | **slug 重复段** | `graph_domain_decompose.py:678-688` 语义 suffix 无 uniqueness 检查 | dedup suffix 盲 append，不检查 `new_slug in seen` |
-| **4** | **family-task 错挂 intimacy** | HAC 聚类语义接近 + `_review_subdomain_placement` 仅 1 条规则 | 无 DomainAnchor 保护 + placement 仅 warning |
-| **5** | **data-type-conversion 错挂** | `infrastructure_slug_keywords` 不含 conversion/type + 4 模块越过 ≤3 阈值 | infra 过滤条件过窄 |
-| **6** | **Overview 无 cn_ratio 门禁** | `quality_gate.py:281` / `finalize.py:457` / `heal.py:62` 均 `if page_type=="topic"` | 设计性缺失，非遗漏 |
-| **7** | **relation-service 代码堆叠** | 13846字 cn=10%，无 overview 代码量上限 | Agent "过度引用"代码 + 无防护 |
-| **8** | **DomainAnchor 未接入** | V24 P0-4 遗留 | 全量重聚类无业务线保护 |
-
-### V25 根因深度分析
-
-#### 根因 1：tree_linker 壳域 bypass（P0-2）
-
-**时序问题 — tree_linker 在 finalize 之后执行：**
-```
-LangGraph pipeline: compose → quality_gate → heal → finalize → [结束]
-  ↓ 管线结束后
-business_pipeline_runner.py:728 → _persist_pages (仅管线内页面)
-  ↓
-business_pipeline_runner.py:884 → link_pages_to_nested_tree()
-  ↓
-tree_linker.py:762 → 检测无 Agent overview（因 finalize 已 reject）
-tree_linker.py:775-779 → existing_content ≤500 → _build_domain_overview_content()
-tree_linker.py:647-712 → 静态模板："# {slug}\n## 子域概览\n- **child** (N模块)"
-tree_linker.py:810-814 → persist_pages_to_graph() ← 绕过 finalize/quality_gate
-```
-
-**双重 bypass 循环：** finalize reject 壳域 → tree_linker 认为"无 Agent overview" → 重新生成并落库
-
-#### 根因 2：slug 重复 segment（P0-3）
-
-**`_dedup_parallel_naming_results` (graph_domain_decompose.py:666-690) 逻辑缺陷：**
-- 数字 suffix 分支有 `while f"{slug}-{counter}" in seen` 循环 ✅
-- 语义 suffix 分支**直接 append，无 uniqueness 检查** ❌
-- 当 suffix 与 slug 尾部相同时（如 slug=`...-closed-friend`, suffix=`closed-friend`）→ 重复
-
-**`ultronult` 来源：** 模块名 `ultronult*`（repo `ultron` + 包名 `ult` 粘连）经 `str(module).rsplit(".",1)[-1][:12]` 截取后保留
-
-#### 根因 3：Topic 覆盖率三重门槛（P0-1）
-
-| 门槛 | 位置 | 效果 |
-|------|------|------|
-| `plan_topics_min_modules=3` | `domain_doc_agent.py:629` | <3 模块直接跳过规划 |
-| LLM prompt "≤5 不拆分" | `agent_prompts.py:314-332` | 4-5 模块被 LLM 拒绝 |
-| `topic_force_split_threshold=4` + chunk_size=5 | `domain_doc_agent.py:645-672` | mechanical 需 ≥8 模块才能产出 2 topic |
-
-**关键矛盾：** 配置 threshold=4 看似激进，但 `chunk_size=5` + `末chunk<3合并` 使其**对 4-7 模块域完全无效**。
-
-#### 根因 4：Overview cn_ratio 无门禁（P0-6）
-
-三处代码**设计性排除** overview：
-- `quality_gate.py:281` — `if page_type == "topic":` (cn heal)
-- `finalize.py:457` — `if is_topic:` (cn hard-reject)
-- `heal.py:62` — `if str(page_type) != "topic": return True`
-- 测试 `test_low_cn_ratio_overview_not_rejected` 明确验证不拒
-
-### V25 域结构分析
-
-**22 域树结构（4 层深度）：**
-```
-__root__ (13 L1)
-├── 评分弹窗 [6814字] ✅
-├── 经销商资质 [6478字] ✅
-├── ES搜索客户端 [3312字]
-├── 家族ES同步 [12831字] ✅
-├── 家族系统 [6490字, 4 topics] ✅ 标杆
-├── 送礼回调 [5706字]
-├── IM消息推送 [4484字, cn=0.15] ⚠
-├── 亲密关系系统 [118字] ❌ 壳域
-│   ├── 家族任务执行 [3833字] ← 错挂！应属 family-system
-│   └── 亲密度关系 [149字] ❌ 壳域
-│       ├── 数据类型转换 [3464字] ← 错挂！应属 infrastructure
-│       └── 亲密度关系核心 [7828字]
-├── 快捷消息 [5871字]
-├── 关系管理 [13846字, cn=0.10] ⚠ 代码堆叠
-├── 用户资产服务 [5429字]
-├── 等级配置 [4560字]
-└── 用户资料与权益 [119字] ❌ 壳域
-    ├── 用户基础资料 [157字] ❌ 壳域
-    │   ├── 用户基础数据 [5638字, 4 topics] ✅
-    │   ├── 会员统计账户 [4879字]
-    │   └── 用户扩展数据查询 [6992字]
-    └── 用户行为与VIP状态 [6980字]
-```
-
-**问题 slug:**
-- `family-system-ultronult-ultronult` → 应为 `family-system`
-- `intimacy-relations-closed-friend-closed-friend` → 应为 `closed-friend-system`（挚友 60 模块）
-
----
-
-## 修复优先级总表（V25）
-
-| 优先级 | 修复项 | 代码位置 | 预期改善 | 难度 |
-|--------|--------|----------|----------|------|
-| **P0-1** | Prompt ≤5→≤2 + chunk_size 5→3 | `agent_prompts.py:314` + `domain_doc_agent.py:666` | Topic 覆盖 9%→30%+ | 低 |
-| **P0-2** | tree_linker persist 前加 finalize 门禁 | `tree_linker.py:810` | 壳域 4→0 | 中 |
-| **P0-3** | dedup 语义 suffix 加 while 循环 | `graph_domain_decompose.py:678` | slug 重复 2→0 | 低 |
-| **P0-4** | placement 规则扩展 + infra keyword 补全 | `graph_domain_decompose.py:600` + `config.py:333` | 错挂 2→0 | 中 |
-| **P0-5** | DomainAnchor 接入分解管线 | `graph_domain_decompose.py` | 防止业务线消失 | 高 |
-| **P1-1** | Overview cn_ratio heal (≥0.20) | `quality_gate.py:281` + `finalize.py:457` | 低 cn 6→0 | 低 |
-| **P1-2** | Topic slug 语义化 | `domain_doc_agent.py` resolve | slug 8/8 模块名→业务名 | 中 |
-| **P1-3** | 树深度限制 max=3 | `graph_domain_decompose.py` | 4 层→3 层 | 中 |
-| **P2-1** | 重复标题校验 | `finalize.py` | 跨页标题唯一 | 低 |
-| **P2-2** | 代码量上限(overview) | `quality_gate.py` | 防代码堆叠 | 低 |
-
-> **V11 修复提案:** [`docs/superpowers/specs/2026-05-28-wiki-quality-fix-v11-design.md`](superpowers/specs/2026-05-28-wiki-quality-fix-v11-design.md) (✅ 已执行)
-
----
-
-## V26 审计（2026-05-28）— V11 部署后多维审计
-
-**数据源:** 开发机 FalkorDB `kb_ultron` 图 (`--repo ultron --full-content`, 383KB)
-**审计方法:** 4 专项 subagent 并行审计（Overview质量 / Topic质量 / 域拆分 / 树结构）
-**数据文件:** `data/wiki-audit-latest.json`
-
-### V11 修复效果验证
-
-| V11 Fix | V25→V26 效果 | 判定 |
-|---------|-------------|------|
-| F1 Topic Coverage (prompt≤2+chunk=3+force_override) | 覆盖率 9%→**76.5%** | ✅ 重大突破 |
-| F2 Slug Repeated Segment | 重复段 2→**0** | ✅ 彻底修复 |
-| F3 Overview cn_ratio Gate | 低cn页 6→**0** | ✅ 彻底修复 |
-| F4 tree_linker Shell Gate | 壳域 4→**3** | ⚠ 部分修复 |
-| F5-R Enhanced Corrector | 错挂域 2→**2** | ❌ 未见效 |
-| F6 Code Overload Detection | 代码堆叠→**0** | ✅ 修复 |
-| F7-R DomainAnchor | N/A（首次无anchor） | — |
-
-### V26 核心指标
-
-| 指标 | V25 | V26 (当前) | 变化 | 说明 |
-|------|-----|------------|------|------|
-| 有效页面数 | 30 | **50** | +67% | V11 topic 生成大幅增加 |
-| domain_overview | 22 | **17** | -23% | 域合并 22→17 |
-| topic 页面 | 8 | **33** | +313% | F1 效果显著 |
-| 有 topic 的域 | 2 (9%) | **13 (76.5%)** | ✅ +67pp | |
-| 无 topic 的域 | 20 (91%) | **4 (23.5%)** | ✅ | es-user-search/im-system-message/prize-distribution/user-relation-management |
-| 幻觉内容 | 1 | **0** | ✅ | |
-| 壳域 | 4 | **3** | ⚠ | 挚友关系/家族关系/家族广场 |
-| 低 cn 页(<0.25) | 6 | **0** | ✅ | F3 完全生效 |
-| 重复标题 | 1 | **2 组** | ❌ | "挚友关系管理"×2 + "用户资料与状态" overlap |
-| 重复 segment slug | 2 | **0** | ✅ | F2 完全生效 |
-| 错误挂载(infra) | 2 | **2** | ❌ | data-type-mapping→family-task, task-execution-framework→family-square |
-| **Part N 命名** | N/A | **22/33 (66.7%)** | 🆕 P0 | 机械拆分 Part 1/2/3 |
-| **Stub topics** | 0 | **2 (23 chars)** | 🆕 P0 | placeholder 未拦截 |
-| **H2 尾随空格** | 0 | **3 topics** | 🆕 P1 | "## 概述  " |
-| **代码截断** | 3/22 | **≥6/50** | 🆕 P1 | 未闭合代码块 |
-| **缺少 ## 概述** | 0 | **4 topics** | 🆕 P1 | |
-
-### V26 多维评分
-
-| 维度 | V25 | V26 | 变化 | 说明 |
-|------|-----|-----|------|------|
-| 正文质量/门禁 | 5.5/10 | **8.5/10** | +3.0 ✅ | 长度、语言、幻觉控制良好 |
-| 内容深度/区分度 | N/A | **4.0/10** | 🆕 | 模板化、万能句式、缺业务洞察 |
-| 域分解合理性 | 5.2/10 | **5.5/10** | +0.3 | 壳域减少但infra错挂未修 |
-| 命名/导航 | 5.0/10 | **4.0/10** | -1.0 ❌ | Part N 66.7%, 重复标题, slug |
-| 覆盖率/完整性 | 2.5/10 | **6.0/10** | +3.5 ✅ | 76.5% 域有topic，仍有4域空 |
-| Slug/Path 规范性 | 5.0/10 | **6.5/10** | +1.5 ✅ | 重复段消除，垃圾slug仍存1个 |
-| 代码块完整性 | 5.5/10 | **5.0/10** | -0.5 | 截断比例上升(页面增多) |
-| **综合** | **5.6/10** | **5.5/10** | **-0.1** | 门禁/覆盖率大幅改善，被命名/导航问题拉低 |
-
-### V26 P0 问题清单
-
-| # | 问题 | 影响 | 对应 V12 Fix |
-|---|------|------|-------------|
-| **1** | **66.7% Part N 命名** — 22/33 topic 使用无语义"域名 - Part N"标题 | 目录不可扫读，导航无效 | **F1** |
-| **2** | **2 个 Stub topic** — 仅 23 字符 placeholder | 文档黑洞 | **F2** |
-| **3** | **2 组重复标题** — "挚友关系管理"×2, "用户资料与状态" overlap | 导航混淆 | **F3** |
-| **4** | **Infra 域错挂** — data-type-mapping→family-task, task-execution-framework→family-square | 架构误导 | **F6** |
-| **5** | **垃圾 slug** — `family-square-back-door-serv-family-at-grou` | 不可读 | **F7** |
-| **6** | **4 域无 topic** — es-user-search/im-system-message/prize-distribution/user-relation-management | 覆盖率缺口 | **F8** |
-| **7** | **代码截断** — ≥6 页未闭合代码块 | 可信度损害 | **F5** |
-| **8** | **H2 格式** — 3 topic 尾随空格 + 4 topic 缺概述节 | 渲染/结构 | **F4** |
-
-> **V12 修复提案:** 已实施并归档清理 (2026-06-01)
+| 版本 | 核心修复 | 状态 |
+|------|---------|------|
+| V8/V9 | SSoT, strip_h1, META_H2, quality_gate 集成 | ✅ 全部有效 |
+| V11 | Topic 覆盖率(9%→77%), slug 去重, cn_ratio 门禁, 壳域门禁, 代码堆叠 | ✅ 重大突破 |
+| V12 | Part N 消退(67%→10%), Stub 拦截, 重复标题, H2 格式, 代码截断 | ✅ 大幅改善 |
+| V13 | Part N/Compound key 根治, thin overview 门禁 | ✅ 清零 |
 
 ---
 
@@ -429,6 +205,189 @@ __root__ (10 L1)
 > **V26** (05-28 下午): V11 全量部署后审计。覆盖率 76.5%、cn_ratio/slug 修复彻底。新发现 Part N 命名 66.7%、stub 2、代码截断等问题。
 >
 > **V27** (06-01): V12 部署后全量审计。Part N 9.7%、stub 0、重复标题 0。新发现 compound title 35.5%、跨域错挂 6 页、5 域无 topic。
+>
+> **V28** (06-01 晚): V13 部署后全量审计。73 页、28 域、45 topic。Part N/compound key/幻觉/stub 清零。新发现 compound serial 40%、域重复×2、覆盖率 60.7%。
+
+---
+
+## V28 审计（2026-06-01 晚）— V13 部署后全量审计 + 代码级根因追踪
+
+**数据源:** 开发机 FalkorDB `kb_ultron` 图 (`--repo ultron --full-content`, 583KB)
+**审计方法:** 7 专项 subagent 并行审计（4 维度审阅 + 3 维度根因分析）
+**数据文件:** `data/wiki-audit-latest.json`
+
+### V13 修复效果验证
+
+| V13 Fix | V27→V28 效果 | 判定 |
+|---------|-------------|------|
+| Part N 标题清退 | 9.7%→**~0%** | ✅ 根治 |
+| Compound key (repo\|ClassName) | 35.5%→**~0%** | ✅ 根治 |
+| 幻觉门禁 | 0→**0** | ✅ 稳定 |
+| Stub topic 拦截 | 0→**0** | ✅ 稳定 |
+| 低 cn_ratio 门禁 | 0→**0** | ✅ 稳定 |
+| Thin overview 门禁 | 1(666字)→**0** (min 3156字) | ✅ 修复 |
+| 域覆盖率 | 74%→**60.7%** | ❌ 恶化（域数+47%） |
+| 跨域错挂 | 2+4→**2** | ⚠ 减少但未根治 |
+
+### V28 核心指标
+
+| 指标 | V27 | V28 (当前) | 变化 | 说明 |
+|------|-----|------------|------|------|
+| 有效页面数 | 50 | **73** | +46% | V13 域拆分更细 |
+| domain_overview | 19 | **28** | +47% | |
+| topic 页面 | 31 | **45** | +45% | |
+| 域数 | 19 | **28** | +47% | HAC prefix/anchor 约束 |
+| 有 topic 的域 | 14 (73.7%) | **17 (60.7%)** | ❌ -13pp | |
+| 无 topic 的域 | 5 (26.3%) | **11 (39.3%)** | ❌ | |
+| 幻觉内容 | 0 | **0** | ✅ | |
+| 壳 Section | 3 | **4** | +1 | 家族/亲密关系/用户关系/Quick |
+| 低 cn 页 | 0 | **0** | ✅ | |
+| **Compound serial** | 未出现 | **18/45 (40%)** | 🆕 P0 | `中文名（domain-slug·专题·N）` |
+| **域重复** | 未测 | **2 组** | 🆕 P0 | relation-rank×2 + quick-message×2 |
+| **只有1个H2** | 未测 | **3 topic** | 🆕 P1 | 4778/5696/3712 字长文 |
+| 空代码块 | 2 | **2** | → | intimacy-mark + system-message-push |
+
+### V28 多维评分
+
+| 维度 | V27 | V28 | 变化 | 说明 |
+|------|-----|-----|------|------|
+| 正文质量/门禁 | 8.0/10 | **8.2/10** | +0.2 ✅ | 0 幻觉、0 低cn、min 3156字 |
+| 内容深度/区分度 | 6.0/10 | **6.3/10** | +0.3 | 标杆域质量高，模板同质化仍存 |
+| 域分解合理性 | 5.5/10 | **5.0/10** | -0.5 ❌ | 域数膨胀+47%、重复×2 |
+| 命名/导航 | 4.5/10 | **5.0/10** | +0.5 | Part N→compound serial（问题迁移） |
+| 覆盖率/完整性 | 6.0/10 | **5.0/10** | -1.0 ❌ | 60.7%（V27 73.7%） |
+| Slug/Path 规范性 | 7.0/10 | **5.5/10** | -1.5 ❌ | slug 出现在 title、域重复 |
+| 代码块完整性 | 8.0/10 | **7.5/10** | -0.5 | 2 空代码块 |
+| H2 结构完整性 | N/A | **6.8/10** | 🆕 | 3 topic 仅 1 个 H2 |
+| 导航可用性(新人) | 5.5/10 | **3.8/10** | -1.7 ❌ | 同名Section/compound title/16 L1 |
+| **综合** | **6.3/10** | **5.9/10** | **-0.4** | 门禁改善被域膨胀和命名拉低 |
+
+### V28 P0 问题清单（含代码级根因）
+
+| # | 问题 | 根因代码位置 | 机制 |
+|---|------|-------------|------|
+| **1** | **40% Compound Serial Title** | `content_guards.py:663` level 4 `{domain}核心服务` + `finalize.py:604` dedup level 2 | Mechanical split 无 summaries → 同域同名 → 硬编码消歧 |
+| **2** | **域重复×2** | `graph_domain_decompose.py:1040` slug 碰撞追加 `-service` + `skip_llm_merge=True` | 并行命名碰撞造新域而非合并 |
+| **3** | **覆盖率 60.7%** | `domain_doc_agent.py:913` `modules≥2` + `final_overview` dead code + 大量 1 模块叶域 | 单模块不可 mechanical 拆分 |
+| **4** | **跨域错挂** | `domain_semantic_clusterer.py:46` CamelCase prefix 提取 `Relation*`→`relation` 而非 `family` | cannot-link 对同 relation 包无效 |
+| **5** | **3 topic 仅 1 H2** | `quality_gate.py` 无 H2 数量下限 + `WikiPageOutput.sections` 无 min_length | 长文通过字数门禁但结构检查缺失 |
+
+### V28 修复优先级总表
+
+| 优先级 | 修复项 | 代码位置 | 预期改善 | 难度 |
+|--------|--------|----------|----------|------|
+| **P0-1** | Compound serial 根治：derive_semantic_title 传 summaries + finalize 禁 slug 进 title | `content_guards.py` + `domain_doc_agent.py` + `finalize.py` | 40%→<5% | 中 |
+| **P0-2** | 域 stem 合并：`{base}` vs `{base}-service` 自动 merge | `graph_domain_decompose.py:1040` | 重复域 2→0 | 中 |
+| **P0-3** | 单模块 topic + final_overview dead code 修复 | `domain_doc_agent.py:913` + `doc_orchestrator.py` | 覆盖率→85%+ | 中 |
+| **P0-4** | CamelCase prefix 修复 + cannot-link + placement reparent | `domain_semantic_clusterer.py:46` + `graph_domain_decompose.py:890` | 错挂 2→0 | 中 |
+| **P0-5** | Topic H2 最少 4 个门禁 | `quality_gate.py` + `structured_output.py` | 单H2 3→0 | 低 |
+| **P1-1** | H2 尾随空格检测修复 | `quality_gate.py` / `finalize.py` | 2→0 | 低 |
+| **P1-2** | "Quick" 壳域改中文 | `tree_linker.py` | 导航体验 | 低 |
+| **P1-3** | 空代码块修复 | `content_guards.py` + `quality_gate.py` | 2→0 | 低 |
+| **P2-1** | 域数压缩至 ~20 | `graph_domain_decompose.py` | 架构清晰度 | 高 |
+| **P2-2** | DomainAnchor 接入 HAC | `domain_semantic_clusterer.py` | 防漂移 | 高 |
+
+### V28 域结构分析
+
+**28 域树结构（3 层深度，16 L1 Section）：**
+```
+__root__ (16 L1)
+├── 评分弹窗 [5432字, 2t] ✅
+├── ES搜索 [4142字, 0t] ❌
+├── 家族 [壳, 5 子域]
+│   ├── 家族活跃与成长 [5507字, 3t] ✅ 标杆
+│   ├── 家族宝箱奖励 [4816字, 0t] ❌
+│   ├── 家族ID计数 [5505字, 2t] ✅
+│   ├── 家族广场与推荐 [5430字, 4t] ✅
+│   └── 家族任务执行 [5111字, 0t] ❌
+├── 送礼逻辑 [3930字, 2t] ⚠ 仅1H2
+├── 公会成员关系 [5288字, 2t] ⚠ 1t仅1H2
+├── 亲密关系 [壳, 5 子域]
+│   ├── 亲密印记 [5247字, 0t] ❌
+│   ├── 亲密关系 [5980字, 2t] ✅
+│   ├── 亲密任务 [5619字, 4t] ✅
+│   ├── 亲密任务执行 [6650字, 4t] ⚠ 2错挂
+│   └── 亲密度关系 [4198字, 3t] ✅
+├── 会员统计 [4330字, 0t] ❌
+├── 支付数据 [5459字, 0t] ❌
+├── 奖励发放 [6920字, 0t] ❌
+├── Quick [壳, 2 子域] ⚠ 英文名
+│   ├── 在线状态 [5576字, 2t] ⚠ 域重复
+│   └── 快捷消息 [5172字, 2t] ⚠ 域重复
+├── 系统消息 [4276字, 0t] ❌
+├── 用户状态 [5963字, 2t] ✅
+├── 用户扩展 [4923字, 0t] ❌
+├── 等级配置 [6737字, 0t] ❌
+├── 用户关系 [壳, 4 子域]
+│   ├── 挚友关系 [5750字, 4t] ✅
+│   ├── 关系属性 [4751字, 0t] ❌
+│   ├── 关系榜单(rank) [3356字, 2t] ⚠ 重复
+│   └── 关系榜单(rank-svc) [6147字, 2t] ⚠ 重复
+└── 用户VIP信息 [3156字, 3t] ✅
+```
+
+---
+
+## 域稳定方案：多轮 Agent + 人工调整
+
+### Dashboard 域管理能力验证
+
+Dashboard 已具备完整的域管理 API：
+
+| 操作 | API 端点 | 功能 |
+|------|---------|------|
+| **Move** | `POST /wiki/domains/hierarchy/move` | 移动域/页到新父节点 |
+| **Merge** | `POST /wiki/domains/hierarchy/merge` | 合并两个域（source 子节点→target） |
+| **Rename** | `PATCH /wiki/domains/hierarchy/{uid}` | 修改域名/描述 |
+| **Create** | `POST /wiki/domains/hierarchy/{parent}/children` | 创建子域 |
+| **Delete** | `DELETE /wiki/domains/hierarchy/{uid}` | 删除域（子节点可提升） |
+| **Move Module** | `POST /wiki/domains/hierarchy/move-module` | 移动模块到新域 |
+
+### 移动/合并时子页面行为
+
+**结论：✅ Overview + Topics 随域移动。**
+
+- 导航树基于 `HAS_CHILD` 图边渲染，移动 Section 后子 WikiPage 自动跟随
+- `merge_domains` 时 source 子节点 reparent 到 target，source 被删除
+- ~~已修复~~ `merge_domains` 后同步更新子页面 `business_domain` 属性（`wiki/domain_management_service.py`）
+
+### user_modified 尊重机制
+
+Pipeline 再生成时通过三处跳过用户修改的节点：
+
+| 位置 | 逻辑 |
+|------|------|
+| `domain_merger.py:253` | `aggregable = [n for n in nodes if not n.get("user_modified")]` |
+| `graph_domain_decompose.py:996` | `if child.get("user_modified"): continue` |
+| `prefix_family_grouper.py:26,104` | `if node.get("user_modified"): return` |
+
+### 推荐操作流程
+
+```
+第一轮：Pipeline 生成初始域结构（28 域）
+    ↓
+第二轮：用户在 Dashboard 人工调整
+    - 合并 relation-rank × 2（slug 碰撞造成的重复域）
+    - 合并 quick-message × 2
+    - 移动错挂的 family topic 回家族域
+    - 标记 user_modified=true
+    ↓
+第三轮：触发 wiki 重新生成（尊重 user_modified）
+    - 已固定的域结构保持不变
+    - overview/topic 内容根据新域结构重新生成
+    ↓
+第四轮：审计确认，微调
+```
+
+### V14 修复方向
+
+结合 V28 分析，V14 应聚焦：
+
+1. **域 stem 合并**（P0-2）：`{base}` vs `{base}-service` 在 decompose 阶段自动合并 → 消除重复域
+2. **单模块 topic 支持**（P0-3）：修复 `final_overview` dead code + 降低 min_modules → 覆盖率 85%+
+3. **CamelCase prefix 修复**（P0-4）：`_prefix_from_camel` 应提取语义前缀而非首段
+4. **Dashboard path 同步**（已修复）：merge 后更新 `WikiPage.business_domain`
+5. **人工调整作为兜底**：对 HAC 语义聚类无法正确分类的边缘 case（如同名不同域的类），依赖用户手动调整
 
 ---
 

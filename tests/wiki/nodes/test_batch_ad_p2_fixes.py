@@ -137,10 +137,12 @@ class TestParallelCommunityNamingDedup:
             result = await graph_driven_domain_decompose_node(state, config)
 
         slugs = list(result["domain_mapping"].keys())
-        assert len(slugs) == 2
-        assert len(set(slugs)) == 2
-        assert slugs.count("shared-domain") == 1
-        assert any(s.startswith("shared-domain-") for s in slugs)
+        # With merge-first dedup, same-slug communities get merged into one domain
+        assert len(slugs) == 1
+        assert "shared-domain" in slugs
+        # All 4 modules should be in the merged domain
+        all_modules = result["domain_mapping"]["shared-domain"]
+        assert len(all_modules) == 4
 
 
 class TestEmbeddingMergeThresholdConfig:

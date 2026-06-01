@@ -82,6 +82,22 @@ def _extract_business_prefix(module_name: str, path: str | None) -> str | None:
     return None
 
 
+def _business_dir_from_path(module_path: str) -> str:
+    """Extract first non-generic directory segment from a file path."""
+    if not module_path or "/" not in module_path:
+        return ""
+    module_dir = module_path.replace("\\", "/").rsplit("/", 1)[0]
+    return _business_dir_from_dir(module_dir)
+
+
+def _business_dir_from_dir(module_dir: str) -> str:
+    skip = {"src", "main", "java", "com", "kotlin", "python", "lib", "internal", "pkg"}
+    for part in module_dir.replace("\\", "/").split("/"):
+        if part.lower() not in skip and part:
+            return part.lower()
+    return ""
+
+
 class DomainSemanticClusterer:
     """Cluster modules by semantic similarity of their summaries."""
 
@@ -419,6 +435,7 @@ class DomainSemanticClusterer:
         cluster_list = list(clusters.values())
         if paths:
             cluster_list = self._review_cluster_placement(cluster_list, modules, paths)
+        cluster_list = self._post_cluster_reparent(cluster_list, edges, paths or {})
         log.info(
             "domain_semantic_cluster_done",
             n_modules=n,
@@ -473,3 +490,106 @@ class DomainSemanticClusterer:
         if paths:
             cluster_list = self._review_cluster_placement(cluster_list, modules, paths)
         return cluster_list
+
+    def _path_matches_cluster(
+        self,
+        module_path: str,
+        cluster: set[tuple[str, str]],
+        paths: dict[str, str],
+    ) -> bool:
+        """Check if a module's path shares directory affinity with a cluster's majority path."""
+        if not module_path:
+            return False
+
+        cluster_dirs: list[str] = []
+        for _repo, name in cluster:
+            compound = f"{_repo}|{name}"
+            p = paths.get(compound, paths.get(name, ""))
+            if p and "/" in p:
+                cluster_dirs.append(p.replace("\\", "/").rsplit("/", 1)[0])
+
+        if not cluster_dirs:
+            return False
+
+        module_biz = _business_dir_from_path(module_path)
+        if not module_biz:
+            return False
+
+        cluster_biz = [_business_dir_from_dir(d) for d in cluster_dirs]
+        cluster_biz = [b for b in cluster_biz if b]
+        if not cluster_biz:
+            return False
+
+        counter = Counter(cluster_biz)
+        dominant, count = counter.most_common(1)[0]
+        # Module path must match the cluster's dominant business directory
+        return module_biz == dominant and count / len(cluster_biz) > 0.5
+
+    def _post_cluster_reparent(
+        self,
+        clusters: list[set[tuple[str, str]]],
+        edges: list[tuple[tuple[str, str], tuple[str, str], int | float]],
+        paths: dict[str, str],
+    ) -> list[set[tuple[str, str]]]:
+        """Post-cluster validation: reparent modules with double-confirm (prefix + path).
+
+        A module is reparented only when BOTH conditions are met:
+        1. Its name prefix diverges from its current cluster's dominant prefix
+        2. Its file path has affinity with a different cluster
+        """
+        if len(clusters) <= 1:
+            return clusters
+
+        cluster_list = [set(c) for c in clusters]
+
+        # Compute dominant prefix per cluster
+        def _dominant_prefix(cluster: set[tuple[str, str]]) -> str | None:
+            prefixes: list[str] = []
+            for _repo, name in cluster:
+                prefix = _prefix_from_camel(name)
+                if prefix:
+                    prefixes.append(prefix)
+            if not prefixes:
+                return None
+            from collections import Counter
+
+            top, count = Counter(prefixes).most_common(1)[0]
+            return top if count / len(prefixes) > 0.5 else None
+
+        dominants = [_dominant_prefix(c) for c in cluster_list]
+        reparents: list[tuple[tuple[str, str], int, int]] = []
+
+        for ci, cluster in enumerate(cluster_list):
+            cluster_dom = dominants[ci]
+            if cluster_dom is None:
+                continue
+            for module in list(cluster):
+                _repo, name = module
+                mod_prefix = _prefix_from_camel(name)
+                compound = f"{_repo}|{name}"
+                mod_path = paths.get(compound, paths.get(name, ""))
+                path_prefix = _business_dir_from_path(mod_path)
+                effective_prefix = path_prefix if path_prefix and path_prefix != mod_prefix else mod_prefix
+                if effective_prefix is None or effective_prefix == cluster_dom:
+                    continue
+
+                # Condition 1 met: prefix diverges
+                # Now check condition 2: path affinity with another cluster
+                for tj, target_cluster in enumerate(cluster_list):
+                    if tj == ci:
+                        continue
+                    if self._path_matches_cluster(mod_path, target_cluster, paths):
+                        reparents.append((module, ci, tj))
+                        break
+
+        for module, from_idx, to_idx in reparents:
+            cluster_list[from_idx].discard(module)
+            cluster_list[to_idx].add(module)
+            log.info(
+                "post_cluster_reparent",
+                module=f"{module[0]}|{module[1]}",
+                from_cluster=from_idx,
+                to_cluster=to_idx,
+            )
+
+        return [c for c in cluster_list if c]

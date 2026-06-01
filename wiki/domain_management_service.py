@@ -50,6 +50,15 @@ class DomainManagementService:
     def _is_root(self, uid: str) -> bool:
         return _ROOT_SENTINEL in uid
 
+    @staticmethod
+    def _extract_domain_slug(section_uid: str) -> str:
+        """Extract domain slug from WikiSection UID like 'WikiSection:{biz}:domain:{slug}'."""
+        marker = ":domain:"
+        idx = section_uid.find(marker)
+        if idx < 0:
+            return ""
+        return section_uid[idx + len(marker):]
+
     async def rename_domain(
         self,
         business_id: str,
@@ -207,6 +216,11 @@ class DomainManagementService:
         await store.update_section_properties(
             target_uid, {"user_modified": True}
         )
+        target_domain = self._extract_domain_slug(target_uid)
+        if target_domain:
+            await store.update_descendant_pages_business_domain(
+                target_uid, target_domain, "business_domain"
+            )
         await self._try_sync_json(business_id)
         log.info("domains_merged", source=source_uid, target=target_uid)
         return {"success": True, "target_uid": target_uid}

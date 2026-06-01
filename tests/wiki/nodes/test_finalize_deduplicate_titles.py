@@ -34,8 +34,8 @@ def test_deduplicate_titles_appends_domain() -> None:
     ]
     result = _deduplicate_titles(list(pages))
     titles = {p["title"] for p in result}
-    assert "挚友关系管理（friend-relation）" in titles
-    assert "挚友关系管理（family-relation）" in titles
+    assert "挚友关系管理（1）" in titles
+    assert "挚友关系管理（2）" in titles
 
 
 def test_deduplicate_titles_truncates_long() -> None:
@@ -66,8 +66,8 @@ def test_deduplicate_titles_uses_path_when_no_business_domain() -> None:
     ]
     result = _deduplicate_titles(list(pages))
     titles = {p["title"] for p in result}
-    assert "用户资料与状态（profile）" in titles
-    assert "用户资料与状态（account）" in titles
+    assert "用户资料与状态（1）" in titles
+    assert "用户资料与状态（2）" in titles
 
 
 def test_deduplicate_titles_same_domain_different_page_types() -> None:
@@ -86,10 +86,10 @@ def test_deduplicate_titles_same_domain_different_page_types() -> None:
         },
     ]
     result = _deduplicate_titles(list(pages))
-    titles = [p["title"] for p in result]
-    assert len(titles) == len(set(titles))
-    assert any("概览" in t for t in titles)
-    assert any("专题" in t for t in titles)
+    titles = {p["title"] for p in result}
+    assert len(titles) == 2
+    assert "挚友关系管理（1）" in titles
+    assert "挚友关系管理（2）" in titles
 
 
 def test_deduplicate_titles_same_domain_same_type() -> None:

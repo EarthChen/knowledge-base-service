@@ -252,6 +252,34 @@ def _dedup_topic_titles(topics: list[OutlineTopicItem]) -> list[OutlineTopicItem
     return result
 
 
+def _common_camel_prefix(names: list[str]) -> str:
+    """Extract common CamelCase prefix from module names (>= 2 words required)."""
+    import re
+
+    if not names or len(names) < 2:
+        return ""
+
+    def _camel_words(name: str) -> list[str]:
+        return re.findall(r"[A-Z][a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\b)", name)
+
+    word_lists = [_camel_words(n) for n in names]
+    if not all(word_lists):
+        return ""
+
+    min_len = min(len(wl) for wl in word_lists)
+    common_count = 0
+    for i in range(min_len):
+        if all(wl[i] == word_lists[0][i] for wl in word_lists):
+            common_count += 1
+        else:
+            break
+
+    if common_count < 2:
+        return ""
+
+    return "".join(word_lists[0][:common_count])
+
+
 def _extract_chunk_title(
     modules: list[dict],
     display_name: str,
@@ -952,9 +980,11 @@ class DomainDocAgent(DocOrchestrator):
         if len(chunks) > 2 and len(chunks[-1]) < 3:
             chunks[-2].extend(chunks.pop())
         topics = []
+        common_prefix = _common_camel_prefix(sorted_modules)
         for i, chunk in enumerate(chunks):
             slug = _derive_slug_from_modules(chunk)
-            module_dicts = [{"name": m, "display_name": m} for m in chunk]
+            display_names = [m.removeprefix(common_prefix) or m for m in chunk] if common_prefix else chunk
+            module_dicts = [{"name": m, "display_name": d} for m, d in zip(chunk, display_names)]
             title = _extract_chunk_title(module_dicts, self.domain_display_name, i)
             topics.append(OutlineTopicItem(title=title, modules=chunk, description="", slug=slug))
         topics = _resolve_topic_slugs(

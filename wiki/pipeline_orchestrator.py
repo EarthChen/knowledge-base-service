@@ -493,6 +493,9 @@ async def run_langgraph_pipeline(
                 _repo_paths[repo] = str(resolved)
         if _repo_paths:
             configurable["repo_paths"] = _repo_paths
+            from wiki.project_doc_provider import discover_project_docs
+
+            configurable["project_docs"] = discover_project_docs(_repo_paths)
     except Exception:
         log.warning("repo_paths_resolution_failed", exc_info=True)
 

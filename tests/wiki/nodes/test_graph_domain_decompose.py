@@ -343,19 +343,22 @@ class TestParallelDomainNaming:
     """Verify sub-domain naming is parallelized and slugs are deduplicated."""
 
     def test_parallel_naming_slug_dedup(self):
-        """When LLM generates duplicate slugs, numeric suffix should be appended."""
+        """When LLM generates duplicate slugs, entries are merged."""
         results = [
-            {"slug": "core", "display_name": "Core A"},
-            {"slug": "core", "display_name": "Core B"},
-            {"slug": "auth", "display_name": "Auth"},
+            {"slug": "core", "display_name": "Core A", "modules": ["ModA"]},
+            {"slug": "core", "display_name": "Core B", "modules": ["ModB"]},
+            {"slug": "auth", "display_name": "Auth", "modules": ["AuthMod"]},
         ]
         deduped = _dedup_parallel_naming_results(results, existing_slugs=["payment"])
 
         slugs = [r["slug"] for r in deduped]
-        assert len(set(slugs)) == 3, "All slugs must be unique"
-        assert "core" in slugs, "First 'core' keeps original name"
-        assert "core-2" in slugs, "Duplicate gets numeric suffix"
-        assert "payment" not in slugs, "Existing slugs not added"
+        assert len(deduped) == 2
+        assert "core" in slugs
+        assert "auth" in slugs
+        assert "payment" not in slugs
+        core_entry = next(r for r in deduped if r["slug"] == "core")
+        assert "ModA" in core_entry["modules"]
+        assert "ModB" in core_entry["modules"]
 
     @pytest.mark.asyncio
     async def test_recursive_split_naming_runs_in_parallel(self):
@@ -434,7 +437,7 @@ class TestParallelDomainNaming:
 
     @pytest.mark.asyncio
     async def test_recursive_split_dedups_colliding_sub_domain_slugs(self):
-        """Parallel sub-domain naming resolves duplicate slugs via hash suffix."""
+        """Parallel sub-domain naming merges duplicate slugs instead of suffixing."""
         import numpy as np
 
         modules_list = [(f"repo1", f"Mod{i}") for i in range(12)]
@@ -495,13 +498,10 @@ class TestParallelDomainNaming:
             result = await graph_driven_domain_decompose_node(state, config)
 
         tree = result["domain_tree"]
-        # Parent shell (big-domain, 0 modules) collapses; sub-domains promoted to root.
-        assert len(tree) == 3
-        child_slugs = [n["name"] for n in tree]
-        assert len(set(child_slugs)) == 3
-        assert child_slugs.count("core") == 1
-        assert sum(1 for s in child_slugs if s.startswith("core-")) == 2
-        assert all(n.get("collapsed_from") for n in tree)
+        # Duplicate sub-slugs merge; single sub-domain leaves parent as flat domain with all modules.
+        assert len(tree) == 1
+        assert tree[0]["name"] == "big-domain"
+        assert len(tree[0].get("modules", [])) == 12
 
     @pytest.mark.asyncio
     async def test_recursive_split_filters_infra_subdomain(self):
@@ -1115,21 +1115,15 @@ class TestTfidfFallbackClustering:
 
 
 class TestDedupSemanticSuffix:
-    def test_collision_uses_module_suffix(self):
+    def test_collision_merges_duplicate_slugs(self):
         results = [
             {"slug": "payment", "display_name": "支付", "modules": ["OrderService", "PayService"]},
             {"slug": "payment", "display_name": "支付退款", "modules": ["RefundHandler", "ChargebackService"]},
         ]
         deduped = _dedup_parallel_naming_results(results, [])
-        slugs = [r["slug"] for r in deduped]
-        assert len(set(slugs)) == 2, f"Expected unique slugs, got {slugs}"
-        collision_slug = slugs[1]
-        assert "payment" in collision_slug
-        # Should NOT be a 4-char hex hash suffix
-        suffix_part = collision_slug.split("payment-", 1)[-1]
-        assert not all(c in "0123456789abcdef" for c in suffix_part if suffix_part), (
-            f"Expected semantic suffix, not hash: {collision_slug}"
-        )
+        assert len(deduped) == 1
+        assert deduped[0]["slug"] == "payment"
+        assert len(deduped[0]["modules"]) == 4
 
     def test_no_collision_unchanged(self):
         results = [
@@ -1140,16 +1134,14 @@ class TestDedupSemanticSuffix:
         assert deduped[0]["slug"] == "payment"
         assert deduped[1]["slug"] == "family"
 
-    def test_collision_no_modules_uses_numeric(self):
+    def test_collision_no_modules_merges(self):
         results = [
             {"slug": "core", "display_name": "核心", "modules": []},
             {"slug": "core", "display_name": "核心2", "modules": []},
         ]
         deduped = _dedup_parallel_naming_results(results, [])
-        slugs = [r["slug"] for r in deduped]
-        assert len(set(slugs)) == 2
-        assert "core" in slugs
-        assert "core-2" in slugs
+        assert len(deduped) == 1
+        assert deduped[0]["slug"] == "core"
 
     def test_collision_with_existing_slugs(self):
         results = [

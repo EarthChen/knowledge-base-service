@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -90,6 +91,41 @@ def _check_cn_ratio(page: dict[str, Any]) -> float:
 
 def _extract_h2_headings(content: str) -> list[str]:
     return [line.strip() for line in (content or "").split("\n") if line.startswith("## ")]
+
+
+@dataclass
+class H2Issue:
+    code: str
+    message: str
+    severity: str = "warning"
+
+
+def _check_h2_structure(content: str, page_type: str) -> H2Issue | None:
+    """Check that content has sufficient H2 sections for its page type.
+
+    - topic pages need >= 3 H2 sections
+    - overview pages need >= 2 H2 sections
+    """
+    lines = content.split("\n")
+    in_fence = False
+    h2_count = 0
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence and line.startswith("## "):
+            h2_count += 1
+
+    min_required = 3 if page_type == "topic" else 2
+
+    if h2_count < min_required:
+        return H2Issue(
+            code="h2_insufficient",
+            message=f"Page type '{page_type}' has {h2_count} H2 sections, needs >= {min_required}",
+            severity="warning",
+        )
+    return None
 
 
 _DIAGRAM_ONLY_LANGS = frozenset({"mermaid", "plantuml"})
@@ -390,6 +426,10 @@ async def quality_gate_node(
             content_issues.append(
                 "missing_overview: topic lacks ## 概述 section; add overview before other sections"
             )
+
+        h2_issue = _check_h2_structure(page_content, page_type or "topic")
+        if h2_issue:
+            content_issues.append(f"h2_structure: {h2_issue.message}")
 
         truncated = detect_truncated_code_blocks(page_content)
         unclosed_blocks = detect_unclosed_code_blocks(page_content)

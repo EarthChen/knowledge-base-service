@@ -1,7 +1,7 @@
 """LLM-based domain naming for graph communities."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from wiki.llm_port import LLMPort
@@ -91,8 +91,9 @@ def _fallback_name(module_names: list[str]) -> dict[str, str]:
 class GraphDomainNamer:
     """Name graph communities using LLM."""
 
-    def __init__(self, llm: LLMPort | None):
+    def __init__(self, llm: LLMPort | None, project_docs: list[dict] | None = None):
         self._llm = llm
+        self._project_docs = project_docs or []
 
     async def name_community(
         self,
@@ -140,7 +141,37 @@ class GraphDomainNamer:
                 + "\n"
             )
 
-        biz_block = f"\nBusiness context: {business_id}\n" if business_id else ""
+        # Build enhanced business context from F7+F8+F9
+        biz_parts: list[str] = []
+        if business_id:
+            biz_parts.append(f"Business context: {business_id}")
+
+        # F8: File tree context from module paths
+        if module_infos:
+            file_tree = _build_file_tree_context(module_infos)
+            if file_tree:
+                biz_parts.append(file_tree)
+
+        # F9: Topology-derived label hint
+        if module_infos:
+            topo = _topology_label(module_infos)
+            if topo.get("slug_hint") and topo.get("confidence", 0) >= 0.6:
+                biz_parts.append(
+                    f"Topology hint: modules share prefix '{topo['slug_hint']}' "
+                    f"(confidence: {topo['confidence']:.0%}). Consider this as domain name basis."
+                )
+
+        # F7: Project documentation context
+        if self._project_docs:
+            from wiki.project_doc_provider import format_for_namer
+
+            proj_ctx = format_for_namer(self._project_docs)
+            if proj_ctx:
+                biz_parts.append(proj_ctx)
+
+        biz_block = "\n".join(biz_parts) if biz_parts else ""
+        if biz_block:
+            biz_block = "\n" + biz_block + "\n"
 
         prompt = _NAMING_PROMPT_V2.format(
             module_details="\n".join(detail_lines),
@@ -195,3 +226,82 @@ class GraphDomainNamer:
             all_used.append(result["slug"])
             results.append(result)
         return results
+
+
+def _build_file_tree_context(modules: list[dict]) -> str:
+    """Build a concise directory tree from community module paths (Cline-inspired)."""
+    from collections import defaultdict
+
+    dirs: defaultdict[str, list[str]] = defaultdict(list)
+    for m in modules:
+        path = m.get("path") or ""
+        if not path:
+            continue
+        parts = path.replace("\\", "/").rsplit("/", 1)
+        dir_part = parts[0] if len(parts) > 1 else ""
+        file_part = parts[-1]
+        if dir_part:
+            dirs[dir_part].append(file_part)
+
+    if not dirs:
+        return ""
+
+    lines = ["Directory structure of this module group:"]
+    for dir_path in sorted(dirs.keys()):
+        files = sorted(dirs[dir_path])[:8]
+        lines.append(f"  {dir_path}/")
+        for f in files:
+            lines.append(f"    {f}")
+        if len(dirs[dir_path]) > 8:
+            lines.append(f"    ... (+{len(dirs[dir_path]) - 8} more)")
+
+    return "\n".join(lines)
+
+
+def _extract_business_prefix_from(name: str, path: str) -> str | None:
+    """Extract business prefix from module name or path."""
+    import re
+
+    if path:
+        segments = path.replace("\\", "/").split("/")
+        for seg in segments:
+            if seg and seg.lower() not in {"src", "main", "java", "com", "kotlin", "python", "lib", "internal", "pkg"}:
+                clean = seg.split(".")[0].lower()
+                if clean and len(clean) > 2:
+                    return clean
+    words = re.findall(r"[A-Z][a-z]+", name)
+    skip = {"Abstract", "Base", "Default", "Mock", "Test", "I"}
+    for word in words:
+        if word not in skip and word.lower() not in {"service", "dao", "handler", "controller", "manager", "impl"}:
+            return word.lower()
+    return None
+
+
+def _topology_label(modules: list[dict]) -> dict[str, Any]:
+    """Derive a domain label from module name topology (RepoNova-inspired).
+
+    Uses majority-vote on business prefixes extracted from module names.
+    Zero LLM tokens — pure string analysis.
+    """
+    from collections import Counter
+
+    prefixes: list[str] = []
+    for m in modules:
+        name = m.get("name") or ""
+        path = m.get("path") or ""
+        prefix = _extract_business_prefix_from(name, path)
+        if prefix:
+            prefixes.append(prefix)
+
+    if not prefixes:
+        return {"slug_hint": "", "confidence": 0.0}
+
+    counter = Counter(prefixes)
+    total = len(prefixes)
+    top_prefix, top_count = counter.most_common(1)[0]
+
+    confidence = top_count / total
+    if confidence < 0.4:
+        return {"slug_hint": "", "confidence": confidence}
+
+    return {"slug_hint": top_prefix, "confidence": confidence}

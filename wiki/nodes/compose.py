@@ -275,6 +275,7 @@ async def _compose_single_leaf_domain(
     module_summaries: dict[str, dict[str, Any]] | None = None,
     repo_path: str | None = None,
     search_service: Any | None = None,
+    project_docs: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Compose pages for one leaf domain (and optional diagrams when llm is set)."""
     import wiki.pipeline_nodes as _pn
@@ -334,6 +335,10 @@ async def _compose_single_leaf_domain(
                     llm, graph_store, repo_path=repo_path, search_service=search_service
                 )
                 ccb_summary = context.format_summary_for_agent(max_chars=6000) if context else ""
+                if project_docs:
+                    from wiki.project_doc_provider import format_for_page_agent
+
+                    ccb_summary = format_for_page_agent(project_docs) + "\n\n" + ccb_summary
 
                 harness_cfg = HarnessConfig.from_env()
                 if harness_cfg.enabled:
@@ -1257,6 +1262,8 @@ async def compose_leaf_pages_node(
 
     sem = PipelineConcurrency.semaphore("compose")
 
+    _project_docs = configurable.get("project_docs")
+
     async def _bounded(leaf: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
         async with sem:
             return await _pn._compose_single_leaf_domain(
@@ -1271,6 +1278,7 @@ async def compose_leaf_pages_node(
                 module_summaries=mod_summaries,
                 repo_path=repo_path,
                 search_service=search_service,
+                project_docs=_project_docs,
             )
 
     results = await asyncio.gather(

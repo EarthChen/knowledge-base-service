@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+import networkx as nx
 from pydantic import BaseModel, field_validator
 
 from core.config import ContentLanguage, get_settings
@@ -252,6 +253,67 @@ def _dedup_topic_titles(topics: list[OutlineTopicItem]) -> list[OutlineTopicItem
     return result
 
 
+def _edge_endpoint_key(edge: dict[str, Any], side: str) -> str:
+    """Resolve a call-edge endpoint to a module key (compound or bare name)."""
+    compound = edge.get(f"{side}_key")
+    if isinstance(compound, str) and compound:
+        return compound
+    repo = edge.get(f"{side}_repo", "")
+    name = str(edge.get(side, "") or "")
+    if repo:
+        return f"{repo}|{name}"
+    return name
+
+
+def compute_module_pagerank(
+    module_names: list[str],
+    call_edges: list[dict[str, Any]] | None = None,
+) -> dict[str, float]:
+    """Compute PageRank for modules within a domain subgraph.
+
+    Args:
+        module_names: modules in this domain
+        call_edges: pipeline state module_call_edges (list of dicts with source, target, weight)
+
+    Returns:
+        dict mapping module name → PageRank score (0.0-1.0 normalized)
+    """
+    if not module_names:
+        return {}
+
+    module_set = set(module_names)
+    graph: nx.DiGraph = nx.DiGraph()
+    graph.add_nodes_from(module_names)
+
+    for edge in call_edges or []:
+        if not isinstance(edge, dict):
+            continue
+        src = _edge_endpoint_key(edge, "source")
+        tgt = _edge_endpoint_key(edge, "target")
+        if src not in module_set or tgt not in module_set:
+            continue
+        weight_raw = edge.get("weight", 1)
+        try:
+            weight = float(weight_raw)
+        except (TypeError, ValueError):
+            weight = 1.0
+        if weight <= 0:
+            weight = 1.0
+        graph.add_edge(src, tgt, weight=weight)
+
+    if graph.number_of_edges() == 0:
+        return dict.fromkeys(module_names, 1.0)
+
+    raw = nx.pagerank(graph, weight="weight")
+    scores = [float(raw.get(name, 0.0)) for name in module_names]
+    min_score = min(scores)
+    max_score = max(scores)
+    if max_score == min_score:
+        return dict.fromkeys(module_names, 1.0)
+    span = max_score - min_score
+    return {name: (float(raw.get(name, 0.0)) - min_score) / span for name in module_names}
+
+
 def _common_camel_prefix(names: list[str]) -> str:
     """Extract common CamelCase prefix from module names (>= 2 words required)."""
     import re
@@ -286,6 +348,7 @@ def _extract_chunk_title(
     idx: int,
     *,
     summaries: dict[str, dict] | None = None,
+    ranks: dict[str, float] | None = None,
 ) -> str:
     """Extract a semantic title from a module chunk."""
     module_names = [str(m.get("name") or m.get("display_name") or "") for m in modules]
@@ -298,7 +361,10 @@ def _extract_chunk_title(
             if is_compound_module_title(candidate):
                 candidate = derive_semantic_title(module_names, display_name, summaries or {}, None)
             return candidate
-    best = max(modules, key=lambda m: len(m.get("display_name", m.get("name", ""))))
+    if ranks:
+        best = max(modules, key=lambda m: ranks.get(str(m.get("name", "") or ""), 0))
+    else:
+        best = max(modules, key=lambda m: len(m.get("display_name", m.get("name", ""))))
     candidate = best.get("display_name", best.get("name", ""))
     if candidate and candidate != display_name:
         if is_compound_module_title(candidate):
@@ -728,6 +794,7 @@ class DomainDocAgent(DocOrchestrator):
         content_language: str = "简体中文",
         term_glossary: dict[str, str] | None = None,
         subdomains: list[dict[str, Any]] | None = None,
+        module_call_edges: list[dict[str, Any]] | None = None,
     ) -> None:
         from core.config import get_settings
         from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM, get_write_system_prompt
@@ -764,6 +831,7 @@ class DomainDocAgent(DocOrchestrator):
         self._page_agent = page_agent
         self._budget_resolver = budget_resolver
         self._valid_pairs: list[str] | None = None
+        self._module_call_edges: list[dict[str, Any]] = list(module_call_edges or [])
         self._topic_split_done: bool = False
         self.iteration_history: list[dict[str, Any]] = []
         self._output_guardrail = OutputGuardrailChain(
@@ -965,10 +1033,20 @@ class DomainDocAgent(DocOrchestrator):
                 return fallback.topics
         return None
 
-    def _build_mechanical_topic_split(self, module_names: list[str]) -> DomainTopicOutline | None:
+    def _build_mechanical_topic_split(
+        self,
+        module_names: list[str],
+        module_ranks: dict[str, float] | None = None,
+    ) -> DomainTopicOutline | None:
         """Mechanically split modules into topic groups when LLM declines."""
         chunk_size = 3
-        sorted_modules = sorted(module_names)
+        ranks = module_ranks
+        if ranks is None and self._module_call_edges:
+            ranks = compute_module_pagerank(module_names, self._module_call_edges)
+        if ranks:
+            sorted_modules = sorted(module_names, key=lambda m: ranks.get(m, 0), reverse=True)
+        else:
+            sorted_modules = sorted(module_names)
         if len(sorted_modules) == 2:
             chunks = [[sorted_modules[0]], [sorted_modules[1]]]
         elif len(sorted_modules) == 3:
@@ -982,10 +1060,19 @@ class DomainDocAgent(DocOrchestrator):
         topics = []
         common_prefix = _common_camel_prefix(sorted_modules)
         for i, chunk in enumerate(chunks):
-            slug = _derive_slug_from_modules(chunk)
+            if ranks:
+                anchor = max(chunk, key=lambda m: ranks.get(m, 0))
+                slug = _derive_slug_from_modules([anchor])
+            else:
+                slug = _derive_slug_from_modules(chunk)
             display_names = [m.removeprefix(common_prefix) or m for m in chunk] if common_prefix else chunk
             module_dicts = [{"name": m, "display_name": d} for m, d in zip(chunk, display_names)]
-            title = _extract_chunk_title(module_dicts, self.domain_display_name, i)
+            title = _extract_chunk_title(
+                module_dicts,
+                self.domain_display_name,
+                i,
+                ranks=ranks,
+            )
             topics.append(OutlineTopicItem(title=title, modules=chunk, description="", slug=slug))
         topics = _resolve_topic_slugs(
             topics,

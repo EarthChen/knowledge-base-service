@@ -406,6 +406,7 @@ async def compose_domain_agents_node(
                     content_language=content_language.display_label,
                     term_glossary=state.get("term_glossary", {}),
                     subdomains=subdomains,
+                    module_call_edges=state.get("module_call_edges"),
                 )
                 module_repo_pairs, valid_pairs = _domain_module_pairs(
                     domain, domain_mapping, module_lookup,

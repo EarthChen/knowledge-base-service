@@ -134,6 +134,9 @@ class WikiPipelineState(TypedDict):
     # --- Embedding cache (SHA-256 text hash → vector; shared across pipeline nodes) ---
     embedding_cache: NotRequired[dict[str, list[float]]]
 
+    # --- Naming cache (module-set SHA-256 → LLM naming result; shared across pipeline nodes) ---
+    naming_cache: NotRequired[dict[str, dict[str, str]]]
+
     # --- Per-node status tracking for dashboard visualization ---
     # node_name → {status, started_at, completed_at, elapsed_sec, detail}
     node_statuses: NotRequired[dict[str, dict[str, Any]]]

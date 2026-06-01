@@ -1462,7 +1462,10 @@ async def _embedding_clustering(
             log.warning("tfidf_fallback_failed_fallback_louvain", exc_info=True)
             return await _louvain_fallback_clustering(biz_modules, edges), None
 
+    from wiki.graph_centrality import compute_hub_weights
+
     wiki_cfg = get_settings().wiki
+    hub_weights = compute_hub_weights(biz_modules, edges)
     clusterer = DomainSemanticClusterer()
     communities = clusterer.cluster(
         embeddings,
@@ -1472,6 +1475,7 @@ async def _embedding_clustering(
         pinned_domains=pinned_domains,
         enable_prefix_cannot_link=wiki_cfg.enable_prefix_cannot_link,
         prefix_penalty_factor=wiki_cfg.cluster_prefix_penalty_factor,
+        hub_weights=hub_weights or None,
     )
     return communities, embeddings
 
@@ -1720,6 +1724,7 @@ async def graph_driven_domain_decompose_node(
     skip_full_clustering = False
     use_existing_tree = False
     embedding_cache: dict[str, list[float]] = dict(state.get("embedding_cache") or {})
+    naming_cache: dict[str, dict[str, str]] = dict(state.get("naming_cache") or {})
     domain_mapping: dict[str, list[tuple[str, str]]] = {}
     domain_display_names: dict[str, str] = dict(state.get("domain_display_names") or {})
     communities_named: list[dict[str, Any]] = []
@@ -1815,7 +1820,7 @@ async def graph_driven_domain_decompose_node(
 
         # --- Step 3: LLM Naming with module_infos (parallelized) ---
         project_docs = configurable.get("project_docs", [])
-        namer = GraphDomainNamer(llm, project_docs=project_docs)
+        namer = GraphDomainNamer(llm, project_docs=project_docs, naming_cache=naming_cache)
         shared_used_names: list[str] = []
 
         async def _name_community(community: set[tuple[str, str]]) -> dict[str, Any]:
@@ -1832,6 +1837,7 @@ async def graph_driven_domain_decompose_node(
                     summary_text = f"[{doc}] {summary_text}" if summary_text else doc
                 module_infos.append({
                     "name": mod_name,
+                    "repository": repo_id,
                     "path": _lookup_module_value(module_paths, repo_id, mod_name) or "",
                     "summary": summary_text,
                 })
@@ -2152,6 +2158,7 @@ async def graph_driven_domain_decompose_node(
                         summary_text = f"[{doc}] {summary_text}" if summary_text else doc
                     sub_infos.append({
                         "name": mod_name,
+                        "repository": repo_id,
                         "path": _lookup_module_value(module_paths, repo_id, mod_name) or "",
                         "summary": summary_text,
                     })
@@ -2393,6 +2400,7 @@ async def graph_driven_domain_decompose_node(
         "affected_domains": affected_domains,
         "module_call_edges": module_call_edges,
         "embedding_cache": embedding_cache,
+        "naming_cache": naming_cache,
         "term_glossary": term_glossary,
     }
     if state.get("decomposition_warnings"):

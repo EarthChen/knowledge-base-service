@@ -10,6 +10,7 @@ from core.log import get_logger
 from wiki.json_robust import parse_json_robust_sync
 from wiki.nodes.domain_filters import is_denied_slug
 from wiki.path_conventions import normalize_slug, normalize_slug_strict
+from wiki.persistence import compute_domain_module_signature
 from wiki.prompts import SYSTEM_JSON_ONLY
 
 log = get_logger(__name__)
@@ -68,6 +69,23 @@ def _sanitize_denied_slug(slug: str, *, display_name: str = "") -> str:
     return slug
 
 
+def _module_tuples_for_signature(
+    module_infos: list[dict[str, str]] | None,
+    module_names: list[str] | None,
+) -> list[tuple[str, str]]:
+    if module_infos:
+        return [
+            (
+                str(info.get("repository", "")),
+                str(info.get("name") or info.get("module_name", "")),
+            )
+            for info in module_infos
+        ]
+    if module_names:
+        return [("", name) for name in module_names]
+    return []
+
+
 def _fallback_name(module_names: list[str]) -> dict[str, str]:
     import re
 
@@ -91,9 +109,16 @@ def _fallback_name(module_names: list[str]) -> dict[str, str]:
 class GraphDomainNamer:
     """Name graph communities using LLM."""
 
-    def __init__(self, llm: LLMPort | None, project_docs: list[dict] | None = None):
+    def __init__(
+        self,
+        llm: LLMPort | None,
+        *,
+        project_docs: list[dict] | None = None,
+        naming_cache: dict[str, dict[str, str]] | None = None,
+    ):
         self._llm = llm
         self._project_docs = project_docs or []
+        self._naming_cache = naming_cache if naming_cache is not None else {}
 
     async def name_community(
         self,
@@ -130,8 +155,17 @@ class GraphDomainNamer:
         if not detail_lines:
             return _fallback_name(names_for_fallback)
 
+        module_tuples = _module_tuples_for_signature(module_infos, module_names)
+        sig = compute_domain_module_signature(module_tuples)
+        if sig in self._naming_cache:
+            cached = self._naming_cache[sig]
+            log.info("namer_cache_hit", signature=sig[:12], slug=cached.get("slug"))
+            return dict(cached)
+
         if self._llm is None:
-            return _fallback_name(names_for_fallback)
+            result = _fallback_name(names_for_fallback)
+            self._naming_cache[sig] = result
+            return result
 
         used_block = ""
         if used_names:
@@ -199,18 +233,22 @@ class GraphDomainNamer:
                         if not validated_slug:
                             validated_slug = f"domain-{len(names_for_fallback)}"
                         validated_slug = _sanitize_denied_slug(validated_slug, display_name=display_name)
-                        return {
+                        result = {
                             "slug": validated_slug,
                             "display_name": display_name,
                             "description": str(description) if description is not None else "",
                         }
+                        self._naming_cache[sig] = result
+                        return result
             except Exception:
                 if attempt == 0:
                     log.warning("graph_domain_namer_retry", module_count=len(names_for_fallback), exc_info=True)
                     continue
                 log.warning("graph_domain_namer_llm_failed", module_count=len(names_for_fallback), exc_info=True)
 
-        return _fallback_name(names_for_fallback)
+        result = _fallback_name(names_for_fallback)
+        self._naming_cache[sig] = result
+        return result
 
     async def name_communities_batch(
         self,

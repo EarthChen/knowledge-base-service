@@ -10,6 +10,7 @@ from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics import silhouette_score
 
 from core.log import get_logger
+from wiki.graph_centrality import compute_hub_weights
 
 log = get_logger(__name__)
 
@@ -358,6 +359,7 @@ class DomainSemanticClusterer:
         edges: list[tuple[tuple[str, str], tuple[str, str], int | float]],
         paths: dict[str, str] | None = None,
         prefix_penalty_factor: float = 2.0,
+        hub_weights: dict[tuple[str, str], float] | None = None,
     ) -> np.ndarray:
         dist = self._compute_cosine_distance(embeddings)
         if edges:
@@ -368,8 +370,12 @@ class DomainSemanticClusterer:
                 i = mod_idx.get(src)
                 j = mod_idx.get(dst)
                 if i is not None and j is not None and i != j:
+                    src_hub = hub_weights.get(src, 1.0) if hub_weights else 1.0
+                    dst_hub = hub_weights.get(dst, 1.0) if hub_weights else 1.0
+                    hub_factor = min(src_hub, dst_hub)
+                    effective_w = w * hub_factor
                     # Weight-aware: higher weight → stronger discount (smaller distance)
-                    ratio = min(abs(w) / max_w, 1.0)
+                    ratio = min(abs(effective_w) / max_w, 1.0)
                     max_discount = 1.0 - self._discount
                     discount = 1.0 - max_discount * ratio
                     dist[i, j] *= discount
@@ -413,12 +419,20 @@ class DomainSemanticClusterer:
         prefix_penalty_factor: float = 2.0,
         pinned_domains: dict[tuple[str, str], str] | None = None,
         enable_prefix_cannot_link: bool = True,
+        hub_weights: dict[tuple[str, str], float] | None = None,
     ) -> list[set[tuple[str, str]]]:
         n = len(modules)
         if n < _SMALL_N_THRESHOLD:
             return [set(modules)]
+        if hub_weights is None and edges:
+            hub_weights = compute_hub_weights(modules, edges)
         dist = self._compute_distance_matrix(
-            embeddings, modules, edges, paths=paths, prefix_penalty_factor=prefix_penalty_factor
+            embeddings,
+            modules,
+            edges,
+            paths=paths,
+            prefix_penalty_factor=prefix_penalty_factor,
+            hub_weights=hub_weights,
         )
         if pinned_domains:
             dist = self._apply_anchor_constraints(dist, modules, pinned_domains)

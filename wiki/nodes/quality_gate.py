@@ -388,6 +388,12 @@ async def quality_gate_node(
                 "Ensure all code blocks have matching closing ``` fences and are complete."
             )
 
+        page_quality_flags = page_dict.get("quality_flags") or []
+        if "FORCED_ACCEPT" in page_quality_flags:
+            content_issues.append(
+                "agent_forced_accept: documentation accepted at minimum agent quality threshold"
+            )
+
         if content_issues:
             existing = heal_hints.get(page.path, "")
             combined = "; ".join(filter(None, [existing, *content_issues]))
@@ -409,8 +415,13 @@ async def quality_gate_node(
             else False
         )
         below_min_len = score_dict.get("below_min_length", False)
-        has_content_issues = bool(content_issues)
-        if (
+        has_content_issues = any(
+            i for i in content_issues if not i.startswith("agent_forced_accept:")
+        )
+        forced_low_quality = "FORCED_LOW_QUALITY" in page_quality_flags
+        if forced_low_quality and cycles < max_retries and page.path not in pages_to_heal:
+            pages_to_heal.append(page.path)
+        elif (
             (structural_score < threshold or l2_below or below_min_len or low_cn_ratio or has_content_issues)
             and cycles < max_retries
             and page.path not in pages_to_heal

@@ -68,6 +68,7 @@ class DocOrchestrator(ABC):
         self._enable_crag_gate = enable_crag_gate
         self._crag_coverage_threshold = crag_coverage_threshold
         self._crag_max_re_explore = crag_max_re_explore
+        self._last_accept_was_forced = False
 
     async def generate(
         self,
@@ -155,6 +156,7 @@ class DocOrchestrator(ABC):
 
         content = ""
         review_quality_flags: list[str] = []
+        accepted = False
         for iteration in range(self._max_iterations):
             write_coro = self._agent.run_generation(
                 self._write_system_prompt,
@@ -215,7 +217,9 @@ class DocOrchestrator(ABC):
             await self.run_guardrails(content, iteration, {"module_names": module_names})
             self.build_iteration_trace(iteration, quality)
 
+            self._last_accept_was_forced = False
             if self.is_acceptable(quality, iteration):
+                accepted = True
                 break
 
             supplemental = self._agent.create_memory()
@@ -226,6 +230,13 @@ class DocOrchestrator(ABC):
                 config=self._get_explore_config(),
             )
             memory.merge(supplemental)
+
+        if accepted and self._last_accept_was_forced:
+            if "FORCED_ACCEPT" not in self._pending_quality_flags:
+                self._pending_quality_flags.append("FORCED_ACCEPT")
+        elif not accepted:
+            if "FORCED_LOW_QUALITY" not in self._pending_quality_flags:
+                self._pending_quality_flags.append("FORCED_LOW_QUALITY")
 
         pages = self.post_process(content, module_names, memory)
         if review_quality_flags:

@@ -87,12 +87,15 @@ class TopicDocAgent(DocOrchestrator):
         if iteration >= 2 and quality.coverage >= 0.9:
             return True
         if iteration >= 3:
-            log.warning(
-                "quality_forced_accept",
-                coverage=quality.coverage,
-                iteration=iteration,
-            )
-            return quality.coverage >= 0.7
+            if quality.coverage >= 0.7:
+                self._last_accept_was_forced = True
+                log.warning(
+                    "quality_forced_accept",
+                    coverage=quality.coverage,
+                    iteration=iteration,
+                )
+                return True
+            return False
         return False
 
     def post_process(

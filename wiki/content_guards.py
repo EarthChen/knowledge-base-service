@@ -421,6 +421,49 @@ def strip_unauthorized_sections(
     return "\n".join(result)
 
 
+_FENCE_LINE_RE = re.compile(r"^( {0,3})?```")
+_BARE_CLOSE_FENCE_RE = re.compile(r"^```\s*$")
+
+
+def _is_fence_line(line: str) -> bool:
+    """True for markdown fenced-code delimiter lines (0–3 leading spaces)."""
+    return bool(_FENCE_LINE_RE.match(line))
+
+
+def _count_unclosed_fence_blocks(content: str) -> int:
+    """Count closing fences missing at EOF after line-by-line fence tracking."""
+    depth = 0
+    in_fence = False
+    open_lang = ""
+
+    for line in content.split("\n"):
+        if not _is_fence_line(line):
+            continue
+        stripped = line.strip()
+        if _BARE_CLOSE_FENCE_RE.match(stripped):
+            if in_fence:
+                in_fence = False
+                open_lang = ""
+                depth = max(0, depth - 1)
+            continue
+        if not stripped.startswith("```"):
+            continue
+        lang = stripped[3:].strip()
+        if not in_fence:
+            in_fence = True
+            open_lang = lang
+            depth += 1
+        elif lang and lang == open_lang:
+            in_fence = False
+            open_lang = ""
+            depth = max(0, depth - 1)
+        else:
+            open_lang = lang
+            depth += 1
+
+    return depth if in_fence else 0
+
+
 def detect_truncated_code_blocks(content: str | None) -> list[dict]:
     """Detect unclosed code fences indicating truncated code blocks."""
     if not content:
@@ -429,39 +472,66 @@ def detect_truncated_code_blocks(content: str | None) -> list[dict]:
     in_fence = False
     fence_start_line = 0
     fence_lang = ""
+    open_lang = ""
 
     for i, line in enumerate(content.split("\n")):
+        if not _is_fence_line(line):
+            continue
         stripped = line.strip()
-        if stripped.startswith("```"):
-            if not in_fence:
-                in_fence = True
-                fence_start_line = i
-                fence_lang = stripped[3:].strip()
-            else:
+        if _BARE_CLOSE_FENCE_RE.match(stripped):
+            if in_fence:
                 in_fence = False
+                open_lang = ""
+            continue
+        if not stripped.startswith("```"):
+            continue
+        lang = stripped[3:].strip()
+        if not in_fence:
+            in_fence = True
+            open_lang = lang
+            fence_start_line = i
+            fence_lang = lang
+        elif lang and lang == open_lang:
+            in_fence = False
+            open_lang = ""
+        else:
+            open_lang = lang
+            fence_start_line = i
+            fence_lang = lang
 
     if in_fence:
-        truncated.append({
-            "start_line": fence_start_line,
-            "language": fence_lang,
-            "unclosed": True,
-        })
+        truncated.append(
+            {
+                "start_line": fence_start_line,
+                "language": fence_lang,
+                "unclosed": True,
+            }
+        )
     return truncated
 
 
 def detect_unclosed_code_blocks(content: str) -> bool:
-    """Detect if content has unclosed fenced code blocks (odd ``` fence count)."""
+    """Detect if content has unclosed fenced code blocks."""
     if not content:
         return False
-    fence_count = len(re.findall(r"^```", content, re.MULTILINE))
-    return fence_count % 2 != 0
+    return _count_unclosed_fence_blocks(content) > 0
 
 
 def repair_unclosed_code_blocks(content: str) -> str:
-    """Close unclosed fenced code blocks by appending a closing fence."""
-    if not content or not detect_unclosed_code_blocks(content):
+    """Close unclosed fenced code blocks by appending closing fences."""
+    if not content:
         return content
-    return content.rstrip() + "\n```\n"
+    closes_needed = _count_unclosed_fence_blocks(content)
+    if closes_needed == 0:
+        return content
+    return content.rstrip() + "\n" + ("```\n" * closes_needed)
+
+
+def repair_truncated_code_blocks(content: str) -> str:
+    """Close truncated code blocks detected by ``detect_truncated_code_blocks``."""
+    if not content or not detect_truncated_code_blocks(content):
+        return content
+    return repair_unclosed_code_blocks(content)
 
 
 def sanitize_content(content: str | None) -> str:
@@ -469,3 +539,27 @@ def sanitize_content(content: str | None) -> str:
     if not content:
         return ""
     return strip_h2_trailing_whitespace(content)
+
+
+# ---------------------------------------------------------------------------
+# CJK title similarity (bigram overlap)
+# ---------------------------------------------------------------------------
+
+
+def _extract_cjk_bigrams(title: str) -> set[str]:
+    """Extract CJK character bigrams for fuzzy title matching."""
+    chars = [c for c in title if "\u4e00" <= c <= "\u9fff"]
+    if len(chars) < 2:
+        return set(chars)
+    return {chars[i] + chars[i + 1] for i in range(len(chars) - 1)}
+
+
+def cjk_bigram_similarity(a: str, b: str) -> float:
+    """Return Jaccard-like bigram overlap ratio in ``[0.0, 1.0]``."""
+    bigrams_a = _extract_cjk_bigrams(a)
+    bigrams_b = _extract_cjk_bigrams(b)
+    if not bigrams_a and not bigrams_b:
+        return 1.0 if a == b else 0.0
+    if not bigrams_a or not bigrams_b:
+        return 0.0
+    return len(bigrams_a & bigrams_b) / max(len(bigrams_a), len(bigrams_b), 1)

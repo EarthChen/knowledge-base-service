@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from wiki.nodes.finalize import (
     _deduplicate_titles,
+    _detect_near_duplicate_titles,
     _extract_domain_from_path,
 )
 
@@ -67,3 +68,103 @@ def test_deduplicate_titles_uses_path_when_no_business_domain() -> None:
     titles = {p["title"] for p in result}
     assert "用户资料与状态（profile）" in titles
     assert "用户资料与状态（account）" in titles
+
+
+def test_deduplicate_titles_same_domain_different_page_types() -> None:
+    pages = [
+        {
+            "title": "挚友关系管理",
+            "path": "/__domains__/friend-relation/_overview",
+            "business_domain": "friend-relation",
+            "page_type": "domain_overview",
+        },
+        {
+            "title": "挚友关系管理",
+            "path": "/__domains__/friend-relation/topics/intimacy/_topic",
+            "business_domain": "friend-relation",
+            "page_type": "topic",
+        },
+    ]
+    result = _deduplicate_titles(list(pages))
+    titles = [p["title"] for p in result]
+    assert len(titles) == len(set(titles))
+    assert any("概览" in t for t in titles)
+    assert any("专题" in t for t in titles)
+
+
+def test_deduplicate_titles_same_domain_same_type() -> None:
+    pages = [
+        {
+            "title": "挚友关系管理",
+            "path": "/__domains__/friend-relation/topics/intimacy/_topic",
+            "business_domain": "friend-relation",
+            "page_type": "topic",
+        },
+        {
+            "title": "挚友关系管理",
+            "path": "/__domains__/friend-relation/topics/gift/_topic",
+            "business_domain": "friend-relation",
+            "page_type": "topic",
+        },
+    ]
+    result = _deduplicate_titles(list(pages))
+    titles = [p["title"] for p in result]
+    assert len(titles) == len(set(titles))
+    assert sum("2" in t or "1" in t for t in titles) >= 1
+
+
+def test_deduplicate_titles_empty_domain() -> None:
+    pages = [
+        {"title": "通用说明", "path": "/misc/page-a"},
+        {"title": "通用说明", "path": "/misc/page-b"},
+    ]
+    result = _deduplicate_titles(list(pages))
+    titles = [p["title"] for p in result]
+    assert len(titles) == len(set(titles))
+    assert any("1" in t or "2" in t for t in titles)
+
+
+def test_deduplicate_titles_guarantees_uniqueness() -> None:
+    pages = [
+        {
+            "title": "挚友关系管理",
+            "path": "/__domains__/friend-relation/topics/a/_topic",
+            "business_domain": "friend-relation",
+            "page_type": "topic",
+        },
+        {
+            "title": "挚友关系管理",
+            "path": "/__domains__/friend-relation/topics/b/_topic",
+            "business_domain": "friend-relation",
+            "page_type": "topic",
+        },
+        {
+            "title": "挚友关系管理",
+            "path": "/__domains__/family-relation/topics/a/_topic",
+            "business_domain": "family-relation",
+            "page_type": "topic",
+        },
+        {"title": "通用说明", "path": "/misc/x"},
+        {"title": "通用说明", "path": "/misc/y"},
+    ]
+    result = _deduplicate_titles(list(pages))
+    titles = [p["title"] for p in result]
+    assert len(titles) == len(set(titles))
+
+
+def test_detect_near_duplicate_titles() -> None:
+    pages = [
+        {
+            "title": "用户权限管理",
+            "path": "/__domains__/auth/topics/perm/_topic",
+            "business_domain": "auth",
+        },
+        {
+            "title": "用户权限管",
+            "path": "/__domains__/auth/topics/perm2/_topic",
+            "business_domain": "auth",
+        },
+    ]
+    result = _detect_near_duplicate_titles(list(pages))
+    titles = [p["title"] for p in result]
+    assert titles[0] != titles[1]

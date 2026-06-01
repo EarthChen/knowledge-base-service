@@ -7,10 +7,12 @@ from typing import Any
 
 from core.log import get_logger
 from wiki.content_guards import (
+    cjk_bigram_similarity,
     compute_cn_ratio,
     dedup_code_fences,
     detect_hallucination_flags,
     repair_code_fences,
+    repair_truncated_code_blocks,
     repair_unclosed_code_blocks,
     strip_english_self_reflection,
     strip_h1_title,
@@ -152,6 +154,7 @@ def _sanitize_published_content(content: str, *, page_type: str = "") -> str:
 
     # 7. Close unclosed code blocks (safety net after quality_gate heal cycles)
     content = repair_unclosed_code_blocks(content)
+    content = repair_truncated_code_blocks(content)
 
     # 8. Clean up excessive blank lines
     content = re.sub(r"\n{4,}", "\n\n\n", content)
@@ -448,28 +451,176 @@ def _extract_domain_from_path(path: str) -> str:
     return ""
 
 
+_PAGE_TYPE_LABELS: dict[str, str] = {
+    "domain_overview": "概览",
+    "topic": "专题",
+}
+
+_NEAR_DUP_SIMILARITY_THRESHOLD = 0.8
+_MAX_TITLE_LEN = 50
+
+
+def _page_domain(page: dict) -> str:
+    return str(page.get("business_domain", "") or _extract_domain_from_path(page.get("path", "")))
+
+
+def _page_type_label(page: dict) -> str:
+    page_type = str(page.get("page_type", "") or "")
+    return _PAGE_TYPE_LABELS.get(page_type, page_type)
+
+
+def _path_topic_slug(path: str) -> str:
+    """Extract a human-readable slug from a wiki page path."""
+    if not path:
+        return ""
+    parts = [part for part in path.strip("/").split("/") if part and not part.startswith("_")]
+    if "topics" in parts:
+        topic_idx = parts.index("topics")
+        if topic_idx + 1 < len(parts):
+            return parts[topic_idx + 1]
+    return parts[-1] if parts else ""
+
+
+def _truncate_title(title: str, *, max_len: int = _MAX_TITLE_LEN) -> str:
+    if len(title) <= max_len:
+        return title
+    return title[: max_len - 3] + "…）"
+
+
+def _title_with_suffix(base: str, *parts: str) -> str:
+    suffix_parts = [part for part in parts if part]
+    if not suffix_parts:
+        return base
+    return _truncate_title(f"{base}（{'·'.join(suffix_parts)}）")
+
+
+def _disambiguation_parts(page: dict, *, level: int, seq: int) -> tuple[str, ...]:
+    domain = _page_domain(page)
+    page_type = _page_type_label(page)
+    if level == 0:
+        return (domain,) if domain else ()
+    if level == 1:
+        parts = [part for part in (domain, page_type) if part]
+        return tuple(parts)
+    numbered = [part for part in (domain, page_type, str(seq)) if part]
+    if numbered:
+        return tuple(numbered)
+    return (str(seq),)
+
+
+def _candidate_titles_for_group(pages: list[dict], base_title: str, *, level: int) -> list[str]:
+    candidates: list[str] = []
+    for seq, page in enumerate(pages, start=1):
+        parts = _disambiguation_parts(page, level=level, seq=seq)
+        candidates.append(_title_with_suffix(base_title, *parts) if parts else base_title)
+    return candidates
+
+
+def _detect_near_duplicate_titles(pages: list[dict]) -> list[dict]:
+    """Rename titles with high CJK bigram overlap (>= 0.8) against earlier pages."""
+    result = [dict(page) for page in pages]
+    used_titles = {page.get("title", "") for page in result if page.get("title")}
+
+    for i, page in enumerate(result):
+        title = str(page.get("title", "") or "")
+        if not title:
+            continue
+        for j in range(i):
+            other_title = str(result[j].get("title", "") or "")
+            if not other_title or title == other_title:
+                continue
+            if cjk_bigram_similarity(title, other_title) < _NEAR_DUP_SIMILARITY_THRESHOLD:
+                continue
+
+            slug = _path_topic_slug(page.get("path", ""))
+            domain = _page_domain(page)
+            suffix_options = (
+                [part for part in (domain, slug) if part],
+                [slug] if slug else [],
+                [str(i + 1)],
+            )
+            new_title = title
+            for parts in suffix_options:
+                if not parts:
+                    continue
+                candidate = _title_with_suffix(title, *parts)
+                if candidate not in used_titles:
+                    new_title = candidate
+                    break
+            else:
+                seq = 1
+                while True:
+                    candidate = _title_with_suffix(title, str(seq))
+                    if candidate not in used_titles:
+                        new_title = candidate
+                        break
+                    seq += 1
+
+            result[i] = {**page, "title": new_title}
+            used_titles.add(new_title)
+            break
+
+    return result
+
+
+def _deduplicate_exact_titles(pages: list[dict]) -> list[dict]:
+    """Resolve exact duplicate titles with progressive domain/type/numeric suffixes."""
+    result = [dict(page) for page in pages]
+    title_groups: dict[str, list[int]] = {}
+    for index, page in enumerate(result):
+        title = str(page.get("title", "") or "")
+        title_groups.setdefault(title, []).append(index)
+
+    for base_title, indices in title_groups.items():
+        if len(indices) <= 1 or not base_title:
+            continue
+
+        group_pages = [result[index] for index in indices]
+        for level in range(3):
+            candidates = _candidate_titles_for_group(group_pages, base_title, level=level)
+            if len(candidates) == len(set(candidates)):
+                for index, new_title in zip(indices, candidates, strict=True):
+                    result[index] = {**result[index], "title": new_title}
+                break
+
+    return result
+
+
+def _ensure_title_uniqueness(pages: list[dict]) -> list[dict]:
+    """Safety pass: force numeric suffixes until all titles are unique."""
+    result = [dict(page) for page in pages]
+    for _ in range(len(result) + 1):
+        duplicates: dict[str, list[int]] = {}
+        for index, page in enumerate(result):
+            title = str(page.get("title", "") or "")
+            if title:
+                duplicates.setdefault(title, []).append(index)
+        unresolved = {title: idxs for title, idxs in duplicates.items() if len(idxs) > 1}
+        if not unresolved:
+            return result
+
+        for title, indices in unresolved.items():
+            existing = {result[idx].get("title", "") for idx in range(len(result))}
+            for seq, index in enumerate(indices, start=1):
+                candidate = _title_with_suffix(title, str(seq))
+                while candidate in existing:
+                    seq += 1
+                    candidate = _title_with_suffix(title, str(seq))
+                result[index] = {**result[index], "title": candidate}
+                existing.add(candidate)
+
+    return result
+
+
 def _deduplicate_titles(pages: list[dict]) -> list[dict]:
     """Ensure all page titles within a business are unique.
 
-    For duplicate titles, append the domain display name as suffix: 'Title（Domain）'
+    Near-duplicates are renamed first, then exact duplicates receive
+    domain / page-type / numeric suffixes, with a final safety pass.
     """
-    title_count: dict[str, list[int]] = {}
-    for i, p in enumerate(pages):
-        title = p.get("title", "")
-        title_count.setdefault(title, []).append(i)
-
-    for title, indices in title_count.items():
-        if len(indices) <= 1:
-            continue
-        for idx in indices:
-            p = pages[idx]
-            domain = p.get("business_domain", "") or _extract_domain_from_path(p.get("path", ""))
-            if domain:
-                new_title = f"{title}（{domain}）"
-                if len(new_title) > 50:
-                    new_title = new_title[:47] + "…）"
-                pages[idx] = {**p, "title": new_title}
-    return pages
+    result = _detect_near_duplicate_titles(list(pages))
+    result = _deduplicate_exact_titles(result)
+    return _ensure_title_uniqueness(result)
 
 
 async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -549,6 +700,21 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                     )
                     updated_pages.append({**page, "content": "", "__rejected__": True})
                     continue
+
+            page_quality_flags = page.get("quality_flags") or []
+            if "FORCED_LOW_QUALITY" in page_quality_flags:
+                lang = page.get("content_language", "")
+                if lang and lang.lower() in ("en", "english", "en-us"):
+                    banner = "> ⚠️ This domain documentation is incomplete and may contain gaps.\n\n"
+                else:
+                    banner = "> ⚠️ 本域文档待完善，内容可能不完整。\n\n"
+                if not content.startswith(banner):
+                    content = banner + content
+                log.warning(
+                    "forced_low_quality_banner",
+                    page_path=page.get("path"),
+                    quality_flags=page_quality_flags,
+                )
 
             threshold = _get_skeleton_threshold(page.get("page_type", ""))
             if (is_overview or is_topic) and len(content) < threshold and not is_topic_index:

@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Knowledge Base Service post-commit hook — triggers incremental indexing in the background.
+# installed-by: knowledge-base-service kb-hook
+
+set -u
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "kb-hook: failed to resolve git repository root" >&2
+  exit 0
+}
+
+REPO_NAME=""
+if url="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null)"; then
+  REPO_NAME="${url##*/}"
+  REPO_NAME="${REPO_NAME%.git}"
+fi
+if [[ -z "$REPO_NAME" ]]; then
+  REPO_NAME="$(basename "$REPO_ROOT")"
+fi
+
+KB_URL="http://localhost:8100"
+KB_TOKEN=""
+KB_BUSINESS_ID="default"
+ENV_FILE="${REPO_ROOT}/.kb-hook.env"
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  set -a
+  # shellcheck source=/dev/null
+  source "$ENV_FILE"
+  set +a
+fi
+
+KB_URL="${KB_URL:-http://localhost:8100}"
+KB_BUSINESS_ID="${KB_BUSINESS_ID:-default}"
+
+if [[ -z "${KB_TOKEN:-}" ]]; then
+  echo "kb-hook: KB_TOKEN not set in .kb-hook.env, skipping incremental index" >&2
+  exit 0
+fi
+
+ENDPOINT="${KB_URL%/}/api/v1/index"
+BODY="$(python3 -c 'import json,sys; print(json.dumps({
+    "business_id": sys.argv[1],
+    "directory": sys.argv[2],
+    "mode": "incremental",
+    "repository": sys.argv[3],
+    "base_ref": "HEAD~1",
+    "head_ref": "HEAD",
+}))' "$KB_BUSINESS_ID" "$REPO_ROOT" "$REPO_NAME")"
+
+_kb_index_background() {
+  if ! curl -fsS -X POST "$ENDPOINT" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${KB_TOKEN}" \
+    -d "$BODY"; then
+    echo "kb-hook: incremental index request failed for repository: ${REPO_NAME}" >&2
+  fi
+}
+
+_kb_index_background &
+disown 2>/dev/null || true
+
+exit 0

@@ -114,5 +114,4 @@ pnpm lint             # ESLint
 | [`docs/REMAINING-WORK.md`](docs/REMAINING-WORK.md) | Unified backlog |
 | [`docs/superpowers/TODO.md`](docs/superpowers/TODO.md) | Design proposals & optimization backlog |
 | [`docs/wiki-quality-audit.md`](docs/wiki-quality-audit.md) | Wiki generation quality audit (12 issues, fix priorities) |
-| [`docs/agent-architecture-improvement.md`](docs/agent-architecture-improvement.md) | Agent subsystem: delegation, memory, context management improvement proposals |
 | [`docs/knowledge-base-system-analysis.md`](docs/knowledge-base-system-analysis.md) | Full system analysis: multi-role perspectives, competitor comparison, roadmap |

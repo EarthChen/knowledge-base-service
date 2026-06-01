@@ -28,7 +28,7 @@ class EmbeddingConfig(BaseModel):
     chunk_size: int = 64
     use_fp16: bool = True
     max_length: int = 8192
-    query_prefix: str = ""
+    query_prefix: str = "Represent this sentence for searching relevant passages: "
     trust_remote_code: bool = True
 
     http_base_url: str = ""
@@ -106,11 +106,11 @@ class LLMConfig(BaseModel):
     enabled: bool = False
     # Optional indexing-time LLM passes (default off; see gateway.enrichment_enabled for
     # business_summary / CodeSummaryEnricher).
-    concept_extraction_enabled: bool = False
-    business_flow_enabled: bool = False
-    #: ``disabled`` — no LLM enrichment during indexing (default). ``core_only`` —
+    concept_extraction_enabled: bool = True
+    business_flow_enabled: bool = True
+    #: ``disabled`` — no LLM enrichment during indexing. ``core_only`` (default) —
     #: enrich only high-value entities (see ``EnrichmentPriorityClassifier``).
-    enrichment_strategy: str = "disabled"
+    enrichment_strategy: str = "core_only"
     default_provider: str = "gateway"
     fallback_provider: str = ""
     providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -168,7 +168,7 @@ class HybridSearchConfig(BaseModel):
 
     query_expansion_enabled: bool = True
     include_raw_docs_in_results: bool = False
-    use_child_chunks: bool = True
+    use_child_chunks: bool = False
     child_chunk_window_chars: int = 800
     child_chunk_stride_chars: int = 600
     child_chunk_min_parent_chars: int = 400
@@ -179,7 +179,8 @@ class HybridSearchConfig(BaseModel):
 class RerankConfig(BaseModel):
     """Configuration for cross-encoder reranking."""
 
-    enabled: bool = False
+    enabled: bool = True
+    nl_only: bool = True
     model_name: str = "BAAI/bge-reranker-v2-m3"
     device: str = "auto"
     batch_size: int = 32
@@ -336,6 +337,42 @@ class AppWikiFlags(BaseModel):
     )
     topic_min_publish_chars: int = Field(
         default=1500, ge=100, le=10000, description="Topic pages shorter than this are not published"
+    )
+    reject_mechanical_topic_names: bool = Field(
+        default=True,
+        description="Rename mechanical Part N / 第N部分 topic titles using module names",
+    )
+    topic_stub_heading_ratio_max: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Reject topic pages when heading lines exceed this fraction of non-empty lines",
+    )
+    tree_linker_shell_min_prose_ratio: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description="Min prose char ratio for domain overview pages; below this, link-heavy shells are not published",
+    )
+    infra_module_patterns: list[str] = Field(
+        default=[
+            "core/",
+            "utils/",
+            "common/",
+            "shared/",
+            "lib/",
+            "middleware/",
+            "config/",
+            "helpers/",
+            "base/",
+        ],
+        description="File path substrings that mark a module as shared infrastructure",
+    )
+    infra_module_fan_in_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Min fraction of other modules that call a module before it is treated as infrastructure",
     )
     infrastructure_slug_keywords: list[str] = Field(
         default=[

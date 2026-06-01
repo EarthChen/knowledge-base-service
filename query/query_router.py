@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from core.log import get_logger
 from wiki.ask import detect_question_type
+
+log = get_logger(__name__)
 
 # Align with hybrid_query identifier / FQN heuristics for code-like queries.
 _FQN_RE = re.compile(
@@ -33,6 +36,13 @@ def _looks_code_like(query: str) -> bool:
     if _FQN_RE.search(query):
         return True
     return bool(_CAMEL_TOKEN_RE.search(query))
+
+
+def should_rerank(query: str) -> bool:
+    """True when the query is natural-language enough to benefit from cross-encoder reranking."""
+    result = not _looks_code_like(query)
+    log.debug("rerank_decision", should_rerank=result, query_preview=query[:80])
+    return result
 
 
 def _base_strategy(query_type: str) -> SearchStrategy:
@@ -88,4 +98,11 @@ def route_query(query: str) -> SearchStrategy:
     strategy = _base_strategy(intent)
     if _looks_code_like(query):
         strategy.keyword_weight = min(strategy.keyword_weight * _CODE_LIKE_KW_BOOST, 3.0)
+    log.info(
+        "query_routed",
+        query_type=strategy.query_type,
+        keyword_weight=strategy.keyword_weight,
+        semantic_weight=strategy.semantic_weight,
+        expand_graph=strategy.expand_graph,
+    )
     return strategy

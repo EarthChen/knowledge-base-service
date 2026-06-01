@@ -239,10 +239,10 @@ def test_p3_removed_search_endpoints_return_404() -> None:
 
 
 def test_p3_llm_config_defaults_track_c(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Default LLMConfig disables concept extraction and business flow indexing passes."""
+    """Default LLMConfig enables concept extraction and business flow indexing passes."""
     monkeypatch.delenv("LLM__CONCEPT_EXTRACTION_ENABLED", raising=False)
     monkeypatch.delenv("LLM__BUSINESS_FLOW_ENABLED", raising=False)
 
     cfg = LLMConfig()
-    assert cfg.concept_extraction_enabled is False
-    assert cfg.business_flow_enabled is False
+    assert cfg.concept_extraction_enabled is True
+    assert cfg.business_flow_enabled is True

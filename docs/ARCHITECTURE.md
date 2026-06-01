@@ -219,7 +219,7 @@ sequenceDiagram
 3. **跨文件 Import**：**`ImportResolver`** 构建文件索引，解析 Python/JS/TS/Java/Go import；失败回退虚拟 **`Module`**。
 4. **父子块**：**`child_chunker`** 大包拆解为 **`Chunk`**，**`PART_OF`** 连回父实体。
 5. **持久化**：**`batch_upsert`**；按标签刷新向量索引。
-6. **丰富化（可选）**：LLM **`business_summary`**；**`enrichment_strategy`**：**`disabled`**（默认）或 **`core_only`**。
+6. **丰富化（可选）**：LLM **`business_summary`**；**`enrichment_strategy`**：**`core_only`**（默认）或 **`disabled`**。
 
 ---
 

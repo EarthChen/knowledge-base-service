@@ -11,6 +11,7 @@ from wiki.nodes.finalize import (
     _sanitize_published_content,
     finalize_node,
 )
+from wiki.content_guards import detect_unclosed_code_blocks, repair_unclosed_code_blocks
 
 
 class TestSanitizeSensitiveRedaction:
@@ -101,6 +102,7 @@ def _mock_wiki_settings(**overrides: object) -> MagicMock:
     mock_settings = MagicMock()
     mock_settings.wiki.topic_min_content_chars = 1000
     mock_settings.wiki.topic_min_publish_chars = 1500
+    mock_settings.wiki.topic_stub_heading_ratio_max = 0.5
     mock_settings.wiki.overview_min_content_chars = 2000
     mock_settings.wiki.cn_ratio_hard_min = 0.25
     for key, value in overrides.items():
@@ -270,3 +272,44 @@ class TestFinalizeCnRatioThreshold:
 
         paths = {p["path"] for p in result.get("pages", [])}
         assert "/__domains__/test/en-topic" in paths
+
+
+class TestSanitizeUnclosedCodeBlocks:
+    def test_uses_repair_unclosed_code_blocks(self) -> None:
+        content = "## 概述\n\n```java\npublic class Foo {\n"
+        with patch(
+            "wiki.nodes.finalize.repair_unclosed_code_blocks",
+            wraps=repair_unclosed_code_blocks,
+        ) as mock_repair:
+            _sanitize_published_content(content)
+        mock_repair.assert_called_once()
+
+    def test_unclosed_fence_closed(self) -> None:
+        content = "## 概述\n\n```java\npublic class Foo {\n"
+        result = _sanitize_published_content(content)
+        assert not detect_unclosed_code_blocks(result)
+        assert result.rstrip().endswith("```")
+
+    def test_multiple_truncated_blocks_last_fence_closed(self) -> None:
+        content = (
+            "## 概述\n\n"
+            "```java\n"
+            "public class A {}\n"
+            "```\n\n"
+            "中间说明。\n\n"
+            "```python\n"
+            "def handler():\n"
+            "    pass\n"
+        )
+        result = _sanitize_published_content(content)
+        assert not detect_unclosed_code_blocks(result)
+
+    def test_inline_backticks_do_not_trigger_false_close(self) -> None:
+        content = "## 概述\n\nUse ``` notation in prose.\n\n```python\nprint('ok')\n```\n"
+        result = _sanitize_published_content(content)
+        assert result == content.strip()
+
+    def test_valid_fenced_content_unchanged(self) -> None:
+        content = "```java\npublic class Foo {}\n```"
+        result = _sanitize_published_content(content)
+        assert result == content

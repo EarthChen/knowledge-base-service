@@ -18,7 +18,7 @@ from typing import Any
 
 from core.log import get_logger
 from query.graph_query import GraphQueryService
-from query.query_router import SearchStrategy, route_query
+from query.query_router import SearchStrategy, route_query, should_rerank
 from query.semantic_query import SemanticQueryService
 from search.fusion import position_aware_blend, rrf_fusion
 from store.falkordb_store import FalkorDBStore
@@ -211,6 +211,13 @@ class HybridQueryService:
         if use_child_chunks is None:
             use_child_chunks = self._use_child_chunks
 
+        log.info(
+            "search_started",
+            query=query_text[:100],
+            repository=repository,
+            use_child_chunks=use_child_chunks,
+        )
+
         if enable_bm25 is not None:
             do_bm25 = bool(enable_bm25) and self._search_store is not None
         else:
@@ -265,6 +272,13 @@ class HybridQueryService:
             else:
                 kw_hits, sem_result = await asyncio.gather(kw_coro, sem_coro)
                 bm25_hits = []
+
+            log.info(
+                "search_recall",
+                kw_hits=len(kw_hits),
+                sem_hits=len(sem_result.matches),
+                bm25_hits=len(bm25_hits),
+            )
 
             if router_strategy is None:
                 w = 1.5 if i == 0 else 0.75
@@ -485,6 +499,12 @@ class HybridQueryService:
         filtered = _filter_merged_by_entity_type(merged, entity_type)
         sorted_m = _sort_semantic_matches(filtered, sort_by)
         page_rows, total, off, lim = _apply_offset_limit(sorted_m, offset, limit)
+        log.info(
+            "search_completed",
+            total=total,
+            confidence=confidence,
+            no_results_reason=no_results_reason,
+        )
         return {
             "results": page_rows,
             "semantic_matches": page_rows,
@@ -797,12 +817,17 @@ class HybridQueryService:
             all_ranked += bm25_ranked_lists
             all_weights += bm25_weights
 
-        candidate_k = k * 3 if self._reranker else k
+        apply_reranker = (
+            self._reranker is not None
+            and (should_rerank(query_text) or not self._reranker._config.nl_only)
+        )
+        candidate_k = k * 3 if apply_reranker else k
         fused = rrf_fusion(all_ranked, all_weights)[:candidate_k]
+        log.info("search_fused", candidates=len(fused), rerank_applied=apply_reranker)
 
         rrf_ordered = [(doc_id, score) for doc_id, score in fused if doc_id in doc_map]
 
-        if self._reranker:
+        if apply_reranker:
             try:
                 if hasattr(self._reranker, "rerank_with_scores"):
                     merged_pre = [dict(doc_map[i]) for i, _ in rrf_ordered]

@@ -11,6 +11,7 @@ from wiki.content_guards import (
     dedup_code_fences,
     detect_hallucination_flags,
     repair_code_fences,
+    repair_unclosed_code_blocks,
     strip_english_self_reflection,
     strip_h1_title,
     strip_meta_sections,
@@ -150,8 +151,7 @@ def _sanitize_published_content(content: str, *, page_type: str = "") -> str:
     content = "\n".join(result)
 
     # 7. Close unclosed code blocks (safety net after quality_gate heal cycles)
-    if content.count("```") % 2 == 1:
-        content += "\n```"
+    content = repair_unclosed_code_blocks(content)
 
     # 8. Clean up excessive blank lines
     content = re.sub(r"\n{4,}", "\n\n\n", content)
@@ -381,6 +381,40 @@ def _resolve_page_content_language(page: dict[str, Any], state: dict[str, Any]) 
     return lang
 
 
+_STUB_PLACEHOLDER_RE = re.compile(
+    r"(?:\bTODO\b|\bTBD\b|\bFIXME\b|待补充|待完善|占位|placeholder)",
+    re.IGNORECASE,
+)
+
+
+def _heading_line_ratio(content: str) -> float:
+    """Fraction of non-empty lines that are markdown headings."""
+    lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
+    if not lines:
+        return 0.0
+    heading_count = sum(1 for ln in lines if re.match(r"^#{1,6}\s", ln))
+    return heading_count / len(lines)
+
+
+def _detect_stub_topic(content: str, *, raw_len: int, wiki: Any) -> tuple[bool, str]:
+    """Return (is_stub, reason) for topic publish rejection."""
+    min_publish = wiki.topic_min_publish_chars
+    if raw_len < min_publish:
+        return True, "min_chars"
+
+    heading_max = getattr(wiki, "topic_stub_heading_ratio_max", 0.5)
+    if not isinstance(heading_max, (int, float)):
+        heading_max = 0.5
+    ratio = _heading_line_ratio(content)
+    if ratio > heading_max:
+        return True, "heading_ratio"
+
+    if _STUB_PLACEHOLDER_RE.search(content):
+        return True, "placeholder"
+
+    return False, ""
+
+
 def _rewrite_part_n_title(title: str, content: str) -> str:
     """Rewrite 'DomainName - Part N' titles with content-based semantic title."""
     if not re.search(r"- Part \d+$", title):
@@ -492,6 +526,30 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
             is_topic_index = page.get("metadata", {}).get("overview_kind") == "topic_index"
             is_overview = page.get("page_type") == "domain_overview"
             is_topic = page.get("page_type") == "topic"
+
+            if is_topic and not is_topic_index:
+                from core.config import get_settings
+
+                wiki_cfg = get_settings().wiki
+                is_stub, stub_reason = _detect_stub_topic(
+                    content,
+                    raw_len=raw_content_len,
+                    wiki=wiki_cfg,
+                )
+                if is_stub:
+                    log.warning(
+                        "stub_topic_rejected",
+                        page_path=page.get("path"),
+                        content_len=raw_content_len,
+                        threshold=wiki_cfg.topic_min_publish_chars,
+                        reason=stub_reason,
+                        heading_ratio=round(_heading_line_ratio(content), 3)
+                        if stub_reason == "heading_ratio"
+                        else None,
+                    )
+                    updated_pages.append({**page, "content": "", "__rejected__": True})
+                    continue
+
             threshold = _get_skeleton_threshold(page.get("page_type", ""))
             if (is_overview or is_topic) and len(content) < threshold and not is_topic_index:
                 lang = page.get("content_language", "")
@@ -515,20 +573,6 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
                 )
                 updated_pages.append({**page, "content": "", "__rejected__": True})
                 continue
-
-            if is_topic and not is_topic_index:
-                from core.config import get_settings
-
-                min_publish = get_settings().wiki.topic_min_publish_chars
-                if raw_content_len < min_publish:
-                    log.warning(
-                        "stub_topic_rejected",
-                        page_path=page.get("path"),
-                        content_len=raw_content_len,
-                        threshold=min_publish,
-                    )
-                    updated_pages.append({**page, "content": "", "__rejected__": True})
-                    continue
 
             if is_topic and not is_topic_index:
                 from core.config import get_settings

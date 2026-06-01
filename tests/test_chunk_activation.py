@@ -6,13 +6,13 @@ import pytest
 
 
 class TestConfigDefaults:
-    """P3.1: use_child_chunks defaults to True."""
+    """P3.1: use_child_chunks defaults to False for 3-way RRF (keyword + semantic + BM25)."""
 
-    def test_use_child_chunks_default_true(self):
+    def test_use_child_chunks_default_false(self):
         from core.config import HybridSearchConfig
 
         cfg = HybridSearchConfig()
-        assert cfg.use_child_chunks is True
+        assert cfg.use_child_chunks is False
 
     def test_child_chunk_window_defaults(self):
         from core.config import HybridSearchConfig

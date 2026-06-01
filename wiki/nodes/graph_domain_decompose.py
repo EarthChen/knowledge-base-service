@@ -265,6 +265,8 @@ def _cleanup_collision_slugs(
 
 
 _PASCAL_CASE_RE = re.compile(r"^[A-Z][a-zA-Z0-9]+$")
+_FAN_IN_MIN_MODULE_COUNT = 6
+
 _INFRA_CLASS_SUFFIXES = (
     "Impl",
     "Configuration",
@@ -277,6 +279,113 @@ _INFRA_CLASS_SUFFIXES = (
     "Handler",
     "Executor",
 )
+_ABSTRACT_MODULE_SUFFIXES = ("Base", "Abstract", "Interface", "Mixin")
+
+
+def _is_infra_module_path(path: str, patterns: list[str]) -> bool:
+    """True when module file path matches a configured infrastructure pattern."""
+    if not path or not patterns:
+        return False
+    normalized = path.replace("\\", "/").lower()
+    for pattern in patterns:
+        p = pattern.lower().strip()
+        if not p:
+            continue
+        if p in normalized:
+            return True
+    return False
+
+
+def _is_abstract_module_name(name: str) -> bool:
+    """True for PascalCase base/interface style module names."""
+    if not _PASCAL_CASE_RE.match(name):
+        return False
+    return any(name.endswith(suffix) for suffix in _ABSTRACT_MODULE_SUFFIXES)
+
+
+def _compute_module_fan_in_ratios(
+    biz_modules: set[tuple[str, str]],
+    edges: list[tuple[tuple[str, str], tuple[str, str], int]],
+) -> dict[tuple[str, str], float]:
+    """Return per-module ratio of distinct callers to (total_modules - 1)."""
+    if len(biz_modules) <= 1:
+        return {}
+    callers: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    for src, tgt, _weight in edges:
+        if tgt in biz_modules and src in biz_modules and src != tgt:
+            callers.setdefault(tgt, set()).add(src)
+    denom = len(biz_modules) - 1
+    return {mod: len(callers.get(mod, ())) / denom for mod in biz_modules}
+
+
+def _detect_infra_modules(
+    biz_modules: list[tuple[str, str]],
+    module_paths: dict[str, str],
+    edges: list[tuple[tuple[str, str], tuple[str, str], int]],
+    *,
+    path_patterns: list[str],
+    fan_in_threshold: float = 0.5,
+) -> set[tuple[str, str]]:
+    """Identify shared infrastructure modules by path, fan-in, or naming heuristics."""
+    if not isinstance(path_patterns, list):
+        path_patterns = []
+    if not isinstance(fan_in_threshold, (int, float)):
+        fan_in_threshold = 0.5
+    mod_set = set(biz_modules)
+    fan_in = _compute_module_fan_in_ratios(mod_set, edges)
+    infra: set[tuple[str, str]] = set()
+
+    for repo, name in biz_modules:
+        compound = _compound_key(repo, name)
+        path = module_paths.get(compound, module_paths.get(name, ""))
+        if _is_infra_module_path(path, path_patterns):
+            infra.add((repo, name))
+            continue
+        if (
+            len(mod_set) >= _FAN_IN_MIN_MODULE_COUNT
+            and fan_in.get((repo, name), 0.0) >= fan_in_threshold
+        ):
+            infra.add((repo, name))
+            continue
+        if _is_abstract_module_name(name):
+            infra.add((repo, name))
+            continue
+        if _PASCAL_CASE_RE.match(name) and name.endswith(_INFRA_CLASS_SUFFIXES):
+            infra.add((repo, name))
+
+    return infra
+
+
+def _reassign_infra_modules(
+    domain_mapping: dict[str, list[tuple[str, str]]],
+    domain_display_names: dict[str, str],
+    infra_modules: set[tuple[str, str]],
+    infrastructure_label: str,
+) -> None:
+    """Move infrastructure modules into a dedicated domain bucket."""
+    if not infra_modules:
+        return
+
+    label = infrastructure_label if isinstance(infrastructure_label, str) else "__infrastructure__"
+    infra_slug = normalize_slug(label.strip() or "__infrastructure__")
+    for slug in list(domain_mapping.keys()):
+        domain_mapping[slug] = [m for m in domain_mapping[slug] if m not in infra_modules]
+        if not domain_mapping[slug]:
+            del domain_mapping[slug]
+
+    domain_mapping.setdefault(infra_slug, [])
+    existing = set(domain_mapping[infra_slug])
+    for mod in sorted(infra_modules):
+        if mod not in existing:
+            domain_mapping[infra_slug].append(mod)
+            existing.add(mod)
+
+    domain_display_names.setdefault(infra_slug, label)
+    log.info(
+        "infra_modules_reassigned",
+        infra_slug=infra_slug,
+        module_count=len(infra_modules),
+    )
 
 
 def _is_infra_slug(
@@ -1795,8 +1904,27 @@ async def graph_driven_domain_decompose_node(
             domain_mapping, domain_display_names,
         )
 
-        # --- Step 6.55: Infrastructure domain filtering ---
+        # --- Step 6.54: Per-module infrastructure reassignment ---
         wiki_cfg = get_settings().wiki
+        infra_modules = _detect_infra_modules(
+            biz_modules,
+            module_paths,
+            edges,
+            path_patterns=wiki_cfg.infra_module_patterns,
+            fan_in_threshold=wiki_cfg.infra_module_fan_in_threshold,
+        )
+        if infra_modules:
+            infra_label = wiki_cfg.business_domain_infrastructure_label
+            if not isinstance(infra_label, str) or not infra_label.strip():
+                infra_label = "__infrastructure__"
+            _reassign_infra_modules(
+                domain_mapping,
+                domain_display_names,
+                infra_modules,
+                infra_label,
+            )
+
+        # --- Step 6.55: Infrastructure domain filtering ---
         domain_mapping, domain_display_names = _filter_infrastructure_domains(
             domain_mapping, domain_display_names, wiki_cfg.infrastructure_slug_keywords, edges=edges,
         )

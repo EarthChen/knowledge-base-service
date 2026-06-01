@@ -23,9 +23,12 @@ class TestWikiPageAgentToolRegistration:
         from wiki.page_agent import WikiPageAgent
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
-        tier_1_expected = {"query_module_detail", "read_code", "query_call_chain", "query_callers", "query_callees"}
+        tier_1_expected = {
+            "query_module_detail", "read_code", "query_call_chain", "query_callers",
+            "query_callees", "semantic_search",
+        }
         tier_2_expected = {"query_implementations", "query_domain_dependencies", "read_file", "search_entities"}
-        tier_3_expected = {"grep_code", "list_files", "semantic_search", "read_wiki_page", "delegate_submodule"}
+        tier_3_expected = {"grep_code", "list_files", "read_wiki_page", "delegate_submodule"}
 
         for tool_def in agent._tool_registry._tools.values():
             if tool_def.name in tier_1_expected:

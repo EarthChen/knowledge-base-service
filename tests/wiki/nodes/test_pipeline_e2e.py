@@ -49,6 +49,7 @@ def mock_wiki_settings(monkeypatch):
     mock_cfg.wiki.overview_min_content_chars = 2000
     mock_cfg.wiki.topic_min_content_chars = 1000
     mock_cfg.wiki.topic_min_publish_chars = 0
+    mock_cfg.wiki.topic_stub_heading_ratio_max = 0.5
     mock_cfg.wiki.cn_ratio_hard_min = 0.4
     mock_cfg.wiki.language_guardrail_cn_ratio = 0.15
     mock_cfg.wiki.heal_l2_threshold = 0.0

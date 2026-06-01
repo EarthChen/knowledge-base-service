@@ -4,7 +4,7 @@ services:
     ports:
       - "${FALKORDB_PORT:-6379}:6379"
     volumes:
-      - /Users/earthchen/docker/data/falkordb:/var/lib/falkordb/data
+      - falkordb-data:/var/lib/falkordb/data
     environment:
       - FALKORDB_ARGS=TIMEOUT 0
       - REDIS_ARGS=--appendonly yes --appendfsync everysec --aof-use-rdb-preamble yes --auto-aof-rewrite-percentage 100 --auto-aof-rewrite-min-size 128mb
@@ -19,3 +19,49 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  kb-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8100:8100"
+    environment:
+      - FALKORDB__HOST=falkordb
+      - FALKORDB__PORT=6379
+      - REDIS__HOST=redis
+      - REDIS__PORT=6379
+      - GIT__CLONE_BASE_PATH=/app/repos
+      - KB_ENV=development
+    env_file:
+      - .env
+    depends_on:
+      falkordb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8100/api/v1/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - kb-repos:/app/repos
+
+volumes:
+  falkordb-data:
+  redis-data:
+  kb-repos:

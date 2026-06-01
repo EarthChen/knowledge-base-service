@@ -6,7 +6,7 @@ from wiki.page_agent import WorkingMemory
 
 class TestWorkingMemoryCapacity:
     def test_max_chars_is_200000(self):
-        assert WorkingMemory.MAX_TOTAL_CHARS == 200_000
+        assert WorkingMemory().MAX_TOTAL_CHARS == 200_000
 
     def test_can_store_more_data_than_before(self):
         """Memory should hold at least 40000 chars without eviction."""
@@ -24,7 +24,7 @@ class TestWorkingMemoryCapacity:
             mem.code_snippets.append("x" * 1000)
         mem._enforce_limit()
         total = mem._total_chars()
-        assert total <= WorkingMemory.MAX_TOTAL_CHARS
+        assert total <= WorkingMemory().MAX_TOTAL_CHARS
 
     def test_eviction_removes_oldest_first(self):
         """FIFO eviction: oldest items removed first."""

@@ -2,7 +2,7 @@
 
 **创建日期：** 2026-05-29  
 **状态：** 活跃参考文档  
-**关联文档：** [ARCHITECTURE.md](ARCHITECTURE.md) · [wiki-generation-architecture.md](wiki-generation-architecture.md) · [MCP-INTEGRATION.md](MCP-INTEGRATION.md) · [wiki-quality-audit.md](wiki-quality-audit.md) · [agent-architecture-improvement.md](agent-architecture-improvement.md) · [REMAINING-WORK.md](REMAINING-WORK.md)
+**关联文档：** [ARCHITECTURE.md](ARCHITECTURE.md) · [wiki-generation-architecture.md](wiki-generation-architecture.md) · [MCP-INTEGRATION.md](MCP-INTEGRATION.md) · [wiki-quality-audit.md](wiki-quality-audit.md) · [REMAINING-WORK.md](REMAINING-WORK.md)
 
 ---
 
@@ -25,18 +25,19 @@
 
 KBS 是一套**自托管的代码与文档知识库平台**：将多语言仓库索引为 FalkorDB **属性图 + 向量空间**，提供 **三路 RRF 混合检索**与**图扩展**，并可选通过 **LangGraph Wiki 管道 + Agent 工具循环**生成带质量门禁的 Markdown 文档，经 **22+6 MCP 工具**与 **React Dashboard** 对外暴露。
 
-### 1.4 当前成熟度快照（2026-05）
+### 1.4 当前成熟度快照（2026-06）
 
 | 维度 | 状态 | 说明 |
 |------|------|------|
 | 代码索引 | ✅ 生产可用 | Tree-sitter 9 语言插件，图 + 向量双写 |
 | 混合搜索 | ✅ 生产可用 | keyword + semantic + BM25 → RRF → rerank → graph expand |
-| Wiki 生成 | ⚠ 质量波动 | V26 审计：Topic 覆盖率 76.5%，Part N 命名 66.7% |
-| Agent 框架 | ✅ 架构完整 | GenericAgent + run_agent_loop + Handoff；输出稳定性待加强 |
-| 记忆分层 | ⚠ 部分激活 | 配置默认开启，但 `access_count`/`confirmation_count` 运行时未更新 |
-| 前端 Dashboard | ✅ 开发者向 | 12 lazy 页面，覆盖率 70%+；WikiShell 387 行（已拆分 useWikiShellState + WikiDomainDialogs + WikiToolbar）；GraphExplorer 335 行（已拆分 useGraphExplorerState + graph/ 子面板）；非开发者 UX 不足 |
+| 搜索默认配置 | ✅ 已更新 | `reranker=True`，`enrichment_strategy=core_only` |
+| Wiki 生成 | ⚠ 质量波动 | V26 审计：Topic 覆盖率 76.5%；Part N/stub/infra 止血项已实现（T0） |
+| Agent 框架 | ✅ Phase 0-4 已完成 | GenericAgent + run_agent_loop + TokenBudget + Delegation |
+| 记忆分层 | ⚠ 部分激活 | `access_count` 已接入；`confirmation` 反馈待前端完善 |
+| 前端 Dashboard | ✅ 开发者向 | 12 lazy 页面，测试覆盖率已确认达标；WikiShell/GraphExplorer 已拆分；非开发者 UX 不足 |
 | 部署 | ⚠ 门槛偏高 | 有 Dockerfile，缺官方 Docker Compose 一键栈 |
-| 测试 | ✅ 强健 | 后端 5074 测试，前端 550 测试（136 文件） |
+| 测试 | ✅ 强健 | 后端 5074+ 测试，前端 550 测试（136 文件） |
 | CI/CD | ❌ 未建立 | 无 PR 级自动化测试流水线；Dockerfile 不含测试阶段 |
 
 ---
@@ -293,7 +294,7 @@ detect_reorg → classify_entity_roles → graph_decompose → assign_canonical_
 
 ## 5. 系统提升方向
 
-按优先级组织；与 [REMAINING-WORK.md](REMAINING-WORK.md) 和 [agent-architecture-improvement.md](agent-architecture-improvement.md) 对齐。
+按优先级组织；与 [REMAINING-WORK.md](REMAINING-WORK.md) 和 [wiki-quality-audit.md](wiki-quality-audit.md) 对齐。
 
 ### 5.1 P0：Wiki 质量与 Agent 输出稳定性
 
@@ -423,108 +424,148 @@ flowchart TB
 
 **改进机会：** LLM/ learned QueryRouter；搜索路径 query→result 缓存；Wiki 反馈驱动 LTR；大文件默认 child-chunk 模式；检索 trace 可观测性；文档 ingest 扩展 BM25 字段。
 
-### 6.5 默认配置陷阱
+### 6.5 默认配置现状（2026-06 更新）
 
-⚠️ **生产默认行为与文档描述不符：**
+> 以下为源码 `core/config.py` + `tests/test_config_defaults.py` 确认的实际默认值。
 
-| 配置项 | 默认值 | 影响 |
+| 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `use_child_chunks` | `True` | 跳过 BM25 和查询扩展，实际为**二路融合**而非三路 |
-| `enrichment_strategy` | `disabled` | 无 business_summary → 业务概念查询语义信号弱 |
-| `reranker.enabled` | `False` | NL 查询精排未生效 |
-| `concept_extraction_enabled` | `False` | BusinessConcept 节点不存在 |
-| `business_flow_enabled` | `False` | BusinessFlow 节点不存在 |
+| `enrichment_strategy` | **`core_only`** | 仅高价值实体生成 business_summary（`EnrichmentPriorityClassifier`） |
+| `reranker.enabled` | **`True`** | Cross-encoder reranker 默认启用 |
+| `reranker.nl_only` | **`True`** | 仅 NL 查询启用 rerank，代码式查询（FQN/camelCase）跳过 |
+| `concept_extraction_enabled` | **`True`** | 已启用，但 `ConceptExtractor` 尚未接入索引管线（节点空） |
+| `business_flow_enabled` | **`True`** | BusinessFlow 通过 `flow_compose` 节点生成 |
 | `include_raw_docs_in_results` | `False` | Document 节点不进入 hybrid 召回 |
+| `query_prefix` | **bge-m3 官方前缀** | `"Represent this sentence for searching relevant passages: "` |
 
-**Schema 与实际嵌入不一致：** `VECTOR_INDEX_CONFIGS` 声明 9 类向量索引，但 `_generate_and_store_embeddings` 仅处理 Function/Class/Document/Chunk 四类。Module/BusinessFlow/BusinessConcept 索引空跑。
+**Schema 与实际嵌入不一致：** `VECTOR_INDEX_CONFIGS` 声明 9 类向量索引，但 `_generate_and_store_embeddings` 仅处理 Function/Class/Document/Chunk 四类。Module/BusinessConcept 索引空跑（BusinessFlow 通过 Wiki 管线生成）。
 
-**bge-m3 query prefix 未启用：** 官方推荐 query instruction prefix 提升 query-document 非对称检索质量，当前 `query_prefix` 为空字符串。
-
----
-
-## 7. 产品路线图建议
-
-### 7.1 2026 Q2（当前季度剩余）— 质量止血
-
-| 里程碑 | 交付物 | 成功指标 |
-|--------|--------|----------|
-| M1 Wiki V12 修复 | Part N 消除、tree_linker 门禁、DomainAnchor | Part N <10%；壳域 0 |
-| M1.5 检索默认配置修复 | 启用三路融合 + bge-m3 query prefix + 条件 reranker | NL 查询 MRR@10 +15% |
-| M2 Agent 稳定性 Phase 1 | CRAG 门控、Structured Output 迁移（compose/heal） | forced accept <5% |
-| M3 记忆激活 | `increment_wiki_qa_access` 接入 Ask；confirmation 反馈按钮 | access_count 非零 |
-| M4 覆盖率补洞 | 4 无 Topic 域强制拆分 | Topic 域覆盖 ≥90% |
-
-### 7.2 2026 Q3 — 体验扩展
-
-| 里程碑 | 交付物 | 成功指标 |
-|--------|--------|----------|
-| M5 PM 视图 | Wiki 产品模式 UI | NPS 调研 PM 可用性 ≥4/5 |
-| M6 Docker Compose | B-22 官方 compose + 文档 | 新用户 30min 内跑通 |
-| M7 OpenAPI SDK | TS/Python 客户端 codegen | 客户端团队接入周期 -50% |
-| M8 搜索增强 | Query cache + 检索 trace | P95 hybrid <800ms（10万节点） |
-
-### 7.3 2026 Q4 — 平台化
-
-| 里程碑 | 交付物 | 成功指标 |
-|--------|--------|----------|
-| M9 文档 Ingest | PDF/HTML 试点 | 非代码源占索引 ≥10% |
-| M10 Wiki Benchmark | B-21 自动化质量回归 | CI 阻塞 quality regression |
-| M11 协作预览 | Wiki 编辑冲突提示 | 多编辑者场景可用 |
-| M12 安全审计 | 审计日志 + 渗透修复 | 生产 checklist 100% |
-
-### 7.4 2027 Q1 — 智能化
-
-| 里程碑 | 交付物 | 成功指标 |
-|--------|--------|----------|
-| M13 NL 查询入口 | 统一自然语言搜索栏 | PM 无需理解 entity_type |
-| M14 Handoff 记忆 | 子 Agent WorkingMemory 继承 | 委托任务完成率 +15% |
-| M15 LTR 搜索 | 反馈驱动 RRF 权重 | MRR@10 +10% |
+**待处理：** `ConceptExtractor` 虽 flag=True 但未接入 `incremental_indexer` 生产路径，BusinessConcept 节点仍不存在。
 
 ---
 
-## 8. 与 Agent 改进文档的关联
+## 7. ROI 驱动的优先级路线图
 
-本系统综合分析中的 **Wiki 质量波动、Agent 输出不稳定、上下文管理、记忆未激活、子代理冷启动** 等弱点，在 **[agent-architecture-improvement.md](agent-architecture-improvement.md)** 中有更深入的架构级诊断与分阶段修复方案。两份文档的关系如下：
+> **方法论：** 按 ROI（Impact / Effort）分层排列。与 [REMAINING-WORK.md](REMAINING-WORK.md) 和 [wiki-quality-audit.md](wiki-quality-audit.md) 对齐。
+>
+> **更新日期：** 2026-06-01（基于 V26 审计 + Agent Phase 0-4 完成后全面评估）
+
+### 7.1 T0 — 零成本收割：已实现未落地（ROI ∞）
+
+已实现但未提交的功能，需立即提交落地：
+
+| # | 功能 | 影响 | 状态 |
+|---|------|------|------|
+| 1 | 搜索 rerank 智能门控（should_rerank + nl_only） | NL 查询精排质量提升 | ✅ 已实现 |
+| 2 | Wiki stub topic 检测拦截 | V26 P0-2 修复 | ✅ 已实现 |
+| 3 | Part N 机械命名拒绝 | V26 P0-1 修复（66.7%→0%） | ✅ 已实现 |
+| 4 | Infra 模块检测与重分配 | V26 P0-4 修复 | ✅ 已实现 |
+| 5 | Shell 域 overview 过滤（prose/cn 门禁） | 壳域缩减 | ✅ 已实现 |
+| 6 | Post-commit hook 增量索引 | 提交即索引 | ✅ 已实现 |
+| 7 | Agent WorkingMemory 容量分级 | CORE 300k / STANDARD 200k / SKELETON 100k | ✅ 已实现 |
+
+### 7.2 T1 — Wiki 质量止血残留（高影响，低工作量）
+
+| # | 功能 | 影响 | 工作量 | ROI |
+|---|------|------|--------|-----|
+| 8 | 代码块截断修复（repair_unclosed_code_blocks 接入管线） | ≥6 页未闭合 fence → 文档可信度 | 1d | 极高 |
+| 9 | 重复标题去重增强 | 2 组跨页重复标题 → 导航清晰度 | 0.5d | 高 |
+| 10 | 4 域无 Topic（需重跑管线验证） | 覆盖率 76.5%→95%+ | 配置已调整 | 高 |
+
+### 7.3 T2 — 搜索检索增强（中-高影响，低工作量）
+
+| # | 功能 | 影响 | 工作量 | ROI |
+|---|------|------|--------|-----|
+| 11 | bge-m3 query prefix 启用 | NL 查询 MRR@10 预估 +10-15% | 0.5d | 极高 |
+| 12 | 检索 trace 可观测性 | 搜索调优基础（query→recall→fusion→rerank 路径日志） | 2d | 中高 |
+| 13 | 文档-配置对齐（enrichment/rerank/concept 默认值） | 防止部署踩坑 | 0.5d | 中 |
+
+**注：** `enrichment_strategy` 已默认 `core_only`，`concept_extraction_enabled` / `business_flow_enabled` 已默认 `True`（文档需同步更新）。
+
+### 7.4 T3 — Agent/管线稳定性（中影响，中工作量）
+
+| # | 功能 | 影响 | 工作量 | ROI |
+|---|------|------|--------|-----|
+| 14 | Structured Output 剩余 8 处迁移（json_object→json_schema） | 输出格式稳定性 | 1w | 中 |
+| 15 | Wiki 质量 Benchmark（B-21：golden repo 回归基线） | 质量回归防护 | 1-2w | 中 |
+| 16 | 模型路由分层（explore=fast, compose/finalize=full） | LLM 成本 -30-50% | 3d | 中 |
+
+### 7.5 T4 — 前端功能增强（中影响，中工作量）
+
+| # | 功能 | 影响 | 工作量 | ROI |
+|---|------|------|--------|-----|
+| 17 | OpenAPI codegen（→TS 类型自动生成） | 前端类型漂移防护 | 2d | 中高 |
+| 18 | E2E 核心用户旅程（search→result、graph、wiki ask） | 功能回归防护 | 2-3d | 中 |
+| 19 | SearchPage(643行) / AskPanel(620行) 组件拆分 | 可维护性 | 2d | 中 |
+
+### 7.6 T5 — 产品体验扩展（高影响，高工作量）
+
+| # | 功能 | 影响 | 工作量 | ROI |
+|---|------|------|--------|-----|
+| 20 | Docker Compose 一键部署（B-22） | 新用户门槛降低 | 2d | 中高 |
+| 21 | PM 视图模式（Wiki 隐藏代码块、突出业务流程） | 非开发者可用性 | 1w | 中 |
+| 22 | NL 查询统一入口 | 非开发者搜索体验 | 1w | 中 |
+
+### 7.7 T6 — 代码健康与平台化（长期投资）
+
+| # | 功能 | 影响 | 工作量 | ROI |
+|---|------|------|--------|-----|
+| 23 | MCPHandler 拆分（1350行） | 可维护性 | 3d | 中低 |
+| 24 | WikiPageAgent 拆分（1885行） | 可维护性 | 3-5d | 中低 |
+| 25 | Generic document ingest（B-19: PDF/Office/HTML） | 知识源扩展 | 2-3w | 低 |
+| 26 | ConceptExtractor 接入索引管线 | BusinessConcept 节点生成 | 3d | 低 |
+
+### 7.8 建议执行节奏
+
+```
+Week 1:   T0(#1-7 提交) → T1(#8-9) → T2(#11)
+Week 2-3: T2(#12-13) → T3(#14)
+Week 4+:  T4(#17-18) → T5(#20-21) → T3(#15-16)
+长期:     T6(#23-26)
+```
+
+---
+
+## 8. Agent 架构改进完成状态
+
+Agent 子系统的架构改进（Phase 0-4）已于 2026-06-01 全部完成。原 `agent-architecture-improvement.md` 设计文档已归档删除，实施记录见 [REMAINING-WORK.md](REMAINING-WORK.md) 已完成归档区。
 
 ```mermaid
 flowchart LR
   SYS[knowledge-base-system-analysis.md<br/>系统全景 · 多角色 · 竞品 · 路线图]
-  AGENT[agent-architecture-improvement.md<br/>Agent 执行层 · 根因 · Phase 1-4]
   AUDIT[wiki-quality-audit.md<br/>V26 审计数据]
   ARCH[ARCHITECTURE.md<br/>全栈架构]
 
-  SYS -->|P0 Wiki/Agent 问题| AGENT
   AUDIT -->|量化指标| SYS
-  AUDIT -->|Issue 清单| AGENT
   ARCH -->|数据流/存储| SYS
-  AGENT -->|实施项| RW[REMAINING-WORK.md]
+  SYS -->|backlog| RW[REMAINING-WORK.md]
 ```
 
-### 8.1 问题映射表
+### 8.1 已解决问题总表
 
-| 本报告弱点（§1.4 / §5.1） | Agent 改进文档章节 | 关键修复 |
-|---------------------------|-------------------|----------|
-| Wiki 质量波动（Part N、壳域） | §3 O-01–O-08 输出质量 | Topic 语义命名、tree_linker 门禁 |
-| Agent 输出不稳定 | §3 O-05 强制通过 | CRAG + 最低 coverage 阈值 |
-| 上下文管理薄弱 | §4 C-01–C-04 ContextManager | 与 TokenBudgetResolver 联动 |
-| 记忆系统未激活 | §5 M-01–M-03 MemoryLoop | access/confirmation 写入路径 |
-| 子代理冷启动 | §6 H-01 Handoff | WorkingMemory 快照传递 |
-| 无 Structured Output | §7 Structured Output 迁移 | json_schema strict |
+| 弱点领域 | 修复状态 | 关键实施 |
+|----------|---------|----------|
+| Wiki 质量波动 | ✅ V26 P0 5/8 已修；Part N/stub/infra 已实现（T0 #2-5） | content_guards、finalize 门禁、tree_linker 过滤 |
+| Agent 输出不稳定 | ✅ Phase 0 止血完成 | coverage ≥0.7 最低阈值 + `QUALITY_WARNING` 标记 |
+| 上下文管理薄弱 | ✅ Phase 1 完成 | TokenBudgetManager 五级压缩 + ExploreCompactor |
+| 记忆系统未激活 | ⚠ Phase 2-4 完成 | `access_count` 已接入；confirmation 待前端 |
+| 子代理冷启动 | ✅ Phase 2 完成 | DelegationConfig / execute_delegation 统一委托 |
+| Structured Output 不完整 | ⚠ 部分完成 | 3 处已迁移 json_schema；8 处降级 P2（T3 #14） |
 
 ### 8.2 建议阅读顺序
 
 1. **决策者 / PM：** 本文 §1–§4、§7 路线图  
-2. **Wiki 管道工程师：** 本文 §2.4 + [wiki-generation-architecture.md](wiki-generation-architecture.md) + Agent 改进 §2–§3  
-3. **Agent 框架工程师：** [agent-architecture-improvement.md](agent-architecture-improvement.md) 全文 + 本文 §5.1  
+2. **Wiki 管道工程师：** 本文 §2.4 + [wiki-generation-architecture.md](wiki-generation-architecture.md)  
+3. **Agent 框架工程师：** `wiki/agents/` 源码 + 本文 §5.1  
 4. **搜索工程师：** 本文 §6 + [ARCHITECTURE.md](ARCHITECTURE.md) §检索管线  
 5. **集成工程师：** 本文 §2.6 + [MCP-INTEGRATION.md](MCP-INTEGRATION.md)
 
 ### 8.3 同步维护约定
 
 - 本报告 **季度更新**（能力快照、竞品、路线图）。  
-- **Agent 改进文档**随 `wiki/agents/` 重大变更更新 Phase 状态。  
 - **wiki-quality-audit.md** 每次全量 Wiki 审计后更新指标；本报告 §2.4 引用最新 V 版本号。  
-- 新 backlog 项统一进入 [REMAINING-WORK.md](REMAINING-WORK.md)，避免三份文档漂移。
+- 新 backlog 项统一进入 [REMAINING-WORK.md](REMAINING-WORK.md)，避免多份文档漂移。
 
 ---
 

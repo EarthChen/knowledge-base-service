@@ -10,7 +10,12 @@ from wiki.dependency_graph import DomainNode
 from wiki.models import EnrichmentLevel, PageType, WikiPage, WikiPageMetadata
 from wiki.path_conventions import domain_overview_path
 from wiki.tree_builder import WikiTreeBuilder
-from wiki.tree_linker import WikiTreeLinker, _filter_overview_pages_for_persist, _warn_duplicate_titles_before_persist
+from wiki.tree_linker import (
+    WikiTreeLinker,
+    _filter_overview_pages_for_persist,
+    _is_shell_domain_overview,
+    _warn_duplicate_titles_before_persist,
+)
 
 RICH_OVERVIEW = "# 家庭域\n\n## 概述\n\n" + "这是详细的业务描述内容，用于覆盖质量阈值。" * 20
 ALLOWED_OVERVIEW = "## 概述\n\n" + "本模块提供核心业务功能，实现了完整的数据处理流程。" * 10
@@ -86,6 +91,50 @@ def test_overview_filtered_when_sanitize_short() -> None:
     filtered = _filter_overview_pages_for_persist([page])
 
     assert filtered == []
+
+
+def _make_link_heavy_shell() -> str:
+    """Long overview that is mostly bullets/links (shell domain).
+
+    Includes a short Chinese navigation blurb so cn_ratio passes while prose ratio stays low.
+    """
+    intro = "本域下列子域与模块索引仅供导航，不含详细业务分析说明。"
+    sub_lines = [
+        f"- **SubDomain{i}** — 子域导航占位说明文字内容（{i}个模块与{i}个子域）"
+        for i in range(20)
+    ]
+    mod_lines = [f"- **Module{i}**" for i in range(15)]
+    return intro + "\n\n## 子域导航\n\n" + "\n".join(sub_lines) + "\n\n## 核心模块\n\n" + "\n".join(mod_lines)
+
+
+def test_empty_overview_filtered() -> None:
+    """Empty or near-empty overview is filtered."""
+    page = _make_wiki_page(path="/__domains__/empty/_overview", content="# Empty\n\n")
+    filtered = _filter_overview_pages_for_persist([page])
+    assert filtered == []
+
+
+def test_shell_domain_mostly_links_filtered() -> None:
+    """Overview with >70% bullets/links and insufficient prose is filtered."""
+    content = _make_link_heavy_shell()
+    assert len(content) >= 200
+    assert _is_shell_domain_overview(content)
+    page = _make_wiki_page(path="/__domains__/link-shell/_overview", content=content)
+    with patch("wiki.tree_linker.log.info") as mock_info:
+        filtered = _filter_overview_pages_for_persist([page])
+    assert filtered == []
+    shell_calls = [c for c in mock_info.call_args_list if c[0][0] == "tree_linker_shell_prose_filtered"]
+    assert len(shell_calls) == 1
+
+
+def test_shell_domain_with_prose_passes() -> None:
+    """Overview with sufficient prose passes even when it lists sub-domains."""
+    prose = "本域负责家庭与成员相关的核心业务，涵盖账户绑定、权限校验与数据同步等完整流程。" * 8
+    content = f"## 概述\n\n{prose}\n\n## 子域导航\n\n- **子域A** — 说明\n"
+    assert not _is_shell_domain_overview(content)
+    page = _make_wiki_page(path="/__domains__/prose-ok/_overview", content=content)
+    filtered = _filter_overview_pages_for_persist([page])
+    assert len(filtered) == 1
 
 
 def test_h1_title_stripped_before_sanitize() -> None:

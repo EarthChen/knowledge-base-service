@@ -245,6 +245,7 @@ class TestConfigExtensions:
 
     def test_rerank_config_defaults(self):
         config = RerankConfig()
-        assert config.enabled is False
+        assert config.enabled is True
+        assert config.nl_only is True
         assert config.model_name == "BAAI/bge-reranker-v2-m3"
         assert config.batch_size == 32

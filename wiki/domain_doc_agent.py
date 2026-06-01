@@ -73,6 +73,23 @@ class TopicPlan(BaseModel):
 
 
 _PART_N_TITLE_PREFIX = re.compile(r"(?i)^(?:part\s*\d+\s*[:：\-]?\s*|第\s*\d+\s*部分\s*[:：\-]?\s*)")
+_MECHANICAL_TOPIC_TITLE_RE = re.compile(r"(?i)^(?:part\s*\d+|第\s*\d+\s*部分)$")
+
+
+def _is_mechanical_topic_name(title: str) -> bool:
+    """Return True when title is a bare Part N / 第N部分 label."""
+    return bool(_MECHANICAL_TOPIC_TITLE_RE.match(title.strip()))
+
+
+def _rename_mechanical_topic_title(title: str, modules: list[str]) -> str:
+    """Replace bare Part N titles with module-based descriptive names."""
+    if not _is_mechanical_topic_name(title):
+        return title
+    if not modules:
+        return title
+    if len(modules) == 1:
+        return modules[0]
+    return f"{modules[0]} & {modules[1]}"
 
 
 def _strip_part_n_title(title: str) -> str:
@@ -84,6 +101,9 @@ def _strip_part_n_title(title: str) -> str:
 def _validate_topic_plan_outline(outline: DomainTopicOutline) -> DomainTopicOutline:
     """Validate topic titles via TopicPlanItem; rename Part N patterns in-place."""
     from pydantic import ValidationError
+
+    if not get_settings().wiki.reject_mechanical_topic_names:
+        return outline
 
     sanitized: list[OutlineTopicItem] = []
     for topic in outline.topics:
@@ -98,10 +118,13 @@ def _validate_topic_plan_outline(outline: DomainTopicOutline) -> DomainTopicOutl
             sanitized.append(topic)
         except ValidationError:
             new_title = _strip_part_n_title(topic.title)
+            if _is_mechanical_topic_name(new_title):
+                new_title = _rename_mechanical_topic_title(new_title, list(topic.modules))
             log.warning(
                 "topic_plan_part_n_renamed",
                 original=topic.title,
                 renamed=new_title,
+                modules=topic.modules[:3],
             )
             sanitized.append(
                 OutlineTopicItem(
@@ -833,6 +856,7 @@ class DomainDocAgent(DocOrchestrator):
             fallback = self._build_mechanical_topic_split(module_names)
             if fallback and len(fallback.topics) > 1:
                 fallback = _cap_topic_outline(fallback, max_topics)
+                fallback = _validate_topic_plan_outline(fallback)
                 log.info(
                     "plan_topics_force_split_fallback",
                     domain=self.domain_name,
@@ -1072,6 +1096,7 @@ class DomainDocAgent(DocOrchestrator):
             log.warning("plan_topics_parse_failed", domain=self.domain_name)
             fallback = self._build_mechanical_topic_split(module_names)
             if fallback:
+                fallback = _validate_topic_plan_outline(fallback)
                 flags = getattr(self, "_pending_quality_flags", None)
                 if flags is None:
                     self._pending_quality_flags = []

@@ -61,7 +61,7 @@ class TestWorkingMemory:
                 })
             ])
         text = wm.to_prompt_section()
-        assert len(text) <= WorkingMemory.MAX_TOTAL_CHARS + 500
+        assert len(text) <= WorkingMemory().MAX_TOTAL_CHARS + 500
 
     def test_to_prompt_section_format(self):
         wm = WorkingMemory()
@@ -84,7 +84,17 @@ class TestWorkingMemory:
         assert isinstance(wm.search_findings, list)
 
     def test_max_total_chars_200k(self):
-        assert WorkingMemory.MAX_TOTAL_CHARS == 200_000
+        assert WorkingMemory().MAX_TOTAL_CHARS == 200_000
+
+    def test_working_memory_core_limit(self):
+        assert WorkingMemory(tier="CORE").MAX_TOTAL_CHARS == 300_000
+
+    def test_working_memory_standard_limit(self):
+        assert WorkingMemory(tier="STANDARD").MAX_TOTAL_CHARS == 200_000
+        assert WorkingMemory().MAX_TOTAL_CHARS == 200_000
+
+    def test_working_memory_skeleton_limit(self):
+        assert WorkingMemory(tier="SKELETON").MAX_TOTAL_CHARS == 100_000
 
     def test_merge_combines_all_fields(self):
         wm1 = WorkingMemory()
@@ -142,7 +152,7 @@ class TestWorkingMemory:
         wm1.merge(wm2)
 
         total = wm1._total_chars()
-        assert total <= WorkingMemory.MAX_TOTAL_CHARS
+        assert total <= WorkingMemory().MAX_TOTAL_CHARS
 
     def test_incorporate_read_code(self):
         wm = WorkingMemory()
@@ -226,7 +236,7 @@ class TestWorkingMemory:
                     "code": "x" * 200,
                 })
             ])
-        assert wm._total_chars() <= WorkingMemory.MAX_TOTAL_CHARS
+        assert wm._total_chars() <= WorkingMemory().MAX_TOTAL_CHARS
 
     def test_to_prompt_section_includes_new_fields(self):
         wm = WorkingMemory()
@@ -652,6 +662,44 @@ class TestWikiPageAgent:
         result = await agent._execute_tool("semantic_search", {"query": "test"})
         assert "error" in result
         assert "unavailable" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_semantic_search_expansion_enabled_for_core_tier(self):
+        llm = MagicMock()
+        gs = MagicMock()
+        mock_search = MagicMock()
+        mock_search.search_with_context = AsyncMock(return_value={"results": []})
+        agent = WikiPageAgent(llm, gs, search_service=mock_search)
+        agent._tier = "CORE"
+        await agent._execute_tool("semantic_search", {"query": "order flow", "limit": 5})
+        kwargs = mock_search.search_with_context.await_args.kwargs
+        assert kwargs["use_query_expansion"] is True
+        assert kwargs["k"] == 7
+
+    @pytest.mark.asyncio
+    async def test_semantic_search_expansion_disabled_for_standard(self):
+        llm = MagicMock()
+        gs = MagicMock()
+        mock_search = MagicMock()
+        mock_search.search_with_context = AsyncMock(return_value={"results": []})
+        agent = WikiPageAgent(llm, gs, search_service=mock_search)
+        agent._tier = "STANDARD"
+        await agent._execute_tool("semantic_search", {"query": "order flow", "limit": 5})
+        kwargs = mock_search.search_with_context.await_args.kwargs
+        assert kwargs["use_query_expansion"] is False
+        assert kwargs["k"] == 5
+
+    @pytest.mark.asyncio
+    async def test_semantic_search_expansion_disabled_when_no_tier(self):
+        llm = MagicMock()
+        gs = MagicMock()
+        mock_search = MagicMock()
+        mock_search.search_with_context = AsyncMock(return_value={"results": []})
+        agent = WikiPageAgent(llm, gs, search_service=mock_search)
+        await agent._execute_tool("semantic_search", {"query": "order flow", "limit": 5})
+        kwargs = mock_search.search_with_context.await_args.kwargs
+        assert kwargs["use_query_expansion"] is False
+        assert kwargs["k"] == 5
 
     def test_agent_tools_contains_new_tools(self):
         from wiki.page_agent import WikiPageAgent
@@ -1174,6 +1222,7 @@ class TestToolTiering:
         assert "query_module_detail" in t1_names
         assert "read_code" in t1_names
         assert "query_call_chain" in t1_names
+        assert "semantic_search" in t1_names
 
     def test_t3_contains_supplementary_tools(self):
         from wiki.page_agent import WikiPageAgent
@@ -1192,14 +1241,14 @@ class TestToolTiering:
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
         tools = agent._get_tools_for_round(1, has_empty_results=False)
-        assert len(tools) == 5  # 5 tier-1 tools
+        assert len(tools) == 6  # 6 tier-1 tools
 
     def test_get_tools_round_3_returns_t1_t2(self):
         from wiki.page_agent import WikiPageAgent
 
         agent = WikiPageAgent(llm=MagicMock(), graph_store=MagicMock())
         tools = agent._get_tools_for_round(3, has_empty_results=False)
-        assert len(tools) == 10  # 5 tier-1 + 5 tier-2
+        assert len(tools) == 11  # 6 tier-1 + 5 tier-2
 
     def test_get_tools_round_5_returns_all(self):
         from wiki.page_agent import WikiPageAgent

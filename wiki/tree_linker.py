@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import Any
 
@@ -20,6 +21,51 @@ _TREE_LINKER_MIN_OVERVIEW_CHARS = 200
 
 
 _TREE_LINKER_CN_RATIO_MIN = 0.15
+
+_LIST_OR_LINK_LINE_RE = re.compile(
+    r"^(\s*[-*+]\s|\s*\d+\.\s|>\s|.*\[[^\]]+\]\([^)]+\).*)",
+)
+
+
+def _is_list_or_link_line(line: str) -> bool:
+    """True when a line is primarily a bullet, blockquote, or markdown link."""
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if stripped.startswith("#"):
+        return False
+    if _LIST_OR_LINK_LINE_RE.match(stripped):
+        return True
+    if stripped.startswith("- **") or stripped.startswith("* **"):
+        return True
+    return False
+
+
+def _compute_prose_ratio(text: str) -> float:
+    """Fraction of non-heading line characters that are prose (not bullets/links)."""
+    total_chars = 0
+    prose_chars = 0
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        line_chars = len(stripped)
+        total_chars += line_chars
+        if not _is_list_or_link_line(stripped):
+            prose_chars += line_chars
+    if total_chars == 0:
+        return 0.0
+    return prose_chars / total_chars
+
+
+def _is_shell_domain_overview(content: str, *, min_prose_ratio: float | None = None) -> bool:
+    """True when overview is mostly sub-domain/module links without substantive prose."""
+    if min_prose_ratio is None:
+        min_prose_ratio = get_settings().wiki.tree_linker_shell_min_prose_ratio
+    stripped = content.strip()
+    if len(stripped) < _TREE_LINKER_MIN_OVERVIEW_CHARS:
+        return True
+    return _compute_prose_ratio(stripped) < min_prose_ratio
 
 
 def _warn_duplicate_titles_before_persist(pages: list[WikiPage], *, repository: str) -> None:
@@ -70,6 +116,15 @@ def _filter_overview_pages_for_persist(
             if cn_ratio < _TREE_LINKER_CN_RATIO_MIN:
                 log.info("tree_linker_cn_ratio_filtered", slug=page.path, cn_ratio=f"{cn_ratio:.3f}")
                 continue
+        if _is_shell_domain_overview(stripped):
+            prose_ratio = _compute_prose_ratio(stripped)
+            log.info(
+                "tree_linker_shell_prose_filtered",
+                slug=page.path,
+                chars=len(stripped),
+                prose_ratio=f"{prose_ratio:.3f}",
+            )
+            continue
         filtered_overview_pages.append(replace(page, content=stripped))
     return filtered_overview_pages
 

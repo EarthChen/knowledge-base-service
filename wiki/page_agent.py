@@ -219,8 +219,22 @@ class WorkingMemory(AgentMemory):
     _tool_contributed_chars: int = 0
     relevant_modules: set[str] = field(default_factory=set)
     topic_outline: DomainTopicOutline | None = None
+    tier: str | None = None
+    _max_total_chars_override: int | None = field(default=None, repr=False, compare=False)
 
-    MAX_TOTAL_CHARS = 200_000
+    @property
+    def MAX_TOTAL_CHARS(self) -> int:  # noqa: N802
+        if self._max_total_chars_override is not None:
+            return self._max_total_chars_override
+        if self.tier == "CORE":
+            return 300_000
+        if self.tier == "SKELETON":
+            return 100_000
+        return 200_000
+
+    @MAX_TOTAL_CHARS.setter
+    def MAX_TOTAL_CHARS(self, value: int) -> None:  # noqa: N802
+        self._max_total_chars_override = int(value)
 
     def incorporate(self, results: list[ToolResult]) -> None:
         valid_results = [
@@ -649,7 +663,7 @@ class WikiPageAgent(GenericAgent):
             self._tool_registry.register(td)
 
     def create_memory(self) -> WorkingMemory:
-        return WorkingMemory()
+        return WorkingMemory(tier=getattr(self, "_tier", None))
 
     def incorporate(self, tool_name: str, result: dict[str, Any], memory: Any) -> None:
         if isinstance(memory, WorkingMemory):
@@ -1448,7 +1462,7 @@ class WikiPageAgent(GenericAgent):
 
     @function_tool(
         name="semantic_search",
-        tier=3,
+        tier=1,
         description=(
             "Semantic search across code and wiki using natural language. "
             "Use when keyword search fails and you need conceptual or fuzzy matching."
@@ -1461,14 +1475,17 @@ class WikiPageAgent(GenericAgent):
             return {"results": []}
         if not self._search_service:
             return {"error": "semantic search unavailable"}
+        tier = getattr(self, "_tier", None)
+        use_query_expansion = tier == "CORE"
+        search_k = limit + 2 if use_query_expansion else limit
         try:
             raw = await self._search_service.search_with_context(
                 query,
-                k=limit,
+                k=search_k,
                 expand_depth=1,
                 include_callers=False,
                 include_callees=False,
-                use_query_expansion=False,
+                use_query_expansion=use_query_expansion,
                 repository=self._repository_filter(),
             )
             hits = raw.get("results", [])

@@ -74,6 +74,41 @@ _NODE_PHASE_MAP: dict[str, tuple[str, float]] = {
 }
 
 
+async def _notify_progress(
+    cb: Any,
+    phase: str,
+    pct: float,
+    node_name: str,
+    status: str,
+    statuses: dict,
+    elapsed: float | None = None,
+) -> None:
+    """Fire a progress callback, swallowing failures."""
+    if not cb:
+        return
+    detail = f"{phase} {status}"
+    if status == "completed" and elapsed is not None:
+        detail = f"{phase} 完成 ({elapsed:.1f}s)"
+    elif status == "failed":
+        detail = f"{phase} 失败"
+    elif status == "running":
+        detail = f"{phase} 开始"
+    payload: dict[str, Any] = {
+        "phase": phase,
+        "progress_pct": pct,
+        "detail": detail,
+        "node_name": node_name,
+        "node_status": status,
+        "node_statuses": statuses,
+    }
+    if elapsed is not None:
+        payload["elapsed_sec"] = round(elapsed, 2)
+    try:
+        await cb(payload)
+    except Exception:
+        log.debug("progress_callback_failed", phase=phase, exc_info=True)
+
+
 def _with_progress(
     node_name: str,
     func: Callable[..., Awaitable[dict[str, Any]]],
@@ -109,22 +144,10 @@ def _with_progress(
         ) -> dict[str, Any]:
             configurable = (config or {}).get("configurable", {}) or {}
             cb = configurable.get("progress_callback")
-            # Track node status in state for dashboard
             now = time.time()
             statuses = dict(state.get("node_statuses") or {})
             statuses[node_name] = {"status": "running", "started_at": now}
-            if cb:
-                try:
-                    await cb({
-                        "phase": phase,
-                        "progress_pct": pct,
-                        "detail": f"{phase} 开始",
-                        "node_name": node_name,
-                        "node_status": "running",
-                        "node_statuses": statuses,
-                    })
-                except Exception:
-                    log.debug("progress_callback_failed", phase=phase, exc_info=True)
+            await _notify_progress(cb, phase, pct, node_name, "running", statuses)
             log.info("pipeline_node_enter", node=node_name, phase=phase)
             t0 = time.monotonic()
             try:
@@ -132,51 +155,18 @@ def _with_progress(
             except Exception:
                 elapsed = time.monotonic() - t0
                 statuses[node_name] = {
-                    "status": "failed",
-                    "started_at": now,
-                    "completed_at": time.time(),
-                    "elapsed_sec": round(elapsed, 2),
+                    "status": "failed", "started_at": now,
+                    "completed_at": time.time(), "elapsed_sec": round(elapsed, 2),
                 }
-                if cb:
-                    try:
-                        await cb({
-                            "phase": phase,
-                            "progress_pct": pct,
-                            "detail": f"{phase} 失败",
-                            "node_name": node_name,
-                            "node_status": "failed",
-                            "elapsed_sec": round(elapsed, 2),
-                            "node_statuses": statuses,
-                        })
-                    except Exception:
-                        log.debug("progress_callback_failed", phase=phase, exc_info=True)
+                await _notify_progress(cb, phase, pct, node_name, "failed", statuses, elapsed)
                 raise
             elapsed = time.monotonic() - t0
-            log.info(
-                "pipeline_node_exit",
-                node=node_name,
-                phase=phase,
-                elapsed_sec=round(elapsed, 1),
-            )
+            log.info("pipeline_node_exit", node=node_name, phase=phase, elapsed_sec=round(elapsed, 1))
             statuses[node_name] = {
-                "status": "completed",
-                "started_at": now,
-                "completed_at": time.time(),
-                "elapsed_sec": round(elapsed, 2),
+                "status": "completed", "started_at": now,
+                "completed_at": time.time(), "elapsed_sec": round(elapsed, 2),
             }
-            if cb:
-                try:
-                    await cb({
-                        "phase": phase,
-                        "progress_pct": pct,
-                        "detail": f"{phase} 完成 ({elapsed:.1f}s)",
-                        "node_name": node_name,
-                        "node_status": "completed",
-                        "elapsed_sec": round(elapsed, 2),
-                        "node_statuses": statuses,
-                    })
-                except Exception:
-                    log.debug("progress_callback_failed", phase=phase, exc_info=True)
+            await _notify_progress(cb, phase, pct, node_name, "completed", statuses, elapsed)
             return result
     elif pass_config:
         async def _wrapper(
@@ -185,22 +175,10 @@ def _with_progress(
         ) -> dict[str, Any]:
             configurable = (config or {}).get("configurable", {}) or {}
             cb = configurable.get("progress_callback")
-            # Track node status in state for dashboard
             now = time.time()
             statuses = dict(state.get("node_statuses") or {})
             statuses[node_name] = {"status": "running", "started_at": now}
-            if cb:
-                try:
-                    await cb({
-                        "phase": phase,
-                        "progress_pct": pct,
-                        "detail": f"{phase} 开始",
-                        "node_name": node_name,
-                        "node_status": "running",
-                        "node_statuses": statuses,
-                    })
-                except Exception:
-                    log.debug("progress_callback_failed", phase=phase, exc_info=True)
+            await _notify_progress(cb, phase, pct, node_name, "running", statuses)
             log.info("pipeline_node_enter", node=node_name, phase=phase)
             t0 = time.monotonic()
             try:
@@ -208,51 +186,18 @@ def _with_progress(
             except Exception:
                 elapsed = time.monotonic() - t0
                 statuses[node_name] = {
-                    "status": "failed",
-                    "started_at": now,
-                    "completed_at": time.time(),
-                    "elapsed_sec": round(elapsed, 2),
+                    "status": "failed", "started_at": now,
+                    "completed_at": time.time(), "elapsed_sec": round(elapsed, 2),
                 }
-                if cb:
-                    try:
-                        await cb({
-                            "phase": phase,
-                            "progress_pct": pct,
-                            "detail": f"{phase} 失败",
-                            "node_name": node_name,
-                            "node_status": "failed",
-                            "elapsed_sec": round(elapsed, 2),
-                            "node_statuses": statuses,
-                        })
-                    except Exception:
-                        log.debug("progress_callback_failed", phase=phase, exc_info=True)
+                await _notify_progress(cb, phase, pct, node_name, "failed", statuses, elapsed)
                 raise
             elapsed = time.monotonic() - t0
-            log.info(
-                "pipeline_node_exit",
-                node=node_name,
-                phase=phase,
-                elapsed_sec=round(elapsed, 1),
-            )
+            log.info("pipeline_node_exit", node=node_name, phase=phase, elapsed_sec=round(elapsed, 1))
             statuses[node_name] = {
-                "status": "completed",
-                "started_at": now,
-                "completed_at": time.time(),
-                "elapsed_sec": round(elapsed, 2),
+                "status": "completed", "started_at": now,
+                "completed_at": time.time(), "elapsed_sec": round(elapsed, 2),
             }
-            if cb:
-                try:
-                    await cb({
-                        "phase": phase,
-                        "progress_pct": pct,
-                        "detail": f"{phase} 完成 ({elapsed:.1f}s)",
-                        "node_name": node_name,
-                        "node_status": "completed",
-                        "elapsed_sec": round(elapsed, 2),
-                        "node_statuses": statuses,
-                    })
-                except Exception:
-                    log.debug("progress_callback_failed", phase=phase, exc_info=True)
+            await _notify_progress(cb, phase, pct, node_name, "completed", statuses, elapsed)
             return result
     else:
         async def _wrapper(state: WikiPipelineState) -> dict[str, Any]:  # type: ignore[misc]

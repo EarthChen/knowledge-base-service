@@ -324,7 +324,7 @@ async def compose_domain_agents_node(
                 try:
                     hb()
                 except Exception:
-                    pass
+                    log.debug("heartbeat_pulse_failed", exc_info=True)
 
         _pulse_task = asyncio.create_task(_heartbeat_pulse())
     llm = configurable.get("llm")
@@ -462,10 +462,20 @@ async def compose_domain_agents_node(
                         baseline = format_for_page_agent(project_docs) + "\n\n" + baseline
 
                     await acquire_llm_quota(config, estimated_tokens=4000)
-                    result = await agent.generate_with_iterations(
-                        module_names=module_names,
-                        baseline_context=baseline,
-                        valid_pairs=valid_pairs,
+                    base_timeout = float(wiki_cfg.domain_agent_timeout_sec)
+                    if len(module_names) > 40:
+                        domain_timeout = base_timeout * 2.0
+                    elif len(module_names) > 20:
+                        domain_timeout = base_timeout * 1.5
+                    else:
+                        domain_timeout = base_timeout
+                    result = await asyncio.wait_for(
+                        agent.generate_with_iterations(
+                            module_names=module_names,
+                            baseline_context=baseline,
+                            valid_pairs=valid_pairs,
+                        ),
+                        timeout=domain_timeout,
                     )
                     domain_edges = _domain_call_edges(
                         module_names,

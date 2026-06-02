@@ -854,6 +854,11 @@ class DomainDocAgent(DocOrchestrator):
 
         return replace(_DOMAIN_EXPLORE_LOOP_CONFIG, heartbeat=self._heartbeat)
 
+    def _get_write_config(self) -> RunConfig | None:
+        if self._heartbeat is None:
+            return None
+        return RunConfig(heartbeat=self._heartbeat)
+
     def _build_write_prompt(self, baseline_context: str, memory: Any) -> str:
         base = super()._build_write_prompt(baseline_context, memory)
         if self._subdomains:

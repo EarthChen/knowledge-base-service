@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from langgraph.errors import NodeError
 from langgraph.types import Command
 
 from core.log import get_logger
@@ -27,7 +28,7 @@ def _flatten_domain_tree(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
-async def compose_error_fallback(state: dict[str, Any], *, error: Any) -> Command:
+async def compose_error_fallback(state: dict[str, Any], *, error: NodeError) -> Command:
     """Produce skeleton pages for domains that failed to generate.
 
     Called by LangGraph when compose_domain_agents exhausts retries.
@@ -57,6 +58,9 @@ async def compose_error_fallback(state: dict[str, Any], *, error: Any) -> Comman
 
         display = domain.get("display_name") or domain.get("name") or slug
         modules = domain.get("modules") or []
+        children = domain.get("children") or []
+        if not modules and children:
+            continue
         modules_list = "\n".join(f"- `{m}`" for m in modules[:50])
         if len(modules) > 50:
             modules_list += f"\n- ... and {len(modules) - 50} more"
@@ -91,6 +95,11 @@ async def compose_error_fallback(state: dict[str, Any], *, error: Any) -> Comman
             paths=[p["path"] for p in skeleton_pages],
         )
 
+    # Degraded path: jump directly to quality_gate, skipping
+    # summarize_leaves → compose_parent_pages → reassemble_domains →
+    # compose_flow_agents → merge_flow_pages.
+    # Parent/flow docs require real content to synthesize from; skeleton
+    # overviews cannot produce meaningful parent-level summaries.
     return Command(
         update={"pages": existing_pages + skeleton_pages},
         goto="quality_gate",

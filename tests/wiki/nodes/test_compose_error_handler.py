@@ -228,3 +228,88 @@ class TestComposeErrorFallbackBehavior:
         pages = _pages_from_result(result)
 
         assert pages == []
+
+
+class TestComposeErrorFallbackContainerSkip:
+    """M8: Pure container nodes (children but no modules) should not get skeleton pages."""
+
+    @pytest.mark.asyncio
+    async def test_skips_container_nodes_without_modules(self):
+        from wiki.nodes.compose_error_handler import compose_error_fallback
+
+        state = {
+            "pages": [],
+            "domain_tree": [
+                {
+                    "slug": "platform",
+                    "name": "platform",
+                    "display_name": "平台",
+                    "modules": [],
+                    "children": [
+                        {
+                            "slug": "platform-auth",
+                            "name": "platform-auth",
+                            "display_name": "认证",
+                            "modules": ["AuthService"],
+                        },
+                    ],
+                },
+            ],
+        }
+
+        fake_error = MagicMock()
+        fake_error.error = TimeoutError("timeout")
+
+        result = await compose_error_fallback(state, error=fake_error)
+        pages = _pages_from_result(result)
+
+        paths = [p["path"] for p in pages]
+        assert not any("platform/_overview" == p.rsplit("/", 1)[-1] and "platform-auth" not in p for p in paths), (
+            "Container node 'platform' (no modules, has children) should not get a skeleton"
+        )
+        assert any("platform-auth" in p for p in paths), (
+            "Leaf node 'platform-auth' (has modules) should get a skeleton"
+        )
+
+
+class TestComposeErrorFallbackDegradedPath:
+    """I3: error_handler goto=quality_gate intentionally skips downstream compose stages.
+
+    When compose_domain_agents fails after retries, the error handler jumps directly
+    to quality_gate, skipping: summarize_leaves → compose_parent_pages →
+    reassemble_domains → compose_flow_agents → merge_flow_pages.
+
+    This is intentional: skeleton pages only contain domain overviews; parent pages
+    and flow docs require real content to synthesize from.
+    """
+
+    @pytest.mark.asyncio
+    async def test_goto_is_quality_gate_not_next_normal_node(self):
+        from langgraph.types import Command
+
+        from wiki.nodes.compose_error_handler import compose_error_fallback
+
+        state = {
+            "pages": [],
+            "domain_tree": [{"slug": "x", "display_name": "X", "modules": ["M1"]}],
+        }
+        fake_error = MagicMock()
+        fake_error.error = TimeoutError("t")
+
+        result = await compose_error_fallback(state, error=fake_error)
+        assert isinstance(result, Command)
+        assert result.goto == "quality_gate", (
+            "Must jump to quality_gate, skipping summarize_leaves/compose_parent_pages/etc."
+        )
+        assert result.goto != "summarize_leaves"
+
+
+class TestComposeErrorNodeErrorType:
+    """M6: error param should accept NodeError type from langgraph.errors."""
+
+    def test_signature_accepts_node_error(self):
+        from wiki.nodes.compose_error_handler import compose_error_fallback
+
+        sig = inspect.signature(compose_error_fallback)
+        error_param = sig.parameters["error"]
+        assert error_param.default is inspect.Parameter.empty

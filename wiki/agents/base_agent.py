@@ -284,15 +284,20 @@ class GenericAgent(ABC):
         ctx: Any = None,
     ) -> str:
         """Single-pass text generation without tools. Uses output_type if set."""
+        hb = config.heartbeat if config else None
         if self.output_type is not None:
             try:
                 messages = [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ]
+                if hb:
+                    hb()
                 result = await self._llm.complete_json(
                     messages, schema=self.output_type.model_json_schema()
                 )
+                if hb:
+                    hb()
                 output = self._render_output(result)
             except Exception:
                 log.warning("structured_output_failed_fallback_to_text", exc_info=True)
@@ -301,7 +306,11 @@ class GenericAgent(ABC):
                 await self._run_output_guardrails(output, config, ctx)
                 return output
         try:
+            if hb:
+                hb()
             text = await self._llm.generate(prompt=user_prompt, system=system_prompt)
+            if hb:
+                hb()
         except Exception as exc:
             log.warning("run_generation_failed", exc_info=True)
             raise LLMGenerationError(f"LLM generation failed: {exc}") from exc

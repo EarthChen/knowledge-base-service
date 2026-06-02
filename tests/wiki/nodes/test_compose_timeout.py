@@ -93,24 +93,22 @@ class TestMakeErrorPlaceholder:
         assert "- FamilyC" in result["content"]
 
 
-class TestComposeNoWaitFor:
-    """Verify compose node no longer uses asyncio.wait_for."""
+class TestComposePerDomainTimeout:
+    """Verify per-domain timeout scales dynamically by module count."""
 
-    def test_domain_compose_source_no_wait_for(self):
-        """domain_compose.py must not contain asyncio.wait_for in the compose function."""
+    def test_per_domain_wait_for_exists(self):
+        """_run_domain should use asyncio.wait_for for per-domain safety cap."""
         import ast
         from pathlib import Path
 
         source = Path("wiki/nodes/domain_compose.py").read_text()
         tree = ast.parse(source)
 
-        # Find the compose_domain_agents_node function
         for node in ast.walk(tree):
-            if isinstance(node, ast.AsyncFunctionDef) and node.name == "compose_domain_agents_node":
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_run_domain":
                 body_source = ast.get_source_segment(source, node)
-                assert "wait_for" not in body_source, (
-                    "compose_domain_agents_node should not use asyncio.wait_for; "
-                    "timeout is managed by LangGraph node-level TimeoutPolicy"
+                assert "wait_for" in body_source, (
+                    "_run_domain should use asyncio.wait_for for per-domain timeout cap"
                 )
                 break
 
@@ -168,3 +166,130 @@ class TestWithProgressForwardsRuntime:
         wrapper = _with_progress("quality_gate", _fake_node)
         asyncio.run(wrapper({"node_statuses": {}}, None))
         assert called["yes"], "non-runtime nodes must still work"
+
+
+class TestWritePhaseHeartbeat:
+    """I1: run_generation must emit heartbeat before/after LLM calls."""
+
+    @pytest.mark.asyncio
+    async def test_run_generation_calls_heartbeat(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from wiki.agents.base_agent import RunConfig
+
+        calls: list[int] = []
+
+        def fake_heartbeat() -> None:
+            calls.append(1)
+
+        agent = MagicMock()
+        agent._llm = AsyncMock()
+        agent._llm.generate = AsyncMock(return_value="generated content")
+        agent._run_output_guardrails = AsyncMock()
+        agent.output_type = None
+
+        config = RunConfig(heartbeat=fake_heartbeat)
+
+        from wiki.agents.base_agent import GenericAgent
+
+        result = await GenericAgent.run_generation(agent, "system", "user", config=config)
+        assert result == "generated content"
+        assert len(calls) >= 2, f"heartbeat should be called at least twice (before+after LLM), got {len(calls)}"
+
+    @pytest.mark.asyncio
+    async def test_run_generation_no_heartbeat_when_none(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        agent = MagicMock()
+        agent._llm = AsyncMock()
+        agent._llm.generate = AsyncMock(return_value="ok")
+        agent._run_output_guardrails = AsyncMock()
+        agent.output_type = None
+
+        from wiki.agents.base_agent import GenericAgent
+
+        result = await GenericAgent.run_generation(agent, "system", "user")
+        assert result == "ok"
+
+    def test_domain_doc_agent_get_write_config_with_heartbeat(self):
+        from unittest.mock import MagicMock
+
+        calls = []
+
+        def hb():
+            calls.append(1)
+
+        from wiki.domain_doc_agent import DomainDocAgent
+
+        agent = MagicMock(spec=DomainDocAgent)
+        agent._heartbeat = hb
+        config = DomainDocAgent._get_write_config(agent)
+        assert config is not None
+        assert config.heartbeat is hb
+
+    def test_domain_doc_agent_get_write_config_none_without_heartbeat(self):
+        from unittest.mock import MagicMock
+
+        from wiki.domain_doc_agent import DomainDocAgent
+
+        agent = MagicMock(spec=DomainDocAgent)
+        agent._heartbeat = None
+        config = DomainDocAgent._get_write_config(agent)
+        assert config is None
+
+
+class TestLangGraphErrorHandlerIntegration:
+    """I5: Integration test — compile a mini StateGraph with error_handler."""
+
+    @pytest.mark.asyncio
+    async def test_error_handler_receives_error_on_failure(self):
+        from typing import Any
+
+        from langgraph.errors import NodeError
+        from langgraph.graph import StateGraph
+        from langgraph.types import Command, RetryPolicy
+
+        received_errors: list = []
+
+        async def failing_node(state: dict[str, Any]) -> dict[str, Any]:
+            raise RuntimeError("simulated compose failure")
+
+        async def error_handler(state: dict[str, Any], *, error: NodeError) -> Command:
+            real_error = getattr(error, "error", error)
+            received_errors.append(real_error)
+            return Command(update={"result": f"fallback: {type(real_error).__name__}"}, goto="end_node")
+
+        async def end_node(state: dict[str, Any]) -> dict[str, Any]:
+            return {}
+
+        graph = StateGraph(dict)
+        graph.add_node(
+            "failing",
+            failing_node,
+            retry_policy=RetryPolicy(max_attempts=1, retry_on=(RuntimeError,)),
+            error_handler=error_handler,
+        )
+        graph.add_node("end_node", end_node)
+        graph.add_edge("failing", "end_node")
+        graph.set_entry_point("failing")
+        graph.set_finish_point("end_node")
+
+        compiled = graph.compile()
+        await compiled.ainvoke({})
+
+        assert len(received_errors) == 1, "error_handler should receive exactly one error"
+        assert isinstance(received_errors[0], RuntimeError)
+        assert "simulated compose failure" in str(received_errors[0])
+
+    def test_production_error_handler_uses_node_error_annotation(self):
+        """Verify compose_error_fallback uses NodeError annotation (required by LangGraph)."""
+        import inspect
+
+        from wiki.nodes.compose_error_handler import compose_error_fallback
+
+        sig = inspect.signature(compose_error_fallback)
+        error_param = sig.parameters["error"]
+        assert error_param.annotation == "NodeError", (
+            f"error param must be annotated as 'NodeError' (got '{error_param.annotation}'). "
+            "LangGraph requires exact NodeError annotation for error injection."
+        )

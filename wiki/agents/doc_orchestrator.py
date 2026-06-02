@@ -161,6 +161,7 @@ class DocOrchestrator(ABC):
             write_coro = self._agent.run_generation(
                 self._write_system_prompt,
                 self._build_write_prompt(baseline_context, memory),
+                config=self._get_write_config(),
             )
             write_timeout = self.get_phase_timeout("write")
             try:
@@ -279,6 +280,7 @@ class DocOrchestrator(ABC):
             return await self._agent.run_generation(
                 self._write_system_prompt,
                 heal_prompt,
+                config=self._get_write_config(),
             )
         except (LLMGenerationError, TimeoutError):
             log.warning("review_heal_failed", name=self._name, exc_info=True)
@@ -432,6 +434,10 @@ class DocOrchestrator(ABC):
     def _get_explore_config(self) -> RunConfig:
         """Explore-phase RunConfig. Subclasses may override for domain-specific tuning."""
         return _EXPLORE_LOOP_CONFIG
+
+    def _get_write_config(self) -> RunConfig | None:
+        """Write-phase RunConfig (heartbeat only). Subclasses may override."""
+        return None
 
     async def run_guardrails(
         self, content: str, iteration: int, context: dict[str, Any],

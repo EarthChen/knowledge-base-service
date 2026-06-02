@@ -6,11 +6,11 @@ import pytest
 
 class TestDomainBudgetConfig:
     def test_domain_budget_max_default(self):
-        """domain_budget_max should default to 50."""
+        """domain_budget_max should default to 20."""
         from core.config import AppWikiFlags
 
         cfg = AppWikiFlags()
-        assert cfg.domain_budget_max == 50
+        assert cfg.domain_budget_max == 20
 
     def test_domain_budget_max_custom(self):
         """domain_budget_max should accept custom values."""

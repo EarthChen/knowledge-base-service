@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 from core.log import get_logger
 from wiki.cypher_queries import METHODS_CY
 from wiki.json_robust import parse_json_robust_sync
+from wiki.domain_semantic_clusterer import _prefix_from_camel
 from wiki.nodes.domain_filters import is_denied_slug
 from wiki.path_conventions import normalize_slug, normalize_slug_strict
 from wiki.persistence import compute_domain_module_signature
@@ -47,6 +48,116 @@ _TECH_SUFFIXES = frozenset({
     "Dao", "Controller", "Impl", "WebService", "Listener",
     "Processor", "Worker", "Helper", "Adapter", "Factory",
 })
+
+_SLUG_DISPLAY_KNOWN_MAPPINGS: dict[str, str] = {
+    "quick-message": "快捷消息",
+}
+
+_SLUG_ROOT_ZH: dict[str, str] = {
+    "closed": "挚友",
+    "friend": "挚友",
+    "quick": "快捷",
+    "message": "消息",
+}
+
+
+def _camel_words(name: str) -> list[str]:
+    return [word.lower() for word in re.findall(r"[A-Z][a-z]+", name)]
+
+
+def _slug_roots(slug: str) -> list[str]:
+    return [part for part in slug.lower().split("-") if part and len(part) > 1]
+
+
+def _collect_zh_hints(slug: str, module_names: list[str]) -> set[str]:
+    hints: set[str] = set()
+    if slug in _SLUG_DISPLAY_KNOWN_MAPPINGS:
+        hints.add(_SLUG_DISPLAY_KNOWN_MAPPINGS[slug])
+    slug_root_set = set(_slug_roots(slug))
+    for root in slug_root_set:
+        zh = _SLUG_ROOT_ZH.get(root)
+        if zh:
+            hints.add(zh)
+    for name in module_names:
+        module_words = set(_camel_words(name))
+        prefix = _prefix_from_camel(name)
+        if prefix:
+            module_words.add(prefix)
+        for root in slug_root_set & module_words:
+            zh = _SLUG_ROOT_ZH.get(root)
+            if zh:
+                hints.add(zh)
+    return hints
+
+
+def _display_relates_to_hints(display_name: str, hints: set[str]) -> bool:
+    if not hints:
+        return True
+    return any(hint in display_name for hint in hints if hint)
+
+
+def _roots_in_modules(slug_roots: list[str], module_names: list[str]) -> bool:
+    if not slug_roots or not module_names:
+        return False
+    module_blob = " ".join(module_names).lower()
+    module_words: set[str] = set()
+    for name in module_names:
+        module_words.update(_camel_words(name))
+        prefix = _prefix_from_camel(name)
+        if prefix:
+            module_words.add(prefix)
+    return any(root in module_blob or root in module_words for root in slug_roots)
+
+
+def validate_slug_display_consistency(slug: str, display_name: str, module_names: list[str]) -> bool:
+    """Return True when slug, display_name, and module prefixes are semantically aligned."""
+    if slug in _SLUG_DISPLAY_KNOWN_MAPPINGS:
+        expected = _SLUG_DISPLAY_KNOWN_MAPPINGS[slug]
+        if display_name == expected or expected in display_name:
+            return True
+
+    roots = _slug_roots(slug)
+    if not roots:
+        return True
+
+    if any(root in display_name.lower() for root in roots):
+        return True
+
+    hints = _collect_zh_hints(slug, module_names)
+    if hints and _display_relates_to_hints(display_name, hints):
+        return True
+
+    if slug in _SLUG_DISPLAY_KNOWN_MAPPINGS:
+        return False
+
+    if _roots_in_modules(roots, module_names):
+        return not hints or _display_relates_to_hints(display_name, hints)
+
+    return False
+
+
+def _infer_display_from_modules(module_names: list[str], *, slug: str = "") -> str:
+    """Derive a Chinese display_name from module CamelCase prefixes or slug roots."""
+    if slug in _SLUG_DISPLAY_KNOWN_MAPPINGS:
+        return _SLUG_DISPLAY_KNOWN_MAPPINGS[slug]
+
+    parts: list[str] = []
+    seen_zh: set[str] = set()
+    for root in _slug_roots(slug):
+        zh = _SLUG_ROOT_ZH.get(root)
+        if zh and zh not in seen_zh:
+            parts.append(zh)
+            seen_zh.add(zh)
+
+    if parts:
+        return "".join(parts)
+
+    for name in module_names:
+        prefix = _prefix_from_camel(name)
+        if prefix and prefix in _SLUG_ROOT_ZH:
+            return _SLUG_ROOT_ZH[prefix]
+
+    return ""
 
 
 def _extract_common_prefix(module_names: list[str]) -> str:
@@ -443,6 +554,20 @@ class GraphDomainNamer:
                         if not validated_slug:
                             validated_slug = f"domain-{len(names_for_fallback)}"
                         validated_slug = _sanitize_denied_slug(validated_slug, display_name=display_name)
+                        if not validate_slug_display_consistency(
+                            validated_slug,
+                            display_name,
+                            names_for_fallback,
+                        ):
+                            log.warning(
+                                "graph_domain_namer_slug_display_mismatch",
+                                slug=validated_slug,
+                                display_name=display_name,
+                                module_count=len(names_for_fallback),
+                            )
+                            inferred = _infer_display_from_modules(names_for_fallback, slug=validated_slug)
+                            if inferred:
+                                display_name = inferred
                         result = {
                             "slug": validated_slug,
                             "display_name": display_name,

@@ -304,9 +304,29 @@ def _attach_domain_sources(pages_out: list[dict[str, Any]], domain: dict[str, An
 async def compose_domain_agents_node(
     state: dict[str, Any],
     config: RunnableConfig | None = None,
+    *,
+    runtime: Any = None,
 ) -> dict[str, Any]:
     """Agent-driven domain documentation generation."""
     configurable = (config or {}).get("configurable", {}) or {}
+
+    # LangGraph 1.2 heartbeat — prevents idle_timeout from killing healthy agents
+    hb = getattr(runtime, "heartbeat", None) if runtime else None
+    if hb:
+        configurable["heartbeat"] = hb
+
+    _pulse_task: asyncio.Task[None] | None = None
+    if hb:
+
+        async def _heartbeat_pulse() -> None:
+            while True:
+                await asyncio.sleep(60)
+                try:
+                    hb()
+                except Exception:
+                    pass
+
+        _pulse_task = asyncio.create_task(_heartbeat_pulse())
     llm = configurable.get("llm")
     graph_store = configurable.get("graph_store")
     budget_resolver = configurable.get("budget_resolver")
@@ -338,218 +358,223 @@ async def compose_domain_agents_node(
             affected_domains=sorted(affected),
         )
 
-    if not compose_domains:
-        log.info("no_leaf_domains_found")
-        return {"pages": [], "errors": list(state.get("errors", []))}
+    try:
+        if not compose_domains:
+            log.info("no_leaf_domains_found")
+            return {"pages": [], "errors": list(state.get("errors", []))}
 
-    total_domains = len(compose_domains)
-    await _maybe_pipeline_progress(
-        configurable,
-        {
-            "phase": "compose_domain_agents",
-            "progress_pct": 0.30,
-            "detail": f"域文档生成 0/{total_domains}",
-        },
-    )
-
-    sem = PipelineConcurrency.semaphore("domain_agent")
-    pages: list[dict[str, Any]] = []
-    errors = list(state.get("errors", []))
-    arch_layers = state.get("architecture_layers") or {}
-    domain_mapping = state.get("domain_mapping") or {}
-
-    def _domain_repo_path(domain: dict[str, Any]) -> str | None:
-        if not repo_paths:
-            return None
-        repos: list[str] = []
-        for mod_name in domain.get("modules", []):
-            info = module_lookup.get(str(mod_name))
-            if info:
-                repos.append(info.get("_pipeline_repo_id", ""))
-        if repos:
-            primary = Counter(repos).most_common(1)[0][0]
-            return repo_paths.get(primary, fallback_repo_path)
-        return fallback_repo_path
-
-    content_language = _resolve_content_language_for_compose(state, config)
-
-    async def _run_domain(domain: dict[str, Any]) -> list[dict[str, Any]]:
-        async with sem:
-            domain_start = asyncio.get_running_loop().time()
-            domain_slug = domain["name"]
-            domain_display = domain.get("display_name", domain_slug)
-            try:
-                module_names = list(domain.get("modules") or [])
-                if domain_has_subdomains(domain) and not module_names:
-                    module_names = _collect_module_names_in_subtree(domain)
-                explore_rounds, explore_calls = _explore_limits_for_domain(domain, state)
-                wiki_cfg = get_settings().wiki
-                scaled_rounds, scaled_calls = _scale_explore_params(len(module_names), wiki_cfg)
-                if explore_rounds is None:
-                    explore_rounds = scaled_rounds
-                if explore_calls is None:
-                    explore_calls = scaled_calls
-                subdomains = list(domain.get("children") or domain.get("subdomains") or [])
-                if not domain_has_subdomains(domain):
-                    subdomains = []
-                agent = DomainDocAgent(
-                    domain_name=domain_slug,
-                    domain_display_name=domain_display,
-                    llm=llm,
-                    graph_store=graph_store,
-                    repo_path=_domain_repo_path(domain),
-                    repo_paths=repo_paths,
-                    max_iterations=_max_iterations_for_domain(domain, state),
-                    explore_max_rounds=explore_rounds,
-                    explore_max_tool_calls=explore_calls,
-                    budget_resolver=budget_resolver,
-                    content_language=content_language.display_label,
-                    term_glossary=state.get("term_glossary", {}),
-                    subdomains=subdomains,
-                    module_call_edges=state.get("module_call_edges"),
-                )
-                module_repo_pairs, valid_pairs = _domain_module_pairs(
-                    domain, domain_mapping, module_lookup,
-                )
-                layer_summary = _build_layer_summary(
-                    module_names,
-                    arch_layers,
-                    module_repo_pairs=module_repo_pairs,
-                    language=content_language,
-                )
-                baseline = _build_baseline(domain, module_summaries, module_tree=module_tree)
-                if layer_summary:
-                    baseline = baseline + "\n\n" + layer_summary
-                if graph_store:
-                    try:
-                        flow_baseline = await extract_flow_baseline(
-                            graph_store,
-                            domain_slug,
-                            module_names,
-                            valid_pairs=valid_pairs,
-                        )
-                        flow_text = format_flow_baseline_for_prompt(flow_baseline)
-                        if flow_text:
-                            baseline = baseline + "\n\n" + flow_text
-                    except Exception:
-                        log.warning("domain_flow_baseline_failed", domain=domain_slug, exc_info=True)
-                project_docs = configurable.get("project_docs")
-                if project_docs:
-                    from wiki.project_doc_provider import format_for_page_agent
-
-                    baseline = format_for_page_agent(project_docs) + "\n\n" + baseline
-
-                await acquire_llm_quota(config, estimated_tokens=4000)
-                outer_timeout = get_settings().wiki.domain_agent_timeout_sec
-                result = await asyncio.wait_for(
-                    agent.generate_with_iterations(
-                        module_names=module_names,
-                        baseline_context=baseline,
-                        valid_pairs=valid_pairs,
-                    ),
-                    timeout=outer_timeout,
-                )
-                domain_edges = _domain_call_edges(
-                    module_names,
-                    state.get("module_call_edges"),
-                )
-                for page in result:
-                    if page.get("metadata", {}).get("generation_mode") != "agent_error":
-                        page["content"] = _inject_dependency_diagram(
-                            page.get("content", ""),
-                            module_names,
-                            call_edges=domain_edges,
-                            language=content_language,
-                        )
-                for page in result:
-                    page.setdefault("content_language", content_language.value)
-
-                elapsed = asyncio.get_running_loop().time() - domain_start
-                log.info(
-                    "domain_agent_done",
-                    domain=domain_slug,
-                    pages=len(result),
-                    elapsed_sec=round(elapsed, 1),
-                    iterations=len(agent.iteration_history),
-                )
-                return result
-            except Exception as e:
-                elapsed = asyncio.get_running_loop().time() - domain_start
-                log.error(
-                    "domain_agent_failed",
-                    domain=domain_slug,
-                    error=str(e),
-                    elapsed_sec=round(elapsed, 1),
-                )
-                return [_make_error_placeholder(domain, e)]
-
-    async def _run_domain_indexed(
-        index: int, domain: dict[str, Any],
-    ) -> tuple[int, list[dict[str, Any]] | BaseException]:
-        try:
-            return index, await _run_domain(domain)
-        except BaseException as exc:
-            return index, exc
-
-    wrapped = [_run_domain_indexed(i, d) for i, d in enumerate(compose_domains)]
-    results: list[list[dict[str, Any]] | BaseException | None] = [None] * total_domains
-    completed = 0
-    for item in asyncio.as_completed(wrapped):
-        index, result = await item
-        results[index] = result
-        completed += 1
-        domain_name = compose_domains[index]["name"]
+        total_domains = len(compose_domains)
         await _maybe_pipeline_progress(
             configurable,
             {
                 "phase": "compose_domain_agents",
-                "progress_pct": 0.30 + (completed / total_domains) * 0.24,
-                "detail": f"域文档 {completed}/{total_domains}: {domain_name}",
+                "progress_pct": 0.30,
+                "detail": f"域文档生成 0/{total_domains}",
             },
         )
 
-    for i, result in enumerate(results):
-        if isinstance(result, BaseException):
-            errors.append({"domain": compose_domains[i]["name"], "error": str(result)})
-            ph = _make_error_placeholder(compose_domains[i], result)
-            _attach_domain_sources([ph], compose_domains[i], state)
-            pages.append(ph)
-        elif isinstance(result, list):
-            _attach_domain_sources(result, compose_domains[i], state)
-            for page in result:
-                err = page.pop("_error", None)
-                if err:
-                    errors.append({"domain": page.get("title", ""), "error": err})
-                pages.append(page)
+        sem = PipelineConcurrency.semaphore("domain_agent")
+        pages: list[dict[str, Any]] = []
+        errors = list(state.get("errors", []))
+        arch_layers = state.get("architecture_layers") or {}
+        domain_mapping = state.get("domain_mapping") or {}
 
-    # Sanitize domain pages (Mermaid validation + repair)
-    known_entities: list[dict[str, str | int]] = []
-    for repo_mods in state.get("modules", {}).values():
-        for m in repo_mods:
-            props = m.get("properties", {}) or {}
-            name = props.get("name", "")
-            if name:
-                known_entities.append({
-                    "name": name,
-                    "repository": props.get("repository", ""),
-                    "file_path": props.get("path", props.get("file_path", "")),
-                    "start_line": int(props.get("start_line") or 0),
-                })
-    for page in pages:
-        raw = page.get("content", "")
-        page["content"] = sanitize_wiki_content(raw, known_entities)
-        metadata = page.setdefault("metadata", {})
-        if llm is not None and not metadata.get("mermaid_fixed"):
-            page["content"] = await repair_broken_mermaid_blocks(page["content"], llm)
-            metadata["mermaid_fixed"] = True
+        def _domain_repo_path(domain: dict[str, Any]) -> str | None:
+            if not repo_paths:
+                return None
+            repos: list[str] = []
+            for mod_name in domain.get("modules", []):
+                info = module_lookup.get(str(mod_name))
+                if info:
+                    repos.append(info.get("_pipeline_repo_id", ""))
+            if repos:
+                primary = Counter(repos).most_common(1)[0][0]
+                return repo_paths.get(primary, fallback_repo_path)
+            return fallback_repo_path
 
-    log.info(
-        "domain_agents_complete",
-        total_domains=len(compose_domains),
-        total_pages=len(pages),
-        error_count=len(errors) - len(state.get("errors", [])),
-    )
-    return {"pages": pages, "errors": errors}
+        content_language = _resolve_content_language_for_compose(state, config)
+
+        async def _run_domain(domain: dict[str, Any]) -> list[dict[str, Any]]:
+            async with sem:
+                domain_start = asyncio.get_running_loop().time()
+                domain_slug = domain["name"]
+                domain_display = domain.get("display_name", domain_slug)
+                try:
+                    module_names = list(domain.get("modules") or [])
+                    if domain_has_subdomains(domain) and not module_names:
+                        module_names = _collect_module_names_in_subtree(domain)
+                    explore_rounds, explore_calls = _explore_limits_for_domain(domain, state)
+                    wiki_cfg = get_settings().wiki
+                    scaled_rounds, scaled_calls = _scale_explore_params(len(module_names), wiki_cfg)
+                    if explore_rounds is None:
+                        explore_rounds = scaled_rounds
+                    if explore_calls is None:
+                        explore_calls = scaled_calls
+                    subdomains = list(domain.get("children") or domain.get("subdomains") or [])
+                    if not domain_has_subdomains(domain):
+                        subdomains = []
+                    agent = DomainDocAgent(
+                        domain_name=domain_slug,
+                        domain_display_name=domain_display,
+                        llm=llm,
+                        graph_store=graph_store,
+                        repo_path=_domain_repo_path(domain),
+                        repo_paths=repo_paths,
+                        max_iterations=_max_iterations_for_domain(domain, state),
+                        explore_max_rounds=explore_rounds,
+                        explore_max_tool_calls=explore_calls,
+                        budget_resolver=budget_resolver,
+                        content_language=content_language.display_label,
+                        term_glossary=state.get("term_glossary", {}),
+                        subdomains=subdomains,
+                        module_call_edges=state.get("module_call_edges"),
+                        heartbeat=hb,
+                    )
+                    module_repo_pairs, valid_pairs = _domain_module_pairs(
+                        domain, domain_mapping, module_lookup,
+                    )
+                    layer_summary = _build_layer_summary(
+                        module_names,
+                        arch_layers,
+                        module_repo_pairs=module_repo_pairs,
+                        language=content_language,
+                    )
+                    baseline = _build_baseline(domain, module_summaries, module_tree=module_tree)
+                    if layer_summary:
+                        baseline = baseline + "\n\n" + layer_summary
+                    if graph_store:
+                        try:
+                            flow_baseline = await extract_flow_baseline(
+                                graph_store,
+                                domain_slug,
+                                module_names,
+                                valid_pairs=valid_pairs,
+                            )
+                            flow_text = format_flow_baseline_for_prompt(flow_baseline)
+                            if flow_text:
+                                baseline = baseline + "\n\n" + flow_text
+                        except Exception:
+                            log.warning("domain_flow_baseline_failed", domain=domain_slug, exc_info=True)
+                    project_docs = configurable.get("project_docs")
+                    if project_docs:
+                        from wiki.project_doc_provider import format_for_page_agent
+
+                        baseline = format_for_page_agent(project_docs) + "\n\n" + baseline
+
+                    await acquire_llm_quota(config, estimated_tokens=4000)
+                    result = await agent.generate_with_iterations(
+                        module_names=module_names,
+                        baseline_context=baseline,
+                        valid_pairs=valid_pairs,
+                    )
+                    domain_edges = _domain_call_edges(
+                        module_names,
+                        state.get("module_call_edges"),
+                    )
+                    for page in result:
+                        if page.get("metadata", {}).get("generation_mode") != "agent_error":
+                            page["content"] = _inject_dependency_diagram(
+                                page.get("content", ""),
+                                module_names,
+                                call_edges=domain_edges,
+                                language=content_language,
+                            )
+                    for page in result:
+                        page.setdefault("content_language", content_language.value)
+
+                    elapsed = asyncio.get_running_loop().time() - domain_start
+                    log.info(
+                        "domain_agent_done",
+                        domain=domain_slug,
+                        pages=len(result),
+                        elapsed_sec=round(elapsed, 1),
+                        iterations=len(agent.iteration_history),
+                    )
+                    return result
+                except Exception as e:
+                    elapsed = asyncio.get_running_loop().time() - domain_start
+                    log.error(
+                        "domain_agent_failed",
+                        domain=domain_slug,
+                        error=str(e),
+                        elapsed_sec=round(elapsed, 1),
+                    )
+                    return [_make_error_placeholder(domain, e)]
+
+        async def _run_domain_indexed(
+            index: int, domain: dict[str, Any],
+        ) -> tuple[int, list[dict[str, Any]] | BaseException]:
+            try:
+                return index, await _run_domain(domain)
+            except BaseException as exc:
+                return index, exc
+
+        wrapped = [_run_domain_indexed(i, d) for i, d in enumerate(compose_domains)]
+        results: list[list[dict[str, Any]] | BaseException | None] = [None] * total_domains
+        completed = 0
+        for item in asyncio.as_completed(wrapped):
+            index, result = await item
+            results[index] = result
+            completed += 1
+            domain_name = compose_domains[index]["name"]
+            await _maybe_pipeline_progress(
+                configurable,
+                {
+                    "phase": "compose_domain_agents",
+                    "progress_pct": 0.30 + (completed / total_domains) * 0.24,
+                    "detail": f"域文档 {completed}/{total_domains}: {domain_name}",
+                },
+            )
+
+        for i, result in enumerate(results):
+            if isinstance(result, BaseException):
+                errors.append({"domain": compose_domains[i]["name"], "error": str(result)})
+                ph = _make_error_placeholder(compose_domains[i], result)
+                _attach_domain_sources([ph], compose_domains[i], state)
+                pages.append(ph)
+            elif isinstance(result, list):
+                _attach_domain_sources(result, compose_domains[i], state)
+                for page in result:
+                    err = page.pop("_error", None)
+                    if err:
+                        errors.append({"domain": page.get("title", ""), "error": err})
+                    pages.append(page)
+
+        # Sanitize domain pages (Mermaid validation + repair)
+        known_entities: list[dict[str, str | int]] = []
+        for repo_mods in state.get("modules", {}).values():
+            for m in repo_mods:
+                props = m.get("properties", {}) or {}
+                name = props.get("name", "")
+                if name:
+                    known_entities.append({
+                        "name": name,
+                        "repository": props.get("repository", ""),
+                        "file_path": props.get("path", props.get("file_path", "")),
+                        "start_line": int(props.get("start_line") or 0),
+                    })
+        for page in pages:
+            raw = page.get("content", "")
+            page["content"] = sanitize_wiki_content(raw, known_entities)
+            metadata = page.setdefault("metadata", {})
+            if llm is not None and not metadata.get("mermaid_fixed"):
+                page["content"] = await repair_broken_mermaid_blocks(page["content"], llm)
+                metadata["mermaid_fixed"] = True
+
+        log.info(
+            "domain_agents_complete",
+            total_domains=len(compose_domains),
+            total_pages=len(pages),
+            error_count=len(errors) - len(state.get("errors", [])),
+        )
+        return {"pages": pages, "errors": errors}
+    finally:
+        if _pulse_task is not None:
+            _pulse_task.cancel()
+            try:
+                await _pulse_task
+            except asyncio.CancelledError:
+                pass
 
 
 def _make_error_placeholder(domain: dict[str, Any], error: BaseException) -> dict[str, Any]:
@@ -559,14 +584,16 @@ def _make_error_placeholder(domain: dict[str, Any], error: BaseException) -> dic
     modules_list = "\n".join(f"- {m}" for m in domain.get("modules", []))
     slug = domain["name"]
     display = domain.get("display_name", slug)
+    error_type = type(error).__name__
+    error_msg = f"{error_type}: {str(error) or 'timeout/cancelled'}"
     return {
         "page_type": "domain_overview",
         "title": display,
         "path": domain_overview_path(slug),
-        "_error": str(error)[:200],
+        "_error": error_msg[:200],
         "content": (
             f"# {display}\n\n"
-            f"> ⚠️ 文档生成失败: {str(error)[:200]}\n\n"
+            f"> ⚠️ 文档生成失败: {error_msg[:200]}\n\n"
             f"## 域内模块\n\n{modules_list}"
         ),
         "diagrams": [],
@@ -575,5 +602,7 @@ def _make_error_placeholder(domain: dict[str, Any], error: BaseException) -> dic
             "node_count": 0,
             "edge_count": 0,
             "generation_mode": "agent_error",
+            "error_type": error_type,
+            "error_msg": error_msg[:200],
         },
     }

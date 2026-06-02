@@ -287,6 +287,138 @@ def _merge_global_stem_suffix_domains(
     return merged_mapping, merged_display
 
 
+def _build_flat_domain_tree_from_mapping(
+    domain_mapping: dict[str, list],
+    domain_display_names: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Build a flat L1 domain_tree from current mapping (no hierarchy)."""
+    return [
+        {
+            "name": slug,
+            "display_name": domain_display_names.get(slug, slug),
+            "modules": [_compound_key(repo, name) for repo, name in modules],
+            "children": [],
+        }
+        for slug, modules in domain_mapping.items()
+    ]
+
+
+def _index_domain_tree_hierarchy(
+    domain_tree: list[dict],
+) -> tuple[dict[str, str | None], dict[str, list[str]]]:
+    """Return parent slug and sibling slugs for every node in *domain_tree*."""
+    parent_of: dict[str, str | None] = {}
+    siblings_of: dict[str, list[str]] = {}
+
+    def _walk(nodes: list[dict], parent_slug: str | None = None) -> None:
+        child_names = [str(node.get("name", "")) for node in nodes if node.get("name")]
+        for node in nodes:
+            slug = str(node.get("name", ""))
+            if not slug:
+                continue
+            parent_of[slug] = parent_slug
+            siblings_of[slug] = [name for name in child_names if name != slug]
+            children = node.get("children") or []
+            if children:
+                _walk(children, slug)
+
+    _walk(domain_tree)
+    return parent_of, siblings_of
+
+
+def _pick_small_leaf_merge_target(
+    slug: str,
+    module_count: int,
+    domain_mapping: dict[str, list],
+    parent_of: dict[str, str | None],
+    siblings_of: dict[str, list[str]],
+    merge_map: dict[str, str],
+    *,
+    max_combined: int,
+) -> str | None:
+    """Choose sibling or parent slug to absorb a small leaf domain."""
+    best_sibling: str | None = None
+    best_sibling_size = -1
+    for sibling in siblings_of.get(slug, []):
+        if sibling in merge_map:
+            continue
+        sibling_count = len(domain_mapping.get(sibling, []))
+        if sibling_count + module_count > max_combined:
+            continue
+        if sibling_count > best_sibling_size:
+            best_sibling = sibling
+            best_sibling_size = sibling_count
+    if best_sibling is not None:
+        return best_sibling
+
+    parent = parent_of.get(slug)
+    if parent:
+        return parent
+    return None
+
+
+def _merge_small_leaf_domains(
+    domain_mapping: dict[str, list],
+    domain_display_names: dict[str, str],
+    domain_tree: list[dict],
+    *,
+    min_modules: int = 3,
+    budget_max: int | None = None,
+) -> tuple[dict[str, list], dict[str, str]]:
+    """Merge leaf domains with fewer than *min_modules* into sibling or parent."""
+    if not domain_mapping or not domain_tree:
+        return domain_mapping, domain_display_names
+    if min_modules <= 1:
+        return domain_mapping, domain_display_names
+
+    if budget_max is None:
+        budget_max = get_settings().wiki.domain_budget_max
+    max_combined = 2 * budget_max
+
+    parent_of, siblings_of = _index_domain_tree_hierarchy(domain_tree)
+    merge_map: dict[str, str] = {}
+
+    for slug in sorted(domain_mapping.keys()):
+        if slug in merge_map:
+            continue
+        modules = domain_mapping.get(slug, [])
+        if len(modules) >= min_modules:
+            continue
+
+        target = _pick_small_leaf_merge_target(
+            slug,
+            len(modules),
+            domain_mapping,
+            parent_of,
+            siblings_of,
+            merge_map,
+            max_combined=max_combined,
+        )
+        if target is None:
+            log.warning(
+                "small_leaf_domain_preserved",
+                slug=slug,
+                modules=len(modules),
+                reason="no_parent_or_sibling",
+            )
+            continue
+
+        merge_map[slug] = target
+        log.info(
+            "small_leaf_domain_merged",
+            slug=slug,
+            target=target,
+            modules=len(modules),
+        )
+
+    if not merge_map:
+        return domain_mapping, domain_display_names
+
+    merged_mapping, merged_display = _apply_merge_map(merge_map, domain_mapping, domain_display_names)
+    log.info("small_leaf_domain_merge_done", merged_count=len(merge_map), merge_map=merge_map)
+    return merged_mapping, merged_display
+
+
 def _cleanup_existing_slug_stems(
     domain_mapping: dict[str, list],
     existing_slugs: list[str],
@@ -2197,6 +2329,26 @@ async def graph_driven_domain_decompose_node(
         domain_mapping, domain_display_names = _merge_global_stem_suffix_domains(
             domain_mapping, domain_display_names,
         )
+
+        # --- Step 6.53: Small leaf domain merge ---
+        wiki_cfg = get_settings().wiki
+        prelim_tree = state.get("domain_tree") or _build_flat_domain_tree_from_mapping(
+            domain_mapping, domain_display_names,
+        )
+        _min_mod = getattr(wiki_cfg, "min_modules_per_leaf_domain", 3)
+        if not isinstance(_min_mod, int):
+            _min_mod = 3
+        _budget = getattr(wiki_cfg, "domain_budget_max", 20)
+        if not isinstance(_budget, int):
+            _budget = 20
+        domain_mapping, domain_display_names = _merge_small_leaf_domains(
+            domain_mapping,
+            domain_display_names,
+            prelim_tree,
+            min_modules=_min_mod,
+            budget_max=_budget,
+        )
+
         if is_incremental and existing_domain_mapping:
             domain_mapping = _cleanup_existing_slug_stems(
                 domain_mapping, list(existing_domain_mapping.keys()),

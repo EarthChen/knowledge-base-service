@@ -66,6 +66,7 @@ class RunConfig:
     input_guardrails: _InputGuardrailList = field(default_factory=list)
     output_guardrails: _OutputGuardrailList = field(default_factory=list)
     tracer: Any = None  # AgentTracer instance for span tracking
+    heartbeat: Callable[[], None] | None = None  # LangGraph idle_timeout reset
 
 
 class ToolRegistry:
@@ -266,6 +267,7 @@ class GenericAgent(ABC):
             tracer=config.tracer,
             ctx=effective_ctx,
             detect_repeated_calls=True,
+            heartbeat=config.heartbeat,
         )
 
         result = await run_agent_loop(

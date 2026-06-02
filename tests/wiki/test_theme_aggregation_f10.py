@@ -141,6 +141,7 @@ def _mock_wiki_settings(*, theme_aggregation_min_domains: int = 5):
     wiki.skip_llm_merge_when_corrector_enabled = True
     wiki.infrastructure_slug_keywords = []
     wiki.domain_budget_max = 50
+    wiki.min_modules_per_leaf_domain = 1
     wiki.term_overrides = {}
     wiki.enable_domain_tree_review = False
     settings = MagicMock()

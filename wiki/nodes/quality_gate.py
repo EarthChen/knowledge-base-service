@@ -235,15 +235,16 @@ async def quality_gate_node(state: WikiPipelineState, config: RunnableConfig | N
 
     for page_dict in state.get("pages", []):
         gen_mode = page_dict.get("metadata", {}).get("generation_mode", "")
-        if gen_mode == "agent_error":
+        if gen_mode in ("agent_error", "error_fallback"):
             page_path = page_dict.get("path", "")
             quality_scores[page_path] = {
                 "l1_structural": 0.0,
                 "overall": 0.0,
-                "skipped_reason": "agent_error",
+                "skipped_reason": gen_mode,
             }
             cycles = heal_cycles.get(page_path, 0)
-            if cycles < 1:
+            max_heal = wiki_cfg.agent_error_heal_max_cycles
+            if cycles < max_heal:
                 pages_to_heal.append(page_path)
             continue
 
@@ -573,7 +574,7 @@ async def quality_gate_node(state: WikiPipelineState, config: RunnableConfig | N
         page_dict = page_by_path.get(page_path)
         if not page_dict:
             continue
-        if page_dict.get("metadata", {}).get("generation_mode") == "agent_error":
+        if page_dict.get("metadata", {}).get("generation_mode") in ("agent_error", "error_fallback"):
             heal_hints[page_path] = (
                 "Regenerate failed documentation with Overview, key components, "
                 "relationships, and at least one mermaid diagram."

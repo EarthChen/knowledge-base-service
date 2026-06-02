@@ -307,6 +307,7 @@ class AppWikiFlags(BaseModel):
     domain_agent_max_iterations_standard: int = Field(default=8, ge=1)
     domain_agent_max_iterations_skeleton: int = Field(default=3, ge=1)
     domain_agent_timeout_sec: int = Field(default=600, ge=1)
+    agent_error_heal_max_cycles: int = Field(default=3, ge=1, le=5)
     domain_agent_explore_max_rounds: int = Field(default=8, ge=1)
     domain_agent_explore_max_tool_calls: int = Field(default=30, ge=1)
     explore_scale_threshold_medium: int = Field(default=20, ge=1)
@@ -331,7 +332,10 @@ class AppWikiFlags(BaseModel):
     domain_split_threshold: int = Field(default=20, description="Min modules to trigger recursive sub-domain split")
     domain_split_max_depth: int = Field(default=2, description="Max recursion depth for sub-domain splitting")
     domain_budget_max: int = Field(
-        default=50, ge=5, le=200, description="Maximum number of top-level domains after clustering"
+        default=20, ge=5, le=200, description="Maximum number of top-level domains after clustering"
+    )
+    min_modules_per_leaf_domain: int = Field(
+        default=3, ge=1, description="Min modules for a leaf domain; smaller leaves merge to sibling or parent"
     )
     enable_anchor_cluster_constraints: bool = Field(
         default=True, description="Apply DomainAnchor cannot-link in HAC"
@@ -466,7 +470,7 @@ class AppWikiFlags(BaseModel):
 
     wiki_content_language: str = Field(default="简体中文", description="Language for wiki content generation")
     skip_llm_merge_when_corrector_enabled: bool = Field(
-        default=True,
+        default=False,
         description="Skip redundant LLM domain merge when GraphSemanticCorrector global review runs",
     )
 

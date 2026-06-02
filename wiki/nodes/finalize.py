@@ -496,6 +496,8 @@ _PAGE_TYPE_LABELS: dict[str, str] = {
 
 _NEAR_DUP_SIMILARITY_THRESHOLD = 0.8
 _MAX_TITLE_LEN = 50
+_KEBAB_SLUG_TOKEN_RE = re.compile(r"[a-z]+(?:-[a-z]+)+")
+_TITLE_EXPOSED_SLUG_RE = re.compile(r"[a-z]+-[a-z]+")
 
 
 def _page_domain(page: dict) -> str:
@@ -519,6 +521,52 @@ def _path_topic_slug(path: str) -> str:
     return parts[-1] if parts else ""
 
 
+def _humanize_path_segment(segment: str) -> str:
+    """Turn a path module segment into a short human-readable label."""
+    if not segment:
+        return ""
+    if re.search(r"[\u4e00-\u9fff]", segment):
+        return segment.strip()
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", segment)
+    spaced = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", spaced)
+    if re.fullmatch(r"[a-z0-9-]+", spaced) and "-" in spaced:
+        if _KEBAB_SLUG_TOKEN_RE.fullmatch(spaced):
+            return spaced.split("-")[-1]
+        return spaced.replace("-", " ")
+    return spaced.strip()
+
+
+def _path_module_label(path: str) -> str:
+    """Module-name suffix candidate from the last meaningful path segment."""
+    slug = _path_topic_slug(path)
+    if not slug:
+        return ""
+    return _sanitize_title_suffix(_humanize_path_segment(slug))
+
+
+def _sanitize_title_suffix(suffix: str) -> str:
+    """Drop kebab-case slugs and page-type labels from a title suffix fragment."""
+    if not suffix:
+        return ""
+    page_type_labels = set(_PAGE_TYPE_LABELS.values())
+    kept: list[str] = []
+    for part in suffix.split("·"):
+        token = part.strip()
+        if not token:
+            continue
+        if token in page_type_labels:
+            continue
+        if _KEBAB_SLUG_TOKEN_RE.fullmatch(token) or _KEBAB_SLUG_TOKEN_RE.search(token):
+            continue
+        kept.append(token)
+    return "·".join(kept)
+
+
+def _title_has_exposed_slug(title: str) -> bool:
+    """True when a user-visible title still contains a kebab-case slug fragment."""
+    return bool(_TITLE_EXPOSED_SLUG_RE.search(title))
+
+
 def _truncate_title(title: str, *, max_len: int = _MAX_TITLE_LEN) -> str:
     if len(title) <= max_len:
         return title
@@ -526,7 +574,8 @@ def _truncate_title(title: str, *, max_len: int = _MAX_TITLE_LEN) -> str:
 
 
 def _title_with_suffix(base: str, *parts: str) -> str:
-    suffix_parts = [part for part in parts if part]
+    suffix_parts = [_sanitize_title_suffix(part) for part in parts if part]
+    suffix_parts = [part for part in suffix_parts if part]
     if not suffix_parts:
         return base
     return _truncate_title(f"{base}（{'·'.join(suffix_parts)}）")
@@ -594,11 +643,9 @@ def _detect_near_duplicate_titles(pages: list[dict]) -> list[dict]:
             if cjk_bigram_similarity(title, other_title) < _NEAR_DUP_SIMILARITY_THRESHOLD:
                 continue
 
-            slug = _path_topic_slug(page.get("path", ""))
-            domain = _page_domain(page)
+            module_label = _path_module_label(page.get("path", ""))
             suffix_options = (
-                [part for part in (domain, slug) if part],
-                [slug] if slug else [],
+                [module_label] if module_label else [],
                 [str(i + 1)],
             )
             new_title = title
@@ -702,11 +749,26 @@ def _strip_disambiguation_suffixes(pages: list[dict]) -> list[dict]:
     return result
 
 
+def _flag_titles_with_exposed_slugs(pages: list[dict]) -> list[dict]:
+    """Mark pages whose final titles still expose kebab-case slug fragments."""
+    result: list[dict] = []
+    for page in pages:
+        updated = dict(page)
+        title = str(updated.get("title", "") or "")
+        if _title_has_exposed_slug(title):
+            flags = list(updated.get("quality_flags") or [])
+            if "TITLE_HAS_SLUG" not in flags:
+                flags.append("TITLE_HAS_SLUG")
+            updated["quality_flags"] = flags
+        result.append(updated)
+    return result
+
+
 def _deduplicate_titles(pages: list[dict]) -> list[dict]:
     """Ensure all page titles within a business are unique.
 
     Near-duplicates are renamed first, then exact duplicates receive
-    domain / page-type / numeric suffixes, with a final safety pass.
+    H2-theme / module-name / numeric suffixes, with a final safety pass.
     """
     result = _detect_near_duplicate_titles(list(pages))
     result = _deduplicate_exact_titles(result)
@@ -740,7 +802,13 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
         page_path = page.get("path", "")
         if content:
             content_stripped = content.strip()
-            if len(content_stripped) < _MIN_PAGE_CHARS:
+            gen_mode_early = page.get("metadata", {}).get("generation_mode", "")
+            is_agent_error_overview = (
+                page.get("page_type") == "domain_overview"
+                and page.get("metadata", {}).get("overview_kind") != "topic_index"
+                and gen_mode_early in ("agent_error", "error_fallback")
+            )
+            if len(content_stripped) < _MIN_PAGE_CHARS and not is_agent_error_overview:
                 log.warning(
                     "page_too_short_rejected",
                     path=page_path,
@@ -808,6 +876,25 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
 
             reject_threshold = _get_overview_reject_threshold()
             reject_hard_min = reject_threshold // 4
+            gen_mode = page.get("metadata", {}).get("generation_mode", "")
+            if is_overview and not is_topic_index and gen_mode in ("agent_error", "error_fallback"):
+                # Agent-failed pages are not hard-rejected; they become degraded skeletons
+                lang = page.get("content_language", "")
+                if lang and lang.lower() in ("en", "english", "en-us"):
+                    degraded_banner = "> ⚠️ This domain failed to generate and is awaiting retry.\n\n"
+                else:
+                    degraded_banner = "> ⚠️ 本域文档生成失败，等待重试。\n\n"
+                if not content.startswith(degraded_banner):
+                    content = degraded_banner + content
+                page = {**page, "content": content, "__degraded__": True}
+                log.warning(
+                    "agent_error_page_kept_as_degraded",
+                    page_path=page.get("path"),
+                    gen_mode=gen_mode,
+                    content_len=len(content),
+                )
+                updated_pages.append(page)
+                continue
             if is_overview and not is_topic_index and len(content) < reject_hard_min:
                 log.warning(
                     "shell_domain_rejected",
@@ -910,6 +997,7 @@ async def finalize_node(state: dict[str, Any]) -> dict[str, Any]:
 
     updated_pages = _deduplicate_titles(updated_pages)
     updated_pages = _strip_disambiguation_suffixes(updated_pages)
+    updated_pages = _flag_titles_with_exposed_slugs(updated_pages)
 
     published = sum(1 for p in updated_pages if not p.get("__rejected__"))
     rejected = sum(1 for p in updated_pages if p.get("__rejected__"))

@@ -74,6 +74,21 @@ def _mock_namer(slug: str = "auth-domain", display: str = "认证"):
     return namer
 
 
+def _mock_wiki_settings():
+    """Return mock settings with min_modules_per_leaf_domain=1 to prevent small-domain merge."""
+    wiki = MagicMock()
+    wiki.min_modules_per_leaf_domain = 1
+    wiki.domain_budget_max = 50
+    wiki.skip_llm_merge_when_corrector_enabled = True
+    wiki.infrastructure_slug_keywords = []
+    wiki.term_overrides = {}
+    wiki.enable_domain_tree_review = False
+    wiki.theme_aggregation_min_domains = 99
+    settings = MagicMock()
+    settings.wiki = wiki
+    return settings
+
+
 @contextmanager
 def _full_clustering_mocks(*, communities=None):
     """Patch heavy deps so graph_driven_domain_decompose_node takes the full path."""
@@ -99,6 +114,10 @@ def _full_clustering_mocks(*, communities=None):
             return_value=_mock_reviewer(),
         ),
         patch("wiki.domain_stabilizer.DomainStabilizer"),
+        patch(
+            "wiki.nodes.graph_domain_decompose.get_settings",
+            return_value=_mock_wiki_settings(),
+        ),
     ]
     mocks = [p.start() for p in patches]
     mocks[4].return_value.stabilize = AsyncMock(return_value={})

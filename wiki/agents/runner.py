@@ -89,6 +89,9 @@ class LoopConfig:
     tracer: Any = None
     ctx: Any = None
 
+    # LangGraph heartbeat — resets idle_timeout timer
+    heartbeat: Callable[[], None] | None = None
+
 
 @dataclass
 class AgentLoopResult:
@@ -258,11 +261,15 @@ async def run_agent_loop(
                 break
 
             try:
+                if config.heartbeat:
+                    config.heartbeat()
                 coro = agent._llm.complete_with_tools(messages, round_tools)
                 if config.llm_call_timeout:
                     response = await asyncio.wait_for(coro, timeout=config.llm_call_timeout)
                 else:
                     response = await coro
+                if config.heartbeat:
+                    config.heartbeat()
             except TimeoutError:
                 log.warning("run_agent_loop_llm_timeout", round=round_num, timeout=config.llm_call_timeout)
                 result.exit_reason = "llm_timeout"
@@ -380,6 +387,8 @@ async def run_agent_loop(
                     tool_span = tracer.start_span(tool_name, kind="tool_call")
 
                 try:
+                    if config.heartbeat:
+                        config.heartbeat()
                     dispatch_coro = agent._tool_registry.dispatch(
                         tool_name, args, post_call=config.enable_post_call_guardrail, ctx=effective_ctx
                     )
@@ -389,6 +398,8 @@ async def run_agent_loop(
                         )
                     else:
                         tool_result, result_str = await dispatch_coro
+                    if config.heartbeat:
+                        config.heartbeat()
                 except TimeoutError:
                     log.warning("tool_call_timeout", tool=tool_name, timeout=config.tool_call_timeout)
                     tool_result = {"error": f"Tool {tool_name} timed out after {config.tool_call_timeout}s"}

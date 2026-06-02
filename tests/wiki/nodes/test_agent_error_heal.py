@@ -70,8 +70,8 @@ class TestAgentErrorPagesHeal:
         assert scores[error_page["path"]]["overall"] == 0.0
 
     @pytest.mark.asyncio
-    async def test_agent_error_max_one_heal_cycle(self):
-        """agent_error pages should only get one heal attempt."""
+    async def test_agent_error_max_heal_cycles_exhausted(self):
+        """agent_error pages should not be healed after reaching max cycles (default=3)."""
         from wiki.nodes.quality_gate import quality_gate_node
 
         error_page = _make_error_page("/__domains__/broken/overview")
@@ -80,11 +80,10 @@ class TestAgentErrorPagesHeal:
             "indexed_modules": {},
             "config": {},
             "heal_attempts": {},
-            "heal_cycles": {error_page["path"]: 1},  # Already healed once
+            "heal_cycles": {error_page["path"]: 3},  # Already healed max times
             "_structural_check_cache": {},
         }
 
         result = await quality_gate_node(state, {"configurable": {"llm": None}})
         pages_to_heal = result.get("pages_to_heal", [])
-        # Should NOT be added again since already healed once
         assert error_page["path"] not in pages_to_heal

@@ -12,9 +12,16 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph
+from langgraph.types import RetryPolicy, TimeoutPolicy
+
+try:
+    from langgraph.errors import NodeTimeoutError
+except ImportError:
+    NodeTimeoutError = TimeoutError
 
 from core.log import get_logger
 from wiki.nodes.classify_architecture import classify_architecture_layers_node
+from wiki.nodes.compose_error_handler import compose_error_fallback
 from wiki.nodes.finalize import finalize_node
 from wiki.nodes.graph_domain_decompose import graph_driven_domain_decompose_node
 from wiki.nodes.quality_gate import quality_gate_node
@@ -88,8 +95,90 @@ def _with_progress(
         )
     ]
     pass_config = len(params) >= 2
+    pass_runtime = any(
+        p.name == "runtime" and p.kind == inspect.Parameter.KEYWORD_ONLY
+        for p in _sig.parameters.values()
+    )
 
-    if pass_config:
+    if pass_config and pass_runtime:
+        async def _wrapper(
+            state: WikiPipelineState,
+            config: RunnableConfig | None = None,
+            *,
+            runtime: Any = None,
+        ) -> dict[str, Any]:
+            configurable = (config or {}).get("configurable", {}) or {}
+            cb = configurable.get("progress_callback")
+            # Track node status in state for dashboard
+            now = time.time()
+            statuses = dict(state.get("node_statuses") or {})
+            statuses[node_name] = {"status": "running", "started_at": now}
+            if cb:
+                try:
+                    await cb({
+                        "phase": phase,
+                        "progress_pct": pct,
+                        "detail": f"{phase} 开始",
+                        "node_name": node_name,
+                        "node_status": "running",
+                        "node_statuses": statuses,
+                    })
+                except Exception:
+                    log.debug("progress_callback_failed", phase=phase, exc_info=True)
+            log.info("pipeline_node_enter", node=node_name, phase=phase)
+            t0 = time.monotonic()
+            try:
+                result = await func(state, config, runtime=runtime)
+            except Exception:
+                elapsed = time.monotonic() - t0
+                statuses[node_name] = {
+                    "status": "failed",
+                    "started_at": now,
+                    "completed_at": time.time(),
+                    "elapsed_sec": round(elapsed, 2),
+                }
+                if cb:
+                    try:
+                        await cb({
+                            "phase": phase,
+                            "progress_pct": pct,
+                            "detail": f"{phase} 失败",
+                            "node_name": node_name,
+                            "node_status": "failed",
+                            "elapsed_sec": round(elapsed, 2),
+                            "node_statuses": statuses,
+                        })
+                    except Exception:
+                        log.debug("progress_callback_failed", phase=phase, exc_info=True)
+                raise
+            elapsed = time.monotonic() - t0
+            log.info(
+                "pipeline_node_exit",
+                node=node_name,
+                phase=phase,
+                elapsed_sec=round(elapsed, 1),
+            )
+            statuses[node_name] = {
+                "status": "completed",
+                "started_at": now,
+                "completed_at": time.time(),
+                "elapsed_sec": round(elapsed, 2),
+            }
+            if cb:
+                try:
+                    await cb({
+                        "phase": phase,
+                        "progress_pct": pct,
+                        "detail": f"{phase} 完成 ({elapsed:.1f}s)",
+                        "node_name": node_name,
+                        "node_status": "completed",
+                        "elapsed_sec": round(elapsed, 2),
+                        "node_statuses": statuses,
+                    })
+                except Exception:
+                    log.debug("progress_callback_failed", phase=phase, exc_info=True)
+            return result
+    elif pass_config:
         async def _wrapper(
             state: WikiPipelineState,
             config: RunnableConfig | None = None,
@@ -270,6 +359,12 @@ def build_wiki_pipeline(checkpointer: Any | None | bool = None) -> Any:
     graph.add_node(
         "compose_domain_agents",
         _with_progress("compose_domain_agents", compose_domain_agents_node),
+        timeout=TimeoutPolicy(
+            run_timeout=3600,
+            idle_timeout=180,
+        ),
+        retry_policy=RetryPolicy(max_attempts=2, retry_on=(NodeTimeoutError, TimeoutError)),
+        error_handler=compose_error_fallback,
     )
     graph.add_node("summarize_leaves", _with_progress("summarize_leaves", summarize_leaves_node))
     graph.add_node("compose_parent_pages", _with_progress("compose_parent_pages", compose_parent_pages_node))

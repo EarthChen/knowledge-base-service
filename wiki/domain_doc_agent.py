@@ -12,6 +12,7 @@ import os
 import re
 import time
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -795,6 +796,7 @@ class DomainDocAgent(DocOrchestrator):
         term_glossary: dict[str, str] | None = None,
         subdomains: list[dict[str, Any]] | None = None,
         module_call_edges: list[dict[str, Any]] | None = None,
+        heartbeat: Callable[[], None] | None = None,
     ) -> None:
         from core.config import get_settings
         from wiki.agent_prompts import AGENT_EXPLORE_SYSTEM, get_write_system_prompt
@@ -833,6 +835,7 @@ class DomainDocAgent(DocOrchestrator):
         self._valid_pairs: list[str] | None = None
         self._module_call_edges: list[dict[str, Any]] = list(module_call_edges or [])
         self._topic_split_done: bool = False
+        self._heartbeat = heartbeat
         self.iteration_history: list[dict[str, Any]] = []
         self._output_guardrail = OutputGuardrailChain(
             [
@@ -845,7 +848,11 @@ class DomainDocAgent(DocOrchestrator):
         )
 
     def _get_explore_config(self) -> RunConfig:
-        return _DOMAIN_EXPLORE_LOOP_CONFIG
+        if self._heartbeat is None:
+            return _DOMAIN_EXPLORE_LOOP_CONFIG
+        from dataclasses import replace
+
+        return replace(_DOMAIN_EXPLORE_LOOP_CONFIG, heartbeat=self._heartbeat)
 
     def _build_write_prompt(self, baseline_context: str, memory: Any) -> str:
         base = super()._build_write_prompt(baseline_context, memory)
